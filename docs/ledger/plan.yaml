@@ -30170,17 +30170,17 @@ packages:
     expect: "1"
   acceptance:
   - id: A1
-    run: "python3 -c 'import sys; keep = {\"infra/providers/_shared/cloudinit-control-plane.tftpl\": \"\\n  - systemctl enable --now fail2ban || true\\n\", \"infra/providers/hetzner/cloudinit-worker.tftpl\": \"\\n  - systemctl enable --now fail2ban\\n\", \"infra/providers/huawei/cloudinit-worker.tftpl\": \"\\n  - unattended-upgrades\\n\"}; text = {p: open(p).read() for p in keep}; bad = [p for p, t in text.items() if \"enable --now unattended-upgrades\" in t or t.count(\"\\n  - unattended-upgrades\\n\") != 1 or t.count(keep[p]) != 1]; print(\"wrong:\", bad); sys.exit(1 if bad else 0)'"
+    run: "for f in infra/providers/_shared/cloudinit-control-plane.tftpl infra/providers/hetzner/cloudinit-worker.tftpl infra/providers/huawei/cloudinit-worker.tftpl; do test \"$(grep -c -F 'enable --now unattended-upgrades' \"$f\")\" = 0 && test \"$(grep -c -x -F '  - unattended-upgrades' \"$f\")\" = 1 || { echo \"wrong: $f\"; exit 1; }; done; test \"$(grep -c -x -F '  - systemctl enable --now fail2ban || true' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && test \"$(grep -c -x -F '  - systemctl enable --now fail2ban' infra/providers/hetzner/cloudinit-worker.tftpl)\" = 1"
   - id: A2
-    run: "python3 -c 'import json, sys; d = json.load(open(\"infra/providers/_shared/tests/golden.auto.tfvars.json\")); print(d[\"golden_hetzner\"], d[\"golden_huawei\"]); sys.exit(0 if d[\"golden_hetzner\"] == \"a24e27762b50a54ecdc8f3d6832c2f29b45467c72723025deb91f0e2e5d4aacf\" and d[\"golden_huawei\"] == \"f7e78b7ad24212e6f12290aae6a808911ad49755779afddab6bdaf68f22c71e3\" else 1)'"
+    run: "test \"$(grep -c -x -F '  \"golden_hetzner\": \"fd54dcf203c7379d39caf295bc2f714df8884af9e7c44d6dba21e5bae116c64e\",' infra/providers/_shared/tests/golden.auto.tfvars.json)\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"f407c19fc68ba34de8bdbb895b7b6eb58f78c489ecf50dc20491d67daf5f0e49\",' infra/providers/_shared/tests/golden.auto.tfvars.json)\" = 1"
   - id: A3
-    run: "python3 -c 'import sys; t = open(\"infra/providers/_shared/tests/cloudinit_render.tftest.hcl\").read(); c = t.count(\" && !strcontains(output.rendered_cloud_init, \\\"enable --now unattended-upgrades\\\") && strcontains(output.rendered_cloud_init, \\\"\\\\n  - unattended-upgrades\\\\n\\\")\\n\"); print(c); sys.exit(0 if c == 2 else 1)'"
+    run: "test \"$(grep -c -F ' && !strcontains(output.rendered_cloud_init, \"enable --now unattended-upgrades\") && strcontains(output.rendered_cloud_init, \"\\n  - unattended-upgrades\\n\")' infra/providers/_shared/tests/cloudinit_render.tftest.hcl)\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Neither the shared control-plane template nor the Hetzner worker template runs systemctl enable --now unattended-upgrades any more; the package unattended-upgrades stays installed on every node, the render test fails if the enable line comes back or the package leaves, and the worst-case control-plane user data falls by 55 bytes on Huawei and by 67 bytes on Hetzner.
 - id: INF-070
