@@ -1345,18 +1345,16 @@ runcmd:
   - |
     PIN_FILE=/var/lib/catalyst/github-ipv4-hosts
     CM_FILE=/var/lib/catalyst/coredns-custom-github.yaml
-    KC=/etc/rancher/k3s/k3s.yaml
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     # Only the in-cluster-relevant github hosts get the CoreDNS override (the
     # helm.cilium.io / get.helm.sh / harbor / registry pulls all run on the
     # NODE, already pinned in /etc/hosts above — they never hit CoreDNS).
     GH_HOSTS="github.com codeload.github.com objects.githubusercontent.com raw.githubusercontent.com api.github.com"
+    # One printf per constant run of lines: every byte counts against the
+    # 32 KiB user-data cap, and the restart patch below is longer than the
+    # `kubectl rollout restart` it replaced.
     {
-     printf 'apiVersion: v1\n'
-     printf 'kind: ConfigMap\n'
-     printf 'metadata:\n'
-     printf '  name: coredns-custom\n'
-     printf '  namespace: kube-system\n'
-     printf 'data:\n'
+     printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: coredns-custom\n  namespace: kube-system\ndata:\n'
      # `.server` (NOT `.override`): k3s merges `*.override` files INTO the
      # default `.:53` block, which ALREADY carries a `hosts /etc/coredns/NodeHosts`
      # plugin — two `hosts` plugins in one server block is illegal CoreDNS
@@ -1365,32 +1363,27 @@ runcmd:
      # lookup EPERMs → source-controller can't resolve github → 0 HRs (the hw161
      # wedge, #3804 regression). A `*.server` file is a SEPARATE server block
      # scoped to ONLY the github zones, so it never collides with NodeHosts.
-     printf '  github-ipv4.server: |\n'
-     printf '    %s {\n' "$GH_HOSTS"
-     printf '        hosts {\n'
+     printf '  github-ipv4.server: |\n    %s {\n        hosts {\n' "$GH_HOSTS"
      for h in $GH_HOSTS; do
       ip=$(awk -v host="$h" '$2 == host {print $1; exit}' "$PIN_FILE" 2>/dev/null)
       [ -n "$ip" ] && printf '            %s %s\n' "$ip" "$h"
      done
-     printf '            fallthrough\n'
-     printf '        }\n'
-     printf '        forward . 8.8.8.8 1.1.1.1\n'
-     printf '    }\n'
+     printf '            fallthrough\n        }\n        forward . 8.8.8.8 1.1.1.1\n    }\n'
     } >"$CM_FILE"
-    # Wait (bounded) for the CoreDNS Deployment object — the k3s addon
+    # Wait (bounded, 24 x 5s) for the CoreDNS Deployment object — the k3s addon
     # registers it within seconds of the apiserver; the Deployment EXISTS long
     # before its pods are Ready. A missing addon must never stall bootstrap.
-    n=0
-    while [ "$n" -lt 24 ]; do
-     kubectl --kubeconfig="$KC" -n kube-system get deploy coredns >/dev/null 2>&1 && break
-     n=$((n + 1))
-     sleep 5
-    done
+    for n in $(seq 24); do kubectl -n kube-system get deploy coredns >/dev/null 2>&1 && break; sleep 5; done
     # Apply the override (idempotent, persists immediately) + nudge a restart.
     # We do NOT block on rollout-status: CoreDNS picks up the mounted override
     # on its next reload, still well before Flux bootstraps the GitRepository.
-    kubectl --kubeconfig="$KC" apply -f "$CM_FILE" || true
-    kubectl --kubeconfig="$KC" -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
+    # FND-G02 (Zero touch) reads a `kubectl*` field manager or the
+    # kubectl.kubernetes.io/restartedAt annotation on a kube-system workload as
+    # a hand: first boot writes as catalyst-first-boot and restarts CoreDNS by
+    # patching its own catalyst.openova.io/restartedAt + restartedBy.
+    M=--field-manager=catalyst-first-boot
+    kubectl apply $M -f "$CM_FILE" || true
+    kubectl -n kube-system patch deploy coredns $M -p '{"spec":{"template":{"metadata":{"annotations":{"catalyst.openova.io/restartedAt":"'"$(date -u +%FT%TZ)"'","catalyst.openova.io/restartedBy":"catalyst-first-boot"}}}}}' >/dev/null 2>&1 || true
 %{ endif ~}
 
 %{ if node_ipv4_only ~}

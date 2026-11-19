@@ -1462,8 +1462,8 @@ grep -q 'suspend_hr "post-promote same-tick"' "$TMP/promoter.yaml" \
 grep -q 'suspend_hr "self-heal"' "$TMP/promoter.yaml" \
   || fail "#5623 actor missing the per-loop self-heal suspend re-assert"
 # 8. Custom field-manager so kustomize managed-fields cleanup cannot strip the latch.
-grep -q 'field-manager=dr-promoter' "$TMP/promoter.yaml" \
-  || fail "#5623 actor writes must use --field-manager=dr-promoter (kustomize strips kubectl-managed fields)"
+grep -q 'field-manager=catalyst-dr-promoter' "$TMP/promoter.yaml" \
+  || fail "#5623 actor writes must use --field-manager=catalyst-dr-promoter (kustomize strips kubectl-managed fields)"
 # 9. Anti-flap: never re-promote an already-diverged cluster.
 grep -q 'already diverged' "$TMP/promoter.yaml" \
   || fail "#5623 actor missing the anti-flap 'already diverged' guard (#5178 — the hw266 TL runaway)"
@@ -2901,7 +2901,7 @@ grep -q 'LATCH RELEASED' "$FAKE/act-c.log" || { cat "$FAKE/act-c.log" >&2; fail 
 grep -qF '"suspend":false' "$FAKE/patches.log" || fail "#6874 D5 (c) no spec.suspend=false patch recorded"
 grep -qF '"catalyst.openova.io/dr-auto-promoted-at":null' "$FAKE/patches.log" || fail "#6874 D5 (c) dr-auto-promoted-at not dropped"
 grep -qF '"catalyst.openova.io/dr-auto-promote-reason":null' "$FAKE/patches.log" || fail "#6874 D5 (c) dr-auto-promote-reason not dropped"
-grep -qF -- '--field-manager=dr-promoter' "$FAKE/patches.log" || fail "#6874 D5 (c) release patch not under the dr-promoter field manager (kustomize cleanup would fight it)"
+grep -qF -- '--field-manager=catalyst-dr-promoter' "$FAKE/patches.log" || fail "#6874 D5 (c) release patch not under the dr-promoter field manager (kustomize cleanup would fight it)"
 [ ! -f "$FAKE/shared/diverged" ] || fail "#6874 D5 (c) marker not cleared alongside the release"
 grep -q 'DIVERGENCE CLEARED' "$FAKE/act-c.log" || fail "#6874 D5 (c) DIVERGENCE CLEARED missing"
 if grep -qF '"suspend":true' "$FAKE/patches.log"; then cat "$FAKE/act-c.log" >&2; fail "#6874 D5 (c) the HR was RE-FROZEN after the release"; fi

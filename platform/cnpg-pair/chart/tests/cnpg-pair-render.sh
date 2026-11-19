@@ -1151,8 +1151,8 @@ grep -q 'peer probe STILL' "$TMP/fb-signals.sh" || {
 #     HR-values-only patch, never a live Cluster-CR patch.
 grep -qF 'SOVEREIGN_CNPG_PAIR_DEMOTED' "$TMP/fb-actor.sh" || {
   echo "FAIL: #5245 actor must flip the SOVEREIGN_CNPG_PAIR_DEMOTED substitute (the durable source seam)." >&2; exit 1; }
-grep -qF -- '--field-manager=dr-failback' "$TMP/fb-actor.sh" || {
-  echo "FAIL: #5245 actor writes must use --field-manager=dr-failback (kustomize's cleanup strips kubectl-managed fields — the hw275 re-demote root cause)." >&2; exit 1; }
+grep -qF -- '--field-manager=catalyst-dr-failback' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 actor writes must use --field-manager=catalyst-dr-failback (kustomize's cleanup strips kubectl-managed fields — the hw275 re-demote root cause)." >&2; exit 1; }
 if grep -q 'patch clusters' "$TMP/fb-actor.sh"; then
   echo "FAIL: #5245 actor patches a live Cluster CR — drift-correction reverts that (#5125-D1)." >&2; exit 1; fi
 
@@ -1267,8 +1267,8 @@ PYEOF
 #     manager on every write, the durable handoff (substitute + latch lift),
 #     and the TL-ahead re-promote riding the substitute seam with the
 #     divergence-wedge + runaway guards.
-grep -qF -- '--field-manager=dr-promoter' "$TMP/actor.sh" || {
-  echo "FAIL: #5245 dr-promoter writes must use --field-manager=dr-promoter (the hw275 latch-strip root cause)." >&2; exit 1; }
+grep -qF -- '--field-manager=catalyst-dr-promoter' "$TMP/actor.sh" || {
+  echo "FAIL: #5245 dr-promoter writes must use --field-manager=catalyst-dr-promoter (the hw275 latch-strip root cause)." >&2; exit 1; }
 grep -qF 'SOVEREIGN_CNPG_PAIR_PROMOTED' "$TMP/actor.sh" || {
   echo "FAIL: #5245 dr-promoter missing the durable-handoff substitute patch (SOVEREIGN_CNPG_PAIR_PROMOTED)." >&2; exit 1; }
 grep -qF '\"suspend\":false' "$TMP/actor.sh" || {
@@ -2083,7 +2083,7 @@ grep -qF '"suspend":false' "$FAKE/patches.log" || fail25 "#6874 D5 (c) no spec.s
 for a in dr-auto-promoted-at dr-auto-promote-reason dr-auto-promote-handoff-at; do
   grep -qF "\"catalyst.openova.io/$a\":null" "$FAKE/patches.log" || fail25 "#6874 D5 (c) $a not dropped"
 done
-grep -qF -- '--field-manager=dr-promoter' "$FAKE/patches.log" || fail25 "#6874 D5 (c) release patch not under the dr-promoter field manager (kustomize cleanup would fight it)"
+grep -qF -- '--field-manager=catalyst-dr-promoter' "$FAKE/patches.log" || fail25 "#6874 D5 (c) release patch not under the dr-promoter field manager (kustomize cleanup would fight it)"
 [ ! -f "$FAKE/shared/diverged" ] || fail25 "#6874 D5 (c) marker not cleared alongside the release"
 grep -q 'DIVERGENCE CLEARED' "$FAKE/act-c.log" || fail25 "#6874 D5 (c) DIVERGENCE CLEARED missing"
 if grep -qF '"suspend":true' "$FAKE/patches.log"; then cat "$FAKE/act-c.log" >&2; fail25 "#6874 D5 (c) the HR was RE-FROZEN after the release"; fi

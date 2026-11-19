@@ -45,7 +45,7 @@ re-renders `replica.enabled:true` → CNPG re-demotes. The actor makes the promo
 durable by SUSPENDING the HR (`spec.suspend: true`) once helm has rendered the
 promotion — a field the Kustomization does not own, so drift-correction cannot remove
 it, and a suspended HR freezes helm-controller so the promoted survivor stays
-writable. Every write uses a CUSTOM `--field-manager=dr-promoter` so kustomize-
+writable. Every write uses a CUSTOM `--field-manager=catalyst-dr-promoter` so kustomize-
 controller's managed-fields cleanup (which claims `kubectl`-prefixed managers on every
 reconcile) cannot strip the latch.
 
@@ -599,7 +599,7 @@ spec:
               # would strip spec.suspend every reconcile. A custom manager is NOT in that
               # cleanup list, so the latch survives (live precedent: catalyst-api's
               # substitute flips persist under manager `catalyst-api`).
-              FM="--field-manager=dr-promoter"
+              FM="--field-manager=catalyst-dr-promoter"
               # suspend_hr <reason> — patch spec.suspend=true (+ latched-at annotation),
               # then READBACK-VERIFY it landed. Returns non-zero (logged) on RBAC/conflict
               # so the caller re-asserts next tick.

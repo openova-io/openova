@@ -377,7 +377,7 @@ data:
             */}}
             echo "[gitea-token-mint] rolling restart provisioning Deployment (best-effort)"
             if kubectl -n "${DEST_SECRET_NAMESPACE}" get deploy provisioning >/dev/null 2>&1; then
-              kubectl -n "${DEST_SECRET_NAMESPACE}" rollout restart deploy/provisioning >/dev/null
+              kubectl -n "${DEST_SECRET_NAMESPACE}" patch deploy/provisioning --field-manager=catalyst-self-sovereign-cutover -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"catalyst.openova.io/restartedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"catalyst.openova.io/restartedBy\":\"catalyst-self-sovereign-cutover\"}}}}}" >/dev/null
               kubectl -n "${DEST_SECRET_NAMESPACE}" rollout status deploy/provisioning --timeout=180s || \
                 echo "[gitea-token-mint] WARN: provisioning rollout did not complete within 180s (token still patched; pod will pick up on next restart)"
             else

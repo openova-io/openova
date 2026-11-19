@@ -21,6 +21,7 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 | Command | What it holds |
 |---|---|
 | `cmd/python-shrinks` | No new Python. Four totals never rise above `scripts/baselines/python.json` (code owner review). No file list, no exception list: a rename passes. What each total counts is below. |
+| `cmd/no-hand-marks` | The platform's own automation leaves no mark that check FND-G02 (Zero touch) reads as a hand. In the start-up data of the nodes (`infra/providers/`) and in every chart: no `kubectl rollout restart` (a restart is a patch of `catalyst.openova.io/restartedAt` and `catalyst.openova.io/restartedBy`), and no kubectl apply, patch, annotate, label, scale or set of a HelmRelease, or of a Deployment, DaemonSet or StatefulSet that can be in catalyst-system, cnpg-system, kube-system or flux-system, without `--field-manager=catalyst-<component>`. `--list` also prints every kubectl write it read. What it reads and cannot see is in the comment of `main.go`. |
 
 `go run ./cmd/python-shrinks --list` prints the share of every file of each total and every place it counts;
 `--write-baseline` writes the totals of the tree and refuses to raise any (a total that fell passes and says the baseline can be lowered);

@@ -848,7 +848,7 @@ spec:
               mountPath: /tls/client
               readOnly: true
         # ── actor — demote (substitute) + bounded re-clone ────────────
-        # Every write carries --field-manager=dr-failback (survives the
+        # Every write carries --field-manager=catalyst-dr-failback (survives the
         # kustomize kubectl-manager cleanup — the #5245 root cause).
         # Each tick runs in a subshell; every step is guarded by
         # live-observed state, so the loop is idempotent and resumes
@@ -859,7 +859,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              FM="--field-manager=dr-failback"
+              FM="--field-manager=catalyst-dr-failback"
               echo "[dr-failback/actor] loop started (hold=${HOLD_SECONDS}s wedgeHold=${WEDGE_HOLD_SECONDS}s divergenceGrace=${DIVERGENCE_GRACE_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME} kustomization=${KS_NAMESPACE}/${KS_NAME})"
               # nudge <kind> <ns> <name> <marker> — rate-limited flux
               # reconcile request (reconcile.fluxcd.io/requestedAt).
