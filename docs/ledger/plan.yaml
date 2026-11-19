@@ -35876,24 +35876,44 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [PRD-203]
-  after: [SVC-040]
+  after: []
   touches:
-  - products/cortex/internal/httpapi/**
   - products/cortex/cmd/cortex/**
+  - products/cortex/internal/httpapi/**
+  - products/cortex/internal/ingest/**
+  - products/cortex/internal/jobs/**
+  - products/cortex/internal/parse/**
+  - products/cortex/internal/chunk/**
+  - products/cortex/internal/events/**
+  - products/cortex/internal/store/**
+  - products/cortex/internal/definitions/**
+  - products/cortex/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/cortex/cmd/cortex/index.go; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "(cd products/cortex && go vet ./... && go test -count=1 ./cmd/cortex ./internal/chunk ./internal/definitions ./internal/events ./internal/httpapi ./internal/ingest ./internal/jobs ./internal/parse ./internal/store)"
+  - id: A2
+    run: "printf '%s  %s\\n' 68c3cd7bd232e5c744f9c853bdff457aa46c7e718746f17ae6a3b31f3bc42316 products/cortex/README.md 9114dacc7eb3be3e1641a1e29b28c3ea40dbdf37ae70ac60f00eb0585d429bcb products/cortex/cmd/cortex/index.go decdde3e864cb0263a2e874e24381237293f8997f7dcb31d309cbbc0747ed5e3 products/cortex/cmd/cortex/index_test.go e990e31a37e242655a646921b5beefcdf1523e1de3e1b7948edaac0b97b94e71 products/cortex/cmd/cortex/main.go 0c2a060a9f207dfe4a4200f9bb8a497633bdddf852f494988a10df53b0bfba37 products/cortex/cmd/cortex/main_test.go 86b222f75fd0df1b3bbf66f4086c20a194c14e6839eec14f958ed4b4c4eb6bcf products/cortex/internal/chunk/chunk.go d60daecdf8bce7ff91fa752d9c06aacb42d1715bf569cb43a9ac0d83296ef7a0 products/cortex/internal/chunk/chunk_test.go a0e6348185ef520c147e966eb5cbd25471cbf8de3789f65624765a3273b96bbf products/cortex/internal/definitions/definitions.go bb3f6224744ce2d735d9ced8f64d42d70083f245a126ffe3ee6ebb208dd044f5 products/cortex/internal/definitions/definitions_test.go 3f6d2a7acb04f7972e2157f7cc6a6601ab44f7bfe0411b64bc616e79170db524 products/cortex/internal/events/events.go 3c216831b19d53a9f1731edc8876020a067d1c07706a7a8cffd5d19caa9849c5 products/cortex/internal/events/events_test.go 17359e27823884fc0e248dc77f7c64848558d643b4cdda56732e60fba645972a products/cortex/internal/httpapi/documents.go 0d968641e3e5acca9ad0b4193d231270e1a4777edf49024ba16af2edb69e97fb products/cortex/internal/httpapi/documents_test.go ea32792de73f1239616f9103edc5503977092d2bf9df119e9e90ef25a7d93f2f products/cortex/internal/httpapi/router.go 2beabe5c77eaf2d60fd30db51d5272eda4c39b16c0c7cf276795f6d376519e7f products/cortex/internal/httpapi/router_test.go 6ab3ca0769bf55d664ab059946a7925c989040bf8a1ef0e8208e8e45dded9dc0 products/cortex/internal/ingest/bucket.go 91558195b3ca892035c9de77e57aa1dd71ebf880de54f475a6c70247110bc9cc products/cortex/internal/ingest/bucket_test.go f970057c025c49b37e9f650a1f99ef81f9637e3daa6f82a2fc172933b7a825a0 products/cortex/internal/ingest/ingest.go 9ca989ebd28509d09cdbd440fb8761655199618862e7643e3bf8165b02880c1a products/cortex/internal/ingest/ingest_test.go 3b4e85b6a939ccbe61297f29d24793590c23d337830132e86236a04ad1893418 products/cortex/internal/jobs/jobs.go 3e46d076589bb8a5fece69eca19a3a7c5dc1aea69ed4812c48e8ff439133f329 products/cortex/internal/jobs/jobs_test.go e465252ea7f80d5ec3981475b0d58614fcf27f0b4e9e5b340f0c2e7f2ff187cf products/cortex/internal/parse/parse.go c7037f35c7e41b3607385473ca2e0c2ee38fb63edc91cefafd9a92e7fbc06005 products/cortex/internal/parse/parse_test.go 0e1f9059aeff87fe652acea79f09e76c9e43f62f449aa25f9710e56b506f35d1 products/cortex/internal/store/migrations/0002_ingest.sql ad5a416e9b75601af96a8f59a39fa5e1f2075a734d2c8714fbd0b95501d650d1 products/cortex/internal/store/postgres.go ae20a701209af29aaf61ee0041d396780d25a41ab8bbaf8a396eb69e7e481e4d products/cortex/internal/store/postgres_test.go d749f91592599f2c2029b153cb4cc742ea3b961b54377a5e7dd2a09b5617692a products/cortex/internal/store/queue.go e929382b67b6cbe5671026025276004cd1a3997461628b965e5051097b9f24e8 products/cortex/internal/store/store.go 4f6b692f7c2e9c66fa815a24e59e428262236df94df455521078fee230de7684 products/cortex/internal/store/store_test.go | sha256sum --check --quiet -"
+  - id: A3
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(EveryRouteAuthenticated|NoQueryTextIsLogged|UploadRoute|DocumentRoutes|EventsStream)$' ./internal/httpapi) | grep -c -E '^--- PASS: Test(EveryRouteAuthenticated|NoQueryTextIsLogged|UploadRoute|DocumentRoutes|EventsStream) ' | grep -x 5"
+  - id: A4
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(SignKnownAnswer|BucketRoundTrip|OpenBucketRefuses|IntakeStagesAnUpload|IndexerIndexesAnUpload|IndexerDeletes|WorkerRecordsHowEachJobEnds|WorkerWakesOnNotification|TextParsesMarkdown|SplitOnHeadingsThenWindows|SplitWindowsOverlap|HubPublishesEveryJobToEverySubscriber|ASlowSubscriberHoldsNothingUp)$' ./internal/ingest ./internal/jobs ./internal/parse ./internal/chunk ./internal/events) | grep -c -E '^--- PASS: Test' | grep -x 13"
+  - id: A5
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(IndexServesAndStops|ItRefusesToStart|ParseChunkAndConnector)$' ./cmd/cortex ./internal/definitions) | grep -c -E '^--- PASS: Test(IndexServesAndStops|ItRefusesToStart|ParseChunkAndConnector) ' | grep -x 3"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Upload with optional reader fields, document routes, events stream, index process; no fetch Job.
+  delivers: A manager of an upload source uploads a text document, optionally with its own reader list; the query process stores the original in the originals bucket and queues an index job; the index process applies the definitions, claims the job, parses, chunks and embeds the text through the model gateway; readers fetch, download and follow documents, and managers delete them; there is no fetch Job and no connector.
 - id: PRD-205
   title: 'Assistants: models list, answers with citations, residency refusal'
   area: PRD
