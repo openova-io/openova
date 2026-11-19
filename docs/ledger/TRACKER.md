@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T14:45:03Z` |
+| Last refreshed | `2026-11-19T15:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T14:46 | [#8349](https://github.com/openova-io/openova/pull/8349) | #8346 | docs(ledger): result of the spike NET-330, a bridged seconda |
 | 2026-11-19T14:42 | [#8348](https://github.com/openova-io/openova/pull/8348) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:36 | [#8347](https://github.com/openova-io/openova/pull/8347) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:31 | [#8345](https://github.com/openova-io/openova/pull/8345) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:43 | [#8343](https://github.com/openova-io/openova/pull/8343) | #7922 | refactor(cloud-init): first boot no longer enables the unatt |
+| 2026-11-19T14:48 | [#8342](https://github.com/openova-io/openova/pull/8342) | fix(wipe): the wipe releases the record sets of the Sovereig |  |
 | 2026-11-19T14:17 | [#8340](https://github.com/openova-io/openova/pull/8340) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:12 | [#8339](https://github.com/openova-io/openova/pull/8339) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T09:25 | [#8308](https://github.com/openova-io/openova/pull/8308) | #8306 | docs(adr): record 0038 on the firewall mechanism and the pac |
 | 2026-11-19T12:13 | [#8307](https://github.com/openova-io/openova/pull/8307) | #8252 | fix(ci): the local pack's machine image build no longer hang |
 | 2026-11-19T08:48 | [#8305](https://github.com/openova-io/openova/pull/8305) | #7087 | docs(ledger): plan update |
-| 2026-11-19T08:38 | [#8304](https://github.com/openova-io/openova/pull/8304) | #8302 | docs(ledger): result of the lab test PRD-061, vector search  |
-| 2026-11-19T08:53 | [#8303](https://github.com/openova-io/openova/pull/8303) | fix(gate): the zero-touch check measures retry calls |  |
 
 ---
 
