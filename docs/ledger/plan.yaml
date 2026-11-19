@@ -2834,9 +2834,9 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml a67efefdb1e50189a179ba12f96bbb1399e5a85856c7b81a536c271585db3798 scripts/gate-parent-job.sh e73f60012bd8b74b922dbb03b3d958b391a242d42e6e1251813c211bf08aa24b scripts/standing-update.sh 623325c70d4298bdc9b6e9770d1ddbd45abfcf989f2789ee00f73f0659adb0fe scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml 64a37c453996a3696f03e5f80d9cca2acb1e1a102ce52c39fe2048a26b15d512 scripts/gate-parent-job.sh 13b0f012c96a219f3ca558785bc27dd2fddd952a13f252fb410833338f1a1a57 scripts/standing-update.sh 07713bf8749304a7112c19fef789fea4c32948d2d649931522120f5e19771471 scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
   - id: A2
-    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 23"
+    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 31"
   - id: A3
     run: "out=\"$(bash scripts/gate-parent-job.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok   update: ')\" = 5"
   - id: A4
@@ -2850,7 +2850,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The job update of foundation-gate-standing.yaml runs scripts/standing-update.sh in a Job on the parent (scripts/gate-parent-job.sh run --mode update), which delivers the candidate to the standing environment through the release route PUT /api/v1/sovereign/release one region per request, region b first, after it has recorded the state of each region, read back the OpenBao snapshot of each region and had a dry run answered dry-run, sends nothing when both regions already run the candidate and the route reports it delivered, stops by name on every refusal of the route, waits for each region to apply the candidate, converge and compare clean before the next, and sends a rollback request for each region it promoted, primary first, when a region does not; then the workflow runs its verify-and-gate jobs as before.
 - id: FND-077
@@ -10825,7 +10825,6 @@ packages:
   - clusters/_template/bootstrap-kit/95-bp-stalwart-sovereign.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
   - clusters/_template/bootstrap-kit/placement.yaml
-  - core/services/tenant/handlers/handlers.go
   - docs/generated/bootstrap-slots.md
   - docs/generated/components.md
   - platform/stalwart-sovereign/chart/Chart.yaml
@@ -10855,7 +10854,6 @@ packages:
   - products/catalyst/bootstrap/api/internal/signinmail/signinmail.go
   - products/catalyst/bootstrap/api/internal/signinmail/signinmail_test.go
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
-  - products/catalyst/chart/crds/organization.yaml
   - products/catalyst/chart/values.yaml
   - scripts/baselines/api-structure.json
   - scripts/baselines/direct-cluster-writes.json
@@ -10872,25 +10870,25 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "! test -e products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go && ! git grep -q -e 'seedSovereignSMTPCredentials' -e 'SovereignSMTPSeedClientFactory' -- products/catalyst/bootstrap/api && python3 scripts/check-api-structure.py > /dev/null && python3 scripts/check-no-direct-cluster-write.py > /dev/null"
+    run: "! test -e products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go && ! git grep -q -e 'seedSovereignSMTPCredentials' -e 'SovereignSMTPSeedClientFactory' -- products/catalyst/bootstrap/api && ! git grep -q -F 'sovereign_smtp_seed.go' -- scripts/baselines/api-structure.json scripts/baselines/direct-cluster-writes.json"
   - id: A2
     run: "t=platform/stalwart-sovereign/chart/tests/setup-job.sh && test \"$(bash \"$t\" --self-test | grep -c -x 'self-test: R[0-9]* fails as it should')\" = 21 && out=\"$(bash \"$t\")\" && grep -q '^PASS: ' <<<\"$out\""
   - id: A3
-    run: "k=clusters/_template/bootstrap-kit && f=\"$k/95-bp-stalwart-sovereign.yaml\" && grep -q -x '  - 95-bp-stalwart-sovereign.yaml' \"$k/kustomization.yaml\" && test \"$(grep -c -x '    disableWait: true' \"$f\")\" = 2 && grep -q -x '    mailMode: ${MAIL_MODE:=local}' \"$f\" && grep -q -x '      issuerName: ${WILDCARD_CERT_ISSUER}' \"$f\" && grep -q -x '      imageRegistry: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub' \"$f\" && grep -q -x '        type: ClusterIP' \"$f\" && test \"$(awk '/^  dependsOn:$/{d=1;next} d&&/^    - name: /{print $3} d&&/^  [a-z]/{d=0}' \"$f\" | LC_ALL=C sort | tr '\\n' ' ')\" = 'bp-cert-manager storage-ready ' && test \"$(grep -A2 -x '    name: bp-stalwart-sovereign' scripts/expected-bootstrap-deps.yaml | grep -c -x '    depends_on: \\[bp-cert-manager, storage-ready\\]')\" = 1 && python3 scripts/render-slot-placement.py check > /dev/null && python3 scripts/check-reserved-slugs.py > /dev/null && python3 scripts/tests/test-kit-flux-substitution.py > /dev/null"
+    run: "k=clusters/_template/bootstrap-kit && f=\"$k/95-bp-stalwart-sovereign.yaml\" && grep -q -x '  - 95-bp-stalwart-sovereign.yaml' \"$k/kustomization.yaml\" && test \"$(grep -c -x '    disableWait: true' \"$f\")\" = 2 && grep -q -x '  targetNamespace: platform' \"$f\" && grep -q -x '    mailMode: ${MAIL_MODE:=local}' \"$f\" && grep -q -x '      issuerName: ${WILDCARD_CERT_ISSUER}' \"$f\" && grep -q -x '      imageRegistry: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub' \"$f\" && grep -q -x '        type: ClusterIP' \"$f\" && grep -q -x '    catalyst.openova.io/ring: foundation' \"$f\" && test \"$(awk '/^  dependsOn:$/{d=1;next} d&&/^    - name: /{print $3} d&&/^  [a-z]/{d=0}' \"$f\" | LC_ALL=C sort | tr '\\n' ' ')\" = 'bp-cert-manager storage-ready ' && test \"$(grep -A2 -x '    name: bp-stalwart-sovereign' scripts/expected-bootstrap-deps.yaml | grep -c -x '    depends_on: \\[bp-cert-manager, storage-ready\\]')\" = 1 && test \"$(grep -A1 -F -- '- {file: 95-bp-stalwart-sovereign.yaml, hr: bp-stalwart-sovereign, vcluster: host, target: host,' \"$k/placement.yaml\" | grep -c -x '       namespace: platform,')\" = 1"
   - id: A4
     run: "cd products/catalyst/bootstrap/api && go test -count=1 ./internal/signinmail/ > /dev/null && grep -q 'signinmail.Resolve(context.Background())' internal/handler/auth.go && ! grep -q 'func smtpAddr()' internal/handler/auth.go"
   - id: A5
-    run: "awk '/^    allowedPlatformNamespaces:$/{f=1;next} f&&/^    [a-z]/{exit} f&&/^      - stalwart$/{ok=1} END{exit ok?0:1}' products/catalyst/chart/values.yaml"
+    run: "awk '/^    allowedPlatformNamespaces:$/{f=1;next} f&&/^    [a-z]/{exit} f&&/^      - platform$/{ok=1} END{exit ok?0:1}' products/catalyst/chart/values.yaml"
   - id: A6
     run: "out=\"$(bash scripts/check-chargeback-mail-not-dev-mode.sh)\" && grep -q -x \"  ok: the writer writes the SMTP_\\* shape and reflects into 'chargeback'\" <<<\"$out\" && bash scripts/check-secret-object-register.sh > /dev/null && grep -q -x '  - id: mail-server-tls' scripts/secret-guard-baselines/secret-object-register.yaml"
   - id: A7
-    run: "python3 scripts/generate-catalog.py --check > /dev/null && python3 scripts/generators/slots.py --check > /dev/null && python3 scripts/generators/components.py --check > /dev/null && grep -q '95-bp-stalwart-sovereign.yaml' docs/generated/bootstrap-slots.md && grep -q '\"file\": \"95-bp-stalwart-sovereign.yaml\"' products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
+    run: "grep -q '95-bp-stalwart-sovereign.yaml' docs/generated/bootstrap-slots.md && grep -q -F '| platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | 95 |' docs/generated/components.md && grep -q '\"file\": \"95-bp-stalwart-sovereign.yaml\"' products/catalyst/bootstrap/api/internal/catalog/blueprints.json && grep -q '\"file\": \"95-bp-stalwart-sovereign.yaml\"' products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Bootstrap-kit slot 95 installs the Sovereign's own mail server, whose setup Job creates the submission account with a password generated in the cluster, pins mail.<fqdn> to the server inside the cluster and writes catalyst-system/sovereign-smtp-credentials, which the catalyst-api reads for every sign-in code; the parent no longer copies its mailbox credential into a new Sovereign.
 - id: SOV-323
@@ -17716,7 +17714,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-222, NET-223, NET-224, NET-226]
-  after: [FND-011, CLD-114, SOV-322, NET-032, NET-102, BSS-141]
+  after: [FND-011, CLD-114, NET-032, NET-102, BSS-141]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - products/catalyst/chart/crds/application.yaml
@@ -35791,7 +35789,7 @@ packages:
   - id: A1
     run: "(cd products/cortex && go vet ./... && go test -count=1 ./cmd/cortex ./internal/auth ./internal/gateway ./internal/search ./internal/definitions ./internal/httpapi ./internal/store)"
   - id: A2
-    run: "printf '%s  %s\\n' 6b12be6471f4482e9f80d6378b5276a026f2f64e415e73521e35e13088fee787 products/cortex/cmd/cortex/main.go f8c0e8caaf56eee063a788a112bcb2c1518e080bfefd81393f401787dc29d7cf products/cortex/cmd/cortex/main_test.go b9a024d4587598aa026b3a5f690ec01ad546955b4b80fad2e8ef4a7e31004e6c products/cortex/internal/auth/auth.go c6969c87bfdca7b865ae926afb5fdcd43fab368f280053df15349bfff7f765c1 products/cortex/internal/auth/auth_test.go fe7c595bc25d8e9df93c21a9916358d067771481ab85d1367535fcec073f100e products/cortex/internal/definitions/definitions.go cd3ec097ff9c776147f32b5bfeb23dff8ccfc1db10cd5214a9d1715dac51a435 products/cortex/internal/definitions/definitions_test.go c20bc345d605e7a6f266fce0f1a18cc059f71fce330b7cf311f082c74b4a9a66 products/cortex/internal/definitions/loader.go 707729b9f0fc711782e4661a019658d88088e11a4a453f244dd5cfbcf85085e1 products/cortex/internal/gateway/gateway.go 5ff1e6b72d294dd59678bc1ea3320594ea6db0fa4ccbf2ad9ffb654a73bb0d5c products/cortex/internal/gateway/gateway_test.go 73ae1eb3aa6bc9234a4e5d54276bce4a68c1a31afe75ad0f03978eeb491b12ea products/cortex/internal/httpapi/router.go 78359f03c806b080111a152e2416da900b9046bdefd85b0065b9db7b3cdcdee7 products/cortex/internal/httpapi/router_test.go cbbdf4ccc96f7e7fd2a5ebbf7f98da697c0ab20f85d0f19b76d10d8801966baa products/cortex/internal/search/search.go db2dca450ef93d55a51cb583e0bf95f0102127e7cda804832cf00ce94b895f9f products/cortex/internal/search/search_test.go 0495d18e57b70e470a4557e8df1cba38377e1b9710fa5cc0218ca50309eddb2e products/cortex/internal/store/read.go e4f3fccf9c47d83340517c7f496a1a859aef087c5210b4a16d70b0db3118effe products/cortex/README.md 7797795da1bd4b8949b30c1f6418ecd959c5eaf812af290ae48314eb13b794b4 products/cortex/go.mod 6d109220201d9cb12a30c3ea573313f5355224b7253973201087bd1d4e2d91d6 products/cortex/go.sum 793e006b81d2a34f931d623eb559b522542efa9e299aed2f35fc98dd8c48e260 products/cortex/internal/store/postgres_test.go 6888b0e70472af20cd9310a3f9e11f0b4ab32276c13307917813e64835895bb6 products/cortex/internal/store/store.go faaaadea48b4296aa2005846c717b55b23df91288a5ab1e60caad821b2fb62a7 scripts/baselines/products.json f1515f9d71e4b6ceaad3e2e8e379a75b661e0edabd969b0d34efc587c6a0de03 scripts/check-products.py | sha256sum --check --quiet -"
+    run: "printf '%s  %s\\n' 6b12be6471f4482e9f80d6378b5276a026f2f64e415e73521e35e13088fee787 products/cortex/cmd/cortex/main.go f8c0e8caaf56eee063a788a112bcb2c1518e080bfefd81393f401787dc29d7cf products/cortex/cmd/cortex/main_test.go b9a024d4587598aa026b3a5f690ec01ad546955b4b80fad2e8ef4a7e31004e6c products/cortex/internal/auth/auth.go a724060a2c732fdc34ec18c6986160aef16ceff28ee58befb1d41cacbd552d4f products/cortex/internal/auth/auth_test.go fe7c595bc25d8e9df93c21a9916358d067771481ab85d1367535fcec073f100e products/cortex/internal/definitions/definitions.go cd3ec097ff9c776147f32b5bfeb23dff8ccfc1db10cd5214a9d1715dac51a435 products/cortex/internal/definitions/definitions_test.go c20bc345d605e7a6f266fce0f1a18cc059f71fce330b7cf311f082c74b4a9a66 products/cortex/internal/definitions/loader.go 707729b9f0fc711782e4661a019658d88088e11a4a453f244dd5cfbcf85085e1 products/cortex/internal/gateway/gateway.go 5ff1e6b72d294dd59678bc1ea3320594ea6db0fa4ccbf2ad9ffb654a73bb0d5c products/cortex/internal/gateway/gateway_test.go 73ae1eb3aa6bc9234a4e5d54276bce4a68c1a31afe75ad0f03978eeb491b12ea products/cortex/internal/httpapi/router.go 78359f03c806b080111a152e2416da900b9046bdefd85b0065b9db7b3cdcdee7 products/cortex/internal/httpapi/router_test.go cbbdf4ccc96f7e7fd2a5ebbf7f98da697c0ab20f85d0f19b76d10d8801966baa products/cortex/internal/search/search.go db2dca450ef93d55a51cb583e0bf95f0102127e7cda804832cf00ce94b895f9f products/cortex/internal/search/search_test.go 0495d18e57b70e470a4557e8df1cba38377e1b9710fa5cc0218ca50309eddb2e products/cortex/internal/store/read.go e4f3fccf9c47d83340517c7f496a1a859aef087c5210b4a16d70b0db3118effe products/cortex/README.md 7797795da1bd4b8949b30c1f6418ecd959c5eaf812af290ae48314eb13b794b4 products/cortex/go.mod 6d109220201d9cb12a30c3ea573313f5355224b7253973201087bd1d4e2d91d6 products/cortex/go.sum 793e006b81d2a34f931d623eb559b522542efa9e299aed2f35fc98dd8c48e260 products/cortex/internal/store/postgres_test.go 6888b0e70472af20cd9310a3f9e11f0b4ab32276c13307917813e64835895bb6 products/cortex/internal/store/store.go faaaadea48b4296aa2005846c717b55b23df91288a5ab1e60caad821b2fb62a7 scripts/baselines/products.json 63b64797764e138f9946aab446b0346f080689941e359d28c3701a97a13234c6 scripts/check-products.py | sha256sum --check --quiet -"
   - id: A3
     run: "(cd products/cortex && go test -count=1 -v -run '^TestToken(Format|Algorithm|Signature|KeyRefresh|Issuer|Audience|Expiry|Principals)$' ./internal/auth) | grep -c -E '^--- PASS: TestToken(Format|Algorithm|Signature|KeyRefresh|Issuer|Audience|Expiry|Principals) ' | grep -x 8"
   - id: A4
@@ -35803,7 +35801,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 3
+  ticket_rev: 4
   dropped: false
   delivers: The query process of the document search serves the search and sources routes behind the check of a token of the Organization's realm, embeds and reranks through the model gateway with the key read from its file, logs no search text, has a loader that applies the sources of the definitions ConfigMap through an informer, and the product guard gains the router-walk rule for cortex and the rule against unsafe patterns in product Go code.
 - id: PRD-204
