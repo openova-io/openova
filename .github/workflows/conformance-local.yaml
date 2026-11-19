@@ -144,10 +144,24 @@ jobs:
         if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh --self-test
 
+      # The machine image, built once for this job with every build step and its time in the log,
+      # each attempt bounded and retried (scripts/local-pack.sh image). The additive plan below and
+      # Up both run the module with it as machine_image, so the module builds no image: its own
+      # build prints nothing and, when a download inside it stalled, held the apply for the
+      # provider's whole 20 minutes before it failed.
+      - name: Machine image of the pack (built once, used by every apply of this job)
+        id: image
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          ref="$(bash scripts/local-pack.sh image)" || { echo "::error::machine image: the build did not finish (see the attempts above)"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       # Adding a region plans only additions (module contract version 1). OpenTofu applies the
       # local module with the one region of the contract fixture single-region.tfvars.json, then
       # plans the fixture two-region.tfvars.json, which holds the same inputs and one more region,
-      # against that state. scripts/check-plan-additive.py fails the job when that plan does
+      # against that state; apply, plan and destroy pass the machine image of the step above, the
+      # way Up runs the module. scripts/check-plan-additive.py fails the job when that plan does
       # anything but create resources and leave the others unchanged. These machines use a state
       # of their own under $RUNNER_TEMP/plan-additive and are destroyed before the pack comes up,
       # also after a failure. Each failure of these steps is marked "additive plan:" in the log.
@@ -160,6 +174,8 @@ jobs:
 
       - name: Additive plan, apply one region
         if: steps.decide.outputs.run == 'true'
+        env:
+          MACHINE_IMAGE: ${{ steps.image.outputs.ref }}
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
@@ -168,16 +184,20 @@ jobs:
           tofu -chdir=infra/providers/local init -input=false -no-color || { echo "::error::additive plan: tofu init failed"; exit 1; }
           tofu -chdir=infra/providers/local apply -input=false -auto-approve -no-color \
             -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -var "machine_image=$MACHINE_IMAGE" \
             -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu apply of one region failed"; exit 1; }
 
       - name: Additive plan, plan two regions against that state
         if: steps.decide.outputs.run == 'true'
+        env:
+          MACHINE_IMAGE: ${{ steps.image.outputs.ref }}
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
           export TF_DATA_DIR="$d/tofu-data"
           tofu -chdir=infra/providers/local plan -input=false -no-color \
             -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/two-region.tfvars.json" \
+            -var "machine_image=$MACHINE_IMAGE" \
             -state="$d/terraform.tfstate" -out="$d/two-regions.tfplan" || { echo "::error::additive plan: tofu plan of two regions failed"; exit 1; }
           tofu -chdir=infra/providers/local show -json "$d/two-regions.tfplan" > "$d/two-regions.json" || { echo "::error::additive plan: tofu show of the plan failed"; exit 1; }
 
@@ -189,6 +209,8 @@ jobs:
 
       - name: Additive plan, destroy
         if: always() && steps.decide.outputs.run == 'true'
+        env:
+          MACHINE_IMAGE: ${{ steps.image.outputs.ref }}
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
@@ -199,6 +221,7 @@ jobs:
           export TF_DATA_DIR="$d/tofu-data"
           tofu -chdir=infra/providers/local destroy -input=false -auto-approve -no-color \
             -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -var "machine_image=$MACHINE_IMAGE" \
             -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu destroy failed"; exit 1; }
 
       - name: Up (two regions)

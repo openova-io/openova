@@ -6,6 +6,7 @@
 # template infra/providers/_shared/cloudinit-control-plane.tftpl. This script is how CI (the
 # workflow .github/workflows/conformance-local.yaml) and later suites use it:
 #
+#   bash scripts/local-pack.sh image
 #   bash scripts/local-pack.sh up --regions <1|2> --branch <name> --commit <sha>
 #   bash scripts/local-pack.sh discovery
 #   bash scripts/local-pack.sh claim
@@ -13,10 +14,22 @@
 #   bash scripts/local-pack.sh down
 #   bash scripts/local-pack.sh --self-test
 #
+# image      The machine image of every machine, built once per host and content of the
+#            module's folder image/: named catalyst-local-machine:<the first 16 hex digits of
+#            the module's own digest of that folder, local.image_digest>; an image of that name
+#            that is already there is used as it is. Otherwise docker build (BuildKit) builds it
+#            with every step and its time in the log, at most IMAGE_ATTEMPTS attempts, each
+#            stopped after IMAGE_ATTEMPT_LIMIT seconds, so that a download that stalls ends the
+#            attempt and is tried again instead of holding the apply until the provider gives up
+#            (it builds without any output and fails only when its 20 minutes are over). A failed
+#            attempt prints the last build step it reached. Prints the name as its only line of
+#            standard output and writes it to LOCAL_PACK_DIR/machine-image. Every apply of the
+#            module passes the name as machine_image, so the module itself builds nothing.
 # up         Writes the module inputs from the contract fixture of 1 or 2 regions (one
 #            control-plane machine per region; one worker machine in the primary region, none
-#            elsewhere), runs tofu init and apply, then on each control-plane machine: puts the
-#            pull credential of GHCR_USER and GHCR_TOKEN into the Secret flux-system/ghcr-pull
+#            elsewhere) and the machine image of image above (built there when it is not yet
+#            on this host), runs tofu init and apply, then on each control-plane machine: puts
+#            the pull credential of GHCR_USER and GHCR_TOKEN into the Secret flux-system/ghcr-pull
 #            and pins the GitRepository flux-system/openova to <branch> at <commit>, as soon as
 #            the template has applied its Flux objects; waits for the template's marker
 #            cloud-init-complete; waits until every HelmRelease of the kit core is Ready (CORE
@@ -73,8 +86,8 @@
 #            was started.
 #
 # LOCAL_PACK_DIR defaults to $RUNNER_TEMP/local-pack (CI) or /tmp/local-pack. Requires bash,
-# python3 with PyYAML, docker, tofu, kubectl, curl and go; --self-test needs bash and python3
-# only. The machines expose no node port: the gateway binds host ports on the machine
+# python3 with PyYAML, docker with BuildKit (buildx), timeout, tofu, kubectl, curl and go;
+# --self-test needs bash, timeout and python3 only. The machines expose no node port: the gateway binds host ports on the machine
 # addresses, and the console address is a port forward through the API server.
 # Exit codes: 0 pass; 1 fail; 2 wrong usage.
 set -euo pipefail
@@ -96,6 +109,13 @@ CORE="bp-gateway-api bp-cilium bp-cert-manager bp-flux storage-ready local-path 
 CONSOLE_RELEASE="bp-catalyst-platform"
 CONSOLE_PORT=18080
 SIGNER_DEFAULT="/var/lib/catalyst/handover-jwt-private.pem"
+# The machine image (image): the build took 34 to 108 seconds on the CI runner until 19 November
+# 06:10 UTC, then 280 seconds, 714 seconds and more than 20 minutes for the same input while a
+# download inside it was slow. An attempt that has not finished in 300 seconds is stopped and
+# the build starts again; the steps it finished stay in the build cache.
+IMAGE_NAME="catalyst-local-machine"
+IMAGE_ATTEMPTS=3
+IMAGE_ATTEMPT_LIMIT=300
 MARKER_LIMIT=900
 CORE_LIMIT=2400
 DISCOVERY_LIMIT=600
@@ -130,21 +150,24 @@ MIRROR='mirrors:
 
 log() { echo "[local-pack $(date -u +%H:%M:%S)] $*"; }
 die() { echo "local-pack: $*" >&2; exit 1; }
-usage() { sed -n '9,14p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
+usage() { sed -n '9,15p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
 
 # --- pure parts (covered by --self-test) -------------------------------------------------
 
-# write_tfvars <fixture> <out> <deployment id> <branch>: the fixture with the values of this
-# script; every region keeps its code and role. The primary region gets one worker, the
-# others none: catalyst-api must not run on a control-plane node (catalystApi.avoidControlPlane
-# in slot 13 of the kit), and the console runs only in the primary region.
+# write_tfvars <fixture> <out> <deployment id> <branch> [<machine image>]: the fixture with the
+# values of this script; every region keeps its code and role. The primary region gets one
+# worker, the others none: catalyst-api must not run on a control-plane node
+# (catalystApi.avoidControlPlane in slot 13 of the kit), and the console runs only in the
+# primary region. A machine image given is the module input machine_image.
 write_tfvars() {
-  MIRROR="$MIRROR" python3 - "$1" "$2" "$3" "$4" "$REPO_URL" "$STORAGE_CLASS" <<'PY'
+  MIRROR="$MIRROR" python3 - "$1" "$2" "$3" "$4" "$REPO_URL" "$STORAGE_CLASS" "${5:-}" <<'PY'
 import json, os, sys
-fixture, out, dep, branch, repo, sc = sys.argv[1:7]
+fixture, out, dep, branch, repo, sc, image = sys.argv[1:8]
 v = json.load(open(fixture))
 v.update({"deployment_id": dep, "gitops_repo_url": repo, "gitops_branch": branch,
           "default_storage_class": sc, "registry_mirror_yaml": os.environ["MIRROR"]})
+if image:
+    v["machine_image"] = image
 for r in v["regions"]:
     r["worker_count"] = 1 if r.get("role") == "primary" else 0
 fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -152,6 +175,19 @@ with os.fdopen(fd, "w") as f:
     json.dump(v, f, indent=2)
     f.write("\n")
 PY
+}
+
+# image_tag <folder>: IMAGE_NAME:<the first 16 hex digits of the sha256 of the sha256 hex
+# digests of the folder's files, in name order, joined>. The rule of local.image_digest in the
+# module (sha256 of the joined filesha256 of sort(fileset(image, "*"))), so the name changes
+# exactly when a file of the folder does.
+image_tag() {
+  local f sums=""
+  while IFS= read -r f; do
+    sums+=$(sha256sum < "$1/$f" | cut -d' ' -f1)
+  done < <(cd "$1" && for f in *; do [ -f "$f" ] && printf '%s\n' "$f"; done | LC_ALL=C sort)
+  [ -n "$sums" ] || return 1
+  printf '%s:%s\n' "$IMAGE_NAME" "$(printf '%s' "$sums" | sha256sum | cut -c1-16)"
 }
 
 # region_codes <file>: the region codes, in order, one per line.
@@ -615,6 +651,35 @@ mesh_connect() {
   log "mesh: every agent reports every peer cluster ready after $(( $(date +%s) - t ))s"
 }
 
+# cmd_image: see image in the header. Log lines and the build go to standard error; standard
+# output holds the name only.
+cmd_image() {
+  local tag a t0 rc=1
+  mkdir -p "$DIR"
+  tag=$(image_tag "$MODULE/image") || die "image: the folder $MODULE/image holds no file"
+  if docker image inspect "$tag" > /dev/null 2>&1; then
+    log "image: $tag is on this host already, not built again" >&2
+  else
+    for a in $(seq 1 "$IMAGE_ATTEMPTS"); do
+      log "image: build $tag, attempt $a of $IMAGE_ATTEMPTS, stopped after ${IMAGE_ATTEMPT_LIMIT}s" >&2
+      t0=$(date +%s)
+      rc=0
+      DOCKER_BUILDKIT=1 timeout --kill-after=20 "$IMAGE_ATTEMPT_LIMIT" \
+        docker build --progress=plain --tag "$tag" --file "$MODULE/image/Containerfile" "$MODULE/image" \
+        2>&1 | tee "$DIR/image-build.log" >&2 || rc=$?
+      if [ "$rc" = 0 ]; then
+        log "image: $tag built in $(($(date +%s) - t0))s, attempt $a" >&2
+        break
+      fi
+      log "image: attempt $a ended with exit code $rc after $(($(date +%s) - t0))s (124: stopped at the limit);" \
+        "the last step it reached: $(grep -E '^#[0-9]+ \[' "$DIR/image-build.log" | tail -1 || true)" >&2
+    done
+    [ "$rc" = 0 ] || die "image: $tag did not build in $IMAGE_ATTEMPTS attempts of at most ${IMAGE_ATTEMPT_LIMIT}s"
+  fi
+  echo "$tag" > "$DIR/machine-image"
+  echo "$tag"
+}
+
 cmd_up() {
   local regions="" branch="" commit=""
   while [ $# -gt 0 ]; do
@@ -637,8 +702,9 @@ cmd_up() {
   fi
   command -v go > /dev/null || die "go is not on PATH: up builds the session minter of $SUITE"
   mkdir -p "$DIR"
-  local vars="$DIR/pack.tfvars.json" dep="${commit:0:16}" t0 code m pcode pm
-  write_tfvars "$fixture" "$vars" "$dep" "$branch"
+  local vars="$DIR/pack.tfvars.json" dep="${commit:0:16}" t0 code m pcode pm image
+  image=$(cmd_image)
+  write_tfvars "$fixture" "$vars" "$dep" "$branch" "$image"
   local codes
   mapfile -t codes < <(region_codes "$vars")
   pcode=$(primary_code "$vars")
@@ -657,7 +723,7 @@ cmd_up() {
   (cd "$SUITE" && go build -o "$BIN" ./cmd/sovereign-acceptance) > "$DIR/minter-build.log" 2>&1 \
     || { tail -40 "$DIR/minter-build.log"; die "the suite did not build"; }
 
-  log "tofu init and apply: ${#codes[@]} region(s), deployment $dep, $branch at $commit"
+  log "tofu init and apply: ${#codes[@]} region(s), deployment $dep, $branch at $commit, machine image $image"
   tofu_run init -input=false > "$DIR/tofu-init.log" 2>&1 || { tail -40 "$DIR/tofu-init.log"; die "tofu init failed"; }
   if ! tofu_run apply -input=false -auto-approve -var-file="$vars" -state="$DIR/terraform.tfstate" > "$DIR/tofu-apply.log" 2>&1; then
     tail -60 "$DIR/tofu-apply.log"
@@ -926,6 +992,63 @@ assert [(r["role"], r["worker_count"]) for r in json.load(open(sys.argv[1]))["re
   python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); v["regions"][1]["role"]="primary"; json.dump(v, open(sys.argv[2], "w"))' "$t/v2.json" "$t/two-primary.json"
   expect 1 "primary: two primary regions are refused" primary_code "$t/two-primary.json"
   expect 0 "tfvar: one value of the inputs" test "$(tfvar "$t/v2.json" org_email)" = "admin@example.test"
+  write_tfvars "$FIXTURES/two-region.tfvars.json" "$t/v2i.json" 0123456789abcdef wp/X catalyst-local-machine:0123456789abcdef
+  expect 0 "tfvars: a machine image given is the module input machine_image, none given sets none" python3 -c '
+import json, sys
+assert json.load(open(sys.argv[1]))["machine_image"] == "catalyst-local-machine:0123456789abcdef"
+assert "machine_image" not in json.load(open(sys.argv[2]))' "$t/v2i.json" "$t/v2.json"
+
+  # image, against a stand-in docker on PATH: image inspect answers whether $t/img/present
+  # exists; each build logs a call and takes the next word of $t/img/plan: hang (never ends),
+  # fail (exit 1) or ok (the image is there after it).
+  mkdir -p "$t/img/bin" "$t/img/module/image" "$t/img/empty"
+  printf 'FROM scratch\n' > "$t/img/module/image/Containerfile"
+  printf 'b\n' > "$t/img/module/image/b.cfg"
+  printf 'a\n' > "$t/img/module/image/a.service"
+  cat > "$t/img/bin/docker" << 'SH'
+#!/usr/bin/env bash
+d="$(dirname "$0")/.."
+case "$1 ${2:-}" in
+  "image inspect") [ -f "$d/present" ] ;;
+  build\ *)
+    echo build >> "$d/calls"
+    read -r step rest < "$d/plan" || true
+    printf '%s\n' "$rest" > "$d/plan"
+    echo "#5 [2/4] RUN apt-get update"
+    case "$step" in
+      hang) exec sleep 60 ;;
+      ok) : > "$d/present"; echo "#5 DONE 1.0s" ;;
+      *) exit 1 ;;
+    esac ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/img/bin/docker"
+  local img_tag
+  img_tag=$(python3 -c '
+import hashlib, os, sys
+d = sys.argv[1]
+s = "".join(hashlib.sha256(open(os.path.join(d, f), "rb").read()).hexdigest() for f in sorted(os.listdir(d)))
+print("catalyst-local-machine:" + hashlib.sha256(s.encode()).hexdigest()[:16])' "$t/img/module/image")
+  img_case() { rm -f "$t/img/present" "$t/img/calls" "$t/img/dir/machine-image"; printf '%s\n' "$1" > "$t/img/plan"; [ -z "${2:-}" ] || : > "$t/img/present"; }
+  img_run() { (PATH="$t/img/bin:$PATH" DIR="$t/img/dir" MODULE="$t/img/module" IMAGE_ATTEMPT_LIMIT=2 cmd_image) 2> "$t/img/err"; }
+  img_named_last_step() { [ "$(grep -c . "$t/img/calls")" = 3 ] && grep -q 'the last step it reached: #5 \[2/4\] RUN apt-get update' "$t/img/err"; }
+  # img_check <builds>: the run passes, prints the name only, records it, and built that often.
+  img_check() { local out; out=$(img_run) || return 1; [ "$out" = "$img_tag" ] && [ "$(cat "$t/img/dir/machine-image")" = "$img_tag" ] \
+    && [ "$( (grep -c . "$t/img/calls" 2> /dev/null) || echo 0)" = "$1" ]; }
+  expect 0 "image: the name follows the module's digest of the folder (local.image_digest)" test "$(image_tag "$t/img/module/image")" = "$img_tag"
+  expect 1 "image: a folder without a file has no name" image_tag "$t/img/empty"
+  img_case "" present
+  expect 0 "image: an image of the name on this host is used and nothing is built" img_check 0
+  img_case "ok"
+  expect 0 "image: an image not on this host is built once" img_check 1
+  img_case "hang ok"
+  expect 0 "image: an attempt that hangs is stopped at the limit and the next attempt builds" img_check 2
+  img_case "fail fail ok"
+  expect 0 "image: the last of the attempts may build" img_check 3
+  img_case "fail hang fail"
+  expect 1 "image: when every attempt fails or hangs, image fails" img_run
+  expect 0 "image: ... after exactly the allowed attempts, naming the last build step it reached" img_named_last_step
 
   expect 0 "core: the primary region also needs the console" test "$(core_for region-a region-a)" = "$CORE $CONSOLE_RELEASE"
   expect 0 "core: a secondary region does not" test "$(core_for region-b region-a)" = "$CORE"
@@ -1182,6 +1305,7 @@ assert sorted(d) == ["sov-region-a", "sov-region-a-ca.crt", "sov-region-a.crt", 
 }
 
 case "${1:-}" in
+  image) cmd_image ;;
   up) shift; cmd_up "$@" ;;
   discovery) cmd_discovery ;;
   claim) cmd_claim ;;

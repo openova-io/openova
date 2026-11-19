@@ -200,4 +200,42 @@ spec:
               - key: '{{ `{{ request.object.metadata.labels."kustomize.toolkit.fluxcd.io/name" || '''' }}` }}'
                 operator: Equals
                 value: ''
+            {{- /*
+              Crossplane package runtimes (proven on hw307, candidate
+              rc/20261119T053558Z-6972370, Crossplane core 1.20.14 -> 2.4.3).
+              For every ProviderRevision and FunctionRevision, Crossplane's
+              package manager creates a Deployment and a Service (and a
+              ServiceAccount, which this rule does not match) in
+              crossplane-system. An operator-created object can never be
+              Flux-managed, so the rule denied them: the new provider
+              revision's Deployment, the deletion of the old one, and the
+              function's Service from its first install. The provider only
+              ran because its first Deployment was created at bootstrap,
+              before the policy enforced.
+
+              The carve-out is the label the operator stamps, cluster-wide,
+              as for the CNPG operator and the vCluster probe above, never a
+              namespace. Crossplane 2.4.3 stamps NO label on the metadata of
+              these objects (internal/controller/pkg/runtime/runtime.go,
+              podSelectors, and runtime_override_options.go,
+              DeploymentWithSelectors and ServiceWithSelectors): it stamps
+              `pkg.crossplane.io/revision: <revision>` (and
+              `pkg.crossplane.io/provider` or `pkg.crossplane.io/function`)
+              on the Deployment's pod template and selector and on the
+              Service's selector, and sets the revision as the controller
+              owner. An `exclude` selector reads metadata labels only, so the
+              carve-out is written here: the request is denied unless it
+              carries that label where Crossplane puts it AND its controller
+              owner is a pkg.crossplane.io revision. A plain Deployment or
+              Service in crossplane-system stays denied.
+            */}}
+            any:
+              - key: '{{ `{{ request.object.spec.template.metadata.labels."pkg.crossplane.io/revision" || request.object.spec.selector."pkg.crossplane.io/revision" || '''' }}` }}'
+                operator: Equals
+                value: ''
+              - key: '{{ `{{ request.object.metadata.ownerReferences[?controller && starts_with(apiVersion, ''pkg.crossplane.io/'')].kind || '''' }}` }}'
+                operator: AnyNotIn
+                value:
+                  - ProviderRevision
+                  - FunctionRevision
 {{- end -}}
