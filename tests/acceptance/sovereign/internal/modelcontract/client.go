@@ -91,7 +91,7 @@ func (c Client) send(ctx context.Context, body message, h http.Header, bearer bo
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(b))
 	if err != nil {
-		return nil, r, err
+		return nil, r, fmt.Errorf("1.1: POST /v1/chat/completions cannot be sent: %v", err)
 	}
 	for k, v := range h {
 		req.Header[http.CanonicalHeaderKey(k)] = v
@@ -103,7 +103,7 @@ func (c Client) send(ctx context.Context, body message, h http.Header, bearer bo
 	}
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, r, fmt.Errorf("POST /v1/chat/completions got no answer: %v", errors.Unwrap(err))
+		return nil, r, fmt.Errorf("1.1: POST /v1/chat/completions got no answer: %v", errors.Unwrap(err))
 	}
 	r.Status, r.echoedID = res.StatusCode, res.Header.Get("X-Request-Id")
 	return res, r, nil
@@ -143,15 +143,24 @@ func (c Client) exchange(ctx context.Context, body message, h http.Header, beare
 	return r, nil
 }
 
-// judge applies section 1.4 to an answer: status 200, the x-request-id of the request, one call
-// or more of the tools asked for (each with a unique id, type function, and a JSON object as
-// arguments) or else a text, the finish reason that goes with it, and a usage that is not zero.
-func judge(r Reply, toolNames []string) error {
+// answered checks that an answer is 200 (section 1.5) and echoes the x-request-id of its
+// request (section 1.4).
+func answered(r Reply) error {
 	if r.Status != http.StatusOK {
 		return fmt.Errorf("1.5: the answer is %d %q, want 200", r.Status, r.Code)
 	}
 	if r.echoedID != r.RequestID {
 		return fmt.Errorf("1.4: the answer carries x-request-id %q, want %q", r.echoedID, r.RequestID)
+	}
+	return nil
+}
+
+// judge applies section 1.4 to an answer: status 200, the x-request-id of the request, one call
+// or more of the tools asked for (each with a unique id, type function, and a JSON object as
+// arguments) or else a text, the finish reason that goes with it, and a usage that is not zero.
+func judge(r Reply, toolNames []string) error {
+	if err := answered(r); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, c := range r.Calls {
@@ -248,13 +257,13 @@ func (c Client) StreamWithToolDeltas(ctx context.Context, alias string) (Reply, 
 func (c Client) stream(ctx context.Context, body message, toolNames []string) (Reply, error) {
 	body["stream"], body["stream_options"] = true, message{"include_usage": true}
 	res, r, err := c.send(ctx, body, nil, true)
-	if err != nil || r.Status != http.StatusOK {
-		if res != nil {
-			_ = res.Body.Close()
-		}
-		return r, errors.Join(err, judge(r, toolNames))
+	if err != nil {
+		return r, err
 	}
 	defer func() { _ = res.Body.Close() }()
+	if r.Status != http.StatusOK {
+		return r, judge(r, toolNames)
+	}
 	calls, n, done := map[int]*Call{}, 0, false
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
@@ -341,17 +350,19 @@ func (c Client) refused(ctx context.Context, alias string, bearer bool, status i
 	return r, err
 }
 
-// ModelOwner returns owned_by of alias in GET /v1/models (section 1.1).
+// ModelOwner returns owned_by of alias in GET /v1/models (section 1.1). The answer is 200 and
+// echoes the x-request-id of the request, as an answer of POST /v1/chat/completions.
 func (c Client) ModelOwner(ctx context.Context, alias string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.BaseURL, "/")+"/models", nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("1.1: GET /v1/models cannot be sent: %v", err)
 	}
+	r := Reply{RequestID: newRequestID()}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("X-Request-Id", newRequestID())
+	req.Header.Set("X-Request-Id", r.RequestID)
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("GET /v1/models got no answer: %v", errors.Unwrap(err))
+		return "", fmt.Errorf("1.1: GET /v1/models got no answer: %v", errors.Unwrap(err))
 	}
 	defer func() { _ = res.Body.Close() }()
 	var doc struct {
@@ -359,8 +370,13 @@ func (c Client) ModelOwner(ctx context.Context, alias string) (string, error) {
 			ID      string `json:"id"`
 			OwnedBy string `json:"owned_by"`
 		} `json:"data"`
+		Error struct{ Code string } `json:"error"`
 	}
 	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&doc)
+	r.Status, r.Code, r.echoedID = res.StatusCode, doc.Error.Code, res.Header.Get("X-Request-Id")
+	if err := answered(r); err != nil {
+		return "", err
+	}
 	for _, m := range doc.Data {
 		if m.ID == alias {
 			return m.OwnedBy, nil
