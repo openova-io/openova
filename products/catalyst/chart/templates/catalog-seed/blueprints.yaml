@@ -3163,7 +3163,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.2
+  version: 1.0.3
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -3198,7 +3198,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-reloader
-    version: 1.0.2
+    version: 1.0.3
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
