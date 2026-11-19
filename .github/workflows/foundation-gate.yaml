@@ -11,7 +11,10 @@ name: foundation-gate
 #              every step of FND-G07 with its browser probe, so no session minted from the
 #              Sovereign's signer leaves the Job. The Job runs the suite image of the commit under
 #              test and a probe image, both by digest; the region kubeconfigs travel in a Secret of
-#              the run; the Job and its Secrets are deleted whatever happened. The outside dials of
+#              the run; the Job's Pods reach TCP 6443 and 443 of the install's own addresses only
+#              (gate-parent-job.sh targets: the API servers of the kubeconfigs and the console and
+#              gateway hosts in the DNS, read on the hosted machine), through a NetworkPolicy of the
+#              run; the Job, its Secrets and that policy are deleted whatever happened. The outside dials of
 #              NET-G01 and NET-G02, and CLD-G12, stay on the hosted machine: the firewall lists the
 #              parent, so a dial from the Job is no outside dial.
 #   unit       suite unit tests and gate tool self-tests, no cluster; also before every live run.
@@ -53,8 +56,8 @@ name: foundation-gate
 # regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION (optional owner
 # session; when empty the run mints one from the Sovereign's own signer), and, of the environment
 # gate only, ACCEPTANCE_PARENT_KUBECONFIG (base64 of the kubeconfig of the parent's ServiceAccount
-# acceptance-gate/gate: Jobs, Pods and their logs, and creating and deleting Secrets, in the
-# namespace acceptance-gate only). CLD-G12 uses the same kubeconfig; the access has no right in the
+# acceptance-gate/gate: Jobs, Pods and their logs, creating and deleting Secrets and the run's
+# NetworkPolicy, in the namespace acceptance-gate only; scripts/gate-parent-access.yaml). CLD-G12 uses the same kubeconfig; the access has no right in the
 # namespace catalyst, so CLD-G12 records that the parent could not be reached until it reads the
 # plan through an API route of the engine (when the secret is empty CLD-G12 is recorded FAIL).
 # scripts/check-gate-parent-access.py keeps the access to this workflow and
@@ -295,6 +298,7 @@ jobs:
           JOB_IMAGE: ${{ steps.images.outputs.job }}
           GH_TOKEN: ${{ github.token }}
           GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
+          ENV_LABEL: ${{ inputs.env }}
         run: |
           set -euo pipefail
           if [ -z "$KA" ] || [ -z "$KB" ]; then echo "::error::ACCEPTANCE_KUBECONFIG_A/B secrets are not set"; exit 2; fi
@@ -304,9 +308,12 @@ jobs:
           printf '%s' "$KB" | base64 -d > "$d/b.yaml"
           if [ "$EXECUTION" = parent ]; then
             o="$RUNNER_TEMP/parent-addresses"
+            # The install's addresses, read here (kubeconfigs and DNS): the Job's Pods may reach these only.
+            targets="$(GATE_KUBECONFIG_A="$d/a.yaml" GATE_KUBECONFIG_B="$d/b.yaml" bash scripts/gate-parent-job.sh targets --env "$ENV_LABEL")"
+            echo "Addresses the Job may reach on TCP 6443 and 443: $targets" >> "$GITHUB_STEP_SUMMARY"
             GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$d/a.yaml" GATE_KUBECONFIG_B="$d/b.yaml" \
               GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" GATE_RUN="$GITHUB_RUN_ID" \
-              bash scripts/gate-parent-job.sh run --mode addresses --out "$o" --job-image "$JOB_IMAGE"
+              bash scripts/gate-parent-job.sh run --mode addresses --out "$o" --targets "$targets" --job-image "$JOB_IMAGE"
             grep -qx 'rc=0' "$o/outputs" || { echo "::error::The Job on the parent could not read the addresses."; exit 1; }
             list="$(sed -n 's/^list=//p' "$o/outputs")"
           else
@@ -496,11 +503,15 @@ jobs:
           EXECUTION: ${{ steps.mode.outputs.execution }}
           JOB_IMAGE: ${{ needs.addresses.outputs.job_image }}
           PROBE_IMAGE: ${{ needs.addresses.outputs.probe_image }}
+          CONTROL_PLANE: ${{ needs.addresses.outputs.list }}
           GH_TOKEN: ${{ github.token }}
           GATE_RUN: ${{ github.run_id }}
           GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
         run: |
           set +e
+          # The flight checklist prints the value as PREFLIGHT=<value>; the input takes it with or without.
+          ACCEPT_PREFLIGHT="$(bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" preflight "$ACCEPT_PREFLIGHT")"
+          export ACCEPT_PREFLIGHT
           caps=multi-region # the suite always drives two regions
           if [ -n "$ACCEPT_PREVIOUS_DEPLOYMENT_ID" ]; then caps="$caps,previous-wipe"; fi
           if [ -n "$MORE_CAPABILITIES" ]; then caps="$caps,$MORE_CAPABILITIES"; fi
@@ -516,15 +527,21 @@ jobs:
               ( umask 077; printf '%s' "$CATALYST_SESSION" > "$RUNNER_TEMP/parent/session" )
               export GATE_SESSION_FILE="$RUNNER_TEMP/parent/session"
             fi
+            # The install's addresses, read here, and the control-plane addresses the job addresses read.
+            targets="$(GATE_KUBECONFIG_A="$ACCEPT_KUBECONFIG_A" GATE_KUBECONFIG_B="$ACCEPT_KUBECONFIG_B" \
+              bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" targets --env "$ENV_LABEL")" \
+              || { echo "::error::The addresses of the install could not be read; no Job was created."; exit 1; }
+            echo "Addresses the Job may reach on TCP 6443 and 443: $targets,$CONTROL_PLANE" >> "$GITHUB_STEP_SUMMARY"
             GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$ACCEPT_KUBECONFIG_A" \
               GATE_KUBECONFIG_B="$ACCEPT_KUBECONFIG_B" GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" \
               CANDIDATE_COMMIT="$GITHUB_SHA" \
-              bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" run --mode live --out "$o" --job-image "$JOB_IMAGE" --probe-image "$PROBE_IMAGE"
+              bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" run --mode live --out "$o" --targets "$targets,$CONTROL_PLANE" \
+                --job-image "$JOB_IMAGE" --probe-image "$PROBE_IMAGE"
             prc=$?
             rm -f "$RUNNER_TEMP/parent/session"
             if [ "$prc" != 0 ]; then echo "::error::The Job on the parent did not finish its work; its log is above."; exit 1; fi
             echo "born=$(sed -n 's/^born=//p' "$o/outputs")" >> "$GITHUB_OUTPUT"
-            if grep -qx 'chain=timeout' "$o/outputs"; then exit 1; fi
+            if grep -Eqx 'chain=(timeout|unreachable)' "$o/outputs"; then exit 1; fi
             rc="$(sed -n 's/^suite_rc=//p' "$o/outputs" | tail -n 1)"
             if ! [[ "$rc" =~ ^[0-9]+$ ]]; then
               echo "::error::The Job on the parent printed no suite return code (suite_rc='$rc'); its log is above; no record is committed."; exit 1

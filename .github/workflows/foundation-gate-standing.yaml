@@ -186,13 +186,17 @@ jobs:
           JOB_IMAGE: ${{ steps.images.outputs.job }}
           GH_TOKEN: ${{ github.token }}
           GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
+          ENV_LABEL: ${{ inputs.env }}
         run: |
           set -euo pipefail
           o="$RUNNER_TEMP/parent-regions"
+          # The install's addresses, read here (kubeconfigs and DNS): the Job's Pods may reach these only.
+          targets="$(GATE_KUBECONFIG_A="$RUNNER_TEMP/kube/a.yaml" GATE_KUBECONFIG_B="$RUNNER_TEMP/kube/b.yaml" \
+            bash scripts/gate-parent-job.sh targets --env "$ENV_LABEL")"
           GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$RUNNER_TEMP/kube/a.yaml" \
             GATE_KUBECONFIG_B="$RUNNER_TEMP/kube/b.yaml" GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" \
             GATE_RUN="$GITHUB_RUN_ID" CANDIDATE_COMMIT="$COMMIT" \
-            bash scripts/gate-parent-job.sh run --mode regions --out "$o" --job-image "$JOB_IMAGE"
+            bash scripts/gate-parent-job.sh run --mode regions --out "$o" --targets "$targets" --job-image "$JOB_IMAGE"
           grep -qx 'rc=0' "$o/outputs" || { echo "::error::The regions do not carry the candidate or have not converged; the Job's log is above."; exit 1; }
       - name: "Parent execution: delete the Job and its Secrets"
         if: always() && steps.mode.outputs.execution == 'parent'
