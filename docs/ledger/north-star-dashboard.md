@@ -20,15 +20,15 @@ Only the 12 validated tasks count as tested: gate runs [43753984302](https://git
 
 **Dates, and what each depends on.**
 
-- **The plan's end, merged: target 19 Nov 05:02 UTC.** Merging the 1,850 points left by then needs 1,279,898 points a day; the last 72 hours merged 93 a day, which ends about **9 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
+- **The plan's end, merged: target 19 Nov 05:02 UTC.** The target has passed; the last 72 hours merged 93 a day, which ends about **9 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
 - **The new mothership on Hetzner can host new projects the standard way: likely 20 Nov 12:00 UTC** (earliest 16 Nov 02:00, could slip to 25 Nov). Depends on a Hetzner API token with raised project limits (neither exists today); a candidate that reaches a green gate on hw307 first (likely 17 Nov 12:00, could slip to 19 Nov); and how many Hetzner-only defects appear, as the Hetzner pack has not been installed since 22 May.
 - **The last name has moved off the old mothership node: likely 2 Dec 18:00 UTC** (earliest 21 Nov 18:00, could slip to 20 Dec); the old node is switched off seven quiet days later, likely 9 Dec. Depends on the mothership as an installable mode, with the move of the child records (never done before); the mail move (port 25 on a new address, reverse DNS, sender reputation); and Blueprints for our own applications, two of which have no chart yet.
 - The two mothership dates are those of its plan of 15 Nov 07:30 UTC.
 
-**Today in five lines** (the 24 hours to 05:00 UTC on 19 Nov):
+**Today in five lines** (the 24 hours to 05:11 UTC on 19 Nov):
 
 1. **Fires:** none in the last 24 hours.
-2. **Installation:** A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: J1 to J5 pass, 25 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 39 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 28 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. A gate run on hw307 ended FAIL: J1 to J5 pass, 27 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6.
+2. **Installation:** A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: J1 to J5 pass, 25 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 39 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 28 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. A gate run on hw307 ended FAIL: J1 to J5 pass, 27 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. A gate run on hw307 ended FAIL: J1 to J5 pass, 25 of 42 checks passed; it names no candidate, so it counts for nothing.
 3. **Repairs of main merged: 0**.
 4. **Plan tasks merged: 61**, 168 points: SEC-105, CTL-233, CLD-090, CTL-347, CLD-092, CLD-101, CLD-131, CLD-091, INF-132, CLD-102, AIP-113, NET-098, SOV-146, NET-210 and 47 more.
 5. **On the environment:** no candidate, no wipe and no restore.
@@ -37,7 +37,7 @@ Only the 12 validated tasks count as tested: gate runs [43753984302](https://git
 
 ## On the environment: what is deployed and what is not
 
-Measured from git and the gate records on main at 05:00 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC. Validated means it passed in two gate runs on that installation.
+Measured from git and the gate records on main at 05:11 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC. Validated means it passed in two gate runs on that installation.
 
 | State of the merged tasks | Tasks |
 |---|---|
@@ -335,7 +335,7 @@ A merged task is not deployed when its merge came after the commit the environme
 
 hw307 runs candidate `rc/20261115T144352Z-67402a1` (commit 67402a1) since 15 Nov 15:58 UTC, installed with 0 hand changes: ready at 17:05, at the end of the hand-over chain at 18:55. Of the 22 repairs of main merged for the fires, [#7898](https://github.com/openova-io/openova/pull/7898), [#7906](https://github.com/openova-io/openova/pull/7906), [#7905](https://github.com/openova-io/openova/pull/7905), [#7904](https://github.com/openova-io/openova/pull/7904), [#7907](https://github.com/openova-io/openova/pull/7907), [#7910](https://github.com/openova-io/openova/pull/7910), [#7911](https://github.com/openova-io/openova/pull/7911), [#7913](https://github.com/openova-io/openova/pull/7913), [#7914](https://github.com/openova-io/openova/pull/7914), [#7915](https://github.com/openova-io/openova/pull/7915), [#7916](https://github.com/openova-io/openova/pull/7916), [#7917](https://github.com/openova-io/openova/pull/7917), [#7918](https://github.com/openova-io/openova/pull/7918), [#7919](https://github.com/openova-io/openova/pull/7919), [#7920](https://github.com/openova-io/openova/pull/7920), [#7921](https://github.com/openova-io/openova/pull/7921) are in the running candidate; the other 6 ([#7923](https://github.com/openova-io/openova/pull/7923), [#7924](https://github.com/openova-io/openova/pull/7924), [#7925](https://github.com/openova-io/openova/pull/7925), [#7926](https://github.com/openova-io/openova/pull/7926), [#7927](https://github.com/openova-io/openova/pull/7927), [#7928](https://github.com/openova-io/openova/pull/7928)) came after it and are on main, not yet on the environment.
 
-<details><summary>Every event on the environment (61), the installations and the hand-changed tasks</summary>
+<details><summary>Every event on the environment (62), the installations and the hand-changed tasks</summary>
 
 | Time (UTC) | Kind | What happened |
 |---|---|---|
@@ -400,6 +400,7 @@ hw307 runs candidate `rc/20261115T144352Z-67402a1` (commit 67402a1) since 15 Nov
 | 18 Nov 17:49 to 19:11 | gate run | A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 39 checks passed; it names candidate 20261118T135154Z-5aa3bd0. |
 | 18 Nov 20:06 to 20:54 | gate run | A gate run on hw307 ended FAIL: J1 to J5 pass, 28 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. |
 | 18 Nov 21:08 to 21:33 | gate run | A gate run on hw307 ended FAIL: J1 to J5 pass, 27 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. |
+| 19 Nov 04:10 to 05:04 | gate run | A gate run on hw307 ended FAIL: J1 to J5 pass, 25 of 42 checks passed; it names no candidate, so it counts for nothing. |
 
 | Installation | Runs | From (UTC) | To (UTC) | Tasks deployed on it |
 |---|---|---|---|---|
@@ -415,16 +416,16 @@ hw307 runs candidate `rc/20261115T144352Z-67402a1` (commit 67402a1) since 15 Nov
 
 ## Right now
 
-Measured from GitHub at 05:00 UTC on 19 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 05:11 UTC on 19 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
 | **Overall completion** | **40.7%** of the tasks are merged (396 of 973). By effort that is 38.8% (278 of 716 agent-hours). Proven on a live environment: 12 tasks on the installation running now (4 were proven on the installation wiped on 14 November). |
-| **Estimated time still needed** | About **266 running hours** until every task is merged (about 11 days if the agents run day and night). About **266 running hours** until every task is also proven on an environment. Agent effort still to spend: about 438 agent-hours. |
-| How the estimate is made | Merged: 577 tasks are left; the last 12 hours merged 2.2 tasks an hour, lab results not counted, which gives 266 hours; the longest row of tasks that must follow one another is 24 long, at about 2 hours each, which gives 48 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
-| **Tokens used so far** | **30.1 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 27.0 billion to carry it out so far. Of the total, 29.4 billion are re-reads of text the models had already read once, which is the cheap kind; 667 million are text read for the first time and 122 million are text the models wrote. By model: Opus 5.5 22.4 billion, Fable 5.2 7.7 billion. At the published pay-as-you-go prices these tokens would cost about $13,300. |
-| **Tokens still expected** | About **42 billion** more until every task is merged, which makes about 73 billion in all; 42% of that is spent. Basis: carrying out the plan has used 97 million tokens for each agent-hour of merged work, and 438 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **79%** of this week's allowance, 23 hours into the week (the week runs from 18 Nov 06:00 to 25 Nov 06:00 UTC). Over the last 6.0 hours the usage meter rose by 12 points. At that rise this account's allowance is used up around **19 Nov 15:00 UTC**, 6 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **4 accounts**; measured from the tokens of the last 24 hours it is 5.5. The work still to merge needs about 10.6 weekly allowances by the token measure. |
+| **Estimated time still needed** | About **277 running hours** until every task is merged (about 12 days if the agents run day and night). About **277 running hours** until every task is also proven on an environment. Agent effort still to spend: about 438 agent-hours. |
+| How the estimate is made | Merged: 577 tasks are left; the last 12 hours merged 2.1 tasks an hour, lab results not counted, which gives 277 hours; the longest row of tasks that must follow one another is 24 long, at about 2 hours each, which gives 48 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Tokens used so far** | **30.2 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 27.0 billion to carry it out so far. Of the total, 29.4 billion are re-reads of text the models had already read once, which is the cheap kind; 668 million are text read for the first time and 122 million are text the models wrote. By model: Opus 5.5 22.4 billion, Fable 5.2 7.7 billion. At the published pay-as-you-go prices these tokens would cost about $13,300. |
+| **Tokens still expected** | About **43 billion** more until every task is merged, which makes about 73 billion in all; 42% of that is spent. Basis: carrying out the plan has used 97 million tokens for each agent-hour of merged work, and 438 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
+| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **80%** of this week's allowance, 23 hours into the week (the week runs from 18 Nov 06:00 to 25 Nov 06:00 UTC). Over the last 6.2 hours the usage meter rose by 13 points. At that rise this account's allowance is used up around **19 Nov 14:00 UTC**, 6 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **4 accounts**; measured from the tokens of the last 24 hours it is 5.6. The work still to merge needs about 10.4 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 4 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
 | Tasks merged to the main branch | **396 of 973** |
 | Tasks with a written ticket | 366 |
@@ -447,10 +448,10 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | **Work left** | **1,850 points**. Not yet merged, of 2,883 points in the plan; 1,033 merged. |
 | **Tasks not yet merged** | **577**. Of 973 tasks in the plan; 396 merged. |
 | **Scope growth** | **+16% in 7 days**. +396 points since the start, from 2,487 to 2,883; 131 tasks added, +326 points; 1 dropped, -2 points; 44 open tasks re-sized, +72 points; 15 rises of 10 points or more are marked on the chart. |
-| **Not yet validated on the environment** | **2,851 points**. 961 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T144352Z-67402a1), measured at 19 Nov 05:00 UTC; not merged: 577 tasks, 1,850 points; merged, not deployed: 110 tasks, 285 points; deployed, not validated: 274 tasks, 716 points; validated: 12 tasks. |
+| **Not yet validated on the environment** | **2,851 points**. 961 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T144352Z-67402a1), measured at 19 Nov 05:11 UTC; not merged: 577 tasks, 1,850 points; merged, not deployed: 110 tasks, 285 points; deployed, not validated: 274 tasks, 716 points; validated: 12 tasks. |
 | **Projected end** | **9 Dec**. At the velocity of the last 72 hours, if the scope stops growing; planned end: 19 Nov 05:02 UTC. |
 | **Velocity, last 3 days** | **93 points a day**. 280 points (109 tasks) merged in the last 72 hours. |
-| **Velocity needed** | **1,279,898 points a day**. To merge the rest by the plan's end, in 0.0 days. |
+| **Velocity needed** | **not measured**. The plan's end date is less than a day away or has passed, so no pace reaches it. |
 | **Not yet merged, by size** | **57 XS, 269 S, 251 M**. XS: 57 tasks, 57 points; S: 269 tasks, 538 points; M: 251 tasks, 1,255 points. |
 
 | Day (UTC) | Scope, points | Work left, points | Ideal, points | Tasks merged | Points merged | Tasks added | Scope change, points |
@@ -463,7 +464,7 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 16 Nov | 2,830 | 2,028 | 830 | 25 | 54 | 0 | +7 |
 | 17 Nov | 2,833 | 1,968 | 454 | 24 | 63 | 0 | +3 |
 | 18 Nov | 2,883 | 1,878 | 79 | 52 | 140 | 18 | +50 |
-| 19 Nov, to 05:00 | 2,883 | 1,850 | 1 | 9 | 28 | 0 | +0 |
+| 19 Nov, to 05:11 | 2,883 | 1,850 | 0 | 9 | 28 | 0 | +0 |
 
 <details><summary>Rises of the scope by 10 points or more: 15 (the dots on the grey line)</summary>
 
@@ -502,13 +503,13 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 18 Nov | 24 | 52 | 140 |
 | 19 Nov, so far | 5 | 9 | 28 |
 | Average of the last 72 hours | 72 | 109 | 93 a day |
-| Needed from now to the plan's end | 0 |  | 1,279,898 a day |
+| Needed from now to the plan's end | 0 |  | not measured |
 
 How it is measured. Scope is the published plan on main as it stood at each of its 154 commits so far, the last at 19 Nov 04:43 UTC. It is exact at every commit; a change between two commits shows at the next one, so other figures on this page that read the plan in between can differ by a task or two. Merged means the task's done marker is on the main branch. The time is that of the merge that added it. A merged task keeps the points it merged with. Remaining is scope minus merged at every moment, so remaining can only rise when the scope grows. The ideal line runs from the scope at the start (12 Nov 14:02 UTC) to zero at the plan's end (19 Nov 05:02 UTC). That end comes from the schedule model of the first plan, as before. Days are UTC days. The first and the last day are part days.
 
 ### On the environment: deployed and validated
 
-Read from git and the gate records on main at 05:00 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 05:00 UTC on 19 November.
+Read from git and the gate records on main at 05:11 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 05:11 UTC on 19 November.
 
 | | Tasks |
 |---|---|
@@ -526,7 +527,7 @@ Read from git and the gate records on main at 05:00 UTC. A task counts as deploy
 | Region | Releases ready | Switched off on purpose | Not ready | Umbrella chart | Images running |
 |---|---|---|---|---|---|
 | a | 62 of 62 | 5 | none | 1.4.2136 | catalyst-api `d06dec8`, catalyst-ui `d06dec8`, marketplace `495fbc1` |
-| b | 62 of 62 | 7 | none | 1.4.2136 | none of the console images run in this region |
+| b | 60 of 60 | 7 | none | 1.4.2136 | none of the console images run in this region |
 
 Not deployed (110): AIP-041, AIP-101, AIP-102, AIP-103, AIP-104, AIP-105, AIP-108, AIP-111, AIP-112, AIP-113, AIP-114, AIP-120, AIP-222, AIP-224, CLD-062, CLD-064, CLD-065, CLD-066, CLD-089, CLD-090, CLD-091, CLD-092, CLD-093, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-211, CTL-223, CTL-230, CTL-231, CTL-233, CTL-346, CTL-347, CTL-348, FND-028, FND-064, FND-070, FND-073, FND-078, FND-079, FND-080, FND-089, FND-130, FND-151, FND-153, FND-154, FND-155, FND-156, FND-206, FND-207, INF-055, INF-132, INF-133, INF-135, INF-140, INF-512, MIG-030, NET-011, NET-012, NET-013, NET-040, NET-095, NET-096, NET-097, NET-098, NET-110, NET-150, NET-153, NET-170, NET-172, NET-190, NET-210, NET-212, PRD-509, SEC-040, SEC-096, SEC-103, SEC-104, SEC-105, SEC-126, SOV-010, SOV-135, SOV-142, SOV-143, SOV-145, SOV-146, SOV-148, SOV-175, SOV-183, SOV-241, SOV-750, SVC-041, SVC-100, SVC-130, SVC-150, SVC-159, SVC-163, SVC-190.
 
@@ -563,9 +564,9 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 |---|---|---|
 | The plan's own checks (238) by state | 192 not-built, 11 expected-fail, 35 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
 | Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 45 replaced on purpose by a later task, 4 broken by a later merge, 0 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
-| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 19 red of 1774 (1.1%); 19 Nov: 5 red of 359 (1.4%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 19 red of 1774 (1.1%); 19 Nov: 6 red of 365 (1.6%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
 | Times an executor stopped and reported a ticket or main as wrong | 68 reports on 57 tasks, against 396 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +170,620 −96,174; Tests: +83,746 −26,808; Checks and tooling: +48,534 −3,723; Plan, tickets and documents: +595,741 −5,610; Other: +53 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Lines changed on main since the plan started | Product code and configuration: +170,620 −96,174; Tests: +83,746 −26,808; Checks and tooling: +48,534 −3,723; Plan, tickets and documents: +605,503 −5,610; Other: +53 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
 | Fresh install from main: did it start, how long, how many releases ready | **3 fires from candidates of main**: fire 1 at 14 Nov 22:19 UTC, fire 1 failed at 22:22; fire 2 at 15 Nov 04:53 UTC, fire 2 stuck at 05:42; fire 3 at 15 Nov 15:58 UTC. None finished by itself; the events are at the top of this page. | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **a pair of gate runs exists on the running installation** | That a person can do the thing: the five pillars. |
 
