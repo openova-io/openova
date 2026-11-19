@@ -1235,6 +1235,17 @@ spec:
     # a tether the preceding steps 01-07 already pivoted off.
     egressTest:
       enforceCIDRBlock: true
+      # NET-153: the ranges the hold keeps open inside the Sovereign. The chart
+      # default is not used: it names the pod ranges of two regions only, so a
+      # third region's pods were cut off during the hold. The first range is
+      # the pod supernet, which holds the pod range of every region; first boot
+      # writes it as CILIUM_NATIVE_ROUTING_CIDR, the key slot 01 routes
+      # natively, and it has no default. The second is the service range: it
+      # holds the service range 10.(96+index).0.0/16 of every region, the
+      # address of the API server among them.
+      allowIntraClusterCIDRs:
+        - "${CILIUM_NATIVE_ROUTING_CIDR}"
+        - "10.96.0.0/12"
       # #5017 keystone (hw242, 2026-07-12): the deny-egress hold must ALLOW
       # the IaaS provider control-plane API so the CSI driver can attach
       # volumes for pods that (re)schedule DURING the hold — step-08's own
