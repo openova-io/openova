@@ -25,7 +25,7 @@ sovereign-object-${NETWORK_REGISTRY_REVISION:=bootstrap} and the API server refu
 
 What is rendered, once with the values of the primary region and once with those of a follower region:
   - the bootstrap kit, clusters/_template/bootstrap-kit, with the postBuild of the Kustomization bootstrap-kit
-    of the boot template infra/providers/_shared/cloudinit-control-plane.tftpl; its ConfigMap
+    that the root Kustomization of first boot applies from clusters/_template/root (SOV-154); its ConfigMap
     sovereign-variables holds tests/fixtures/variables/today.env;
   - every Flux Kustomization the rendered kit defines (its source must be the GitRepository openova): the
     folder of this repository its path names, built from its kustomization.yaml (resources: files and
@@ -49,7 +49,7 @@ import yaml
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 KIT = "clusters/_template/bootstrap-kit"
-TEMPLATE = "infra/providers/_shared/cloudinit-control-plane.tftpl"
+BOOT = "clusters/_template/root/base-primary/bootstrap-kit.yaml"
 FIXTURE = "tests/fixtures/variables/today.env"
 REGISTRY_GO = "products/catalyst/bootstrap/api/internal/lifecycle/network_registry.go"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
@@ -196,24 +196,10 @@ def sources(region_values):
 
 
 def boot_kustomization():
-    """The Kustomization bootstrap-kit of the boot template, as YAML."""
-    with open(os.path.join(ROOT, TEMPLATE)) as f:
-        lines = f.read().split("\n")
-    hits = [i for i, l in enumerate(lines) if l.strip() == "name: bootstrap-kit"]
-    blocks = []
-    for i in hits:
-        start = next((j for j in range(i, -1, -1) if lines[j].strip().startswith("apiVersion: ")), None)
-        end = next((j for j in range(i, len(lines)) if lines[j].strip() == "---"), len(lines))
-        if start is None or not lines[start].strip().startswith("apiVersion: kustomize.toolkit.fluxcd.io/"):
-            continue
-        block = lines[start:end]
-        if any("%{" in l or "${" in l for l in block):
-            raise CannotJudge("the Kustomization bootstrap-kit of %s holds a template expression" % TEMPLATE)
-        indent = len(lines[start]) - len(lines[start].lstrip())
-        blocks.append(yaml.safe_load("\n".join(l[indent:] for l in block)))
-    blocks = [b for b in blocks if b.get("kind") == "Kustomization"]
+    """The Kustomization bootstrap-kit, a child of the root Kustomization of first boot (SOV-154), as YAML."""
+    blocks = [d for d in load(BOOT) if d.get("kind") == "Kustomization" and (d.get("metadata") or {}).get("name") == "bootstrap-kit"]
     if len(blocks) != 1:
-        raise CannotJudge("%s defines %d Kustomizations bootstrap-kit" % (TEMPLATE, len(blocks)))
+        raise CannotJudge("%s defines %d Kustomizations bootstrap-kit" % (BOOT, len(blocks)))
     return blocks[0]
 
 
@@ -311,7 +297,7 @@ def main():
         return 1
     bspec = boot.get("spec") or {}
     check(bspec.get("path") == "./" + KIT and (bspec.get("postBuild") or {}).get("substituteFrom") == [{"kind": "ConfigMap", "name": "sovereign-variables"}],
-          "F1 the boot template's Kustomization bootstrap-kit applies ./%s and substitutes from the ConfigMap sovereign-variables" % KIT)
+          "F1 the root's child Kustomization bootstrap-kit applies ./%s and substitutes from the ConfigMap sovereign-variables" % KIT)
     primary = env(FIXTURE)
     follower = dict(primary, SOVEREIGN_REGION_ROLE="secondary", SECONDARY_HR_SUSPEND="true", SOVEREIGN_REGION_ID="secondary")
     for region, region_values in (("primary", primary), ("follower", follower)):

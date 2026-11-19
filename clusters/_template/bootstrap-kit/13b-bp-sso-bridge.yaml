@@ -54,6 +54,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "13b"
+    catalyst.openova.io/ring: foundation
 spec:
   test:
     enable: true

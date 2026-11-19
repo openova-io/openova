@@ -27,6 +27,7 @@ on:
       - 'scripts/tests/render_slot_placement_hostbridge_test.py'
       - 'scripts/tests/test-kit-flux-substitution.py'
       - 'scripts/tests/test-sovereign-object-kit.py'
+      - 'scripts/tests/test_ring_switch.sh'
       - 'tests/fixtures/variables/today.env'
       - 'products/catalyst/bootstrap/api/internal/lifecycle/network_registry.go'
       - 'scripts/audit-placement-conformance.py'
@@ -52,6 +53,7 @@ on:
       - 'scripts/tests/render_slot_placement_hostbridge_test.py'
       - 'scripts/tests/test-kit-flux-substitution.py'
       - 'scripts/tests/test-sovereign-object-kit.py'
+      - 'scripts/tests/test_ring_switch.sh'
       - 'tests/fixtures/variables/today.env'
       - 'products/catalyst/bootstrap/api/internal/lifecycle/network_registry.go'
       - 'scripts/audit-placement-conformance.py'
@@ -405,6 +407,15 @@ jobs:
 
       - name: Run static validation
         run: go test -v -count=1
+
+      - name: Switching a ring off removes exactly its releases (SVC-220)
+        # Every ring of the kit except foundation and provider, rendered with
+        # kustomize v5.4.3 (the api of the pinned Flux); stops when the pinned
+        # Flux is not the one spike SVC-210 tested. Proves it can fail first.
+        working-directory: .
+        run: |
+          bash scripts/tests/test_ring_switch.sh --self-test
+          bash scripts/tests/test_ring_switch.sh
 
   kind-reconciliation:
     # Kind-cluster reconciliation: brings up kubernetes-in-docker, installs
