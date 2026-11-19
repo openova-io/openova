@@ -1,0 +1,46 @@
+# The workflows of the self-test of scripts/check-gate-parent-access.py, data and not Python: each
+# is read byte for byte from the line after its marker up to the next marker.
+--- # fixture GATE
+
+on:
+  workflow_dispatch: {}
+  workflow_call: {}
+  pull_request: {paths: [x]}
+  merge_group:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps: [{run: bash scripts/gate-parent-job.sh --self-test}]
+  outside:
+    runs-on: ubuntu-latest
+    steps: [{run: python3 scripts/gate-outside-dial.py dial x}]
+  live:
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    environment: gate
+    permissions: {contents: read, packages: write}
+    steps: [{run: bash scripts/gate-parent-job.sh run --mode live, env: {K: "${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}", GATE_RESOURCES: "${{ vars.GATE_PARENT_RESOURCES }}"}}]
+--- # fixture STANDING
+
+on:
+  workflow_dispatch: {}
+  pull_request: {}
+jobs:
+  regions:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: gate
+    permissions: {contents: read}
+    steps: [{run: bash scripts/gate-parent-job.sh run --mode regions}]
+  gate-1:
+    uses: ./.github/workflows/foundation-gate.yaml
+    secrets: inherit
+--- # fixture OTHER
+
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps: [{run: echo hi}]
