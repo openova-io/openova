@@ -491,7 +491,7 @@ data:
             else
               echo "[gitea-mirror] G75: severing upstream git tether (delete mirror-resync CronJob)"
               kubectl patch hr -n flux-system bp-self-sovereign-cutover \
-                --type=merge \
+                --type=merge --field-manager=catalyst-self-sovereign-cutover \
                 -p '{"spec":{"values":{"mirrorResync":{"enabled":false}}}}' 2>&1 || \
                 echo "[gitea-mirror] G75 WARN: HR patch failed (cronjob will recreate after delete unless chart conditional gates it)"
 

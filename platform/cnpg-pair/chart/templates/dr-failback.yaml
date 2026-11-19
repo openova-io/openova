@@ -130,7 +130,7 @@ applied once by cloud-init (kubectl-client-side-apply, never
 re-applied) — the catalyst-api substitute flip
 (SOVEREIGN_ENABLE_CNPG_PAIR, manager `catalyst-api`) is the live-
 proven precedent that such patches persist. Every write this actor
-makes uses --field-manager=dr-failback.
+makes uses --field-manager=catalyst-dr-failback.
 
 WHY A DEPLOYMENT, NOT A CronJob (#5157)
 ---------------------------------------
@@ -181,7 +181,7 @@ delete 23:20:50Z — and then the RE-CLONE ITSELF wedged, silently, for
      cluster-B copy 3h58m old), so the re-cloned cluster's new client
      leaf could never authenticate even after fix 1. preserve_pki now
      strips the ownerReferences from the three PKI Secrets
-     (--field-manager=dr-failback) before EVERY delete; CNPG adopts
+     (--field-manager=catalyst-dr-failback) before EVERY delete; CNPG adopts
      the surviving Secrets on re-create (BYO path) and the CA lineage
      region-B trusts stays unbroken.
   3. SILENT POST-DELETE ACTOR: the re-created CR is in the demoted
@@ -927,7 +927,7 @@ spec:
               mountPath: /tls/client
               readOnly: true
         # ── actor — demote (substitute) + bounded re-clone ────────────
-        # Every write carries --field-manager=dr-failback (survives the
+        # Every write carries --field-manager=catalyst-dr-failback (survives the
         # kustomize kubectl-manager cleanup — the #5245 root cause).
         # Each tick runs in a subshell; every step is guarded by
         # live-observed state, so the loop is idempotent and resumes
@@ -938,7 +938,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              FM="--field-manager=dr-failback"
+              FM="--field-manager=catalyst-dr-failback"
               echo "[dr-failback/actor] loop started (hold=${HOLD_SECONDS}s wedgeHold=${WEDGE_HOLD_SECONDS}s divergenceGrace=${DIVERGENCE_GRACE_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME} kustomization=${KS_NAMESPACE}/${KS_NAME})"
               # nudge <kind> <ns> <name> <marker> — rate-limited flux
               # reconcile request (reconcile.fluxcd.io/requestedAt).

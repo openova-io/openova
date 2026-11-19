@@ -274,7 +274,7 @@ data:
         # Step 1: stamp audit annotation on the object's metadata so
         # idempotency works regardless of whether the status patch
         # below races against a helm-controller reconcile.
-        kubectl annotate hr -n "$NS" "$NAME" --overwrite "stuck-hr-recovery.openova.io/auto-corrected-at=${NOW_ISO}" >/dev/null
+        kubectl annotate hr -n "$NS" "$NAME" --field-manager=catalyst-helm-release-stuck-recovery --overwrite "stuck-hr-recovery.openova.io/auto-corrected-at=${NOW_ISO}" >/dev/null
         # Step 2: patch the status subresource. We use a JSON-merge
         # patch on the entire status object replacing only conditions
         # — the helm-controller's next reconcile will re-render the
@@ -291,7 +291,7 @@ data:
         # emptyDir mount) so multi-line apiserver errors survive intact.
         PATCH_BODY='{"status":{"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"auto-corrected from deployed-but-unknown-Ready by stuck-hr-recovery (TBD-A66)","lastTransitionTime":"'"$NOW_ISO"'"}]}}'
         PATCH_ERR_FILE="$(mktemp /tmp/a66-patch-err.XXXXXX)"
-        if kubectl patch hr -n "$NS" "$NAME" --subresource=status --type=merge -p "$PATCH_BODY" >/dev/null 2>"$PATCH_ERR_FILE"; then
+        if kubectl patch hr -n "$NS" "$NAME" --field-manager=catalyst-helm-release-stuck-recovery --subresource=status --type=merge -p "$PATCH_BODY" >/dev/null 2>"$PATCH_ERR_FILE"; then
           echo "[A66] HR $NS/$NAME patched to Ready=True"
         else
           PATCH_ERR="$(tr '\n' ' ' <"$PATCH_ERR_FILE")"
@@ -301,7 +301,7 @@ data:
           # here too — if annotation rollback fails the operator needs
           # to know (a stuck idempotency annotation would mask repeat
           # patch attempts in the next CronJob run).
-          if ! kubectl annotate hr -n "$NS" "$NAME" "stuck-hr-recovery.openova.io/auto-corrected-at-" >/dev/null 2>>"$PATCH_ERR_FILE"; then
+          if ! kubectl annotate hr -n "$NS" "$NAME" --field-manager=catalyst-helm-release-stuck-recovery "stuck-hr-recovery.openova.io/auto-corrected-at-" >/dev/null 2>>"$PATCH_ERR_FILE"; then
             ROLLBACK_ERR="$(tail -1 "$PATCH_ERR_FILE" 2>/dev/null || true)"
             echo "[A66] HR $NS/$NAME annotation rollback also failed: ${ROLLBACK_ERR:-<no stderr captured>}"
           fi
@@ -332,9 +332,9 @@ data:
       fi
 
       echo "RECOVER $NS/$NAME (Ready=Unknown for ${AGE}s, helm secret $LATEST_SECRET status=deployed) — toggling spec.suspend (issue #925 branch)"
-      kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":true}}' >/dev/null
+      kubectl patch hr -n "$NS" "$NAME" --field-manager=catalyst-helm-release-stuck-recovery --type=merge -p '{"spec":{"suspend":true}}' >/dev/null
       sleep 5
-      kubectl patch hr -n "$NS" "$NAME" --type=merge -p '{"spec":{"suspend":false}}' >/dev/null
+      kubectl patch hr -n "$NS" "$NAME" --field-manager=catalyst-helm-release-stuck-recovery --type=merge -p '{"spec":{"suspend":false}}' >/dev/null
       echo "RECOVERED $NS/$NAME (issue #925 branch)"
     done
 

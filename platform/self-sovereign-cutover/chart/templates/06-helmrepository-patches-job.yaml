@@ -2252,7 +2252,7 @@ data:
             else
               merge_patch=$(printf '{"spec":{"values":{"catalog":{"helmRepository":{"url":"%s"}}}}}' "${local_prefix}")
               if kubectl patch helmrelease bp-catalyst-platform \
-                  -n "${HELMREPO_NAMESPACE}" \
+                  -n "${HELMREPO_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
                   --type=merge --patch "${merge_patch}" >/dev/null 2>&1; then
                 echo "[helmrepository-patches] Phase-1.6 OK: bp-catalyst-platform spec.values.catalog.helmRepository.url -> ${local_prefix}"
                 {{- /*
@@ -2261,7 +2261,7 @@ data:
                  step-08's window opens.
                 */}}
                 kubectl annotate --overwrite helmrelease bp-catalyst-platform \
-                  -n "${HELMREPO_NAMESPACE}" \
+                  -n "${HELMREPO_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
               else
                 echo "[helmrepository-patches] Phase-1.6 FAIL: kubectl patch helmrelease bp-catalyst-platform failed (continuing — phase-2 git push is the durable fix)" >&2
