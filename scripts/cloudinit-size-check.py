@@ -1,39 +1,29 @@
 #!/usr/bin/env python3
 """cloudinit-size-check.py - the worst-case control-plane and worker user data of a provider module.
 
-Called by scripts/cloudinit-size-check.sh (#7893). It renders the user data a
-real installation sends to the cloud API, with the longest values a real
-installation can carry, and prints one line per surface:
+Called by scripts/cloudinit-size-check.sh (#7893). It renders the user data a real installation sends to the cloud
+API, with the longest values a real installation can carry, and prints one line per surface: <surface>\t<bytes>\t<limit>.
 
-    <surface>\t<bytes>\t<limit>
+How the render is made. The provider module's own expressions are used, not a copy of them: this program reads
+infra/providers/<p>/main.tf, takes the locals that build the user data (the module's user_data_worst_case.py names
+them) together with every local they read, and writes them into a throwaway OpenTofu configuration beside a verbatim
+copy of the module's variables.tf. Resource attributes the locals read (an address, a random_password result, a
+network name) and the outputs of the seal hook (seal_hook(): per region a 16-hex key id and a 32-byte key) become
+values of the local `res`, and a few locals derived from resources become stand-ins. `tofu apply` of that
+configuration (no provider, no network, nothing is created) evaluates the module's own text, so a change to main.tf
+is measured as it is written, and a reference this program does not know stops it with an error instead of measuring
+something else. The variables pass through the module's own validation rules, so a value longer than a rule allows
+stops the render too.
 
-How the render is made. The provider module's own expressions are used, not a
-copy of them: this program reads infra/providers/<p>/main.tf, takes the
-locals that build the user data (the module's user_data_worst_case.py names
-them) together with every local they read, and writes them into a throwaway
-OpenTofu configuration beside a verbatim copy of the module's variables.tf.
-Resource attributes the locals read (an address, a random_password result, a
-network name) become values of the local `res`, and a few locals derived from
-resources become stand-ins. `tofu apply` of that configuration (no provider,
-no network, nothing is created) evaluates the module's own text, so a change
-to main.tf is measured as it is written, and a reference this program does
-not know stops it with an error instead of measuring something else. The
-variables pass through the module's own validation rules, so a value longer
-than a rule allows stops the render too.
-
-The worst-case values: the lengths every provider shares are below, the rest
-are in infra/providers/<p>/user_data_worst_case.py; each says what its length
-stands for and where that length comes from. The cloud's user-data limit
-stands only in the pack's profile.yaml (spec.bootstrap.userDataLimitBytes):
-this program reads it and calls worst_case(c, limit), and a worst-case file
-holds a surface lower only by a precondition of its module. Every token and
-key is a deterministic filler of the right length and alphabet (filler()),
-never a real secret.
+The worst-case values: the lengths every provider shares are below, the rest are in
+infra/providers/<p>/user_data_worst_case.py; each says what its length stands for and where that length comes from.
+The cloud's user-data limit stands only in the pack's profile.yaml (spec.bootstrap.userDataLimitBytes): this program
+reads it and calls worst_case(c, limit), and a worst-case file holds a surface lower only by a precondition of its
+module. Every token and key is a deterministic filler of the right length and alphabet (filler()), never a secret.
 
 Usage: cloudinit-size-check.py <provider> [--dump DIR] | --write-fixtures | --check-profiles | --self-test
---check-profiles compares each pack's profile.yaml limit with its worst-case
-file (check_profiles below; a render runs it first for its provider), and
---self-test proves that each rule of it can fail. Both need python3 only.
+--check-profiles compares each pack's profile.yaml limit with its worst-case file (check_profiles below; a render
+runs it first for its provider), and --self-test proves that each rule of it can fail. Both need python3 only.
 Needs: tofu (TOFU_BIN), python3. No provider, no network, no cloud account.
 """
 import base64
@@ -201,6 +191,15 @@ ORG_POOLS = ["omani.homes", "omani.rest", "omani.trade"]
 # Provider API CIDRs of the step-08 deny-egress allow-list: four /24s of the longest form.
 PROVIDER_API_CIDRS = [f"{ipv4('cidr' + str(i)).rsplit('.', 1)[0]}.0/24" for i in range(4)]
 SSH_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI" + filler("ssh", 43, ALNUM) + " sovereign-admin"
+
+
+def seal_hook(provider, keys):
+    """Stand-in outputs of the pack's seal hook (contract C8): kind and volume_device as its seal/main.tf states them."""
+    src, ids = open(os.path.join(REPO, "infra", "providers", provider, "seal", "main.tf")).read(), {k: filler("seal-id-" + k, 16, HEX) for k in keys}
+    return dict({n: re.search(r'output "%s" \{ value = "([^"]*)" \}' % n, src).group(1) for n in ("kind", "volume_device")},
+                stanza_by_region={k: 'seal "static" {\n  current_key_id = "%s"\n  current_key    = "file:///openbao/seal/openbao-seal-%s.key"\n}\n' % (ids[k], ids[k]) for k in keys},
+                node_files_by_region={k: [{"path": "/var/lib/catalyst/seal/openbao-seal-%s.key" % ids[k], "owner": "100:1000", "permissions": "0400",
+                                           "content_b64": base64.b64encode(filler("seal-" + k, 32, ALNUM).encode()).decode()}] for k in keys})
 
 
 # ── The provider modules ─────────────────────────────────────────────────────
@@ -486,6 +485,7 @@ def render(provider, dump=None):
     pdir = os.path.join(REPO, "infra", "providers", provider)
     src = open(os.path.join(pdir, "main.tf")).read()
     variables, res, standins, roots, surfaces = provider_module(provider).worst_case(sys.modules[__name__], profile_limit(provider))
+    res = dict(res, module={"seal": seal_hook(provider, res["random_password"]["k3s_server_token"])})  # module.seal of main.tf
     locals_ = module_locals(src)
     needed, todo = [], list(roots)
     while todo:

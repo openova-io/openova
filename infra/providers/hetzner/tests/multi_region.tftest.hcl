@@ -134,6 +134,18 @@ override_resource {
   }
 }
 
+# SEC-152: the control-plane cloud-init carries the seal key of the seal
+# hook (module.seal, contract C8). Its random_bytes are unknown under
+# `command = plan` too; this override fixes the key to 32 known bytes, so the
+# key id of every region is 493ee6f33a535b93 (the first 16 hex characters of
+# the SHA-256 of the base64 text).
+override_resource {
+  target = module.seal.random_bytes.seal
+  values = {
+    base64 = "dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g="
+  }
+}
+
 # ── Variables shared across scenarios ─────────────────────────────────────
 
 variables {
@@ -1199,5 +1211,53 @@ run "seal_hook_is_called_with_the_region_keys" {
   assert {
     condition     = module.seal.volume_device == ""
     error_message = "SEC-150: this pack has no separate seal volume, so the hook's volume_device must be empty."
+  }
+}
+
+# ── SEC-152: the control-plane cloud-init of each region writes the seal key ──
+# Contract C8, actions 1, 3 and 4: the primary and the secondary control
+# plane each stage the region's key file under /run and install it under
+# /var/lib/catalyst/seal before the k3s install, and write the seal profile.
+# This pack names no seal volume (volume_device ""), so no volume step
+# (exit 96) is rendered. The key is the override at the head of this file.
+run "seal_key_and_profile_in_each_control_plane" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "hel1"
+        cloud_region       = "hel1"
+        role               = "primary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
+      },
+      {
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
+      },
+    ]
+    region                = "hel1"
+    object_storage_region = "hel1"
+  }
+
+  assert {
+    condition = alltrue([for ud in concat([local.control_plane_cloud_init], values(local.secondary_region_cloud_init)) :
+      strcontains(ud, "\n  - path: /run/catalyst-seal-stage/openbao-seal-493ee6f33a535b93.key\n    permissions: '0400'\n    encoding: b64\n    content: dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g=\n")
+      && strcontains(ud, "\n    install -m 0400 -o 100 -g 1000 /run/catalyst-seal-stage/openbao-seal-493ee6f33a535b93.key /var/lib/catalyst/seal/openbao-seal-493ee6f33a535b93.key\n")
+      && strcontains(ud, "\n        kind: static-node-file\n        stanza: |\n          seal \"static\" {\n            current_key_id = \"493ee6f33a535b93\"\n")
+      && !strcontains(ud, "exit 96")
+    ]) && length(local.secondary_region_cloud_init) == 1
+    error_message = "SEC-152: the control-plane cloud-init of each region must stage the region's seal key under /run (0400, b64), install it at /var/lib/catalyst/seal/openbao-seal-<key id>.key, write the seal profile with the hook's kind and stanza, and render no volume step."
+  }
+
+  assert {
+    condition     = alltrue([for ud in concat([local.worker_cloud_init], values(local.secondary_region_worker_cloud_init)) : !strcontains(ud, "dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g=") && !strcontains(ud, "catalyst-seal")])
+    error_message = "SEC-152: a worker's cloud-init must not carry the seal key or a seal step; contract C8 writes the key on control-plane nodes only."
   }
 }

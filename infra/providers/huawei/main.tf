@@ -1263,6 +1263,10 @@ locals {
       k3s_version           = var.k3s_version
       k3s_server_token      = random_password.k3s_server_token[r.code].result
       k3s_agent_token       = random_password.k3s_agent_token[r.code].result
+      seal_kind             = module.seal.kind
+      seal_stanza           = module.seal.stanza_by_region[r.code]
+      seal_node_files       = module.seal.node_files_by_region[r.code]
+      seal_volume_device    = module.seal.volume_device
       # Per-CP region's own subnet first-IP.
       cp_private_ip = cidrhost(local.region_subnet_cidr[r.code], 2)
       # #3504 (Refs #3375): per-region pod/service CIDRs (was hardcoded
@@ -1587,13 +1591,34 @@ resource "huaweicloud_compute_instance" "control_plane" {
   system_disk_type = "SSD"
   system_disk_size = 40
 
+  # SEC-152, contract C8 (docs/contracts/c8-seal-provider.md): the seal
+  # volume. The seal hook names the device the node sees it as
+  # (module.seal.volume_device, /dev/vdb); the first-boot template formats it
+  # and mounts it at /var/lib/catalyst/seal, where the OpenBao seal key rests,
+  # so a copy of the system disk alone carries no key. One data disk of the
+  # smallest size EVS sells (10 GB), of the system disk's type. It is deleted
+  # with the instance: a wipe leaves no disk that holds a seal key.
+  dynamic "data_disks" {
+    for_each = module.seal.volume_device == "" ? [] : [module.seal.volume_device]
+    content {
+      type = "SSD"
+      size = 10
+    }
+  }
+  delete_disks_on_termination = true
+
   # HCS ECS read-back occasionally returns synthesised values for tags
   # + metadata.os_type + system_disk_id; ignore so plan stays clean.
   # Wave 5.144: also ignore `name` so an ACTIVE CP doesn't get
   # destroyed when the retry-loop bumps var.retry_attempt and
   # changes its formula-computed name.
+  # SEC-152: data_disks is a replace-on-change field of the huaweicloud
+  # provider (ForceNew in resource_huaweicloud_compute_instance.go, v1.91.0)
+  # and delete_disks_on_termination is not set on a node made before it, so
+  # both are ignored after creation: a re-apply of an existing deployment
+  # plans no node replacement and no update. A new node gets both at create.
   lifecycle {
-    ignore_changes = [tags, metadata, name, user_data]
+    ignore_changes = [tags, metadata, name, user_data, data_disks, delete_disks_on_termination]
   }
 }
 

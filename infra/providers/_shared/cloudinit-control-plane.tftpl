@@ -32,6 +32,9 @@
 #   - render_region_kustomization  the per-region Kustomization is rendered
 #   - gateway_host_network       the Cilium gateway binds node:443/:80
 #   - provider_overlay_path      the pack's overlay folder in Git
+#   - seal_kind, seal_stanza, seal_node_files, seal_volume_device
+#                                the outputs of the pack's seal hook for this
+#                                region (contract C8, SEC-152)
 #
 # CRITICAL STRUCTURAL INVARIANT (#3129 fix): the kubeconfig PUT-back runs
 # RIGHT AFTER the k3s apiserver is healthy and BEFORE gateway-api/cilium/flux
@@ -378,6 +381,36 @@ write_files:
       type: Opaque
       data:
         public.jwk: ${base64encode(handover_jwt_public_key)}
+
+  # ── OpenBao seal: key files and seal profile (contract C8, SEC-152) ───
+  # docs/contracts/c8-seal-provider.md, actions 1 and 4. The four inputs
+  # seal_kind, seal_stanza, seal_node_files and seal_volume_device are the
+  # outputs of the pack's seal hook for this region. Why here and not in Flux
+  # or OpenBao: the key opens OpenBao, so it must be on the node before
+  # OpenBao's first start, and no secret store exists yet to deliver it.
+  # Action 1: each node file is staged under /run (memory-backed, so the key
+  # never touches the system disk); the runcmd step before the k3s install
+  # moves it to its path under /var/lib/catalyst/seal.
+%{ for f in seal_node_files ~}
+  - path: /run/catalyst-seal-stage/${basename(f.path)}
+    permissions: '0400'
+    encoding: b64
+    content: ${f.content_b64}
+%{ endfor ~}
+  # Action 4: ConfigMap flux-system/sovereign-seal-profile, applied with the
+  # bootstrap Secrets below. It holds no key bytes: the stanza names the key
+  # file, which the bp-openbao chart mounts from /var/lib/catalyst/seal.
+  - path: /var/lib/catalyst/sovereign-seal-profile.yaml
+    content: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sovereign-seal-profile
+        namespace: flux-system
+      data:
+        kind: ${seal_kind}
+        stanza: |
+          ${indent(10, chomp(seal_stanza))}
 
   # ── Cilium Helm values (one structured file; same on every cloud) ─────
   # kubeProxyReplacement + gateway-api + envoy + wireguard node-encryption.
@@ -1019,6 +1052,28 @@ runcmd:
 %{ endif ~}
     done
 
+  # ── OpenBao seal: volume and key install (contract C8, SEC-152) ───────
+  # Actions 2 and 3 of docs/contracts/c8-seal-provider.md, before the k3s
+  # install. Action 2 only when the pack names a seal volume: a missing
+  # device stops the boot with code 96 (reserved for this step, checked by
+  # scripts/check-cloudinit-exit-codes.py) and k3s never starts; an empty
+  # device is formatted once, labelled catalyst-seal and mounted at
+  # /var/lib/catalyst/seal through /etc/fstab. Action 3: the directory gets
+  # mode 0700 and the owner of the OpenBao container (100:1000), each staged
+  # node file is installed at its path, and the stage under /run is removed.
+  - |
+%{ if seal_volume_device != "" ~}
+    [ -b ${seal_volume_device} ] || exit 96
+    blkid ${seal_volume_device} >/dev/null 2>&1 || mkfs.ext4 -q -L catalyst-seal ${seal_volume_device}
+    grep -q catalyst-seal /etc/fstab || echo 'LABEL=catalyst-seal /var/lib/catalyst/seal ext4 defaults,nodev,nosuid,noexec 0 2' >>/etc/fstab
+    mkdir -p /var/lib/catalyst/seal && mount /var/lib/catalyst/seal
+%{ endif ~}
+    install -d -m 0700 -o 100 -g 1000 /var/lib/catalyst/seal
+%{ for f in seal_node_files ~}
+    install -m ${f.permissions} -o ${split(":", f.owner)[0]} -g ${split(":", f.owner)[1]} /run/catalyst-seal-stage/${basename(f.path)} ${f.path}
+%{ endfor ~}
+    rm -rf /run/catalyst-seal-stage
+
   # ── Install k3s server ────────────────────────────────────────────────
   # NODE_EXTERNAL_IP comes from the provider-injected discovery command:
   #   Hetzner → curl metadata 169.254.169.254/hetzner/v1/.../public-ipv4
@@ -1535,11 +1590,13 @@ runcmd:
   # and the files stay. The template creates
   # no recovery seed for OpenBao: the bp-openbao chart creates that Secret
   # when it is absent (platform/openbao/chart/templates/recovery-seed-bootstrap.yaml).
+  # SEC-152: the same apply creates ConfigMap flux-system/sovereign-seal-profile
+  # (contract C8, action 4). It holds no key bytes, so its file is not shredded.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
     cd /var/lib/catalyst
-    kubectl apply --server-side -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml
+    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml
     (exit $?)
 
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and

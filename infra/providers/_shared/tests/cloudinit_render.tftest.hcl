@@ -221,6 +221,29 @@ run "hetzner_render_is_valid" {
     condition     = length(regexall("\n      sh /var/lib/catalyst/oci_fetch k3s-install v1\\.31\\.4-k3s1 /var/lib/catalyst/k3s-install\\.sh https://[^ ]+ \\\\\n", output.rendered_cloud_init)) == 1 && length(regexall("; do sh /var/lib/catalyst/oci_fetch gateway-api-experimental-install v1\\.1\\.0 /var/lib/catalyst/gwapi\\.yaml https://[^ ]+/v1\\.1\\.0/experimental-install\\.yaml && kubectl apply -f /var/lib/catalyst/gwapi\\.yaml && break;", output.rendered_cloud_init)) == 1 && length(regexall("\n     sh /var/lib/catalyst/oci_fetch flux-install v2\\.4\\.0 /var/lib/catalyst/flux\\.yaml https://[^ ]+/v2\\.4\\.0/install\\.yaml && kubectl apply -f /var/lib/catalyst/flux\\.yaml \\|\\| true\n", output.rendered_cloud_init)) == 1 && length(regexall("sh /var/lib/catalyst/oci_fetch ", output.rendered_cloud_init)) == 3 && !strcontains(output.rendered_cloud_init, "curl -fsSL --max-time 60 https://") && !strcontains(output.rendered_cloud_init, "kubectl apply -f https://") && !strcontains(output.rendered_cloud_init, "/install.yaml | kubectl apply")
     error_message = "SOV-142: the k3s installer, the Gateway API manifest and the Flux install manifest must each be fetched with oci_fetch, once, with the upstream address as the fallback, and none of them directly."
   }
+
+  # SEC-152 — the four actions of contract C8 (docs/contracts/c8-seal-provider.md).
+  # The hetzner fixture names no seal volume. Action 1: the node file is staged
+  # under /run with mode 0400 and encoding b64 and decodes to the key. Action 3:
+  # the item before the k3s install starts with the seal directory, installs
+  # the key at its path and removes the stage. Action 2 is absent: no exit 96,
+  # no fstab line. Action 4: the seal profile is ConfigMap
+  # flux-system/sovereign-seal-profile with the hook's kind and stanza, applied
+  # with the bootstrap Secrets and not shredded.
+  assert {
+    condition     = output.seal.key == "render-test-seal-key-32-bytes-ok" && strcontains(output.rendered_cloud_init, "\n  - path: /run/catalyst-seal-stage/openbao-seal-0123456789abcdef.key\n    permissions: '0400'\n    encoding: b64\n")
+    error_message = "SEC-152: the seal key file must be written to /run/catalyst-seal-stage/openbao-seal-0123456789abcdef.key, mode 0400, encoding b64, and decode to the key of the hook."
+  }
+
+  assert {
+    condition     = length(regexall("(?s)\n  - \\|\n    install -d -m 0700 -o 100 -g 1000 /var/lib/catalyst/seal\n    install -m 0400 -o 100 -g 1000 /run/catalyst-seal-stage/openbao-seal-0123456789abcdef\\.key /var/lib/catalyst/seal/openbao-seal-0123456789abcdef\\.key\n    rm -rf /run/catalyst-seal-stage\n.*K3S_TOKEN=", output.rendered_cloud_init)) == 1 && !strcontains(output.rendered_cloud_init, "exit 96") && !strcontains(output.rendered_cloud_init, "catalyst-seal /etc/fstab")
+    error_message = "SEC-152: without a seal volume, the runcmd item before the k3s install must create /var/lib/catalyst/seal (0700, 100:1000), install the staged key at its path and remove the stage, with no volume step."
+  }
+
+  assert {
+    condition     = jsonencode(output.seal.profile) == jsonencode({ apiVersion = "v1", kind = "ConfigMap", metadata = { name = "sovereign-seal-profile", namespace = "flux-system" }, data = { kind = "static-node-file", stanza = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n" } }) && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ") && length(regexall("sovereign-seal-profile\\.yaml", output.rendered_cloud_init)) == 2
+    error_message = "SEC-152: /var/lib/catalyst/sovereign-seal-profile.yaml must be ConfigMap flux-system/sovereign-seal-profile with data.kind and data.stanza of the hook, applied by the server-side apply of the bootstrap Secrets and not shredded."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -411,6 +434,22 @@ run "huawei_render_is_valid" {
   assert {
     condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/") && !strcontains(output.rendered_cloud_init, "enable --now unattended-upgrades") && strcontains(output.rendered_cloud_init, "\n  - unattended-upgrades\n")
     error_message = "#7922 (huawei branch): the control-plane cloud-init must write no unattended-upgrade configuration (no apt.conf.d file, no Automatic-Reboot) and must not enable the service itself; bp-kured's node-patch-config owns the configuration. The package unattended-upgrades must still be installed."
+  }
+
+  # SEC-152 (huawei branch) — contract C8, action 2: this fixture names the seal
+  # volume /dev/vdb. The item before the k3s install stops with code 96 when
+  # the device is missing, formats an empty device once with the label
+  # catalyst-seal, adds the fstab line once and mounts it, then installs the
+  # key (action 3). The key file and the seal profile are written as in the
+  # hetzner branch.
+  assert {
+    condition     = length(regexall("(?s)\n  - \\|\n    \\[ -b /dev/vdb \\] \\|\\| exit 96\n    blkid /dev/vdb >/dev/null 2>&1 \\|\\| mkfs\\.ext4 -q -L catalyst-seal /dev/vdb\n    grep -q catalyst-seal /etc/fstab \\|\\| echo 'LABEL=catalyst-seal /var/lib/catalyst/seal ext4 defaults,nodev,nosuid,noexec 0 2' >>/etc/fstab\n    mkdir -p /var/lib/catalyst/seal && mount /var/lib/catalyst/seal\n    install -d -m 0700 -o 100 -g 1000 /var/lib/catalyst/seal\n    install -m 0400 -o 100 -g 1000 /run/catalyst-seal-stage/openbao-seal-0123456789abcdef\\.key /var/lib/catalyst/seal/openbao-seal-0123456789abcdef\\.key\n    rm -rf /run/catalyst-seal-stage\n.*K3S_TOKEN=", output.rendered_cloud_init)) == 1 && length(regexall("exit 96", output.rendered_cloud_init)) == 1
+    error_message = "SEC-152 (huawei branch): with the seal volume /dev/vdb, the runcmd item before the k3s install must check the device (exit 96), format it once (label catalyst-seal), add the fstab line once, mount it at /var/lib/catalyst/seal, then install the staged key and remove the stage."
+  }
+
+  assert {
+    condition     = output.seal.key == "render-test-seal-key-32-bytes-ok" && output.seal.profile.data.kind == "static-node-file" && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ")
+    error_message = "SEC-152 (huawei branch): the seal key file and the seal profile must be written and applied as in the hetzner branch."
   }
 }
 

@@ -145,6 +145,10 @@ locals {
     k3s_version           = var.k3s_version
     k3s_server_token      = random_password.k3s_server_token[r.code].result
     k3s_agent_token       = random_password.k3s_agent_token[r.code].result
+    seal_kind             = module.seal.kind
+    seal_stanza           = module.seal.stanza_by_region[r.code]
+    seal_node_files       = module.seal.node_files_by_region[r.code]
+    seal_volume_device    = module.seal.volume_device
     cp_private_ip         = local.control_plane_ip[r.code]
     cluster_cidr          = local.region_pod_cidr[r.code]
     pod_supernet          = local.pod_supernet

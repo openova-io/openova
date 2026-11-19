@@ -149,7 +149,7 @@ The rules. A violation prints one line that starts with the rule name.
 
 ### 4. Shared bootstrap template (cloud-init contract)
 
-Every module renders the control-plane boot data with the one shared template, `infra/providers/_shared/cloudinit-control-plane.tftpl`. The template has no test on the provider name. Each module passes these 14 inputs. The first eight exist today. The last six are new: later work packages of area CLD add them.
+Every module renders the control-plane boot data with the one shared template, `infra/providers/_shared/cloudinit-control-plane.tftpl`. The template has no test on the provider name. Each module passes these 18 inputs. The first eight exist today. The next six are new: later work packages of area CLD add them. The last four are the outputs of the module's seal hook for the region of the render (contract C8, `docs/contracts/c8-seal-provider.md`; SEC-152).
 
 | Input | Type | Meaning |
 |---|---|---|
@@ -167,6 +167,10 @@ Every module renders the control-plane boot data with the one shared template, `
 | `fail_mark_cmd` | string | New. Command prefix that records a failure marker. The template appends the marker name |
 | `render_region_kustomization` | bool | New. `false` only where the size limit of the boot data forbids it |
 | `gateway_host_network` | bool | New. `true` when the gateway is served on host ports of the nodes |
+| `seal_kind` | string | `module.seal.kind` |
+| `seal_stanza` | string | `module.seal.stanza_by_region[<region key>]` |
+| `seal_node_files` | list of objects | `module.seal.node_files_by_region[<region key>]` (sensitive) |
+| `seal_volume_device` | string | `module.seal.volume_device` |
 
 ### 5. Module rules
 
@@ -174,7 +178,7 @@ Every module renders the control-plane boot data with the one shared template, `
 - **No node port.** A front door reaches a node on a host port: 443 and 80, and 53 (TCP and UDP) for the DNS front end. A module never declares a load-balancer target or a firewall rule in the range 30000 to 32767.
 - **One control-plane node per region.** A second or third control-plane node per region is a change of the contract, with a work package of its own.
 - **Random cluster tokens.** Every module declares `random_password.k3s_server_token` and `random_password.k3s_agent_token`, each with `for_each` over the region keys, `length = 64` and `special = false`. It passes the server token to the shared template as `k3s_server_token` and the agent token as `k3s_agent_token`. Its workers join with the agent token. No token is derived from an identifier such as the project or the domain name.
-- **Seal hook.** Every module carries the seal hook of contract C8 (`docs/contracts/c8-seal-provider.md`) as the child module `infra/providers/<name>/seal/main.tf`. The file is the text of the contract; only the value of its output `volume_device` differs per pack: `"/dev/vdb"` in the pack `huawei`, `""` in the packs `hetzner` and `local`. The module calls the hook as `module "seal"` with `source = "./seal"`, with `region_keys` set to the region keys of its k3s tokens and `seal_key_generation` set to its own variable `seal_key_generation` (number, default `1`), and it emits the hook's `kind` as the output `seal_kind`. The variable `seal_key_generation` is the input of the same name of contract C8. It is in none of the three classes of variable at the head of this document: the provisioning engine does not write it and no adapter supplies it, so its default `1` applies. Raising it is a key rotation, and contract C8 leaves the rotation form of the hook to the first work package that performs a rotation. The provisioning engine copies the directory `seal` into the directory it runs OpenTofu in, and no other directory of the module: a module calls no other child module by a local path. Not done yet: no module passes the hook's outputs to the shared template, and the pack `huawei` attaches no seal volume. The work package that makes the shared template write the node files adds both in one change.
+- **Seal hook.** Every module carries the seal hook of contract C8 (`docs/contracts/c8-seal-provider.md`) as the child module `infra/providers/<name>/seal/main.tf`. The file is the text of the contract; only the value of its output `volume_device` differs per pack: `"/dev/vdb"` in the pack `huawei`, `""` in the packs `hetzner` and `local`. The module calls the hook as `module "seal"` with `source = "./seal"`, with `region_keys` set to the region keys of its k3s tokens and `seal_key_generation` set to its own variable `seal_key_generation` (number, default `1`), and it emits the hook's `kind` as the output `seal_kind`. The variable `seal_key_generation` is the input of the same name of contract C8. It is in none of the three classes of variable at the head of this document: the provisioning engine does not write it and no adapter supplies it, so its default `1` applies. Raising it is a key rotation, and contract C8 leaves the rotation form of the hook to the first work package that performs a rotation. The provisioning engine copies the directory `seal` into the directory it runs OpenTofu in, and no other directory of the module: a module calls no other child module by a local path. Every call of the shared template passes the hook's outputs for its region as the four `seal_*` inputs of section 4 (SEC-152). When `volume_device` is not empty, each control-plane instance of the pack carries one data disk of the smallest size the cloud sells, deleted with the instance; in the pack `huawei` that is a 10 GB `SSD` disk, and `data_disks` and `delete_disks_on_termination` are in `lifecycle.ignore_changes`, because the provider replaces an instance when `data_disks` changes.
 
 ### 6. Conformance tests (added by CLD-090)
 
