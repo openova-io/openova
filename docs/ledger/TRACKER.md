@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T18:15:03Z` |
+| Last refreshed | `2026-11-19T19:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T18:17 | [#8382](https://github.com/openova-io/openova/pull/8382) | #7087 | docs(ledger): plan update |
 | 2026-11-19T18:10 | [#8380](https://github.com/openova-io/openova/pull/8380) | #8374 | fix(guards): the Python guard counts code and configuration, |
+| 2026-11-19T18:19 | [#8375](https://github.com/openova-io/openova/pull/8375) | #8364 | docs(ledger): result of the lab test AIP-250, the agent work |
+| 2026-11-19T18:38 | [#8374](https://github.com/openova-io/openova/pull/8374) | #8363 | fix(openova-mcp): every tool answer is redacted, made inert  |
 | 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
 | 2026-11-19T16:20 | [#8371](https://github.com/openova-io/openova/pull/8371) | #8365 | refactor(cloud-init): first boot applies one root Kustomizat |
 | 2026-11-19T16:27 | [#8370](https://github.com/openova-io/openova/pull/8370) | #8356 | refactor(kit): every kit release carries its ring label, the |
@@ -332,11 +335,8 @@ flowchart LR
 | 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
 | 2026-11-19T13:52 | [#8337](https://github.com/openova-io/openova/pull/8337) | #7087 | docs(ledger): plan update |
 | 2026-11-19T13:35 | [#8336](https://github.com/openova-io/openova/pull/8336) | #7087 | docs(ledger): plan update |
+| 2026-11-19T18:52 | [#8335](https://github.com/openova-io/openova/pull/8335) | #8334 | feat(cortex): query process with the realm token check, the  |
 | 2026-11-19T13:08 | [#8333](https://github.com/openova-io/openova/pull/8333) | #7087 | docs(ledger): plan update |
-| 2026-11-19T15:52 | [#8332](https://github.com/openova-io/openova/pull/8332) | #8333 | feat(guards): Python may only shrink, and no new Python file |
-| 2026-11-19T12:18 | [#8330](https://github.com/openova-io/openova/pull/8330) | #5400 | fix(auth): the sign-in broker's backchannel Service exists i |
-| 2026-11-19T13:40 | [#8329](https://github.com/openova-io/openova/pull/8329) | fix(org): an Organization created through the console reache |  |
-| 2026-11-19T11:16 | [#8328](https://github.com/openova-io/openova/pull/8328) | #8326 | docs(ledger): result of the lab test AIP-031, Organization-s |
 
 ---
 

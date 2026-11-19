@@ -107,6 +107,17 @@ Its tier is the `tier` claim capped at developer, so an agent never sees
 `create_application`. It never takes the `/whoami` fallback; agents use an
 instance in organization mode.
 
+## Tool answers are fitted and inert
+
+Every `tools/call` answer is the text of `Registry.Answer` (`internal/fit`):
+secrets are redacted (a compact JWT, a `Bearer` value of 16 or more characters,
+a private-key block), and every string is made inert (`[[` is broken with a
+zero-width space; a line that starts with `System:`, `Assistant:`, `User:` or
+`Tool result` is prefixed with `> `). Above 24,000 characters each list keeps
+its first and its newest entries with the entry
+`[... N of M entries dropped ...]`; the answer stays valid JSON and numbers keep
+their exact digits. `Registry.Call` still returns the plain value.
+
 ## Install path (bp-openova-mcp)
 
 `chart/` + `blueprint.yaml` (#5114, Refs #3988) package the standalone

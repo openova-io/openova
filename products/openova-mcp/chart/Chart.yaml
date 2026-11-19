@@ -108,7 +108,7 @@ type: application
 # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
 #   state the D4 contract (environmentRef / placement.regions resolved from
 #   objects, unknown refs 422; no "<org>-prod" / "primary").
-version: 0.1.10
+version: 0.1.11
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
 # reject an Org-scoped caller reaching a Sovereign-pinned instance instead
@@ -125,7 +125,9 @@ version: 0.1.10
 # and cannot back a Service.
 # 0.2.8 (AIP-150): the tool server accepts agent tokens, and the HTTP
 # transport has no fallback bearer.
-appVersion: "0.2.8"
+# 0.2.9 (AIP-151): every tool answer is redacted, made inert and fitted to
+# 24,000 characters.
+appVersion: "0.2.9"
 keywords:
   - mcp
   - agent

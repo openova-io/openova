@@ -10,6 +10,7 @@
       "platform/vllm/chart/templates/deployment.yaml": 1
     },
     "G-P4": {},
+    "G-P5": {},
     "G-P7": {
       "products/fingate/internal/api/unimplemented.txt": 34
     }
