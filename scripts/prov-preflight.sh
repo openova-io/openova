@@ -272,16 +272,67 @@ else bad "4. catalyst-api mid-roll — wait (a roll mid-prov ABANDONS it)"; fi
 #     mid_fire_abandons_prov). Gate on deployed==pinned so no roll can land during
 #     the prov: they diverge ONLY when a deploybot bump is merged but not yet
 #     reconciled onto the mothership.
-git fetch origin main --quiet 2>/dev/null || true
-_deployed_tag=$(kubectl -n catalyst get deploy catalyst-api \
-  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://')
-_pinned_tag=$(git show origin/main:products/catalyst/chart/values.yaml 2>/dev/null | python3 -c '
+#     The ref judged is the ref the fire installs: GITOPS_BRANCH, the variable
+#     scripts/sovereign-lifecycle.sh puts in the create body as gitopsBranch.
+#     Empty or main: judged against main, as above. A release candidate rc/<id>:
+#     the parent must run THAT candidate's catalyst-api image (it carries the
+#     OpenTofu provider modules the install applies), so the deployed tag must
+#     equal the candidate's pin, and main — which moves past the candidate many
+#     times a day — proves nothing about it. No roll can then land mid-install
+#     only if the Flux object that applies deploy/catalyst-api (named by its
+#     toolkit labels) is suspended, or main pins the same tag. A ref that cannot
+#     be fetched or a pin that cannot be read refuses (fail-closed).
+_pin_of() { # _pin_of <ref>: the catalyst-api tag pinned on origin/<ref>, empty when unreadable
+  git show "origin/$1:products/catalyst/chart/values.yaml" 2>/dev/null | python3 -c '
 import sys,yaml
 try:
     print((yaml.safe_load(sys.stdin) or {}).get("images",{}).get("catalystApi",{}).get("tag",""))
 except Exception:
-    print("")' 2>/dev/null)
-if [ -z "$_deployed_tag" ] || [ -z "$_pinned_tag" ]; then
+    print("")' 2>/dev/null
+}
+_ref="${GITOPS_BRANCH:-main}"
+git fetch origin main --quiet 2>/dev/null || true
+_deployed_tag=$(kubectl -n catalyst get deploy catalyst-api \
+  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://')
+_pinned_tag=$(_pin_of main)
+if [ "$_ref" != "main" ]; then
+  _ref_tag=""; _fetched=0
+  if git fetch origin --quiet "+refs/heads/${_ref}:refs/remotes/origin/${_ref}" 2>/dev/null; then
+    _fetched=1; _ref_tag=$(_pin_of "$_ref")
+  fi
+  # The Flux object that applies deploy/catalyst-api, from its toolkit labels:
+  # "<resource> <Kind> <namespace> <name>", empty when no label names one.
+  _delivery=$(kubectl -n catalyst get deploy catalyst-api -o json 2>/dev/null | python3 -c '
+import sys,json
+try:
+    labels=json.load(sys.stdin).get("metadata",{}).get("labels") or {}
+except Exception:
+    labels={}
+for res,kind,group in (("helmreleases","HelmRelease","helm.toolkit.fluxcd.io"),
+                       ("kustomizations","Kustomization","kustomize.toolkit.fluxcd.io")):
+    name,ns=labels.get(group+"/name"),labels.get(group+"/namespace")
+    if name and ns:
+        print(res+"."+group,kind,ns,name); break' 2>/dev/null)
+  read -r _dres _dkind _dns _dname <<<"${_delivery:-}"
+  _suspend=""
+  if [ -n "${_dname:-}" ]; then
+    _suspend=$(kubectl -n "$_dns" get "$_dres" "$_dname" -o jsonpath='{.spec.suspend}' 2>/dev/null)
+    _dnamed="its delivery ${_dkind} ${_dns}/${_dname}"
+  else _dnamed="no Flux object is named on deploy/catalyst-api (no helm/kustomize toolkit labels), so its delivery"; fi
+  if [ "$_fetched" != "1" ]; then
+    bad "4b. the ref ${_ref} the fire installs could not be fetched from origin — the parent cannot be judged against it; do not fire"
+  elif [ -z "$_deployed_tag" ] || [ -z "$_ref_tag" ]; then
+    bad "4b. could not read catalyst-api deployed/pinned tag of ${_ref} (deployed='${_deployed_tag}' pinned='${_ref_tag}', products/catalyst/chart/values.yaml images.catalystApi.tag) — verify the parent runs the ref's image before firing"
+  elif [ "$_deployed_tag" != "$_ref_tag" ]; then
+    bad "4b. catalyst-api DEPLOYED=${_deployed_tag} != PINNED on ${_ref}=${_ref_tag} — the install applies the provider modules of the image the parent runs. Roll the parent's catalyst-api to ${_ref_tag} + settle, THEN fire."
+  elif [ "$_suspend" = "true" ]; then
+    pass "4b. catalyst-api on the pin of ${_ref} (${_deployed_tag}) and ${_dnamed} is suspended — NO roll can land mid-prov (main pins '${_pinned_tag}')"
+  elif [ "$_deployed_tag" = "$_pinned_tag" ]; then
+    pass "4b. catalyst-api on the pin of ${_ref} (${_deployed_tag}), which main pins too — NO roll pending mid-prov"
+  else
+    bad "4b. catalyst-api on the pin of ${_ref} (${_deployed_tag}) but main pins '${_pinned_tag}' and ${_dnamed} is NOT suspended (suspend='${_suspend}') — Flux WILL roll it to main's pin mid-prov and ABANDON it (hw265). Suspend the delivery or wait until main pins ${_deployed_tag}, THEN fire."
+  fi
+elif [ -z "$_deployed_tag" ] || [ -z "$_pinned_tag" ]; then
   bad "4b. could not read catalyst-api deployed/pinned tag (deployed='${_deployed_tag}' pinned='${_pinned_tag}') — verify the mothership is on the pinned image before firing"
 elif [ "$_deployed_tag" = "$_pinned_tag" ]; then
   pass "4b. catalyst-api on the pinned image (${_deployed_tag}) — NO roll pending mid-prov"
