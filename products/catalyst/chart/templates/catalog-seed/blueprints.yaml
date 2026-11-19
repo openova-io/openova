@@ -3895,7 +3895,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.3
+  version: 0.2.4
   card:
     title: vCluster HelmRepository
     summary: Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover.
@@ -3913,7 +3913,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vcluster-helmrepo
-    version: 0.2.3
+    version: 0.2.4
   topology:
     supported: [singleton]
     defaults:
