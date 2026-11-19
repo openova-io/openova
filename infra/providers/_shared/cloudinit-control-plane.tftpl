@@ -1304,6 +1304,12 @@ runcmd:
   # readable by root only. Every reader of it here runs in cloud-init as
   # root, and the parent gets a ServiceAccount kubeconfig (SOV-140). Gate
   # check SEC-G02 proves the mode on every control-plane node.
+  # AIP-201: from k3s 1.35 on, and only then, the server line also turns on
+  # the feature gates ClusterTrustBundle, ClusterTrustBundleProjection and
+  # PodCertificateRequest on the API server, controller manager, scheduler
+  # and kubelet, and serves certificates.k8s.io/v1beta1. The gVisor runtime of
+  # agent runs needs these two APIs (lab test AIP-030). Below 1.35 a k3s server
+  # with the gates does not start, so the condition follows k3s_version.
   #
   # #3971 — `--disable=local-storage` FORBIDS the k3s local-path provisioner
   # entirely: it is NEVER installed on a fresh prov. local-path is ephemeral
@@ -1371,7 +1377,7 @@ runcmd:
     for i in 1 2 3 4 5; do
       sh /var/lib/catalyst/oci_fetch k3s-install ${replace(k3s_version, "+", "-")} /var/lib/catalyst/k3s-install.sh https://get.k3s.io \
         && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_server_token} \
-           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0600" \
+           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} %{ if tonumber(split(".", k3s_version)[1]) >= 35 }--kube-apiserver-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-apiserver-arg=runtime-config=certificates.k8s.io/v1beta1=true --kube-controller-manager-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-scheduler-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true %{ endif }--write-kubeconfig-mode=0600" \
            sh /var/lib/catalyst/k3s-install.sh \
         && break
       [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; ${fail_mark_cmd}k3s-install-FAILED||true; exit 88; }
