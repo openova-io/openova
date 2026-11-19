@@ -107,7 +107,7 @@ epics:
 - id: FND-150
   title: Self-conformance in the Sovereign
   wave: W1b
-  packages: [FND-156, FND-151, FND-153, FND-154, FND-155, FND-152]
+  packages: [FND-156, FND-151, FND-153, FND-154, FND-155, FND-157, FND-152]
 - id: FND-160
   title: Console regression as code
   wave: W2
@@ -115,7 +115,7 @@ epics:
 - id: FND-180
   title: Backup and restore drills
   wave: W1a
-  packages: [FND-181, FND-183, FND-184, FND-182, FND-185]
+  packages: [FND-181, FND-182, FND-183, FND-184, FND-185]
 - id: FND-190
   title: Remove the second vulnerability matcher
   wave: W1a
@@ -163,7 +163,7 @@ epics:
 - id: CLD-170
   title: 'Epic: unit Workspaces and NodePool'
   wave: W1b
-  packages: [CLD-171, CLD-172, CLD-173, CLD-174, CLD-176, CLD-175, CLD-177]
+  packages: [CLD-171, CLD-172, CLD-173, CLD-176, CLD-174, CLD-175, CLD-177]
 - id: CLD-180
   title: 'Epic: second-provider proof, Hetzner single region'
   wave: W1d
@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-132, SOV-170, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-132, SOV-182, SOV-170]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -191,7 +191,7 @@ epics:
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
-  packages: [SOV-405, SOV-410, SOV-420, SOV-430, SOV-440, SOV-435, SOV-436, SOV-437, SOV-450]
+  packages: [SOV-405, SOV-410, SOV-430, SOV-420, SOV-435, SOV-440, SOV-436, SOV-437, SOV-450]
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
@@ -203,7 +203,7 @@ epics:
 - id: SOV-700
   title: 'EPIC: Day-2 with the parent switched off'
   wave: W1b
-  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-725, SOV-710, SOV-726, SOV-730]
+  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-710, SOV-725, SOV-730, SOV-726]
 - id: SOV-800
   title: 'EPIC: Mothership mode and the child walk'
   wave: W1b
@@ -259,7 +259,7 @@ epics:
 - id: NET-250
   title: 'Epic: a web application firewall in the path'
   wave: W2
-  packages: [NET-251]
+  packages: [NET-251, NET-252, NET-253, NET-255, NET-254, NET-256, NET-257, NET-258, NET-259]
 - id: NET-320
   title: 'Epic: the first managed cluster class'
   wave: W3
@@ -291,11 +291,11 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-068, CMP-063, CMP-064, CMP-065, CMP-066, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-068, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
-  packages: [CMP-073, CMP-071, CMP-076, CMP-072, CMP-074]
+  packages: [CMP-073, CMP-071, CMP-072, CMP-076, CMP-074]
 - id: CMP-080
   title: 'Epic: decisions (waivers and remediation requests)'
   wave: W2
@@ -375,7 +375,7 @@ epics:
 - id: INF-100
   title: 'Epic: machine operations on the platform''s own nodes (INF-110, 112, 120, 130, 132, 133, 135, 140, 160, 145, 170)'
   wave: W1a
-  packages: [INF-110, INF-112, INF-120, INF-130, INF-132, INF-135, INF-133, INF-140, INF-160, INF-170, INF-145, INF-175]
+  packages: [INF-110, INF-112, INF-120, INF-130, INF-132, INF-135, INF-133, INF-140, INF-160, INF-145, INF-170, INF-175]
 - id: INF-200
   title: 'Epic: virtual machines (INF-210, 220, 230, 240, 250, 260)'
   wave: W2
@@ -479,7 +479,7 @@ epics:
 - id: PRD-500
   title: 'Epic: open-banking slice B1, sandbox account information'
   wave: W4
-  packages: [PRD-503, PRD-502, PRD-501, PRD-508, PRD-513, PRD-509, PRD-506, PRD-512, PRD-504, PRD-511, PRD-505, PRD-507, PRD-510]
+  packages: [PRD-503, PRD-502, PRD-501, PRD-508, PRD-513, PRD-509, PRD-512, PRD-504, PRD-506, PRD-511, PRD-505, PRD-507, PRD-510]
 - id: PRD-600
   title: 'Epic: open-banking slice B2, domestic payments, funds confirmation, recurring payments, events'
   wave: W4
@@ -3951,7 +3951,7 @@ packages:
   wave: W0
   size: S
   lane: GATE
-  depends_on: [FND-080, FND-077]
+  depends_on: [FND-080, FND-077, SOV-330]
   after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, FND-040]
   touches:
   - docs/ledger/stability.yaml
@@ -4381,6 +4381,40 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: bp-catalyst-platform, which slot 13 of the kit installs on every Sovereign into catalyst-system, renders the ServiceAccount catalyst-system/catalyst-conformance, a ClusterRole catalyst-conformance with exactly the six rules of the suite's self selection, and the one ClusterRoleBinding between them, and a chart test fails on any other rule or binding of the account.
+- id: FND-157
+  title: A gate run reads the storefront's sign-in code from a mailbox on the Sovereign under test
+  area: FND
+  epic: FND-150
+  type: new
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [SOV-322, BSS-060]
+  after: [FND-011, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, SVC-040, SVC-041, CTL-151, CTL-320, INF-051, INF-052, INF-133]
+  touches:
+  - platform/stalwart-sovereign/chart/templates/setup-job.yaml
+  - platform/stalwart-sovereign/chart/templates/setup-job-rbac.yaml
+  - platform/stalwart-sovereign/chart/values.yaml
+  - platform/stalwart-sovereign/chart/tests/conformance-mailbox.sh
+  - tests/acceptance/sovereign/internal/suite/bss_org.go
+  - tests/acceptance/sovereign/internal/suite/check_bss_onboarding_test.go
+  - tests/acceptance/sovereign/internal/storefront/mailbox.go
+  - tests/acceptance/sovereign/internal/storefront/mailbox_test.go
+  - tests/acceptance/sovereign/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The Sovereign''s own mail server (bp-stalwart-sovereign, kit slot 95 of SOV-322) holds a mailbox for the acceptance gate: its setup Job creates the principal conformance with the one address conformance@<sovereign fqdn>, whose password is generated in the cluster and kept only in a Secret there. The sign-in code of the storefront goes to that mailbox through the same server. Check BSS-G01, when the four variables BSS_GATE_MAILBOX_* are not set, takes the mailbox from the Sovereign under test: it reads that Secret with the region kubeconfig the run already holds, reaches the server''s IMAP port through the region''s API server (a port forward, no other address), and signs its new customer in with a new address of that mailbox per run. No person''s mailbox, no credential outside the cluster and no new component; the password is in no record, log or object outside the cluster.'
 - id: FND-161
   title: Row map and browser harness
   area: FND
@@ -4787,7 +4821,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-181, FND-120]
-  after: [CLD-023, CLD-040, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-335, SEC-020, SEC-030, SEC-040, NET-020, NET-031, NET-110, AIP-201, INF-060]
+  after: [CLD-023, CLD-131, CLD-132, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-335, SEC-030, SEC-040, NET-020, NET-110, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/**
@@ -4843,7 +4877,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-181, FND-120]
-  after: [FND-011, SOV-160, SVC-040, SVC-041, SVC-080]
+  after: [FND-011, SVC-040, SVC-041, SVC-080]
   touches:
   - platform/gitea/chart/templates/**
   - platform/gitea/chart/values.yaml
@@ -4935,7 +4969,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-120]
-  after: [FND-017, FND-024, FND-061, FND-063, CLD-040, CLD-090, CLD-134, NET-040, NET-041, NET-070, SVC-040, SVC-162, SVC-190, BSS-040]
+  after: [FND-017, FND-024, FND-061, FND-063, CLD-134, NET-040, NET-041, NET-070, SVC-040, SVC-162, SVC-190, BSS-040]
   touches:
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
   - products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
@@ -5051,7 +5085,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: [FND-181, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -5078,7 +5112,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-202]
-  after: [FND-011, CLD-142, SOV-151, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
+  after: [FND-011, SOV-151, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
   touches:
   - platform/opentelemetry/**
   - platform/alloy/**
@@ -6331,7 +6365,7 @@ packages:
   area: CLD
   epic: null
   type: refactor
-  wave: W1b
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-040, CLD-080, CLD-087, FND-031]
@@ -9320,7 +9354,7 @@ packages:
   area: SOV
   epic: SOV-100
   type: fix
-  wave: W1a
+  wave: W0
   size: S
   lane: CONTROL
   depends_on: [SOV-110, SOV-131, SOV-160]
@@ -10030,7 +10064,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, FND-120, SOV-120, SOV-130, SOV-160, SOV-131, SOV-134, SOV-121]
-  after: [SOV-154, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [SOV-154, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/
   - tests/acceptance/sovereign/internal/suite/check_born_local.go
@@ -10468,7 +10502,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-135, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -10651,7 +10685,7 @@ packages:
   area: SOV
   epic: SOV-300
   type: refactor
-  wave: W1b
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150]
@@ -10753,7 +10787,7 @@ packages:
   area: SOV
   epic: SOV-300
   type: refactor
-  wave: W1b
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-320, SOV-321, SOV-150]
@@ -10816,7 +10850,7 @@ packages:
   area: SOV
   epic: SOV-300
   type: refactor
-  wave: W1b
+  wave: W0
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
@@ -10825,6 +10859,8 @@ packages:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/chart/values.yaml
+  - core/controllers/organization/internal/controller/tenant_dns.go
+  - products/catalyst/bootstrap/api/internal/handler/organization_dns.go
   resources: []
   flips: []
   implements: []
@@ -11298,7 +11334,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-620, FND-120, FND-144, SOV-170, SOV-225, SOV-142, SOV-151]
-  after: [SOV-154, CLD-023, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, CLD-131, CLD-132, SOV-135, SOV-144, SOV-175, SOV-338, SEC-040, SEC-150, NET-020, NET-110, NET-212, SVC-040, AIP-201, INF-060]
+  after: [SOV-154, CLD-023, CLD-103, CLD-104, CLD-105, CLD-115, CLD-131, CLD-132, SOV-144, SOV-175, SOV-338, SEC-040, NET-020, NET-110, NET-212, SVC-040, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -11578,7 +11614,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-720]
-  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-144, SOV-335, SEC-040, SEC-126, SEC-150, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-092, CLD-131, CLD-132, CLD-134, SOV-144, SOV-335, SEC-040, SEC-126, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -11605,7 +11641,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-725]
-  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-144, SOV-335, SEC-040, SEC-126, SEC-150, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-092, CLD-131, CLD-132, CLD-134, SOV-144, SOV-335, SEC-040, SEC-126, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -11721,7 +11757,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, SOV-170, SOV-180]
-  after: [CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-135, SOV-181, SOV-338, SEC-150, NET-011, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120]
+  after: [CLD-103, CLD-104, CLD-105, CLD-115, SOV-181, SOV-338, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys.go
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys_test.go
@@ -11752,7 +11788,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, CTL-110, FND-032, FND-120, SOV-130, SOV-170, SVC-220]
-  after: [CLD-023, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, CLD-131, CLD-132, SOV-135, SOV-142, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-040, SEC-150, NET-011, NET-020, NET-071, NET-110, NET-212, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, AIP-201, INF-060]
+  after: [CLD-023, CLD-103, CLD-104, CLD-105, CLD-115, CLD-131, CLD-132, SOV-142, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-040, NET-020, NET-071, NET-110, NET-212, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -13183,7 +13219,7 @@ packages:
   area: SEC
   epic: SEC-160
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, SEC-005, SEC-130, SEC-135, SEC-020, CLD-086]
@@ -14577,7 +14613,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-170, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-170, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -17637,7 +17673,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-141, SOV-020, SOV-161, SOV-175, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [FND-011, CLD-030, CLD-113, CLD-131, CLD-132, CLD-141, SOV-020, SOV-161, SOV-175, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -17701,6 +17737,242 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Decision record 0038 states how a web application firewall enters the public path of a Sovereign after lab test NET-270 (Coraza in the shipped cilium-envoy through a front listener the platform writes, the native firewall of the cloud as the second implementation), the WebApplicationFirewall contract with its Compositions waf-coraza and waf-native, the proof journey WAF and gate check NET-G15, and the eight packages of epic NET-250 in order with type, size, lane and dependencies, with the header lines Status and Date; the index of decision records lists it in number order.
+- id: NET-252
+  title: 'Lab test: HTTPS through the front listener, and cilium-envoy memory with the filter under load'
+  area: NET
+  epic: NET-250
+  type: spike
+  wave: W2
+  size: S
+  lane: SPIKE
+  depends_on: [NET-251]
+  after: []
+  touches:
+  - docs/ledger/plan/spikes/NET-252.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-252.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-252.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-252.md"
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 5
+    lines: 800
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The result record of a lab test on the reference class of NET-270 (k3s, the Cilium version of platform/cilium, the gateway in the host network), as ADR-0038 WF2 and WF8 ask: a front listener in the Gateway''s namespace terminates TLS with the Gateway''s certificates for two host names and meets the pass rule of NET-270 over HTTPS (a clean request 200, a cross-site-scripting request and an SQL injection request 403, every route of both hosts answering, a new HTTPRoute served); and the memory of cilium-envoy with and without the filter under the same load for four hours each. Outcome HTTPS or NONE. NONE means a new decision record replaces WF1 to WF3 with the second tier of NET-270 before NET-254 starts.'
+- id: NET-253
+  title: 'Lab test: the reference cloud''s native firewall in front of a load balancer'
+  area: NET
+  epic: NET-250
+  type: spike
+  wave: W2
+  size: S
+  lane: SPIKE
+  depends_on: [NET-251]
+  after: []
+  touches:
+  - docs/ledger/plan/spikes/NET-253.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-253.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-253.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-253.md"
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 5
+    lines: 800
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The result record of a lab test on the reference cloud (ADR-0024): the cloud''s native web application firewall is created, read and deleted through the cloud''s API in front of a load balancer, and the pass rule of NET-270 holds through it (a clean request 200, a cross-site-scripting request and an SQL injection request 403). Outcome NATIVE or NONE. NATIVE lets the reference pack ship waf-native (ADR-0038 WF5); NONE means a new decision record names the second implementation before NET-257 starts.'
+- id: NET-254
+  title: The Coraza filter file on every edge node, read by cilium-envoy from a read-only host path
+  area: NET
+  epic: NET-250
+  type: new
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: [NET-182, NET-252]
+  after: [FND-011, NET-040, SVC-040, SVC-041]
+  touches:
+  - platform/cilium/chart/values.yaml
+  - platform/cilium/chart/templates/coraza-filter.yaml
+  - platform/cilium/chart/tests/coraza-filter.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The filter of ADR-0038 WF3, coraza-proxy-wasm 0.6.0 (Coraza 3.3.3, Core Rule Set 4.14.0), pinned by its SHA-256 in platform/cilium, is placed from the Sovereign's own registry on every edge node (NET-182) before any front listener names it, and cilium-envoy reads it from a read-only host path. A file whose SHA-256 differs is never placed, nothing is fetched from a public registry at run time, and no front listener is written here.
+- id: NET-255
+  title: Journey WAF, its corpus and gate check NET-G15 as expected-fail
+  area: NET
+  epic: NET-250
+  type: test
+  wave: W2
+  size: S
+  lane: GATE
+  depends_on: [NET-251]
+  after: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, CTL-151, CTL-320, CMP-010, BSS-060, INF-051, INF-052, INF-133]
+  touches:
+  - tests/waf/corpus/**
+  - tests/acceptance/sovereign/internal/suite/check_waf.go
+  - tests/acceptance/sovereign/internal/suite/check_waf_test.go
+  - tests/acceptance/sovereign/README.md
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: []
+  implements: [NET-G15]
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The corpus tests/waf/corpus/, written fresh from the upstream regression tests of the pinned Core Rule Set version 4.14.0, and journey WAF in the acceptance suite as gate check NET-G15, Firewall proof (ADR-0038 WF7): for each WebApplicationFirewall object, WAF-1 a benign request returns 200; WAF-2 every request of the corpus returns 403 in block mode; WAF-3 the same requests pass and are logged in detect mode; WAF-4 no public path reaches a backend without passing the firewall, and a direct dial to a node address fails; WAF-5 an exclusion whose expires is in the past is rejected at admission. With no object the record prints "no web application firewall in the path". The check is listed as expected-fail and stays not required; NET-257 makes it required.'
+- id: NET-256
+  title: The native firewall's unit module for the reference pack, proven as a plain unit Workspace
+  area: NET
+  epic: NET-250
+  type: new
+  wave: W2
+  size: M
+  lane: SUBSTRATE
+  depends_on: [NET-253, NET-184, CLD-174]
+  after: []
+  touches:
+  - infra/providers/huawei/day2/waf/**
+  - infra/providers/huawei/workspaces/waf.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A unit module of the reference pack puts the cloud's native web application firewall in front of the region's load balancer (NET-184), with the edge nodes reachable only through that load balancer, as NET-253 measured it, and is proven as a plain unit Workspace (the form of CLD-174) before any Composition uses it. No node port and no listener on a port in 30000-32767.
+- id: NET-257
+  title: The WebApplicationFirewall definition with waf-coraza and waf-native, and the Gateway's port move
+  area: NET
+  epic: NET-250
+  type: new
+  wave: W2
+  size: M
+  lane: CHARTS
+  depends_on: [NET-254, NET-255, NET-256]
+  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  touches:
+  - platform/crossplane-claims/chart/templates/xrds/webapplicationfirewall.yaml
+  - platform/crossplane-claims/chart/templates/policies/waf-admission.yaml
+  - platform/crossplane-claims/chart/values.yaml
+  - platform/crossplane-claims/chart/tests/**
+  - clusters/_template/providers/*/compositions/waf-coraza.yaml
+  - clusters/_template/providers/huawei/compositions/waf-native.yaml
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [NET-G15]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Contract waf of ADR-0038: the definition WebApplicationFirewall (group compose.openova.io, version v1alpha1, namespaced) in bp-crossplane-claims with the fields of WF4 (status.lastProofAt and the reason ProofFailed come with NET-258), and admission that refuses an unknown ruleSet.version, an exclusion with pathPrefix / and an expires in the past or more than 180 days ahead; the Compositions waf-coraza (the front listener of WF2 in the Gateway''s namespace, its only writer, with the filter of NET-254) in every provider overlay and waf-native (the unit Workspace of NET-256) in the reference pack''s overlay, in this one pull request as C6 requires; each pack''s defaults.waf; and the move of WF6: choosing coraza for a Gateway is one commit that adds the object and moves the Gateway''s listeners to internal ports that no load-balancer listener and no security-group rule opens, and removing it is one commit that reverts both. WAF-2 passes and gate check NET-G15 becomes required.'
+- id: NET-258
+  title: An hourly proof of WAF-1 and WAF-2 for each firewall writes its status
+  area: NET
+  epic: NET-250
+  type: new
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: [NET-257]
+  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  touches:
+  - platform/crossplane-claims/chart/templates/xrds/webapplicationfirewall.yaml
+  - platform/crossplane-claims/chart/tests/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Every hour, for each WebApplicationFirewall, WAF-1 and WAF-2 of journey WAF run against its Gateway and the result is written to status.lastProofAt and status.ready, which is false with reason ProofFailed while WAF-2 fails (ADR-0038 WF4). The definition gains these two and nothing else.
+- id: NET-259
+  title: The console shows each Gateway's firewall state and commits the sovereign-admin's choice
+  area: NET
+  epic: NET-250
+  type: new
+  wave: W2
+  size: S
+  lane: CONSOLE
+  depends_on: [NET-257]
+  after: [SVC-040]
+  touches:
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-network/FirewallsPage.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-network/FirewallsPage.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/kinds.ts
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A page of the sovereign-admin console lists each Gateway with the state of its WebApplicationFirewall (implementation, mode, level, ready, last proof) or "no web application firewall in the path", and commits the sovereign-admin''s choice of implementation, mode and level through the write path of ADR-0021: one commit that adds, changes or removes the object (ADR-0038 WF6). The page never writes the cluster.'
 - id: NET-270
   title: 'Spike: firewall attachment'
   area: NET
@@ -21561,7 +21833,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-162, CTL-176, CTL-151]
-  after: [FND-011, CLD-030, CLD-113, NET-011, NET-080, SVC-040, SVC-190, CTL-333, BSS-040, AIP-120, INF-135]
+  after: [FND-011, CLD-030, CLD-113, NET-080, SVC-040, SVC-190, CTL-333, BSS-040, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -21714,7 +21986,7 @@ packages:
   area: CTL
   epic: CTL-200
   type: doc
-  wave: W1a
+  wave: W0
   size: S
   lane: CONTRACTS
   depends_on: []
@@ -22001,7 +22273,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-210]
-  after: [FND-011, CLD-030, CLD-113, NET-011, NET-080, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-135]
+  after: [FND-011, CLD-030, CLD-113, NET-080, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -23461,7 +23733,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - scripts/intent-snapshot.py
@@ -23493,7 +23765,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141, CTL-041]
-  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SEC-020, SEC-030, SEC-040, SEC-126, NET-020, NET-110, SVC-040, SVC-041, SVC-161, AIP-201, INF-060]
+  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SEC-030, SEC-040, SEC-126, NET-020, NET-110, SVC-040, SVC-041, SVC-161, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
@@ -23605,7 +23877,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
-  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: [FND-181, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
@@ -26014,7 +26286,7 @@ packages:
   wave: W0
   size: XS
   lane: GATE
-  depends_on: [BSS-035, BSS-060, FND-080]
+  depends_on: [BSS-035, BSS-060, FND-080, FND-157]
   after: []
   touches:
   - docs/ledger/gates.yaml
@@ -28545,7 +28817,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-181]
-  after: [FND-011, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, NET-011, NET-071, SVC-190, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020]
+  after: [FND-011, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, NET-071, SVC-190, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020]
   touches:
   - products/catalyst/bootstrap/api/internal/newapi/**
   - products/catalyst/bootstrap/api/internal/handler/sovereign_newapi_admin_token_seed.go
@@ -28672,7 +28944,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-106, AIP-155, AIP-156, AIP-160, AIP-182]
-  after: [FND-011, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, NET-011, NET-071, NET-080, SVC-190, CTL-223, CTL-231, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020, BSS-040, INF-135]
+  after: [FND-011, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, NET-071, NET-080, SVC-190, CTL-223, CTL-231, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020, BSS-040, INF-135]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_*.go
   - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go

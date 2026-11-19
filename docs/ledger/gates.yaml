@@ -1880,6 +1880,17 @@ checks:
   proof: running
   asserts: Entry follows edge health
   delivered_by: NET-200
+- id: NET-G15
+  title: Firewall proof
+  owner: NET
+  state: not-built
+  runs_in: [cloud]
+  destructive: false
+  needs: []
+  proof: running
+  asserts: 'With a WebApplicationFirewall object for a Gateway, journey WAF passes: WAF-1 a benign request returns 200; WAF-2 every request of the corpus tests/waf/corpus/ returns 403 in block mode; WAF-3 the same requests pass and are logged in detect mode; WAF-4 no public path reaches a backend without passing the firewall, and a direct dial to a node address fails; WAF-5 an exclusion whose expires is in the past is rejected at admission. With no object the record prints "no web application firewall in the path".'
+  implemented_by: NET-255
+  delivered_by: NET-257
 - id: NET-G16
   title: Mesh issuer ready in every region, one root
   owner: NET
