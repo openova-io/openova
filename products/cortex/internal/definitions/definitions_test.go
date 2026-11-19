@@ -192,3 +192,24 @@ func TestLoader(t *testing.T) {
 		t.Errorf("the log holds the document:\n%s", text)
 	}
 }
+
+// TestParseChunkAndConnector reads the connector type and the chunk settings: a missing object
+// or key takes the schema's default, null and values out of range are refused.
+func TestParseChunkAndConnector(t *testing.T) {
+	src := func(chunk string) string {
+		return "sources:\n  - {id: hr, title: HR, connector: {type: git}, access: {readers: [], managers: [\"group:a\"]}" + chunk + "}\n"
+	}
+	for chunk, want := range map[string]store.ChunkSettings{"": {Tokens: 512, Overlap: 64}, ", chunk: {}": {Tokens: 512, Overlap: 64},
+		", chunk: {tokens: 256}": {Tokens: 256, Overlap: 64}, ", chunk: {tokens: 2048, overlap: 0}": {Tokens: 2048, Overlap: 0}} {
+		defs, err := Parse([]byte(src(chunk)))
+		if err != nil || defs[0].Chunk != want || defs[0].Connector != "git" {
+			t.Errorf("%q: %+v, %v; want %+v and connector git", chunk, defs, err, want)
+		}
+	}
+	for _, chunk := range []string{", chunk: null", ", chunk: {tokens: null}", ", chunk: {overlap: null}", ", chunk: []", ", chunk: {tokens: 64}",
+		", chunk: {tokens: 4096}", ", chunk: {tokens: 128, overlap: 128}", ", chunk: {overlap: 300}", ", chunk: {tokens: 12.5}", ", chunk: {size: 512}"} {
+		if defs, err := Parse([]byte(src(chunk))); err == nil {
+			t.Errorf("%q: accepted %+v", chunk, defs)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/products/cortex/internal/ingest"
 	"github.com/openova-io/openova/products/cortex/internal/store"
 )
 
@@ -22,6 +23,11 @@ type fakeDB struct {
 
 func (f *fakeDB) Ping(context.Context) error { return nil }
 func (f *fakeDB) Close()                     { f.closed = true }
+func (f *fakeDB) Listen(ctx context.Context, fn func(string)) error {
+	fn("")
+	<-ctx.Done()
+	return nil
+}
 
 func dbFile(t *testing.T, text string) string {
 	t.Helper()
@@ -34,14 +40,23 @@ func dbFile(t *testing.T, text string) string {
 
 func flags(t *testing.T, more ...string) []string {
 	return append([]string{"query", "--database-url-file", dbFile(t, "postgres://cortex@db/cortex\n"), "--issuer", "https://auth.acme.example/realms/acme",
-		"--embed-alias", "embed-default", "--embed-dimensions", "1024", "--listen", "127.0.0.1:0", "--health-listen", "127.0.0.1:0"}, more...)
+		"--embed-alias", "embed-default", "--embed-dimensions", "1024", "--originals-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--health-listen", "127.0.0.1:0"}, more...)
 }
 
 func TestItRefusesToStart(t *testing.T) {
 	noDB := func(context.Context, string, int) (database, error) { return nil, errors.New("the database is away") }
 	for what, args := range map[string][]string{
 		"no command":             nil,
-		"another command":        {"index"},
+		"another command":        {"serve"},
+		"no originals folder":    flags(t, "--originals-dir", ""),
+		"a limit of 2 GB":        flags(t, "--max-upload-mb", "2048"),
+		"a bucket that fails":    flags(t, "--originals-dir", "fails"),
+		"index, a query flag":    indexFlags(t, "--issuer", "https://auth.acme.example/realms/acme"),
+		"index, no originals":    indexFlags(t, "--originals-dir", ""),
+		"index, no namespace":    indexFlags(t, "--namespace", ""),
+		"index, a short vector":  indexFlags(t, "--embed-dimensions", "32"),
+		"index, no bucket":       indexFlags(t, "--originals-dir", "fails"),
+		"index, no cluster":      indexFlags(t),
 		"an unknown flag":        flags(t, "--verbose"),
 		"an argument":            flags(t, "extra"),
 		"no embed alias":         flags(t, "--embed-alias", ""),
@@ -58,7 +73,7 @@ func TestItRefusesToStart(t *testing.T) {
 		if what == "a database that fails" {
 			open = noDB
 		}
-		if code := run(context.Background(), args, &out, deps{openStore: open}); code != 2 {
+		if code := run(context.Background(), args, &out, deps{openStore: open, openBucket: bucket}); code != 2 {
 			t.Errorf("%s: exit code %d, want 2:\n%s", what, code, &out)
 		}
 		if strings.Contains(out.String(), "postgres://") {
@@ -76,8 +91,9 @@ func TestItServesAndStops(t *testing.T) {
 	var out bytes.Buffer
 	go func() {
 		done <- run(ctx, flags(t), &out, deps{
-			openStore: func(_ context.Context, u string, dims int) (database, error) { url = u; return db, nil },
-			listening: func(api, health net.Addr) { addrs <- [2]net.Addr{api, health} },
+			openStore:  func(_ context.Context, u string, dims int) (database, error) { url = u; return db, nil },
+			openBucket: bucket,
+			listening:  func(api, health net.Addr) { addrs <- [2]net.Addr{api, health} },
 		})
 	}()
 	var a [2]net.Addr
@@ -105,4 +121,12 @@ func TestItServesAndStops(t *testing.T) {
 	if code := <-done; code != 0 || !db.closed || url != "postgres://cortex@db/cortex" {
 		t.Fatalf("exit code %d, closed %v, address %q", code, db.closed, url)
 	}
+}
+
+// bucket stands for the originals binding; the folder "fails" cannot be opened.
+func bucket(dir string) (ingest.Objects, error) {
+	if dir == "fails" {
+		return nil, errors.New("the endpoint is not https")
+	}
+	return nil, nil
 }

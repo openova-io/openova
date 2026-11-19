@@ -305,6 +305,9 @@ func (p *Postgres) ApplyDefinitions(ctx context.Context, defs []SourceDefinition
 		if d.ID == "" || d.Title == "" || d.Digest == "" {
 			return fmt.Errorf("store: source %q needs an id, a title and a digest", d.ID)
 		}
+		if err := checkSource(d); err != nil {
+			return err
+		}
 		if seen[d.ID] {
 			return fmt.Errorf("store: source %q is defined twice", d.ID)
 		}
@@ -326,14 +329,24 @@ func (p *Postgres) ApplyDefinitions(ctx context.Context, defs []SourceDefinition
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, applyLock); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
+	// The originals of the documents of a removed source are deleted by a job each, queued in
+	// this transaction, so none is left when the source goes.
+	if _, err := tx.Exec(ctx, `INSERT INTO job (id, kind, source_id, document_id, state, item)
+SELECT gen_random_uuid(), 'delete', d.source_id, d.id, 'queued', jsonb_build_object('object', d.object_key)
+FROM document d WHERE d.source_id <> ALL ($1::text[])`, ids); err != nil {
+		return fmt.Errorf("store: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM source WHERE id <> ALL ($1::text[])`, ids); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
 	for _, d := range defs {
-		if _, err := tx.Exec(ctx, `INSERT INTO source (id, title, definition_sha256) VALUES ($1, $2, $3)
-ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, definition_sha256 = EXCLUDED.definition_sha256
-WHERE (source.title, source.definition_sha256) IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.definition_sha256)`,
-			d.ID, d.Title, d.Digest); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO source (id, title, definition_sha256, connector, chunk_tokens, chunk_overlap)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, definition_sha256 = EXCLUDED.definition_sha256,
+  connector = EXCLUDED.connector, chunk_tokens = EXCLUDED.chunk_tokens, chunk_overlap = EXCLUDED.chunk_overlap
+WHERE (source.title, source.definition_sha256, source.connector, source.chunk_tokens, source.chunk_overlap)
+  IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.definition_sha256, EXCLUDED.connector, EXCLUDED.chunk_tokens, EXCLUDED.chunk_overlap)`,
+			d.ID, d.Title, d.Digest, d.Connector, d.Chunk.Tokens, d.Chunk.Overlap); err != nil {
 			return fmt.Errorf("store: source %q: %w", d.ID, err)
 		}
 		principals := append(append([]string{}, d.Readers...), d.Managers...)
