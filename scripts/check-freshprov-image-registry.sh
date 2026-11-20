@@ -267,22 +267,29 @@ render_chart() {
 # are dropped (e.g. sigstore policy-controller's cgr.dev leases-cleanup
 # post-delete hook). `imageName:` is the CNPG Cluster CR's image field — the
 # exact key the shared-pg/per-app postgres pulls come from (#6778), so it is
-# read alongside `image:`.
+# read alongside `image:`. `extract_install_images packages` (the --list-images
+# kit source) also reads the `spec.package` of a Crossplane Provider, Function
+# or Configuration (pkg.crossplane.io): the package fetch bypasses containerd,
+# but the provider's and function's Deployment runs that same ref as its
+# container image, pulled by the kubelet through the node map.
 extract_install_images() {
-  awk '
-    BEGIN{ img="" }
-    /^---/{
-      if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs;
-      doc=""; docimgs=""
+  awk -v pk="${1:-}" '
+    function emit() {
+      if (doc=="" || doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/) return
+      print docimgs
+      if (pk!="" && doc ~ /\napiVersion:[[:space:]]*"?pkg\.crossplane\.io\// && doc ~ /\nkind:[[:space:]]*"?(Provider|Function|Configuration)"?[[:space:]]*(\n|$)/) print docpkgs
     }
+    /^---/{ emit(); doc=""; docimgs=""; docpkgs="" }
     { doc=doc "\n" $0 }
     /^[[:space:]]*-?[[:space:]]*(image|imageName):[[:space:]]*/{
       line=$0; sub(/^[[:space:]]*-?[[:space:]]*(image|imageName):[[:space:]]*"?/,"",line); sub(/["[:space:]].*$/,"",line);
       if (line!="") docimgs=docimgs line "\n"
     }
-    END{
-      if (doc!="" && !(doc ~ /helm\.sh\/hook"?:[[:space:]]*"?(pre-delete|post-delete|pre-rollback|post-rollback)/)) print docimgs
+    /^[[:space:]]+package:[[:space:]]*/{
+      line=$0; sub(/^[[:space:]]+package:[[:space:]]*"?/,"",line); sub(/["[:space:]].*$/,"",line);
+      if (line!="") docpkgs=docpkgs line "\n"
     }
+    END{ emit() }
   ' | sed '/^$/d' | sort -u
 }
 
@@ -380,7 +387,7 @@ if [ "$LIST_MODE" = "1" ]; then
           empty)   LIST_EMPTY+=("$chart"); continue ;;
         esac
         LIST_RENDERED=$((LIST_RENDERED+1))
-        printf '%s\n' "$rendered" | extract_install_images >> "$LIST_TMP/images"
+        printf '%s\n' "$rendered" | extract_install_images packages >> "$LIST_TMP/images"
       done < "$LIST_TMP/hr.jsonl"
     done
   done

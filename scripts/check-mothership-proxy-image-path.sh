@@ -33,7 +33,12 @@
 #
 #   1. The image list is BUILT FROM WHAT A FRESH INSTALL APPLIES, never a hand
 #      list. Four sources, each counted; a source that yields no image FAILS
-#      (exit 2), because a list that lost a source is not the list:
+#      (exit 2), because a list that lost a source is not the list. An image
+#      is an `image:` or `imageName:` value, or the `spec.package` of a
+#      Crossplane Provider, Function or Configuration (pkg.crossplane.io): the
+#      package fetch bypasses containerd, but the provider's and function's
+#      Deployment runs that same ref as its container image, which the kubelet
+#      pulls through the node map:
 #        kit     every HelmRelease of clusters/_template/bootstrap-kit (the
 #                files its kustomization.yaml lists), rendered with the values
 #                the kit gives it: `check-freshprov-image-registry.sh
@@ -244,7 +249,9 @@ src_raw() {
         yq 'select(.kind != "HelmRelease") | ... comments=""' "$f" 2>/dev/null > "${WORK}/raw.yaml" \
           && "$TOOL" subst "${vargs[@]}" < "${WORK}/raw.yaml" > "${WORK}/raw.sub.yaml" 2>"${WORK}/raw.err" \
           || { echo "  raw: ${f#"${LIST_ROOT}"/} cannot be read or substituted: $(head -1 "${WORK}/raw.err")" >&2; return 2; }
-        yq '.. | select(tag == "!!map") | (.image, .imageName) | select(tag == "!!str")' "${WORK}/raw.sub.yaml" 2>/dev/null \
+        yq '(.. | select(tag == "!!map") | (.image, .imageName) | select(tag == "!!str")),
+          (select(((.apiVersion // "") | test("^pkg\.crossplane\.io/")) and (.kind == "Provider" or .kind == "Function" or .kind == "Configuration"))
+            | .spec.package | select(tag == "!!str"))' "${WORK}/raw.sub.yaml" 2>/dev/null \
           | while IFS= read -r img; do [ -n "$img" ] && printf '%s\t%s\n' "$p" "$img"; done >> "$found"
       done
     done < <(find "$kdir/$p" -type f \( -name '*.yaml' -o -name '*.yml' \) ! -name kustomization.yaml | sort)
@@ -421,6 +428,7 @@ spec:
   values:
     enabled: ${FIXTURE_ENABLED:-false}
     image: ghcr.io/openova-io/openova/fixture-app:kit1
+    package: xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1
 YAML
   cat > "$F/clusters/_template/bootstrap-kit/12b-raw.yaml" <<'YAML'
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -436,8 +444,15 @@ spec:
 YAML
   printf 'apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: ops\nspec:\n  template:\n    spec:\n      containers:\n        - name: ops\n          image: ghcr.io/openova-io/openova/fixture-ops\n' \
     > "$F/clusters/_template/fixture-raw/job.yaml"
+  # A Crossplane package is an image (its Deployment runs the same ref); a
+  # `package:` of another kind is not.
+  pkgdocs='apiVersion: pkg.crossplane.io/v1\nkind: %s\nmetadata:\n  name: fixture\nspec:\n  package: %s\n---\napiVersion: example.test/v1\nkind: Widget\nmetadata:\n  name: fixture\nspec:\n  package: fixture-not-an-image\n'
+  # shellcheck disable=SC2059
+  printf "$pkgdocs" Function xpkg.upbound.io/crossplane-contrib/fixture-fn:v1 > "$F/clusters/_template/fixture-raw/function.yaml"
+  # shellcheck disable=SC2059
+  printf "{{- if .Values.enabled }}\n${pkgdocs}{{- end }}\n" Provider '{{ .Values.package }}' > "$F/platform/fixture/chart/templates/provider.yaml"
   printf 'apiVersion: v2\nname: bp-fixture\nversion: 1.0.0\n' > "$F/platform/fixture/chart/Chart.yaml"
-  printf 'enabled: false\nimage: ghcr.io/openova-io/openova/fixture-app:default\n' > "$F/platform/fixture/chart/values.yaml"
+  printf 'enabled: false\nimage: ghcr.io/openova-io/openova/fixture-app:default\npackage: xpkg.upbound.io/crossplane-contrib/fixture-provider:default\n' > "$F/platform/fixture/chart/values.yaml"
   printf '{{- if .Values.enabled }}\napiVersion: v1\nkind: Pod\nmetadata:\n  name: app\nspec:\n  containers:\n    - name: app\n      image: {{ .Values.image }}\n{{- end }}\n' \
     > "$F/platform/fixture/chart/templates/pod.yaml"
   printf 'variable "k3s_version" {\n  type    = string\n  default = "v9.9.9+k3s1"\n}\n' > "$F/${MODULE_REL}/variables.tf"
@@ -447,10 +462,12 @@ YAML
   printf '# a region of a two-region install\nFIXTURE_ENABLED=true\n' > "$F/tests/fixtures/variables/two-region-secondary.env"
   ls1() { bash "$0" --list-only --root "$F" "$@" 2>&1; }
   out="$(ls1)"; rc=$?
-  for img in ghcr.io/openova-io/openova/fixture-app:kit1 ghcr.io/openova-io/openova/fixture-ops:raw1 docker.io/rancher/mirrored-pause:3.6 quay.io/cilium/cilium:v9.9.9; do
+  for img in ghcr.io/openova-io/openova/fixture-app:kit1 ghcr.io/openova-io/openova/fixture-ops:raw1 docker.io/rancher/mirrored-pause:3.6 quay.io/cilium/cilium:v9.9.9 \
+    xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1 xpkg.upbound.io/crossplane-contrib/fixture-fn:v1; do
     expect "the list holds $img" 0 "$rc" "^${img}$" "$out"
   done
-  expect "  and counts each source" 0 "$rc" "^  ℹ source raw: 1 image(s), 1 first-party$" "$out"
+  lacks "  but not the package of a kind that is not a Crossplane package" "fixture-not-an-image" "$out"
+  expect "  and counts each source" 0 "$rc" "^  ℹ source raw: 2 image(s), 1 first-party$" "$out"
   lacks "the chart at its DEFAULT values renders no image (the handling before this change loses it)" "image:" \
     "$(helm template fixture "$F/platform/fixture/chart" 2>&1)"
   without() { # without <label> <sources> <lost> <kept>: the list still builds, without that source's image
