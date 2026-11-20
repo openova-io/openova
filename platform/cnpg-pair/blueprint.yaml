@@ -152,7 +152,7 @@ spec:
   # continuum-controller drives for a LOSSLESS planned cross-region switchover
   # (demotion token -> promotion token) through the bootstrap-kit substitutes
   # SOVEREIGN_CNPG_PAIR_{DISTRIBUTED,ACTIVE_PRIMARY,PROMOTION_TOKEN}. Default off.
-  version: 0.2.34
+  version: 0.2.35
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.
