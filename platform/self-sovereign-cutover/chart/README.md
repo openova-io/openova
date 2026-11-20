@@ -179,7 +179,7 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
   the first delivery that carries this to a Sovereign is a whole one.
 - `rollback: true` with a `region` puts that region back to the `main` recorded
   at the stage of the request that promoted it. It runs no stage and no
-  prewarm, and refuses `dryRun` and `pullSecret`. The route refuses it
+  prewarm, and refuses `dryRun` and `credential`. The route refuses it
   (`409 not-promoted`) unless the state records that promote for this
   candidate; the bootstrap's one container `release-run.sh rollback` then runs
   `release-region.sh rollback` in that region, which refuses (phase `moved`,
@@ -199,6 +199,43 @@ keeps these keys across the requests of one candidate and drops them for another
 `promoted.<region>`. `tests/step7938-promote-one-region.sh` runs this chart's
 two scripts on Git repositories on disk: one region promoted, its rollback, a
 rollback refused after the region moved.
+
+**The upstream credential.** After cutover the Sovereign holds no credential
+for `ghcr.io` (step 06 strips it), and nothing is made on it by hand. A delivery
+request carries the credential itself, from the signed-in sovereign-admin over
+the console's TLS: `"credential": {"registry": "ghcr.io", "username": "<user>",
+"password": "<password or token>"}`. The route asks the registry whether it
+takes it (the distribution API's sign-in: `/v2/`, then the token realm) and,
+before anything is written, answers `422 registry-credential-missing`,
+`registry-credential-registry` or `registry-credential-refused`, or `502
+registry-unreachable`. Then it makes the pull Secret `sovereign-release-pull`
+in the cutover namespace itself (field manager `catalyst-release`, labelled
+with and owned by the bootstrap Job) and passes its name as `PULL_SECRET`. The
+credential is in that Secret and its copies only: never in a log line, the
+state, a ConfigMap, an event, a Job, the region's Git or an answer. A dry run
+and a rollback refuse a credential (`dry-run-credential`, `rollback-credential`);
+the former field `pullSecret`, a Secret made by hand, is refused
+(`400 pull-secret-removed`). The Secret is deleted in every region when the
+prewarm ends, when the stage fails or refuses, and, for a delivery Job that
+ends without its prewarm having done so, by the bootstrap's deliver container
+that waits for it (`delivery_wait`); a bootstrap Job killed past its retry
+leaves it to the route, which removes it on the next request and on any read of
+the state once no release Job runs.
+
+**A drained node.** Every Job of a delivery (the bootstrap, the delivery Job,
+each follower's Job) replaces one Pod the cluster took away: `backoffLimit: 1`
+with a pod failure policy that counts a `DisruptionTarget` and fails the Job on
+any exit of the release scripts, which record their cause and must not be run
+over it. A replacement Pod repeats or resumes: the stage repeats (it
+force-pushes `release/<id>` again; nothing is promoted yet) unless the delivery
+Job an earlier Pod created exists, and then stages nothing while deliver waits
+for that Job; the prewarm repeats until an earlier Pod of the delivery Job
+completed it (`prewarmedBy` in the state), and then copies nothing again and
+starts without the credential it already deleted (the reference is optional);
+check, promote and rollback answer done for a region that already holds what
+they push. A Job's end is read from its conditions, never `.status.failed`,
+which counts the replaced Pod. `tests/step7938-delivery-survives-eviction.sh`
+runs this chart's scripts on a Git repository on disk for each of these.
 
 **What a chart version must carry for the bootstrap** (contract `1`):
 

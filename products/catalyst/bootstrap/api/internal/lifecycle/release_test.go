@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -95,15 +94,15 @@ func cm(name string, data map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS}, Data: data}
 }
 
-func pullSecret(name string, hosts ...string) *corev1.Secret {
-	auths := map[string]map[string]string{}
-	for _, h := range hosts {
-		auths[h] = map[string]string{"auth": base64.StdEncoding.EncodeToString([]byte("u:p"))}
+// testCredentialJSON is the field credential of a delivery request in these
+// tests: testCredential (release_credential_test.go) as JSON.
+var testCredentialJSON = func() string {
+	b, err := json.Marshal(testCredential)
+	if err != nil {
+		panic(err)
 	}
-	b, _ := json.Marshal(map[string]any{"auths": auths})
-	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS}, Type: corev1.SecretTypeDockerConfigJson,
-		Data: map[string][]byte{corev1.DockerConfigJsonKey: b}}
-}
+	return `"credential":` + string(b)
+}()
 
 // installed is a cut-over Sovereign with the cutover chart's parts in place.
 func installed(followers, marker bool) []runtime.Object {
@@ -118,7 +117,6 @@ func installed(followers, marker bool) []runtime.Object {
 		cm("cutover-step-03-harbor-prewarm", map[string]string{"stepName": "harbor-prewarm", "podSpec": prewarmPodSpec, "run.sh": run}),
 		cm(pivotStepConfigMap, map[string]string{"kit-rewrite.sh": "rewrite_kit_tree() { :; }\n", "podSpec": pivotPodSpec}),
 		cm(pinsConfigMap, map[string]string{"extract-pins.sh": "bootstrapkit_pins() { :; }\n"}),
-		pullSecret("release-pull", "ghcr.io"),
 	}
 	if followers {
 		job, _ := yaml.Marshal(followerPivotJob("http://gitea-http.gitea.svc.cluster.local:3000"))
@@ -129,11 +127,22 @@ func installed(followers, marker bool) []runtime.Object {
 	return objs
 }
 
+// route is the route on cs. The registry takes every credential, unless env
+// "test:registry" says it answers 403 or cannot be reached.
 func route(cs kubernetes.Interface, env map[string]string) *ReleaseRoute {
 	return &ReleaseRoute{
 		clients: func() (kubernetes.Interface, error) { return cs, nil },
 		now:     func() time.Time { return time.Unix(1763283600, 0) },
 		getenv:  func(k string) string { return env[k] },
+		checkCredential: func(_ context.Context, c registryCredential) error {
+			switch env["test:registry"] {
+			case "403":
+				return &errCredentialRefused{status: http.StatusForbidden}
+			case "unreachable":
+				return fmt.Errorf("GET https://%s/v2/: dial tcp: lookup %s: no such host", c.Registry, c.Registry)
+			}
+			return nil
+		},
 	}
 }
 
@@ -224,11 +233,6 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}}}
 	noPrefix := installed(false, false)
 	noPrefix[3] = cm(pivotStepConfigMap, map[string]string{"kit-rewrite.sh": "rewrite_kit_tree() { :; }\n", "podSpec": strings.Replace(pivotPodSpec, "UPSTREAM_PREFIX", "SOMETHING", 1)})
-	managed := func(name string, mutate func(*corev1.Secret)) *corev1.Secret {
-		s := pullSecret(name, "ghcr.io")
-		mutate(s)
-		return s
-	}
 	followersOnly := append(installed(false, false),
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secondaryKubeconfigs, Namespace: testNS}, Data: map[string][]byte{"region-b.yaml": []byte("x")}})
 	// SOV-521: what an earlier request recorded, of this candidate or another.
@@ -243,10 +247,12 @@ func TestReleaseRequestRefusals(t *testing.T) {
 	}{
 		{"an unknown field", `{"candidate":"` + testCandidate + `","force":true}`, installed(false, false), nil, 400, "bad-body"},
 		{"not a candidate id", `{"candidate":"main"}`, installed(false, false), nil, 400, "bad-candidate"},
-		{"a pull secret that is not a name", `{"candidate":"` + testCandidate + `","pullSecret":"A B"}`, installed(false, false), nil, 400, "bad-pull-secret"},
-		// #7938: a dry run never copies, uses or deletes a credential, so one
-		// named for it would stay on the Sovereign, recorded as if it mattered.
-		{"a pull secret named in a dry run", `{"candidate":"` + testCandidate + `","dryRun":true,"pullSecret":"release-pull"}`, installed(false, false), nil, 400, "dry-run-pull-secret"},
+		// The removed field: a Secret made by hand is no input any more.
+		{"the removed field pullSecret", `{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, installed(false, false), nil, 400, "pullSecret is removed: the route makes the delivery's pull Secret itself"},
+		{"the removed field pullSecret beside a credential", `{"candidate":"` + testCandidate + `",` + testCredentialJSON + `,"pullSecret":"x"}`, installed(false, false), nil, 400, "pull-secret-removed"},
+		// A dry run copies nothing from the registry: a credential would
+		// travel for nothing.
+		{"a credential in a dry run", `{"candidate":"` + testCandidate + `","dryRun":true,` + testCredentialJSON + `}`, installed(false, false), nil, 400, "dry-run-credential"},
 		{"a signature is required", `{"candidate":"` + testCandidate + `","dryRun":true}`, installed(false, false), map[string]string{envReleaseSignature: "required"}, 412, "cut unsigned"},
 		{"an unknown signature policy fails closed", `{"candidate":"` + testCandidate + `","dryRun":true}`, installed(false, false), map[string]string{envReleaseSignature: "cosign"}, 412, "signature-required"},
 		{"no cutover status", `{"candidate":"` + testCandidate + `","dryRun":true}`, without("self-sovereign-cutover-status"), nil, 409, "not-cut-over"},
@@ -257,22 +263,14 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"no pin extractor", `{"candidate":"` + testCandidate + `","dryRun":true}`, without(pinsConfigMap), nil, 424, pinsConfigMap},
 		{"a step 06 that names no upstream prefix", `{"candidate":"` + testCandidate + `","dryRun":true}`, noPrefix, nil, 424, "UPSTREAM_PREFIX"},
 		{"followers without the follower pivot", `{"candidate":"` + testCandidate + `","dryRun":true}`, followersOnly, nil, 424, followerPivotConfigMap},
-		{"a delivery without a pull secret", `{"candidate":"` + testCandidate + `"}`, installed(false, false), nil, 422, "no credential"},
-		{"a pull secret without ghcr.io", `{"candidate":"` + testCandidate + `","pullSecret":"other"}`, append(installed(false, false), pullSecret("other", "docker.io")), nil, 422, "no auth entry for ghcr.io"},
-		{"an absent pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"absent"}`, installed(false, false), nil, 422, "absent"},
-		// The delivery deletes its pull Secret: one another controller manages is refused.
-		{"a reflected pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"ghcr-pull"}`, append(installed(false, false), managed("ghcr-pull", func(s *corev1.Secret) {
-			s.Annotations = map[string]string{"reflector.v1.k8s.emberstack.com/reflects": "flux-system/ghcr-pull"}
-		})), nil, 422, "managed by the reflector"},
-		{"a Helm-managed pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"chart-pull"}`, append(installed(false, false), managed("chart-pull", func(s *corev1.Secret) {
-			s.Annotations = map[string]string{"meta.helm.sh/release-name": "bp-harbor"}
-		})), nil, 422, "managed by the Helm release bp-harbor"},
-		{"an owned pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"owned-pull"}`, append(installed(false, false), managed("owned-pull", func(s *corev1.Secret) {
-			s.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "ServiceAccount", Name: "x", UID: "u"}}
-		})), nil, 422, "managed by its owner ServiceAccount/x"},
-		{"a Flux-applied pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"flux-pull"}`, append(installed(false, false), managed("flux-pull", func(s *corev1.Secret) {
-			s.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": "bootstrap-kit"}
-		})), nil, 422, "managed by Flux"},
+		// The credential of a delivery: missing, incomplete, for another
+		// registry, refused by the registry, or the registry unreachable; each
+		// named before anything is written (TestReleaseCredentialRefusalsWriteNothing).
+		{"a delivery without a credential", `{"candidate":"` + testCandidate + `"}`, installed(false, false), nil, 422, "registry-credential-missing"},
+		{"a credential without a password", `{"candidate":"` + testCandidate + `","credential":{"registry":"ghcr.io","username":"openova-bot"}}`, installed(false, false), nil, 422, "has no password"},
+		{"a credential for another registry", `{"candidate":"` + testCandidate + `","credential":{"registry":"docker.io","username":"u","password":"p"}}`, installed(false, false), nil, 422, "registry-credential-registry"},
+		{"a credential the registry refuses", `{"candidate":"` + testCandidate + `",` + testCredentialJSON + `}`, installed(false, false), map[string]string{"test:registry": "403"}, 422, "ghcr.io refused the credential (HTTP 403)"},
+		{"a registry that cannot be reached", `{"candidate":"` + testCandidate + `",` + testCredentialJSON + `}`, installed(false, false), map[string]string{"test:registry": "unreachable"}, 502, "registry-unreachable"},
 		// SOV-521: region names primary or a follower; a rollback names a
 		// region the state records a promote of this candidate for, and
 		// carries no dry run and no pull credential.
@@ -280,7 +278,7 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"a follower name on a Sovereign without followers", `{"candidate":"` + testCandidate + `","dryRun":true,"region":"region-b"}`, installed(false, false), nil, 400, "bad-region"},
 		{"a rollback without a region", `{"candidate":"` + testCandidate + `","rollback":true}`, installed(true, true), nil, 400, "rollback-without-region"},
 		{"a rollback with a dry run", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b","dryRun":true}`, installed(true, true), nil, 400, "rollback-dry-run"},
-		{"a rollback with a pull secret", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b","pullSecret":"release-pull"}`, installed(true, true), nil, 400, "rollback-pull-secret"},
+		{"a rollback with a credential", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b",` + testCredentialJSON + `}`, installed(true, true), nil, 400, "rollback-credential"},
 		{"a rollback of a region this candidate never promoted", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`, primaryOnly, nil, 409, "not-promoted"},
 		{"a rollback when the state is of another candidate", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`, otherCandidate, nil, 409, "not-promoted"},
 		{"a rollback with no state", `{"candidate":"` + testCandidate + `","rollback":true,"region":"primary"}`, installed(true, true), nil, 409, "not-promoted"},
@@ -362,7 +360,7 @@ func TestReleaseDeliveryIsTheBootstrapOfTheCandidatesMechanism(t *testing.T) {
 				objs = append(objs[:2], objs[3:]...)
 			}
 			cs := fake.NewSimpleClientset(objs...)
-			w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","pullSecret":"release-pull"}`)
+			w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`",`+testCredentialJSON+`}`)
 			if w.Code != http.StatusAccepted {
 				t.Fatalf("code %d: %s", w.Code, w.Body)
 			}
@@ -371,15 +369,16 @@ func TestReleaseDeliveryIsTheBootstrapOfTheCandidatesMechanism(t *testing.T) {
 			if len(pod.InitContainers) != 1 || pod.InitContainers[0].Name != "stage" || len(pod.Containers) != 1 || pod.Containers[0].Name != "deliver" {
 				t.Fatalf("want init [stage] and [deliver]; have %v and %v", pod.InitContainers, pod.Containers)
 			}
-			if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
-				t.Fatalf("backoff %d, deadline %d, restart %s", *job.Spec.BackoffLimit, *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
+			if *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
+				t.Fatalf("deadline %d, restart %s", *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
 			}
+			assertRetriesOneEviction(t, "the bootstrap Job", job.Spec)
 			for i, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {
 				want := []string{"/bin/sh /release/release-run.sh stage", "/bin/sh /release/release-run.sh deliver"}[i]
 				if strings.Join(c.Command, " ") != want || c.Image != cutoverImage {
 					t.Fatalf("%s runs %v in %s, want %q in step 01's image", c.Name, c.Command, c.Image, want)
 				}
-				for k, v := range map[string]string{"PULL_SECRET": "release-pull", "CUTOVER_HELMRELEASE": defaultCutoverHelmRelease,
+				for k, v := range map[string]string{"PULL_SECRET": releasePullSecret, "CUTOVER_HELMRELEASE": defaultCutoverHelmRelease,
 					"RELEASE_JOB": job.Name, "UPSTREAM_PREFIX": "oci://ghcr.io/openova-io", "DRY_RUN": "false", "CANDIDATE": testCandidate} {
 					if e := env(c, k); e == nil || e.Value != v {
 						t.Fatalf("%s sets %s=%v, want %q", c.Name, k, e, v)
@@ -439,7 +438,7 @@ func TestReleaseScriptsAreTheCutoverChartsOwn(t *testing.T) {
 func TestReleaseFollowerJobIsTheCutoverFollowerPivotJob(t *testing.T) {
 	for _, marker := range []bool{false, true} {
 		cs := fake.NewSimpleClientset(installed(true, marker)...)
-		w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","pullSecret":"release-pull"}`)
+		w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`",`+testCredentialJSON+`}`)
 		if w.Code != http.StatusAccepted {
 			t.Fatalf("code %d: %s", w.Code, w.Body)
 		}
@@ -460,6 +459,7 @@ func TestReleaseFollowerJobIsTheCutoverFollowerPivotJob(t *testing.T) {
 		if v := j.Spec.Template.Spec.Volumes; len(v) != 1 || v[0].ConfigMap == nil || v[0].ConfigMap.Name != releaseScriptsConfigMap {
 			t.Fatalf("follower volumes: %v", v)
 		}
+		assertRetriesOneEviction(t, "the follower Job", j.Spec)
 		// The step 03 that runs is the candidate's: whatever the installed one
 		// says, the route cannot know; the stage says, from the candidate's.
 		st, _ := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), ReleaseStatusConfigMap, metav1.GetOptions{})
@@ -527,8 +527,8 @@ func TestReleaseRouteVerbsAreGranted(t *testing.T) {
 	if err := yaml.Unmarshal(b, &role); err != nil || len(role.Rules) == 0 {
 		t.Fatalf("%s: %v", path, err)
 	}
-	for _, body := range []string{`{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, `{"candidate":"` + testCandidate + `","dryRun":true}`,
-		`{"candidate":"` + testCandidate + `","pullSecret":"release-pull","region":"region-b"}`, `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`} {
+	for _, body := range []string{`{"candidate":"` + testCandidate + `",` + testCredentialJSON + `}`, `{"candidate":"` + testCandidate + `","dryRun":true}`,
+		`{"candidate":"` + testCandidate + `",` + testCredentialJSON + `,"region":"region-b"}`, `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`} {
 		cs := fake.NewSimpleClientset(append(installed(true, true), promotedState(testCandidate, "region-b"))...)
 		// A second request replaces the status and scripts it finds: update.
 		for i := 0; i < 2; i++ {
@@ -553,6 +553,9 @@ func TestReleaseRouteVerbsAreGranted(t *testing.T) {
 			name := ""
 			if g, ok := a.(k8stesting.GetAction); ok {
 				name = g.GetName()
+			}
+			if d, ok := a.(k8stesting.DeleteAction); ok {
+				name = d.GetName()
 			}
 			if !granted(role.Rules, a.GetVerb(), a.GetResource().Group, a.GetResource().Resource, name) {
 				t.Errorf("%s %s/%s %q is not granted by %s", a.GetVerb(), a.GetResource().Group, a.GetResource().Resource, name, role.Name)
@@ -612,9 +615,9 @@ func statusOf(t *testing.T, cs kubernetes.Interface) map[string]string {
 // names none, as before.
 func TestReleaseRegionRequestNamesTheRegionToTheBootstrap(t *testing.T) {
 	for _, c := range []struct{ name, body, region string }{
-		{"region b", `{"candidate":"` + testCandidate + `","pullSecret":"release-pull","region":"region-b"}`, "region-b"},
+		{"region b", `{"candidate":"` + testCandidate + `",` + testCredentialJSON + `,"region":"region-b"}`, "region-b"},
 		{"the primary, dry run", `{"candidate":"` + testCandidate + `","dryRun":true,"region":"primary"}`, "primary"},
-		{"every region", `{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, ""},
+		{"every region", `{"candidate":"` + testCandidate + `",` + testCredentialJSON + `}`, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cs := fake.NewSimpleClientset(installed(true, true)...)

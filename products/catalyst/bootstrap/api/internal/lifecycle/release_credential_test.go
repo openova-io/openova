@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // The pull credential of a delivery (#7938). The first delivery to a two-region
@@ -21,10 +22,69 @@ import (
 // holds the credential once the prewarm has ended, whatever its outcome.
 
 const (
-	releasePull  = "release-pull"
+	releasePull  = releasePullSecret
 	harborNS     = "harbor"
 	followerGHCR = "cutover-secondary-ghcr"
 )
+
+// testCredential is the credential of the tests' requests. Its password is
+// searched for in every log line and object a delivery leaves.
+var testCredential = registryCredential{Registry: "ghcr.io", Username: "openova-bot", Password: "pw-7c1d0e-not-a-real-credential"}
+
+// putPullSecret puts in the primary region the pull Secret the route makes
+// from the request's credential (release_credential.go pullSecretFor).
+func (r *runFixture) putPullSecret() {
+	r.t.Helper()
+	s, err := pullSecretFor(testNS, "sovereign-release", "test", testCredential)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	s.TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"}
+	doc, err := json.Marshal(s)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.write(filepath.Dir(r.secretPath("primary", testNS, releasePull)), releasePull+".json", string(doc))
+}
+
+// credentialNowhereElse fails when the request's password, or the auth or
+// docker configuration it is part of, is in a line the delivery printed (out,
+// the Jobs' logs), the state, a kubectl argument, or any object of any region
+// but a Secret.
+func (r *runFixture) credentialNowhereElse(out string) {
+	r.t.Helper()
+	s, _ := pullSecretFor(testNS, "sovereign-release", "test", testCredential)
+	needles := []string{testCredential.Password, base64.StdEncoding.EncodeToString([]byte(testCredential.Username + ":" + testCredential.Password)),
+		base64.StdEncoding.EncodeToString(s.Data[corev1.DockerConfigJsonKey])}
+	look := func(where, text string) {
+		for _, n := range needles {
+			if strings.Contains(text, n) {
+				r.t.Errorf("the credential is in %s", where)
+			}
+		}
+	}
+	look("the output of the release scripts", out)
+	err := filepath.Walk(r.stub, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(filepath.Clean(p))
+		if err != nil {
+			return err
+		}
+		var obj struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(b, &obj) == nil && obj.Kind == "Secret" {
+			return nil // a Secret: the route's, or a region's copy of it
+		}
+		look(strings.TrimPrefix(p, r.stub+"/"), string(b))
+		return nil
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+}
 
 // followerCredentialBlock is the part of cutover step 03's follower leg that
 // reads the upstream credential in a follower region and copies it into that
@@ -115,13 +175,13 @@ exit 1
 		"  echo \"[harbor-prewarm] #6764 secondary region ${region}: the credential is in ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET}\"\n" + fail +
 		"done\ntouch \"${STUB_DIR}/step03-ran-" + candidateCutover + "\"\n"
 	id, _ := f.candidate(1, f.candidateCutoverRelease(fake))
-	req := releaseRequest{Candidate: id, PullSecret: releasePull}
+	req := releaseRequest{Candidate: id, Credential: &testCredential}
 	r := newRunFixtureFrom(t, f, req, conflict)
 	// The bootstrap's containers name the credential as the route composes them.
 	for _, e := range credentialEnv(req) {
 		r.env = append(r.env, e.Name+"="+e.Value)
 	}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	if !conflict {
 		r.putSecret("region-b", harborNS, followerGHCR, "an-older-credential")
 	}
@@ -166,6 +226,107 @@ func TestReleaseDeliveryGivesEachFollowerThePullCredentialAndLeavesNone(t *testi
 		t.Fatalf("the delivery: phase %q failedStep %q\n%s", st["phase"], st["failedStep"], logs)
 	}
 	r.noCredentialLeft("after the delivery")
+	r.credentialNowhereElse(out + logs)
+}
+
+// A drained node does not fail a delivery: the delivery Job replaces a Pod an
+// eviction took, once, and what the new Pod runs again is safe. Evicted before
+// its prewarm, the new Pod copies with the credential, which is still there;
+// evicted after it (the credential already deleted), the new Pod copies
+// nothing again, starts although the Secret is gone (optional), and promotes.
+func TestReleaseDeliveryJobSurvivesAnEviction(t *testing.T) {
+	for _, before := range []string{"prewarm", "promote"} {
+		t.Run("evicted before "+before, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			r.env = append(r.env, "STUB_EVICT="+before)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			out, code := r.run("deliver", req)
+			logs := r.jobLog(req)
+			st := r.status()
+			if code != 0 || st["phase"] != "delivered" {
+				t.Fatalf("a delivery whose Pod was evicted before %s: exit %d, phase %q (%s)\n%s\n%s", before, code, st["phase"], st["message"], out, logs)
+			}
+			if !strings.Contains(logs, "the Job replaces the evicted Pod 1") {
+				t.Fatalf("the Pod was not evicted:\n%s", logs)
+			}
+			if before == "promote" && !strings.Contains(logs, "resumed: an earlier Pod of sovereign-release-delivery completed the prewarm") {
+				t.Fatalf("the second Pod ran the prewarm again:\n%s", logs)
+			}
+			if r.remote("main") == r.main || r.followerRef("main") == r.followerMain {
+				t.Fatal("the delivery promoted no region")
+			}
+			r.noCredentialLeft("after a delivery with an eviction")
+			r.credentialNowhereElse(out + logs)
+		})
+	}
+}
+
+// A delivery Job killed past its one retry deletes nothing itself; the
+// bootstrap's deliver container that waits for it is its finaliser: the
+// credential is removed in every region, step 03's copy in the follower's
+// harbor namespace included, and the state says the Job ended without a cause.
+func TestReleaseDeliveryJobKilledPastItsRetryLeavesNoCredential(t *testing.T) {
+	r, req := credentialFixture(t, false, false)
+	r.env = append(r.env, "STUB_EVICT=prewarm", "STUB_EVICT_EVERY=1")
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	out, code := r.run("deliver", req)
+	st := r.status()
+	if code == 0 || st["phase"] != "failed" || st["failedStep"] != "deliver" || !strings.Contains(st["message"], "failed before its containers recorded a cause") {
+		t.Fatalf("a killed delivery Job: exit %d, phase %q, failedStep %q, message %q\n%s\n%s", code, st["phase"], st["failedStep"], st["message"], out, r.jobLog(req))
+	}
+	r.noCredentialLeft("after the delivery Job was killed")
+	if r.remote("main") != r.main || r.followerRef("main") != r.followerMain {
+		t.Fatal("a killed delivery Job moved a main")
+	}
+}
+
+// The bootstrap Job replaces a Pod an eviction took, once. Its stage repeats
+// from the start (release/<id> force-pushed again, nothing promoted yet); but
+// once the first Pod created the delivery Job, the new Pod stages nothing and
+// its deliver waits for that Job.
+func TestReleaseBootstrapSurvivesAnEviction(t *testing.T) {
+	t.Run("evicted during the stage", func(t *testing.T) {
+		r, req := credentialFixture(t, false, false)
+		if out, code := r.run("stage", req); code != 0 {
+			t.Fatalf("stage of the first Pod: exit %d\n%s", code, out)
+		}
+		r.state = t.TempDir() // the new Pod's emptyDir
+		if out, code := r.run("stage", req); code != 0 || strings.Contains(out, "resumed") {
+			t.Fatalf("stage of the second Pod: exit %d; want a stage that runs again\n%s", code, out)
+		}
+		out, code := r.run("deliver", req)
+		if st := r.status(); code != 0 || st["phase"] != "delivered" {
+			t.Fatalf("deliver: exit %d, phase %q\n%s\n%s", code, st["phase"], out, r.jobLog(req))
+		}
+		r.noCredentialLeft("after the delivery")
+	})
+	t.Run("evicted after it created the delivery Job", func(t *testing.T) {
+		r, req := credentialFixture(t, false, false)
+		if out, code := r.run("stage", req); code != 0 {
+			t.Fatalf("stage of the first Pod: exit %d\n%s", code, out)
+		}
+		if out, code := r.run("deliver", req); code != 0 {
+			t.Fatalf("deliver of the first Pod: exit %d\n%s\n%s", code, out, r.jobLog(req))
+		}
+		staged, primary, follower := r.remote("release/"+req.Candidate), r.remote("main"), r.followerRef("main")
+		r.state = t.TempDir()
+		out, code := r.run("stage", req)
+		if code != 0 || !strings.Contains(out, "resumed: the delivery Job catalyst/sovereign-release-delivery exists") {
+			t.Fatalf("stage of the second Pod: exit %d; want it to stage nothing\n%s", code, out)
+		}
+		out2, code := r.run("deliver", req)
+		if st := r.status(); code != 0 || st["phase"] != "delivered" || !strings.Contains(out2, "resumed: waiting for the delivery Job") {
+			t.Fatalf("deliver of the second Pod: exit %d, phase %q; want it to wait for the delivery Job\n%s", code, st["phase"], out2)
+		}
+		if r.remote("release/"+req.Candidate) != staged || r.remote("main") != primary || r.followerRef("main") != follower {
+			t.Fatal("the second Pod of the bootstrap moved a branch the first Pod's delivery had pushed")
+		}
+		r.credentialNowhereElse(out + out2)
+	})
 }
 
 func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *testing.T) {
@@ -200,12 +361,12 @@ func TestReleaseStageFailureLeavesNoCredential(t *testing.T) {
 func TestReleaseDryRunTouchesNoCredential(t *testing.T) {
 	f := newFixture(t)
 	id, _ := f.candidate(1, f.laterRelease)
-	req := releaseRequest{Candidate: id, DryRun: true, PullSecret: releasePull}
+	req := releaseRequest{Candidate: id, DryRun: true, Credential: &testCredential}
 	r := newRunFixtureFrom(t, f, req, false)
 	if env := credentialEnv(req); len(env) != 0 {
 		t.Fatalf("a dry run names the credential: %v", env)
 	}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	if out, code := r.run("stage", req); code != 0 {
 		t.Fatalf("dry run: exit %d\n%s", code, out)
 	}

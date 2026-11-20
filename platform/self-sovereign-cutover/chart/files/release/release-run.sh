@@ -65,15 +65,41 @@
 # Every region's result and report go to the ConfigMap RELEASE_STATUS_CM; the
 # recorded commits go to STATE, the Pod's shared emptyDir.
 #
-# The pull credential (#7938). PULL_SECRET is the request's pullSecret, a
-# Secret of RELEASE_NAMESPACE in this region, and the only source of it. Step
-# 03's follower leg reads it through each follower's kubeconfig, as
+# The pull credential (#7938). PULL_SECRET names the Secret of RELEASE_NAMESPACE
+# in this region that the route made from the credential of the request (the
+# sovereign-admin sends it with the request; nothing on the Sovereign holds one
+# after cutover, and nothing is made by hand), and it is the only source of it.
+# Step 03's follower leg reads it through each follower's kubeconfig, as
 # RELEASE_NAMESPACE/PULL_SECRET of THAT region (SECONDARY_GHCR_SOURCE_*), and
 # copies it on into SECONDARY_HARBOR_NAMESPACE/SECONDARY_GHCR_DEST_SECRET there.
 # So the stage of a delivery copies it into every follower, and the end of the
 # prewarm, or a failed stage, deletes it in every region: the copies in each
-# follower and the source here. No region keeps an upstream credential after a
-# delivery (cutover step 06 strips the parent's); the next delivery names one again.
+# follower and the source here. A delivery Job that ends without its prewarm
+# having deleted it (killed, past its retry or its deadline) is finalised by
+# the deliver container that waits for it (delivery_wait); a bootstrap Job
+# killed the same way by the route, which removes the Secret on its next request
+# and on any read of the state once no release Job runs. No region keeps an
+# upstream credential after a delivery (cutover step 06 strips the parent's);
+# the next request carries one again.
+#
+# An eviction (a drained node). Every Job of a delivery replaces ONE Pod the
+# cluster took away (backoffLimit 1, and a pod failure policy that counts a
+# DisruptionTarget and fails the Job on any exit of these scripts, which record
+# their cause and must not be run over it). What the replacement Pod runs again
+# repeats or resumes:
+#   stage    repeats: it force-pushes release/<id> again, recreates each
+#            follower's Job, applies the same objects; nothing is promoted yet.
+#            But when the delivery Job an earlier Pod started exists, it
+#            resumes: it stages nothing (a new release/<id> would differ from
+#            the commit that Job promotes), and deliver waits for that Job.
+#   prewarm  repeats until an earlier Pod of the delivery Job completed it
+#            (prewarmedBy in the state is that Job); then it resumes: it copies
+#            nothing again, and runs without the credential it already deleted.
+#   promote  repeats: release-region.sh check and promote answer promoted for a
+#            region whose main already is the staged commit, and record the same.
+#   rollback repeats: a region already rolled back answers rolled-back.
+# A Job's end is read from its conditions (job_end), never from .status.failed,
+# which counts the Pod an eviction replaced.
 set -eu
 : "${RELEASE_NAMESPACE:?}" "${RELEASE_STATUS_CM:?}" "${CANDIDATE:?}"
 : "${DRY_RUN:=false}" "${STATE:=/release-state}" "${SECONDARY_KUBECONFIGS:=/secondary-kubeconfigs}"
@@ -87,6 +113,9 @@ set -eu
 : "${SECONDARY_KUBECONFIGS_SECRET:=cutover-secondary-kubeconfigs}"
 : "${SERVER_DRY_RUN:=false}" "${DRY_RUN_PULL_SECRET:=release-pull-dry-run}"
 : "${RELEASE_REGION:=}" "${PROMOTED_FROM:=}" "${PROMOTED_TO:=}"
+# The pod failure policy of every Job this script makes (An eviction, above;
+# the route sets the same on the bootstrap, release_credential.go releaseRetry).
+RELEASE_POD_FAILURE_POLICY='{"rules":[{"action":"Count","onPodConditions":[{"type":"DisruptionTarget","status":"True"}]},{"action":"FailJob","onExitCodes":{"operator":"NotIn","values":[0]}}]}'
 mkdir -p "${STATE}"
 # A delivery Job starts with what the bootstrap's stage recorded (STATE_SEED).
 if [ -n "${STATE_SEED}" ] && [ -d "${STATE_SEED}" ]; then
@@ -156,6 +185,28 @@ record() {
 
 followers() {
   for _kc in "${SECONDARY_KUBECONFIGS}"/*.yaml; do [ -e "${_kc}" ] && echo "${_kc}"; done
+}
+
+# job_end <job> [<kubeconfig>]: how a Job of RELEASE_NAMESPACE here (with a
+# kubeconfig, of SECONDARY_GITEA_NAMESPACE in that follower) ended, by its
+# conditions: ok (Complete), failed (Failed), nothing while it runs, a Pod an
+# eviction replaced included.
+job_end() {
+  if [ -n "${2:-}" ]; then
+    _je=$(kubectl --kubeconfig "$2" -n "${SECONDARY_GITEA_NAMESPACE}" get job "$1" -o 'jsonpath={range .status.conditions[?(@.status=="True")]}{.type}{" "}{end}' 2>/dev/null || true)
+  else
+    _je=$(kubectl -n "${RELEASE_NAMESPACE}" get job "$1" -o 'jsonpath={range .status.conditions[?(@.status=="True")]}{.type}{" "}{end}' 2>/dev/null || true)
+  fi
+  case " ${_je} " in
+    *" Complete "*) echo ok ;;
+    *" Failed "*) echo failed ;;
+  esac
+}
+
+# delivery_exists: whether the delivery Job of this request exists, which only
+# an earlier Pod of this bootstrap Job can have created.
+delivery_exists() {
+  [ -n "$(kubectl -n "${RELEASE_NAMESPACE}" get job "${RELEASE_JOB}-delivery" -o name 2>/dev/null || true)" ]
 }
 
 # selected <region>: whether promote acts on <region>: every region when the
@@ -228,7 +279,7 @@ _cred_why=""
 credential_deliver() {
   [ -n "${PULL_SECRET}" ] || return 0
   if ! kubectl -n "${RELEASE_NAMESPACE}" get secret "${PULL_SECRET}" -o name >/dev/null 2>&1; then
-    _cred_why="the request's pull Secret ${RELEASE_NAMESPACE}/${PULL_SECRET} is absent in the primary region"
+    _cred_why="the pull Secret ${RELEASE_NAMESPACE}/${PULL_SECRET}, which the route makes from the credential of the request, is absent in the primary region"
     return 1
   fi
   for _kc in $(followers); do
@@ -353,7 +404,8 @@ compose_delivery() {
   done
   jq -n --slurpfile p3 "${MECH}/p03.json" --slurpfile p1 "${MECH}/p01.json" --arg job "${RELEASE_JOB}-delivery" \
     --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" --arg pull "${_pull:-${PULL_SECRET}}" --arg sfx "${MECHANISM_SUFFIX}" \
-    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" --arg region "${RELEASE_REGION}" '
+    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" --arg region "${RELEASE_REGION}" \
+    --argjson retry "${RELEASE_POD_FAILURE_POLICY}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     def setall($es): reduce $es[] as $e (.; setenv($e));
@@ -366,7 +418,7 @@ compose_delivery() {
      + ([("SECONDARY_HARBOR_NAMESPACE", "SECONDARY_GHCR_DEST_SECRET") as $n | select(envof($c3; $n) != "") | plain($n; envof($c3; $n))])) as $common |
     ($c3 | .name = "prewarm" | .args = ((.command // []) + (.args // [])) | .command = ["/bin/sh", "/release/release-run.sh", "prewarm"]
       | .env = ((.env // []) | setenv(plain("UPSTREAM_BRANCH"; "release/" + $cand))
-          | setenv({name: "GHCR_DOCKERCONFIG", valueFrom: {secretKeyRef: {name: $pull, key: ".dockerconfigjson"}}})
+          | setenv({name: "GHCR_DOCKERCONFIG", valueFrom: {secretKeyRef: {name: $pull, key: ".dockerconfigjson", optional: true}}})
           | setenv(plain("GHCR_DOCKERCONFIG_NAMESPACE"; $ns))
           | if any(.[]; .name == "SECONDARY_GHCR_SOURCE_SECRET") then setenv(plain("SECONDARY_GHCR_SOURCE_NAMESPACE"; $ns)) | setenv(plain("SECONDARY_GHCR_SOURCE_SECRET"; $pull)) else . end
           | setall($common + [plain("SECONDARY_KUBECONFIGS"; "/release-secondary-kubeconfigs")]))
@@ -385,7 +437,7 @@ compose_delivery() {
     {app: "sovereign-release", cand: $cand} as $l |
     {apiVersion: "batch/v1", kind: "Job",
      metadata: {name: $job, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $cand}},
-     spec: {backoffLimit: 0, activeDeadlineSeconds: (($s3.activeDeadlineSeconds // 0) + 7200), ttlSecondsAfterFinished: 259200,
+     spec: {backoffLimit: 1, podFailurePolicy: $retry, activeDeadlineSeconds: (($s3.activeDeadlineSeconds // 0) + 7200), ttlSecondsAfterFinished: 259200,
        template: {metadata: {labels: {"app.kubernetes.io/component": "sovereign-release"}},
          spec: ({serviceAccountName: $s3.serviceAccountName, restartPolicy: "Never", securityContext: $s3.securityContext,
            imagePullSecrets: $s3.imagePullSecrets, nodeSelector: $s3.nodeSelector, tolerations: $s3.tolerations, affinity: $s3.affinity,
@@ -408,12 +460,12 @@ follower_job_of_mechanism() {
   [ -s "${MECH}/follower-src.yaml" ] || return 0
   _urepo=$(jq -r '([.containers[0].env[]? | select(.name == "UPSTREAM_REPO_URL") | .value] | .[0]) // ""' "${MECH}/p01.json")
   k8s_json "${MECH}/follower-src.yaml" >"${MECH}/follower-src.json" || return 1
-  head -n 1 "${MECH}/follower-src.json" | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" '
+  head -n 1 "${MECH}/follower-src.json" | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" --argjson retry "${RELEASE_POD_FAILURE_POLICY}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     .metadata.name = "__JOB__" | del(.metadata.resourceVersion, .metadata.uid)
     | .metadata.labels = ((.metadata.labels // {}) + {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $cand, "catalyst.openova.io/secondary-region": "__REGION__"})
-    | .spec.backoffLimit = 0 | .spec.activeDeadlineSeconds = 7200 | .spec.ttlSecondsAfterFinished = 259200
+    | .spec.backoffLimit = 1 | .spec.podFailurePolicy = $retry | .spec.activeDeadlineSeconds = 7200 | .spec.ttlSecondsAfterFinished = 259200
     | .spec.template.metadata.labels = ((.spec.template.metadata.labels // {}) + {"app.kubernetes.io/component": "sovereign-release"})
     | .spec.template.spec.containers[0] |= (.name = "release" | .command = ["/bin/sh", "/release/release-region.sh"] | del(.args)
         | .env = ((.env // []) | map(select(.name != "LOCAL_PREFIX" and .name != "TRUST_SECRET"))
@@ -663,8 +715,22 @@ run_delivery() {
   plan_submit "${MECH}/plan-deliver.tsv" || { _mech_why="cannot create ${_mech_why}"; return 1; }
   status_put --arg deliveryJob "${_dj}" --arg updatedAt "$(now)"
   say "the delivery runs as Job ${RELEASE_NAMESPACE}/${_dj}: prewarm and promote of $(cat "${MECH}/version")"
+  delivery_wait "${_dj}"
+}
+
+# delivery_wait <job>: wait for the delivery Job by its conditions (job_end),
+# for its deadline and ten minutes more, naming in the state a Pod that has
+# started no container (deliveryPod); then print its logs. 0: it completed; 3:
+# it failed; 1: it did not end in time (_mech_why). It is the delivery Job's
+# finaliser: when the Job did not complete, the credential is removed in every
+# region, under the names step 03's follower leg copies it to, read from the
+# Job (a Job killed before its prewarm ended removed nothing itself), and a
+# state its containers left at staged says the Job ended without a cause.
+delivery_wait() {
+  _dj="$1"
+  kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o json >"${STATE}/delivery-job.live.json" 2>/dev/null || true
   _start=$(date +%s)
-  _deadline=$(( _start + $(jq '.spec.activeDeadlineSeconds' "${MECH}/delivery-job.json") + 600 ))
+  _deadline=$(( _start + $(jq '.spec.activeDeadlineSeconds // 0' "${STATE}/delivery-job.live.json" 2>/dev/null || echo 0) + 600 ))
   _end=""; _stall=""
   while [ "$(date +%s)" -lt "${_deadline}" ]; do
     # A Pod that has started no container after DELIVERY_STALL_SECONDS is
@@ -677,17 +743,24 @@ run_delivery() {
         [ -z "${_s}" ] || say "WARN: the delivery Job has started no container: ${_s}"
       fi
     fi
-    _ok=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
-    _bad=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.failed}' 2>/dev/null || true)
-    if [ "${_ok:-0}" -ge 1 ] 2>/dev/null; then _end=ok; break; fi
-    if [ "${_bad:-0}" -ge 1 ] 2>/dev/null; then _end=failed; break; fi
+    _end=$(job_end "${_dj}")
+    [ -z "${_end}" ] || break
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
   kubectl -n "${RELEASE_NAMESPACE}" logs "job/${_dj}" --all-containers=true --tail=-1 2>&1 || true
+  [ "${_end}" = ok ] && return 0
+  _penv() { jq -r --arg n "$1" '[.spec.template.spec.initContainers[0].env[]? | select(.name == $n) | .value // empty] | .[0] // ""' "${STATE}/delivery-job.live.json" 2>/dev/null || true; }
+  SECONDARY_HARBOR_NAMESPACE="${SECONDARY_HARBOR_NAMESPACE:-$(_penv SECONDARY_HARBOR_NAMESPACE)}"
+  SECONDARY_GHCR_DEST_SECRET="${SECONDARY_GHCR_DEST_SECRET:-$(_penv SECONDARY_GHCR_DEST_SECRET)}"
+  credential_remove || true
+  _why="the delivery Job ${_dj} did not end within its deadline${_stall:+: ${_stall}}"
+  [ "${_end}" = failed ] && _why="the delivery Job ${_dj} failed before its containers recorded a cause: a Pod was killed past its one retry, or the Job's deadline passed; <region>.promote names any region it moved"
+  if [ "$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o 'jsonpath={.data.phase}' 2>/dev/null || true)" = staged ]; then
+    status_put --arg phase failed --arg failedStep deliver --arg message "${_why}" --arg updatedAt "$(now)"
+  fi
   case "${_end}" in
-    ok) return 0 ;;
-    failed) return 3 ;;   # its own containers recorded the step and the cause
-    *) _mech_why="the delivery Job ${_dj} did not end within its deadline${_stall:+: ${_stall}}"; return 1 ;;
+    failed) return 3 ;;   # its containers recorded the step and the cause, or the line above did
+    *) _mech_why="${_why}"; return 1 ;;
   esac
 }
 
@@ -738,10 +811,8 @@ run_follower() {
   _deadline=$(( $(date +%s) + FOLLOWER_WAIT_SECONDS ))
   _end=""
   while [ "$(date +%s)" -lt "${_deadline}" ]; do
-    _ok=$(kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${_job}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
-    _bad=$(kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${_job}" -o jsonpath='{.status.failed}' 2>/dev/null || true)
-    if [ "${_ok:-0}" -ge 1 ] 2>/dev/null; then _end=ok; break; fi
-    if [ "${_bad:-0}" -ge 1 ] 2>/dev/null; then _end=failed; break; fi
+    _end=$(job_end "${_job}" "${_kc}")
+    [ -z "${_end}" ] || break
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
   kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${_job}" --tail=-1 >"${_out}" 2>&1 || true
@@ -787,6 +858,14 @@ verdict() {
 
 case "${1:-}" in
   stage)
+    # A Pod that replaced an evicted one, after that one created the delivery
+    # Job: every region was staged, and that Job promotes the commits recorded
+    # then. Staging again would push release/<id> anew under it; so nothing is
+    # staged, and deliver waits for that Job.
+    if [ "${DRY_RUN}" != "true" ] && delivery_exists; then
+      say "resumed: the delivery Job ${RELEASE_NAMESPACE}/${RELEASE_JOB}-delivery exists, so an earlier Pod of ${RELEASE_JOB} staged every region; nothing is staged again"
+      exit 0
+    fi
     if ! region_check; then
       status_put --arg phase refused --arg failedStep stage --arg message "${_region_why}; nothing moved in any region" --arg updatedAt "$(now)"
       say "REFUSED: ${_region_why}"
@@ -862,7 +941,18 @@ case "${1:-}" in
     ;;
   deliver)
     # The bootstrap's last container: the candidate's own release-run.sh runs
-    # the delivery. What it does not get to record is recorded here.
+    # the delivery. What it does not get to record is recorded here. In a Pod
+    # that replaced an evicted one after it created the delivery Job (the
+    # stage resumed), it waits for that Job.
+    if delivery_exists; then
+      say "resumed: waiting for the delivery Job ${RELEASE_NAMESPACE}/${RELEASE_JOB}-delivery an earlier Pod of ${RELEASE_JOB} created"
+      _drc=0; delivery_wait "${RELEASE_JOB}-delivery" || _drc=$?
+      case "${_drc}" in
+        0) exit 0 ;;
+        3) say "the delivery Job failed; its state names the step and the cause"; exit 1 ;;
+        *) status_put --arg phase failed --arg failedStep deliver --arg message "${_mech_why}" --arg updatedAt "$(now)"; say "FAILED: ${_mech_why}"; exit 1 ;;
+      esac
+    fi
     if [ ! -s "${MECH}/release-run.sh" ]; then
       status_put --arg phase failed --arg failedStep deliver --arg message "no rendered release mechanism in ${MECH}: nothing moved in any region" --arg updatedAt "$(now)"
       credential_remove || true
@@ -909,9 +999,26 @@ case "${1:-}" in
     # container's log as it runs and to STATE/prewarm.log, for the cause.
     shift
     [ "$#" -gt 0 ] || { say "usage: release-run.sh prewarm <command of cutover step 03...>"; exit 2; }
+    # A Pod that replaced an evicted one after an earlier Pod of this Job
+    # completed the prewarm: the copies are in the registry and the credential
+    # is deleted, so nothing is copied again.
+    if [ "$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o 'jsonpath={.data.prewarmedBy}' 2>/dev/null || true)" = "${RELEASE_JOB}" ]; then
+      say "resumed: an earlier Pod of ${RELEASE_JOB} completed the prewarm; nothing is copied again"
+      exit 0
+    fi
+    if [ -z "${GHCR_DOCKERCONFIG:-}" ]; then
+      _why="the pull credential ${RELEASE_NAMESPACE}/${PULL_SECRET} is absent, so step 03 cannot copy from the upstream registry"
+      status_put --arg phase failed --arg failedStep prewarm --arg message "prewarm failed: ${_why}; nothing moved in any region" --arg updatedAt "$(now)"
+      say "FAILED: ${_why}; nothing moved in any region"
+      credential_remove || true
+      exit 1
+    fi
     rm -f "${STATE}/prewarm.rc"
     { _prc=0; "$@" || _prc=$?; echo "${_prc}" >"${STATE}/prewarm.rc"; } 2>&1 | tee "${STATE}/prewarm.log"
     _prc=$(cat "${STATE}/prewarm.rc" 2>/dev/null || echo 1)
+    # Recorded before the credential goes, so that a Pod replacing this one
+    # never needs the credential again.
+    [ "${_prc}" -ne 0 ] || status_put --arg prewarmedBy "${RELEASE_JOB}" --arg updatedAt "$(now)"
     credential_remove || true
     if [ "${_prc}" -ne 0 ]; then
       _cause=$(first_cause "${STATE}/prewarm.log")

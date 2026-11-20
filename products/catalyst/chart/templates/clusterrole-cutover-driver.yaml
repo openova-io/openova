@@ -152,6 +152,14 @@ rules:
     resources: ["secrets"]
     resourceNames: ["cutover-secondary-kubeconfigs"]
     verbs: ["get", "update", "patch", "delete"]
+  # The release route (PUT /api/v1/sovereign/release) makes the delivery's
+  # pull Secret from the credential of the request (`create`, above) and
+  # removes the one a killed release Job left, on the next request and on a
+  # read of the state; it deletes this one name only.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["sovereign-release-pull"]
+    verbs: ["get", "delete"]
 
   # ───────────────────────────────────────────────────────────────
   # #6317 — Anthropic OAuth credential REFRESH write-back.
