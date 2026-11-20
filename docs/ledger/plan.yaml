@@ -187,7 +187,7 @@ epics:
 - id: SOV-300
   title: 'EPIC: Standing tethers cut at bootstrap'
   wave: W1b
-  packages: [SOV-338, SOV-341, SOV-320, SOV-321, SOV-322, SOV-323, SOV-335, SOV-336, SOV-337, SOV-340, SOV-310, SOV-330]
+  packages: [SOV-338, SOV-341, SOV-320, SOV-321, SOV-322, SOV-323, SOV-335, SOV-336, SOV-337, SOV-342, SOV-343, SOV-344, SOV-340, SOV-310, SOV-330]
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
@@ -8048,20 +8048,18 @@ packages:
   dropped: false
   delivers: ClusterProviderConfig cloud with the s3 back end and the cloud credential as a mounted file (source Filesystem); the provider pod no longer reads Secret cloud-credentials. TF_ENCRYPTION in the runtime configuration with the OpenBao key provider and a token file re-minted every 15 minutes; the token generator and its ExternalSecret are rendered here in SEC's form. Three object-storage substitutes. Namespace catalyst-infra. The permanent canary Workspace catalyst-infra/state-canary. The template workspaces/base.yaml.
 - id: CLD-172
-  title: OpenTofu provider binaries from the Sovereign's registry
+  title: The ClusterProviderConfig cloud and the provisioning engine read the OpenTofu provider mirror
   area: CLD
   epic: CLD-170
   type: new
   wave: W1b
   size: S
   lane: RAILS
-  depends_on: [CLD-050, CLD-171, SOV-130, SOV-131, SOV-134]
-  after: [FND-011, SVC-040, SVC-041, INF-112]
+  depends_on: [CLD-050, CLD-171, SOV-130, SOV-131, SOV-134, SOV-342]
+  after: [SVC-040, INF-112]
   touches:
-  - .github/workflows/mirror-tofu-providers.yaml
-  - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
   - products/catalyst/bootstrap/api/Containerfile
-  - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
+  - clusters/_template/infrastructure/base/**
   resources: []
   flips: []
   implements: []
@@ -8075,7 +8073,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Mirror workflow from pack.yaml tofuProviders with versions from each module's lock file. CLI configuration for the provider pod and the API image that installs providers only from ${REGISTRY_HOST}/${REGISTRY_PATH_TOFU_PROVIDERS}. The stale Containerfile comments are fixed here.
+  delivers: The ClusterProviderConfig cloud of CLD-171 carries the CLI configuration of SOV-342 as its credential .tofurc (source Filesystem, the file the provider pod mounts), so unit Workspaces install their providers only from the mirror; the provisioning engine's image (products/catalyst/bootstrap/api/Containerfile) reads a CLI configuration of the same form, one oci_mirror and no direct method. The stale Containerfile comments are fixed here.
 - id: CLD-173
   title: 'Facts for unit modules: day2_facts, the facts ConfigMap, the join token'
   area: CLD
@@ -10576,7 +10574,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-144, SOV-120, SOV-160, SOV-212, SOV-225]
-  after: [FND-011, SOV-020, SOV-241, NET-040, NET-080, SVC-040, SVC-041, CTL-040, CTL-346]
+  after: [SOV-343, FND-011, SOV-020, SOV-241, NET-040, NET-080, SVC-040, SVC-041, CTL-040, CTL-346]
   touches:
   - core/cmd/sovereign-ops/internal/closure/**
   - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
@@ -10609,7 +10607,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-132, SOV-135, SOV-161, SOV-175, SOV-190, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-132, SOV-135, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -10621,6 +10619,9 @@ packages:
   - clusters/_template/bootstrap-kit/*.yaml
   - clusters/_template/sovereign-region/multi-region-follower/catalog-helmrepository.yaml
   - scripts/upstream-literals-baseline.txt
+  - clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/api/internal/provisioner/testdata/*.golden.json
   resources: []
   flips: []
   implements: []
@@ -10813,7 +10814,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330, SOV-322]
-  after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, SEC-162, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-136, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [SOV-344, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, SEC-162, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-136, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11297,6 +11298,112 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: GET /api/v1/deployments/{id}/kubeconfig serves the primary region's file <kubeconfigs dir>/<id>.yaml when the deployment record carries no kubeconfig path, with no region and with the primary's cloud region as ?region=, and every other answer of the route is unchanged.
+- id: SOV-342
+  title: The provider pod installs OpenTofu providers only from an OCI mirror of listed, digest-pinned packages
+  area: SOV
+  epic: SOV-300
+  type: fix
+  wave: W0
+  size: M
+  lane: SUBSTRATE
+  depends_on: [SOV-130]
+  after: [CLD-064, CLD-066, CLD-080]
+  touches:
+  - .github/workflows/mirror-tofu-providers.yaml
+  - clusters/_template/infrastructure/providers/base/opentofu-providers.yaml
+  - clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml
+  - clusters/_template/infrastructure/providers/base/kustomization.yaml
+  - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
+  - clusters/_template/infrastructure/base/provider-config-opentofu.yaml
+  - tools/guards/cmd/tofu-providers/**
+  - scripts/check-tofu-init-from-mirror.sh
+  - docs/contracts/c6-crossplane-conventions.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The OpenTofu providers of the Sovereign's modules are published at the origin as an OCI provider mirror (OpenTofu 1.10 oci_mirror), listed with their index digests in Git (ConfigMap crossplane-system/opentofu-providers, the six versions the lock files pin); the provider pod reads a CLI configuration (ConfigMap crossplane-system/opentofu-cli-config, the ProviderConfig default's credential .tofurc) that installs every provider only from that mirror with the pull credential, never from registry.opentofu.org; a Go guard fails when a version a module requires, a lock file pins or a pack names is missing from the list.
+- id: SOV-343
+  title: The cutover copies the OpenTofu provider packages into the Sovereign and pivots the provider pod to them
+  area: SOV
+  epic: SOV-300
+  type: fix
+  wave: W0
+  size: M
+  lane: CONTROL
+  depends_on: [SOV-342]
+  after: [FND-011, FND-095, CLD-067, SOV-020, SOV-241, SOV-521, SOV-522, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
+  touches:
+  - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
+  - platform/self-sovereign-cutover/chart/templates/11-crossplane-provider-pivot-job.yaml
+  - platform/self-sovereign-cutover/chart/templates/12-daytwo-harbor-pin-reconciler.yaml
+  - platform/self-sovereign-cutover/chart/templates/rbac.yaml
+  - platform/self-sovereign-cutover/chart/values.yaml
+  - platform/self-sovereign-cutover/chart/files/release/release-region.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh
+  - platform/self-sovereign-cutover/chart/tests/tofu-providers-prewarm.sh
+  - platform/self-sovereign-cutover/chart/tests/tofu-cli-config-pivot.sh
+  - platform/self-sovereign-cutover/chart/tests/daytwo-tofu-provider-leg.sh
+  - platform/self-sovereign-cutover/chart/tests/step7938-stage-reapplies-provider-pivot.sh
+  - tests/acceptance/sovereign/internal/suite/check_crossplane.go
+  - tests/acceptance/sovereign/internal/suite/check_crossplane_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Cutover step 03 copies every listed OpenTofu provider package by digest into the Sovereign's registry (openova-io/tofu-providers), step 11 pivots the provider pod's CLI configuration to it in the local Git server (provider-pivot.sh, applied again by the release stage) and reports success only when the running pod reads the local address, the day-two reconciler copies a newly listed package, and gate check CLD-G06 judges that the CLI configuration names only the Sovereign's registry after the cutover.
+- id: SOV-344
+  title: The sovereignty proof counts the cloud Workspaces, and the tether list names the OpenTofu providers
+  area: SOV
+  epic: SOV-300
+  type: fix
+  wave: W0
+  size: S
+  lane: CONTROL
+  depends_on: [SOV-343]
+  after: [FND-011, FND-096, FND-097, FND-104, FND-106, FND-173, CLD-076, SOV-010, SOV-521, SOV-523, NET-055, NET-110, NET-221, SVC-040, SVC-041, SVC-162, AIP-041, MIG-010]
+  touches:
+  - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
+  - platform/self-sovereign-cutover/chart/templates/rbac.yaml
+  - platform/self-sovereign-cutover/chart/tests/egress-hold-workspaces.sh
+  - platform/self-sovereign-cutover/chart/tests/tofu-cli-config-host-lint.sh
+  - platform/self-sovereign-cutover/chart/README.md
+  - docs/adr/0002-post-handover-sovereignty-cutover.md
+  - docs/DOD.md
+  - docs/ARCHITECTURE.md
+  - CLAUDE.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Cutover step 08 fails when a cloud Workspace that was Ready and Synced before the hold is not so during it, in any region, and fails before the hold when the live OpenTofu CLI configuration names a source outside the Sovereign; the tether lists of the design documents and of the chart name the OpenTofu provider binaries as a ninth tether.
 - id: SOV-405
   title: The parent provisions with a per-child identity
   area: SOV
