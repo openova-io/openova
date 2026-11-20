@@ -440,6 +440,32 @@ keycloak:
   # `gateway.host` is set; the subchart tpl-evaluates this name in its own
   # context (.Release.Name = keycloak → `keycloak-kc-frontend-env`).
   extraEnvVarsCM: '{{ .Release.Name }}-kc-frontend-env'
+  # ─── The regions' Keycloaks rejoin after one restarts (FND-G07, 2026-11-20) ──
+  # The two regions' Keycloaks are ONE Infinispan cluster across the mesh.
+  # The subchart default (stack jdbc-ping, Keycloak's KEYCLOAK_JDBC_PING2)
+  # left them split for good when a drain moved one region's Keycloak and the
+  # shared PostgreSQL in the same minute: a database error during the view
+  # change escaped as a RuntimeException and stopped MERGE3 on the survivor.
+  # The cause, the log lines and the stack are in
+  # templates/configmap-cache-ispn.yaml. The stack is chosen in that file, so
+  # KC_CACHE_STACK must stay unset (a value there overrides the file's stack);
+  # the file path is relative to Keycloak's conf/ directory, where the
+  # ConfigMap is mounted. The pod annotation hashes the file so an edit to it
+  # restarts Keycloak. Locked by tests/cache-stack-regions-rejoin.sh.
+  cache:
+    enabled: true
+    stack: ""
+    configFile: "cluster/cache-ispn.xml"
+  podAnnotations:
+    checksum/cache-ispn: '{{ include "bp-keycloak.cacheIspnXml" . | sha256sum }}'
+  extraVolumes:
+    - name: cache-ispn
+      configMap:
+        name: '{{ .Release.Name }}-cache-ispn'
+  extraVolumeMounts:
+    - name: cache-ispn
+      mountPath: /opt/bitnami/keycloak/conf/cluster
+      readOnly: true
   # ─── Bitnami image-registry consolidation (issue #191) ──────────────────
   # Bitnami consolidated their tag scheme around 2025-09 (see
   # https://github.com/bitnami/charts/issues/30852). The original
