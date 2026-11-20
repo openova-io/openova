@@ -29355,7 +29355,7 @@ packages:
     expect: "2"
   acceptance:
   - id: A1
-    run: "printf '%s\\n' '8b6b74bf4988dfe8ba3615d0333431695f664581a3220a410f7d467ad3075461  products/openova-mcp/cmd/openova-mcp/bearer_file_test.go' | sha256sum --check --quiet && cd products/openova-mcp && test -z \"$(gofmt -l cmd internal)\" && go vet ./... && go test -count=1 ./... && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^(TestBearerFileIsReadAtEveryCall|TestBearerFileMissingOrEmptyGivesNoBearer|TestNoBearerFileKeepsTheEnvBearer)$' ./cmd/openova-mcp/)\" && test \"$(grep -c '^--- PASS: Test' <<<\"$out\")\" = 3"
+    run: "printf '%s\\n' '7bae2269fb7f4d74006a327bf66759ec61beb04a376ee52c79dadafbd60823ff  products/openova-mcp/cmd/openova-mcp/bearer_file_test.go' | sha256sum --check --quiet && cd products/openova-mcp && test -z \"$(gofmt -l cmd internal)\" && go vet ./... && go test -count=1 ./... && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^(TestBearerFileReadAtEveryCall|TestBearerFileReadAtEveryList|TestBearerFileGoneMeansNoBearer|TestBearerFileUnsetKeepsTheStartBearer)$' ./cmd/openova-mcp/)\" && test \"$(grep -c '^--- PASS: Test' <<<\"$out\")\" = 4"
   - id: A2
     run: "d=products/openova-mcp && f=$d/cmd/openova-mcp/main.go && ! grep -q -F 'extractBearer(s.fallbackBearer' $f && test \"$(grep -c -F 'extractBearer(s.fallback(), ' $f)\" = 2 && grep -q -F 'b, err := os.ReadFile(s.bearerFile)' $f && grep -q -F 'const fallbackVar, fallbackFileVar = \"OPENOVA_MCP_BEARER\", \"OPENOVA_MCP_BEARER_FILE\"' $f && test \"$(grep -c -F '| `OPENOVA_MCP_BEARER_FILE` | stdio transport only:' $d/README.md)\" = 1"
   - id: A3
@@ -29367,7 +29367,7 @@ packages:
   repeatable: false
   ticket_rev: 1
   dropped: false
-  delivers: When OPENOVA_MCP_BEARER_FILE is set, the stdio tool server reads its fallback bearer from that file at every tools/list and every tools/call, so a bearer replaced in the file (by rename) is used from the next call on, with no restart; a missing or empty file means no fallback bearer, never one read earlier or the one of OPENOVA_MCP_BEARER; without the variable the server behaves as on main; three tests in cmd/openova-mcp/bearer_file_test.go prove it, the README names the variable, and the appVersion of the tool server moves 0.2.9 to 0.2.10 and that of the agent workspace image, which embeds it, 0.9.9 to 0.9.10.
+  delivers: When OPENOVA_MCP_BEARER_FILE is set, the stdio tool server reads its fallback bearer from that file at every tools/list and every tools/call, so a bearer replaced in the file (by rename) is used from the next call on, with no restart; a missing or empty file means no fallback bearer, never one read earlier or the one of OPENOVA_MCP_BEARER; without the variable the server behaves as on main; four tests in cmd/openova-mcp/bearer_file_test.go prove it, the README names the variable, and the appVersion of the tool server moves 0.2.9 to 0.2.10 and that of the agent workspace image, which embeds it, 0.9.9 to 0.9.10.
 - id: AIP-153
   title: The token route admits the workspace of each Organization for its own Organization
   area: AIP
