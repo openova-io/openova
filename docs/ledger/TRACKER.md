@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T20:45:03Z` |
+| Last refreshed | `2026-11-20T21:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T20:52 | [#8548](https://github.com/openova-io/openova/pull/8548) | #7087 | docs(ledger): plan update |
+| 2026-11-20T20:52 | [#8546](https://github.com/openova-io/openova/pull/8546) | #8538 | fix(charts): the registry front, core and registry and the c |
+| 2026-11-20T20:57 | [#8545](https://github.com/openova-io/openova/pull/8545) | #8534 | fix(crossplane): the provider pod installs OpenTofu provider |
 | 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
 | 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T12:39 | [#8507](https://github.com/openova-io/openova/pull/8507) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:28 | [#8506](https://github.com/openova-io/openova/pull/8506) | #5468 | fix(cutover): the registry prewarm copies an image whose man |
 | 2026-11-20T12:24 | [#8505](https://github.com/openova-io/openova/pull/8505) | #8500 | fix(openova-mcp): the stdio tool server reads its bearer fro |
-| 2026-11-20T11:50 | [#8504](https://github.com/openova-io/openova/pull/8504) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:10 | [#8503](https://github.com/openova-io/openova/pull/8503) | #8501 | fix(catalyst-api): the token route admits the agent workspac |
-| 2026-11-20T17:46 | [#8502](https://github.com/openova-io/openova/pull/8502) | #4423 | refactor(bootstrap): Flux renders the pull login and the obj |
 
 ---
 
