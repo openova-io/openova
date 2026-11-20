@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T13:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-20T13:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T13:44 | [#8513](https://github.com/openova-io/openova/pull/8513) | #7087 | docs(ledger): plan update |
+| 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
+| 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
 | 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:39 | [#8507](https://github.com/openova-io/openova/pull/8507) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:28 | [#8506](https://github.com/openova-io/openova/pull/8506) | #5468 | fix(cutover): the registry prewarm copies an image whose man |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T10:12 | [#8477](https://github.com/openova-io/openova/pull/8477) | #8475 | refactor(bootstrap): Flux renders four bootstrap Secrets fro |
 | 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:37 | [#8474](https://github.com/openova-io/openova/pull/8474) | #7087 | docs(ledger): plan update |
-| 2026-11-20T10:36 | [#8473](https://github.com/openova-io/openova/pull/8473) | #8472 | feat(cortex): screens for sources, upload, documents, jobs a |
-| 2026-11-20T07:32 | [#8471](https://github.com/openova-io/openova/pull/8471) | #7087 | docs(ledger): plan update |
-| 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
 
 ---
 
