@@ -13664,10 +13664,10 @@ packages:
   epic: null
   type: refactor
   wave: W1a
-  size: S
+  size: M
   lane: SUBSTRATE
   depends_on: [SEC-095]
-  after: [SEC-040, SOV-145, FND-064, FND-104, FND-105, CLD-023, CLD-131, CLD-132, CLD-133, CLD-134, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-146, SOV-149, SOV-154, SOV-322, SOV-323, SOV-335, SEC-010, SEC-080, SEC-096, SEC-100, SEC-110, SEC-152, NET-020, NET-055, NET-110, AIP-201, INF-060]
+  after: [SEC-040, SOV-145, FND-064, FND-104, FND-105, CLD-023, CLD-131, CLD-132, CLD-133, CLD-134, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-146, SOV-149, SOV-154, SOV-322, SOV-323, SOV-335, SEC-010, SEC-073, SEC-080, SEC-096, SEC-100, SEC-110, SEC-152, NET-020, NET-055, NET-110, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -13678,6 +13678,12 @@ packages:
   - scripts/expected-cloudinit-kustomization-deps.yaml
   - scripts/cloudinit-size-check.py
   - docs/SECURITY.md
+  - scripts/secret-guards.py
+  - scripts/check-no-secret-values-in-git.sh
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/threat-model.md
+  - tools/guards/cmd/secret-templates/**
+  - tools/guards/README.md
   resources: []
   flips: []
   implements: []
@@ -36348,13 +36354,18 @@ packages:
   epic: PRD-200
   type: test
   wave: W4
-  size: S
+  size: M
   lane: CONTROL
   depends_on: [PRD-204]
   after: [SVC-040]
   touches:
   - products/cortex/internal/assistant/**
   - products/cortex/internal/httpapi/**
+  - products/cortex/internal/gateway/gateway.go
+  - products/cortex/internal/gateway/gateway_test.go
+  - products/cortex/cmd/cortex/main.go
+  - products/cortex/cmd/cortex/main_test.go
+  - products/cortex/README.md
   resources: []
   flips: []
   implements: []
@@ -36520,7 +36531,7 @@ packages:
   epic: PRD-200
   type: test
   wave: W4
-  size: S
+  size: M
   lane: CONTROL
   depends_on: [PRD-080, PRD-204]
   after: []
@@ -36535,17 +36546,19 @@ packages:
     expect: "1"
   acceptance:
   - id: A1
-    run: "cd products/cortex && test -z \"$(gofmt -l internal/parse/documents)\" && go vet ./... && go test -count=1 ./... && test \"$(go test -count=1 -v -run '^Test(Parse|New)' ./internal/parse/documents/ | grep -c -e '^--- PASS: ')\" = 5"
+    run: "cd products/cortex && test -z \"$(gofmt -l internal/parse/documents)\" && go vet ./... && go test -count=1 ./... && test \"$(go test -count=1 -v -run '^Test(Parse|New)' ./internal/parse/documents/ | grep -c -e '^--- PASS: ')\" = 9"
   - id: A2
-    run: "printf '%s  %s\\n' b21b614c8afaae9d4b8763e7ea1cd4b8fd292101b1b3461ff167958911b7ceb3 products/cortex/internal/parse/documents/documents.go 5cfa25a1f8a5a55153f80e92c0c5824b54c0500d0435bcc863e271ac34c28afe products/cortex/internal/parse/documents/documents_test.go | sha256sum --check --quiet -"
+    run: "cd products/cortex && test \"$(go test -count=1 -v -run '^TestParse(KeepsAListAroundATableInReadingOrder|WalksIntoChapterAndSectionGroups|DropsPageHeadersAndFootersOfTheBody|RefusesARedirect)$' ./internal/parse/documents/ | grep -c -E '^--- PASS: TestParse(KeepsAListAroundATableInReadingOrder|WalksIntoChapterAndSectionGroups|DropsPageHeadersAndFootersOfTheBody|RefusesARedirect) ')\" = 4"
   - id: A3
     run: "cd products/cortex && go test -count=1 -run '^TestParseMapsTheConvertedDocument$' ./internal/parse/documents/ && grep -c -F 'var _ ingest.Parser = (*Parser)(nil)' internal/parse/documents/documents_test.go"
+  - id: A4
+    run: "d=\"$(mktemp -d)\" && cp -r products/cortex \"$d/\" && f=\"$d/cortex/internal/parse/documents/documents.go\" && sed -i '/default: \\/\\/ other groups, field regions and field items hold content$/,+1d' \"$f\" && test \"$(grep -c -F 'default: // other groups' \"$f\")\" = 0 && (cd \"$d/cortex\" && go vet ./internal/parse/documents/) && ! (cd \"$d/cortex\" && go test -count=1 -run '^TestParseWalksIntoChapterAndSectionGroups$' ./internal/parse/documents/)"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: 'Package products/cortex/internal/parse/documents is the parser documents of the ingestion port: it posts a PDF, image or Office original to docling-serve at POST /v1/convert/file with the OCR setting measured for its script, and maps the answer''s DoclingDocument to the parsed document, with the exact page of every element; it is not yet wired into the index process.'
 - id: PRD-212
