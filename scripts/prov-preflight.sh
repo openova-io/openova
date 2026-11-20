@@ -386,11 +386,16 @@ pass "6. bucket: ${BUCKET} (caller must confirm it is fresh/unused)"
 #    2 h 40 min, keycloak and all of SSO never installed. A health endpoint
 #    cannot fail on a damaged cache entry; only the kubelet's own walk can.
 #    scripts/check-mothership-proxy-image-path.sh builds the image set FROM
-#    THE REPO (rendered bootstrap-kit charts + CNPG values + cloud-init
-#    Phase-0 pulls) and walks tag -> index -> amd64 child -> config blob for
-#    every one of them with the robot pull token from HW_TFVARS. Read-only.
-#    Fix for a FAIL: purge the damaged proxy-cache entry as Harbor ADMIN (the
-#    robot gets 401 on delete) so the next pull re-fetches upstream.
+#    WHAT A FRESH INSTALL APPLIES (every kit release rendered with the kit's
+#    values, the raw manifests of clusters/_template with their Kustomization
+#    image overrides, k3s's own images, the cloud-init Phase-0 pulls; each
+#    source counted, none may be empty) and walks tag -> index -> amd64 child
+#    -> config and EVERY layer for each, through the node's mirror path, with
+#    the node's own robot login (HARBOR_ROBOT_TOKEN, else harbor_robot_token of
+#    HW_TFVARS; without it the check refuses to run). Read-only, deletes
+#    nothing. A DAMAGED CACHE ENTRY needs the registry-side repair (SOV-162); a
+#    first-party image MISSING AT THE ORIGIN is pushed by
+#    .github/workflows/warmup-bastion-harbor.yaml (by hand, for the ref).
 if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
   ip7_out="$(HW_TFVARS="$HW_TFVARS" bash "$(dirname "$0")/check-mothership-proxy-image-path.sh" 2>&1)"; ip7_rc=$?
   ip7_line="$(printf '%s\n' "$ip7_out" | grep -E '^IMAGE-PATH ' | tail -1)"
@@ -398,7 +403,7 @@ if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
   if [ "$ip7_rc" -eq 0 ] && [ -n "$ip7_line" ]; then
     pass "7. ${ip7_line} ${ip7_info}"
   else
-    bad "7. ${ip7_line:-check-mothership-proxy-image-path.sh exit ${ip7_rc} with no IMAGE-PATH summary} — a fresh Sovereign WILL ImagePullBackOff on these (hw306/hw307, #6778). Purge the damaged proxy-cache entries as Harbor admin, re-run, and fire only on IMAGE-PATH PASS. ${ip7_info}"
+    bad "7. ${ip7_line:-check-mothership-proxy-image-path.sh exit ${ip7_rc} with no IMAGE-PATH summary} — a fresh Sovereign WILL ImagePullBackOff on these (hw306/hw307, #6778). Repair what the lines below name (a damaged cache entry registry-side, SOV-162; a first-party image missing at the origin by the warmup workflow for the ref), re-run, and fire only on IMAGE-PATH PASS. ${ip7_info}"
     printf '%s\n' "$ip7_out" | grep -E '^FAIL ' | head -10 | sed 's/^/       /'
   fi
 else bad "7. HW_TFVARS unset — cannot walk the Phase-1 image path through the mothership proxy (needs harbor_robot_token; #6778)"; fi

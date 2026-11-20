@@ -35,6 +35,8 @@ on:
       - 'infra/providers/**'
       - 'scripts/check-freshprov-image-registry.sh'
       - 'scripts/check-mothership-proxy-image-path.sh'
+      - 'tools/guards/cmd/image-path/**'
+      - 'tests/fixtures/variables/**'
       - 'infra/providers/huawei/main.tf'
       - '.github/workflows/check-freshprov-image-registry.yaml'
   pull_request:
@@ -45,6 +47,8 @@ on:
       - 'infra/providers/**'
       - 'scripts/check-freshprov-image-registry.sh'
       - 'scripts/check-mothership-proxy-image-path.sh'
+      - 'tools/guards/cmd/image-path/**'
+      - 'tests/fixtures/variables/**'
       - 'infra/providers/huawei/main.tf'
       - '.github/workflows/check-freshprov-image-registry.yaml'
   workflow_dispatch:
@@ -64,6 +68,12 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.16.3
+
+      - name: Set up the Go of tools/guards (the image list and the registry walk)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
 
       - name: Negative-control self-test (deterministic)
         run: bash scripts/check-freshprov-image-registry.sh --self-test

@@ -15,7 +15,8 @@
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-promoter.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/postgres/chart/templates/dr-promoter.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
-    {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/postgres/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"}
+    {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/postgres/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
+    {"count": 1, "metric": "go_sleep", "owner": "SOV", "path": "tools/guards/cmd/image-path/main.go", "reason": "pre-flight tool, not the platform: a bounded re-read (10 minutes) of a blob the origin fills by itself after its manifest is asked for; a registry offers no watch"}
   ],
   "counts": {
     "go_sleep": {

@@ -56,6 +56,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up the Go of tools/guards (the image list and the registry walk)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+
       - name: bash syntax
         run: bash -n scripts/check-guards-are-wired.sh
 

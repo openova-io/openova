@@ -25,11 +25,19 @@
 # blueprint-release (i.e. EVERY chart publish) re-warm the full private set, so
 # no private component tag can reach a Sovereign cold.
 #
-# The image list is fully DATA-DRIVEN from every `repository:`/`tag:` pinned in
-# a `platform/**` or `products/**` values.yaml (plus the catalyst chart render
-# + the optional just-pushed catalyst SHA tags passed by catalyst-build). It is
-# NOT a hardcoded list that rots — the deploy-bot / blueprint-release bump these
-# tags, this tracks them.
+# The image list is the first-party part of the list of a fresh install, built
+# by the SAME list builder as prov pre-flight check 7 and check 5 of the cut
+# (`scripts/check-mothership-proxy-image-path.sh --list-only --first-party`:
+# every kit release rendered with the values the kit gives it, the raw
+# manifests of clusters/_template with their Kustomization `images:` overrides).
+# On 20 November 2026 the former pattern over `repository: ghcr.io/...` lines
+# of values.yaml missed a QUOTED repository (continuum's) and an image whose
+# tag exists only as a Kustomization `images: newTag` (slot 12b's
+# sovereign-ops), so the release candidate pinned two images the origin
+# lacked. Added to that list: the first-party images an Organization installs
+# later (the `repository:`/`tag:` pins of platform/** and products/**
+# values.yaml, quoted or not) and the just-pushed catalyst SHA tags passed by
+# catalyst-build. A run started by hand warms the list of one ref.
 #
 # Mirrors the sovereignty-cutover 03-harbor-prewarm Job's skopeo flags + retry
 # discipline (--insecure-policy, --retry-times 5, --command-timeout, parallel
@@ -48,6 +56,15 @@
 name: Warmup Bastion Harbor (#4049)
 
 on:
+  # By hand: warm the first-party images one ref pins (a branch, a tag such as
+  # rc/<id>, or a commit). The secret is the repository's BASTION_HARBOR_ROBOT_TOKEN.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'The ref whose first-party images are pushed to the origin (empty = the default branch).'
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       # Optional catalyst image SHA. When catalyst-build invokes this it passes
@@ -96,6 +113,8 @@ jobs:
       # never-expiring). Nodes still PULL warmed images as robot$openova-bot via
       # the infra/providers/huawei/main.tf configs.auth.
       HARBOR_USERNAME: 'robot$openova-warmup'
+      # Passed by a caller; a run started by hand reads the repository secret
+      # BASTION_HARBOR_ROBOT_TOKEN under the same name (secret names ignore case).
       HARBOR_PASSWORD: ${{ secrets.bastion_harbor_robot_token }}
       # ghcr source creds — this workflow runs in the same repo context, so
       # github.actor + GITHUB_TOKEN has read on the private
@@ -113,6 +132,13 @@ jobs:
         with:
           repository: openova-io/openova
           path: openova-src
+          ref: ${{ inputs.ref || '' }}
+
+      - name: Set up the Go of tools/guards (the image list builder)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: openova-src/tools/guards/go.mod
+          cache: false
 
       - name: Install skopeo + helm
         run: |
@@ -157,16 +183,16 @@ jobs:
         if: env.WARMUP_SKIP == '0'
         run: |
           set -euo pipefail
-          chart="openova-src/products/catalyst/chart"
 
-          # DATA-DRIVEN catalyst image list — UNION of the bare + marketplace-on
-          # renders, so we cover the core (catalyst-api/ui + controllers) AND the
-          # sme mesh (services-*, marketplace-api/console/admin). The flat chart
-          # renders standalone (no `helm dependency build`).
-          images="$( { helm template catalyst "${chart}"; \
-                       helm template catalyst "${chart}" --set ingress.marketplace.enabled=true; } 2>/dev/null \
-            | grep -oE "ghcr\.io/openova-io/openova/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+" \
-            | sort -u || true)"
+          # The first-party images of a fresh install, from the list builder of
+          # prov pre-flight check 7 and of check 5 of the cut. A list that
+          # cannot be built is an error of this step, never an empty warmup.
+          if ! images="$(bash openova-src/scripts/check-mothership-proxy-image-path.sh --list-only --first-party 2>/tmp/list.err)"; then
+            grep -v '^WARNING: Kubernetes' /tmp/list.err || true
+            echo "::error title=warmup list::the first-party image list of the fresh install could not be built (see above)"
+            exit 1
+          fi
+          grep -E '^  ℹ source ' /tmp/list.err || true
 
           # When a catalyst SHA was passed (catalyst-build caller only), ALSO warm
           # the just-pushed catalyst-api/ui at this build's SHA + the rolling
@@ -193,12 +219,13 @@ jobs:
           # Warm them too, DATA-DRIVEN from each component chart's pinned
           # `repository:`/`tag:` (NOT a hardcoded list that rots — the deploy-bot /
           # blueprint-release bump these tags, this tracks them). For every
-          # `repository: ghcr.io/openova-io/openova/X` we take the FIRST `tag:`
-          # that follows it in the same image block; empty / "latest" /
-          # *placeholder* tags are skipped (unwarmable / non-pinned).
+          # `repository: ghcr.io/openova-io/openova/X` (quoted or not) we take the
+          # FIRST `tag:` that follows it in the same image block; empty / "latest" /
+          # *placeholder* tags are skipped (unwarmable / non-pinned). These are the
+          # images an Organization installs later; the fresh install's are above.
           compfile="$(mktemp)"
-          for f in $(grep -rlE "repository:[[:space:]]*ghcr\.io/openova-io/openova/" openova-src/platform openova-src/products --include=values.yaml 2>/dev/null | sort -u); do
-            awk 'match($0, /repository:[[:space:]]*ghcr\.io\/openova-io\/openova\/[A-Za-z0-9._\/-]+/) { line=substr($0, RSTART, RLENGTH); sub(/^.*repository:[[:space:]]*/, "", line); repo=line; have=1; next } have && match($0, /^[[:space:]]*tag:[[:space:]]*/) { t=$0; sub(/^[[:space:]]*tag:[[:space:]]*/, "", t); gsub(/["'"'"']/, "", t); sub(/[[:space:]]*#.*$/, "", t); gsub(/[[:space:]]/, "", t); if (t != "" && t != "latest" && t !~ /placeholder/) { print repo ":" t } have=0 }' "$f" >>"${compfile}"
+          for f in $(grep -rlE "repository:[[:space:]]*[\"']?ghcr\.io/openova-io/openova/" openova-src/platform openova-src/products --include=values.yaml 2>/dev/null | sort -u); do
+            awk 'match($0, /repository:[[:space:]]*["'"'"']?ghcr\.io\/openova-io\/openova\/[A-Za-z0-9._\/-]+/) { line=substr($0, RSTART, RLENGTH); sub(/^.*repository:[[:space:]]*["'"'"']?/, "", line); repo=line; have=1; next } have && match($0, /^[[:space:]]*tag:[[:space:]]*/) { t=$0; sub(/^[[:space:]]*tag:[[:space:]]*/, "", t); gsub(/["'"'"']/, "", t); sub(/[[:space:]]*#.*$/, "", t); gsub(/[[:space:]]/, "", t); if (t != "" && t != "latest" && t !~ /placeholder/) { print repo ":" t } have=0 }' "$f" >>"${compfile}"
           done
           components="$(cat "${compfile}"; rm -f "${compfile}")"
 
