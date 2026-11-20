@@ -183,7 +183,7 @@ epics:
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
-  packages: [SOV-220, SOV-225, SOV-210, SOV-212, SOV-230, SOV-240, SOV-250, SOV-260, SOV-270]
+  packages: [SOV-220, SOV-242, SOV-225, SOV-210, SOV-212, SOV-230, SOV-240, SOV-250, SOV-260, SOV-270]
 - id: SOV-300
   title: 'EPIC: Standing tethers cut at bootstrap'
   wave: W1b
@@ -195,7 +195,7 @@ epics:
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
-  packages: [SOV-521, SOV-522, SOV-510, SOV-520, SOV-530, SOV-540]
+  packages: [SOV-521, SOV-522, SOV-523, SOV-510, SOV-520, SOV-530, SOV-540]
 - id: SOV-600
   title: 'EPIC: Proof and freeze'
   wave: W1b
@@ -267,7 +267,7 @@ epics:
 - id: SVC-050
   title: 'Epic: function tests for the foundation ring'
   wave: W0
-  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-135, SVC-110, SVC-140]
+  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-136, SVC-110, SVC-135, SVC-140]
 - id: SVC-240
   title: 'Epic: first capability with two implementations, object storage'
   wave: W1d
@@ -8056,11 +8056,12 @@ packages:
   size: S
   lane: RAILS
   depends_on: [CLD-050, CLD-171, SOV-130, SOV-131, SOV-134]
-  after: [SVC-040, INF-112]
+  after: [FND-011, SVC-040, SVC-041, INF-112]
   touches:
   - .github/workflows/mirror-tofu-providers.yaml
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
   - products/catalyst/bootstrap/api/Containerfile
+  - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
   resources: []
   flips: []
   implements: []
@@ -9260,7 +9261,7 @@ packages:
   epic: SOV-100
   type: refactor
   wave: W1a
-  size: S
+  size: M
   lane: SUBSTRATE
   depends_on: [SOV-130, SOV-060, CLD-086, CLD-087, SOV-131, SOV-134, SOV-135]
   after: []
@@ -9274,6 +9275,7 @@ packages:
   - infra/providers/huawei/cloudinit-worker.tftpl
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - scripts/check-mothership-proxy-image-path.sh
   - scripts/cloudinit-size-check.sh
   - scripts/upstream-literals-baseline.txt
   resources: []
@@ -9287,19 +9289,23 @@ packages:
   - id: A1
     run: "test \"$(grep -c -F -e '--disable=local-storage --disable-default-registry-endpoint --cluster-cidr=' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && for p in hetzner huawei; do test \"$(grep -c -F 'INSTALL_K3S_EXEC=\"agent --disable-default-registry-endpoint --kubelet-arg=' \"infra/providers/$p/cloudinit-worker.tftpl\")\" = 1 || exit 1; done"
   - id: A2
-    run: "for p in hetzner huawei; do f=infra/providers/$p/main.tf; w=infra/providers/$p/cloudinit-worker.tftpl; test \"$(grep -c -F \"  registry_mirror_yaml_$p = jsonencode({\" \"$f\")\" = 1 && test \"$(grep -c -F 'node_registry_origin_host = \"${var.variables[\"ORIGIN_REGISTRY_SCHEME\"]}://${var.variables[\"ORIGIN_REGISTRY_HOST\"]}\"' \"$f\")\" = 1 && test \"$(grep -c -F 'if local.node_registry_origin_on && !contains(keys(local.node_registry_projects), h) },' \"$f\")\" = 1 && test \"$(grep -c -F '{ \"*\" = { endpoint = [local.node_registry_local] } },' \"$f\")\" = 1 && test \"$(grep -c -E \"registry_mirror_yaml +=.*local\\.registry_mirror_yaml_$p( |\\$)\" \"$f\")\" = \"$([ \"$p\" = hetzner ] && echo 4 || echo 2)\" && test \"$(grep -c -F '      ${indent(6, chomp(registry_mirror_yaml))}' \"$w\")\" = 1 && test \"$(grep -c -F 'harbor_robot_token' \"$w\")\" = 0 && test \"$(cat \"$f\" \"$w\" | grep -c -E '212\\.72\\.24\\.20|https?://harbor\\.openova\\.io')\" = 0 || exit 1; done; test \"$(grep -c -x -F '    registry_mirror_yaml       = \"mirrors: {}\"' scripts/cloudinit-size-check.sh)\" = 2"
+    run: "for p in hetzner huawei; do f=infra/providers/$p/main.tf; w=infra/providers/$p/cloudinit-worker.tftpl; test \"$(grep -c -F \"  registry_mirror_yaml_$p = jsonencode({\" \"$f\")\" = 1 && test \"$(grep -c -F 'node_registry_origin_host = \"${var.variables[\"ORIGIN_REGISTRY_SCHEME\"]}://${var.variables[\"ORIGIN_REGISTRY_HOST\"]}\"' \"$f\")\" = 1 && test \"$(grep -c -F 'if local.node_registry_origin_on && !contains(keys(local.node_registry_projects), h) },' \"$f\")\" = 1 && test \"$(grep -c -F '{ \"*\" = { endpoint = [local.node_registry_local] } },' \"$f\")\" = 1 && test \"$(grep -c -E \"registry_mirror_yaml +=.*local\\.registry_mirror_yaml_$p( |\\$)\" \"$f\")\" = \"$([ \"$p\" = hetzner ] && echo 4 || echo 2)\" && test \"$(grep -c -F '      ${indent(6, chomp(registry_mirror_yaml))}' \"$w\")\" = 1 && test \"$(grep -c -F 'harbor_robot_token' \"$w\")\" = 0 && test \"$(cat \"$f\" \"$w\" | grep -c -E '212\\.72\\.24\\.20|https?://harbor\\.openova\\.io')\" = 0 || exit 1; done; test \"$(grep -c -F 'mirrors: {}' scripts/cloudinit-size-check.sh)\" = 0 && test \"$(grep -c -E '^ +registry_mirror_yaml +=' scripts/cloudinit-size-check.sh)\" = 2"
   - id: A3
     run: "g=infra/providers/_shared/tests/golden.auto.tfvars.json; test \"$(grep -c -x -F '  \"golden_hetzner\": \"ba27bcf4dae711feb230685fc73c0772d4b9d7433ff03f852d3ac7c4871a0e1b\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"02faeb28a1ea7165b2a1576ad5b4c5bcb7fb7f00b3b662d818c4d52addfcba7e\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '    \"/etc/rancher/k3s/registries.yaml\": \"1753980f4834e29b77bcd982152d070c7c30e784cfc03fa7a96783b5713937d1\",' \"$g\")\" = 2 && for t in infra/providers/_shared/tests/cloudinit_render.tftest.hcl; do test \"$(grep -c -F 'error_message = \"SOV-132: the k3s server line must pass --disable-default-registry-endpoint' \"$t\")\" = 2 || exit 1; done"
   - id: A4
     run: "for p in hetzner huawei; do t=infra/providers/$p/tests/multi_region.tftest.hcl; test \"$(grep -c -x -F 'run \"node_registry_file_follows_the_variables_document\" {' \"$t\")\" = 1 && test \"$(grep -c -F 'jsonencode(keys(yamldecode(local.registry_mirror_yaml_'\"$p\"').configs))' \"$t\")\" = 1 && test \"$(grep -c -F '\\\"harbor.openova.io\\\":\\\"\\\",' \"$t\")\" = 1 && test \"$(grep -c -F '\\\"xpkg.upbound.io\\\":\\\"https://xpkg.example.test\\\"}' \"$t\")\" = 1 && test \"$(grep -c -E '^    ORIGIN_REGISTRY_HOST += \"ghcr\\.io\"$' \"$t\")\" = 1 || exit 1; done"
   - id: A5
     run: "bash scripts/check-upstream-literals.sh | grep -x -F 'infra=18' && test \"$(grep -c -x -F 'infra=18' scripts/upstream-literals-baseline.txt)\" = 1"
+  - id: A6
+    run: "out=\"$(bash scripts/check-mothership-proxy-image-path.sh --self-test)\" && printf '%s\\n' \"$out\" | grep -q -x -F '  ok   a host no mirror of the node map serves -> FAIL' && test \"$(printf '%s\\n' \"$out\" | tail -n 1)\" = 'SELF-TEST PASSED — reads the node mirror map the modules build, fails a host no mirror serves, fails a damaged child, passes a healthy entry, refuses an empty list.' && test \"$(grep -c -F 'heredoc not found' scripts/check-mothership-proxy-image-path.sh)\" = 0"
+  - id: A7
+    run: "for p in hetzner huawei; do t=infra/providers/$p/tests/multi_region.tftest.hcl; test \"$(grep -c -x -F 'run \"node_registry_file_without_origin_when_consume_is_local\" {' \"$t\")\" = 1 && test \"$(grep -c -E '^ +SOVEREIGN_CONSUME += \"local\"$' \"$t\")\" -ge 1 || exit 1; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'Every server and agent of a new Sovereign starts k3s with --disable-default-registry-endpoint and writes a registries.yaml that its provider module builds from the variables document by the rule of contract C5: each proxy name lists https://<LOCAL_REGISTRY_HOST> first and its origin second, LOCAL_REGISTRY_HOST has an entry, ORIGIN_REGISTRY_HOST has one unless it is a proxy name, and the wildcard "*" sends every other name to the local registry only; no registry address literal remains in the two provider modules or their worker templates.'
 - id: SOV-133
@@ -10629,6 +10635,37 @@ packages:
   ticket_rev: 2
   dropped: false
   delivers: 'In a follower region the in-region pivot Job of hand-over step 06 also writes global.imageRegistry for bp-k8s-ws-proxy, bp-guacamole and bp-newapi: their entries of imageRegistryPivot.additionalHRs are marked followerRegions: true like bp-continuum, and the follower test asserts each marked slot and turns red when one mark is removed.'
+- id: SOV-242
+  title: The cutover repeats a failed step a few times with a growing pause, then stops in a failed state the sovereign-admin resumes
+  area: SOV
+  epic: SOV-200
+  type: fix
+  wave: W0
+  size: S
+  lane: CONTROL
+  depends_on: []
+  after: [SOV-220, SVC-040]
+  touches:
+  - products/catalyst/bootstrap/api/internal/handler/cutover_reconciler.go
+  - products/catalyst/bootstrap/api/internal/handler/cutover_reconciler_test.go
+  - products/catalyst/bootstrap/api/internal/handler/cutover.go
+  - products/catalyst/bootstrap/ui/src/widgets/sovereignty/CutoverProgressCard.tsx
+  - products/catalyst/bootstrap/ui/src/widgets/sovereignty/CutoverProgressCard.test.tsx
+  - products/catalyst/bootstrap/ui/src/shared/types/cutover.ts
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The engine''s cutover reconciler repeats a failed step at most a small fixed number of times, with a pause that grows each time. Then the cutover stops in a failed state that names the step: the console shows it, and the cutover goes on only by an explicit action of the sovereign-admin (the start route), which the engine records as a retry call and the zero-touch check counts.'
 - id: SOV-250
   title: registry-pivot only removes the origin endpoint
   area: SOV
@@ -11627,6 +11664,35 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The release stage of a Sovereign that has cut over takes a candidate's change to a Provider package line that cutover step 11 rewrote in the primary region, applies step 11's own rewrite (the key provider-pivot.sh of its ConfigMap, which step 11 itself runs) again on top of the candidate's line, and refuses only a conflict that rewrite does not explain.
+- id: SOV-523
+  title: A delivery of the release route resumes after one eviction of any of its Pods
+  area: SOV
+  epic: SOV-500
+  type: fix
+  wave: W0
+  size: S
+  lane: CONTROL
+  depends_on: [SOV-521, SOV-522]
+  after: [FND-011, SVC-040, SVC-041]
+  touches:
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
+  - platform/self-sovereign-cutover/chart/files/release/release-run.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_run_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A delivery through PUT /api/v1/sovereign/release survives one eviction of any of its Pods (the bootstrap Job''s and the delivery Job''s): the new Pod resumes from state it has read with certainty. A read or a write of that state that fails is repeated or stops the delivery by name; it is never taken as "not done". The route reads the log of the Pod of the current attempt.'
 - id: SOV-530
   title: Offline bundle load
   area: SOV
@@ -11780,7 +11846,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, FND-032, SOV-150, SOV-230, SOV-250]
-  after: [FND-011, SOV-175, SOV-322, SEC-104, NET-040, SVC-040, SVC-041, CTL-346, INF-050]
+  after: [INF-054, FND-011, SOV-175, SOV-322, SEC-104, NET-040, SVC-040, SVC-041, CTL-346]
   touches:
   - platform/system-upgrade-controller/**
   - clusters/_template/bootstrap-kit/04a-bp-system-upgrade-controller.yaml
@@ -11800,7 +11866,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'As in the body, plus: both Plans carry spec.window, default 22:00 to 00:00 UTC, which ends 30 minutes before kured''s reboot span opens (00:30 UTC), the minimum gap check INF-G01 asserts. The ticket quotes the four steps of a new kit slot in place of the git-log instruction.'
+  delivers: 'As in the body, plus: both Plans carry spec.window in the Sovereign''s own time zone (the key of INF-054), default 23:00 to 00:30, which ends 30 minutes before kured''s default reboot span opens (01:00), the minimum gap check INF-G01 asserts, and both read the sovereign-admin''s setting when it is changed. The ticket quotes the four steps of a new kit slot in place of the git-log instruction.'
 - id: SOV-725
   title: k3s default moves to the 1.32 line
   area: SOV
@@ -12569,6 +12635,38 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Security fix. Its text is published with its ticket.
+- id: SEC-061
+  title: A sign-in succeeds while the node that runs a region's Keycloak is drained
+  area: SEC
+  epic: null
+  type: fix
+  wave: W0
+  size: M
+  lane: SUBSTRATE
+  depends_on: [INF-052]
+  after: [INF-054, FND-011, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-151, SOV-180, SOV-322, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  touches:
+  - platform/keycloak/chart/values.yaml
+  - clusters/_template/bootstrap-kit/09-keycloak.yaml
+  - products/catalyst/bootstrap/api/internal/handler/auth.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
+  - tests/acceptance/sovereign/README.md
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The owner and every User can sign in while the node that runs a region''s Keycloak is drained for a coordinated reboot: the sign-in no longer depends on the one Keycloak pod of that region. Check INF-G01''s node-reboot run drains that node in each region and signs in during the drain.'
 - id: SEC-071
   title: Ratchet on passwords the provisioning service writes to Git
   area: SEC
@@ -17628,10 +17726,15 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [NET-212]
-  after: [SVC-040]
+  after: [FND-011, FND-095, SOV-180, SOV-181, SVC-040, SVC-205]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.tsx
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.test.tsx
+  - products/catalyst/bootstrap/api/internal/sovself/sovself.go
+  - products/catalyst/bootstrap/api/internal/sovself/sovself_test.go
+  - products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.test.tsx
   resources: []
   flips: []
   implements: []
@@ -17645,7 +17748,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'The provider step of the wizard states the region separation of a request before anything is provisioned. It applies the rule of NET-210, which the writer of NET-212 applies to the regions of status.network (core/cmd/sovereign-ops/internal/sovereignobject/separation.go), to the request''s own regions: site when every region has its own cloud region, zone when they share one cloud region and each has its own zone, none otherwise and always for fewer than two regions. The request carries no zone, so a request gives site or none. With none on a request of two or more regions it shows "Regions share one failure domain. Not a disaster-recovery configuration." The Sovereign page shows status.regionSeparation and the message of the condition RegionSeparation through the read path the architect names.'
+  delivers: 'The provider step of the wizard states the region separation of a request before anything is provisioned. It applies the rule of NET-210, which the writer of NET-212 applies to the regions of status.network (core/cmd/sovereign-ops/internal/sovereignobject/separation.go), to the request''s own regions: site when every region has its own cloud region, zone when they share one cloud region and each has its own zone, none otherwise and always for fewer than two regions. The request carries no zone, so a request gives site or none. With none on a request of two or more regions it shows "Regions share one failure domain. Not a disaster-recovery configuration." The Sovereign''s overview page shows status.regionSeparation and the message of the condition RegionSeparation, which GET /api/v1/sovereign/self (SOV-180) now serves: the route reads them from the Sovereign object of its own cluster and adds them to its answer as regionSeparation and regionSeparationMessage; no new route and no second reader of the object.'
 - id: NET-221
   title: Delete the four retired charts and their seed entries
   area: NET
@@ -19372,7 +19475,7 @@ packages:
   wave: W0
   size: XS
   lane: GATE
-  depends_on: [SVC-125, SVC-130]
+  depends_on: [SVC-125, SVC-130, SVC-136]
   after: []
   touches:
   - docs/ledger/gates.yaml
@@ -19390,6 +19493,42 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'One line: SVC-G06 from expected-fail to required. Precondition: python3 scripts/acceptance-gate.py verdict --check SVC-G06 exits 0. If it does not, stop and report the failing releases.'
+- id: SVC-136
+  title: The foundation function tests pass on a fresh installation
+  area: SVC
+  epic: SVC-050
+  type: fix
+  wave: W0
+  size: M
+  lane: CHARTS
+  depends_on: [SVC-130]
+  after: [FND-011, FND-154, SVC-040, SVC-041, CTL-040]
+  touches:
+  - platform/powerdns/chart/templates/tests/function-test.yaml
+  - platform/seaweedfs/chart/templates/tests/function-test.yaml
+  - platform/openbao/chart/templates/tests/function-test.yaml
+  - platform/gitea/chart/templates/tests/function-test.yaml
+  - platform/dragonfly/chart/templates/tests/function-test.yaml
+  - platform/harbor/chart/templates/tests/function-test.yaml
+  - platform/nats-jetstream/chart/templates/tests/function-test.yaml
+  - platform/external-dns/chart/templates/tests/function-test.yaml
+  - platform/valkey/chart/templates/tests/function-test.yaml
+  - tests/acceptance/sovereign/internal/suite/check_candidate.go
+  - tests/acceptance/sovereign/internal/suite/check_candidate_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The function tests of the foundation ring pass on a fresh installation: (1) powerdns asks a zone the Sovereign is authoritative for, not the parent''s; (2) seaweedfs uses a valid bucket name with no literal "$"; (3) openbao reads a role that exists on the installation; (4) gitea reads an address that answers without a sign-in; (5) the tests that ran before their service was ready at install (dragonfly, harbor, nats-jetstream, external-dns, valkey) wait for it for a bounded time; (6) a failed test Pod no longer leaves a container without an image digest for FND-G01.4: either the check judges only containers that ran, or the test Pods are deleted once their result is recorded. Then SVC-135 can make SVC-G06 required.'
 - id: SVC-140
   title: Applications get the test stanza (after the topology freeze)
   area: SVC
@@ -20877,12 +21016,15 @@ packages:
   wave: W2
   size: XS
   lane: CONTRACTS
-  depends_on: [CTL-240, SVC-040, SVC-160, SVC-190]
-  after: [FND-011, SVC-170]
+  depends_on: [CTL-240, SVC-040, SVC-160, SVC-190, FND-120]
+  after: [FND-011, FND-102, CLD-114, NET-032, NET-102, NET-212, SVC-170, CTL-160, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - .github/workflows/preflight-blueprint-crd-cel.yaml
   - docs/ledger/deleted-paths.txt
+  - products/catalyst/chart/crds/tests/blueprint-sample-valid.yaml
+  - products/catalyst/bootstrap/api/internal/intent/crds/schemas.json
+  - docs/generated/custom-resources.md
   resources: []
   flips: []
   implements: []
@@ -30525,6 +30667,44 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The closed list of capability flags in scripts/acceptance-gate.py holds node-reboot, so a gate check may name it in its needs and a gate record may declare it; the comment above the list says that a work package adds a flag and the plan change then sets it on a check.
+- id: INF-054
+  title: The node maintenance window is a setting of the sovereign-admin, at night in the Sovereign's own time zone by default
+  area: INF
+  epic: null
+  type: fix
+  wave: W0
+  size: M
+  lane: SUBSTRATE
+  depends_on: [INF-050, INF-052, INF-053]
+  after: [FND-011, FND-014, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-110, SOV-131, SOV-135, SOV-151, SOV-323, SOV-335, SOV-338, SEC-010, SEC-080, SEC-095, SEC-120, SEC-150, NET-011, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  touches:
+  - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
+  - platform/kured/chart/values.yaml
+  - platform/kured/chart/tests/render.sh
+  - platform/kured/README.md
+  - docs/contracts/c5-upstream-variables.schema.json
+  - core/controllers/pkg/upstream/contract/c5-upstream-variables.schema.json
+  - core/controllers/pkg/upstream/upstream.go
+  - core/controllers/pkg/upstream/upstream_test.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepOrg.tsx
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
+  - tests/acceptance/sovereign/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The hours in which kured may restart nodes are a setting of the sovereign-admin: the keys KURED_START_TIME, KURED_END_TIME and KURED_TIME_ZONE of the Sovereign''s variables document, listed in contract C5 as optional keys (the kit slot reads them since INF-050; the contract does not list them yet), changed like every key of that document. Their default is a night span, 01:00 to 05:00, in the Sovereign''s own time zone: the new optional C5 key SOVEREIGN_TIME_ZONE, an IANA name that the parent writes from the request (the wizard asks for it and proposes the browser''s zone; UTC when it is absent). The chart''s defaults and the slot''s fallbacks say the same, never the whole working day. Check INF-G01 no longer depends on a wide product default: when the span is not open for its run it opens a window for the run through the same setting, restores the setting afterwards, also when the run fails, and names both changes in its record.'
 - id: INF-055
   title: Leave the kured slot out of the local reduced kit
   area: INF
