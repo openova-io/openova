@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T11:30:07Z` |
+| Last refreshed | `2026-11-20T11:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8107](https://github.com/openova-io/openova/issues/8107) | INF-055 Leave the kured slot out of the local reduced kit | Other |
-| [#8108](https://github.com/openova-io/openova/issues/8108) | NET-150 Default-deny scaffolding and dial checks | Other |
 | [#8111](https://github.com/openova-io/openova/issues/8111) | AIP-114 Scripted back end: the stub subcommand | Other |
 | [#8118](https://github.com/openova-io/openova/issues/8118) | NET-096 Turn the metadata deny on in the kit | Other |
 | [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8487](https://github.com/openova-io/openova/issues/8487) | SOV-162 The registry finds and heals a cached image index whose children are gon | Other |
 | [#8490](https://github.com/openova-io/openova/issues/8490) | SOV-523 A delivery of the release route resumes after one eviction of any of its | Other |
 | [#8498](https://github.com/openova-io/openova/issues/8498) | SEC-154 Flux renders bootstrap Secrets from one seed: pull login, object storage | Other |
+| [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
+| [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
+| 2026-11-20T11:43 | [#8496](https://github.com/openova-io/openova/pull/8496) | #4639 | fix(cutover): the dormant registry pivot does not delete the |
 | 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:25 | [#8493](https://github.com/openova-io/openova/pull/8493) | #8490 | fix(release): a delivery resumes after one eviction of any o |
 | 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T05:45 | [#8464](https://github.com/openova-io/openova/pull/8464) | #7087 | docs(ledger): plan update |
 | 2026-11-20T05:49 | [#8463](https://github.com/openova-io/openova/pull/8463) | #45980 | fix(keycloak): the regions' Keycloaks form one cluster again |
 | 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
-| 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
-| 2026-11-20T10:36 | [#8460](https://github.com/openova-io/openova/pull/8460) | #8456 | refactor(openbao): OpenBao 2.7.2 unseals from the seal file  |
 
 ---
 
