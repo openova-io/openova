@@ -1702,6 +1702,8 @@ images:
     # alpine/k8s is the canonical alpine-based image carrying kubectl +
     # helm + the standard k8s CLI surface (replaced bitnami/kubectl in
     # 2025 after Bitnami's deprecation on Docker Hub).
+    # SOV-137: it also carries curl and jq, so the registry-pivot DaemonSet
+    # (step 04) runs it too and installs nothing at its start.
     repository: "harbor.openova.io/proxy-dockerhub/alpine/k8s"
     tag: "1.31.4"
   git:
@@ -1710,12 +1712,6 @@ images:
   curl:
     repository: "harbor.openova.io/proxy-dockerhub/curlimages/curl"
     tag: "8.10.1"
-  # registry-pivot writes to /etc/rancher/k3s/registries.yaml on every
-  # node. Uses alpine + `chroot /host` invocation pattern (kubectl not
-  # required — direct file write via host mount).
-  hostExec:
-    repository: "harbor.openova.io/proxy-dockerhub/library/alpine"
-    tag: "3.20"
 
 # registry-pivot DaemonSet — runs from chart install to converge each node's
 # containerd registry mirror onto the local Dragonfly dfdaemon (#4639). The
