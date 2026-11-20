@@ -451,6 +451,12 @@ jobs:
           mkdir "$RUNNER_TEMP/kit-render"
           KIT_RENDER_DIR="$RUNNER_TEMP/kit-render" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
           cd tools/guards && go run ./cmd/cronjob-jobs -render "$RUNNER_TEMP/kit-render"
+      - name: 'coherence-credential | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/coherence-credential
+      - name: 'coherence-credential | Every workflow step that runs the coherence check of a candidate has ORIGIN_USER and ORIGIN_TOKEN'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/coherence-credential
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

@@ -221,10 +221,15 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
           yq --version
           helm version --short
+      # verify runs the coherence check, whose check 5 reads the origin's hosted project as the
+      # warmup's robot, as the cut does (.github/workflows/cut-release-candidate.yaml); without the
+      # credential it is CANNOT READ. tools/guards/cmd/coherence-credential holds every such step.
       - name: release-candidate.sh verify
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
+          ORIGIN_USER: 'robot$openova-warmup'
+          ORIGIN_TOKEN: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
           CANDIDATE_ID: ${{ inputs.candidate_id }}
         run: |
           set -euo pipefail
