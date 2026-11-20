@@ -106,6 +106,13 @@ func fakeContainer(namespace, name, ref, digest string) obj {
 			"containerStatuses": []obj{{"name": "main", "imageID": imageID}}}}
 }
 
+// fakePhase is fakeContainer with the Pod in the phase given.
+func fakePhase(namespace, name, ref, digest, phase string) obj {
+	pod := fakeContainer(namespace, name, ref, digest)
+	pod["status"].(obj)["phase"] = phase
+	return pod
+}
+
 func init() {
 	releases := kubeList(
 		fakeDeployed("flux-system", "bp-cilium", "bp-cilium", false, "deployed", "1.4.20", "superseded", "1.4.19"),
@@ -137,6 +144,19 @@ func init() {
 		fakeContainer("kube-system", "cilium-1", "registry.example/cilium:1.19", digestTwo)))
 	fakeAnswers["candidate-no-digest"] = with("b pods", kubeList(
 		fakeContainer("kube-system", "cilium-1", "registry.example/cilium:1.19", "")))
+	// A function-test Pod that failed and kept no image in its status, beside
+	// the running Pods: it runs nothing and is not judged.
+	fakeAnswers["candidate-failed-test-pod-without-digest"] = with("b pods", kubeList(
+		fakePhase("kube-system", "cilium-1", "registry.example/cilium:1.19", digestOne, "Running"),
+		fakePhase("reloader", "reloader-function-test", "registry.example/k8s:1.31", "", "Failed")))
+	// The same Pod still running: its container has not started and is judged.
+	fakeAnswers["candidate-running-test-pod-without-digest"] = with("b pods", kubeList(
+		fakePhase("kube-system", "cilium-1", "registry.example/cilium:1.19", digestOne, "Running"),
+		fakePhase("reloader", "reloader-function-test", "registry.example/k8s:1.31", "", "Pending")))
+	// A finished Pod whose container has a digest is judged like any other.
+	fakeAnswers["candidate-finished-pod-two-digests"] = with("b pods", kubeList(
+		fakePhase("kube-system", "cilium-1", "registry.example/cilium:1.19", digestOne, "Running"),
+		fakePhase("kube-system", "cilium-check", "registry.example/cilium:1.19", digestTwo, "Succeeded")))
 	fakeAnswers["candidate-no-containers"] = with("b pods", kubeList())
 	fakeAnswers["candidate-no-releases"] = with("b "+hrResource, kubeList())
 	fakeAnswers["candidate-region-b-unreachable"] = map[string]string{"a " + hrResource: releases,
@@ -231,6 +251,33 @@ func TestCandidateCheck(t *testing.T) {
 	}
 	if r.run.Finalize(nil); r.run.Artifacts != nil {
 		t.Error("without pins the record must get no artifacts")
+	}
+}
+
+// TestCandidateFinishedPodWithoutDigest: a container of a finished Pod whose
+// status holds no image digest is listed and not judged; a Pod that has not
+// finished, and a finished Pod's container that has a digest, are judged.
+func TestCandidateFinishedPodWithoutDigest(t *testing.T) {
+	r := candidateRun(t, "candidate-failed-test-pod-without-digest", candidateCommit)
+	if got := r.run.Checks[0]; got.Status != Pass {
+		t.Fatalf("a failed test Pod without a digest: want PASS, got %+v: %v", got, failedSteps(r))
+	}
+	ev := r.run.Steps[5].Evidence
+	notJudged, _ := ev["not_judged"].([]string)
+	if want := "reloader/reloader-function-test/main (Pod Failed)"; len(notJudged) != 1 || notJudged[0] != want {
+		t.Errorf("region b evidence not_judged: got %v, want [%s]", ev["not_judged"], want)
+	}
+	if ev["containers"] != 3 {
+		t.Errorf("region b judges 3 containers (2 of cilium-1, the init container of the test Pod): got %v", ev["containers"])
+	}
+	for name, c := range map[string]struct{ scenario, want string }{
+		"a Pod that has not finished":              {"candidate-running-test-pod-without-digest", "1 containers have no image digest: reloader/reloader-function-test/main"},
+		"a finished Pod's container with a digest": {"candidate-finished-pod-two-digests", "1 image references have more than one digest: registry.example/cilium:1.19 has " + digestOne + " and " + digestTwo},
+	} {
+		r := candidateRun(t, c.scenario, candidateCommit)
+		if got := r.run.Checks[0]; got.Status != Fail || !strings.Contains(got.Reason, c.want) {
+			t.Errorf("%s: want FAIL with %q, got %+v", name, c.want, got)
+		}
 	}
 }
 

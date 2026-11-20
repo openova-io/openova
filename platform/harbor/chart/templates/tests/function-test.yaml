@@ -16,6 +16,10 @@ The port and the scheme follow harbor.internalTLS.enabled (443 and https, or
 way the subchart computes it. The chart has no master gate, so the test always
 renders. The image is the kubectl image the kit already pulls (bp-cnpg's
 webhook gate), which carries curl; functionTest.image overrides it.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the service is up:
+it asks again every 5 seconds until second 240 of its 300.
 */ -}}
 {{- $sub := .Values.harbor | default dict }}
 {{- $name := $sub.nameOverride | default "harbor" }}
@@ -82,14 +86,14 @@ spec:
           set -u
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           code=""
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          while [ "${SECONDS}" -lt 240 ]; do
             code="$(curl -sS -k --max-time 10 -D /tmp/headers -o /dev/null -w '%{http_code}' "${CORE_URL}/v2/" 2>/tmp/error)" && [ "${code}" = "401" ] && break
             sleep 5
           done
           [ "${code}" = "401" ] || fail "GET ${CORE_URL}/v2/ answered '${code}', not 401: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
           grep -i -q '^www-authenticate: *bearer realm=' /tmp/headers || fail "GET ${CORE_URL}/v2/ sent no Bearer challenge: $(tr '\r\n' '  ' < /tmp/headers | cut -c1-200)"
           code=""
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          while [ "${SECONDS}" -lt 240 ]; do
             code="$(curl -sS -k --max-time 10 -o /tmp/health -w '%{http_code}' "${CORE_URL}/api/v2.0/health" 2>/tmp/error)" \
               && [ "${code}" = "200" ] && ! grep -q -E '"status" *: *"(unhealthy|unknown)"' /tmp/health && break
             sleep 5

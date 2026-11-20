@@ -14,6 +14,13 @@ test needs no DNS tool in its image. Opening /dev/tcp has no time limit of its
 own, so every query runs in a shell of its own under `timeout 15`, and no new
 query starts after 240 seconds: the test ends inside its 300 seconds.
 
+At install the test runs seconds after the zone-bootstrap Job created the
+zones through the API of one replica. A replica that started before that
+answers REFUSED, without authority, until it reads the zone list again, and
+the Service picks a replica per connection. So an answer that is not yet the
+authoritative answer is asked again every 5 seconds until second 240, and the
+test fails with the last answer only then.
+
 It renders only when zones[] is not empty. <fullname> is computed the way the
 subchart computes it. The image is the kubectl image the kit already pulls
 (bp-cnpg's webhook gate), which carries bash; functionTest.image overrides it.
@@ -105,26 +112,35 @@ spec:
             timeout 10 head -c 14 <&3 | od -An -tx1 -v | tr -s ' \n' ' ' | sed 's/^ //; s/ $//'
             exec 3<&-
           }
-          # Each query runs in a shell of its own under a time limit: the connect has none.
-          export -f hex soa
-          for zone in ${ZONES}; do
-            answer=""
-            for attempt in 1 2 3 4 5 6; do
-              [ "${SECONDS}" -lt 240 ] || break
-              answer="$(timeout 15 bash -c 'soa "$1"' soa "${zone}" 2>/tmp/error)" && [ -n "${answer}" ] && break
-              sleep 5
-            done
-            [ -n "${answer}" ] || fail "no answer from ${DNS_HOST}:${DNS_PORT} for the SOA of ${zone}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          # judge <zone> <answer>: empty when the answer is the authoritative SOA answer, else why it is not.
+          judge() {
+            local zone="$1" answer="$2" flags rcode ancount
+            local -a b
             read -r -a b <<< "${answer}"
-            [ "${#b[@]}" -ge 12 ] || fail "the answer for the SOA of ${zone} is too short: ${answer}"
-            [ "${b[2]}${b[3]}" = "4f56" ] || fail "the answer for the SOA of ${zone} carries another query id: ${answer}"
+            [ "${#b[@]}" -ge 12 ] || { echo "the answer for the SOA of ${zone} is too short: ${answer}"; return; }
+            [ "${b[2]}${b[3]}" = "4f56" ] || { echo "the answer for the SOA of ${zone} carries another query id: ${answer}"; return; }
             flags=$(( 16#${b[4]} ))
             rcode=$(( 16#${b[5]} & 15 ))
             ancount=$(( 16#${b[8]} * 256 + 16#${b[9]} ))
-            (( flags & 128 )) || fail "the reply for the SOA of ${zone} is not an answer: ${answer}"
-            (( flags & 4 )) || fail "the answer for the SOA of ${zone} is not authoritative: ${answer}"
-            [ "${rcode}" = 0 ] || fail "the answer for the SOA of ${zone} has the response code ${rcode}"
-            [ "${ancount}" -ge 1 ] || fail "the answer for the SOA of ${zone} holds no record"
+            (( flags & 128 )) || { echo "the reply for the SOA of ${zone} is not an answer: ${answer}"; return; }
+            (( flags & 4 )) || { echo "the answer for the SOA of ${zone} is not authoritative (response code ${rcode}): ${answer}"; return; }
+            [ "${rcode}" = 0 ] || { echo "the answer for the SOA of ${zone} has the response code ${rcode}"; return; }
+            [ "${ancount}" -ge 1 ] || { echo "the answer for the SOA of ${zone} holds no record"; return; }
+          }
+          # Each query runs in a shell of its own under a time limit: the connect has none.
+          export -f hex soa
+          for zone in ${ZONES}; do
+            why="no query for the SOA of ${zone} was sent before second 240"
+            while [ "${SECONDS}" -lt 240 ]; do
+              if answer="$(timeout 15 bash -c 'soa "$1"' soa "${zone}" 2>/tmp/error)" && [ -n "${answer}" ]; then
+                why="$(judge "${zone}" "${answer}")"
+                [ -z "${why}" ] && break
+              else
+                why="no answer from ${DNS_HOST}:${DNS_PORT} for the SOA of ${zone}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+              fi
+              sleep 5
+            done
+            [ -z "${why}" ] || fail "${why}"
           done
           echo "FUNCTION-TEST pass {{ .Chart.Name }} ${DNS_HOST} answered with authority for the SOA of every zone (${ZONES})"
   volumes:
