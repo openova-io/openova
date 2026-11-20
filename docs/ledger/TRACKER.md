@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T00:15:04Z` |
+| Last refreshed | `2026-11-20T00:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T00:15 | [#8429](https://github.com/openova-io/openova/pull/8429) | #8427 | docs(ledger): result of the lab test NET-252, HTTPS through  |
+| 2026-11-20T00:15 | [#8428](https://github.com/openova-io/openova/pull/8428) | #7087 | docs(ledger): plan update |
 | 2026-11-20T00:02 | [#8425](https://github.com/openova-io/openova/pull/8425) | #7087 | docs(ledger): plan update |
+| 2026-11-20T00:23 | [#8424](https://github.com/openova-io/openova/pull/8424) | #8423 | test(acceptance): the model checks AIP-G02 to AIP-G05 as exp |
 | 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:48 | [#8419](https://github.com/openova-io/openova/pull/8419) | fix(charts): a chart test reads its rendered text without a  |  |
 | 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-19T20:13 | [#8388](https://github.com/openova-io/openova/pull/8388) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:32 | [#8387](https://github.com/openova-io/openova/pull/8387) | #8385 | feat(cloud-init): first boot writes the OpenBao seal key, pr |
 | 2026-11-19T19:58 | [#8384](https://github.com/openova-io/openova/pull/8384) | #7087 | docs(ledger): plan update |
-| 2026-11-19T19:27 | [#8383](https://github.com/openova-io/openova/pull/8383) | #8368 | refactor(mail): kit slot 95 runs the mail server that sends  |
-| 2026-11-19T18:17 | [#8382](https://github.com/openova-io/openova/pull/8382) | #7087 | docs(ledger): plan update |
-| 2026-11-19T18:10 | [#8380](https://github.com/openova-io/openova/pull/8380) | #8374 | fix(guards): the Python guard counts code and configuration, |
 
 ---
 

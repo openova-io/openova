@@ -279,45 +279,49 @@ checks:
 - id: AIP-G02
   title: Tool-call round trip through the gateway
   owner: AIP
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Tool-call round trip through the gateway
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g02.go
   implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G03
   title: A streamed call is metered
   owner: AIP
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A streamed call is metered
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g03.go
   implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G04
   title: Usage carries the verified Organization
   owner: AIP
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Usage carries the verified Organization
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g04.go
   implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G05
   title: Simulation aliases meet the model contract (expected-fail with a nightly record until flipped)
   owner: AIP
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Simulation aliases meet the model contract (expected-fail with a nightly record until flipped)
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g05.go
   implemented_by: AIP-131
   delivered_by: AIP-320
 - id: AIP-G06
