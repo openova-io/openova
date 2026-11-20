@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T07:15:03Z` |
+| Last refreshed | `2026-11-20T07:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
 | [#8086](https://github.com/openova-io/openova/issues/8086) | CLD-132 Remaining provider tests become injected inputs | Other |
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 | [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8452](https://github.com/openova-io/openova/issues/8452) | SOV-242 The cutover repeats a failed step a few times with a growing pause, then | Other |
 | [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
 | [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
+| [#8472](https://github.com/openova-io/openova/issues/8472) | PRD-206 cortex screens | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:19 | [#8469](https://github.com/openova-io/openova/pull/8469) | #7087 | docs(ledger): plan update |
 | 2026-11-20T06:53 | [#8468](https://github.com/openova-io/openova/pull/8468) | #7087 | docs(ledger): plan update |
 | 2026-11-20T06:31 | [#8467](https://github.com/openova-io/openova/pull/8467) | #8466 | feat(cortex): assistants answer in the OpenAI shape with cit |
 | 2026-11-20T06:03 | [#8465](https://github.com/openova-io/openova/pull/8465) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T03:11 | [#8431](https://github.com/openova-io/openova/pull/8431) | #7938 | fix(release): a delivery through the release route needs no  |
 | 2026-11-20T00:45 | [#8430](https://github.com/openova-io/openova/pull/8430) | #8426 | fix(cloud-init): the secondary-region suspend keys are compu |
 | 2026-11-20T00:15 | [#8429](https://github.com/openova-io/openova/pull/8429) | #8427 | docs(ledger): result of the lab test NET-252, HTTPS through  |
-| 2026-11-20T00:15 | [#8428](https://github.com/openova-io/openova/pull/8428) | #7087 | docs(ledger): plan update |
-| 2026-11-20T00:02 | [#8425](https://github.com/openova-io/openova/pull/8425) | #7087 | docs(ledger): plan update |
 
 ---
 
