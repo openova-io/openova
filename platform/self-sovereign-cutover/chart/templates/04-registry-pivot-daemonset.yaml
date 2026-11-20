@@ -28,7 +28,8 @@ entries that send each upstream host of the offline-mirror map straight to the l
 node's /etc/hosts to its region's gateway (#5007); (2) once per cluster, guarded by a status flag,
 the dfdaemon upstream flip to the local registry (#4639 #4652, reached on its external :443 host,
 #4682). containerd re-reads certs.d per pull: no node restarts. It acks v2 only once the registry
-answers. v1 is the reverse.
+answers. v1 is the reverse. It touches only the certs.d files it wrote itself (SOV-132): the
+files k3s writes from registries.yaml are the node's whole registry configuration.
 
 EVERY REGION (#7938). The chart runs in the primary region only. For each follower, step 03 applies
 this same DaemonSet (the define at the end of this file) with an account and a status ConfigMap of
@@ -82,7 +83,9 @@ data:
     #            registryMirror.addr ghcr → the local Harbor external host
     #            https://registry.<fqdn> (:443 via the Gateway LoadBalancer), set
     #            the registryMirror.cert trust anchor, and bounce dfdaemon.
-    #   v1/rollback → remove the catch-all + revert the dfdaemon upstream.
+    #   v1/rollback → put back the node's own (k3s) hosts.toml + revert the
+    #            dfdaemon upstream. v1 is also the dormant state: its first
+    #            run finds no file of this DaemonSet and changes no file.
     #
     # NB on `set -u` (NOT `set -eu`): this is a long-running best-effort
     # RECONCILE LOOP — every apiserver call is already individually guarded
@@ -180,14 +183,35 @@ data:
     #     override_path so the path (which already carries the proxy-<x> segment,
     #     e.g. proxy-ghcr/cloudnative-pg/postgresql) is PRESERVED — a pure host
     #     swap harbor.openova.io → registry.<fqdn>.
-    # This OVERRIDES the boot-time per-host `harbor.openova.io` mirror k3s wrote.
     # Every entry skip_verify=true (the local Harbor serves an LE-staging /
     # node-untrusted wildcard on a fresh prov — same trust-the-cluster-network
     # rationale as #4529/#4557). The openova-io host-drop pull path is preserved
     # by the local-registry self-entry (direct pulls of registry.<fqdn>/openova-io/…).
+    #
+    # SOV-132 — OWNERSHIP. k3s writes certs.d/<name>/hosts.toml for every name of
+    # registries.yaml at each of its starts: the node's whole registry configuration.
+    # Under --disable-default-registry-endpoint they have no `server` key (k3s v1.31.8+k3s1
+    # getHostConfigs), and containerd adds the public upstream only when `server` is set or
+    # no [host] is given (k3s-io/containerd v2.0.4-k3s2, hosts.go parseHostsFile). This
+    # DaemonSet changes a file only when its first line is its own mark (pivot_owns); a
+    # node file it replaces is kept as hosts.toml.pre-pivot (containerd reads only
+    # hosts.toml) for rollback. Its upstream entries have no `server` key either.
+    pivot_owns() {
+      case "$(head -n 1 "$1" 2>/dev/null)" in
+        "# managed by bp-self-sovereign-cutover registry-pivot ("*) return 0 ;;
+      esac
+      return 1
+    }
+    put_hosts_toml() {
+      if [ -f "$1/hosts.toml" ] && ! pivot_owns "$1/hosts.toml"; then
+        cp -p "$1/hosts.toml" "$1/hosts.toml.pre-pivot" || { rm -f "$1/hosts.toml.new"; return 1; }
+      fi
+      mv "$1/hosts.toml.new" "$1/hosts.toml"
+    }
     write_offline_mirror_hosts() {
-      # Retire the legacy dfdaemon catch-all (superseded by the per-host entries).
-      rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
+      # Retire the legacy #4639 dfdaemon catch-all, and only it: k3s writes
+      # _default/hosts.toml for the "*" name of registries.yaml.
+      pivot_owns "${certs_d}/_default/hosts.toml" && rm -f "${certs_d}/_default/hosts.toml"
       # Self-entry: trust the local Harbor's cert for DIRECT openova-io host-drop
       # pulls (registry.<fqdn>/openova-io/…), the pivoted-ref path step-06/07 set.
       if [ -n "${LOCAL_REGISTRY_HOST:-}" ]; then
@@ -199,8 +223,8 @@ data:
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  skip_verify = true"
         } > "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml.new"
-        mv "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml.new" "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml"
-        echo "[registry-pivot]   wrote ${LOCAL_REGISTRY_HOST}/hosts.toml (local self-trust) on ${NODE_NAME}"
+        put_hosts_toml "${certs_d}/${LOCAL_REGISTRY_HOST}" \
+          && echo "[registry-pivot]   wrote ${LOCAL_REGISTRY_HOST}/hosts.toml (local self-trust) on ${NODE_NAME}"
       fi
       # Per-upstream-host mirror → the local Harbor project path.
       for pair in ${HOST_PROJECT_MAP}; do
@@ -213,7 +237,6 @@ data:
           # Mothership host-swap: path preserved (no override_path).
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
-            echo "server = \"https://${h}\""
             echo "[host.\"https://${LOCAL_REGISTRY_HOST}\"]"
             echo "  capabilities = [\"pull\", \"resolve\"]"
             echo "  skip_verify = true"
@@ -223,25 +246,46 @@ data:
           # uses the URL path as the API root instead of appending its own /v2).
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
-            echo "server = \"https://${h}\""
             echo "[host.\"https://${LOCAL_REGISTRY_HOST}/v2/${p}\"]"
             echo "  capabilities = [\"pull\", \"resolve\"]"
             echo "  override_path = true"
             echo "  skip_verify = true"
           } > "${certs_d}/${h}/hosts.toml.new"
         fi
-        mv "${certs_d}/${h}/hosts.toml.new" "${certs_d}/${h}/hosts.toml"
+        put_hosts_toml "${certs_d}/${h}" || continue
         echo "[registry-pivot]   wrote ${h}/hosts.toml -> https://${LOCAL_REGISTRY_HOST}${p:+/v2/${p}} on ${NODE_NAME}"
       done
     }
+    # Rollback (and the dormant first run): only marked files go; the node's own come back.
     remove_offline_mirror_hosts() {
-      [ -n "${LOCAL_REGISTRY_HOST:-}" ] && rm -f "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml" 2>/dev/null || true
-      for pair in ${HOST_PROJECT_MAP}; do
-        h="${pair%%:*}"
-        [ -z "${h}" ] && continue
-        rm -f "${certs_d}/${h}/hosts.toml" 2>/dev/null || true
+      n=0
+      for pair in ${LOCAL_REGISTRY_HOST:-} ${HOST_PROJECT_MAP}; do
+        d="${certs_d}/${pair%%:*}"
+        [ "${d}" = "${certs_d}/" ] && continue
+        pivot_owns "${d}/hosts.toml" || continue
+        if [ -f "${d}/hosts.toml.pre-pivot" ]; then
+          mv "${d}/hosts.toml.pre-pivot" "${d}/hosts.toml"
+        else
+          rm -f "${d}/hosts.toml"
+          rmdir "${d}" 2>/dev/null
+        fi
+        n=$((n + 1))
       done
-      echo "[registry-pivot]   removed offline-mirror per-host hosts.toml (rollback) on ${NODE_NAME}"
+      if [ "${n}" = "0" ]; then
+        echo "[registry-pivot]   no hosts.toml of this DaemonSet on ${NODE_NAME}: the node's own (k3s) registry files are left as they are"
+      else
+        echo "[registry-pivot]   rolled back ${n} hosts.toml of this DaemonSet on ${NODE_NAME}: the node is back on its own (k3s) registry files"
+      fi
+    }
+    # A k3s start removes and rewrites the directory of every registries.yaml name, never
+    # certs.d itself (cleanContainerdHosts): while v2 holds, the loop re-applies when a
+    # pivoted name lost its mark. After a node reboot this Pod's first sweep applies v2.
+    offline_mirror_hosts_in_place() {
+      for pair in ${LOCAL_REGISTRY_HOST:-} ${HOST_PROJECT_MAP}; do
+        [ -z "${pair%%:*}" ] && continue
+        pivot_owns "${certs_d}/${pair%%:*}/hosts.toml" || return 1
+      done
+      return 0
     }
 
     # #5007 — resolve the Harbor gateway VIP WITHOUT public DNS. The per-host
@@ -644,6 +688,7 @@ data:
           fi
           ;;
         v1|rollback|*)
+          # Also the dormant first run: no file carries the mark, nothing changes.
           remove_offline_mirror_hosts
           remove_local_registry_pin
           df_revert_to_ghcr || true
@@ -693,8 +738,17 @@ data:
         [ "${my_ack}" != "v2" ] && needs_ack_retry=1
       fi
 
-      if [ "${desired}" != "${last_state}" ] || [ "${needs_flip_retry}" = "1" ] || [ "${needs_ack_retry}" = "1" ]; then
-        if [ "${needs_ack_retry}" = "1" ]; then
+      # SOV-132 — k3s restarted and rewrote the pivoted names (offline_mirror_hosts_in_place).
+      needs_hosts_retry=0
+      if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ] && ! offline_mirror_hosts_in_place; then
+        needs_hosts_retry=1
+      fi
+
+      if [ "${desired}" != "${last_state}" ] || [ "${needs_flip_retry}" = "1" ] || [ "${needs_ack_retry}" = "1" ] \
+        || [ "${needs_hosts_retry}" = "1" ]; then
+        if [ "${needs_hosts_retry}" = "1" ]; then
+          echo "[registry-pivot] re-applying v2: k3s rewrote the node's registry files (a k3s restart) on ${NODE_NAME}"
+        elif [ "${needs_ack_retry}" = "1" ]; then
           echo "[registry-pivot] re-applying ${desired} to complete THIS node's v2 ack (dfdaemon mirror not confirmed serving yet) on ${NODE_NAME}"
         elif [ "${needs_flip_retry}" = "1" ]; then
           echo "[registry-pivot] re-applying ${desired} to complete the dfdaemon upstream flip (guard not yet local) on ${NODE_NAME}"
