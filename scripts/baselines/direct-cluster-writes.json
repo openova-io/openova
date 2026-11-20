@@ -69,6 +69,13 @@
       "owner": "SOV",
       "path": "products/catalyst/bootstrap/api/internal/lifecycle/release.go",
       "reason": "a release request starts one run: the release Job, the scripts it runs and its status ConfigMap; an operation record of one delivery, until SOV-520 makes the request a Git commit that release-sync reads (#7922)"
+    },
+    {
+      "count": 2,
+      "metric": "K",
+      "owner": "SOV",
+      "path": "products/catalyst/bootstrap/api/internal/lifecycle/release_credential.go",
+      "reason": "makes the pull Secret of one delivery from the credential of its request and removes a leftover one; a credential never goes to Git, so this stays a direct write"
     }
   ],
   "counts": {

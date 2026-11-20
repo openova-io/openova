@@ -65,15 +65,21 @@
 # Every region's result and report go to the ConfigMap RELEASE_STATUS_CM; the
 # recorded commits go to STATE, the Pod's shared emptyDir.
 #
-# The pull credential (#7938). PULL_SECRET is the request's pullSecret, a
-# Secret of RELEASE_NAMESPACE in this region, and the only source of it. Step
-# 03's follower leg reads it through each follower's kubeconfig, as
+# The pull credential (#7938). PULL_SECRET names the Secret of RELEASE_NAMESPACE
+# in this region that the route made from the credential of the request (the
+# sovereign-admin sends it with the request; nothing on the Sovereign holds one
+# after cutover, and nothing is made by hand), and it is the only source of it.
+# Step 03's follower leg reads it through each follower's kubeconfig, as
 # RELEASE_NAMESPACE/PULL_SECRET of THAT region (SECONDARY_GHCR_SOURCE_*), and
 # copies it on into SECONDARY_HARBOR_NAMESPACE/SECONDARY_GHCR_DEST_SECRET there.
-# So the stage of a delivery copies it into every follower, and the end of the
-# prewarm, or a failed stage, deletes it in every region: the copies in each
-# follower and the source here. No region keeps an upstream credential after a
-# delivery (cutover step 06 strips the parent's); the next delivery names one again.
+# So the stage of a delivery copies it into every follower, and every end of a
+# delivery deletes it in every region, the copies in each follower and the
+# source here: the end of the prewarm, the start of promote, a stage that fails
+# or refuses, and the bootstrap's deliver whether the delivery completed or
+# failed (a delivery Job whose Pod was killed included: it reads the names of
+# step 03's copy from the delivery Job it composed). A rollback carries none.
+# No region keeps an upstream credential after a delivery (cutover step 06
+# strips the parent's); the next delivery sends one again.
 set -eu
 : "${RELEASE_NAMESPACE:?}" "${RELEASE_STATUS_CM:?}" "${CANDIDATE:?}"
 : "${DRY_RUN:=false}" "${STATE:=/release-state}" "${SECONDARY_KUBECONFIGS:=/secondary-kubeconfigs}"
@@ -139,6 +145,13 @@ status_put() {
     || say "WARN: could not write ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM}; this log keeps every line"
 }
 
+# status_must <jq --arg pairs>: status_put for a record that what follows must
+# not run without; it fails when the patch does.
+status_must() {
+  _j=$(jq -cn '$ARGS.named' "$@")
+  kubectl -n "${RELEASE_NAMESPACE}" patch configmap "${RELEASE_STATUS_CM}" --type merge -p "{\"data\":${_j}}" >/dev/null
+}
+
 state_get() { cat "${STATE}/$1.$2" 2>/dev/null || true; }
 
 # record <region> <phase> <file>: keep the region's last result line and report.
@@ -161,6 +174,16 @@ followers() {
 # selected <region>: whether promote acts on <region>: every region when the
 # request names none, else the one it names (RELEASE_REGION).
 selected() { [ -z "${RELEASE_REGION}" ] || [ "${RELEASE_REGION}" = "$1" ]; }
+
+# promote_order: the regions promote acts on, in the order it pushes them, one
+# at a time: the followers, then the primary.
+promote_order() {
+  for _kc in $(followers); do
+    _r=$(basename "${_kc}" .yaml)
+    if selected "${_r}"; then echo "${_r}"; fi
+  done
+  if selected primary; then echo primary; fi
+}
 
 # region_check: the region a request names is primary or a follower of this
 # Sovereign; otherwise _region_why says so and it fails.
@@ -228,7 +251,7 @@ _cred_why=""
 credential_deliver() {
   [ -n "${PULL_SECRET}" ] || return 0
   if ! kubectl -n "${RELEASE_NAMESPACE}" get secret "${PULL_SECRET}" -o name >/dev/null 2>&1; then
-    _cred_why="the request's pull Secret ${RELEASE_NAMESPACE}/${PULL_SECRET} is absent in the primary region"
+    _cred_why="the pull Secret ${RELEASE_NAMESPACE}/${PULL_SECRET}, which the route makes from the credential of the request, is absent in the primary region"
     return 1
   fi
   for _kc in $(followers); do
@@ -274,6 +297,81 @@ credential_remove() {
   fi
   say "the pull credential is deleted in every region:${_cred_gone}"
   status_put --arg credential "deleted in every region:${_cred_gone}" --arg updatedAt "$(now)"
+}
+
+# delivery_env <name>: the value of <name> in the prewarm of the delivery Job
+# the candidate's compose wrote in this Pod (MECH/delivery-job.json), or "": a
+# file of this Pod, not a read of the cluster that could fail.
+delivery_env() {
+  jq -r --arg n "$1" '[(.spec.template.spec.initContainers // [])[] | (.env // [])[] | select(.name == $n) | .value // empty] | .[0] // ""' \
+    "${MECH}/delivery-job.json" 2>/dev/null || true
+}
+
+# delivery_unrecorded <why>: the record of a delivery that ended without its
+# containers recording how: its Pod was killed (an eviction, a lost node) or a
+# deadline passed. No Job of a delivery replaces a Pod (backoffLimit 0), so
+# that is a failed delivery: phase failed, the step, and per region what moved.
+# It writes only over the phases the containers leave while they run (staged,
+# promoting), never over a cause they recorded. "No region was promoted" is
+# said only when the state shows promote never began: promote records phase
+# promoting before it checks or pushes any region, or stops. When it began, the
+# regions are named in the order promote pushes them, one at a time (the
+# followers, then the primary): unchanged (its main held the commit this stage
+# staged); not reached (after promoteRegion, the last region promote recorded
+# it reached before it pushed it, or stopped: a region promote reached has no
+# answer when a write of one failed, as promote goes on, so the absence of an
+# answer never says a region was not reached); promoted (<region>.promotedTo is
+# that commit, or its promote answered promoted); returned (its promote
+# answered another phase); else it may have moved (its push may have run, or
+# its Job in that region run on, with no answer recorded; its main is not read
+# here). A state with no promoteRegion (the promote of a candidate that does
+# not record it) names every region with no answer as one that may have moved.
+# A read of the state that fails is read again; one that never answers records
+# nothing over it.
+_du=""
+_du_get() { printf '%s' "${_du}" | jq -r --arg k "$1" '.data[$k] // ""'; }
+delivery_unrecorded() {
+  _du=""
+  for _i in 1 2 3 4 5 6; do
+    _du=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o json 2>/dev/null) && [ -n "${_du}" ] && break
+    _du=""
+    sleep "${FOLLOWER_POLL_SECONDS}"
+  done
+  if [ -z "${_du}" ]; then
+    say "WARN: cannot read ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM}, so the end of the delivery is not recorded there: $1"
+    return 0
+  fi
+  case "$(_du_get phase)" in
+    staged)
+      _dstep=prewarm
+      [ -n "$(_du_get deliveryJob)" ] || _dstep=deliver
+      status_put --arg phase failed --arg failedStep "${_dstep}" \
+        --arg message "$1; the delivery ended before its promote began, and its containers recorded no cause (a killed Pod, or a deadline that passed): no region was promoted, as promote records phase promoting before it checks or pushes any region" \
+        --arg updatedAt "$(now)" ;;
+    promoting)
+      _dmoved=""; _dsame=""; _dret=""; _dmaybe=""; _dnot=""
+      _dreach=$(_du_get promoteRegion); _dpast=""
+      if [ "$(printf '%s' "${_du}" | jq -r '(.data // {}) | has("promoteRegion")')" = true ]; then
+        [ -n "${_dreach}" ] || _dpast=y
+      else
+        _dreach=""
+      fi
+      for _dr in $(promote_order); do
+        _dto=$(state_get "${_dr}" staged)
+        _dpp=$(_du_get "${_dr}.promote" | sed -n 's/.* phase=\([^ ]*\).*/\1/p')
+        if [ -n "${_dto}" ] && [ "$(state_get "${_dr}" main)" = "${_dto}" ]; then _dsame="${_dsame} ${_dr}"
+        elif [ -n "${_dpast}" ]; then _dnot="${_dnot} ${_dr}"
+        elif [ -n "${_dto}" ] && [ "$(_du_get "${_dr}.promotedTo")" = "${_dto}" ]; then _dmoved="${_dmoved} ${_dr}"
+        elif [ "${_dpp}" = promoted ]; then _dmoved="${_dmoved} ${_dr}"
+        elif [ -n "${_dpp}" ]; then _dret="${_dret} ${_dr} (${_dpp})"
+        else _dmaybe="${_dmaybe} ${_dr}"
+        fi
+        [ "${_dr}" != "${_dreach}" ] || _dpast=y
+      done
+      status_put --arg phase failed --arg failedStep promote \
+        --arg message "$1; the delivery ended during its promote, and its containers recorded no cause (a killed Pod, or a deadline that passed). Promoted:${_dmoved:- none}. Unchanged, its main held the staged commit:${_dsame:- none}. Its promote answered another phase (<region>.promote names why):${_dret:- none}. May have moved, promote reached it and no answer of it is recorded, and its main is not read here:${_dmaybe:- none}. Not promoted, promote never reached it:${_dnot:- none}" \
+        --arg updatedAt "$(now)" ;;
+  esac
 }
 
 # first_cause <log>: the last line of a step's log that names why it stopped.
@@ -684,10 +782,13 @@ run_delivery() {
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
   kubectl -n "${RELEASE_NAMESPACE}" logs "job/${_dj}" --all-containers=true --tail=-1 2>&1 || true
+  # 3: the Job ran and failed, or did not end. Its containers recorded the step
+  # and the cause, or, its Pod killed or its deadline passed, nothing:
+  # delivery_unrecorded then records what the state shows.
   case "${_end}" in
     ok) return 0 ;;
-    failed) return 3 ;;   # its own containers recorded the step and the cause
-    *) _mech_why="the delivery Job ${_dj} did not end within its deadline${_stall:+: ${_stall}}"; return 1 ;;
+    failed) _mech_why="the delivery Job ${_dj} failed"; return 3 ;;
+    *) _mech_why="the delivery Job ${_dj} did not end within its deadline${_stall:+: ${_stall}}"; return 3 ;;
   esac
 }
 
@@ -768,6 +869,19 @@ promote_region() {
   "$@" promote || return 1
   [ "${_from}" != "${_to}" ] || return 0
   status_put --arg "${_pr}.promotedFrom" "${_from}" --arg "${_pr}.promotedTo" "${_to}" --arg "${_pr}.phase" promoted --arg updatedAt "$(now)"
+}
+
+# promote_reach <region>: record, before promote pushes <region>, that it
+# reached it (promoteRegion), or fail: a region promote could not record it
+# reached is not pushed, nor is any after it. So the regions after
+# promoteRegion did not move, whichever answers of the regions before it were
+# written (delivery_unrecorded); promote records "" with phase promoting.
+promote_reach() {
+  status_must --arg promoteRegion "$1" --arg updatedAt "$(now)" && return 0
+  say "FAILED: cannot record in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM} that promote reached region $1, so neither it nor a region after it is pushed"
+  status_put --arg phase failed --arg failedStep promote \
+    --arg message "promote could not record that it reached region $1, so neither it nor a region after it was pushed; <region>.promote names how each region before it ended" --arg updatedAt "$(now)"
+  return 1
 }
 
 # verdict <phase>: the worst phase any region recorded for <phase>.
@@ -870,12 +984,14 @@ case "${1:-}" in
     fi
     _drc=0
     sh "${MECH}/release-run.sh" compose || _drc=$?
+    # Whatever the delivery's end, the credential goes in every region; with
+    # step 03's copy in each follower under the names of the delivery Job the
+    # candidate composed in this Pod (a Pod of it killed in its prewarm deleted
+    # neither).
+    : "${SECONDARY_HARBOR_NAMESPACE:=$(delivery_env SECONDARY_HARBOR_NAMESPACE)}" "${SECONDARY_GHCR_DEST_SECRET:=$(delivery_env SECONDARY_GHCR_DEST_SECRET)}"
+    credential_remove || true
     if [ "${_drc}" -ne 0 ]; then
-      credential_remove || true
-      _ph=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o 'jsonpath={.data.phase}' 2>/dev/null || true)
-      if [ "${_ph}" = staged ]; then
-        status_put --arg phase failed --arg failedStep deliver --arg message "the candidate's release-run.sh compose exited ${_drc} before the delivery recorded a cause; nothing moved in any region" --arg updatedAt "$(now)"
-      fi
+      delivery_unrecorded "the candidate's release-run.sh compose exited ${_drc}"
       exit "${_drc}"
     fi
     ;;
@@ -897,7 +1013,10 @@ case "${1:-}" in
     _crc=0; run_delivery || _crc=$?
     case "${_crc}" in
       0) ;;
-      3) say "the delivery Job failed; its state names the step and the cause"; exit 1 ;;
+      3)
+        delivery_unrecorded "${_mech_why}"
+        say "FAILED: ${_mech_why}; the state names the step, the cause and what moved"
+        exit 1 ;;
       *)
         status_put --arg phase failed --arg failedStep deliver --arg message "the delivery did not run: ${_mech_why}; nothing moved in any region" --arg updatedAt "$(now)"
         say "FAILED: ${_mech_why}"
@@ -928,7 +1047,13 @@ case "${1:-}" in
     fi
     ;;
   promote)
-    status_put --arg phase promoting --arg updatedAt "$(now)"
+    # Recorded before any region is checked or pushed, or nothing is: a state
+    # still at staged then says with certainty that no region moved
+    # (delivery_unrecorded). promoteRegion "": no region is reached yet.
+    if ! status_must --arg phase promoting --arg promoteRegion "" --arg updatedAt "$(now)"; then
+      say "FAILED: cannot record phase promoting in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM}; no region was promoted"
+      exit 1
+    fi
     # A deletion the prewarm could not finish is tried again; nothing is left
     # to delete on the usual path.
     credential_remove || true
@@ -956,9 +1081,14 @@ case "${1:-}" in
     fi
     for kc in $(followers); do
       _r=$(basename "${kc}" .yaml)
-      if selected "${_r}"; then promote_region "${_r}" run_follower "${kc}" || _rc=1; fi
+      selected "${_r}" || continue
+      promote_reach "${_r}" || exit 1
+      promote_region "${_r}" run_follower "${kc}" || _rc=1
     done
-    if [ "${_rc}" -eq 0 ] && selected primary; then promote_region primary run_primary || _rc=1; fi
+    if [ "${_rc}" -eq 0 ] && selected primary; then
+      promote_reach primary || exit 1
+      promote_region primary run_primary || _rc=1
+    fi
     if [ "${_rc}" -ne 0 ]; then
       if [ -n "${RELEASE_REGION}" ]; then
         _v=$(verdict promote); _v="${_v:-failed}"

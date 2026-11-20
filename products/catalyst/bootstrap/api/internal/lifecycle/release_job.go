@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -263,12 +264,18 @@ func readProviderPivot(ctx context.Context, cs kubernetes.Interface, ns string) 
 
 // releaseRequest is the body of PUT /api/v1/sovereign/release. Region names
 // the one region a delivery promotes, or a rollback puts back (SOV-521).
+// Credential is the upstream registry's, which a delivery needs and a dry run
+// and a rollback refuse (release_credential.go).
 type releaseRequest struct {
-	Candidate  string `json:"candidate"`
-	DryRun     bool   `json:"dryRun"`
-	PullSecret string `json:"pullSecret,omitempty"`
-	Region     string `json:"region,omitempty"`
-	Rollback   bool   `json:"rollback,omitempty"`
+	Candidate  string              `json:"candidate"`
+	DryRun     bool                `json:"dryRun"`
+	Credential *registryCredential `json:"credential,omitempty"`
+	Region     string              `json:"region,omitempty"`
+	Rollback   bool                `json:"rollback,omitempty"`
+	// RemovedPullSecret is the field pullSecret, which named a Secret a
+	// sovereign-admin had made by hand; it is removed, and a request that
+	// still sends it is refused with what replaces it.
+	RemovedPullSecret json.RawMessage `json:"pullSecret,omitempty"`
 }
 
 // primaryRegion is the name of the primary region in the state ConfigMap.
@@ -330,15 +337,17 @@ func (in *releaseInputs) runContainer(name, phase, ns, job string, req releaseRe
 	return c
 }
 
-// credentialEnv names the request's pull credential, which the stage copies
-// into every follower and the candidate's prewarm deletes in every region when
-// it ends (the bootstrap deletes it when the stage or the deliver container
-// fails first). A dry run names none, so it deletes none.
+// credentialEnv names the pull Secret the route made from the request's
+// credential, which the stage copies into every follower and the candidate's
+// prewarm deletes in every region when it ends (the bootstrap deletes it when
+// the stage fails or refuses, and its deliver container when the delivery
+// ends, however it ended). A dry run and a rollback name none, so they delete
+// none.
 func credentialEnv(req releaseRequest) []corev1.EnvVar {
-	if req.DryRun || req.PullSecret == "" {
+	if req.DryRun || req.Rollback || req.Credential == nil {
 		return nil
 	}
-	return []corev1.EnvVar{plain("PULL_SECRET", req.PullSecret)}
+	return []corev1.EnvVar{plain("PULL_SECRET", releasePullSecret)}
 }
 
 // setEnvs is setEnv for several variables.

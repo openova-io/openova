@@ -21,7 +21,8 @@ import (
 // (STUB_DIR/registry-<region>.yml), keeps the Secrets of each region under
 // STUB_DIR/secrets/<region>/<ns>/ (the region is the basename of --kubeconfig;
 // "primary" without one),
-// records every status patch, and runs a follower Job it is asked to apply:
+// records every status patch (a read of the state as JSON answers them folded,
+// any other read its last phase), and runs a follower Job it is asked to apply:
 // release-region.sh with the plain environment of the applied manifest (its
 // /release paths mapped to STUB_RELEASE) and GITEA_PAT, the way the follower
 // region's kubelet would. Its logs and its outcome are then what get and logs
@@ -31,7 +32,10 @@ import (
 // dry run stores nothing: the object is kept as STUB_DIR/dry/<region>.<kind>.
 // <name>.json for the test, and refused, as the API server would, when that
 // name matches a line (an ERE) of STUB_DIR/refuse. STUB_DIR/pods.json, when
-// present, is what a read of a Job's Pods answers.
+// present, is what a read of a Job's Pods answers. A status patch that matches
+// a line of STUB_DIR/patch-fail fails and is not kept; the first that matches
+// a line of STUB_DIR/patch-kill kills the process that sends it (its Pod
+// killed before the write) and is not kept.
 const kubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"${STUB_DIR}/calls"
 obj=""
@@ -60,7 +64,11 @@ esac
 case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
   *" get helmreleases.helm.toolkit.fluxcd.io "*) cat "${STUB_DIR}/cutover-hr.json" 2>/dev/null || exit 1 ;;
-  *" get configmap sovereign-release "*) grep -o '"phase":"[^"]*"' "${STUB_DIR}/status" | tail -n 1 | sed 's/.*:"//; s/"$//' ;;
+  *" get configmap sovereign-release "*)
+    case " $* " in
+      *" -o json "*) jq -s '{data: (map(.data // {}) | add // {})}' "${STUB_DIR}/status" ;;
+      *) grep -o '"phase":"[^"]*"' "${STUB_DIR}/status" | tail -n 1 | sed 's/.*:"//; s/"$//' ;;
+    esac ;;
   *" get secret "*jsonpath*) printf '%s' "${STUB_PAT}" | base64 ;;
   *" get secret "*)
     f="${STUB_DIR}/secrets/${region}/$2/$5.json"
@@ -68,7 +76,14 @@ case " $* " in
     case " $* " in *" -o name "*) echo "secret/$5" ;; *) cat "${f}" ;; esac ;;
   *" delete secret "*) rm -f "${STUB_DIR}/secrets/${region}/$2/$5.json" ;;
   *" patch configmap "*)
-    while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
+    p=""; while [ $# -gt 0 ]; do [ "$1" = "-p" ] && p="$2"; shift; done
+    if [ -s "${STUB_DIR}/patch-kill" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-kill"; then
+      rm -f "${STUB_DIR}/patch-kill"; echo "kubectl stub: the Pod is killed before it writes ${p}" >&2; kill -9 "${PPID}"; exit 137
+    fi
+    if [ -s "${STUB_DIR}/patch-fail" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-fail"; then
+      echo "Error from server (InternalError): the test fails this patch" >&2; exit 1
+    fi
+    printf '%s\n' "$p" >>"${STUB_DIR}/status" ;;
   *" create configmap "*)
     n=""; p=""; for a in "$@"; do [ "$p" = "-n" ] && n="$a"; p="$a"; done
     printf 'kind: ConfigMap\nmetadata:\n  namespace: %s\n' "$n" ;;
@@ -127,7 +142,10 @@ esac
 // secretKeyRef read from the stub's Secrets of its namespace) and every
 // mountPath in its command, arguments and values mapped to its volume's
 // directory. The first container that fails ends the Pod; job-<name>.rc and
-// job-<name>.log are what get job and logs answer.
+// job-<name>.log are what get job and logs answer. STUB_KILL=<container> kills
+// the Pod before that container starts (a drained node, a lost node): the Job
+// replaces no Pod (backoffLimit 0), so it fails, and no container of it
+// recorded why.
 const kubeletStub = `#!/bin/sh
 set -u
 j="$1"; name=$(jq -r .metadata.name "$j"); ns=$(jq -r .metadata.namespace "$j")
@@ -162,6 +180,10 @@ while IFS= read -r c; do
       elif .valueFrom.secretKeyRef then "export \(.name)=\"$(secretval \(.valueFrom.secretKeyRef.name | @sh) \(.valueFrom.secretKeyRef.key | @sh))\""
       else empty end'; } >"$root/env.sh"
   printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' ((.command // []) + (.args // []))[] | remap' >"$root/argv"
+  if [ -n "${STUB_KILL:-}" ] && [ "$(printf '%s' "$c" | jq -r .name)" = "${STUB_KILL}" ]; then
+    echo "kubelet: the Pod is killed before container ${STUB_KILL} starts" >>"$log"
+    end 137
+  fi
   echo "kubelet: container $(printf '%s' "$c" | jq -r .name)" >>"$log"
   rc=0
   env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" \
@@ -620,6 +642,55 @@ func TestReleaseRunWholePromoteIsFollowersFirstAndRecordsEachRegion(t *testing.T
 	}
 }
 
+// promote records phase promoting before it checks or pushes any region, and
+// each region it reaches (promoteRegion) before it pushes it. A write of either
+// that fails stops it there: no region it did not record is pushed.
+func TestReleaseRunPromoteStopsWhereItCannotRecordWhatItReaches(t *testing.T) {
+	for _, c := range []struct {
+		name, fail string
+		region     string // the region whose promoteRegion write fails; "" for phase promoting
+		bMoves     bool
+	}{
+		{"phase promoting", `"phase":"promoting"`, "", false},
+		{"that it reached the follower", `"promoteRegion":"region-b"`, "region-b", false},
+		{"that it reached the primary", `"promoteRegion":"primary"`, "primary", true},
+	} {
+		t.Run("cannot record "+c.name, func(t *testing.T) {
+			f := newFixture(t)
+			id, _ := f.candidate(1, f.laterRelease)
+			req := releaseRequest{Candidate: id}
+			r := newRunFixtureFrom(t, f, req, false)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			bStaged := r.followerRef("release/" + id)
+			f.write(r.stub, "patch-fail", c.fail+"\n")
+			out, code := r.run("promote", req)
+			st := r.status()
+			wantB := r.followerMain
+			if c.bMoves {
+				wantB = bStaged
+			}
+			if code == 0 || r.remote("main") != f.main || r.followerRef("main") != wantB {
+				t.Fatalf("promote: exit %d, primary main moved %v, region-b main %s want %s\n%s", code, r.remote("main") != f.main, r.followerRef("main"), wantB, out)
+			}
+			if c.region == "" {
+				if st["phase"] != "staged" || st["primary.check"] != "" || st["region-b.check"] != "" || !strings.Contains(out, "cannot record phase promoting") {
+					t.Fatalf("a promote that cannot record phase promoting checks no region: phase %q, primary.check %q, region-b.check %q\n%s", st["phase"], st["primary.check"], st["region-b.check"], out)
+				}
+				return
+			}
+			if st["phase"] != "failed" || st["failedStep"] != "promote" ||
+				!strings.HasPrefix(st["message"], "promote could not record that it reached region "+c.region+", so neither it nor a region after it was pushed") {
+				t.Fatalf("phase %q, failedStep %q, message %q\n%s", st["phase"], st["failedStep"], st["message"], out)
+			}
+			if c.bMoves && st["region-b.promotedTo"] != bStaged {
+				t.Fatalf("region-b.promotedTo %q, want %s", st["region-b.promotedTo"], bStaged)
+			}
+		})
+	}
+}
+
 // SOV-521: a rollback is refused, with nothing pushed, when the region's main
 // moved after the promote, and when no promote is recorded for it.
 func TestReleaseRunRollbackRefusals(t *testing.T) {
@@ -679,9 +750,9 @@ func TestReleaseRunRegionRequestNeedsACandidateWithThePhaseRollback(t *testing.T
 		f.candidateCutoverRelease(step03Marker(candidateCutover))(w)
 		sed(t, w+"/"+cutoverChartPath+"/files/release/release-run.sh", "\n  rollback)\n", "\n  not-this-phase)\n")
 	})
-	req := releaseRequest{Candidate: id, PullSecret: releasePull, Region: "region-b"}
+	req := releaseRequest{Candidate: id, Credential: &testCredential, Region: "region-b"}
 	r := newRunFixtureFrom(t, f, req, false)
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	r.env = []string{"PULL_SECRET=" + releasePull, "RELEASE_REGION=region-b"}
 	out, code := r.run("stage", req)
 	st := r.status()
@@ -695,8 +766,8 @@ func TestReleaseRunRegionRequestNeedsACandidateWithThePhaseRollback(t *testing.T
 		t.Fatal("a refused region request left its pull credential")
 	}
 
-	whole := releaseRequest{Candidate: id, PullSecret: releasePull}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	whole := releaseRequest{Candidate: id, Credential: &testCredential}
+	r.putPullSecret()
 	r.env = []string{"PULL_SECRET=" + releasePull}
 	if out, code := r.run("stage", whole); code != 0 {
 		t.Fatalf("stage of a whole delivery: exit %d\n%s", code, out)
@@ -716,9 +787,9 @@ func TestReleaseRunRegionRequestNeedsACandidateWithThePhaseRollback(t *testing.T
 func TestReleaseRunDeliversOneRegionThroughTheCandidatesMechanism(t *testing.T) {
 	f := newFixture(t)
 	id, cand := f.candidate(1, f.candidateCutoverRelease(step03Marker(candidateCutover)))
-	req := releaseRequest{Candidate: id, PullSecret: releasePull, Region: "region-b"}
+	req := releaseRequest{Candidate: id, Credential: &testCredential, Region: "region-b"}
 	r := newRunFixtureFrom(t, f, req, false)
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	r.env = []string{"PULL_SECRET=" + releasePull, "RELEASE_REGION=region-b"}
 	if out, code := r.run("stage", req); code != 0 {
 		t.Fatalf("stage: exit %d\n%s", code, out)

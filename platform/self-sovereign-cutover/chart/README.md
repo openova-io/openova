@@ -179,7 +179,7 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
   the first delivery that carries this to a Sovereign is a whole one.
 - `rollback: true` with a `region` puts that region back to the `main` recorded
   at the stage of the request that promoted it. It runs no stage and no
-  prewarm, and refuses `dryRun` and `pullSecret`. The route refuses it
+  prewarm, and refuses `dryRun` and `credential`. The route refuses it
   (`409 not-promoted`) unless the state records that promote for this
   candidate; the bootstrap's one container `release-run.sh rollback` then runs
   `release-region.sh rollback` in that region, which refuses (phase `moved`,
@@ -199,6 +199,53 @@ keeps these keys across the requests of one candidate and drops them for another
 `promoted.<region>`. `tests/step7938-promote-one-region.sh` runs this chart's
 two scripts on Git repositories on disk: one region promoted, its rollback, a
 rollback refused after the region moved.
+
+**The upstream credential.** After cutover the Sovereign holds no credential
+for `ghcr.io` (step 06 strips it), and nothing is made on it by hand. A delivery
+request carries the credential itself, from the signed-in sovereign-admin over
+the console's TLS: `"credential": {"registry": "ghcr.io", "username": "<user>",
+"password": "<password or token>"}`. The route signs in to the registry with it
+(the distribution API's sign-in: `/v2/`, then the token realm, which must be
+https) and, before anything is written, answers `422
+registry-credential-missing`, `registry-credential-registry` or
+`registry-credential-refused`, or `502 registry-unreachable`. The sign-in
+proves the credential, not its read access to the packages the release pins:
+the state says `signed in to ghcr.io`, and a credential that may not read a
+pinned package fails the prewarm, which names it. Then the route makes the pull
+Secret `sovereign-release-pull` in the cutover namespace itself (field manager
+`catalyst-release`, labelled with and owned by the bootstrap Job) and passes its
+name as `PULL_SECRET`. The credential is in that Secret and its copies only:
+never in a log line, the state, a ConfigMap, an event, a Job, the region's Git
+or an answer. A dry run and a rollback refuse a credential
+(`dry-run-credential`, `rollback-credential`); the former field `pullSecret`, a
+Secret made by hand, is refused (`400 pull-secret-removed`).
+
+The Secret goes in every outcome. The release scripts delete it in every region
+(the copies in each follower and the source) at every end of a delivery: the
+end of the prewarm, the start of promote, a stage that fails or refuses, and the
+bootstrap's deliver container whether the delivery completed or failed; that
+last one reads the names of step 03's follower copy from the delivery Job it
+composed, so a delivery Job whose Pod was killed leaves none. A bootstrap Job
+whose own Pod was killed runs no end and fails (`backoffLimit: 0`, as every Job
+of a delivery): the Secret is owned by it, so the garbage collector deletes it
+with the Job, which its `ttlSecondsAfterFinished` deletes three days after it
+ended; the next request deletes it before that. That covers the primary's
+Secret only: copies such a killed stage made in the followers stay until the
+next delivery's end deletes the credential in every region. `GET` changes
+nothing.
+
+**A killed Pod.** No Job of a delivery replaces a Pod, so a Pod killed by a
+drained or lost node fails the delivery. Its containers record nothing then;
+the bootstrap's deliver records it: phase `failed`, the step, and per region
+what moved. "No region was promoted" is said only when the state is still at
+`staged`, which is certain because promote records `promoting` before it
+checks or pushes any region, or stops. A delivery killed during its promote
+names each region in the order promote pushes them (the followers, then the
+primary): promoted, unchanged, those promote reached with no answer recorded
+(may have moved: a write of an answer can fail and promote goes on; their
+`main` is not read), and those it never reached. That last is certain because
+promote records each region it reaches (`promoteRegion`) before it pushes it,
+or stops.
 
 **What a chart version must carry for the bootstrap** (contract `1`):
 
