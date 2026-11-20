@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T18:15:04Z` |
+| Last refreshed | `2026-11-20T18:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
 | [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
 | [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
 | [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
 | [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
+| [#8528](https://github.com/openova-io/openova/issues/8528) | SVC-137 The function tests wait for their subject in their own region within the | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T18:27 | [#8526](https://github.com/openova-io/openova/pull/8526) | #7087 | docs(ledger): plan update |
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T11:15 | [#8491](https://github.com/openova-io/openova/pull/8491) | #8487 | fix(harbor): the registry finds and heals a cached image ind |
 | 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
-| 2026-11-20T10:31 | [#8486](https://github.com/openova-io/openova/pull/8486) | #7087 | docs(ledger): plan update |
 
 ---
 
