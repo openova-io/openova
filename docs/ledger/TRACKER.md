@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T00:45:03Z` |
+| Last refreshed | `2026-11-20T01:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,11 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T00:45 | [#8430](https://github.com/openova-io/openova/pull/8430) | #8426 | fix(cloud-init): the secondary-region suspend keys are compu |
 | 2026-11-20T00:15 | [#8429](https://github.com/openova-io/openova/pull/8429) | #8427 | docs(ledger): result of the lab test NET-252, HTTPS through  |
 | 2026-11-20T00:15 | [#8428](https://github.com/openova-io/openova/pull/8428) | #7087 | docs(ledger): plan update |
 | 2026-11-20T00:02 | [#8425](https://github.com/openova-io/openova/pull/8425) | #7087 | docs(ledger): plan update |
 | 2026-11-20T00:23 | [#8424](https://github.com/openova-io/openova/pull/8424) | #8423 | test(acceptance): the model checks AIP-G02 to AIP-G05 as exp |
 | 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
+| 2026-11-20T00:50 | [#8420](https://github.com/openova-io/openova/pull/8420) | #8418 | fix(release): the stage applies the provider pivot again whe |
 | 2026-11-19T23:48 | [#8419](https://github.com/openova-io/openova/pull/8419) | fix(charts): a chart test reads its rendered text without a  |  |
 | 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:37 | [#8416](https://github.com/openova-io/openova/pull/8416) | #8414 | fix(api): the kubeconfig route serves the primary region fil |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T20:45 | [#8392](https://github.com/openova-io/openova/pull/8392) | #8389 | refactor(mail): a Sovereign in relay mode sends its sign-in  |
 | 2026-11-19T20:18 | [#8390](https://github.com/openova-io/openova/pull/8390) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:13 | [#8388](https://github.com/openova-io/openova/pull/8388) | #7087 | docs(ledger): plan update |
-| 2026-11-19T20:32 | [#8387](https://github.com/openova-io/openova/pull/8387) | #8385 | feat(cloud-init): first boot writes the OpenBao seal key, pr |
-| 2026-11-19T19:58 | [#8384](https://github.com/openova-io/openova/pull/8384) | #7087 | docs(ledger): plan update |
 
 ---
 
