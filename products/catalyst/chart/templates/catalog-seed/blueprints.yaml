@@ -998,7 +998,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.14
+  version: 1.0.15
   card:
     title: External Secrets — Stores
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
@@ -1033,7 +1033,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets-stores
-    version: 1.0.14
+    version: 1.0.15
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
