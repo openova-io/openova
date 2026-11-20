@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T19:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-20T19:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:00 | [#8531](https://github.com/openova-io/openova/pull/8531) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:53 | [#8530](https://github.com/openova-io/openova/pull/8530) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:43 | [#8496](https://github.com/openova-io/openova/pull/8496) | #4639 | fix(cutover): the dormant registry pivot does not delete the |
-| 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
 
 ---
 
