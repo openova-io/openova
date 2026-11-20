@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T11:15:02Z` |
+| Last refreshed | `2026-11-20T11:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8106](https://github.com/openova-io/openova/issues/8106) | CLD-108 Generated provider registry | Other |
 | [#8107](https://github.com/openova-io/openova/issues/8107) | INF-055 Leave the kured slot out of the local reduced kit | Other |
 | [#8108](https://github.com/openova-io/openova/issues/8108) | NET-150 Default-deny scaffolding and dial checks | Other |
 | [#8111](https://github.com/openova-io/openova/issues/8111) | AIP-114 Scripted back end: the stub subcommand | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8483](https://github.com/openova-io/openova/issues/8483) | NET-213 The console states the region separation | Other |
 | [#8487](https://github.com/openova-io/openova/issues/8487) | SOV-162 The registry finds and heals a cached image index whose children are gon | Other |
 | [#8490](https://github.com/openova-io/openova/issues/8490) | SOV-523 A delivery of the release route resumes after one eviction of any of its | Other |
+| [#8498](https://github.com/openova-io/openova/issues/8498) | SEC-154 Flux renders bootstrap Secrets from one seed: pull login, object storage | Other |
 
 ---
 
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
+| 2026-11-20T11:25 | [#8493](https://github.com/openova-io/openova/pull/8493) | #8490 | fix(release): a delivery resumes after one eviction of any o |
 | 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
+| 2026-11-20T11:15 | [#8491](https://github.com/openova-io/openova/pull/8491) | #8487 | fix(harbor): the registry finds and heals a cached image ind |
 | 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
 | 2026-11-20T10:31 | [#8486](https://github.com/openova-io/openova/pull/8486) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
 | 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:36 | [#8460](https://github.com/openova-io/openova/pull/8460) | #8456 | refactor(openbao): OpenBao 2.7.2 unseals from the seal file  |
-| 2026-11-20T07:05 | [#8459](https://github.com/openova-io/openova/pull/8459) | #3176 | fix(org): a new Organization's applications are not blocked  |
-| 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
-| 2026-11-20T09:23 | [#8457](https://github.com/openova-io/openova/pull/8457) | #8452 | fix(cutover): repeat a failed step at most three times with  |
 
 ---
 
