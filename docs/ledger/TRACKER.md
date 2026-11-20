@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T10:30:04Z` |
+| Last refreshed | `2026-11-20T10:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
 | [#8106](https://github.com/openova-io/openova/issues/8106) | CLD-108 Generated provider registry | Other |
 | [#8107](https://github.com/openova-io/openova/issues/8107) | INF-055 Leave the kured slot out of the local reduced kit | Other |
 | [#8108](https://github.com/openova-io/openova/issues/8108) | NET-150 Default-deny scaffolding and dial checks | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8475](https://github.com/openova-io/openova/issues/8475) | SEC-153 Flux renders bootstrap Secrets from one seed: robot token, pool-domain l | Other |
 | [#8483](https://github.com/openova-io/openova/issues/8483) | NET-213 The console states the region separation | Other |
 | [#8487](https://github.com/openova-io/openova/issues/8487) | SOV-162 The registry finds and heals a cached image index whose children are gon | Other |
+| [#8490](https://github.com/openova-io/openova/issues/8490) | SOV-523 A delivery of the release route resumes after one eviction of any of its | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
+| 2026-11-20T10:31 | [#8486](https://github.com/openova-io/openova/pull/8486) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:03 | [#8485](https://github.com/openova-io/openova/pull/8485) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:08 | [#8484](https://github.com/openova-io/openova/pull/8484) | #8483 | fix(console): the wizard and the overview page state the reg |
 | 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
@@ -317,6 +319,7 @@ flowchart LR
 | 2026-11-20T10:12 | [#8477](https://github.com/openova-io/openova/pull/8477) | #8475 | refactor(bootstrap): Flux renders four bootstrap Secrets fro |
 | 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:37 | [#8474](https://github.com/openova-io/openova/pull/8474) | #7087 | docs(ledger): plan update |
+| 2026-11-20T10:36 | [#8473](https://github.com/openova-io/openova/pull/8473) | #8472 | feat(cortex): screens for sources, upload, documents, jobs a |
 | 2026-11-20T07:32 | [#8471](https://github.com/openova-io/openova/pull/8471) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:19 | [#8469](https://github.com/openova-io/openova/pull/8469) | #7087 | docs(ledger): plan update |
@@ -327,16 +330,13 @@ flowchart LR
 | 2026-11-20T05:49 | [#8463](https://github.com/openova-io/openova/pull/8463) | #45980 | fix(keycloak): the regions' Keycloaks form one cluster again |
 | 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
 | 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
+| 2026-11-20T10:36 | [#8460](https://github.com/openova-io/openova/pull/8460) | #8456 | refactor(openbao): OpenBao 2.7.2 unseals from the seal file  |
 | 2026-11-20T07:05 | [#8459](https://github.com/openova-io/openova/pull/8459) | #3176 | fix(org): a new Organization's applications are not blocked  |
 | 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
 | 2026-11-20T09:23 | [#8457](https://github.com/openova-io/openova/pull/8457) | #8452 | fix(cutover): repeat a failed step at most three times with  |
 | 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:18 | [#8453](https://github.com/openova-io/openova/pull/8453) | #8449 | fix(charts): the foundation function tests wait for their se |
-| 2026-11-20T03:52 | [#8451](https://github.com/openova-io/openova/pull/8451) | #7087 | docs(ledger): plan update |
-| 2026-11-20T04:12 | [#8450](https://github.com/openova-io/openova/pull/8450) | #8445 | feat(catalyst-api): forward the console routes /api/v1/ops t |
-| 2026-11-20T03:46 | [#8448](https://github.com/openova-io/openova/pull/8448) | #7087 | docs(ledger): plan update |
-| 2026-11-20T06:41 | [#8447](https://github.com/openova-io/openova/pull/8447) | #8446 | feat(cortex): the documents parser posts an original to the  |
 
 ---
 
