@@ -104,17 +104,22 @@ data:
      before stamping this Job; block until CoreDNS serves it (#5007).
     */}}
     echo "[secondary-harbor-prewarm] readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200)"
+    {{- /* A curl without an HTTP answer is one not-ready probe, never the end of the pod (step 03's probe). */}}
+    {{- include "bp-self-sovereign-cutover.curlNoAnswer" . | nindent 4 }}
     _pr_ok=0
     for _pr_i in $(seq 1 40); do
-      _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+      _pr_rc=0
+      _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null) || _pr_rc=$?
       {{- /* #7900 — ready only when this pod resolves the pinned address (see step 03's own probe). */}}
       [ -z "${REGISTRY_PIN_IP:-}" ] || case " $(getent ahostsv4 "${HARBOR_HOST}" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')" in *" ${REGISTRY_PIN_IP} "*) : ;; *) _pr_code="pin-not-served" ;; esac
+      _pr_why="HTTP ${_pr_code:-none}"
+      [ "${_pr_rc}" = 0 ] || { _pr_code=none; _pr_why=$(curl_no_answer "${_pr_rc}"); }
       if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then _pr_ok=1; echo "[secondary-harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"; break; fi
-      echo "[secondary-harbor-prewarm] public dest not ready (HTTP ${_pr_code:-none}, probe ${_pr_i}/40) — CoreDNS pin/gateway still settling; retry in 15s"
+      echo "[secondary-harbor-prewarm] public dest not ready (${_pr_why}, probe ${_pr_i}/40) — CoreDNS pin/gateway still settling; retry in 15s"
       sleep 15
     done
     if [ "${_pr_ok}" != "1" ]; then
-      echo "[secondary-harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min) — this region's coredns-custom pin did not take OR its gateway is not serving Harbor. Cannot push." >&2
+      echo "[secondary-harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min; last probe: ${_pr_why}) — this region's coredns-custom pin did not take OR its gateway is not serving Harbor. Cannot push." >&2
       exit 1
     fi
 

@@ -387,3 +387,19 @@ offlinemirror_copy() {
   offlinemirror_skopeo_copy "${_oc_s}" "${_oc_c}" "${_oc_d}" --multi-arch index-only
 }
 {{- end -}}
+
+{{/*
+curl_no_answer <curl exit code> names a curl that ended without an HTTP answer; the registry's
+readiness probes (step 03, secondary prewarm) count it as one not-ready probe, not a pod's end.
+*/}}
+{{- define "bp-self-sovereign-cutover.curlNoAnswer" -}}
+curl_no_answer() {
+  case "$1" in
+    6) echo "could not resolve host, curl exit 6" ;;
+    7) echo "could not connect, curl exit 7" ;;
+    28) echo "timed out, curl exit 28" ;;
+    35) echo "TLS not ready, curl exit 35" ;;
+    *) echo "no HTTP answer, curl exit $1" ;;
+  esac
+}
+{{- end -}}
