@@ -20,8 +20,11 @@
 #            merge base (step 06's rewrite_kit_tree, with or without the
 #            imageRegistry seam of step 07) is taken from the candidate:
 #            deleted when the candidate deletes it, else the candidate's content
-#            with the rewrite applied again. Any other conflict moves nothing
-#            and names each file. DRY_RUN=true reports and pushes nothing.
+#            with the rewrite applied again. The same holds for a Provider
+#            file whose region side is exactly cutover step 11's package-line
+#            rewrite of the merge base (SOV-522, PROVIDER_PIVOT). Any other
+#            conflict moves nothing and names each file. DRY_RUN=true reports
+#            and pushes nothing.
 #   check    release/CANDIDATE is still STAGED_SHA and UPSTREAM_BRANCH is still
 #            MAIN_SHA, the commit the staged one was merged onto: a promote is a
 #            fast-forward.
@@ -46,7 +49,8 @@
 # Environment: PHASE CANDIDATE REGION DRY_RUN MAIN_SHA STAGED_SHA UPSTREAM_REPO_URL
 # UPSTREAM_BRANCH UPSTREAM_PREFIX GITEA_INTERNAL_URL GITEA_ORG GITEA_REPO
 # GITEA_USERNAME GITEA_PAT KIT_REWRITE PIN_EXTRACTOR FOLLOWER_SOURCE_DIRS
-# IMAGE_REGISTRY_SLOT_FILES REPORT_MAX WORK MECHANISM_OUT CUTOVER_CHART_PATH CUTOVER_SLOT.
+# IMAGE_REGISTRY_SLOT_FILES REPORT_MAX WORK MECHANISM_OUT CUTOVER_CHART_PATH CUTOVER_SLOT
+# PROVIDER_PIVOT SOVEREIGN_FQDN REGISTRY_PATH UPSTREAM_HOST MOTHERSHIP_PROXY_PREFIX.
 set -eu
 export HOME="${HOME:-/tmp}"
 : "${REGION:=primary}" "${DRY_RUN:=false}" "${REPORT_MAX:=40}"
@@ -95,6 +99,20 @@ pins() {
 
 kit="clusters/_template/bootstrap-kit"
 
+# Cutover step 11's package-line rewrite (SOV-522): PROVIDER_PIVOT, its
+# provider-pivot.sh, run with step 11's own settings and no digest map (the
+# digest is the one the line carries). Without it (a follower: step 11 runs in
+# the primary) a Provider conflict is refused.
+provider_pivot=""
+if [ -n "${PROVIDER_PIVOT:-}" ] && [ -r "${PROVIDER_PIVOT}" ] && [ -n "${SOVEREIGN_FQDN:-}" ] \
+    && [ -n "${REGISTRY_PATH:-}" ] && [ -n "${UPSTREAM_HOST:-}" ]; then
+  : "${MOTHERSHIP_PROXY_PREFIX:=}"
+  . "${PROVIDER_PIVOT}"
+  provider_pivot_target
+  lookup_pkg_digest() { :; }
+  provider_pivot=1
+fi
+
 # region_pivot: this region's pivot, read from the branch it runs (${before}):
 # cutover step 06 wrote one local chart prefix (and, with a private CA, one
 # certSecretRef) into the kit. Sets local_prefix, trust_secret and reg (the
@@ -133,19 +151,25 @@ seam() {
 # for a file step 07 pivoted also the imageRegistry seam. Sets how to "kit" or
 # "seam". Not explained: a file outside the folders the stage pivots, a file
 # this Sovereign deleted or added, any other edit, or a region whose pivot the
-# branch does not tell.
+# branch does not tell. A Provider file of step 11 (SOV-522): how "provider".
 explained() {
   how=""
   [ -z "${pivot_why}" ] && [ -r "${KIT_REWRITE:-}" ] || return 1
   case "$1" in *.yaml) ;; *) return 1 ;; esac
   _in=""
   for _d in "${kit}" ${FOLLOWER_SOURCE_DIRS}; do [ "${1%/*}" != "${_d%/}" ] || _in=1; done
+  if [ -z "${_in}" ] && [ -n "${provider_pivot}" ] && provider_pivot_files | grep -qxF -- "$1"; then _in=provider; fi
   [ -n "${_in}" ] || return 1
   _base=$(git rev-parse -q --verify ":1:$1") || return 1
   _ours=$(git rev-parse -q --verify ":2:$1") || return 1
   _x="${work}/explain"
   rm -rf "${_x}"; mkdir -p "${_x}"
   git cat-file blob "${_base}" >"${_x}/${1##*/}"
+  if [ "${_in}" = provider ]; then
+    ( edited=0; provider_pivot_file "${_x}/${1##*/}" ) >>"${work}/explain.log" 2>&1 || return 1
+    [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ] || return 1
+    how=provider; return 0
+  fi
   ( . "${KIT_REWRITE}"; edited=0; rewrite_kit_tree "${_x}" ) >>"${work}/explain.log" 2>&1 || return 1
   if [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ]; then how=kit; return 0; fi
   seam "${_x}/${1##*/}"
@@ -165,7 +189,7 @@ take_candidate() {
     elif git rev-parse -q --verify ":3:${_c}" >/dev/null; then
       git checkout --quiet --theirs -- "${_c}"
       git add -- "${_c}"
-      [ "${how}" = kit ] || seam_files="${seam_files} ${_c}"
+      case "${how}" in seam) seam_files="${seam_files} ${_c}" ;; provider) provider_files="${provider_files} ${_c}" ;; esac
       resolved="${resolved}${_c}: the content of ${rc_ref}, this region's registry rewrite (${how}) applied again
 "
     else
@@ -213,7 +237,7 @@ stage() {
 
     git checkout --quiet -B "${staging}" "${before}"
     region_pivot
-    seam_files=""
+    seam_files="" provider_files=""
     merge_msg="release: deliver ${rc_ref} (${cand}) onto ${branch}"
     if ! git merge --no-ff --no-edit -m "${merge_msg}" "${cand}" >"${work}/merge.log" 2>&1; then
       conflicts=$(git diff --name-only --diff-filter=U)
@@ -247,6 +271,20 @@ $(printf '%s' "${resolved}" | sed 's/^/- /')"
     for s in ${IMAGE_REGISTRY_SLOT_FILES} ${seam_files}; do
       [ ! -f "${s}" ] || seam "${s}"
     done
+    # Step 11's rewrite again; fail closed on a package line still upstream,
+    # or without the digest the candidate's line must carry (#5232).
+    for p in ${provider_files}; do
+      provider_pivot_file "${p}" >>"${work}/rewrite.log" 2>&1
+      for l in $(sed -n -E "s/^[[:space:]]*package:[[:space:]]+[\"']?//p" "${p}"); do
+        case "${l}" in
+          "${upstream_prefix}/"*|"${MOTHERSHIP_PROXY_PREFIX}/"*)
+            report "unpivoted ${p}: package ${l}"
+            refuse "${p} still names ${l%%/*} after step 11's rewrite; nothing was pushed" ;;
+          "${target_prefix}/"*@sha256:*) ;;
+          "${target_prefix}/"*) refuse "${p}: package ${l} has no digest; the stage reads none, so the candidate pins it by digest (#5232); nothing was pushed" ;;
+        esac
+      done
+    done
     # Fail closed: a url line still naming the upstream prefix (quoted, or with
     # trailing text the rewrite does not match) would re-tether this region.
     up_re=$(printf '%s' "${UPSTREAM_PREFIX}" | sed 's/[].[*^$\\]/\\&/g')
@@ -255,7 +293,7 @@ $(printf '%s' "${resolved}" | sed 's/^/- /')"
       printf '%s\n' "${left}" | while IFS= read -r l; do report "unpivoted ${l}"; done
       refuse "the merged tree still names ${UPSTREAM_PREFIX} after this region's pivot; nothing was pushed"
     fi
-    git add -A -- ${pivot_paths} ${IMAGE_REGISTRY_SLOT_FILES}
+    git add -A -- ${pivot_paths} ${IMAGE_REGISTRY_SLOT_FILES} ${provider_files}
     # The count is of files the pivot commit changes: rewrite_kit_tree raises
     # ${edited} for every trust re-injection, also one that changes nothing.
     changed=$(git diff --cached --name-only | grep -c . || true)

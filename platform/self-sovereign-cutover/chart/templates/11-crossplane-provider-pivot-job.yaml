@@ -221,6 +221,7 @@ data:
         volumeMounts:
           - name: tmp
             mountPath: /tmp
+          - {name: provider-pivot, mountPath: /provider-pivot, readOnly: true}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -233,9 +234,8 @@ data:
              v0.4.0). We rewrite ONLY the HOST + PATH-prefix segment
              so the upstream path + tag are preserved untouched.
             */}}
-            target_host="harbor.${SOVEREIGN_FQDN}"
-            target_prefix="${target_host}/${REGISTRY_PATH}"
-            upstream_prefix="${UPSTREAM_HOST}"
+            . /provider-pivot/provider-pivot.sh
+            provider_pivot_target
 
             echo "[crossplane-provider-pivot] target host:   ${target_host}"
             echo "[crossplane-provider-pivot] upstream:      ${upstream_prefix}"
@@ -433,21 +433,6 @@ data:
               */}}
               _ld_slug=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')
               printf '%s' "${xpkg_digest_map_json}" | jq -r --arg k "${_ld_slug}" '.data[$k] // empty' 2>/dev/null || true
-            }
-            {{- /*
-             split_pkg_ref REF -> sets _sp_repo (path with no ref) and
-             _sp_digest (sha256:<hex> when REF carries one, else empty).
-             Handles tag, digest, and the #4955 tag@digest shapes.
-            */}}
-            split_pkg_ref() {
-              _sp_repo="$1"; _sp_digest=""
-              case "${_sp_repo}" in
-                *@sha256:*)
-                  _sp_digest="${_sp_repo##*@}"; _sp_repo="${_sp_repo%@*}"
-                  case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
-                *)
-                  case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
-              esac
             }
 
             {{- /*
@@ -694,12 +679,7 @@ data:
             git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1
             cd repo
 
-            # Find every clusters/*/infrastructure/provider-*.yaml that
-            {{- /*
-             references the upstream host literal in its package spec.
-             `grep -l` returns only filenames; `find` ensures we don't
-             pick up unrelated provider-* files elsewhere in the tree.
-            */}}
+            # provider_pivot_files, provider_pivot_file: provider-pivot.sh (SOV-522).
             edited=0
             {{- /*
              #4212 — the cloud-agnostic restructure moved the _template
@@ -709,8 +689,7 @@ data:
              catches both the per-Sovereign overlay copies (direct child)
              and the _template/.../hetzner/ overlay.
             */}}
-            matches=$( { find clusters -type f -path '*/infrastructure/provider-*.yaml'; \
-                         find clusters -type f -path '*/infrastructure/*/provider-*.yaml'; } 2>/dev/null | sort -u || true)
+            matches=$(provider_pivot_files)
             if [ -z "${matches}" ]; then
               echo "[crossplane-provider-pivot] no clusters/*/infrastructure/**/provider-*.yaml present in mirror"
             else
@@ -730,46 +709,7 @@ data:
                digest form. `,` sed delimiter — the refs never contain
                commas; the OLD literal has its `.` escaped for -E.
               */}}
-              for file in ${matches}; do
-                _f_changed=0
-                _f_pkgs=$(sed -n -E 's/^[[:space:]]*package:[[:space:]]+//p' "${file}" | sort -u)
-                for _f_pkg in ${_f_pkgs}; do
-                  _f_prefix=""
-                  case "${_f_pkg}" in
-                    "${upstream_prefix}/"*)         _f_prefix="${upstream_prefix}" ;;
-                    "${MOTHERSHIP_PROXY_PREFIX}/"*) _f_prefix="${MOTHERSHIP_PROXY_PREFIX}" ;;
-                    "${target_prefix}/"*@sha256:*)  continue ;;
-                    "${target_prefix}/"*)           _f_prefix="${target_prefix}" ;;
-                    *)                              continue ;;
-                  esac
-                  _f_suffix="${_f_pkg#${_f_prefix}/}"
-                  split_pkg_ref "${_f_suffix}"
-                  _f_repo="${_sp_repo}"
-                  _f_digest="${_sp_digest}"
-                  if [ -z "${_f_digest}" ]; then
-                    _f_digest=$(lookup_pkg_digest "${REGISTRY_PATH}/${_f_suffix}")
-                  fi
-                  if [ -n "${_f_digest}" ]; then
-                    _f_new="${target_prefix}/${_f_repo}@${_f_digest}"
-                  else
-                    _f_new="${target_prefix}/${_f_suffix}"
-                  fi
-                  if [ "${_f_pkg}" = "${_f_new}" ]; then
-                    echo "[crossplane-provider-pivot] SKIP ${file}: ${_f_pkg} (no digest recorded; already host-swapped — upgraded on a later step re-run)"
-                    continue
-                  fi
-                  _f_esc=$(printf '%s' "${_f_pkg}" | sed 's/\./\\./g')
-                  if sed -i -E "s,(package:[[:space:]]+)${_f_esc}([[:space:]]*)\$,\1${_f_new}\2," "${file}"; then
-                    echo "[crossplane-provider-pivot] rewrote ${file}: ${_f_pkg} -> ${_f_new}"
-                    _f_changed=1
-                  else
-                    echo "[crossplane-provider-pivot] WARN sed failed on ${file}" >&2
-                  fi
-                done
-                if [ "${_f_changed}" -eq 1 ]; then
-                  edited=$((edited+1))
-                fi
-              done
+              for file in ${matches}; do provider_pivot_file "${file}"; done
             fi
 
             echo "[crossplane-provider-pivot] sed edited ${edited} files"
@@ -849,3 +789,63 @@ data:
     volumes:
       - name: tmp
         emptyDir: {}
+      - name: provider-pivot
+        configMap: {name: cutover-step-11-crossplane-provider-pivot, items: [{key: provider-pivot.sh, path: provider-pivot.sh}]}
+  {{- /* SOV-522 — this step's package-line rewrite, one copy: the step sources it
+   (Phase 2 above says what it does), and the release stage (files/release/release-region.sh)
+   applies it again to a Provider file a candidate changes. The caller defines lookup_pkg_digest. */}}
+  provider-pivot.sh: |
+    provider_pivot_target() { target_host="harbor.${SOVEREIGN_FQDN}"; target_prefix="${target_host}/${REGISTRY_PATH}"; upstream_prefix="${UPSTREAM_HOST}"; }
+    {{- /* split_pkg_ref REF -> _sp_repo (no ref) and _sp_digest (sha256:<hex> or empty); tag, digest and #4955 tag@digest shapes. */}}
+    split_pkg_ref() {
+      _sp_repo="$1"; _sp_digest=""
+      case "${_sp_repo}" in
+        *@sha256:*)
+          _sp_digest="${_sp_repo##*@}"; _sp_repo="${_sp_repo%@*}"
+          case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
+        *)
+          case "${_sp_repo##*/}" in *:*) _sp_repo="${_sp_repo%:*}" ;; esac ;;
+      esac
+    }
+    provider_pivot_files() {
+      { find clusters -type f -path '*/infrastructure/provider-*.yaml'; \
+        find clusters -type f -path '*/infrastructure/*/provider-*.yaml'; } 2>/dev/null | sort -u || true
+    }
+    provider_pivot_file() {
+      file="$1"; _f_changed=0
+      _f_pkgs=$(sed -n -E 's/^[[:space:]]*package:[[:space:]]+//p' "${file}" | sort -u)
+      for _f_pkg in ${_f_pkgs}; do
+        _f_prefix=""
+        case "${_f_pkg}" in
+          "${upstream_prefix}/"*)         _f_prefix="${upstream_prefix}" ;;
+          "${MOTHERSHIP_PROXY_PREFIX}/"*) _f_prefix="${MOTHERSHIP_PROXY_PREFIX}" ;;
+          "${target_prefix}/"*@sha256:*)  continue ;;
+          "${target_prefix}/"*)           _f_prefix="${target_prefix}" ;;
+          *)                              continue ;;
+        esac
+        _f_suffix="${_f_pkg#${_f_prefix}/}"
+        split_pkg_ref "${_f_suffix}"
+        _f_repo="${_sp_repo}"
+        _f_digest="${_sp_digest}"
+        if [ -z "${_f_digest}" ]; then
+          _f_digest=$(lookup_pkg_digest "${REGISTRY_PATH}/${_f_suffix}")
+        fi
+        if [ -n "${_f_digest}" ]; then
+          _f_new="${target_prefix}/${_f_repo}@${_f_digest}"
+        else
+          _f_new="${target_prefix}/${_f_suffix}"
+        fi
+        if [ "${_f_pkg}" = "${_f_new}" ]; then
+          echo "[crossplane-provider-pivot] SKIP ${file}: ${_f_pkg} (no digest recorded; already host-swapped — upgraded on a later step re-run)"
+          continue
+        fi
+        _f_esc=$(printf '%s' "${_f_pkg}" | sed 's/\./\\./g')
+        if sed -i -E "s,(package:[[:space:]]+)${_f_esc}([[:space:]]*)\$,\1${_f_new}\2," "${file}"; then
+          echo "[crossplane-provider-pivot] rewrote ${file}: ${_f_pkg} -> ${_f_new}"
+          _f_changed=1
+        else
+          echo "[crossplane-provider-pivot] WARN sed failed on ${file}" >&2
+        fi
+      done
+      [ "${_f_changed}" -eq 0 ] || edited=$((edited+1))
+    }
