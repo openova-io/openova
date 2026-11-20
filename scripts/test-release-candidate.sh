@@ -4,7 +4,9 @@
 # It builds a throwaway origin repository with the nine kernel components and a stand-in
 # scripts/check-train-coherent.sh, clones it, and runs the tool in the clone. It contacts no
 # network and no registry. The last section proves the refusal of a chart whose files changed
-# after its version was set (exit 6, scripts/check-chart-content-after-version.py, #7922).
+# after its version was set (exit 6, scripts/check-chart-content-after-version.py, #7922). The
+# section after it proves that the kernel rule reads upstream versions only: a file:// library
+# dependency is no move, any other file:// dependency of a kernel chart is refused (exit 4).
 # Exit 0: every case passed. Exit 1: a case failed (named).
 set -euo pipefail
 
@@ -223,6 +225,63 @@ git clone -q --depth 1 "file://$W/origin.git" "$W/shallow" 2>/dev/null
 rc=0; (cd "$W/shallow" && RC_COHERENCE_CMD=true bash "$TOOL" cut --dry-run) > "$W/out" 2> "$W/err" || rc=$?
 if [ "$rc" -eq 4 ]; then ok "content: a shallow history stops the cut (exit 4)"; else bad "content: a shallow history: exit $rc, expected 4"; sed 's/^/     | /' "$W/err"; fi
 says "content: says the history is shallow" "the history is shallow"
+
+# The kernel rule compares upstream versions (cut run 44646900900, #8403): a file:// dependency
+# of a kernel chart on a library chart of this repository is no upstream version, so its
+# appearance or disappearance is no move; any other file:// dependency stops the cut (exit 4).
+rm -f "$ALLOWF"; app 0.1.3 1.1
+KLIB="$W/seed/platform/kube-access-lib/chart"
+mkdir -p "$KLIB/templates" "$W/seed/platform/notlib/chart"
+printf 'apiVersion: v2\nname: kube-access-lib\ntype: library\nversion: 0.1.0\n' > "$KLIB/Chart.yaml"
+echo '{{- define "kal.x" }}x{{ end }}' > "$KLIB/templates/_x.tpl"
+printf 'apiVersion: v2\nname: notlib\ntype: application # not a library\nversion: 0.1.0\n' > "$W/seed/platform/notlib/chart/Chart.yaml"
+commit "kernel: a library chart and an application chart in the repository"
+RC_COHERENCE_CMD=true RC_CUT_TIME=29990301T000000Z run 0 "kernel: a candidate to compare with" cut
+K1="$(cat "$W/out")"
+KV=0
+kchart() { # kchart <component> <upstream version> [<file:// path>...]: a new chart version each time
+  local c="$1" up="$2" p n
+  shift 2
+  KV=$((KV + 1))
+  {
+    printf 'apiVersion: v2\nname: bp-%s\nversion: 9.0.%s\ndependencies:\n' "$c" "$KV"
+    for p in "$@"; do
+      n="${p%/chart}"
+      printf '  - name: %s\n    version: "0.1.0"\n    repository: "file://%s"\n' "${n##*/}" "$p"
+    done
+    printf '  - name: %s\n    version: "%s"\n    repository: "https://example.invalid"\n' "$c" "$up"
+  } > "$W/seed/platform/$c/chart/Chart.yaml"
+}
+L=../../kube-access-lib/chart
+for c in flux:2.0.0 crossplane:1.0.0 cnpg:1.0.0 cert-manager:1.0.0; do kchart "${c%%:*}" "${c#*:}" "$L"; done
+commit "kernel: four kernel charts gain the library, no upstream version moves"
+dry 0 "kernel: (a) four charts gain a file:// library dependency, no upstream version moved"
+says "kernel: (a) says none moved" "kernel components moved since rc/$K1: none"
+kchart flux 2.0.0 "$L" ../../notlib/chart; commit "kernel: a file:// dependency on an application chart"
+dry 4 "kernel: (d) a file:// dependency on a chart that is not a library is refused"
+says "kernel: (d) names the chart and the dependency" "kernel chart platform/flux/chart: the dependency notlib=0.1.0 (file://../../notlib/chart)"
+says "kernel: (d) says it is not a library" "platform/notlib/chart/Chart.yaml does not say type: library"
+kchart flux 2.0.0 "$L" ../../missing/chart; commit "kernel: a file:// path that does not exist"
+dry 4 "kernel: (e) a file:// path that does not exist is refused"
+says "kernel: (e) names the chart and the path" "kernel chart platform/flux/chart: the dependency missing=0.1.0 (file://../../missing/chart)"
+says "kernel: (e) says it does not exist" "platform/missing/chart/Chart.yaml does not exist"
+kchart flux 2.0.0 "$L"; kchart cilium 1.0.2 "$L"; kchart kyverno 1.0.0 "$L"
+commit "kernel: one upstream move, and the library in two more charts"
+dry 0 "kernel: (b) one upstream version moved and a library was added"
+says "kernel: (b) names only the upstream move" "kernel components moved since rc/$K1: cilium (cilium=1.0.1 -> cilium=1.0.2)"
+kchart openbao 1.0.1 "$L"; commit "kernel: a second upstream move"
+dry 2 "kernel: (c) two upstream versions moved"
+says "kernel: (c) says two moved" "refused: 2 kernel components moved since rc/$K1"
+says "kernel: (c) names openbao" "  openbao (openbao=1.0.0 -> openbao=1.0.1)"
+lacks "kernel: (c) a library dependency is never a move" "kube-access-lib=0.1.0"
+kchart cilium 1.0.1 "$L"; kchart openbao 1.0.0 "$L"; commit "kernel: the upstream versions of rc/$K1 again"
+RC_COHERENCE_CMD=true RC_CUT_TIME=29990302T000000Z run 0 "kernel: a candidate whose kernel charts have the library" cut
+K2="$(cat "$W/out")"
+says "kernel: a cut with the library added says none moved" "kernel components moved since rc/$K1: none"
+for c in cilium:1.0.1 flux:2.0.0 crossplane:1.0.0 openbao:1.0.0 kyverno:1.0.0 cnpg:1.0.0 cert-manager:1.0.0; do kchart "${c%%:*}" "${c#*:}"; done
+commit "kernel: every kernel chart drops the library"
+dry 0 "kernel: the library dependency goes, no upstream version moved"
+says "kernel: a library that goes is no move" "kernel components moved since rc/$K2: none"
 
 echo "passed $PASSED, failed $FAILED"
 [ "$FAILED" -eq 0 ]
