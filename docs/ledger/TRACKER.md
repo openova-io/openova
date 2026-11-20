@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T18:00:04Z` |
+| Last refreshed | `2026-11-20T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
+| 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
 | 2026-11-20T10:31 | [#8486](https://github.com/openova-io/openova/pull/8486) | #7087 | docs(ledger): plan update |
-| 2026-11-20T10:03 | [#8485](https://github.com/openova-io/openova/pull/8485) | #7087 | docs(ledger): plan update |
 
 ---
 
