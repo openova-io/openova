@@ -16,11 +16,21 @@ a file. The chart has no master gate, so the test always renders.
 
 The kit installs this release without waiting for its workloads
 (install.disableWait), so at install the test runs before the server is up: it
-sends PING every 5 seconds until the answer is PONG, at most until second 240
-of its 300. The key holds the time and two random numbers. The script never
-writes two dollar signs in a row: Kubernetes turns them into one in a
-container's args before the shell reads them.
+sends PING every 5 seconds until the answer is PONG, at most until 60 seconds
+before its bound T, and fails naming the PING when no PONG came by then. T is
+functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the kit states
+the install timeout of its release there (docs/RUNBOOKS.md section 4.5);
+without it T is 300. The shell's clock starts with the container, while the
+deadline counts from the Pod's start, the pull of the image included; so the
+script also traps TERM, which the kubelet sends at the deadline, and then
+prints the fail line naming the step it was in and the last answer (the trap
+runs when the current command returns, within the grace period), instead of
+ending without a word. The key holds the time and two random numbers. The
+script never writes two dollar signs in a row: Kubernetes turns them into one
+in a container's args before the shell reads them.
 */ -}}
+{{- $bound := int ((.Values.functionTest | default dict).timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $sub := .Values.valkey | default dict }}
 {{- $name := $sub.nameOverride | default "valkey" }}
 {{- $fullname := "" }}
@@ -54,7 +64,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   automountServiceAccountToken: false
   containers:
     - name: function-test
@@ -98,11 +108,14 @@ spec:
             cli+=(-a "$(cat /etc/function-test/auth/password)" --no-auth-warning)
           fi
           out=""
-          while [ "${SECONDS}" -lt 240 ]; do
+          step="waiting for PONG to PING on ${VALKEY_HOST}:${VALKEY_PORT}"
+          trap 'fail "TERM at the deadline of the Pod, after ${SECONDS} seconds of the script, while ${step}; last answer: $(oneline "${out}")"' TERM
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
             out="$(timeout 10 "${cli[@]}" PING 2>&1)" && [ "${out}" = "PONG" ] && break
             sleep 5
           done
-          [ "${out}" = "PONG" ] || fail "PING on ${VALKEY_HOST}:${VALKEY_PORT} was not answered with PONG within 240 seconds: $(oneline "${out}")"
+          [ "${out}" = "PONG" ] || fail "PING on ${VALKEY_HOST}:${VALKEY_PORT} was not answered with PONG within {{ $wait }} seconds: $(oneline "${out}")"
+          step="writing, reading and removing a key on ${VALKEY_HOST}:${VALKEY_PORT}"
           key="function-test:$(date +%s):${RANDOM}:${RANDOM}"
           value="v${RANDOM}${RANDOM}"
           out="$("${cli[@]}" SET "${key}" "${value}" 2>&1)" || fail "SET on ${VALKEY_HOST}:${VALKEY_PORT} failed: $(oneline "${out}")"

@@ -70,6 +70,10 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for PONG from valkey-primary itself until 60
+    # seconds before its bound T, the install timeout below, stated once as
+    # values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 15m
   interval: 15m
   releaseName: valkey
   targetNamespace: valkey
@@ -150,3 +154,5 @@ spec:
         reflect:
           secretName: newapi-keyspace-credential
           namespaces: [newapi]
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)

@@ -16,12 +16,18 @@ It renders only when seal.stanza is set and selfInit.enabled is true: only
 then does the store unseal and initialise itself. Question 2 is asked only
 when kubernetesAuth.enabled is true.
 
-At install the test runs as soon as the release is installed. The role of question 2
-is not written at install: the openbao-config Deployment writes it on its first
-pass over the declared configuration (templates/_config.tpl, every
-config.intervalSeconds). So both questions are asked again every 5 seconds
-while the store is not yet ready or answers "invalid role name", until second
-240; any other answer to the login is judged at once.
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the store is up, and
+the role of question 2 is not written at install: the openbao-config
+Deployment of this release writes it on its first pass over the declared
+configuration (templates/_config.tpl, every config.intervalSeconds) after the
+store's self-initialisation has written the role it logs in with. So both
+questions are asked again every 5 seconds while the store is not yet ready or
+answers "invalid role name", until 60 seconds before its bound T; any other
+answer to the login is judged at once. A store that never answers, or a role
+that is never written, fails naming it. T is functionTest.timeoutSeconds, the
+Pod's activeDeadlineSeconds: the kit states the install timeout of its release
+there (docs/RUNBOOKS.md section 4.5); without it T is 300.
 
 The address is baoAddress, or the subchart's Service
 <fullname>.<namespace>.svc.cluster.local:8200. The image is the kubectl image
@@ -41,6 +47,8 @@ the kit already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
 {{- end }}
 {{- $addr := .Values.baoAddress | default (printf "http://%s.%s.svc.cluster.local:8200" $fullname .Release.Namespace) }}
 {{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
 apiVersion: v1
 kind: ServiceAccount
@@ -69,7 +77,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -113,11 +121,11 @@ spec:
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           oneline() { [ -f "$1" ] && tr '\n' ' ' < "$1" | cut -c1-200; }
           code=""
-          while [ "${SECONDS}" -lt 240 ]; do
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
             code="$(curl -sS --max-time 10 -o /tmp/health -w '%{http_code}' "${BAO_ADDR}/v1/sys/health?standbyok=true" 2>/tmp/error)" && [ "${code}" = "200" ] && break
             sleep 5
           done
-          [ "${code}" = "200" ] || fail "GET ${BAO_ADDR}/v1/sys/health answered '${code}': $(oneline /tmp/error) $(oneline /tmp/health)"
+          [ "${code}" = "200" ] || fail "the store did not answer GET ${BAO_ADDR}/v1/sys/health with 200 within {{ $wait }} seconds (last answer '${code}'): $(oneline /tmp/error) $(oneline /tmp/health)"
           grep -q -F '"initialized":true' /tmp/health || fail "the store is not initialised: $(oneline /tmp/health)"
           grep -q -F '"sealed":false' /tmp/health || fail "the store is sealed: $(oneline /tmp/health)"
           if [ "${CHECK_LOGIN}" = "yes" ]; then
@@ -125,9 +133,12 @@ spec:
             printf '{"role":"%s","jwt":"%s"}' "${AUTH_ROLE}" "${jwt}" > /tmp/login-request
             while :; do
               code="$(curl -sS --max-time 10 -o /tmp/login -w '%{http_code}' -X POST --data @/tmp/login-request "${BAO_ADDR}/v1/auth/${AUTH_MOUNT}/login" 2>/tmp/error)" || fail "the login request to auth/${AUTH_MOUNT} failed: $(oneline /tmp/error)"
-              grep -q -F 'invalid role name' /tmp/login && [ "${SECONDS}" -lt 240 ] || break
+              grep -q -F 'invalid role name' /tmp/login && [ "${SECONDS}" -lt {{ $wait }} ] || break
               sleep 5
             done
+            if grep -q -F 'invalid role name' /tmp/login; then
+              fail "the role ${AUTH_ROLE}, which the Deployment openbao-config writes, is not on auth/${AUTH_MOUNT} within {{ $wait }} seconds: $(oneline /tmp/login)"
+            fi
             grep -q -E 'service account name not authorized|namespace not authorized' /tmp/login || fail "the login on auth/${AUTH_MOUNT} for the role ${AUTH_ROLE} answered '${code}': $(oneline /tmp/login)"
             echo "FUNCTION-TEST pass {{ .Chart.Name }} ${BAO_ADDR} is initialised and unsealed, and auth/${AUTH_MOUNT} judged a login for the role ${AUTH_ROLE}"
           else

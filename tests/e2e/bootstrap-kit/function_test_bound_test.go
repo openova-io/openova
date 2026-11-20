@@ -24,7 +24,9 @@ package bootstrapkit
 //	B5  The chart reads T: the test Pod its chart renders with the release's
 //	    values has activeDeadlineSeconds T. Without it a stated T would pass
 //	    B1 while the Pod still ends at 300 seconds. (Each chart's render test
-//	    proves that the wait ends 60 seconds before T.)
+//	    proves that the wait ends 60 seconds before T.) Every targetPath of
+//	    the release's valuesFrom, which Flux reads from the cluster at
+//	    install, gets a stand-in value in the render.
 //
 // owed lists the releases that break B1 to B3 and that a later change repairs.
 // The list only shrinks: a release on it that breaks no rule any more fails
@@ -66,11 +68,12 @@ var testNeeds = map[string]string{
 }
 
 // owed: the tested releases of the kit whose function test is still bounded by
-// the chart default of 300 seconds under a longer install timeout. bp-openbao,
-// bp-reloader and bp-valkey failed their test on the fresh two-region installs
-// of 20 November 2026 for that reason (a role written a minute late, a
-// Deployment rolled after 60 seconds, a primary that answered after 240
-// seconds); the others are the same shape and have not been measured failing.
+// the chart default of 300 seconds under a longer install timeout. They have
+// not been measured failing for that reason. bp-openbao, bp-reloader and
+// bp-valkey, which did fail their test on the fresh two-region installs of
+// 20 November 2026 (a role written a minute late, a change made before
+// Reloader watched, a primary that answered after the deadline), left the list
+// with SVC-139.
 var owed = map[string]bool{
 	"bp-cert-manager":           true,
 	"bp-cert-manager-issuers":   true,
@@ -91,17 +94,14 @@ var owed = map[string]bool{
 	"bp-kyverno":                true,
 	"bp-kyverno-policies":       true,
 	"bp-oidc-gate":              true,
-	"bp-openbao":                true,
 	"bp-postgres-shared":        true,
 	"bp-postgres-shared-b":      true,
 	"bp-postgres-shared-c":      true,
 	"bp-powerdns":               true,
 	"bp-reflector":              true,
-	"bp-reloader":               true,
 	"bp-seaweedfs":              true,
 	"bp-self-sovereign-cutover": true,
 	"bp-sovereign-tls-vars":     true,
-	"bp-valkey":                 true,
 }
 
 // ftbRelease is one HelmRelease of the kit that enables its test, with the
@@ -114,6 +114,7 @@ type ftbRelease struct {
 	BoundFrom                                 string
 	BoundBad                                  string // B4: the stated value when it is not a whole number
 	Values                                    map[string]any
+	StandIns                                  []string // B5: the targetPath of every valuesFrom entry
 }
 
 func ftbDig(v any, path ...string) any {
@@ -178,6 +179,12 @@ func ftbParse(file string, raw []byte, installs map[string]time.Duration) ([]ftb
 		r.ReleaseName, _ = ftbDig(doc, "spec", "releaseName").(string)
 		r.Namespace, _ = ftbDig(doc, "spec", "targetNamespace").(string)
 		r.Values, _ = ftbDig(doc, "spec", "values").(map[string]any)
+		entries, _ := ftbDig(doc, "spec", "valuesFrom").([]any)
+		for _, e := range entries {
+			if p, _ := ftbDig(e, "targetPath").(string); p != "" {
+				r.StandIns = append(r.StandIns, p)
+			}
+		}
 		if r.Test, r.TestFrom, err = ftbDuration(doc, ftbFluxDefault, []string{"spec", "test", "timeout"}, []string{"spec", "timeout"}); err != nil {
 			return nil, fmt.Errorf("%s %s: %w", file, r.Name, err)
 		}
@@ -318,6 +325,56 @@ func ftbSubstitute(s string) string {
 	return s
 }
 
+// ftbStandIn is the value B5 gives a valuesFrom target. Flux reads the value
+// from a ConfigMap or Secret of the cluster at install, which a render has
+// not got, and a chart's test may render only when it is set: bp-openbao's
+// needs seal.stanza, which slot 08 takes from the ConfigMap
+// sovereign-seal-profile.
+const ftbStandIn = "stand-in for a valuesFrom target"
+
+func ftbCopy(v map[string]any) map[string]any {
+	out := make(map[string]any, len(v))
+	for k, x := range v {
+		if m, ok := x.(map[string]any); ok {
+			x = ftbCopy(m)
+		}
+		out[k] = x
+	}
+	return out
+}
+
+// ftbWithStandIns returns a copy of values in which every target path that
+// values does not set holds ftbStandIn. Flux merges spec.values over
+// valuesFrom, so a value the release sets wins. A path that is not a plain
+// dotted one (an index or an escape of Helm's --set syntax) is refused.
+func ftbWithStandIns(values map[string]any, paths []string) (map[string]any, error) {
+	out := ftbCopy(values)
+	for _, p := range paths {
+		keys := strings.Split(p, ".")
+		for _, k := range keys {
+			if k == "" || strings.ContainsAny(k, `[]\=,`) {
+				return nil, fmt.Errorf("B5 the valuesFrom targetPath %q is not a plain dotted path: the render cannot give it a stand-in value", p)
+			}
+		}
+		m := out
+		for _, k := range keys[:len(keys)-1] {
+			next, ok := m[k].(map[string]any)
+			if !ok {
+				if m[k] != nil {
+					return nil, fmt.Errorf("B5 the valuesFrom targetPath %q: %s is set in spec.values and is not a map", p, k)
+				}
+				next = map[string]any{}
+				m[k] = next
+			}
+			m = next
+		}
+		if last := keys[len(keys)-1]; m[last] == nil {
+			m[last] = ftbStandIn
+		}
+	}
+	return out, nil
+}
+
 // ftbPodDeadline applies B5 to a render: the function test Pod's
 // activeDeadlineSeconds must be want.
 func ftbPodDeadline(docs []map[string]any, want time.Duration) string {
@@ -399,7 +456,12 @@ func TestFunctionTestBound_ChartsReadTheBound(t *testing.T) {
 			t.Errorf("%s (%s): its chart %s is not a chart of platform/ or products/", r.Name, r.File, r.Chart)
 			continue
 		}
-		text, err := yaml.Marshal(r.Values)
+		given, err := ftbWithStandIns(r.Values, r.StandIns)
+		if err != nil {
+			t.Errorf("%s (%s): %v", r.Name, r.File, err)
+			continue
+		}
+		text, err := yaml.Marshal(given)
 		if err != nil {
 			t.Fatalf("%s: %v", r.Name, err)
 		}
@@ -544,5 +606,30 @@ spec:
 	}
 	if got := ftbSubstitute("a: ${X:=1}\nb: ${Y:-x.${Z}}\nc: ${W}\nd: ${V=on}\n"); got != "a: 1\nb: x.\nc: \nd: on\n" {
 		t.Errorf("the substitution gives %q", got)
+	}
+
+	// B5 stand-ins: every valuesFrom targetPath is read, an unset target gets
+	// the stand-in, a value the release sets wins, the release's values are not
+	// changed, and a path that is not plain dotted is refused.
+	from, _ := parse(strings.Replace(good, "  values:\n", "  valuesFrom:\n    - kind: ConfigMap\n      name: profile\n      valuesKey: stanza\n      targetPath: seal.stanza\n    - kind: ConfigMap\n      name: whole\n      valuesKey: values.yaml\n  values:\n", 1))
+	if len(from) != 2 || len(from[0].StandIns) != 1 || from[0].StandIns[0] != "seal.stanza" {
+		t.Fatalf("B5 the valuesFrom targetPath of bp-a is not read: %+v", from)
+	}
+	vals := map[string]any{"functionTest": map[string]any{"timeoutSeconds": 900}, "a": map[string]any{"b": "kept"}}
+	got, err := ftbWithStandIns(vals, []string{"seal.stanza", "a.b", "a.c"})
+	switch {
+	case err != nil:
+		t.Errorf("B5 stand-ins: %v", err)
+	case ftbDig(got, "seal", "stanza") != ftbStandIn || ftbDig(got, "a", "c") != ftbStandIn:
+		t.Errorf("B5 an unset valuesFrom target gets no stand-in: %v", got)
+	case ftbDig(got, "a", "b") != "kept" || ftbDig(got, "functionTest", "timeoutSeconds") != 900:
+		t.Errorf("B5 the stand-in replaces a value the release sets: %v", got)
+	case ftbDig(vals, "a", "c") != nil || ftbDig(vals, "seal") != nil:
+		t.Errorf("B5 the stand-ins change the release's own values: %v", vals)
+	}
+	for _, bad := range []string{"list[0].x", "a\\.b", "a..b", "a.b.c"} {
+		if _, err := ftbWithStandIns(vals, []string{bad}); err == nil || !strings.HasPrefix(err.Error(), "B5 ") {
+			t.Errorf("B5 the targetPath %q is not refused: %v", bad, err)
+		}
 	}
 }
