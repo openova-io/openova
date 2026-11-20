@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T22:45:04Z` |
+| Last refreshed | `2026-11-20T23:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,10 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T22:50 | [#8552](https://github.com/openova-io/openova/pull/8552) | #8551 | fix(charts): the function tests of bp-openbao, bp-reloader a |
 | 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
+| 2026-11-20T22:49 | [#8549](https://github.com/openova-io/openova/pull/8549) | #7900 | fix(cutover): the prewarm's readiness probe counts a failed  |
 | 2026-11-20T20:52 | [#8548](https://github.com/openova-io/openova/pull/8548) | #7087 | docs(ledger): plan update |
 | 2026-11-20T20:52 | [#8546](https://github.com/openova-io/openova/pull/8546) | #8538 | fix(charts): the registry front, core and registry and the c |
 | 2026-11-20T20:57 | [#8545](https://github.com/openova-io/openova/pull/8545) | #8534 | fix(crossplane): the provider pod installs OpenTofu provider |
+| 2026-11-20T22:49 | [#8544](https://github.com/openova-io/openova/pull/8544) | #8533 | fix(cutover): step 04 keeps the nodes shared registry mirror |
 | 2026-11-20T21:04 | [#8543](https://github.com/openova-io/openova/pull/8543) | #8536 | test(gate): check INF-G01 drains the worker of the registry  |
 | 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
 | 2026-11-20T21:06 | [#8540](https://github.com/openova-io/openova/pull/8540) | fix(tests): three Go tests of the platform API stop failing  |  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
 | 2026-11-20T14:24 | [#8514](https://github.com/openova-io/openova/pull/8514) | fix(gate): the Organization isolation check measures the hos |  |
 | 2026-11-20T13:44 | [#8513](https://github.com/openova-io/openova/pull/8513) | #7087 | docs(ledger): plan update |
-| 2026-11-20T15:35 | [#8512](https://github.com/openova-io/openova/pull/8512) | #8407 | fix(seaweedfs): the cross-region filer sync survives a roll  |
-| 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
-| 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
 
 ---
 
