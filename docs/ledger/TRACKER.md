@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T08:15:03Z` |
+| Last refreshed | `2026-11-20T08:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T08:17 | [#8480](https://github.com/openova-io/openova/pull/8480) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:09 | [#8479](https://github.com/openova-io/openova/pull/8479) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:00 | [#8478](https://github.com/openova-io/openova/pull/8478) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:02 | [#8438](https://github.com/openova-io/openova/pull/8438) | #8433 | refactor(cloud-init): every node boots with a local-first re |
-| 2026-11-20T02:16 | [#8437](https://github.com/openova-io/openova/pull/8437) | #8436 | feat(chart): switch stage blueprints of the intent lock to d |
 
 ---
 
