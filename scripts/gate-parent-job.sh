@@ -28,7 +28,7 @@
 #        repository root a run in cloud reads); the probe image, the Playwright image by digest
 #        plus the playwright package. Writes job=<ref@digest>, probe=<ref@digest> and, when it
 #        built it, suite=<ref@digest> into <file>. Needs GH_TOKEN and GITHUB_ACTOR.
-#   gate-parent-job.sh run --mode addresses|live|regions --out <dir> --targets <addresses>
+#   gate-parent-job.sh run --mode addresses|live|regions|update --out <dir> --targets <addresses>
 #                         --job-image <ref@digest> [--probe-image <ref@digest>]
 #        Creates the run's NetworkPolicy for <addresses> (as targets prints them; none, or one that is
 #        not the IPv4 address of a host, ends the run with exit code 2 before anything is created),
@@ -38,9 +38,13 @@
 #        Secrets and the NetworkPolicy whatever happened. Into <dir>: name, outputs (key=value),
 #        summary.md, errors, files/<path>, gate.log. Exit 0 when the Job did its work and every file
 #        arrived whole.
+#        Mode update (FND-076) runs scripts/standing-update.sh in the Job: it needs CANDIDATE_ID,
+#        GATE_PULL_USER and GATE_PULL_TOKEN (else exit 2, nothing created), and the Secret of the
+#        run also carries that pull credential as the key pull, from which the update builds the
+#        credential of its delivery requests (the run makes no pull Secret in a region; the route does).
 #   gate-parent-job.sh cleanup --out <dir>   deletes the Job, the Secrets and the NetworkPolicy named in <dir>
 #   gate-parent-job.sh recipe job <base>|probe   prints a generated Containerfile
-#   gate-parent-job.sh inner addresses|live|regions   in the Job, container gate
+#   gate-parent-job.sh inner addresses|live|regions|update   in the Job, container gate
 #   gate-parent-job.sh probe                 in the Job, container probe (live only)
 #   gate-parent-job.sh --self-test           no cluster, no network, no docker
 #
@@ -55,7 +59,7 @@
 #                            separated by commas (a CPU in m or cores, a memory in Ki, Mi or Gi); the
 #                            workflows pass the variable GATE_PARENT_RESOURCES of the environment gate.
 #                            A value that is not valid ends the run with exit code 2 before anything is created.
-#   The run's inputs, copied into the Job's environment: ENV_LABEL, GATE_RUN, CANDIDATE_COMMIT,
+#   The run's inputs, copied into the Job's environment: ENV_LABEL, GATE_RUN, CANDIDATE_COMMIT, CANDIDATE_ID,
 #   GITHUB_ACTIONS, GITHUB_WORKFLOW_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT and every ACCEPT_*
 #   except the paths ACCEPT_KUBECONFIG_A, _B, ACCEPT_MANIFEST, ACCEPT_REPO_ROOT, ACCEPT_RECORD_DIR.
 # Every call to the parent retries a failure that looks like a lost connection, at most
@@ -413,7 +417,7 @@ def read(path):
         return f.read()
 data = {"ka": b64(read(os.environ["GATE_KUBECONFIG_A"])), "kb": b64(read(os.environ["GATE_KUBECONFIG_B"])),
         "gate-parent-job.sh": b64(read(self_path))}
-for tool in ("gate-outside-dial.py", "standing-gate.py", "sso-zero-click-probe.mjs"):
+for tool in ("gate-outside-dial.py", "standing-gate.py", "standing-update.sh", "sso-zero-click-probe.mjs"):
     data[tool] = b64(read(os.path.join(tools, "scripts", tool)))
 sess = os.environ.get("GATE_SESSION_FILE", "")
 data["session"] = b64(read(sess).strip()) if sess and os.path.isfile(sess) else ""
@@ -431,7 +435,7 @@ if user and token:
             "data": {".dockerconfigjson": b64(json.dumps(cfg).encode())}}
     json.dump(pull, open(os.path.join(out, "pull.json"), "w"))
 paths = {"ACCEPT_KUBECONFIG_A", "ACCEPT_KUBECONFIG_B", "ACCEPT_MANIFEST", "ACCEPT_REPO_ROOT", "ACCEPT_RECORD_DIR"}
-fixed = ["ENV_LABEL", "GATE_RUN", "CANDIDATE_COMMIT", "GITHUB_ACTIONS", "GITHUB_WORKFLOW_REF", "GITHUB_RUN_ID",
+fixed = ["ENV_LABEL", "GATE_RUN", "CANDIDATE_COMMIT", "CANDIDATE_ID", "GITHUB_ACTIONS", "GITHUB_WORKFLOW_REF", "GITHUB_RUN_ID",
          "GITHUB_RUN_ATTEMPT"]
 names = fixed + sorted(k for k in os.environ if k.startswith("ACCEPT_") and k not in paths)
 env = [{"name": k, "value": os.environ[k]} for k in names if k in os.environ]
@@ -460,7 +464,7 @@ def total(kind):
     each = ", ".join("%s %s CPU %s" % (n, res[n][kind]["cpu"], res[n][kind]["memory"]) for n in names)
     return "%dm CPU and %dMi (%s)" % (cpu, mem >> 20, each)
 open(os.path.join(out, "resources"), "w").write("its Pod requests %s; limits %s\n" % (total("requests"), total("limits")))
-deadline = {"addresses": 900, "regions": 9000, "live": 19200}[mode]
+deadline = {"addresses": 900, "regions": 9000, "live": 19200, "update": 19200}[mode]
 pod = {"restartPolicy": "Never", "automountServiceAccountToken": False, "enableServiceLinks": False,
        "securityContext": {"runAsNonRoot": True, "runAsUser": 65534, "runAsGroup": 65534, "fsGroup": 65534,
                            "seccompProfile": {"type": "RuntimeDefault"}},
@@ -622,11 +626,14 @@ cmd_run() {
       *) usage ;;
     esac
   done
-  case "$mode" in addresses | live | regions) ;; *) echo "gate-parent-job: --mode must be addresses, live or regions" >&2; exit 2 ;; esac
+  case "$mode" in addresses | live | regions | update) ;; *) echo "gate-parent-job: --mode must be addresses, live, regions or update" >&2; exit 2 ;; esac
   [ -n "$RUN_OUT" ] || usage
   [[ "$jimg" =~ $DIGEST_RE ]] || { echo "gate-parent-job: --job-image must name a digest: <repository>@sha256:<64 hex>, not '$jimg'" >&2; exit 2; }
   if [ "$mode" = live ] && ! [[ "$pimg" =~ $DIGEST_RE ]]; then
     echo "gate-parent-job: --probe-image must name a digest: <repository>@sha256:<64 hex>, not '$pimg'" >&2; exit 2
+  fi
+  if [ "$mode" = update ] && { [ -z "${GATE_PULL_USER:-}" ] || [ -z "${GATE_PULL_TOKEN:-}" ] || ! [[ "${CANDIDATE_ID:-}" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$ ]]; }; then
+    echo "gate-parent-job: --mode update needs CANDIDATE_ID (the id of rc/<id>), GATE_PULL_USER and GATE_PULL_TOKEN" >&2; exit 2
   fi
   targets="$(norm_targets "$targets")" || {
     echo "gate-parent-job: --targets must list the IPv4 addresses of the install under test (gate-parent-job.sh targets); the run does not start" >&2; exit 2; }
@@ -639,8 +646,12 @@ cmd_run() {
   local name
   name="gate-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-1}-$mode-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
   printf '%s\n' "$name" > "$RUN_OUT/name"
-  trap 'rm -f "$RUN_OUT/secret.json" "$RUN_OUT/pull.json"; cleanup_names "$RUN_OUT"' EXIT
+  trap 'rm -f "$RUN_OUT/secret.json" "$RUN_OUT/secret.json.new" "$RUN_OUT/pull.json"; cleanup_names "$RUN_OUT"' EXIT
   manifests "$mode" "$name" "$jimg" "${pimg:-none}" "$RUN_OUT" || die "the manifests could not be written"
+  if [ "$mode" = update ]; then # the run's pull credential, as the key pull of the Secret of the run (FND-076)
+    ( umask 077; jq --slurpfile p "$RUN_OUT/pull.json" '.data.pull = $p[0].data[".dockerconfigjson"]' "$RUN_OUT/secret.json" > "$RUN_OUT/secret.json.new" ) \
+      && mv "$RUN_OUT/secret.json.new" "$RUN_OUT/secret.json" || die "the pull credential could not be added to the Secret of the run"
+  fi
   policy_json "$name" "$targets" > "$RUN_OUT/policy.json"
   pk create -f "$RUN_OUT/policy.json" > /dev/null \
     || die "the NetworkPolicy of the run could not be created: the Role of the gate needs create, get and delete on networkpolicies (scripts/gate-parent-access.yaml)"
@@ -805,6 +816,15 @@ inner_regions() {
       python3 "$SECRET_DIR/standing-gate.py" converge --kubeconfig "$SECRET_DIR/k$r" --region "$r" --minutes 60 --interval 30 || { rc=1; break; }
     done
   fi
+  out "rc=$rc"
+}
+
+inner_update() { # the update of the standing environment through the release route (FND-076)
+  local rc=0
+  STANDING_KUBECONFIG_A="$KA" STANDING_KUBECONFIG_B="$KB" STANDING_PULL_FILE="$SECRET_DIR/pull" \
+    STANDING_SUMMARY="$SCRATCH/update-summary.md" bash "$SECRET_DIR/standing-update.sh" run || rc=$?
+  [ -f "$SCRATCH/update-summary.md" ] && sed 's/^/GATE-SUMMARY /' "$SCRATCH/update-summary.md"
+  [ "$rc" = 0 ] || echo "GATE-ERROR The update of the standing environment to rc/${CANDIDATE_ID:-} failed (exit code $rc); the Job's log names the step"
   out "rc=$rc"
 }
 
@@ -980,7 +1000,7 @@ inner_live() {
 }
 
 cmd_inner() {
-  case "${1:-}" in addresses | live | regions) ;; *) usage ;; esac
+  case "${1:-}" in addresses | live | regions | update) ;; *) usage ;; esac
   inner_setup
   "inner_$1"
   echo "GATE-DONE"
@@ -1023,7 +1043,7 @@ self_test() {
   local v
   for v in $(compgen -e); do
     case "$v" in
-      GITHUB_* | GATE_* | ACCEPT_* | STUB_* | ENV_LABEL | CANDIDATE_COMMIT | CATALYST_SESSION) unset "$v" ;;
+      GITHUB_* | GATE_* | ACCEPT_* | STUB_* | ENV_LABEL | CANDIDATE_COMMIT | CANDIDATE_ID | CATALYST_SESSION) unset "$v" ;;
     esac
   done
   export GITHUB_RUN_ATTEMPT=1
@@ -1186,7 +1206,7 @@ STUB
 
   # the manifests
   mkdir -p "$T/tools/scripts" "$T/m"
-  for f in gate-outside-dial.py standing-gate.py sso-zero-click-probe.mjs; do echo "tool $f" > "$T/tools/scripts/$f"; done
+  for f in gate-outside-dial.py standing-gate.py standing-update.sh sso-zero-click-probe.mjs; do echo "tool $f" > "$T/tools/scripts/$f"; done
   echo "region-a-credential-abc" > "$T/ka"; echo "region-b-credential-def" > "$T/kb"; echo "owner-session-ghi" > "$T/session"
   local JI PI TG=203.0.113.1,203.0.113.24
   JI="ghcr.io/openova-io/openova/conformance@sha256:$(printf 'a%.0s' {1..64})"
@@ -1401,6 +1421,50 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
   o=$?
   [ "$o" = 1 ] && [ "$(calls_of ' logs -f ')" = 1 ] && grep -q 'has not ended .* minutes after it was created' "$T/r11.out" && grep -q "delete job gate-53-1-regions-" "$T/calls"
   ok $? "run: the wait ends at the Job's deadline even when its log can be followed for ever"
+
+  # the mode update (FND-076): the candidate in the Job's inputs, the update script and the pull credential
+  # in the Secret of the run, and the Job, both Secrets and the NetworkPolicy deleted after a success and after a failure
+  local CID=20261119T125842Z-774da0d CC=774da0d425000000000000000000000000000000
+  mkdir -p "$T/mu"
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_PULL_USER=bot GATE_PULL_TOKEN=pull-token-jkl ENV_LABEL=hw307 \
+      GATE_RUN=60 CANDIDATE_COMMIT="$CC" CANDIDATE_ID="$CID"
+    TOOLS="$T/tools" manifests update gate-60-1-update-x "$JI" none "$T/mu" )
+  jq -e --arg i "$CID" --arg c "$CC" '.spec.template.spec.containers | length == 1 and .[0].command[-2:] == ["inner", "update"]
+      and ([.[0].env[] | select(.name == "CANDIDATE_ID") | .value] == [$i]) and ([.[0].env[] | select(.name == "CANDIDATE_COMMIT") | .value] == [$c])' \
+    "$T/mu/job.json" > /dev/null
+  ok $? "update: the Job runs the container gate in the mode update, and its inputs carry the candidate's id and commit"
+  jq -e '.data["standing-update.sh"] | @base64d | startswith("tool standing-update.sh")' "$T/mu/secret.json" > /dev/null
+  ok $? "update: the Secret of the run holds scripts/standing-update.sh"
+  reset_stub
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=61 GATE_PULL_USER=bot CANDIDATE_ID="$CID"
+    TOOLS="$T/tools" cmd_run --mode update --out "$T/r15" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
+  o=$?
+  local o2 cid
+  for cid in rc-latest 20261119T125842Z-774DA0D ""; do
+    ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=61 GATE_PULL_USER=bot GATE_PULL_TOKEN=pull-token-jkl CANDIDATE_ID="$cid"
+      TOOLS="$T/tools" cmd_run --mode update --out "$T/r15" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
+    o2=$?; [ "$o2" = 2 ] || o=1
+  done
+  [ "$o" = 2 ] && [ "$(calls)" = 0 ]
+  ok $? "update: without the pull credential, or with a candidate id of another form, the run ends with exit code 2 before anything is created"
+  reset_stub; { echo "standing-update: result: updated"; echo "GATE-OUTPUT rc=0"; echo GATE-DONE; } > "$T/log.txt"
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=62 GATE_PULL_USER=bot GATE_PULL_TOKEN=pull-token-jkl \
+      CANDIDATE_ID="$CID" CANDIDATE_COMMIT="$CC" ENV_LABEL=hw307
+    TOOLS="$T/tools" cmd_run --mode update --out "$T/r16" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
+  o=$?
+  [ "$o" = 0 ] && grep -qx 'rc=0' "$T/r16/outputs" && jq -e '(.data["standing-update.sh"] | @base64d | startswith("tool standing-update.sh"))
+      and (.data.pull | @base64d | fromjson | .auths["ghcr.io"].auth | @base64d) == "bot:pull-token-jkl"' "$T/created-secret.json" > /dev/null \
+    && grep -q 'delete job gate-62-1-update-[0-9a-f]* ' "$T/calls" && grep -q 'delete secret gate-62-1-update-[0-9a-f]* ' "$T/calls" \
+    && grep -q 'delete secret gate-62-1-update-[0-9a-f]*-pull ' "$T/calls" && grep -q 'delete networkpolicy gate-62-1-update-[0-9a-f]* ' "$T/calls" \
+    && [ ! -e "$T/r16/secret.json" ] && [ ! -e "$T/r16/secret.json.new" ]
+  ok $? "update: a run that succeeds sends the script and the pull credential in the Secret of the run, and deletes the Job, both Secrets and its NetworkPolicy"
+  reset_stub; echo "standing-update: FAILED" > "$T/log.txt"
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=63 GATE_PULL_USER=bot GATE_PULL_TOKEN=pull-token-jkl CANDIDATE_ID="$CID"
+    TOOLS="$T/tools" cmd_run --mode update --out "$T/r17" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
+  o=$?
+  [ "$o" = 1 ] && grep -q 'delete job gate-63-1-update-[0-9a-f]* ' "$T/calls" && grep -q 'delete secret gate-63-1-update-[0-9a-f]* ' "$T/calls" \
+    && grep -q 'delete secret gate-63-1-update-[0-9a-f]*-pull ' "$T/calls" && grep -q 'delete networkpolicy gate-63-1-update-[0-9a-f]* ' "$T/calls"
+  ok $? "update: a run that fails deletes the Job, both Secrets and its NetworkPolicy"
 
   # the recipes
   recipe_job "$JI" | grep -qx "FROM $JI"; ok $? "recipe: the Job image starts from the suite image by digest"
