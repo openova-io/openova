@@ -117,6 +117,7 @@ func (h *Handler) HandleDeploymentImport(w http.ResponseWriter, r *http.Request)
 	// here since the mother only exports terminal-state records.
 	dep := fromRecord(rec)
 	h.deployments.Store(rec.ID, dep)
+	h.deploymentRecordArrived.Announce() // a cutover fired by the seal may be waiting for this record
 
 	// #1907 — bake-time top-up of the canonical .omani.X org-pool.
 	// The mother only stamps the single operator-selected pool entry,
