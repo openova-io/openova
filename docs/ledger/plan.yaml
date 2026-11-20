@@ -10670,7 +10670,7 @@ packages:
   - id: A2
     run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/handler/ -count=1 -v -run '^(TestRunCutoverReconcilePass|TestRunCutoverReconcilePass_FailsClosedOnSealReadError|TestRunCutoverReconcilePass_FailedStepWaitsForItsPause|TestHandleCutoverStart_ClearsSpentRepetitionRecord|TestHandleCutoverStart_RecordClearFailureIsAnError)$' | grep -c '^--- PASS: ')\" = 5"
   - id: A3
-    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && npx vitest run src/shared/types/cutover.test.ts src/widgets/sovereignty/CutoverProgressCard.test.tsx src/widgets/sovereignty/SovereigntyCard.test.tsx --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/widgets/sovereignty/CutoverProgressCard\\.test\\.tsx > .* > (shows the pending automatic repetition and offers no resume until the budget is spent|names the step when the budget is spent, and the resume calls the start route|ignores a record about another step: no repetition is scheduled yet, so it says so, not stopped|reads no repetition record without its count and limit, never 0 of 0|(secondary-kubeconfigs|registry-pivot) halted: names the step and Resume cutover calls the start route|secondary-kubeconfigs failed before any step row: names the stopped step and Resume cutover calls the start route)( [0-9.]+m?s)?$' \"$out\")\" = 7"
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/shared/types/cutover.test.ts src/widgets/sovereignty/CutoverProgressCard.test.tsx src/widgets/sovereignty/SovereigntyCard.test.tsx --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/widgets/sovereignty/CutoverProgressCard\\.test\\.tsx > .* > (shows the pending automatic repetition and offers no resume until the budget is spent|names the step when the budget is spent, and the resume calls the start route|ignores a record about another step: no repetition is scheduled yet, so it says so, not stopped|reads no repetition record without its count and limit, never 0 of 0|(secondary-kubeconfigs|registry-pivot) halted: names the step and Resume cutover calls the start route|secondary-kubeconfigs failed before any step row: names the stopped step and Resume cutover calls the start route)( [0-9.]+m?s)?$' \"$out\")\" = 7"
   - id: A4
     run: "f=products/catalyst/bootstrap/ui/src/shared/types/cutover.ts && test \"$(grep -c '^function parseAutoRetry(' \"$f\")\" = 1 && test \"$(awk '/^function parseAutoRetry\\(/,/^}$/' \"$f\" | grep -c -E '(\\?\\?|\\|\\|)[[:space:]]*[0-9]')\" = 0"
   rollback: revert
@@ -10678,7 +10678,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The cutover reconciler of catalyst-api repeats a failed step at most three times, after 5, 10 and 20 minutes, then records the step as halted in the status ConfigMap; the console names the stopped step and offers Resume cutover, also when the step failed before any step row exists (secondary-kubeconfigs on a first run), which calls the start route, is recorded as a retry call and clears the record.
 - id: SOV-250
@@ -16771,7 +16771,7 @@ packages:
     expect: "0 1 1"
   acceptance:
   - id: A1
-    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"ab7c67d36b10408ffa1eaac72a7740304724ef4b97ecdb659cd5f1e977e53895  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
+    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"16473b8c124c5783396031206a0f03ecfdd8ce72fea1da21a43badf03734ca9c  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
   - id: A2
     run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"7c55d5b7fb19e0f76b22a545a6782d3da316a55a2c3ed36ea057eda07f1067df  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
   - id: A3
@@ -16781,7 +16781,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 4
+  ticket_rev: 5
   dropped: false
   delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with exactly the container restarts the platform makes, and the job summary states PASS or FAIL per case.'
 - id: NET-125
