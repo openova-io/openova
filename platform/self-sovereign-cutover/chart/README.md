@@ -220,7 +220,10 @@ prewarm ends, when the stage fails or refuses, and, for a delivery Job that
 ends without its prewarm having done so, by the bootstrap's deliver container
 that waits for it (`delivery_wait`); a bootstrap Job killed past its retry
 leaves it to the route, which removes it on the next request and on any read of
-the state once no release Job runs.
+the state once no release Job runs. The route removes the primary's Secret
+only: a bootstrap killed after its stage copied the Secret into the followers
+and before it created the delivery Job leaves those copies until the next
+delivery's end deletes them in every region.
 
 **A drained node.** Every Job of a delivery (the bootstrap, the delivery Job,
 each follower's Job) replaces one Pod the cluster took away: `backoffLimit: 1`

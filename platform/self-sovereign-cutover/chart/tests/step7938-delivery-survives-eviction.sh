@@ -34,6 +34,14 @@
 #     Secret is deleted in the primary and both copies in the follower (step
 #     03's in its harbor namespace included), and the state says the Job
 #     failed before its containers recorded a cause.
+#   H stage in a replacement Pod whose first read of the delivery Job fails
+#     (an API server that does not answer): it reads again and stages nothing.
+#   I deliver in that Pod whose first read of the delivery Job fails: it waits
+#     for the Job and deletes no credential under it.
+#   J deliver whose read of the delivery Job's deadline fails: it reads again
+#     and waits by the Job's own deadline, past ten minutes on a clock that
+#     moves 400 seconds at each read, until the Job completes.
+# H to J fail where a failed read is taken for "no Job" or "no deadline".
 # On origin/main before this change A, B, C and E to G fail; D passes there too
 # (release-region.sh promote already answered promoted for a region at the
 # staged commit), and stands as the proof that promote repeats safely.
@@ -75,7 +83,11 @@ printf 'apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: __JOB__\n  namespace
 # STUB/jobs/<name>.json does; each read of its conditions takes the next line
 # of STUB/jobs/<name>.conditions (the last one stays). Its .status.failed is 1
 # and .status.succeeded empty: the counters of a Job that replaced an evicted
-# Pod and has not ended. Anything else is refused and kept in STUB/unexpected.
+# Pod and has not ended. A read of a Job fails, as an API server that does not
+# answer, while the first line of STUB/jobs/<name>.fail names its form (name,
+# json, conditions); that line is then used up. A Job that does not exist
+# answers nothing with --ignore-not-found, as kubectl does. Anything else is
+# refused and kept in STUB/unexpected.
 cat >"${STUB}/kubectl" <<'EOF'
 #!/bin/sh
 region=primary
@@ -88,7 +100,15 @@ case " $* " in
     jq -rs --arg k "${k}" '[.[] | .data[$k] // empty] | last // ""' "${STUB}/status" ;;
   *" get job "*)
     j="${STUB}/jobs/$5"
-    [ -f "${j}.json" ] || { echo "Error from server (NotFound): jobs.batch \"$5\" not found" >&2; exit 1; }
+    form=conditions
+    case " $* " in *" -o name "*) form=name ;; *" -o json "*) form=json ;; esac
+    if [ -s "${j}.fail" ] && [ "$(head -n 1 "${j}.fail")" = "${form}" ]; then
+      sed -i 1d "${j}.fail"; echo "Error from server: etcdserver: request timed out" >&2; exit 1
+    fi
+    if [ ! -f "${j}.json" ]; then
+      case " $* " in *" --ignore-not-found "*) exit 0 ;; esac
+      echo "Error from server (NotFound): jobs.batch \"$5\" not found" >&2; exit 1
+    fi
     case " $* " in
       *" -o name "*) echo "job.batch/$5" ;;
       *" -o json "*) cat "${j}.json" ;;
@@ -249,6 +269,57 @@ if [ "$(st phase)" = failed ] && [ "$(st failedStep)" = deliver ] && st message 
   pass "the state says the Job failed before its containers recorded a cause"
 else
   fail "phase '$(st phase)', failedStep '$(st failedStep)', message '$(st message)'"
+fi
+
+echo "── Case H: stage in a replacement Pod, when its first read of the delivery Job fails ──"
+reset
+git --git-dir="${REPO}" update-ref refs/heads/main "${MAIN0}"
+git --git-dir="${REPO}" update-ref -d "refs/heads/release/${ID}"
+before="$(refs)"
+echo '{"kind":"Job"}' >"${STUB}/jobs/${JOB}-delivery.json"
+echo name >"${STUB}/jobs/${JOB}-delivery.fail"
+run stage -- RELEASE_JOB="${JOB}"
+if [ "${rc}" -eq 0 ] && grep -q "resumed: the delivery Job catalyst/${JOB}-delivery exists" "${TMP}/run.log" && [ "$(refs)" = "${before}" ] \
+    && [ ! -s "${STUB}/jobs/${JOB}-delivery.fail" ] && [ ! -s "${STUB}/unexpected" ]; then
+  pass "the failed read is no answer: it reads again and stages nothing"
+else
+  fail "it ended exit ${rc}; refs changed: $([ "$(refs)" = "${before}" ] && echo no || echo yes)"; show_log
+fi
+
+echo "── Case I: deliver in that Pod, when its first read of the delivery Job fails ──"
+reset
+printf '{"data":{"phase":"staged"}}\n' >"${STUB}/status"
+printf '%s\n' "${DELIVERY_JOB}" >"${STUB}/jobs/${JOB}-delivery.json"
+printf '\nSuccessCriteriaMet Complete \n' >"${STUB}/jobs/${JOB}-delivery.conditions"
+echo name >"${STUB}/jobs/${JOB}-delivery.fail"
+secret primary catalyst sovereign-release-pull
+run deliver -- RELEASE_JOB="${JOB}"
+if [ "${rc}" -eq 0 ] && grep -q 'resumed: waiting for the delivery Job' "${TMP}/run.log" && held primary catalyst sovereign-release-pull \
+    && [ "$(st phase)" = staged ]; then
+  pass "it waits for the Job and removes nothing under it"
+else
+  fail "it ended exit ${rc}, phase '$(st phase)', the pull Secret held: $(held primary catalyst sovereign-release-pull && echo yes || echo no)"; show_log
+fi
+
+echo "── Case J: deliver, when its read of the Job's deadline fails, waits past ten minutes ──"
+# A clock that moves 400 seconds at each read of the time in seconds; the Job's
+# deadline is 9600 seconds, and it completes at the fourth read of its conditions.
+reset
+mkdir -p "${STUB}/clock"
+printf '#!/bin/sh\nif [ "$1" = "+%%s" ]; then n=$(( $(cat "%s/clock/n" 2>/dev/null || echo 0) + 1 )); echo "$n" >"%s/clock/n"; echo $(( 1763629200 + n * 400 )); else exec %s "$@"; fi\n' \
+  "${STUB}" "${STUB}" "$(command -v date)" >"${STUB}/clock/date"
+chmod +x "${STUB}/clock/date"
+printf '{"data":{"phase":"staged"}}\n' >"${STUB}/status"
+printf '%s\n' "${DELIVERY_JOB}" | jq -c '.spec.activeDeadlineSeconds = 9600' >"${STUB}/jobs/${JOB}-delivery.json"
+printf '\n\n\nSuccessCriteriaMet Complete \n' >"${STUB}/jobs/${JOB}-delivery.conditions"
+echo json >"${STUB}/jobs/${JOB}-delivery.fail"
+secret primary catalyst sovereign-release-pull
+run deliver -- RELEASE_JOB="${JOB}" DELIVERY_STALL_SECONDS=999999 PATH="${STUB}/clock:${PATH}"
+if [ "${rc}" -eq 0 ] && held primary catalyst sovereign-release-pull && [ "$(st phase)" = staged ] \
+    && [ "$(cat "${STUB}/jobs/${JOB}-delivery.n" 2>/dev/null || echo 0)" -ge 4 ]; then
+  pass "the deadline is the Job's own: it waits until the Job completes and removes nothing under it"
+else
+  fail "it ended exit ${rc}, phase '$(st phase)', message '$(st message)', the pull Secret held: $(held primary catalyst sovereign-release-pull && echo yes || echo no)"; show_log
 fi
 
 echo

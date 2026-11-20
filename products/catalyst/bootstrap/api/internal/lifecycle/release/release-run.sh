@@ -78,9 +78,10 @@
 # having deleted it (killed, past its retry or its deadline) is finalised by
 # the deliver container that waits for it (delivery_wait); a bootstrap Job
 # killed the same way by the route, which removes the Secret on its next request
-# and on any read of the state once no release Job runs. No region keeps an
-# upstream credential after a delivery (cutover step 06 strips the parent's);
-# the next request carries one again.
+# and on any read of the state once no release Job runs: the primary's only. A
+# bootstrap killed after its stage copied the Secret into the followers and
+# before it created the delivery Job leaves those copies until the next
+# delivery's end deletes them in every region (credential_remove).
 #
 # An eviction (a drained node). Every Job of a delivery replaces ONE Pod the
 # cluster took away (backoffLimit 1, and a pod failure policy that counts a
@@ -204,9 +205,16 @@ job_end() {
 }
 
 # delivery_exists: whether the delivery Job of this request exists, which only
-# an earlier Pod of this bootstrap Job can have created.
+# an earlier Pod of this bootstrap Job can have created. A read that fails is
+# no answer: taken for "absent", it would stage again under the Job that
+# promotes, or finalise that Job while it runs. So it is read again until the
+# API server answers found or not found (--ignore-not-found), within the
+# bootstrap Job's deadline.
 delivery_exists() {
-  [ -n "$(kubectl -n "${RELEASE_NAMESPACE}" get job "${RELEASE_JOB}-delivery" -o name 2>/dev/null || true)" ]
+  until _de=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${RELEASE_JOB}-delivery" -o name --ignore-not-found 2>/dev/null); do
+    sleep "${FOLLOWER_POLL_SECONDS}"
+  done
+  [ -n "${_de}" ]
 }
 
 # selected <region>: whether promote acts on <region>: every region when the
@@ -728,9 +736,15 @@ run_delivery() {
 # state its containers left at staged says the Job ended without a cause.
 delivery_wait() {
   _dj="$1"
-  kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o json >"${STATE}/delivery-job.live.json" 2>/dev/null || true
+  # The deadline and the credential's names come from the Job itself, so a
+  # read that fails is read again until the API server answers: a deadline
+  # taken from no answer would finalise the Job ten minutes into its prewarm.
+  # A Job that is gone answers empty, and nothing of it runs.
+  until kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o json --ignore-not-found >"${STATE}/delivery-job.live.json" 2>/dev/null; do
+    sleep "${FOLLOWER_POLL_SECONDS}"
+  done
   _start=$(date +%s)
-  _deadline=$(( _start + $(jq '.spec.activeDeadlineSeconds // 0' "${STATE}/delivery-job.live.json" 2>/dev/null || echo 0) + 600 ))
+  _deadline=$(( _start + $(jq -s '.[0].spec.activeDeadlineSeconds // 0' "${STATE}/delivery-job.live.json") + 600 ))
   _end=""; _stall=""
   while [ "$(date +%s)" -lt "${_deadline}" ]; do
     # A Pod that has started no container after DELIVERY_STALL_SECONDS is

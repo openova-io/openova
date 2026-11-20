@@ -115,6 +115,7 @@ case " $* " in
   *" get job "*)
     rc=$(cat "${STUB_DIR}/job-$5.rc" 2>/dev/null || echo running)
     if [ ! -f "${STUB_DIR}/job-$5.json" ] && [ ! -f "${STUB_DIR}/job-$5.yaml" ]; then
+      case " $* " in *" --ignore-not-found "*) exit 0 ;; esac
       echo "Error from server (NotFound): jobs.batch \"$5\" not found" >&2; exit 1
     fi
     case " $* " in
