@@ -301,7 +301,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.8
+  version: 1.2.9
   card:
     title: cert-manager
     summary: X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against.
@@ -316,7 +316,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager
-    version: 1.2.8
+    version: 1.2.9
   topology:
     supported: [singleton]
     defaults:
