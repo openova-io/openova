@@ -91,7 +91,7 @@ def check(cond, msg):
 
 def flags(container):
     return {a.split("=", 1)[0]: (a.split("=", 1)[1] if "=" in a else True)
-            for a in container["command"][2:]}
+            for a in container["args"][2:]}
 
 # 1/2/disabled: nothing
 for n in ("default.yaml", "single.yaml", "disabled.yaml"):
@@ -111,7 +111,7 @@ def assert_region(n, self_id, peer_id, buckets):
     peer_mesh = f"seaweedfs-filer-mesh-{peer_id}.seaweedfs:8888.18888"
     for c, b in zip(cs, buckets):
         f = flags(c)
-        check(c["command"][:2] == ["/usr/bin/weed", "filer.sync"], f"{n}: {c['name']} is not weed filer.sync")
+        check(c["args"][:2] == ["/usr/bin/weed", "filer.sync"], f"{n}: {c['name']} is not weed filer.sync")
         check(f.get("-a") == peer_mesh, f"{n}: {c['name']} -a={f.get('-a')} != {peer_mesh}")
         check(f.get("-b") == "seaweedfs-filer-client.seaweedfs:8888.18888", f"{n}: {c['name']} -b={f.get('-b')} is not the local filer")
         check(f.get("-isActivePassive") is True, f"{n}: {c['name']} missing -isActivePassive")
