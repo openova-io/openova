@@ -182,7 +182,7 @@ func TestProbeFill(t *testing.T) {
 	st, base, mirrors = originStub(t, opt)
 	rc, out = runWith(t, env(mirrors, base, "node-token"), "ghcr.io/bigfill/app:1\n", fast...)
 	want(t, "the bound stops the fill of a large layer", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/bigfill/app:1 \(NEVER FILLED\)$`)
-	want(t, "  and the line says so", rc, 1, out, `(?m)^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .*\[1 blob\(s\) not cached yet and still missing after 300ms, first sha256:222222222222; the fill: 1 fetched by a GET at the origin and read again for 1s; 1 not fetched, left to the origin's own pull, first sha256:222222222222 of 3221225472 bytes is over the fill bound of 16777216 bytes a run \(67 used\)\]$`)
+	want(t, "  and the line says so", rc, 1, out, `(?m)^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .*\[1 blob\(s\) not cached yet and still missing after 300ms, first sha256:222222222222; the fill: 1 fetched by a GET at the origin and read again for 1s; 1 not fetched, nothing fills it by itself \(a GET of it at the origin by hand, or a larger -fill-max-bytes\), first sha256:222222222222 of 3221225472 bytes is over the fill bound of 16777216 bytes a run \(67 used\)\]$`)
 	want(t, "  and the run", rc, 1, out, `(?m)^  ⚠ not fetched proxy-ghcr/bigfill/app@`+huge+` 3221225472 bytes: `)
 	want(t, "  the small one is filled all the same", rc, 1, out, `(?m)^    filled proxy-ghcr/bigfill/app@`+tiny+` 67 bytes$`)
 	for _, g := range blobGets(st) {
@@ -192,17 +192,49 @@ func TestProbeFill(t *testing.T) {
 	}
 	st, base, mirrors = originStub(t, opt)
 	rc, out = runWith(t, env(mirrors, base, "node-token"), "ghcr.io/getfill/app:1\n", append(fast, "-fill-max-bytes", "66")...)
-	want(t, "a bound below the blob stops it", rc, 1, out, `(?m)^FAIL ghcr.io/getfill/app:1 NEVER FILLED .*; the fill: 1 not fetched, left to the origin's own pull, first sha256:111111111111 of 67 bytes is over the fill bound of 66 bytes a run \(0 used\)\]$`)
+	want(t, "a bound below the blob stops it", rc, 1, out, `(?m)^FAIL ghcr.io/getfill/app:1 NEVER FILLED .*; the fill: 1 not fetched, nothing fills it by itself \(a GET of it at the origin by hand, or a larger -fill-max-bytes\), first sha256:111111111111 of 67 bytes is over the fill bound of 66 bytes a run \(0 used\)\]$`)
 	if g := blobGets(st); len(g) != 0 {
 		t.Errorf("nothing over the bound is fetched, got %q", g)
 	}
 
-	// No credential: nothing is read, nothing is filled.
+	// Two images meet the same object at once: one GET, and each image counts
+	// the object with its size, not one of them as 0 bytes.
+	st, base, mirrors = originStub(t, opt)
+	rc, out = runWith(t, env(mirrors, base, "node-token"), "ghcr.io/getfill/app:1\nghcr.io/getfill/app:2\n", append(fast, "-parallel", "2")...)
+	for _, tag := range []string{"1", "2"} {
+		want(t, "a shared object counts for image :"+tag, rc, 0, out, `(?m)^PASS ghcr.io/getfill/app:`+tag+` .*\(was not cached yet: filled by a GET at the origin, 1 object\(s\), 67 bytes\)$`)
+	}
+	want(t, "  and once for the run", rc, 0, out, `(?m)^  ℹ filled 1 object\(s\), 67 bytes, `)
+	if g := blobGets(st); len(g) != 1 {
+		t.Errorf("a shared object is asked for once, got %q", g)
+	}
+
+	// The fill's GET carries the node's credential. The document of every
+	// fresh install names ghcr.io as ORIGIN_REGISTRY_HOST, a registry the
+	// origin proxies: an origin whose host the node map rewrites into a proxy
+	// project is refused before any request, and is asked nothing. The node
+	// path is a fresh stand-in, so without the refusal the fill would ask it.
+	_, base, mirrors = originStub(t, opt)
 	far, farBase, _ = originStub(t, opt)
-	rc, out = runWith(t, env(mirrors, farBase, ""), "ghcr.io/getfill/app:1\n", fast...)
-	want(t, "no credential still fails closed", rc, 2, out, `(?m)^IMAGE-PATH FAIL 0/0: no credential`)
+	var m map[string]mirror
+	if err := json.Unmarshal([]byte(mirrors), &m); err != nil {
+		t.Fatal(err)
+	}
+	m[hostOf(farBase)] = mirror{Endpoint: []string{base}, Rewrite: map[string]string{"(.*)": "proxy-ghcr/$1"}}
+	proxied, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, out = runWith(t, env(string(proxied), farBase, "node-token"), "ghcr.io/getfill/app:1\n", fast...)
+	want(t, "an origin the node map proxies is refused", rc, 2, out, `(?m)^IMAGE-PATH FAIL 0/0: PROBE_ORIGIN http://127\.0\.0\.1:\d+ is a registry the origin proxies \(the node map rewrites 127\.0\.0\.1:\d+ into the proxy project proxy-ghcr\), not the origin: `)
 	if hits, _ := far.record(); hits != 0 {
-		t.Errorf("without a credential the origin is asked nothing, got %d request(s)", hits)
+		t.Errorf("a registry the origin proxies is never sent the node's credential, got %d request(s)", hits)
+	}
+	if p := proxiedBy("https://ghcr.io", map[string]mirror{"ghcr.io": {Rewrite: map[string]string{"(.*)": "proxy-ghcr/$1"}}, "harbor.openova.io": {}}, map[string]bool{"proxy-ghcr": true}); p != "proxy-ghcr" {
+		t.Errorf("ghcr.io is a registry the origin proxies, got %q", p)
+	}
+	if p := proxiedBy("https://harbor.openova.io", map[string]mirror{"ghcr.io": {Rewrite: map[string]string{"(.*)": "proxy-ghcr/$1"}}, "harbor.openova.io": {}}, map[string]bool{"proxy-ghcr": true}); p != "" {
+		t.Errorf("the origin itself, served at the root, is not proxied, got %q", p)
 	}
 }
 

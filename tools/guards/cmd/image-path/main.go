@@ -21,9 +21,13 @@
 // registry: what the origin cannot serve, the node cannot pull. The node's
 // credential is PROBE_USER and PROBE_TOKEN; without it the probe refuses to run
 // (exit 2), because an anonymous read is not what a node does. PROBE_ORIGIN
-// (scheme and host) is the origin registry whose proxy projects the node path
-// fronts; without it nothing is filled and a blob no wait fills is NEVER
-// FILLED, as before the fill existed. Verdicts:
+// (scheme and host) is the origin registry itself, whose proxy projects the
+// node path fronts (the script passes ORIGIN_REGISTRY_URL, by default
+// https://harbor.openova.io); without it nothing is filled and a blob no wait
+// fills is NEVER FILLED, as before the fill existed. The fill's GET carries
+// the node's credential, so a PROBE_ORIGIN whose host the node map rewrites
+// into a proxy project (ghcr.io, quay.io, …: a registry the origin proxies,
+// not the origin) is refused before any request (exit 2). Verdicts:
 //
 //	PASS                    tag, child, config and every layer answered.
 //	not cached yet          a blob of a PROXY project answered 404 on HEAD. The
@@ -45,9 +49,10 @@
 //	                        the node path again until -fill-settle has passed.
 //	                        Readable then is a PASS that says so; the run
 //	                        names every object it filled with its size.
-//	NEVER FILLED            still missing through the node path after that
-//	                        (or a blob the bound left to the origin's own pull,
-//	                        which the second manifest request starts).
+//	NEVER FILLED            still missing through the node path after that,
+//	                        or a blob over what is left of the bound: nothing
+//	                        fills that by itself, it needs a GET of it at the
+//	                        origin by hand (or a run with a larger bound).
 //	DAMAGED CACHE ENTRY     the origin serves the index but not its linux/amd64
 //	                        child. Only a registry-side repair helps (story
 //	                        SOV-162); this command deletes nothing.
@@ -354,6 +359,25 @@ func hostOf(u string) string {
 	return p.Host
 }
 
+// proxiedBy names the proxy project into which the node map rewrites the host
+// of u, or "" when that host is not a registry the origin proxies. On every
+// fresh install the variables document's ORIGIN_REGISTRY_HOST is ghcr.io, one
+// such registry; the origin itself (harbor.openova.io) is served at the root.
+func proxiedBy(u string, mirrors map[string]mirror, proxies map[string]bool) string {
+	p, err := url.Parse(u)
+	if err != nil || p.Host == "" {
+		return ""
+	}
+	for _, h := range []string{p.Host, p.Hostname()} {
+		for _, to := range mirrors[h].Rewrite {
+			if project, _, _ := strings.Cut(to, "/"); proxies[project] {
+				return project
+			}
+		}
+	}
+	return ""
+}
+
 // ---- the walk
 
 type manifest struct {
@@ -487,10 +511,11 @@ func (c *client) reread(base, repo string, missing []string, bound, every time.D
 // tiny blob: on 20 November 2026 the eight blobs no wait filled were 67 to 351
 // bytes, 1,460 in all, and were filled by hand. 16 MiB is more than 10,000
 // times that and covers any config or small layer, while a large layer (a
-// multi-gigabyte one) is never read by a pre-flight: it is left to the
-// origin's own pull, which the second manifest request starts, and to the
-// warm-up (.github/workflows/warmup-bastion-harbor.yaml). The bytes are read
-// and dropped, so the bound is also the most the fill ever holds in memory.
+// multi-gigabyte one) is never read by a pre-flight: it stays NEVER FILLED
+// and the line names it, since nothing else fills it (a second manifest
+// request does not); it needs a GET of it at the origin by hand, or a run
+// with a larger -fill-max-bytes. The bytes are read and dropped, so the bound
+// is also the most the fill ever holds in memory.
 const defaultFillMaxBytes = 16 << 20
 
 // fillState is what became of one object the fill met, by <repo>@<digest>.
@@ -498,14 +523,16 @@ type fillState struct {
 	size     int64
 	status   string // asking, fetched, stopped, refused
 	why      string
-	readable bool // read through the node path after the fill
+	readable bool          // read through the node path after the fill
+	done     chan struct{} // closed once status is no longer asking
 }
 
 // filler asks the origin, by GET, for a blob of a proxy project that the node
 // path still cannot read once -fill-wait has passed: the origin stores such a
 // blob only when it is asked for it by GET, and the relay in front of it asks
 // by HEAD first, so no wait fills it. The GET goes to the same path of the
-// same proxy project, with the node's own credential: a pull. A hosted
+// same proxy project, with the node's own credential: a pull, at the origin
+// itself and never at a registry the origin proxies (see proxiedBy). A hosted
 // project is never asked (a miss there is MISSING AT THE ORIGIN), nothing is
 // pushed, and the registry's admin API is never called.
 type filler struct {
@@ -525,7 +552,8 @@ type fillOutcome struct {
 }
 
 // fill asks the origin, smallest first, for each blob of repo in missing. An
-// object another image of the run asked for already is not asked again. An
+// object another image of the run asked for already is not asked again: its
+// answer is waited for and counted here as well, with its size. An
 // object whose size the manifest does not give, or that does not fit in what
 // is left of -fill-max-bytes, is not asked for: it is stopped.
 func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fillOutcome {
@@ -537,7 +565,7 @@ func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fil
 		f.mu.Lock()
 		s, seen := f.state[key]
 		if !seen {
-			s = &fillState{size: size, status: "asking"}
+			s = &fillState{size: size, status: "asking", done: make(chan struct{})}
 			switch {
 			case size <= 0:
 				s.status, s.why = "stopped", fmt.Sprintf("%s: the manifest gives no size", short(b))
@@ -546,11 +574,14 @@ func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fil
 			default:
 				f.used += size
 			}
+			if s.status != "asking" {
+				close(s.done)
+			}
 			f.state[key] = s
 		}
-		status, why := s.status, s.why
+		ask := !seen && s.status == "asking"
 		f.mu.Unlock()
-		if !seen && status == "asking" {
+		if ask {
 			// At most the size the manifest gives: a registry that serves more
 			// serves another object, and the bound holds either way.
 			r := f.c.doLimit(http.MethodGet, fmt.Sprintf("%s/v2/%s/blobs/%s", f.origin, repo, b), http.Header{}, size)
@@ -565,11 +596,16 @@ func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fil
 			default:
 				f.used += int64(len(r.body)) - size
 				s.status, s.size = "fetched", int64(len(r.body))
-				o.bytes += s.size
 			}
-			status, why = s.status, s.why
+			close(s.done)
 			f.mu.Unlock()
 		}
+		// Another image of the run may still be asking for the same object:
+		// its answer is this image's answer too, so wait for it.
+		<-s.done
+		f.mu.Lock()
+		status, why, got := s.status, s.why, s.size
+		f.mu.Unlock()
 		switch status {
 		case "stopped":
 			o.stopped++
@@ -581,8 +617,9 @@ func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fil
 			if o.whyRefused == "" {
 				o.whyRefused = why
 			}
-		default:
+		case "fetched":
 			o.fetched++
+			o.bytes += got
 		}
 	}
 	return o
@@ -611,7 +648,7 @@ func (o fillOutcome) note(settle time.Duration) string {
 		parts = append(parts, fmt.Sprintf("%d fetched by a GET at the origin and read again for %s", o.fetched, settle))
 	}
 	if o.stopped > 0 {
-		parts = append(parts, fmt.Sprintf("%d not fetched, left to the origin's own pull, first %s", o.stopped, o.whyStopped))
+		parts = append(parts, fmt.Sprintf("%d not fetched, nothing fills it by itself (a GET of it at the origin by hand, or a larger -fill-max-bytes), first %s", o.stopped, o.whyStopped))
 	}
 	if o.refused > 0 {
 		parts = append(parts, fmt.Sprintf("the origin refused the GET of %d, first %s", o.refused, o.whyRefused))
@@ -810,9 +847,15 @@ func runProbe(args []string, in io.Reader, stdout, stderr io.Writer) int {
 		sayln(stdout, "IMAGE-PATH FAIL 0/0: no images extracted")
 		return 2
 	}
+	origin := strings.TrimRight(os.Getenv("PROBE_ORIGIN"), "/")
+	if p := proxiedBy(origin, cfg.mirrors, cfg.proxies); p != "" {
+		say(stdout, "IMAGE-PATH FAIL 0/0: PROBE_ORIGIN %s is a registry the origin proxies (the node map rewrites %s into the proxy project %s), not the origin: the fill's GET carries the node's credential and is never sent there (set ORIGIN_REGISTRY_URL to the origin registry itself)\n",
+			origin, hostOf(origin), p)
+		return 2
+	}
 	c := newClient(*timeout, user, token)
 	fillDesc := ", no fill: PROBE_ORIGIN names no origin"
-	if origin := strings.TrimRight(os.Getenv("PROBE_ORIGIN"), "/"); origin != "" {
+	if origin != "" {
 		cfg.fill = &filler{c: c, origin: origin, max: *fillMax, state: map[string]*fillState{}}
 		fillDesc = fmt.Sprintf(", a blob still missing after %s filled by a GET at %s, at most %d bytes a run", *fillWait, origin, *fillMax)
 	}
