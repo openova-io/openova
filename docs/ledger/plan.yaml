@@ -9293,7 +9293,7 @@ packages:
   - id: A3
     run: "g=infra/providers/_shared/tests/golden.auto.tfvars.json; test \"$(grep -c -x -F '  \"golden_hetzner\": \"ba27bcf4dae711feb230685fc73c0772d4b9d7433ff03f852d3ac7c4871a0e1b\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"02faeb28a1ea7165b2a1576ad5b4c5bcb7fb7f00b3b662d818c4d52addfcba7e\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '    \"/etc/rancher/k3s/registries.yaml\": \"1753980f4834e29b77bcd982152d070c7c30e784cfc03fa7a96783b5713937d1\",' \"$g\")\" = 2 && for t in infra/providers/_shared/tests/cloudinit_render.tftest.hcl; do test \"$(grep -c -F 'error_message = \"SOV-132: the k3s server line must pass --disable-default-registry-endpoint' \"$t\")\" = 2 || exit 1; done"
   - id: A4
-    run: "for p in hetzner huawei; do t=infra/providers/$p/tests/multi_region.tftest.hcl; test \"$(grep -c -x -F 'run \"node_registry_file_follows_the_variables_document\" {' \"$t\")\" = 1 && test \"$(grep -c -F 'jsonencode(keys(yamldecode(local.registry_mirror_yaml_'\"$p\"').configs))' \"$t\")\" = 1 && test \"$(grep -c -F '\\\"harbor.openova.io\\\":\\\"\\\",' \"$t\")\" = 1 && test \"$(grep -c -F '\\\"xpkg.upbound.io\\\":\\\"https://xpkg.example.test\\\"}' \"$t\")\" = 1 && test \"$(grep -c -E '^    ORIGIN_REGISTRY_HOST += \"ghcr\\.io\"$' \"$t\")\" = 1 || exit 1; done"
+    run: "for p in hetzner huawei; do t=infra/providers/$p/tests/multi_region.tftest.hcl; test \"$(grep -c -x -F 'run \"node_registry_file_follows_the_variables_document\" {' \"$t\")\" = 1 && test \"$(grep -c -F 'jsonencode(keys(yamldecode(local.registry_mirror_yaml_'\"$p\"').configs))' \"$t\")\" = 1 && test \"$(grep -c -F '\\\"harbor.openova.io\\\":\\\"\\\",' \"$t\")\" = 2 && test \"$(grep -c -F '\\\"xpkg.upbound.io\\\":\\\"https://xpkg.example.test\\\"}' \"$t\")\" = 2 && test \"$(grep -c -E '^    ORIGIN_REGISTRY_HOST += \"ghcr\\.io\"$' \"$t\")\" = 1 || exit 1; done"
   - id: A5
     run: "bash scripts/check-upstream-literals.sh | grep -x -F 'infra=18' && test \"$(grep -c -x -F 'infra=18' scripts/upstream-literals-baseline.txt)\" = 1"
   - id: A6
@@ -9305,7 +9305,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: 'Every server and agent of a new Sovereign starts k3s with --disable-default-registry-endpoint and writes a registries.yaml that its provider module builds from the variables document by the rule of contract C5: each proxy name lists https://<LOCAL_REGISTRY_HOST> first and its origin second, LOCAL_REGISTRY_HOST has an entry, ORIGIN_REGISTRY_HOST has one unless it is a proxy name, and the wildcard "*" sends every other name to the local registry only; no registry address literal remains in the two provider modules or their worker templates.'
 - id: SOV-133
