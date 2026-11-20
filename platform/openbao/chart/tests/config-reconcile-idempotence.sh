@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# bp-openbao — the openbao-config reconciler and the hook's generate-root,
-# run for real against fakes (ADR-0015, Refs #7067).
+# bp-openbao — the openbao-config reconciler, run for real against a fake
+# OpenBao (ADR-0015, Refs #7067).
 #
 # Runs files/openbao-config-reconcile.sh — the exact script the Deployment
 # mounts — against a fake OpenBao HTTP API, with the chart's own rendered
@@ -20,19 +20,11 @@
 #   I7  no accessor for the login mount ⇒ the tick ends non-zero with
 #       "WARN: no accessor for kubernetes" and that payload is not posted.
 #
-# And files/openbao-generate-root.sh against a fake `bao` CLI + a fake
-# apiserver serving the openbao-unseal-keys Secret:
-#
-#   G1  cancels any stale attempt, submits exactly `threshold` key shares
-#       with the attempt's nonce, decodes with the attempt's OTP, prints the
-#       token;
-#   G2  no unseal-key Secret ⇒ returns 1, prints nothing, never starts an
-#       attempt.
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 TMP="$(mktemp -d)"
-cleanup() { for p in "${SRV_PID:-}" "${API_PID:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done; rm -rf "$TMP"; }
+cleanup() { if [ -n "${SRV_PID:-}" ]; then kill "$SRV_PID" 2>/dev/null || true; fi; rm -rf "$TMP"; }
 trap cleanup EXIT
 cd "$CHART_DIR"
 if ! ls charts/*.tgz >/dev/null 2>&1; then helm dependency build >/dev/null; fi
@@ -40,7 +32,7 @@ command -v wget >/dev/null || { echo "FAIL: wget required"; exit 1; }
 
 A="hw-me-east-215-a-rtz-prod"; B="hw-me-east-215-b-rtz-prod"
 python3 -c 'import json,sys; print(json.dumps({"peerTrust": {"selfRegion": sys.argv[1], "regions": json.dumps([{"cloudRegion": sys.argv[1]}, {"cloudRegion": sys.argv[2]}])}}))' "$A" "$B" > "$TMP/v.json"
-helm template openbao . --namespace openbao --set autoUnseal.enabled=true -f "$TMP/v.json" > "$TMP/render.yaml"
+helm template openbao . --namespace openbao -f "$TMP/v.json" > "$TMP/render.yaml"
 
 # ── fake OpenBao ──────────────────────────────────────────────────────────
 cat > "$TMP/fake.py" <<'PYEOF'
@@ -233,45 +225,5 @@ elif grep -q -F 'WARN: no accessor for kubernetes' "$TMP/run.log" \
   pass "I7 no accessor: the tick ends non-zero with the warning and the payload is not posted"
 else bad "I7 missing accessor handling"; fi
 
-# ── generate-root against a fake bao CLI ─────────────────────────────────
-mkdir -p "$TMP/bin" "$TMP/gr"
-cat > "$TMP/bin/bao" <<'EOF'
-#!/bin/sh
-echo "bao $* [token=${BAO_TOKEN:-}]" >> "$GR_LOG"
-case "$*" in
-  "operator generate-root -cancel") exit 0 ;;
-  "operator generate-root -init -format=json") printf '{\n  "nonce": "N1",\n  "otp": "OTP1",\n  "progress": 0\n}\n' ;;
-  "operator generate-root -nonce=N1 -format=json K1") printf '{"nonce":"N1","progress":1,"complete":false,"encoded_token":""}\n' ;;
-  "operator generate-root -nonce=N1 -format=json K2") printf '{"nonce":"N1","progress":2,"complete":true,"encoded_token":"ENC"}\n' ;;
-  "operator generate-root -decode=ENC -otp=OTP1") printf 's.ROOTTOKEN\n' ;;
-  *) echo "unexpected: $*" >&2; exit 2 ;;
-esac
-EOF
-chmod +x "$TMP/bin/bao"
-KEYS="$(printf 'K1\nK2\nK3\n' | base64 -w0)"; THR="$(printf '2' | base64 -w0)"
-mkdir -p "$TMP/api/api/v1/namespaces/openbao/secrets"
-printf '{"kind":"Secret","data":{"unseal-keys-b64":"%s","unseal-threshold":"%s"}}' "$KEYS" "$THR" \
-  > "$TMP/api/api/v1/namespaces/openbao/secrets/openbao-unseal-keys"
-( cd "$TMP/api" && exec python3 -u -m http.server 0 --bind 127.0.0.1 ) > "$TMP/api.log" 2>&1 &
-API_PID=$!
-for _ in $(seq 50); do grep -q "port" "$TMP/api.log" 2>/dev/null && break; sleep 0.1; done
-API_PORT="$(sed -n 's/.*port \([0-9]*\).*/\1/p' "$TMP/api.log" | head -1)"
-gr() {  # $1 secret name → token on stdout
-  GR_LOG="$TMP/gr/log" PATH="$TMP/bin:$PATH" NAMESPACE=openbao APISERVER="http://127.0.0.1:${API_PORT}" \
-    SA_TOKEN_FILE="$TMP/sa" UNSEAL_SECRET_NAME="$1" BAO_TOKEN=revoked-init-token \
-    sh -c '. ./files/openbao-generate-root.sh; bao_generate_root'
-}
-: > "$TMP/gr/log"
-if TOK="$(gr openbao-unseal-keys)" && [ "$TOK" = "s.ROOTTOKEN" ] \
-   && [ "$(grep -c -- '-nonce=N1' "$TMP/gr/log")" = 2 ] && grep -q -- '-cancel' "$TMP/gr/log" \
-   && grep -q -- '-decode=ENC -otp=OTP1' "$TMP/gr/log" && ! grep -q 'token=revoked' "$TMP/gr/log"; then
-  pass "G1 generate-root: cancel stale, threshold=2 shares, decode with OTP, no stale token sent"
-else echo "  FAIL  G1 generate-root (token='${TOK:-}')"; sed 's/^/        /' "$TMP/gr/log"; FAIL=1; fi
-: > "$TMP/gr/log"
-if TOK="$(gr no-such-secret)"; then echo "  FAIL  G2 a missing unseal-key Secret must return 1"; FAIL=1
-elif [ -z "${TOK:-}" ] && ! grep -q -- '-init' "$TMP/gr/log"; then pass "G2 no unseal-key Secret: returns 1, no attempt started"
-else echo "  FAIL  G2 started an attempt without keys"; FAIL=1; fi
-kill "$API_PID" 2>/dev/null || true
-
-if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao config reconciler / generate-root"; exit 1; fi
-echo "PASS: bp-openbao openbao-config reconciler is idempotent; generate-root is exact"
+if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao config reconciler"; exit 1; fi
+echo "PASS: bp-openbao openbao-config reconciler is idempotent"

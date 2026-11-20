@@ -21,8 +21,7 @@ No nodePort anywhere: every Service is ClusterIP.
 */ -}}
 {{- $pt := include "openbao.peerTrust" . | fromJson -}}
 {{- if $pt.peers }}
-{{- $au := .Values.autoUnseal | default dict -}}
-{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- $kAuth := .Values.kubernetesAuth | default dict -}}
 {{- $self := $pt.self }}
 ---
 # This region's OpenBao under its region-addressable, ClusterMesh-global name.
