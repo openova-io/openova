@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T12:45:04Z` |
+| Last refreshed | `2026-11-20T13:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8111](https://github.com/openova-io/openova/issues/8111) | AIP-114 Scripted back end: the stub subcommand | Other |
 | [#8118](https://github.com/openova-io/openova/issues/8118) | NET-096 Turn the metadata deny on in the kit | Other |
 | [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
 | [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8498](https://github.com/openova-io/openova/issues/8498) | SEC-154 Flux renders bootstrap Secrets from one seed: pull login, object storage | Other |
 | [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
 | [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
+| [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:39 | [#8507](https://github.com/openova-io/openova/pull/8507) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:28 | [#8506](https://github.com/openova-io/openova/pull/8506) | #5468 | fix(cutover): the registry prewarm copies an image whose man |
 | 2026-11-20T12:24 | [#8505](https://github.com/openova-io/openova/pull/8505) | #8500 | fix(openova-mcp): the stdio tool server reads its bearer fro |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T10:36 | [#8473](https://github.com/openova-io/openova/pull/8473) | #8472 | feat(cortex): screens for sources, upload, documents, jobs a |
 | 2026-11-20T07:32 | [#8471](https://github.com/openova-io/openova/pull/8471) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
-| 2026-11-20T07:19 | [#8469](https://github.com/openova-io/openova/pull/8469) | #7087 | docs(ledger): plan update |
 
 ---
 
