@@ -267,7 +267,7 @@ epics:
 - id: SVC-050
   title: 'Epic: function tests for the foundation ring'
   wave: W0
-  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-136, SVC-110, SVC-135, SVC-140]
+  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-136, SVC-110, SVC-140, SVC-137, SVC-138, SVC-135]
 - id: SVC-240
   title: 'Epic: first capability with two implementations, object storage'
   wave: W1d
@@ -15079,7 +15079,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-132, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-132, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -19640,7 +19640,7 @@ packages:
   wave: W0
   size: XS
   lane: GATE
-  depends_on: [SVC-125, SVC-130, SVC-136]
+  depends_on: [SVC-125, SVC-130, SVC-136, SVC-137, SVC-138]
   after: []
   touches:
   - docs/ledger/gates.yaml
@@ -19711,6 +19711,91 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The function tests of bp-powerdns, bp-seaweedfs, bp-openbao, bp-gitea, bp-dragonfly, bp-harbor, bp-nats-jetstream, bp-external-dns and bp-valkey wait up to second 240 of their 300 for the service a fresh installation is still starting, write no doubled dollar sign, and bp-gitea asks /api/healthz, which answers without a sign-in; each chart's render test runs the rendered script against stand-in commands, and check FND-G01 lists and does not judge a finished Pod's container that holds no image digest.
+- id: SVC-137
+  title: The function tests wait for their subject in their own region within the bound of their release
+  area: SVC
+  epic: SVC-050
+  type: fix
+  wave: W0
+  size: M
+  lane: CHARTS
+  depends_on: [SVC-136]
+  after: [FND-011, FND-027, FND-029, FND-064, CLD-076, SOV-151, SEC-126, SVC-040, SVC-041, SVC-220, CTL-041]
+  touches:
+  - platform/nats-jetstream/chart/templates/tests/function-test.yaml
+  - platform/nats-jetstream/chart/tests/function-test-render.sh
+  - platform/cert-manager-powerdns-webhook/chart/templates/tests/function-test.yaml
+  - platform/cert-manager-powerdns-webhook/chart/tests/function-test-render.sh
+  - platform/external-secrets-stores/chart/templates/tests/function-test.yaml
+  - platform/external-secrets-stores/chart/tests/function-test-render.sh
+  - platform/catalyst-edge-routes/chart/templates/tests/function-test.yaml
+  - platform/catalyst-edge-routes/chart/tests/function-test-render.sh
+  - platform/dragonfly/chart/templates/tests/function-test.yaml
+  - platform/dragonfly/chart/tests/function-test-render.sh
+  - platform/plane-isolation/chart/templates/tests/function-test.yaml
+  - platform/plane-isolation/chart/tests/function-test-render.sh
+  - clusters/_template/bootstrap-kit/07-nats-jetstream.yaml
+  - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
+  - clusters/_template/bootstrap-kit/15a-external-secrets-stores.yaml
+  - clusters/_template/bootstrap-kit/13e-bp-catalyst-secondary-edge-routes.yaml
+  - clusters/_template/bootstrap-kit/06-bp-dragonfly.yaml
+  - clusters/_template/bootstrap-kit/26b-bp-plane-isolation.yaml
+  - tests/e2e/bootstrap-kit/function_test_bound_test.go
+  - docs/RUNBOOKS.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The function tests of bp-nats-jetstream, bp-cert-manager-powerdns-webhook, bp-external-secrets-stores, bp-catalyst-edge-routes (release bp-catalyst-secondary-edge), bp-dragonfly and bp-plane-isolation wait for their subject in their own region until 60 seconds before the bound T of their release, then judge as before, and fail naming a subject that never comes up: the stream add, the API group acme.powerdns.openova.io/v1alpha1, the ClusterSecretStore of the own region only (never a peer store), every parent of every route Accepted, the manager''s /healthy, a ready address of the target before the refusal is judged; the kit states T once per release as spec.values.functionTest.timeoutSeconds, equal to its spec.install.timeout (900, and 1800 for bp-plane-isolation, whose install timeout rises from 5m to bp-keycloak''s 30m; the edge release gains install.timeout 15m), with spec.test.timeout equal to it; the chart default stays 300; a Go test of the kit holds every tested HelmRelease to frame rule 104, and docs/RUNBOOKS.md section 4.5 states it.'
+- id: SVC-138
+  title: Every foundation release has a function test that check SVC-G06 can read
+  area: SVC
+  epic: SVC-050
+  type: fix
+  wave: W0
+  size: M
+  lane: CHARTS
+  depends_on: [SVC-136]
+  after: [FND-011, FND-096, CLD-030, CLD-113, CLD-142, SOV-151, SOV-322, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-020, SVC-040, SVC-041, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-220, CTL-041, CTL-346, CTL-347, AIP-070, INF-040, INF-050]
+  touches:
+  - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
+  - clusters/_template/bootstrap-kit/15b-storage-ready.yaml
+  - clusters/_template/bootstrap-kit/95-bp-stalwart-sovereign.yaml
+  - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+  - platform/kured/chart/templates/tests/function-test.yaml
+  - platform/kured/chart/tests/render.sh
+  - platform/storage-ready/chart/templates/tests/function-test.yaml
+  - platform/storage-ready/chart/tests/function-test-render.sh
+  - platform/stalwart-sovereign/chart/templates/tests/function-test.yaml
+  - platform/stalwart-sovereign/chart/tests/function-test-render.sh
+  - products/catalyst/chart/templates/tests/function-test.yaml
+  - products/catalyst/chart/tests/function-test-render.sh
+  - tests/acceptance/sovereign/internal/suite/check_svc_proofs.go
+  - tests/acceptance/sovereign/internal/suite/check_svc_proofs_test.go
+  - scripts/service-model-baseline.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'bp-kured, storage-ready and bp-stalwart-sovereign run a function test on install with failures ignored, and bp-catalyst-platform has one: kured''s existing test waits for its DaemonSet; storage-ready''s new test passes when the class of expectedClass is the one default StorageClass; bp-stalwart-sovereign''s new test reads an SMTP banner 220 from the smtp port of its mail Service; bp-catalyst-platform''s new test asks GET /healthz of the Services catalyst-api and catalyst-ui and passes on 200 from both; each waits within the bound T its slot file states (900, and 1800 for bp-catalyst-platform) by frame rule 104; check SVC-G06 reads a release without test hooks as none from the message helm-controller writes, which ends in ": no test hooks", instead of a bare message no release carries; the service-model baseline counts the new tests and bp-catalyst-platform leaves its list of foundation charts without a function test.'
 - id: SVC-140
   title: Applications get the test stanza (after the topology freeze)
   area: SVC
@@ -29473,32 +29558,40 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-250, AIP-151, AIP-152, AIP-153, AIP-154]
-  after: [FND-011, SVC-040, SVC-159, SVC-163, SVC-170, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111]
+  after: [FND-011]
   touches:
-  - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
-  - products/agenity/chart/templates/externalsecret-anthropic.yaml
-  - products/agenity/chart/templates/statefulset.yaml
-  - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml
-  - products/agenity/chart/values.yaml
-  - products/agenity/chart/tests/**
-  - products/agenity/blueprint.yaml
   - products/agenity/README.md
-  - scripts/agent-plane-baseline.yaml
+  - products/agenity/chart/templates/_helpers.tpl
+  - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml
+  - products/agenity/chart/templates/externalsecret-anthropic.yaml
+  - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/serviceaccount.yaml
+  - products/agenity/chart/templates/statefulset.yaml
+  - products/agenity/chart/tests/**
+  - products/agenity/chart/values.yaml
+  - scripts/agent-plane-baseline.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "echo \"$(grep -c -F 'fallbackFileVar = \"OPENOVA_MCP_BEARER\", \"OPENOVA_MCP_BEARER_FILE\"' products/openova-mcp/cmd/openova-mcp/main.go) $(grep -c -F 'system:serviceaccount:{organization}:agenity' products/catalyst/chart/values.yaml) $(grep -c -F 'json:\"actingPerson\"' products/catalyst/bootstrap/api/internal/agenttoken/agenttoken.go) $(ls products/agenity/chart/templates | grep -c externalsecret)\""
+    expect: "1 1 1 2"
+  acceptance:
+  - id: A1
+    run: "bash products/agenity/chart/tests/own-sign-in-tool-identity.sh"
+  - id: A2
+    run: "r=\"$(helm template agenity products/agenity/chart --namespace acme --api-versions external-secrets.io/v1beta1 --api-versions cilium.io/v2 --api-versions gateway.networking.k8s.io/v1)\" && ! grep -q -E '^kind: (ExternalSecret|Secret)$' <<<\"$r\" && ! grep -q -E '^ *- name: (OPENOVA_MCP_BEARER|ANTHROPIC_API_KEY|seed-claude-creds|creds-resync)$|secretKeyRef' <<<\"$r\" && grep -q -x -F '      serviceAccountName: agenity' <<<\"$r\" && bash products/agenity/chart/tests/oidc-gate-companion-render.sh"
+  - id: A3
+    run: "out=\"$(NO_COLOR=1 python3 scripts/check-agent-plane.py)\" && ! grep -q -E '^NOTE G(2|6):' <<<\"$out\" && python3 scripts/generate-catalog.py --check"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The workspace keeps its direct model path and its tool path. The credential seeded from the Sovereign is replaced by the Organization's own sign-in; the one-year bearer is replaced by a tool identity of at most one hour, renewed without a restart. No ExternalSecret and no Secret object remain in the chart. It writes no lifecycle verdict and no 'loss' statement, and does not point the workspace at the gateway.
+  delivers: 'The agent workspace keeps its direct model path and its tool path: a person signs in inside it with the Organization''s own Claude plan and the sign-in lives on the workspace''s persistent volume, refreshed by Claude Code alone; the tool server''s bearer is an agent token of the Organization of at most one hour, which a sidecar renews in place every third of its life with the projected token of the account agenity, acting for the Organization''s owner; the chart renders no Secret, no ExternalSecret of a credential and no long-lived bearer, writes no lifecycle verdict and no loss statement, and does not point the workspace at the gateway.'
 - id: AIP-156
   title: Delete the long-lived bearer seed
   area: AIP
@@ -29543,7 +29636,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-106, AIP-120]
-  after: [SOV-180, SOV-181, NET-071, CTL-038, CTL-039, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-070, AIP-111, AIP-227]
+  after: [SOV-180, SOV-181, NET-071, CTL-038, CTL-039, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-070, AIP-111, AIP-155, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/modelsim/**
   - products/catalyst/bootstrap/api/cmd/api/main.go
@@ -29731,7 +29824,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-183]
-  after: [FND-011, FND-024, FND-063, AIP-070]
+  after: [FND-011, FND-024, FND-063, AIP-070, AIP-155]
   touches:
   - platform/newapi/**
   - platform/openclaw/**
@@ -29899,7 +29992,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-170, AIP-201, AIP-202, SEC-213, SVC-160, AIP-151]
-  after: [FND-011, AIP-070]
+  after: [FND-011, AIP-070, AIP-155]
   touches:
   - platform/kagent/**
   - .github/workflows/build-bp-kagent.yaml
@@ -30624,7 +30717,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [AIP-292]
-  after: [FND-011, SOV-151, CTL-041, AIP-070]
+  after: [FND-011, SOV-151, CTL-041, AIP-070, AIP-155]
   touches:
   - products/axon/**
   - clusters/_template/bootstrap-kit/82-bp-axon.yaml
