@@ -1,0 +1,458 @@
+{{- /*
+SOV-162: the proxy-cache integrity check. A CronJob runs one pass of check.sh
+on proxyCacheIntegrity.schedule against this region's harbor-core. A pass
+reads, for every TAGGED artifact that is an image index in each pull-through
+project (a project with a registry_id), each child manifest the index
+references and that child's config blob, through harbor-core's /v2 (the path
+every pull takes). A child manifest or config blob that answers 404 is a miss:
+the pass deletes that cached index (and a missed child that is still listed,
+because it carries a tag of its own), so the next pull fetches the image whole
+from upstream. Each deletion is a Kubernetes Event (reason
+ProxyCacheArtifactHealed) on the CronJob and counts in the metric
+harbor_proxy_cache_integrity_healed_total. The pass keeps its counters in the
+ConfigMap <release>-proxy-cache-integrity-metrics (Prometheus text, key
+metrics.txt; the pass creates it, the chart does not render it, so an upgrade
+never resets it), and the Deployment of the same name serves that file on
+proxyCacheIntegrity.metricsPort at /metrics.txt.
+A hosted project (no registry_id) is never listed, read or changed. A read that
+answers anything but 200 or 404, or no answer, deletes nothing for that index
+and counts in harbor_proxy_cache_integrity_read_failures_total.
+Why: Harbor (v2.14.3) serves a pull by digest from its own storage whenever its
+database lists the artifact (src/controller/proxy/controller.go:177-180), and
+never falls back to upstream when the storage has lost the object, so such an
+entry stays broken until the cached artifact is deleted. See README.md
+"Proxy-cache integrity check".
+*/ -}}
+{{- define "bp-harbor.proxyCacheIntegrity.script" -}}
+#!/bin/sh
+# One pass of the proxy-cache integrity check (bp-harbor, SOV-162).
+# Inputs (env): HARBOR_CORE_URL, ADMIN_DIR (holds HARBOR_ADMIN_PASSWORD),
+# WORK_DIR, POD_NAMESPACE, POD_NAME, EVENT_OBJECT (the CronJob),
+# METRICS_CONFIGMAP. Exit 0 when every read answered; 1 when a read failed
+# (nothing was deleted for the index it belongs to).
+set -u
+set -f
+log() { echo "[proxy-cache-integrity] $*"; }
+core="${HARBOR_CORE_URL}"
+api="${core}/api/v2.0"
+w="${WORK_DIR}"
+fm=catalyst-harbor-proxy-cache-integrity
+mkdir -p "${w}" || exit 1
+pw="$(cat "${ADMIN_DIR}/HARBOR_ADMIN_PASSWORD")" || { log "FATAL: cannot read the admin password"; exit 1; }
+accept='application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+indexes=0; children=0; missing=0; healed=0; failed=0
+
+# call <out> <curl arguments...>: prints the HTTP status, 000 when no answer came.
+call() {
+  o="$1"; shift
+  s=$(curl -sS -o "${o}" -w '%{http_code}' --max-time 60 "$@" 2>>"${w}/curl.err") || s=000
+  echo "${s}"
+}
+admin() { o="$1"; shift; call "${o}" -u "admin:${pw}" "$@"; }
+
+# list <url ending in ? or &> <out>: every page of a Harbor list as one JSON
+# array (at most 1000 pages of 100).
+list() {
+  echo '[]' > "$2"
+  page=1
+  while [ "${page}" -le 1000 ]; do
+    s=$(admin "${w}/page.json" "${1}page=${page}&page_size=100")
+    [ "${s}" = 200 ] || { log "reading ${1}page=${page} answered ${s}"; return 1; }
+    jq -s '.[0] + (.[1] // [])' "$2" "${w}/page.json" > "${w}/acc.json" || return 1
+    mv "${w}/acc.json" "$2" || return 1
+    n=$(jq 'length' "${w}/page.json") || return 1
+    [ "${n}" -ge 100 ] || return 0
+    page=$((page + 1))
+  done
+  log "reading ${1}: more than 1000 pages"
+  return 1
+}
+
+# event <message>: a Kubernetes Event on the CronJob.
+event() {
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -n --arg ns "${POD_NAMESPACE}" --arg obj "${EVENT_OBJECT}" --arg pod "${POD_NAME:-}" \
+    --arg msg "$1" --arg now "${now}" \
+    '{apiVersion: "v1", kind: "Event",
+      metadata: {generateName: ($obj + "-"), namespace: $ns},
+      involvedObject: {apiVersion: "batch/v1", kind: "CronJob", name: $obj, namespace: $ns},
+      type: "Warning", reason: "ProxyCacheArtifactHealed", message: $msg[0:1000],
+      source: {component: "harbor-proxy-cache-integrity"},
+      reportingComponent: "catalyst-harbor-proxy-cache-integrity", reportingInstance: $pod,
+      firstTimestamp: $now, lastTimestamp: $now, count: 1}' > "${w}/event.json" \
+    && kubectl create -f "${w}/event.json" --field-manager="${fm}" > /dev/null 2>>"${w}/kubectl.err" \
+    || log "WARN: the Event could not be written: $1"
+}
+
+# index <project> <repository> <encoded repository> <digest> <token>: reads one
+# tagged index's children and heals it on a miss.
+index() {
+  p="$1"; r="$2"; e="$3"; d="$4"; t="$5"
+  indexes=$((indexes + 1))
+  jq -c --arg d "${d}" '.[] | select(.digest == $d)' "${w}/arts.json" > "${w}/index.json" || { failed=$((failed + 1)); return; }
+  tags=$(jq -r '[(.tags // [])[].name] | join(",")' "${w}/index.json")
+  bad=""; gone=""; broke=0
+  # An index lists its children; a listing without them leaves the index unjudged.
+  if ! refs=$(jq -r '.references | if length > 0 then .[].child_digest else error("no references") end' "${w}/index.json" 2>/dev/null); then
+    failed=$((failed + 1)); log "${r}@${d} (${tags}): the listing names no child, nothing read or deleted"; return
+  fi
+  for ch in ${refs}; do
+    children=$((children + 1))
+    pl=$(jq -r --arg c "${ch}" '.references[] | select(.child_digest == $c) | [.platform.os, .platform.architecture, .platform.variant] | map(select(. != null and . != "")) | join("/")' "${w}/index.json")
+    s=$(call "${w}/child.json" -H "Authorization: Bearer ${t}" -H "Accept: ${accept}" "${core}/v2/${r}/manifests/${ch}")
+    case "${s}" in
+      200)
+        if ! cfg=$(jq -r '.config.digest // ""' "${w}/child.json" 2>/dev/null); then
+          log "${r}@${ch}: the manifest is not JSON"; broke=1; continue
+        fi
+        [ -n "${cfg}" ] || continue
+        s=$(call /dev/null -L -H "Authorization: Bearer ${t}" "${core}/v2/${r}/blobs/${cfg}")
+        case "${s}" in
+          200) ;;
+          404) missing=$((missing + 1)); bad="${bad} config ${cfg} of ${ch} (${pl});"; gone="${gone} ${ch}" ;;
+          *) log "${r}@${ch}: reading its config ${cfg} answered ${s}"; broke=1 ;;
+        esac
+        ;;
+      404) missing=$((missing + 1)); bad="${bad} manifest ${ch} (${pl});"; gone="${gone} ${ch}" ;;
+      *) log "${r}@${ch}: reading the manifest answered ${s}"; broke=1 ;;
+    esac
+  done
+  if [ "${broke}" = 1 ]; then
+    failed=$((failed + 1))
+    log "${r}@${d} (${tags}): a read failed, nothing deleted"
+    return
+  fi
+  [ -n "${bad}" ] || return
+  s=$(admin "${w}/del.json" -X DELETE "${api}/projects/${p}/repositories/${e}/artifacts/${d}")
+  case "${s}" in
+    200) ;;
+    404) log "${r}@${d} (${tags}) is already gone"; return ;;
+    *) failed=$((failed + 1)); log "deleting ${r}@${d} (${tags}) answered ${s}"; return ;;
+  esac
+  healed=$((healed + 1))
+  msg="deleted the cached index ${r}@${d} (tags ${tags}) of the pull-through project ${p}; missing:${bad} the next pull fetches it whole"
+  log "${msg}"
+  event "${msg}"
+  for ch in ${gone}; do
+    s=$(admin "${w}/child-art.json" "${api}/projects/${p}/repositories/${e}/artifacts/${ch}")
+    [ "${s}" = 200 ] || continue
+    s=$(admin "${w}/del.json" -X DELETE "${api}/projects/${p}/repositories/${e}/artifacts/${ch}")
+    case "${s}" in
+      200|404) log "deleted the cached child ${r}@${ch} too" ;;
+      *) log "the cached child ${r}@${ch} stays (deleting it answered ${s}); the next pass reads it again" ;;
+    esac
+  done
+}
+
+if list "${api}/projects?" "${w}/projects.json"; then
+  for p in $(jq -r '.[] | select((.registry_id // 0) > 0) | .name' "${w}/projects.json"); do
+    if ! list "${api}/projects/${p}/repositories?" "${w}/repos.json"; then failed=$((failed + 1)); continue; fi
+    for r in $(jq -r '.[].name' "${w}/repos.json"); do
+      rel="${r#"${p}"/}"
+      e=$(printf '%s' "${rel}" | sed 's#/#%252F#g')
+      if ! list "${api}/projects/${p}/repositories/${e}/artifacts?with_tag=true&" "${w}/arts.json"; then failed=$((failed + 1)); continue; fi
+      if ! jq -r '.[] | select(((.tags // []) | length) > 0)
+          | select(.manifest_media_type == "application/vnd.oci.image.index.v1+json"
+                or .manifest_media_type == "application/vnd.docker.distribution.manifest.list.v2+json")
+          | .digest' "${w}/arts.json" > "${w}/indexes"; then
+        failed=$((failed + 1)); continue
+      fi
+      [ -s "${w}/indexes" ] || continue
+      s=$(admin "${w}/login.json" "${core}/service/token?service=harbor-registry&scope=repository:${r}:pull")
+      t=""
+      [ "${s}" = 200 ] && t=$(jq -r '.token // ""' "${w}/login.json")
+      if [ -z "${t}" ]; then
+        failed=$((failed + 1)); log "${r}: no registry token (answer ${s}), nothing read or deleted"; continue
+      fi
+      for d in $(cat "${w}/indexes"); do index "${p}" "${r}" "${e}" "${d}" "${t}"; done
+    done
+  done
+else
+  failed=$((failed + 1))
+  log "cannot list the projects: nothing read or deleted"
+fi
+
+# The counters: the totals of the ConfigMap plus this pass. Only NotFound means
+# no earlier counters; any other failure to read them leaves them unwritten.
+: > "${w}/prev.txt"
+keep=0
+if kubectl -n "${POD_NAMESPACE}" get configmap "${METRICS_CONFIGMAP}" -o json > "${w}/prev.json" 2>"${w}/get.err"; then
+  jq -r '.data["metrics.txt"] // ""' "${w}/prev.json" > "${w}/prev.txt" || keep=1
+elif grep -q -F '(NotFound)' "${w}/get.err"; then
+  log "no earlier counters in ${METRICS_CONFIGMAP}: the counters start at this pass"
+else
+  keep=1
+fi
+cat "${w}/get.err" >> "${w}/kubectl.err"
+if [ "${keep}" = 1 ]; then
+  failed=$((failed + 1)); log "WARN: cannot read the earlier counters in ${METRICS_CONFIGMAP}: they stay as they are"
+fi
+prev() { v=$(sed -n "s/^harbor_proxy_cache_integrity_$1 \([0-9][0-9]*\)$/\1/p" "${w}/prev.txt"); echo "${v:-0}"; }
+th=$(( $(prev healed_total) + healed ))
+tm=$(( $(prev missing_total) + missing ))
+tf=$(( $(prev read_failures_total) + failed ))
+ok=1; [ "${failed}" = 0 ] || ok=0
+{
+  echo "# HELP harbor_proxy_cache_integrity_healed_total Cached image indexes of pull-through projects deleted because a child manifest or config blob was missing."
+  echo "# TYPE harbor_proxy_cache_integrity_healed_total counter"
+  echo "harbor_proxy_cache_integrity_healed_total ${th}"
+  echo "# HELP harbor_proxy_cache_integrity_missing_total Child manifests and config blobs of cached image indexes that answered 404."
+  echo "# TYPE harbor_proxy_cache_integrity_missing_total counter"
+  echo "harbor_proxy_cache_integrity_missing_total ${tm}"
+  echo "# HELP harbor_proxy_cache_integrity_read_failures_total Indexes, repositories or listings left unjudged because a read failed; nothing was deleted for them."
+  echo "# TYPE harbor_proxy_cache_integrity_read_failures_total counter"
+  echo "harbor_proxy_cache_integrity_read_failures_total ${tf}"
+  echo "# HELP harbor_proxy_cache_integrity_indexes_checked Tagged image indexes read in the last pass."
+  echo "# TYPE harbor_proxy_cache_integrity_indexes_checked gauge"
+  echo "harbor_proxy_cache_integrity_indexes_checked ${indexes}"
+  echo "# HELP harbor_proxy_cache_integrity_children_checked Child manifests read in the last pass."
+  echo "# TYPE harbor_proxy_cache_integrity_children_checked gauge"
+  echo "harbor_proxy_cache_integrity_children_checked ${children}"
+  echo "# HELP harbor_proxy_cache_integrity_last_pass_ok 1 when every read of the last pass answered."
+  echo "# TYPE harbor_proxy_cache_integrity_last_pass_ok gauge"
+  echo "harbor_proxy_cache_integrity_last_pass_ok ${ok}"
+  echo "# HELP harbor_proxy_cache_integrity_last_pass_timestamp_seconds When the last pass ended."
+  echo "# TYPE harbor_proxy_cache_integrity_last_pass_timestamp_seconds gauge"
+  echo "harbor_proxy_cache_integrity_last_pass_timestamp_seconds $(date +%s)"
+} > "${w}/metrics.txt"
+[ "${keep}" = 0 ] && jq -n --arg ns "${POD_NAMESPACE}" --arg name "${METRICS_CONFIGMAP}" --rawfile m "${w}/metrics.txt" \
+  '{apiVersion: "v1", kind: "ConfigMap",
+    metadata: {name: $name, namespace: $ns,
+      labels: {"catalyst.openova.io/blueprint": "bp-harbor", "catalyst.openova.io/component": "proxy-cache-integrity"}},
+    data: {"metrics.txt": $m}}' > "${w}/metrics.json" \
+  && kubectl apply --server-side --field-manager="${fm}" -f "${w}/metrics.json" > /dev/null 2>>"${w}/kubectl.err" \
+  || log "WARN: the counters could not be written to ${METRICS_CONFIGMAP}"
+log "pass done: ${indexes} indexes and ${children} children read, ${missing} missing, ${healed} healed, ${failed} unjudged"
+[ "${failed}" = 0 ]
+{{- end }}
+{{- $pci := .Values.proxyCacheIntegrity }}
+{{- if $pci.enabled }}
+{{- $name := printf "%s-proxy-cache-integrity" .Release.Name }}
+{{- $metrics := printf "%s-metrics" $name }}
+{{- $port := int $pci.metricsPort }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ $metrics | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+data:
+  check.sh: |
+    {{- include "bp-harbor.proxyCacheIntegrity.script" . | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+spec:
+  schedule: {{ $pci.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3000
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-harbor
+            catalyst.openova.io/component: proxy-cache-integrity
+          annotations:
+            checksum/script: {{ include "bp-harbor.proxyCacheIntegrity.script" . | sha256sum }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ $name }}
+          automountServiceAccountToken: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: check
+              image: {{ $pci.image | quote }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: HARBOR_CORE_URL
+                  value: "http://{{ .Release.Name }}-core.{{ .Release.Namespace }}.svc.cluster.local"
+                - name: ADMIN_DIR
+                  value: /etc/harbor-admin
+                - name: WORK_DIR
+                  value: /tmp/work
+                - name: EVENT_OBJECT
+                  value: {{ $name | quote }}
+                - name: METRICS_CONFIGMAP
+                  value: {{ $metrics | quote }}
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+              command: ["/bin/sh", "/etc/proxy-cache-integrity/check.sh"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /etc/proxy-cache-integrity
+                  readOnly: true
+                - name: harbor-admin
+                  mountPath: /etc/harbor-admin
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $name }}
+            - name: harbor-admin
+              secret:
+                secretName: {{ .Values.harborAdmin.secretName }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $metrics }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: proxy-cache-integrity
+    app.kubernetes.io/name: {{ $metrics }}
+spec:
+  replicas: 1
+  # One replica rolls only when the old pod may leave first (a full node).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $metrics }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $metrics }}
+        catalyst.openova.io/blueprint: bp-harbor
+        catalyst.openova.io/component: proxy-cache-integrity
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $port | quote }}
+        prometheus.io/path: /metrics.txt
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: metrics
+          image: {{ $pci.metricsImage | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # busybox httpd serves the ConfigMap's file metrics.txt; until the
+          # first pass has written the ConfigMap the path answers 404.
+          command: ["httpd", "-f", "-p", {{ $port | quote }}, "-h", "/srv/metrics"]
+          ports:
+            - name: metrics
+              containerPort: {{ $port }}
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: metrics
+              mountPath: /srv/metrics
+              readOnly: true
+      volumes:
+        - name: metrics
+          configMap:
+            name: {{ $metrics }}
+            optional: true
+{{- end }}
