@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T15:45:04Z` |
+| Last refreshed | `2026-11-20T16:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
 | 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T10:08 | [#8484](https://github.com/openova-io/openova/pull/8484) | #8483 | fix(console): the wizard and the overview page state the reg |
 | 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
 | 2026-11-20T09:21 | [#8481](https://github.com/openova-io/openova/pull/8481) | #7087 | docs(ledger): plan update |
-| 2026-11-20T08:17 | [#8480](https://github.com/openova-io/openova/pull/8480) | #7087 | docs(ledger): plan update |
 
 ---
 
