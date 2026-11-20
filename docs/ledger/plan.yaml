@@ -18828,7 +18828,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -29234,7 +29234,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-010, AIP-113, AIP-140]
-  after: [FND-011, AIP-060, AIP-153]
+  after: [FND-011, AIP-060, AIP-153, AIP-154]
   touches:
   - platform/model-gateway/chart/**
   - core/services/model-meter/**
@@ -29423,31 +29423,41 @@ packages:
   size: M
   lane: CONTROL
   depends_on: []
-  after: [AIP-152, AIP-153, FND-011, SVC-040, AIP-060, AIP-120, AIP-150, AIP-151]
+  after: [AIP-152, AIP-153, FND-011]
   touches:
+  - docs/contracts/model-contract.md
+  - products/agenity/chart/Chart.yaml
   - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken.go
-  - products/catalyst/bootstrap/api/internal/agenttoken/restrict.go
   - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken_test.go
+  - products/catalyst/bootstrap/api/internal/agenttoken/restrict.go
+  - products/catalyst/bootstrap/api/internal/auth/session.go
+  - products/openova-mcp/README.md
+  - products/openova-mcp/chart/Chart.yaml
   - products/openova-mcp/internal/identity/identity.go
   - products/openova-mcp/internal/identity/identity_agent_test.go
   - products/openova-mcp/internal/tools/agent_token_test.go
-  - products/openova-mcp/chart/Chart.yaml
-  - products/openova-mcp/README.md
-  - docs/contracts/model-contract.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'var MutationsAllowed = []Mutation{}' products/catalyst/bootstrap/api/internal/agenttoken/restrict.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && test -z \"$(gofmt -l internal/agenttoken)\" && go vet ./internal/agenttoken/ ./internal/auth/ && go test -count=1 ./internal/agenttoken/ ./internal/auth/ && test \"$(NO_COLOR=1 go test -count=1 -v -run '^(TestActingPersonOfTierAdminGetsTheClaim|TestActingPersonBelowAdminIsRefused|TestActingPersonTierIsReadAtIssue|TestActingPersonOrganizationUnreadable|TestActingPersonOpensCreateApplicationOnly|TestActingPersonThroughTheSessionChain)$' ./internal/agenttoken/ | grep -c '^--- PASS: TestActingPerson')\" = 6"
+  - id: A2
+    run: "cd products/openova-mcp && test -z \"$(gofmt -l internal)\" && go vet ./internal/... && go test -count=1 ./internal/... && test \"$(NO_COLOR=1 go test -count=1 -v -run '^(TestAgentTokenActingForAnAdminHasTierAdmin|TestAgentTokenWithAMalformedActingPersonIsRefused|TestAgentTokenActingForAnAdminCallsCreateApplication)$' ./internal/identity/ ./internal/tools/ | grep -c '^--- PASS: TestAgentToken')\" = 3"
+  - id: A3
+    run: "! grep -q -F 'no caller acts for a signed-in person, so none is built' docs/contracts/model-contract.md && grep -q -F '| `acting_person` | object |' docs/contracts/model-contract.md && grep -q -F '403 `acting-person-not-admin`' docs/contracts/model-contract.md && grep -q -F 'AIP-154 adds the entry `POST /api/v1/org/applications`' docs/contracts/model-contract.md"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: An agent token may carry an acting-person claim. catalyst-api issues it only when the request names a person who holds tier admin in the requested Organization at the time of issue, a tier catalyst-api reads itself and never takes from the request. agenttoken.MutationsAllowed gains the one entry POST /api/v1/org/applications for a token with the claim. The tool server takes the tier of such a token from the claim, so tools/list offers create_application and it runs. Every agent token without the claim stays capped at developer and refused every mutation, and the claim opens no other mutation.
+  delivers: 'An agent token may carry the claim acting_person ({"email", "tier": "admin"}), which catalyst-api writes only when the request names a person whose role in spec.owners of the Organization, read by catalyst-api at the time of issue and never taken from the request, is admin or owner; agenttoken.MutationsAllowed gains the one entry POST /api/v1/org/applications for a token with that claim; the tool server takes the tier admin of such a token from the claim, so tools/list offers create_application and it runs; every agent token without the claim stays capped at developer and refused every mutation, and the claim opens no other mutation.'
 - id: AIP-155
   title: 'Agent workspace: the Organization''s own sign-in by mount and a short-lived tool identity, as the spike record says'
   area: AIP
@@ -30343,7 +30353,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-244, CTL-160, CTL-700]
-  after: [FND-011, SOV-180, SOV-181, NET-071, CTL-038, CTL-039, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-153, AIP-227]
+  after: [FND-011, SOV-180, SOV-181, NET-071, CTL-038, CTL-039, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-153, AIP-154, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/changeproposal/**
   - products/catalyst/bootstrap/api/internal/agenttoken/**
@@ -32598,7 +32608,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [INF-490, INF-515]
-  after: [FND-011, NET-133, AIP-150, AIP-151, AIP-152]
+  after: [FND-011, NET-133, AIP-150, AIP-151, AIP-152, AIP-154]
   touches:
   - products/openova-mcp/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/machine-operations/TestScopes*.tsx
