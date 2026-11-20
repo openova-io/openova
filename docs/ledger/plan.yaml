@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-170, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-162, SOV-170, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -10127,6 +10127,35 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: When Harbor is installed, a Job creates a system robot of this region's registry that may pull from every project and writes its login into the pull Secret of flux-system (contract key REGISTRY_PULL_SECRET) under the region's registry host (contract key LOCAL_REGISTRY_HOST), and running it again changes nothing.
+- id: SOV-162
+  title: The registry finds and heals a cached image index whose children are gone
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W0
+  size: M
+  lane: SUBSTRATE
+  depends_on: []
+  after: [FND-011, SOV-160, SOV-161, SOV-336, SVC-040, SVC-041, SVC-080, SVC-136]
+  touches:
+  - platform/harbor/chart/templates/
+  - platform/harbor/chart/tests/
+  - platform/harbor/chart/values.yaml
+  - platform/harbor/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A scheduled check of the registry chart bp-harbor reads, for every tagged artifact of each proxy (pull-through) project that is an image index, each child manifest and its config blob; on a miss it deletes that cached artifact so that the next pull fetches it whole, counts what it healed in a metric and reports each heal as a Kubernetes Event, and it never touches a hosted project. It runs on the parent's registry and on every Sovereign's own registry, both installed from bp-harbor.
 - id: SOV-170
   title: The Sovereign repository is seeded at bootstrap and serves the root
   area: SOV
@@ -13671,6 +13700,7 @@ packages:
   depends_on: [SEC-095]
   after: [SEC-040, SOV-145]
   touches:
+  - .github/workflows/cloudinit-golden.yaml
   - clusters/_template/bootstrap-secrets/**
   - clusters/_template/root/base-primary/bootstrap-kit.yaml
   - clusters/_template/root/base-primary/bootstrap-secrets.yaml
@@ -13687,6 +13717,7 @@ packages:
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - scripts/secret-guard-baselines/threat-model.md
   - scripts/secret-guards.py
+  - scripts/update-cloudinit-golden.sh
   - tests/e2e/bootstrap-kit/bootstrap_seed_upgrade_test.go
   - tools/guards/README.md
   - tools/guards/cmd/secret-templates/**
@@ -13708,21 +13739,27 @@ packages:
     run: "bash scripts/check-no-secret-values-in-git.sh --self-test > /dev/null && bash scripts/check-no-secret-values-in-git.sh > /dev/null && test \"$(grep -c -e bootstrap-secrets -e powerdns-api-credentials scripts/secret-guard-baselines/check-no-secret-values-in-git.txt)\" = 0 && (cd tools/guards && go run ./cmd/python-shrinks --base origin/main > /dev/null) && test \"$(git diff --numstat origin/main -- scripts/secret-guards.py | awk '{print ($1 <= $2)}')\" = 1"
   - id: A5
     run: "test \"$(grep -c -x -F '  - id: bootstrap-seed' scripts/secret-guard-baselines/secret-object-register.yaml)\" = 1 && bash scripts/check-secret-object-register.sh > /dev/null"
+  - id: A6
+    run: "s=scripts/update-cloudinit-golden.sh; r=infra/providers/_shared/tests/render.tf; reads=\"$(grep -o -E 'path\\.module\\}/(\\.\\./){4}clusters/[A-Za-z0-9_./-]+' \"$r\" | sed -E 's#^path\\.module\\}/(\\.\\./){4}##; s#/+$##' | sort -u)\"; printf '%s\\n' \"$reads\" | grep -q -x -F clusters/_template/bootstrap-secrets; copies=\"$(grep -v -E '^[[:space:]]*#' \"$s\" | grep -o -E '\\$ROOT/clusters/[A-Za-z0-9_./-]+' | sed -E 's#^\\$ROOT/##; s#/+$##' | sort -u)\"; for p in $reads; do ok=0; for c in $copies; do case \"$p/\" in \"$c\"/*) ok=1 ;; esac; done; test \"$ok\" = 1 || { echo \"render.tf reads $p and the self-test copy of $s lacks it\"; exit 1; }; done"
+  - id: A7
+    run: "w=.github/workflows/cloudinit-golden.yaml; r=infra/providers/_shared/tests/render.tf; reads=\"$(grep -o -E 'path\\.module\\}/(\\.\\./){4}clusters/[A-Za-z0-9_./-]+' \"$r\" | sed -E 's#^path\\.module\\}/(\\.\\./){4}##; s#/+$##' | sort -u)\"; printf '%s\\n' \"$reads\" | grep -q -x -F clusters/_template/bootstrap-secrets; for ev in push pull_request; do pats=\"$(awk -v ev=\"  $ev:\" '$0 == ev {f = 1; next} f && /^  [a-z_]+:/ {f = 0} f' \"$w\" | sed -n -E \"s#^[[:space:]]+- '([^']+)/\\*\\*'[[:space:]]*\\$#\\1#p\")\"; for p in $reads; do ok=0; for c in $pats; do case \"$p/\" in \"$c\"/*) ok=1 ;; esac; done; test \"$ok\" = 1 || { echo \"the $ev paths of $w hold no entry for $p\"; exit 1; }; done; done"
+  - id: A8
+    run: "r=infra/providers/_shared/tests/render.tf; test \"$(grep -c -F 'bootstrap-seed.env' \"$r\")\" -ge 1 && test \"$(grep -F 'bootstrap-seed.env' \"$r\" | grep -c -E 'lookup\\(|try\\(')\" = 0 && test \"$(grep -c -E 'UNRESOLVED|try\\(local\\.bootstrap_seed\\[' \"$r\")\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: First boot writes one file of raw values and creates one Secret from it, flux-system/bootstrap-seed; the manifests of harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public are files under clusters/_template/bootstrap-secrets that the Flux Kustomization bootstrap-secrets renders from the seed (postBuild.substituteFrom, not optional) before the kit; the four manifests leave the control-plane start-up data (1,378 bytes on every control-plane surface); on a Sovereign installed before this change, which holds the four Secrets and no seed, the Job of the Kustomization bootstrap-seed, which bootstrap-secrets depends on, builds the seed from those four Secrets with their values unchanged, so the kit keeps reconciling and no Secret loses or changes a value; guard G1 passes a Secret manifest under clusters/ only when it is a template of references, and fails every other.
+  delivers: First boot writes one file of raw values and creates one Secret from it, flux-system/bootstrap-seed; the manifests of harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public are files under clusters/_template/bootstrap-secrets that the Flux Kustomization bootstrap-secrets renders from the seed (postBuild.substituteFrom, not optional) before the kit; the four manifests leave the control-plane start-up data (1,378 bytes on every control-plane surface); on a Sovereign installed before this change, which holds the four Secrets and no seed, the Job of the Kustomization bootstrap-seed, which bootstrap-secrets depends on, builds the seed from those four Secrets with their values unchanged, so the kit keeps reconciling and no Secret loses or changes a value; guard G1 passes a Secret manifest under clusters/ only when it is a template of references, and fails every other; the self-test of the golden render copies every folder under clusters/ that its render test reads, and the check golden runs on a change of any of them.
 - id: SEC-154
   title: 'Flux renders bootstrap Secrets from one seed: pull login, object storage, cloud credentials'
   area: SEC
   epic: null
   type: refactor
   wave: W1a
-  size: S
+  size: M
   lane: SUBSTRATE
   depends_on: [SEC-153]
   after: [CLD-023, CLD-131, CLD-132, CLD-133, CLD-134, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-146, SOV-149, SOV-154, SOV-322, SOV-323, SOV-335, SEC-096, SEC-152, NET-020, NET-110, AIP-201, INF-060]
@@ -13734,6 +13771,8 @@ packages:
   - clusters/_template/bootstrap-secrets/**
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - scripts/cloudinit-size-check.py
+  - tools/guards/cmd/secret-templates/**
+  - tools/guards/README.md
   resources: []
   flips: []
   implements: []
@@ -13876,7 +13915,7 @@ packages:
   - id: A3
     run: "bash platform/openbao/chart/tests/audit-render.sh platform/openbao/chart"
   - id: A4
-    run: "for f in platform/openbao/chart/templates/init-job.yaml platform/openbao/chart/templates/auth-bootstrap-job.yaml platform/openbao/chart/templates/recovery-seed-bootstrap.yaml platform/openbao/chart/templates/unseal-reconciler.yaml platform/openbao/chart/templates/auto-unseal-rbac.yaml platform/openbao/chart/files/openbao-generate-root.sh; do test ! -e \"$f\"; done && grep -q -x -F '    version: \"0.30.7\"' platform/openbao/chart/Chart.yaml && test -z \"$(git grep -l -E '^[^#]*autoUnseal' -- platform/openbao/chart clusters/_template)\" && c=platform/openbao/chart && bash $c/tests/config-desired-render.sh $c && bash $c/tests/config-reconcile-idempotence.sh $c && bash $c/tests/peer-trust-render.sh $c && bash $c/tests/eso-push-policy-render.sh $c && bash $c/tests/function-test-render.sh $c"
+    run: "for f in platform/openbao/chart/templates/init-job.yaml platform/openbao/chart/templates/auth-bootstrap-job.yaml platform/openbao/chart/templates/recovery-seed-bootstrap.yaml platform/openbao/chart/templates/unseal-reconciler.yaml platform/openbao/chart/templates/auto-unseal-rbac.yaml platform/openbao/chart/files/openbao-generate-root.sh; do test ! -e \"$f\" || exit 1; done && grep -q -x -F '    version: \"0.30.7\"' platform/openbao/chart/Chart.yaml && test -z \"$(git grep -l -E '^[^#]*autoUnseal' -- platform/openbao/chart clusters/_template)\" && c=platform/openbao/chart && bash $c/tests/config-desired-render.sh $c && bash $c/tests/config-reconcile-idempotence.sh $c && bash $c/tests/peer-trust-render.sh $c && bash $c/tests/eso-push-policy-render.sh $c && bash $c/tests/function-test-render.sh $c"
   - id: A5
     run: "bash scripts/check-openbao-no-unseal-secret.sh && test \"$(grep -c -v -x -E 'platform/external-secrets/README.md:1|platform/openbao/chart/Chart.yaml:1|platform/openbao/chart/templates/httproute.yaml:1|platform/openbao/chart/tests/config-desired-render.sh:2|platform/openbao/chart/tests/httproute-render.sh:1|tests/acceptance/sovereign/README.md:1|tests/acceptance/sovereign/internal/suite/check_sec_route.go:4|tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:6' scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt)\" = 0 && python3 scripts/check-no-new-polling.py > /dev/null"
   - id: A6
@@ -13884,13 +13923,13 @@ packages:
   - id: A7
     run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: SEC-162') && for id in SEC-G03 SEC-G05; do test \"$(sed -n \"/^- id: $id\\$/,/^  delivered_by: /p\" docs/ledger/gates.yaml | grep -c -x -e '  state: required' -e '  implementation: tests/acceptance/sovereign/internal/suite/check_sec_seal.go' -e '  delivered_by: SEC-162')\" = 3; done"
   - id: A8
-    run: "f=clusters/_template/bootstrap-kit/08-openbao.yaml && test \"$(grep -c -x -e '      name: sovereign-seal-profile' -e '      valuesKey: stanza' -e '      targetPath: seal.stanza' -e '      - name: openbao-server-test' -e '    baoAddress: http://openbao.openbao.svc.cluster.local:8200' \"$f\")\" = 5 && grep -q -x -F '  valuesFrom:' \"$f\""
+    run: "f=clusters/_template/bootstrap-kit/08-openbao.yaml && test \"$(grep -c -x -e '    - kind: ConfigMap' -e '      name: sovereign-seal-profile' -e '      valuesKey: stanza' -e '      targetPath: seal.stanza' -e '      - name: openbao-server-test' -e '        exclude: true' -e '    baoAddress: http://openbao.openbao.svc.cluster.local:8200' \"$f\")\" = 7 && grep -q -x -F '  valuesFrom:' \"$f\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: OpenBao 2.7.2 on the upstream chart 0.30.7 reads its seal key from a file of its control-plane node, initialises itself and writes its audit to standard output; the chart has no init Job, unseal-key Secret, unseal loop, root-generation script or root token, and gate checks SEC-G03 and SEC-G05 are required.
 - id: SEC-170
