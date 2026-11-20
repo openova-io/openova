@@ -3,13 +3,13 @@
 //
 //	cortex query --database-url-file <file> --issuer <https address> --embed-alias <alias>
 //	    --embed-dimensions <64..4096> [--rerank-alias <alias>] [--model-gateway-url <address>]
-//	    --originals-dir <folder> [--max-upload-mb 50] [--model-key-file <file>] [--listen :8080]
-//	    [--health-listen :9090]
+//	    --originals-dir <folder> --definitions-file <file> [--max-upload-mb 50] [--model-key-file <file>]
+//	    [--listen :8080] [--health-listen :9090]
 //
 // The query process applies the store's migrations, connects with the role cortex_query and
 // serves on --listen POST /v1/search, GET /v1/sources, POST /v1/sources/{id}/documents, GET
-// /v1/documents/{id}, GET /v1/documents/{id}/content, DELETE /v1/documents/{id} and GET
-// /v1/events, every call behind the check of a token
+// /v1/documents/{id}, GET /v1/documents/{id}/content, DELETE /v1/documents/{id}, GET /v1/events,
+// GET /v1/models and POST /v1/chat/completions, every call behind the check of a token
 // of the Organization's realm, whose issuer is --issuer (the chart value identity.issuerURL);
 // the realm's key set is found through the issuer's OpenID configuration. On --health-listen,
 // which no route publishes, it serves GET /healthz, GET /readyz (200 only while the database
@@ -22,6 +22,8 @@
 // --rerank-alias is models.rerank.alias, and without it a search is never reranked.
 // --originals-dir is the folder of the originals binding (contract object-storage v1); an
 // upload is at most --max-upload-mb megabytes (policy.maxUploadMb, 1 to 1024).
+// --definitions-file is the definitions ConfigMap mounted as a file; the assistants, the chat
+// alias and policy.allowExternalModels are read from it on each call (package assistant).
 //
 // Exit codes: 0 stopped by a signal; 1 a listener failed while it served; 2 it could not start
 // (a wrong flag, a file that cannot be read, a database that cannot be reached or migrated, an
@@ -46,6 +48,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/cortex/internal/assistant"
 	"github.com/openova-io/openova/products/cortex/internal/auth"
 	"github.com/openova-io/openova/products/cortex/internal/events"
 	"github.com/openova-io/openova/products/cortex/internal/gateway"
@@ -109,6 +112,7 @@ func run(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 	keyFile := fs.String("model-key-file", gateway.DefaultKeyFile, "file that holds the virtual key of the gateway")
 	originals := fs.String("originals-dir", "", "folder of the originals bucket's binding")
 	maxUpload := fs.Int("max-upload-mb", 50, "largest upload in megabytes, 1 to 1024")
+	defsFile := fs.String("definitions-file", "", "the definitions document, the ConfigMap mounted as a file")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -116,8 +120,8 @@ func run(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 		switch {
 		case fs.NArg() != 0:
 			return nil, nil, fmt.Errorf("unexpected arguments %q", fs.Args())
-		case *dbFile == "" || *embedAlias == "" || *originals == "":
-			return nil, nil, errors.New("--database-url-file, --embed-alias and --originals-dir are required")
+		case *dbFile == "" || *embedAlias == "" || *originals == "" || *defsFile == "":
+			return nil, nil, errors.New("--database-url-file, --embed-alias, --originals-dir and --definitions-file are required")
 		case *maxUpload < 1 || *maxUpload > 1024:
 			return nil, nil, fmt.Errorf("--max-upload-mb %d is not between 1 and 1024", *maxUpload)
 		case *dims < 64 || *dims > 4096:
@@ -140,6 +144,10 @@ func run(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 		if err != nil {
 			return nil, nil, err
 		}
+		defs := &assistant.File{Path: *defsFile, Log: log}
+		if _, err := defs.Config(); err != nil {
+			return nil, nil, err
+		}
 		open := d.openStore
 		if open == nil {
 			open = openPostgres
@@ -155,6 +163,7 @@ func run(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 		hub := events.NewHub()
 		go hub.Run(ctx, db, log, 5*time.Second)
 		return httpapi.New(httpapi.Config{Auth: checker, Search: svc, Store: db, Uploads: &ingest.Intake{Objects: bucket, Queue: db},
+			Assistant: &assistant.Service{Config: defs.Config, Search: svc, Gateway: gw},
 			Originals: bucket, Hub: hub, MaxUpload: int64(*maxUpload) << 20, Ready: db.Ping, Log: log}), db, nil
 	}
 	srv, db, err := start()

@@ -16,6 +16,8 @@ import (
 // fake is a gateway that records the last request and answers with status and body.
 type fake struct {
 	auth, route string
+	method      string
+	retryAfter  string // the Retry-After of the answer
 	in          map[string]any
 	status      int
 	body        string
@@ -24,8 +26,11 @@ type fake struct {
 func start(t *testing.T, f *fake) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.auth, f.route, f.in = r.Header.Get("Authorization"), r.URL.Path, nil
+		f.auth, f.route, f.in, f.method = r.Header.Get("Authorization"), r.URL.Path, nil, r.Method
 		_ = json.NewDecoder(r.Body).Decode(&f.in)
+		if f.retryAfter != "" {
+			w.Header().Set("Retry-After", f.retryAfter)
+		}
 		w.WriteHeader(f.status)
 		_, _ = w.Write([]byte(f.body))
 	}))
@@ -117,5 +122,35 @@ func TestNewRefusesABadAddress(t *testing.T) {
 	}
 	if _, err := New(DefaultBaseURL, "", nil); err == nil {
 		t.Error("no key file was accepted")
+	}
+}
+
+// TestChatAndOwners: a chat answer gives its first choice, the model list gives each alias's
+// owned_by ("" when absent), an answer without a choice is unavailable, and a 429 carries its
+// Retry-After.
+func TestChatAndOwners(t *testing.T) {
+	f := &fake{status: 200, body: `{"id":"c-1","created":7,"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"total_tokens":3}}`}
+	c := start(t, f)
+	got, err := c.Chat(context.Background(), "agent-fast", []Message{{"user", "q"}})
+	if err != nil || got.ID != "c-1" || got.Created != 7 || got.Content != "hi" || got.FinishReason != "stop" || string(got.Usage) != `{"total_tokens":3}` {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if f.method != "POST" || f.route != "/v1/chat/completions" || f.in["model"] != "agent-fast" ||
+		!reflect.DeepEqual(f.in["messages"], []any{map[string]any{"role": "user", "content": "q"}}) {
+		t.Fatalf("the gateway got %s %s %v", f.method, f.route, f.in)
+	}
+	f.body = `{"object":"list","data":[{"id":"agent-fast","owned_by":"selfhosted"},{"id":"agent-default"}]}`
+	owners, err := c.Owners(context.Background())
+	if err != nil || f.method != "GET" || f.route != "/v1/models" || !reflect.DeepEqual(owners, map[string]string{"agent-fast": "selfhosted", "agent-default": ""}) {
+		t.Fatalf("got %v, %v from %s %s", owners, err, f.method, f.route)
+	}
+	f.body = `{"choices":[]}`
+	if _, err := c.Chat(context.Background(), "agent-fast", nil); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("no choice: %v", err)
+	}
+	f.status, f.retryAfter = 429, "7"
+	var limited *RateLimited
+	if _, err := c.Chat(context.Background(), "agent-fast", nil); !errors.As(err, &limited) || limited.RetryAfter != "7" || !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("429: %v", err)
 	}
 }

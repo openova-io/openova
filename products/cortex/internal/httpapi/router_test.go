@@ -68,6 +68,7 @@ type fixture struct {
 	unready error
 	objects memBucket
 	hub     *events.Hub
+	chat    *chatFake
 }
 
 // newFixture builds a server with the real token check and the real gateway client in front
@@ -78,7 +79,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{store: &memStore{}, key: key, log: &bytes.Buffer{}, gwFail: new(bool), objects: memBucket{}, hub: events.NewHub()}
+	f := &fixture{store: &memStore{}, key: key, log: &bytes.Buffer{}, gwFail: new(bool), objects: memBucket{}, hub: events.NewHub(), chat: newChatFake()}
 	set, _ := json.Marshal(map[string]any{"keys": []map[string]string{{"kty": "RSA", "kid": "k1",
 		"n": b64(key.N.Bytes()), "e": b64(big.NewInt(int64(key.E)).Bytes())}}})
 	checker, err := auth.New(auth.Config{Issuer: issuer, Keys: func(context.Context) ([]byte, error) { return set, nil }})
@@ -86,6 +87,9 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.chat.serve(w, r) {
+			return
+		}
 		var in struct{ Input []string }
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		if *f.gwFail {
@@ -105,7 +109,8 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.srv = New(Config{Auth: checker, Store: f.store, Search: &search.Service{Store: f.store, Embedder: client.Embedder("embed-default", 64)},
+	svc := &search.Service{Store: f.store, Embedder: client.Embedder("embed-default", 64)}
+	f.srv = New(Config{Auth: checker, Store: f.store, Search: svc, Assistant: f.chat.service(svc, client),
 		Uploads: &ingest.Intake{Objects: f.objects, Queue: f.store}, Originals: f.objects, Hub: f.hub, MaxUpload: 64,
 		Heartbeat: 50 * time.Millisecond, StreamFor: 300 * time.Millisecond,
 		Ready: func(context.Context) error { return f.unready },

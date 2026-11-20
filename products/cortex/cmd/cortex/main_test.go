@@ -40,7 +40,8 @@ func dbFile(t *testing.T, text string) string {
 
 func flags(t *testing.T, more ...string) []string {
 	return append([]string{"query", "--database-url-file", dbFile(t, "postgres://cortex@db/cortex\n"), "--issuer", "https://auth.acme.example/realms/acme",
-		"--embed-alias", "embed-default", "--embed-dimensions", "1024", "--originals-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--health-listen", "127.0.0.1:0"}, more...)
+		"--embed-alias", "embed-default", "--embed-dimensions", "1024", "--originals-dir", t.TempDir(), "--listen", "127.0.0.1:0", "--health-listen", "127.0.0.1:0",
+		"--definitions-file", dbFile(t, "models: {chat: {alias: agent-fast}}\nsources: []\n")}, more...)
 }
 
 func TestItRefusesToStart(t *testing.T) {
@@ -49,6 +50,8 @@ func TestItRefusesToStart(t *testing.T) {
 		"no command":             nil,
 		"another command":        {"serve"},
 		"no originals folder":    flags(t, "--originals-dir", ""),
+		"no definitions file":    flags(t, "--definitions-file", ""),
+		"no chat alias":          flags(t, "--definitions-file", dbFile(t, "sources: []\n")),
 		"a limit of 2 GB":        flags(t, "--max-upload-mb", "2048"),
 		"a bucket that fails":    flags(t, "--originals-dir", "fails"),
 		"index, a query flag":    indexFlags(t, "--issuer", "https://auth.acme.example/realms/acme"),

@@ -1,13 +1,16 @@
 // Package gateway is the client of the platform's model gateway, the only way cortex reaches a
-// model. It calls two routes of the gateway's address: POST <base>/embeddings in the OpenAI
-// shape and POST <base>/rerank ({model, query, documents, top_n} -> {results: [{index,
-// relevance_score}]}). The address is the chart value modelGateway.baseURL. Every call carries
+// model. It calls four routes of the gateway's address: POST <base>/embeddings in the OpenAI
+// shape, POST <base>/rerank ({model, query, documents, top_n} -> {results: [{index,
+// relevance_score}]}), POST <base>/chat/completions and GET <base>/models in the OpenAI shape,
+// whose owned_by is the back-end key of each alias. The address is the chart value
+// modelGateway.baseURL. Every call carries
 // the virtual key of the Application as a bearer token; the key is read from its file on each
 // call, so a rotated key is used as soon as the file changes. It is never a flag, an
 // environment value or a log field.
 //
 // A failed call returns an error that wraps ErrUnavailable. Its text holds the route and the
-// status, never the body of the answer, which may repeat the text that was sent.
+// status, never the body of the answer, which may repeat the text that was sent. A call the
+// gateway refused with 429 returns a *RateLimited as well, which carries its Retry-After.
 package gateway
 
 import (
@@ -58,17 +61,28 @@ func New(baseURL, keyFile string, hc *http.Client) (*Client, error) {
 	return &Client{base: strings.TrimSuffix(baseURL, "/"), keyFile: keyFile, http: hc}, nil
 }
 
-// post sends in as JSON to route and decodes the answer into out.
+// RateLimited is the error of a call the gateway refused with 429. It wraps ErrUnavailable.
+type RateLimited struct{ Route, RetryAfter string }
+
+func (e *RateLimited) Error() string {
+	return fmt.Sprintf("%v: %s answered 429", ErrUnavailable, e.Route)
+}
+func (e *RateLimited) Unwrap() error { return ErrUnavailable }
+
+// post sends in as JSON to route and decodes the answer into out; a nil in is a GET.
 func (c *Client) post(ctx context.Context, route string, in, out any) error {
 	key, err := os.ReadFile(c.keyFile)
 	if err != nil || len(bytes.TrimSpace(key)) == 0 {
 		return fmt.Errorf("%w: the key file %s cannot be read or is empty", ErrUnavailable, c.keyFile)
 	}
-	body, err := json.Marshal(in)
-	if err != nil {
-		return err
+	method, body := http.MethodGet, []byte(nil)
+	if in != nil {
+		method = http.MethodPost
+		if body, err = json.Marshal(in); err != nil {
+			return err
+		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+route, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, c.base+route, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -81,6 +95,9 @@ func (c *Client) post(ctx context.Context, route string, in, out any) error {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxAnswer))
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return &RateLimited{Route: route, RetryAfter: resp.Header.Get("Retry-After")}
+		}
 		return fmt.Errorf("%w: %s answered %d", ErrUnavailable, route, resp.StatusCode)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxAnswer)).Decode(out); err != nil {
@@ -165,4 +182,59 @@ func (r *Reranker) Rerank(ctx context.Context, query string, documents []string,
 		out.Results = out.Results[:topN]
 	}
 	return out.Results, nil
+}
+
+// Message is one message of a chat, in the OpenAI shape.
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// Completion is the first choice of a chat answer, with the answer's id, time and usage.
+type Completion struct {
+	ID           string
+	Created      int64
+	Content      string
+	FinishReason string
+	Usage        json.RawMessage
+}
+
+// Chat asks the chat alias for one answer to messages, not streamed.
+func (c *Client) Chat(ctx context.Context, alias string, messages []Message) (Completion, error) {
+	var out struct {
+		ID      string `json:"id"`
+		Created int64  `json:"created"`
+		Choices []struct {
+			Message      Message `json:"message"`
+			FinishReason string  `json:"finish_reason"`
+		} `json:"choices"`
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := c.post(ctx, "/chat/completions", map[string]any{"model": alias, "messages": messages}, &out); err != nil {
+		return Completion{}, err
+	}
+	if len(out.Choices) == 0 {
+		return Completion{}, fmt.Errorf("%w: /chat/completions returned no choice", ErrUnavailable)
+	}
+	ch := out.Choices[0]
+	return Completion{ID: out.ID, Created: out.Created, Content: ch.Message.Content, FinishReason: ch.FinishReason, Usage: out.Usage}, nil
+}
+
+// Owners returns the owned_by of each alias the key may use: the alias's back-end key, or "" when
+// the object carries none.
+func (c *Client) Owners(ctx context.Context) (map[string]string, error) {
+	var out struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := c.post(ctx, "/models", nil, &out); err != nil {
+		return nil, err
+	}
+	owners := make(map[string]string, len(out.Data))
+	for _, m := range out.Data {
+		owners[m.ID] = m.OwnedBy
+	}
+	return owners, nil
 }
