@@ -256,7 +256,7 @@ func TestBaseline(t *testing.T) {
 		{"no baseline: both fail", "", 1, []string{"FAIL grep-q platform/a/chart/tests/x.sh:3:", "FAIL grep-q platform/a/chart/tests/x.sh:4:", "2 findings"}},
 		{"both held", `{"allow": [` + entry("platform/a/chart/tests/x.sh", "grep-q", 2) + `]}`, 0, []string{"HELD grep-q platform/a/chart/tests/x.sh:3:", "(owner S-1)", "2 held by"}},
 		{"one more than allowed: both fail", `{"allow": [` + entry("platform/a/chart/tests/x.sh", "grep-q", 1) + `]}`, 1, []string{"FAIL grep-q platform/a/chart/tests/x.sh:4:", "allows 1 grep-q findings in platform/a/chart/tests/x.sh (owner S-1); there are 2"}},
-		{"fewer than allowed: passes and says so", `{"allow": [` + entry("platform/a/chart/tests/x.sh", "grep-q", 3) + `]}`, 0, []string{"the baseline can be lowered", "allows 3 grep-q findings in platform/a/chart/tests/x.sh, there are 2"}},
+		{"fewer than allowed: fails and names the lower count", `{"allow": [` + entry("platform/a/chart/tests/x.sh", "grep-q", 3) + `]}`, 1, []string{"HELD grep-q platform/a/chart/tests/x.sh:3:", "FAIL baseline", "allows 3 grep-q findings in platform/a/chart/tests/x.sh, there are 2: lower the count to 2", "1 baseline entries allow more findings than there are"}},
 		{"another rule holds nothing", `{"allow": [` + entry("platform/a/chart/tests/x.sh", "head", 2) + `]}`, 1, []string{"FAIL grep-q platform/a/chart/tests/x.sh:3:", "allows 2 head findings in platform/a/chart/tests/x.sh, there are 0"}},
 		{"another file holds nothing", `{"allow": [` + entry("platform/b/chart/tests/x.sh", "grep-q", 2) + `]}`, 1, []string{"FAIL grep-q platform/a/chart/tests/x.sh:3:"}},
 		{"an unknown field", `{"allow": [], "extra": 1}`, 2, nil},

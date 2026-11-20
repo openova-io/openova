@@ -73,7 +73,10 @@ fi
 # grep on the file. A writer piped into grep -q is cut off when grep stops at
 # its first match, and pipefail then fails the case although the match was
 # found (8 in 1000 runs for a 4.5 KiB slice, now and then on the runner).
-# tools/guards/cmd/pipe-cannot-break holds the shape.
+# tools/guards/cmd/pipe-cannot-break fails on echo or printf of a variable
+# piped into grep -q; a command as the writer (awk '/egress:/,0' "$f" |
+# grep -q x, the larger source of the flake here) it does not judge: review
+# holds that one.
 if ! grep -q ok <<<"$(awk '/toEntities:/,/toPorts:/{block=block"\n"$0} /port: "587"/{if (block ~ /world/) {print "ok"; exit 0}; exit 1}' "$TMP/cnp.yaml")"; then
   # Looser fallback: render the egress section and confirm world + 587 co-occur within 30 lines.
   if ! grep -q '\- world' <<<"$(awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "587"')"; then

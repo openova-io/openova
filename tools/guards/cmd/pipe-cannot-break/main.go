@@ -48,17 +48,21 @@
 // of -e, -f, -m, -A, -B, -C, -d, -D and of the long options that take one,
 // an option after the pattern, nothing after --.
 //
-// The repaired form gives the reader the text as a here-string, which is a
-// file and has no writer that can be cut off:
+// The repaired form gives the reader the text as a here-string. Bash writes
+// the whole text before the reader runs (into a pipe when it fits the pipe's
+// buffer, as bash 5.1 and later do, else into a temporary file), so there is
+// no writer left that can be cut off:
 //
 //	awk '/smtp-host: /{print $2; exit}' <<<"$out"
 //	grep -q '"cnpg-system"' <<<"$ingress"
 //
 // A finding in a file that a story in progress owns is held in
 // scripts/baselines/pipe-cannot-break.json: per file and rule, the number of
-// findings allowed, the owner and the reason. More findings than allowed fail
-// as findings; fewer pass with a line that says the entry can be lowered. The
-// baseline only falls: a file that is repaired leaves it.
+// findings allowed, the owner (an issue) and the reason. More findings than
+// allowed fail as findings. Fewer fail too, with a line that names the count
+// to lower the entry to: the change that repairs a pipe lowers the entry, so
+// the room it frees is not taken by a new pipe. The baseline only falls: a
+// file that is repaired leaves it.
 //
 // The shell is read by a small lexer: quotes, $( ), ` `, ${ }, $(( )),
 // here-documents (their bodies are text, not commands), comments, a backslash
@@ -200,13 +204,20 @@ func run(args []string, out, errw io.Writer) int {
 			say(out, "  %s allows %d %s findings in %s (owner %s); there are %d\n", baselinePath, a.Count, k.rule, k.path, a.Owner, len(got))
 		}
 	}
+	stale := 0
 	for _, a := range entries {
 		if n := len(found[key{a.Path, a.Rule}]); n < a.Count {
-			say(out, "pipe-cannot-break: the baseline can be lowered: %s allows %d %s findings in %s, there are %d\n", baselinePath, a.Count, a.Rule, a.Path, n)
+			stale++
+			say(out, "FAIL baseline %s allows %d %s findings in %s, there are %d: lower the count to %d in this change (drop the entry at 0), the baseline only falls\n", baselinePath, a.Count, a.Rule, a.Path, n, n)
 		}
 	}
 	if bad > 0 {
-		say(out, "pipe-cannot-break: %d findings in %d files read. Give the reader the text as a here-string (awk '...' <<<\"$out\", grep -q x <<<\"$out\"): a here-string is a file, so no writer is cut off when the reader stops early, and pipefail cannot turn a found match into a failure.\n", bad, read)
+		say(out, "pipe-cannot-break: %d findings in %d files read. Give the reader the text as a here-string (awk '...' <<<\"$out\", grep -q x <<<\"$out\"): bash writes the whole text before the reader runs, so no writer is cut off when the reader stops early, and pipefail cannot turn a found match into a failure.\n", bad, read)
+	}
+	if stale > 0 {
+		say(out, "pipe-cannot-break: %d baseline entries allow more findings than there are; a new pipe would take the room, so they fail until lowered\n", stale)
+	}
+	if bad > 0 || stale > 0 {
 		return 1
 	}
 	say(out, "pipe-cannot-break: OK, %d chart test scripts read, none pipes a shell variable into awk with exit, head, sed with q or grep with -q, -m or -l under pipefail (%d held by %s)\n", read, held, baselinePath)
