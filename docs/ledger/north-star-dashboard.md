@@ -2,15 +2,15 @@
 
 | Merged to main | Deployed: running on hw307, not yet tested | Validated: passed the acceptance gate twice |
 |---|---|---|
-| **450** of 986 tasks · 1,192 of 2,934 points (41%) | **0** tasks · 0 points; 0 needed a hand change to run there | **0** tasks · 0 points |
+| **451** of 987 tasks · 1,197 of 2,942 points (41%) | **448** tasks · 1,185 points; 0 needed a hand change to run there | **22** tasks · 60 points |
 
-<sub>Gate coverage: 46 of 450 merged tasks are covered by a check.</sub>
+<sub>Gate coverage: 46 of 451 merged tasks are covered by a check.</sub>
 
-Only the 0 validated tasks count as tested: gate runs [44489979576](https://github.com/openova-io/openova/actions/runs/44489979576) and [44511848987](https://github.com/openova-io/openova/actions/runs/44511848987) on candidate `rc/20261119T053558Z-6972370` are the pair of the gate tool's verdict (J1 to J5 pass in both, 29 of 43 checks pass in the second; 30 of 239 checks green), and a task counts only when every check it delivers is green in that verdict; the environment runs `rc/20261119T151537Z-e4613c2` since 19 Nov 17:36 UTC, so a task that came with it waits for a pair on it.
+Only the 22 validated tasks count as tested: gate runs [44489979576](https://github.com/openova-io/openova/actions/runs/44489979576) and [44511848987](https://github.com/openova-io/openova/actions/runs/44511848987) on candidate `rc/20261119T053558Z-6972370` are the pair of the gate tool's verdict (J1 to J5 pass in both, 29 of 43 checks pass in the second; 30 of 239 checks green), and a task counts only when every check it delivers is green in that verdict; the environment runs `rc/20261120T073828Z-11731a9` since 20 Nov 09:20 UTC, so a task that came with it waits for a pair on it.
 
-**Environment:** hw307 was wiped at 20 Nov 08:58 UTC and runs nothing now; its last installation (19 Nov 17:36 UTC) last ran candidate `e4613c2`.
+**Environment:** hw307 runs candidate `11731a9` since 20 Nov 09:20 UTC, installed with 0 hand changes, fired at 09:20, not ready yet.
 
-**In the way:** 7 required checks (CLD-G12, FND-G03, FND-G07, NET-G02, NET-G07, SEC-G02, SVC-G01) not green in the gate tool's verdict; 404 of 450 merged tasks have no check in the gate.
+**In the way:** 7 required checks (CLD-G12, FND-G03, FND-G07, NET-G02, NET-G07, SEC-G02, SVC-G01) not green in the gate tool's verdict; 405 of 451 merged tasks have no check in the gate.
 
 <table>
 <tr><td colspan="4" align="center" valign="top"><a href="#burndown-in-story-points"><img src="dashboard/burndown.svg" width="820" alt="Burndown: story points not yet merged, not yet deployed, not yet validated"></a><br><sub><a href="#burndown-in-story-points">Burndown: story points not yet merged, not yet deployed, not yet validated</a></sub></td></tr>
@@ -20,518 +20,340 @@ Only the 0 validated tasks count as tested: gate runs [44489979576](https://gith
 
 **Dates, and what each depends on.**
 
-- **The plan's end, merged: target 19 Nov 05:02 UTC.** The target has passed; the last 72 hours merged 122 a day, which ends about **4 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
+- **The plan's end, merged: target 19 Nov 05:02 UTC.** The target has passed; the last 72 hours merged 123 a day, which ends about **4 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
 - **The new mothership on Hetzner can host new projects the standard way: likely 20 Nov 12:00 UTC** (earliest 16 Nov 02:00, could slip to 25 Nov). Depends on a Hetzner API token with raised project limits (neither exists today); a candidate that reaches a green gate on hw307 first (likely 17 Nov 12:00, could slip to 19 Nov); and how many Hetzner-only defects appear, as the Hetzner pack has not been installed since 22 May.
 - **The last name has moved off the old mothership node: likely 2 Dec 18:00 UTC** (earliest 21 Nov 18:00, could slip to 20 Dec); the old node is switched off seven quiet days later, likely 9 Dec. Depends on the mothership as an installable mode, with the move of the child records (never done before); the mail move (port 25 on a new address, reverse DNS, sender reputation); and Blueprints for our own applications, two of which have no chart yet.
 - The two mothership dates are those of its plan of 15 Nov 07:30 UTC.
 
-**Today in five lines** (the 24 hours to 09:01 UTC on 20 Nov):
+**Today in five lines** (the 24 hours to 09:31 UTC on 20 Nov):
 
-1. **Fires: 1**, 1 could not finish by itself. Fire 4 read ready at 18:28 in both regions, 63 of 63 releases each, 53 minutes after the create, with 0 hand changes on the installation and 0 retry calls.
-2. **Installation:** A gate run on hw307 ended FAIL: J1 to J5 pass, 29 of 43 checks passed; it names candidate 20261119T053558Z-6972370; with the other run of the pair it validates the tasks whose own checks passed in both. A gate run on hw307 ended FAIL: J1 to J5 pass, 29 of 43 checks passed; it names candidate 20261119T053558Z-6972370; with the other run of the pair it validates the tasks whose own checks passed in both. Delivery 10 (candidate 12) was refused by the route's dry run: a stage conflict in region a on the provider package line the cutover had rewritten; nothing moved. The Crossplane admission repair, carried by candidate 12, which was not delivered, was applied by hand to region a as 4 objects and proven there: the provider and the function turned healthy within 30 seconds. Fire 4 read ready at 18:28 in both regions, 63 of 63 releases each, 53 minutes after the create, with 0 hand changes on the installation and 0 retry calls. Gate run 23, a discovery run on candidate rc/20261119T151537Z-e4613c2, measured nothing and wrote no record: the gate Job on the parent may reach only 5.37.79.0/24 and the second region's API at 212.72.24.24 refused it, so the run was cancelled at 21:38. A gate run on hw307 ended FAIL: J1 to J5 pass, 32 of 45 checks passed; it names candidate 20261119T151537Z-e4613c2. For delivery 12 the pull Secret that candidate 13's release route requires (catalyst/release-pull-ghcr-delivery12, dockerconfigjson for ghcr.io) was created by hand in region a under the architect's ruling for this delivery only; the route deleted it in both regions. Delivery 12 (candidate 15, in place, region b first) failed in the route's prewarm: cutover step 03 could not read the Crossplane provider image on the Sovereign's own Harbor host (harbor.hw307.omani.works/proxy-xpkg, anonymous read 401); nothing moved in any region, the primary request was not sent, the pull Secret was deleted by the route.
+1. **Fires: 2**, 1 could not finish by itself. Fire 4 read ready at 18:28 in both regions, 63 of 63 releases each, 53 minutes after the create, with 0 hand changes on the installation and 0 retry calls. Test install 1 started a fresh two-region installation of candidate 16 under the test name hw308.omani.works, after the pre-flight passed on the first try (image path 93 of 93 after the parent's registry cache was repaired).
+2. **Installation:** A gate run on hw307 ended FAIL: J1 to J5 pass, 29 of 43 checks passed; it names candidate 20261119T053558Z-6972370; with the other run of the pair it validates the tasks whose own checks passed in both. Delivery 10 (candidate 12) was refused by the route's dry run: a stage conflict in region a on the provider package line the cutover had rewritten; nothing moved. The Crossplane admission repair, carried by candidate 12, which was not delivered, was applied by hand to region a as 4 objects and proven there: the provider and the function turned healthy within 30 seconds. Fire 4 read ready at 18:28 in both regions, 63 of 63 releases each, 53 minutes after the create, with 0 hand changes on the installation and 0 retry calls. Gate run 23, a discovery run on candidate rc/20261119T151537Z-e4613c2, measured nothing and wrote no record: the gate Job on the parent may reach only 5.37.79.0/24 and the second region's API at 212.72.24.24 refused it, so the run was cancelled at 21:38. A gate run on hw307 ended FAIL: J1 to J5 pass, 32 of 45 checks passed; it names candidate 20261119T151537Z-e4613c2. For delivery 12 the pull Secret that candidate 13's release route requires (catalyst/release-pull-ghcr-delivery12, dockerconfigjson for ghcr.io) was created by hand in region a under the architect's ruling for this delivery only; the route deleted it in both regions. Delivery 12 (candidate 15, in place, region b first) failed in the route's prewarm: cutover step 03 could not read the Crossplane provider image on the Sovereign's own Harbor host (harbor.hw307.omani.works/proxy-xpkg, anonymous read 401); nothing moved in any region, the primary request was not sent, the pull Secret was deleted by the route.
 3. **Repairs of main merged: 0**.
-4. **Plan tasks merged: 44**, 130 points: NET-251, BSS-060, INF-020, SOV-321, AIP-031, PRD-202, AIP-201, SOV-521, SVC-162, INF-060, NET-330, NET-255, AIP-150, INF-210 and 30 more.
+4. **Plan tasks merged: 44**, 134 points: BSS-060, INF-020, SOV-321, AIP-031, PRD-202, AIP-201, SOV-521, SVC-162, INF-060, NET-330, NET-255, AIP-150, INF-210, NET-280 and 30 more.
 5. **On the environment:** Candidates cut: cut 12 at 13:05, cut 13 at 15:22. The installation of fire 3 was wiped by the candidate engine (17:05 to 17:15) and swept clean: 0 leftovers, both Organization record sets released, only the bastion address still in use. The fresh installation published the default offer by itself; the rest of the billing configuration was replayed through the engine API at 18:31 with 0 failed calls, and the storefront showed the four prices in a browser at 18:34. hw307 (the installation of fire 4) was wiped by candidate 16's engine (08:48 to 08:58) and swept clean: 0 leftovers, both Organization record sets released, only the bastion address still in use. The marketplace is down until hw307 is installed again; today's installs run under the test name hw308.
 
 # Details
 
 ## On the environment: what is deployed and what is not
 
-Measured from git and the gate records on main at 09:01 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261119T151537Z-e4613c2` since 19 Nov 17:36 UTC. Validated means it passed in two gate runs on that installation.
+Measured from git and the gate records on main at 09:31 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261120T073828Z-11731a9` since 20 Nov 09:20 UTC. Validated means it passed in two gate runs on that installation.
 
 | State of the merged tasks | Tasks |
 |---|---|
-| Merged in total | 450 |
-| **Deployed**: in the commit the environment runs | **0** |
+| Merged in total | 451 |
+| **Deployed**: in the commit the environment runs | **448** |
 | — of these, needed a hand change on this installation, repaired on main since | 0 |
-| **Validated**: green in the gate tool's verdict, on a pair of gate runs on the environment | **0** |
-| **Merged, NOT deployed**: merged after the commit the environment runs | **450** |
-| How the merged tasks are proven: on a running environment, by a fresh installation, with no environment (CI checks, guards, tests, records, lab results) | 198, 73, 179 |
+| **Validated**: green in the gate tool's verdict, on a pair of gate runs on the environment | **22** |
+| **Merged, NOT deployed**: merged after the commit the environment runs | **3** |
+| How the merged tasks are proven: on a running environment, by a fresh installation, with no environment (CI checks, guards, tests, records, lab results) | 199, 73, 179 |
 
 **The next installation.** The environment is not updated in place: each candidate cut from main is installed fresh, after a wipe. The next one waits for the last open repair of main, then a quiet main, a new candidate, a dump of the environment's databases and the wipe; what stands in the way now is at the top of this page. On that installation the gate runs twice with the candidate's id, and only then does a task count as validated.
 
-### Deployed (0)
+### Deployed (448)
 
-Deployed counts merged tasks whose merge commit is an ancestor of the commit the environment runs: hw307 runs candidate `rc/20261119T151537Z-e4613c2` since 19 Nov 17:36 UTC, which holds 0 of the 450 merged tasks. Deployed is not tested: a task counts as tested only when the gate tool's verdict calls every check it delivers green, on a pair of gate runs made while the environment ran a candidate that holds it. That installation was made with 0 hand changes. The installation work (candidates, fires, the lab run, the repairs of main) is in the burndown at the top of this page and in Today in five lines.
+Deployed counts merged tasks whose merge commit is an ancestor of the commit the environment runs: hw307 runs candidate `rc/20261120T073828Z-11731a9` since 20 Nov 09:20 UTC, which holds 448 of the 451 merged tasks. Deployed is not tested: a task counts as tested only when the gate tool's verdict calls every check it delivers green, on a pair of gate runs made while the environment ran a candidate that holds it. That installation was made with 0 hand changes. The installation work (candidates, fires, the lab run, the repairs of main) is in the burndown at the top of this page and in Today in five lines.
 
 | Task | What it does | State on the environment |
 |---|---|---|
+| [AIP-040](plan/tickets/AIP-040.md) | Switch off the header-trusting metering sidecar | **validated** |
+| [AIP-041](plan/tickets/AIP-041.md) | The quota model of an Organization follows the gateway Pod without the metering sidecar | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-042](plan/tickets/AIP-042.md) | Check AIP-G01 judges running containers only | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-101](plan/tickets/AIP-101.md) | Axon builds against the pinned kit and gets a test rail | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-102](plan/tickets/AIP-102.md) | Tool calls passed through; no shared sessions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-103](plan/tickets/AIP-103.md) | Real streaming and real usage | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-104](plan/tickets/AIP-104.md) | Limits, queue, time-outs, admin listener | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-105](plan/tickets/AIP-105.md) | One owner of the credential | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-108](plan/tickets/AIP-108.md) | Shrink Axon | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-111](plan/tickets/AIP-111.md) | Move the sidecar, take identity from the gateway, publish quantity | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-112](plan/tickets/AIP-112.md) | Streamed responses are metered | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-113](plan/tickets/AIP-113.md) | Durable spool and admin routes | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-114](plan/tickets/AIP-114.md) | Scripted back end: the stub subcommand | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-120](plan/tickets/AIP-120.md) | Agent tokens and the signer key set route | **validated** |
+| [AIP-130](plan/tickets/AIP-130.md) | Model contract conformance client | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-131](plan/tickets/AIP-131.md) | Model checks AIP-G02 to AIP-G05 as expected-fail | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-150](plan/tickets/AIP-150.md) | The tool server accepts agent tokens | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-151](plan/tickets/AIP-151.md) | Tool answers are fitted and made inert | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-221](plan/tickets/AIP-221.md) | Service skeleton, schema with migrations, outbox table, health | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-222](plan/tickets/AIP-222.md) | Signal intake, grouping, candidate scoring, rule results | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-223](plan/tickets/AIP-223.md) | Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation, late revision | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-224](plan/tickets/AIP-224.md) | Guard library agentguard and its adversarial corpus | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-225](plan/tickets/AIP-225.md) | MCP endpoint and console HTTP routes inside the service | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-227](plan/tickets/AIP-227.md) | Console read path: reverse proxy /api/v1/ops/* in catalyst-api | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [AIP-229](plan/tickets/AIP-229.md) | Operations records: PostgreSQL store with migration 0001 and the ops-records program | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [BSS-030](plan/tickets/BSS-030.md) | Order capture never prices from a second list | **validated** |
+| [BSS-035](plan/tickets/BSS-035.md) | The storefront says when prices are unavailable | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [BSS-040](plan/tickets/BSS-040.md) | Delete core/marketplace-api | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [BSS-060](plan/tickets/BSS-060.md) | Gate check: self-service onboarding | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-021](plan/tickets/CLD-021.md) | Delete the 24 infrastructure mutation routes and the claim writer | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-022](plan/tickets/CLD-022.md) | Delete the infrastructure mutation dialogs from the console | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-061](plan/tickets/CLD-061.md) | Crossplane 1.18 to 1.19 | **validated** |
+| [CLD-062](plan/tickets/CLD-062.md) | Crossplane 1.19 to 1.20 | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-065](plan/tickets/CLD-065.md) | Crossplane 1.20 to 2.4 | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-067](plan/tickets/CLD-067.md) | Gate check CLD-G06 as a suite file | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-091](plan/tickets/CLD-091.md) | The local pack connects the meshes of its two regions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-093](plan/tickets/CLD-093.md) | Contract rule: adding a region plans only additions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-094](plan/tickets/CLD-094.md) | Standing check CLD-G12: the plan of a provisioned deployment shows no change | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-101](plan/tickets/CLD-101.md) | Golden files for the variables the engine writes | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-102](plan/tickets/CLD-102.md) | Delete the dead Provision method of the provider port | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-103](plan/tickets/CLD-103.md) | Credentials map, validation through the port, storage class from the profile | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-104](plan/tickets/CLD-104.md) | The engine writes neutral variables; adapters write their own | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-105](plan/tickets/CLD-105.md) | Post-apply and apply-error hooks become capability interfaces | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-108](plan/tickets/CLD-108.md) | Generated provider registry | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-109](plan/tickets/CLD-109.md) | Port interface, capability interfaces | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-111](plan/tickets/CLD-111.md) | Wipe and janitor through capabilities | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-112](plan/tickets/CLD-112.md) | Credential check from the profile; one registry | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-115](plan/tickets/CLD-115.md) | The VPC pre-flight becomes the Huawei adapter's Preflighter | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-161](plan/tickets/CLD-161.md) | Installation document for the installation in use | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CMP-010](plan/tickets/CMP-010.md) | Gate checks: the score moves by push; the shown mode is the engine's mode | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CMP-016](plan/tickets/CMP-016.md) | An optional informer kind starts when its definition arrives | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CMP-030](plan/tickets/CMP-030.md) | Package internal/compliance: types and pure score functions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CMP-073](plan/tickets/CMP-073.md) | The bootstrap window follows the hand-over variable | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-030](plan/tickets/CTL-030.md) | Delete the endpoint pipeline and the two duplicate registrations | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-035](plan/tickets/CTL-035.md) | Route registration leaves main() | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-038](plan/tickets/CTL-038.md) | The API accepts a Job's service-account token, confined to one Organization | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-039](plan/tickets/CTL-039.md) | Read routes for the region registry and the Environment list | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-040](plan/tickets/CTL-040.md) | Flux manifests to stable API versions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-110](plan/tickets/CTL-110.md) | Commit library gitwrite | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-112](plan/tickets/CTL-112.md) | Region scopes of the commit library | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-150](plan/tickets/CTL-150.md) | Intent lock in audit mode, with its report | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-151](plan/tickets/CTL-151.md) | Intent-lock report and the check that the lock holds | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-160](plan/tickets/CTL-160.md) | Package intent: validate, serialise, commit, wait | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-223](plan/tickets/CTL-223.md) | Settings, Menu accepts console pages as menu candidates | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-230](plan/tickets/CTL-230.md) | Batch F: resource browser | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-231](plan/tickets/CTL-231.md) | Resource browser: Git-owned objects refused, break-glass for the rest | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-233](plan/tickets/CTL-233.md) | Console: Git-owned objects show Managed by Git | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-240](plan/tickets/CTL-240.md) | Batch G: catalogue writers onto the library | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-300](plan/tickets/CTL-300.md) | The running stream is the declared one | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-320](plan/tickets/CTL-320.md) | Durable audit | **validated** |
+| [CTL-330](plan/tickets/CTL-330.md) | The services stop building the Kafka client | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-331](plan/tickets/CTL-331.md) | The shared events package is Kafka-free | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-332](plan/tickets/CTL-332.md) | The service modules no longer require the Kafka client | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-333](plan/tickets/CTL-333.md) | The org-services chart stops setting REDPANDA_BROKERS | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-340](plan/tickets/CTL-340.md) | Jobs store subscribe; flow stream event-driven; jobs stream route | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-345](plan/tickets/CTL-345.md) | The flow endpoints answer only from the local store; check CTL-G12 | **validated** |
+| [CTL-347](plan/tickets/CTL-347.md) | The flow server and adapter sources, charts and builds are deleted | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-350](plan/tickets/CTL-350.md) | Applications views from the informer cache | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-355](plan/tickets/CTL-355.md) | Delete the second showback meter | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-420](plan/tickets/CTL-420.md) | Watches in the organization and environment controllers | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-700](plan/tickets/CTL-700.md) | Pull-request mode of the commit library | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-014](plan/tickets/FND-014.md) | A deployment may name the Git ref it follows | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-032](plan/tickets/FND-032.md) | Record version 2 and the check registry | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-033](plan/tickets/FND-033.md) | Checks: candidate identity, zero touch, nodes, releases and pods | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-034](plan/tickets/FND-034.md) | Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as checks | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-035](plan/tickets/FND-035.md) | The gate workflow | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-036](plan/tickets/FND-036.md) | Sign-in as a gate check | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-039](plan/tickets/FND-039.md) | The suite writes the provision block of a cloud record | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-041](plan/tickets/FND-041.md) | The suite selects only the checks that are Go files of the suite | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-070](plan/tickets/FND-070.md) | Baseline: one fresh provision of `main` as it stands | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-073](plan/tickets/FND-073.md) | The gate runs twice against the standing environment once it carries the candidate, with no wipe | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-075](plan/tickets/FND-075.md) | The gate record carries the pre-flight numbers: quota headroom and the leftover count | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-077](plan/tickets/FND-077.md) | The flight sweep counts the DNS records a wiped deployment left | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-078](plan/tickets/FND-078.md) | The gate's cluster jobs run as a Job on the parent | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-079](plan/tickets/FND-079.md) | The gate has a scoped access to the parent | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-089](plan/tickets/FND-089.md) | The storefront offers no Sandbox agent picks and the order request carries no agents field | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-093](plan/tickets/FND-093.md) | Remove the Sandbox surface of the API | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-094](plan/tickets/FND-094.md) | Remove the Sandbox pages of the console | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-095](plan/tickets/FND-095.md) | Remove the Sandbox orchestrator, grants and cutover entries | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-097](plan/tickets/FND-097.md) | Remove the unshipped console, the one job that drives it and the tests that only target it | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-130](plan/tickets/FND-130.md) | The gate suite runs on the local provider pack on every pull request | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-131](plan/tickets/FND-131.md) | A run without journeys asserts only what the pack holds: discovery of the journey objects is left out, and the scope check is a cloud check | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-151](plan/tickets/FND-151.md) | The suite as an image, with the `self` selection | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-153](plan/tickets/FND-153.md) | The suite image and its signed build | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-154](plan/tickets/FND-154.md) | Check FND-G01 in its `self` form | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-155](plan/tickets/FND-155.md) | The `self` selection run by a Job on the local provider pack | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-156](plan/tickets/FND-156.md) | The conformance account exists on every Sovereign | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-157](plan/tickets/FND-157.md) | A gate run reads the storefront's sign-in code from a mailbox on the Sovereign under test | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-171](plan/tickets/FND-171.md) | Remove the fabricated playback route and its preflight route | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [FND-207](plan/tickets/FND-207.md) | A check stays green on the newest valid pair until a newer record says otherwise | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-040](plan/tickets/INF-040.md) | Chart bp-kured with the node patch configuration | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-051](plan/tickets/INF-051.md) | Check INF-G01: coordinated reboot, as a suite file | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-052](plan/tickets/INF-052.md) | Check INF-G01: upgrade windows and recovery; set to required | **validated** |
+| [INF-053](plan/tickets/INF-053.md) | Capability flag node-reboot: a gate run restarts nodes only when it declares the flag | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-110](plan/tickets/INF-110.md) | Kinds Machine and MachineSource; inventory controller with the node source | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-112](plan/tickets/INF-112.md) | Chart templates and image for the inventory controller | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-120](plan/tickets/INF-120.md) | Runner image and node-mode tasks | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-130](plan/tickets/INF-130.md) | Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-132](plan/tickets/INF-132.md) | Chart templates for the operations controller | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-133](plan/tickets/INF-133.md) | Check INF-G02: node host scans, as a suite file | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-140](plan/tickets/INF-140.md) | Vulnerability matching and daily re-matching | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-512](plan/tickets/INF-512.md) | Runner test task: arguments, target check and Nuclei (profile network-passive) | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-513](plan/tickets/INF-513.md) | Runner test task: the ZAP baseline scan and its SARIF report (profile web-passive) | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-013](plan/tickets/NET-013.md) | The gate dials the API port from an address in no list | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-030](plan/tickets/NET-030.md) | Retired names lose their policy privileges | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-032](plan/tickets/NET-032.md) | Reserve platform namespace names as Organization slugs | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-042](plan/tickets/NET-042.md) | Retire the two legacy per-Sovereign overlays | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-060](plan/tickets/NET-060.md) | Read-only census of the network posture | **validated** |
+| [NET-070](plan/tickets/NET-070.md) | Wizard shows what the provisioner builds | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-071](plan/tickets/NET-071.md) | Remove the zone virtual-cluster dialog, tab and stub kind | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-072](plan/tickets/NET-072.md) | Placement selectors offer the host only | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-080](plan/tickets/NET-080.md) | Pin the Organization virtual cluster chart | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-095](plan/tickets/NET-095.md) | Policy chart: only the deny of the instance metadata address by default | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-097](plan/tickets/NET-097.md) | Gate check NET-G10: a Pod cannot reach the instance metadata address | **validated** |
+| [NET-098](plan/tickets/NET-098.md) | The Hetzner storage node plugin is allowed to read instance metadata | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-125](plan/tickets/NET-125.md) | Mesh status read, and a mode switch, in the API | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-133](plan/tickets/NET-133.md) | A local-affinity decision on every global Service | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-135](plan/tickets/NET-135.md) | The plane-isolation policies admit the cross-region file sync and the snapshot job, and no longer depend on which namespaces exist at render time | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-150](plan/tickets/NET-150.md) | Default-deny scaffolding and dial checks | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-170](plan/tickets/NET-170.md) | Organization fence: two host-side deny objects for the Organization's own pods | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-172](plan/tickets/NET-172.md) | Gate check NET-G07: Organization isolation, journey ISO in both regions | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-212](plan/tickets/NET-212.md) | Show the separation; refuse the claim when it is none | **validated** |
+| [NET-255](plan/tickets/NET-255.md) | Journey WAF, its corpus and gate check NET-G15 as expected-fail | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-101](plan/tickets/PRD-101.md) | Vendor the six public documents and write the profile | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-102](plan/tickets/PRD-102.md) | Generated types and server interfaces (oapi-codegen, strict server) | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-103](plan/tickets/PRD-103.md) | Ledger port and conformance kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-104](plan/tickets/PRD-104.md) | Consent package | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-105](plan/tickets/PRD-105.md) | Token package | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-202](plan/tickets/PRD-202.md) | cortex store: migrations, roles, trimmed query | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-203](plan/tickets/PRD-203.md) | cortex query process: token check, gateway client, search, definitions loader | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-204](plan/tickets/PRD-204.md) | cortex ingestion of uploads: job table, upload and document routes, index process, text parser, chunker, events stream | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-205](plan/tickets/PRD-205.md) | Assistants: models list, answers with citations, residency refusal | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-211](plan/tickets/PRD-211.md) | Document conversion parser | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-501](plan/tickets/PRD-501.md) | Resource server base: store, definitions loader, router with the token check, account-access consent resources, not-offered answers | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-502](plan/tickets/PRD-502.md) | Sandbox ledger | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-503](plan/tickets/PRD-503.md) | Keycloak consent extension | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-508](plan/tickets/PRD-508.md) | Account-information read operations and the ledger client | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-509](plan/tickets/PRD-509.md) | Internal authorisation API | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-513](plan/tickets/PRD-513.md) | Resource server: PostgreSQL consent store with migration 0001, the definitions informer and the fingate-api program | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [PRD-800](plan/tickets/PRD-800.md) | Adapter template for a second bank | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-010](plan/tickets/SEC-010.md) | Close the public route to OpenBao system paths | **validated** |
+| [SEC-071](plan/tickets/SEC-071.md) | Ratchet on passwords the provisioning service writes to Git | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-073](plan/tickets/SEC-073.md) | Remove the committed database passwords and rotate them | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-080](plan/tickets/SEC-080.md) | External Secrets quick scope | **validated** |
+| [SEC-103](plan/tickets/SEC-103.md) | Remove the SealedSecret templates from the guacamole and netbird charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-105](plan/tickets/SEC-105.md) | Delete Sealed Secrets | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-120](plan/tickets/SEC-120.md) | etcd dump check and node hygiene check, as check files | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-161](plan/tickets/SEC-161.md) | Reconciler: secrets mounts and accessor substitution | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-035](plan/tickets/SOV-035.md) | Delete the ProvisioningState kind and its unwired store | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-110](plan/tickets/SOV-110.md) | Contract C5: schema, kit key list, the upstream package and its validator | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-120](plan/tickets/SOV-120.md) | The sovereign-ops command and its image | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-121](plan/tickets/SOV-121.md) | The seed-repo command of sovereign-ops | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-135](plan/tickets/SOV-135.md) | The mothership registry name is a proxy name served at the root, with an origin address per provider | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-150](plan/tickets/SOV-150.md) | Kit sources become substitutions, with a render-equivalence test | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-180](plan/tickets/SOV-180.md) | The API serves the Sovereign's mode and variables, with the contract's defaults | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-181](plan/tickets/SOV-181.md) | The provisioning routes refuse a Sovereign that is not a mothership | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-183](plan/tickets/SOV-183.md) | The Organization controller and the provisioning service render sources and the pull secret from the variables | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-190](plan/tickets/SOV-190.md) | The console reads the mode from the API | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-241](plan/tickets/SOV-241.md) | Follower regions pivot the image registry of the other kit workloads that run there | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-320](plan/tickets/SOV-320.md) | Sign-in mail without the parent's credential | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-323](plan/tickets/SOV-323.md) | Relay mode: sign-in mail through a relay with a credential for that child alone | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-338](plan/tickets/SOV-338.md) | A kept variables document is brought to the keys of the contract before a module reads it | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-341](plan/tickets/SOV-341.md) | The kubeconfig route serves the primary region's file that the parent holds after hand-over | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-521](plan/tickets/SOV-521.md) | The release route promotes one region per request and rolls a region back to its recorded main | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-522](plan/tickets/SOV-522.md) | The release stage applies the provider pivot again where a candidate changes a package line | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-030](plan/tickets/SVC-030.md) | The Catalog page honours visibility and refuses what has no chart | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-070](plan/tickets/SVC-070.md) | Function tests: identity and secrets charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-080](plan/tickets/SVC-080.md) | Function tests: GitOps, registry and certificate charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-090](plan/tickets/SVC-090.md) | Function tests: network, names and edge charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-100](plan/tickets/SVC-100.md) | Function tests: admission, infrastructure and control-plane charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-125](plan/tickets/SVC-125.md) | Blueprint proofs check: the function-test result in the gate record | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-136](plan/tickets/SVC-136.md) | The foundation function tests pass on a fresh installation | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-190](plan/tickets/SVC-190.md) | Delete the Blueprint controller | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
 
-<details><summary>Of these, proven only by a fresh installation: 0 tasks, none validated</summary>
+<details><summary>Of these, proven only by a fresh installation: 73 tasks, none validated</summary>
 
 | Task | What it does | State |
 |---|---|---|
+| [AIP-201](plan/tickets/AIP-201.md) | Node preparation for the sandbox class, exactly as the spike recorded | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-023](plan/tickets/CLD-023.md) | Delete the Hetzner-only Compositions, their definitions and orphan manifests | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-030](plan/tickets/CLD-030.md) | Per-Organization databases use the Sovereign's storage class | **validated** |
+| [CLD-040](plan/tickets/CLD-040.md) | Run the shared render test in CI and pin a golden render | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-064](plan/tickets/CLD-064.md) | Convert the adoption Composition to pipeline mode | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-066](plan/tickets/CLD-066.md) | provider-opentofu v1.1.11 by digest | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-080](plan/tickets/CLD-080.md) | Contract directory: module contract, profile schema, pack schema, conventions, two profiles | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-086](plan/tickets/CLD-086.md) | local module and reduced kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-089](plan/tickets/CLD-089.md) | Local pack: the console in the kit core, its address and an owner session file for the suite | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-090](plan/tickets/CLD-090.md) | The three modules meet contract version 1; conformance tests | **validated** |
+| [CLD-092](plan/tickets/CLD-092.md) | Seal hook conformance and the profile's seal section | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-113](plan/tickets/CLD-113.md) | Mesh and topology read the profile | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-131](plan/tickets/CLD-131.md) | Provider substitutes move from the template into the modules (pure move) | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-132](plan/tickets/CLD-132.md) | Remaining provider tests become injected inputs | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-133](plan/tickets/CLD-133.md) | Secondary-region suspend keys are set for every provider | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-134](plan/tickets/CLD-134.md) | The reference cloud's profile declares its user-data limit; the guard checks it | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-141](plan/tickets/CLD-141.md) | Protect provider releases from pruning before they move | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-142](plan/tickets/CLD-142.md) | Neutral storage gate | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CLD-185](plan/tickets/CLD-185.md) | Hetzner control-plane cloud-init with the post-back on fits the module size guard | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-041](plan/tickets/CTL-041.md) | Bootstrap-kit HelmRepository documents to source v1 | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-346](plan/tickets/CTL-346.md) | Kit slots 56 and 57 (flow server and emitter) leave the kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [CTL-348](plan/tickets/CTL-348.md) | The flow host leaves the sign-in gate and the DNS name list | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-050](plan/tickets/INF-050.md) | Install kured | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-055](plan/tickets/INF-055.md) | Leave the kured slot out of the local reduced kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [INF-060](plan/tickets/INF-060.md) | Remove the reboot settings from cloud-init | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-010](plan/tickets/NET-010.md) | Close peer and stale ports on the reference provider | **validated** |
+| [NET-011](plan/tickets/NET-011.md) | API port limited to declared sources | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-012](plan/tickets/NET-012.md) | Second provider firewall to the same rule | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-020](plan/tickets/NET-020.md) | Disable the k3s kube-proxy | **validated** |
+| [NET-031](plan/tickets/NET-031.md) | Stop reflecting the object-storage Secret to retired namespaces | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-040](plan/tickets/NET-040.md) | Remove the unwired firewall and the unused SPIRE chart | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-096](plan/tickets/NET-096.md) | Turn the metadata deny on in the kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-100](plan/tickets/NET-100.md) | Network registry output and validator | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-110](plan/tickets/NET-110.md) | Cilium base values to target | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-153](plan/tickets/NET-153.md) | Allow-list of the hand-over proof's deny-egress object | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-190](plan/tickets/NET-190.md) | Route admission by owner | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [NET-210](plan/tickets/NET-210.md) | Availability zone per region and a separation output | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-020](plan/tickets/SEC-020.md) | Random k3s server token and separate agent token | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-030](plan/tickets/SEC-030.md) | etcd encryption on at first boot | **validated** |
+| [SEC-040](plan/tickets/SEC-040.md) | Bootstrap secret hygiene on the node and reflector scope | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-100](plan/tickets/SEC-100.md) | Delete the abandoned OpenBao multi-region mechanisms | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-104](plan/tickets/SEC-104.md) | Unwire bootstrap-kit slot 05 | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-150](plan/tickets/SEC-150.md) | Seal hook of contract C8 in the three provider packs, with its call and the provisioner staging | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SEC-152](plan/tickets/SEC-152.md) | Shared template writes the seal key files and the seal profile; seal volume on the reference pack | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-020](plan/tickets/SOV-020.md) | One default for the zero-touch switch | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-130](plan/tickets/SOV-130.md) | Substrate window, part 1: modules and cloud-init take the variables document | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-131](plan/tickets/SOV-131.md) | Provider modules take the variables map of the upstream contract | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-132](plan/tickets/SOV-132.md) | Nodes boot with a local-first registry file, a wildcard entry and the public fallback off | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-133](plan/tickets/SOV-133.md) | The boot template and the provider contract take the variables document | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-134](plan/tickets/SOV-134.md) | The contract keys of the variables document land in the sovereign-variables ConfigMap | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-140](plan/tickets/SOV-140.md) | Substrate window, part 2: revocable bootstrap access, peer tokens, node artifacts from the registry | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-141](plan/tickets/SOV-141.md) | Each peer region gets its own handover-peer token, given to the primary once at hand-over | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-142](plan/tickets/SOV-142.md) | New nodes fetch k3s, Flux and Gateway API install files from the registry, with fallback | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-144](plan/tickets/SOV-144.md) | The post-back failure codes leave the exit code that the seal contract reserves | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-145](plan/tickets/SOV-145.md) | Two node files that nothing reads leave first boot | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-146](plan/tickets/SOV-146.md) | The child Kustomizations of first boot are also files under clusters/_template/root | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-149](plan/tickets/SOV-149.md) | The image pre-pull leaves first boot | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-151](plan/tickets/SOV-151.md) | Kit pull Secret names and the hand-over switch read the Sovereign's variables | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-154](plan/tickets/SOV-154.md) | First boot applies one root Kustomization; its children come from Git | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-160](plan/tickets/SOV-160.md) | Registry projects, the Organization Git token and the two repositories are created at install | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-161](plan/tickets/SOV-161.md) | The pull robot of the local registry joins the pull secret at install | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-175](plan/tickets/SOV-175.md) | The Sovereign object gets its writer | **validated** |
+| [SOV-322](plan/tickets/SOV-322.md) | Sign-in mail from the Sovereign's own server: kit slot, settings, and the parent seed deleted | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-335](plan/tickets/SOV-335.md) | The variables document carries the path of the vulnerability database | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-336](plan/tickets/SOV-336.md) | The registry install creates the proxy project of the vulnerability database | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SOV-337](plan/tickets/SOV-337.md) | The scanner reads the vulnerability database from the Sovereign's own registry | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-060](plan/tickets/SVC-060.md) | Function-test convention and the data charts | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-130](plan/tickets/SVC-130.md) | Enable function tests on the foundation slots | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-159](plan/tickets/SVC-159.md) | The Blueprint files say what the seed says | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-160](plan/tickets/SVC-160.md) | One generator, part 2: the seed becomes generated | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-170](plan/tickets/SVC-170.md) | Contract C1: class and lifecycle on every Blueprint, with their readers | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
+| [SVC-220](plan/tickets/SVC-220.md) | Ring labels on the kit | deployed in `rc/20261120T073828Z-11731a9`, not yet validated |
 
 </details>
 
-<details><summary>Of these, proven in CI with no environment (checks, guards, tests, records, lab results): 0 tasks</summary>
+<details><summary>Of these, proven in CI with no environment (checks, guards, tests, records, lab results): 179 tasks</summary>
 
-.
+ACC-020, ACC-030, [ACC-040](plan/tickets/ACC-040.md), [ACC-050](plan/tickets/ACC-050.md), [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-030](plan/tickets/AIP-030.md), [AIP-031](plan/tickets/AIP-031.md), [AIP-050](plan/tickets/AIP-050.md), [AIP-060](plan/tickets/AIP-060.md), [AIP-250](plan/tickets/AIP-250.md), [BSS-010](plan/tickets/BSS-010.md), [BSS-020](plan/tickets/BSS-020.md), [BSS-050](plan/tickets/BSS-050.md), [BSS-141](plan/tickets/BSS-141.md), [BSS-S1](plan/tickets/BSS-S1.md), BSS-S2, [CLD-010](plan/tickets/CLD-010.md), CLD-050, CLD-055, [CLD-063](plan/tickets/CLD-063.md), [CLD-070](plan/tickets/CLD-070.md), [CLD-071](plan/tickets/CLD-071.md), [CLD-075](plan/tickets/CLD-075.md), [CLD-076](plan/tickets/CLD-076.md), [CLD-087](plan/tickets/CLD-087.md), [CLD-114](plan/tickets/CLD-114.md), [CLD-211](plan/tickets/CLD-211.md), [CMP-005](plan/tickets/CMP-005.md), [CMP-012](plan/tickets/CMP-012.md), [CMP-014](plan/tickets/CMP-014.md), CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, [CTL-010](plan/tickets/CTL-010.md), [CTL-020](plan/tickets/CTL-020.md), [CTL-025](plan/tickets/CTL-025.md), [CTL-044](plan/tickets/CTL-044.md), [CTL-045](plan/tickets/CTL-045.md), CTL-050, CTL-055, [CTL-060](plan/tickets/CTL-060.md), [CTL-061](plan/tickets/CTL-061.md), [CTL-201](plan/tickets/CTL-201.md), FND-001, FND-002, [FND-011](plan/tickets/FND-011.md), [FND-012](plan/tickets/FND-012.md), [FND-013](plan/tickets/FND-013.md), [FND-015](plan/tickets/FND-015.md), [FND-017](plan/tickets/FND-017.md), [FND-018](plan/tickets/FND-018.md), [FND-019](plan/tickets/FND-019.md), [FND-020](plan/tickets/FND-020.md), [FND-021](plan/tickets/FND-021.md), [FND-022](plan/tickets/FND-022.md), [FND-023](plan/tickets/FND-023.md), [FND-024](plan/tickets/FND-024.md), [FND-025](plan/tickets/FND-025.md), [FND-026](plan/tickets/FND-026.md), [FND-027](plan/tickets/FND-027.md), [FND-028](plan/tickets/FND-028.md), [FND-029](plan/tickets/FND-029.md), [FND-031](plan/tickets/FND-031.md), [FND-040](plan/tickets/FND-040.md), [FND-051](plan/tickets/FND-051.md), [FND-052](plan/tickets/FND-052.md), [FND-053](plan/tickets/FND-053.md), [FND-054](plan/tickets/FND-054.md), [FND-055](plan/tickets/FND-055.md), [FND-056](plan/tickets/FND-056.md), [FND-057](plan/tickets/FND-057.md), [FND-058](plan/tickets/FND-058.md), [FND-059](plan/tickets/FND-059.md), [FND-061](plan/tickets/FND-061.md), [FND-062](plan/tickets/FND-062.md), [FND-063](plan/tickets/FND-063.md), [FND-064](plan/tickets/FND-064.md), [FND-071](plan/tickets/FND-071.md), [FND-072](plan/tickets/FND-072.md), [FND-074](plan/tickets/FND-074.md), [FND-080](plan/tickets/FND-080.md), [FND-088](plan/tickets/FND-088.md), [FND-091](plan/tickets/FND-091.md), [FND-092](plan/tickets/FND-092.md), [FND-096](plan/tickets/FND-096.md), [FND-098](plan/tickets/FND-098.md), [FND-099](plan/tickets/FND-099.md), [FND-101](plan/tickets/FND-101.md), [FND-102](plan/tickets/FND-102.md), [FND-103](plan/tickets/FND-103.md), [FND-104](plan/tickets/FND-104.md), [FND-105](plan/tickets/FND-105.md), [FND-106](plan/tickets/FND-106.md), [FND-107](plan/tickets/FND-107.md), [FND-110](plan/tickets/FND-110.md), [FND-173](plan/tickets/FND-173.md), [FND-181](plan/tickets/FND-181.md), [FND-206](plan/tickets/FND-206.md), [INF-010](plan/tickets/INF-010.md), [INF-020](plan/tickets/INF-020.md), INF-030, [INF-070](plan/tickets/INF-070.md), [INF-135](plan/tickets/INF-135.md), [INF-210](plan/tickets/INF-210.md), [INF-710](plan/tickets/INF-710.md), [MIG-010](plan/tickets/MIG-010.md), [MIG-030](plan/tickets/MIG-030.md), MIG-050, [MIG-060](plan/tickets/MIG-060.md), [NET-033](plan/tickets/NET-033.md), [NET-050](plan/tickets/NET-050.md), [NET-052](plan/tickets/NET-052.md), [NET-055](plan/tickets/NET-055.md), [NET-090](plan/tickets/NET-090.md), [NET-102](plan/tickets/NET-102.md), [NET-221](plan/tickets/NET-221.md), [NET-251](plan/tickets/NET-251.md), [NET-252](plan/tickets/NET-252.md), [NET-270](plan/tickets/NET-270.md), [NET-280](plan/tickets/NET-280.md), NET-290, NET-300, [NET-321](plan/tickets/NET-321.md), [NET-330](plan/tickets/NET-330.md), [PRD-010](plan/tickets/PRD-010.md), [PRD-020](plan/tickets/PRD-020.md), [PRD-030](plan/tickets/PRD-030.md), PRD-040, PRD-060, [PRD-061](plan/tickets/PRD-061.md), PRD-070, PRD-080, [PRD-106](plan/tickets/PRD-106.md), [SEC-005](plan/tickets/SEC-005.md), [SEC-006](plan/tickets/SEC-006.md), [SEC-090](plan/tickets/SEC-090.md), [SEC-095](plan/tickets/SEC-095.md), [SEC-096](plan/tickets/SEC-096.md), [SEC-110](plan/tickets/SEC-110.md), [SEC-125](plan/tickets/SEC-125.md), [SEC-126](plan/tickets/SEC-126.md), [SEC-127](plan/tickets/SEC-127.md), SEC-130, SEC-135, SEC-140, SEC-271, SEC-280, [SOV-010](plan/tickets/SOV-010.md), [SOV-040](plan/tickets/SOV-040.md), [SOV-050](plan/tickets/SOV-050.md), SOV-060, SOV-070, SOV-080, SOV-090, [SOV-143](plan/tickets/SOV-143.md), [SOV-148](plan/tickets/SOV-148.md), [SOV-321](plan/tickets/SOV-321.md), [SOV-750](plan/tickets/SOV-750.md), [SVC-010](plan/tickets/SVC-010.md), [SVC-020](plan/tickets/SVC-020.md), [SVC-040](plan/tickets/SVC-040.md), [SVC-041](plan/tickets/SVC-041.md), SVC-120, [SVC-150](plan/tickets/SVC-150.md), [SVC-161](plan/tickets/SVC-161.md), [SVC-162](plan/tickets/SVC-162.md), [SVC-163](plan/tickets/SVC-163.md), [SVC-164](plan/tickets/SVC-164.md), [SVC-166](plan/tickets/SVC-166.md), [SVC-205](plan/tickets/SVC-205.md), SVC-210, [SVC-250](plan/tickets/SVC-250.md), SVC-315, SVC-340.
 
 </details>
 
-### Merged and NOT deployed (450)
+### Merged and NOT deployed (3)
 
-A merged task is not deployed when its merge came after the commit the environment runs; it reaches the environment with the next candidate that holds it. These 450 merged after `rc/20261119T151537Z-e4613c2` was cut.
+A merged task is not deployed when its merge came after the commit the environment runs; it reaches the environment with the next candidate that holds it. These 3 merged after `rc/20261120T073828Z-11731a9` was cut.
 
 | Task | What it does | State on the environment |
 |---|---|---|
-| ACC-020 | Spike: guacd 1.6.0 driven without the web application | **not deployed**, merged after the running candidate |
-| ACC-030 | Spike: per-session credentials through the mount; object lock | **not deployed**, merged after the running candidate |
-| [ACC-040](plan/tickets/ACC-040.md) | Access guards with their baselines | **not deployed**, merged after the running candidate |
-| [ACC-050](plan/tickets/ACC-050.md) | Truth in the access documents | **not deployed**, merged after the running candidate |
-| [ACC-060](plan/tickets/ACC-060.md) | Decision record for the access plane | **not deployed**, merged after the running candidate |
-| AIP-010 | Spike: gateway proof (agentgateway, tests T1 to T8) | **not deployed**, merged after the running candidate |
-| AIP-020 | Spike: simulation back end proof (agent kit turned inside out) | **not deployed**, merged after the running candidate |
-| [AIP-030](plan/tickets/AIP-030.md) | Spike: agent runtime proof (kagent 1.x on k3s, Cilium, vcluster) | **not deployed**, merged after the running candidate |
-| [AIP-031](plan/tickets/AIP-031.md) | Spike: one sandbox substrate shared by Organizations, with grants scoped to each Organization | **not deployed**, merged after the running candidate |
-| [AIP-040](plan/tickets/AIP-040.md) | Switch off the header-trusting metering sidecar | **not deployed**, merged after the running candidate |
-| [AIP-041](plan/tickets/AIP-041.md) | The quota model of an Organization follows the gateway Pod without the metering sidecar | **not deployed**, merged after the running candidate |
-| [AIP-042](plan/tickets/AIP-042.md) | Check AIP-G01 judges running containers only | **not deployed**, merged after the running candidate |
-| [AIP-050](plan/tickets/AIP-050.md) | Agent-plane guards | **not deployed**, merged after the running candidate |
-| [AIP-060](plan/tickets/AIP-060.md) | Decision record: the model plane | **not deployed**, merged after the running candidate |
 | [AIP-070](plan/tickets/AIP-070.md) | Delete the hollow gateway charts | **not deployed**, merged after the running candidate |
-| [AIP-101](plan/tickets/AIP-101.md) | Axon builds against the pinned kit and gets a test rail | **not deployed**, merged after the running candidate |
-| [AIP-102](plan/tickets/AIP-102.md) | Tool calls passed through; no shared sessions | **not deployed**, merged after the running candidate |
-| [AIP-103](plan/tickets/AIP-103.md) | Real streaming and real usage | **not deployed**, merged after the running candidate |
-| [AIP-104](plan/tickets/AIP-104.md) | Limits, queue, time-outs, admin listener | **not deployed**, merged after the running candidate |
-| [AIP-105](plan/tickets/AIP-105.md) | One owner of the credential | **not deployed**, merged after the running candidate |
-| [AIP-108](plan/tickets/AIP-108.md) | Shrink Axon | **not deployed**, merged after the running candidate |
-| [AIP-111](plan/tickets/AIP-111.md) | Move the sidecar, take identity from the gateway, publish quantity | **not deployed**, merged after the running candidate |
-| [AIP-112](plan/tickets/AIP-112.md) | Streamed responses are metered | **not deployed**, merged after the running candidate |
-| [AIP-113](plan/tickets/AIP-113.md) | Durable spool and admin routes | **not deployed**, merged after the running candidate |
-| [AIP-114](plan/tickets/AIP-114.md) | Scripted back end: the stub subcommand | **not deployed**, merged after the running candidate |
-| [AIP-120](plan/tickets/AIP-120.md) | Agent tokens and the signer key set route | **not deployed**, merged after the running candidate |
-| [AIP-130](plan/tickets/AIP-130.md) | Model contract conformance client | **not deployed**, merged after the running candidate |
-| [AIP-131](plan/tickets/AIP-131.md) | Model checks AIP-G02 to AIP-G05 as expected-fail | **not deployed**, merged after the running candidate |
-| [AIP-150](plan/tickets/AIP-150.md) | The tool server accepts agent tokens | **not deployed**, merged after the running candidate |
-| [AIP-151](plan/tickets/AIP-151.md) | Tool answers are fitted and made inert | **not deployed**, merged after the running candidate |
-| [AIP-201](plan/tickets/AIP-201.md) | Node preparation for the sandbox class, exactly as the spike recorded | **not deployed**, merged after the running candidate |
-| [AIP-221](plan/tickets/AIP-221.md) | Service skeleton, schema with migrations, outbox table, health | **not deployed**, merged after the running candidate |
-| [AIP-222](plan/tickets/AIP-222.md) | Signal intake, grouping, candidate scoring, rule results | **not deployed**, merged after the running candidate |
-| [AIP-223](plan/tickets/AIP-223.md) | Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation, late revision | **not deployed**, merged after the running candidate |
-| [AIP-224](plan/tickets/AIP-224.md) | Guard library agentguard and its adversarial corpus | **not deployed**, merged after the running candidate |
-| [AIP-225](plan/tickets/AIP-225.md) | MCP endpoint and console HTTP routes inside the service | **not deployed**, merged after the running candidate |
-| [AIP-227](plan/tickets/AIP-227.md) | Console read path: reverse proxy /api/v1/ops/* in catalyst-api | **not deployed**, merged after the running candidate |
-| [AIP-229](plan/tickets/AIP-229.md) | Operations records: PostgreSQL store with migration 0001 and the ops-records program | **not deployed**, merged after the running candidate |
-| [AIP-250](plan/tickets/AIP-250.md) | Spike: agent workspace on the Organization's own sign-in with a short-lived tool identity | **not deployed**, merged after the running candidate |
-| [BSS-010](plan/tickets/BSS-010.md) | Decision record: commerce and billing | **not deployed**, merged after the running candidate |
-| [BSS-020](plan/tickets/BSS-020.md) | Truth in the status document and the engine's README | **not deployed**, merged after the running candidate |
-| [BSS-030](plan/tickets/BSS-030.md) | Order capture never prices from a second list | **not deployed**, merged after the running candidate |
-| [BSS-035](plan/tickets/BSS-035.md) | The storefront says when prices are unavailable | **not deployed**, merged after the running candidate |
-| [BSS-040](plan/tickets/BSS-040.md) | Delete core/marketplace-api | **not deployed**, merged after the running candidate |
-| [BSS-050](plan/tickets/BSS-050.md) | Ratchets of this area | **not deployed**, merged after the running candidate |
-| [BSS-060](plan/tickets/BSS-060.md) | Gate check: self-service onboarding | **not deployed**, merged after the running candidate |
-| [BSS-141](plan/tickets/BSS-141.md) | The cost-source credential is never a Kubernetes Secret | **not deployed**, merged after the running candidate |
-| [BSS-S1](plan/tickets/BSS-S1.md) | Spike: suite sign-in, suite access to the engine API, and the price list a fresh Sovereign shows | **not deployed**, merged after the running candidate |
-| BSS-S2 | Spike: does the operator-hosted cloud export a FOCUS cost file | **not deployed**, merged after the running candidate |
-| [CLD-010](plan/tickets/CLD-010.md) | Provider-leak scanner with a falling baseline | **not deployed**, merged after the running candidate |
-| [CLD-021](plan/tickets/CLD-021.md) | Delete the 24 infrastructure mutation routes and the claim writer | **not deployed**, merged after the running candidate |
-| [CLD-022](plan/tickets/CLD-022.md) | Delete the infrastructure mutation dialogs from the console | **not deployed**, merged after the running candidate |
-| [CLD-023](plan/tickets/CLD-023.md) | Delete the Hetzner-only Compositions, their definitions and orphan manifests | **not deployed**, merged after the running candidate |
-| [CLD-030](plan/tickets/CLD-030.md) | Per-Organization databases use the Sovereign's storage class | **not deployed**, merged after the running candidate |
-| [CLD-040](plan/tickets/CLD-040.md) | Run the shared render test in CI and pin a golden render | **not deployed**, merged after the running candidate |
-| CLD-050 | Spike: Workspace mechanics on Crossplane 2 with bucket state, encryption, mirrors and the offline key | **not deployed**, merged after the running candidate |
-| CLD-055 | Spike: machine kind and reduced kit for the local pack | **not deployed**, merged after the running candidate |
-| [CLD-061](plan/tickets/CLD-061.md) | Crossplane 1.18 to 1.19 | **not deployed**, merged after the running candidate |
-| [CLD-062](plan/tickets/CLD-062.md) | Crossplane 1.19 to 1.20 | **not deployed**, merged after the running candidate |
-| [CLD-063](plan/tickets/CLD-063.md) | Mirror the Crossplane packages | **not deployed**, merged after the running candidate |
-| [CLD-064](plan/tickets/CLD-064.md) | Convert the adoption Composition to pipeline mode | **not deployed**, merged after the running candidate |
-| [CLD-065](plan/tickets/CLD-065.md) | Crossplane 1.20 to 2.4 | **not deployed**, merged after the running candidate |
-| [CLD-066](plan/tickets/CLD-066.md) | provider-opentofu v1.1.11 by digest | **not deployed**, merged after the running candidate |
-| [CLD-067](plan/tickets/CLD-067.md) | Gate check CLD-G06 as a suite file | **not deployed**, merged after the running candidate |
-| [CLD-070](plan/tickets/CLD-070.md) | Decision record and truthful contract documents | **not deployed**, merged after the running candidate |
-| [CLD-071](plan/tickets/CLD-071.md) | Decision record 0024: the primary substrate moved on 2026-05-22; status of the earlier substrate | **not deployed**, merged after the running candidate |
-| [CLD-075](plan/tickets/CLD-075.md) | Generator for the provider and profile tables | **not deployed**, merged after the running candidate |
-| [CLD-076](plan/tickets/CLD-076.md) | Documents link to the generated provider tables | **not deployed**, merged after the running candidate |
-| [CLD-080](plan/tickets/CLD-080.md) | Contract directory: module contract, profile schema, pack schema, conventions, two profiles | **not deployed**, merged after the running candidate |
-| [CLD-086](plan/tickets/CLD-086.md) | local module and reduced kit | **not deployed**, merged after the running candidate |
-| [CLD-087](plan/tickets/CLD-087.md) | CI job conformance-local | **not deployed**, merged after the running candidate |
-| [CLD-089](plan/tickets/CLD-089.md) | Local pack: the console in the kit core, its address and an owner session file for the suite | **not deployed**, merged after the running candidate |
-| [CLD-090](plan/tickets/CLD-090.md) | The three modules meet contract version 1; conformance tests | **not deployed**, merged after the running candidate |
-| [CLD-091](plan/tickets/CLD-091.md) | The local pack connects the meshes of its two regions | **not deployed**, merged after the running candidate |
-| [CLD-092](plan/tickets/CLD-092.md) | Seal hook conformance and the profile's seal section | **not deployed**, merged after the running candidate |
-| [CLD-093](plan/tickets/CLD-093.md) | Contract rule: adding a region plans only additions | **not deployed**, merged after the running candidate |
-| [CLD-094](plan/tickets/CLD-094.md) | Standing check CLD-G12: the plan of a provisioned deployment shows no change | **not deployed**, merged after the running candidate |
-| [CLD-101](plan/tickets/CLD-101.md) | Golden files for the variables the engine writes | **not deployed**, merged after the running candidate |
-| [CLD-102](plan/tickets/CLD-102.md) | Delete the dead Provision method of the provider port | **not deployed**, merged after the running candidate |
-| [CLD-103](plan/tickets/CLD-103.md) | Credentials map, validation through the port, storage class from the profile | **not deployed**, merged after the running candidate |
-| [CLD-104](plan/tickets/CLD-104.md) | The engine writes neutral variables; adapters write their own | **not deployed**, merged after the running candidate |
-| [CLD-105](plan/tickets/CLD-105.md) | Post-apply and apply-error hooks become capability interfaces | **not deployed**, merged after the running candidate |
-| [CLD-108](plan/tickets/CLD-108.md) | Generated provider registry | **not deployed**, merged after the running candidate |
-| [CLD-109](plan/tickets/CLD-109.md) | Port interface, capability interfaces | **not deployed**, merged after the running candidate |
-| [CLD-111](plan/tickets/CLD-111.md) | Wipe and janitor through capabilities | **not deployed**, merged after the running candidate |
-| [CLD-112](plan/tickets/CLD-112.md) | Credential check from the profile; one registry | **not deployed**, merged after the running candidate |
-| [CLD-113](plan/tickets/CLD-113.md) | Mesh and topology read the profile | **not deployed**, merged after the running candidate |
-| [CLD-114](plan/tickets/CLD-114.md) | Adoption map, name lists and schema enums | **not deployed**, merged after the running candidate |
-| [CLD-115](plan/tickets/CLD-115.md) | The VPC pre-flight becomes the Huawei adapter's Preflighter | **not deployed**, merged after the running candidate |
-| [CLD-131](plan/tickets/CLD-131.md) | Provider substitutes move from the template into the modules (pure move) | **not deployed**, merged after the running candidate |
-| [CLD-132](plan/tickets/CLD-132.md) | Remaining provider tests become injected inputs | **not deployed**, merged after the running candidate |
-| [CLD-133](plan/tickets/CLD-133.md) | Secondary-region suspend keys are set for every provider | **not deployed**, merged after the running candidate |
-| [CLD-134](plan/tickets/CLD-134.md) | The reference cloud's profile declares its user-data limit; the guard checks it | **not deployed**, merged after the running candidate |
-| [CLD-141](plan/tickets/CLD-141.md) | Protect provider releases from pruning before they move | **not deployed**, merged after the running candidate |
-| [CLD-142](plan/tickets/CLD-142.md) | Neutral storage gate | **not deployed**, merged after the running candidate |
-| [CLD-161](plan/tickets/CLD-161.md) | Installation document for the installation in use | **not deployed**, merged after the running candidate |
-| [CLD-185](plan/tickets/CLD-185.md) | Hetzner control-plane cloud-init with the post-back on fits the module size guard | **not deployed**, merged after the running candidate |
-| [CLD-211](plan/tickets/CLD-211.md) | Pack tokens and the additive check | **not deployed**, merged after the running candidate |
-| [CMP-005](plan/tickets/CMP-005.md) | Decision record: the compliance plane | **not deployed**, merged after the running candidate |
-| [CMP-010](plan/tickets/CMP-010.md) | Gate checks: the score moves by push; the shown mode is the engine's mode | **not deployed**, merged after the running candidate |
-| [CMP-012](plan/tickets/CMP-012.md) | Guard: legacy policy count may only fall; the upgrade acknowledgement value is forbidden | **not deployed**, merged after the running candidate |
-| [CMP-014](plan/tickets/CMP-014.md) | Run the policy chart's tests on every pull request | **not deployed**, merged after the running candidate |
-| [CMP-016](plan/tickets/CMP-016.md) | An optional informer kind starts when its definition arrives | **not deployed**, merged after the running candidate |
-| [CMP-030](plan/tickets/CMP-030.md) | Package internal/compliance: types and pure score functions | **not deployed**, merged after the running candidate |
-| [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | **not deployed**, merged after the running candidate |
-| [CMP-073](plan/tickets/CMP-073.md) | The bootstrap window follows the hand-over variable | **not deployed**, merged after the running candidate |
-| CMP-S1 | Spike: new policy kinds, exceptions, time conditions and the test tool on the 1.19 engine line | **not deployed**, merged after the running candidate |
-| CMP-S2 | Spike: side-car publish to NATS, payload shape, heartbeat | **not deployed**, merged after the running candidate |
-| CMP-S3 | Spike: scanner report labels, publication date, benchmark report names, report volume | **not deployed**, merged after the running candidate |
-| CMP-S4 | Spike: etcd load from report objects | **not deployed**, merged after the running candidate |
-| CMP-S5 | Spike: do Organization workloads pass the baseline pod-security level | **not deployed**, merged after the running candidate |
-| CMP-S6 | Spike: does a requestedAt stamp make a HelmRelease re-read valuesFrom on the installed Flux line | **not deployed**, merged after the running candidate |
-| [CTL-010](plan/tickets/CTL-010.md) | Guard: no new direct cluster write | **not deployed**, merged after the running candidate |
-| [CTL-020](plan/tickets/CTL-020.md) | Guard: no new polling loop | **not deployed**, merged after the running candidate |
-| [CTL-025](plan/tickets/CTL-025.md) | Guard: the handler package and main may only shrink | **not deployed**, merged after the running candidate |
-| [CTL-030](plan/tickets/CTL-030.md) | Delete the endpoint pipeline and the two duplicate registrations | **not deployed**, merged after the running candidate |
-| [CTL-035](plan/tickets/CTL-035.md) | Route registration leaves main() | **not deployed**, merged after the running candidate |
-| [CTL-038](plan/tickets/CTL-038.md) | The API accepts a Job's service-account token, confined to one Organization | **not deployed**, merged after the running candidate |
-| [CTL-039](plan/tickets/CTL-039.md) | Read routes for the region registry and the Environment list | **not deployed**, merged after the running candidate |
-| [CTL-040](plan/tickets/CTL-040.md) | Flux manifests to stable API versions | **not deployed**, merged after the running candidate |
-| [CTL-041](plan/tickets/CTL-041.md) | Bootstrap-kit HelmRepository documents to source v1 | **not deployed**, merged after the running candidate |
-| [CTL-044](plan/tickets/CTL-044.md) | Publish contracts C3 and C4 | **not deployed**, merged after the running candidate |
-| [CTL-045](plan/tickets/CTL-045.md) | Publish contract C9 and its tool | **not deployed**, merged after the running candidate |
-| CTL-050 | Spike: push trigger, batch commit and lock on the pinned versions | **not deployed**, merged after the running candidate |
-| CTL-055 | Spike S10: Gitea push mirror between two Giteas on one database | **not deployed**, merged after the running candidate |
-| [CTL-060](plan/tickets/CTL-060.md) | Decision record for the write path, the lock and the backbone | **not deployed**, merged after the running candidate |
-| [CTL-061](plan/tickets/CTL-061.md) | A decision record names the one writer of Environment objects and the package that denies their stage | **not deployed**, merged after the running candidate |
-| [CTL-110](plan/tickets/CTL-110.md) | Commit library gitwrite | **not deployed**, merged after the running candidate |
-| [CTL-112](plan/tickets/CTL-112.md) | Region scopes of the commit library | **not deployed**, merged after the running candidate |
-| [CTL-150](plan/tickets/CTL-150.md) | Intent lock in audit mode, with its report | **not deployed**, merged after the running candidate |
-| [CTL-151](plan/tickets/CTL-151.md) | Intent-lock report and the check that the lock holds | **not deployed**, merged after the running candidate |
-| [CTL-160](plan/tickets/CTL-160.md) | Package intent: validate, serialise, commit, wait | **not deployed**, merged after the running candidate |
-| [CTL-201](plan/tickets/CTL-201.md) | Parity file for the Organization pipelines | **not deployed**, merged after the running candidate |
-| [CTL-223](plan/tickets/CTL-223.md) | Settings, Menu accepts console pages as menu candidates | **not deployed**, merged after the running candidate |
-| [CTL-230](plan/tickets/CTL-230.md) | Batch F: resource browser | **not deployed**, merged after the running candidate |
-| [CTL-231](plan/tickets/CTL-231.md) | Resource browser: Git-owned objects refused, break-glass for the rest | **not deployed**, merged after the running candidate |
-| [CTL-233](plan/tickets/CTL-233.md) | Console: Git-owned objects show Managed by Git | **not deployed**, merged after the running candidate |
-| [CTL-240](plan/tickets/CTL-240.md) | Batch G: catalogue writers onto the library | **not deployed**, merged after the running candidate |
-| [CTL-300](plan/tickets/CTL-300.md) | The running stream is the declared one | **not deployed**, merged after the running candidate |
-| [CTL-320](plan/tickets/CTL-320.md) | Durable audit | **not deployed**, merged after the running candidate |
-| [CTL-330](plan/tickets/CTL-330.md) | The services stop building the Kafka client | **not deployed**, merged after the running candidate |
-| [CTL-331](plan/tickets/CTL-331.md) | The shared events package is Kafka-free | **not deployed**, merged after the running candidate |
-| [CTL-332](plan/tickets/CTL-332.md) | The service modules no longer require the Kafka client | **not deployed**, merged after the running candidate |
-| [CTL-333](plan/tickets/CTL-333.md) | The org-services chart stops setting REDPANDA_BROKERS | **not deployed**, merged after the running candidate |
-| [CTL-340](plan/tickets/CTL-340.md) | Jobs store subscribe; flow stream event-driven; jobs stream route | **not deployed**, merged after the running candidate |
-| [CTL-345](plan/tickets/CTL-345.md) | The flow endpoints answer only from the local store; check CTL-G12 | **not deployed**, merged after the running candidate |
-| [CTL-346](plan/tickets/CTL-346.md) | Kit slots 56 and 57 (flow server and emitter) leave the kit | **not deployed**, merged after the running candidate |
-| [CTL-347](plan/tickets/CTL-347.md) | The flow server and adapter sources, charts and builds are deleted | **not deployed**, merged after the running candidate |
-| [CTL-348](plan/tickets/CTL-348.md) | The flow host leaves the sign-in gate and the DNS name list | **not deployed**, merged after the running candidate |
-| [CTL-350](plan/tickets/CTL-350.md) | Applications views from the informer cache | **not deployed**, merged after the running candidate |
-| [CTL-355](plan/tickets/CTL-355.md) | Delete the second showback meter | **not deployed**, merged after the running candidate |
-| [CTL-420](plan/tickets/CTL-420.md) | Watches in the organization and environment controllers | **not deployed**, merged after the running candidate |
-| [CTL-700](plan/tickets/CTL-700.md) | Pull-request mode of the commit library | **not deployed**, merged after the running candidate |
-| FND-001 | Spike: the merge queue under release-writer pushes | **not deployed**, merged after the running candidate |
-| FND-002 | Spike: the gate runner reaches every region | **not deployed**, merged after the running candidate |
-| [FND-011](plan/tickets/FND-011.md) | CI bumps chart versions; pull requests may not | **not deployed**, merged after the running candidate |
-| [FND-012](plan/tickets/FND-012.md) | Stop the tracker commits | **not deployed**, merged after the running candidate |
-| [FND-013](plan/tickets/FND-013.md) | Merge queue: aggregate check, queue triggers, rulesets and code owners as files | **not deployed**, merged after the running candidate |
-| [FND-014](plan/tickets/FND-014.md) | A deployment may name the Git ref it follows | **not deployed**, merged after the running candidate |
-| [FND-015](plan/tickets/FND-015.md) | Candidate tool and cut workflow | **not deployed**, merged after the running candidate |
-| [FND-017](plan/tickets/FND-017.md) | The workflows that push to main themselves push under the release-writer identity | **not deployed**, merged after the running candidate |
-| [FND-018](plan/tickets/FND-018.md) | The release writer leaves main in step: no pin goes backwards, and the umbrella follows a catalogue move | **not deployed**, merged after the running candidate |
-| [FND-019](plan/tickets/FND-019.md) | The release writer moves the pin of a chart that several kit slots install | **not deployed**, merged after the running candidate |
-| [FND-020](plan/tickets/FND-020.md) | A pull request is not red because main was between two commits of a release | **not deployed**, merged after the running candidate |
-| [FND-021](plan/tickets/FND-021.md) | Plan file and plan tool | **not deployed**, merged after the running candidate |
-| [FND-022](plan/tickets/FND-022.md) | Scope fence, dependency gate and CI-run acceptance | **not deployed**, merged after the running candidate |
-| [FND-023](plan/tickets/FND-023.md) | Ticket template, linter and the executor rules in PROTOCOL.md | **not deployed**, merged after the running candidate |
-| [FND-024](plan/tickets/FND-024.md) | The deploy-bump action and its 20 callers push under the release-writer identity | **not deployed**, merged after the running candidate |
-| [FND-025](plan/tickets/FND-025.md) | The rulesets name the release-writer key; a push outside the queue is judged by what it changes | **not deployed**, merged after the running candidate |
-| [FND-026](plan/tickets/FND-026.md) | Two tasks that share only record files may run together | **not deployed**, merged after the running candidate |
-| [FND-027](plan/tickets/FND-027.md) | A moved funnel pin rebuilds the provisioning image; the openclaw build writes no seed pin | **not deployed**, merged after the running candidate |
-| [FND-028](plan/tickets/FND-028.md) | Four image builds and the catalog build are green on main again | **not deployed**, merged after the running candidate |
-| [FND-029](plan/tickets/FND-029.md) | A published chart version is never published again with other content | **not deployed**, merged after the running candidate |
-| [FND-031](plan/tickets/FND-031.md) | Gate manifest and verdict tool; the mode and the override go | **not deployed**, merged after the running candidate |
-| [FND-032](plan/tickets/FND-032.md) | Record version 2 and the check registry | **not deployed**, merged after the running candidate |
-| [FND-033](plan/tickets/FND-033.md) | Checks: candidate identity, zero touch, nodes, releases and pods | **not deployed**, merged after the running candidate |
-| [FND-034](plan/tickets/FND-034.md) | Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as checks | **not deployed**, merged after the running candidate |
-| [FND-035](plan/tickets/FND-035.md) | The gate workflow | **not deployed**, merged after the running candidate |
-| [FND-036](plan/tickets/FND-036.md) | Sign-in as a gate check | **not deployed**, merged after the running candidate |
-| [FND-039](plan/tickets/FND-039.md) | The suite writes the provision block of a cloud record | **not deployed**, merged after the running candidate |
-| [FND-040](plan/tickets/FND-040.md) | Stability register and the frozen-path check | **not deployed**, merged after the running candidate |
-| [FND-041](plan/tickets/FND-041.md) | The suite selects only the checks that are Go files of the suite | **not deployed**, merged after the running candidate |
-| [FND-051](plan/tickets/FND-051.md) | Billing-engine and tool-server tests run on pull requests | **not deployed**, merged after the running candidate |
-| [FND-052](plan/tickets/FND-052.md) | Tests that run nowhere join the matrix | **not deployed**, merged after the running candidate |
-| [FND-053](plan/tickets/FND-053.md) | Go lint ratchet | **not deployed**, merged after the running candidate |
-| [FND-054](plan/tickets/FND-054.md) | Console lint ratchet; the switched-off suite is deleted | **not deployed**, merged after the running candidate |
-| [FND-055](plan/tickets/FND-055.md) | Vulnerability and secret scans, new findings only | **not deployed**, merged after the running candidate |
-| [FND-056](plan/tickets/FND-056.md) | Pin the two moving actions; ratchets for actions and base images | **not deployed**, merged after the running candidate |
-| [FND-057](plan/tickets/FND-057.md) | The privacy guard fails closed and runs on every branch | **not deployed**, merged after the running candidate |
-| [FND-058](plan/tickets/FND-058.md) | The guard-wiring meta-guard never reports a guard that a workflow runs as orphaned | **not deployed**, merged after the running candidate |
-| [FND-059](plan/tickets/FND-059.md) | The guards that run on every pull request share a few jobs | **not deployed**, merged after the running candidate |
-| [FND-061](plan/tickets/FND-061.md) | One signing action, used by the control-plane images first | **not deployed**, merged after the running candidate |
-| [FND-062](plan/tickets/FND-062.md) | Every image and chart build signs through the action | **not deployed**, merged after the running candidate |
-| [FND-063](plan/tickets/FND-063.md) | Release key pair: platform images carry a key signature | **not deployed**, merged after the running candidate |
-| [FND-064](plan/tickets/FND-064.md) | Custody procedure of the release key, safe rotation, and the pre-live statement | **not deployed**, merged after the running candidate |
-| [FND-070](plan/tickets/FND-070.md) | Baseline: one fresh provision of `main` as it stands | **not deployed**, merged after the running candidate |
-| [FND-071](plan/tickets/FND-071.md) | Leftover lister: a read-only listing of what a wiped deployment left in the cloud account, failing closed | **not deployed**, merged after the running candidate |
-| [FND-072](plan/tickets/FND-072.md) | Flight checklist in the lifecycle script: the sweep command and the fire that refuses without a clean sweep | **not deployed**, merged after the running candidate |
-| [FND-073](plan/tickets/FND-073.md) | The gate runs twice against the standing environment once it carries the candidate, with no wipe | **not deployed**, merged after the running candidate |
-| [FND-074](plan/tickets/FND-074.md) | Pre-flight: the fires on a parent domain in the last seven days | **not deployed**, merged after the running candidate |
-| [FND-075](plan/tickets/FND-075.md) | The gate record carries the pre-flight numbers: quota headroom and the leftover count | **not deployed**, merged after the running candidate |
 | [FND-076](plan/tickets/FND-076.md) | The standing environment is updated through the release route by a workflow of the repository | **not deployed**, merged after the running candidate |
-| [FND-077](plan/tickets/FND-077.md) | The flight sweep counts the DNS records a wiped deployment left | **not deployed**, merged after the running candidate |
-| [FND-078](plan/tickets/FND-078.md) | The gate's cluster jobs run as a Job on the parent | **not deployed**, merged after the running candidate |
-| [FND-079](plan/tickets/FND-079.md) | The gate has a scoped access to the parent | **not deployed**, merged after the running candidate |
-| [FND-080](plan/tickets/FND-080.md) | Set the manifest from the baseline | **not deployed**, merged after the running candidate |
-| [FND-088](plan/tickets/FND-088.md) | The event registry and the shared bus package no longer name the Sandbox request subject | **not deployed**, merged after the running candidate |
-| [FND-089](plan/tickets/FND-089.md) | The storefront offers no Sandbox agent picks and the order request carries no agents field | **not deployed**, merged after the running candidate |
-| [FND-091](plan/tickets/FND-091.md) | Remove committed binaries and root clutter; add the hygiene guard | **not deployed**, merged after the running candidate |
-| [FND-092](plan/tickets/FND-092.md) | Stop building the Sandbox images | **not deployed**, merged after the running candidate |
-| [FND-093](plan/tickets/FND-093.md) | Remove the Sandbox surface of the API | **not deployed**, merged after the running candidate |
-| [FND-094](plan/tickets/FND-094.md) | Remove the Sandbox pages of the console | **not deployed**, merged after the running candidate |
-| [FND-095](plan/tickets/FND-095.md) | Remove the Sandbox orchestrator, grants and cutover entries | **not deployed**, merged after the running candidate |
-| [FND-096](plan/tickets/FND-096.md) | Remove the Sandbox sources | **not deployed**, merged after the running candidate |
-| [FND-097](plan/tickets/FND-097.md) | Remove the unshipped console, the one job that drives it and the tests that only target it | **not deployed**, merged after the running candidate |
-| [FND-098](plan/tickets/FND-098.md) | Remove one retired chart folder and one dead harness | **not deployed**, merged after the running candidate |
-| [FND-099](plan/tickets/FND-099.md) | Remove two custom resources that nothing reads | **not deployed**, merged after the running candidate |
-| [FND-101](plan/tickets/FND-101.md) | Truth reset of the status surfaces | **not deployed**, merged after the running candidate |
-| [FND-102](plan/tickets/FND-102.md) | Inventory generators and the drift check | **not deployed**, merged after the running candidate |
-| [FND-103](plan/tickets/FND-103.md) | State markers and their ratchet | **not deployed**, merged after the running candidate |
-| [FND-104](plan/tickets/FND-104.md) | Truth patch of the canonical documents | **not deployed**, merged after the running candidate |
-| [FND-105](plan/tickets/FND-105.md) | Security control matrix: format and generator | **not deployed**, merged after the running candidate |
-| [FND-106](plan/tickets/FND-106.md) | Decision records 0022, 0023 and 0025; index and header corrections | **not deployed**, merged after the running candidate |
-| [FND-107](plan/tickets/FND-107.md) | The bot that flips acceptance rows keeps the tally and provenance lines true | **not deployed**, merged after the running candidate |
-| [FND-110](plan/tickets/FND-110.md) | Guard: no Kyverno engine at 1.20 while a legacy policy exists | **not deployed**, merged after the running candidate |
-| [FND-130](plan/tickets/FND-130.md) | The gate suite runs on the local provider pack on every pull request | **not deployed**, merged after the running candidate |
-| [FND-131](plan/tickets/FND-131.md) | A run without journeys asserts only what the pack holds: discovery of the journey objects is left out, and the scope check is a cloud check | **not deployed**, merged after the running candidate |
-| [FND-151](plan/tickets/FND-151.md) | The suite as an image, with the `self` selection | **not deployed**, merged after the running candidate |
-| [FND-153](plan/tickets/FND-153.md) | The suite image and its signed build | **not deployed**, merged after the running candidate |
-| [FND-154](plan/tickets/FND-154.md) | Check FND-G01 in its `self` form | **not deployed**, merged after the running candidate |
-| [FND-155](plan/tickets/FND-155.md) | The `self` selection run by a Job on the local provider pack | **not deployed**, merged after the running candidate |
-| [FND-156](plan/tickets/FND-156.md) | The conformance account exists on every Sovereign | **not deployed**, merged after the running candidate |
-| [FND-157](plan/tickets/FND-157.md) | A gate run reads the storefront's sign-in code from a mailbox on the Sovereign under test | **not deployed**, merged after the running candidate |
-| [FND-171](plan/tickets/FND-171.md) | Remove the fabricated playback route and its preflight route | **not deployed**, merged after the running candidate |
-| [FND-173](plan/tickets/FND-173.md) | Remove the unimported type mirror | **not deployed**, merged after the running candidate |
-| [FND-181](plan/tickets/FND-181.md) | Decision record 0036: backup and restore | **not deployed**, merged after the running candidate |
-| [FND-206](plan/tickets/FND-206.md) | The size budget of a story leaves out the lines a registered generator writes | **not deployed**, merged after the running candidate |
-| [FND-207](plan/tickets/FND-207.md) | A check stays green on the newest valid pair until a newer record says otherwise | **not deployed**, merged after the running candidate |
-| [INF-010](plan/tickets/INF-010.md) | Guard for the machine plane | **not deployed**, merged after the running candidate |
-| [INF-020](plan/tickets/INF-020.md) | Spike: hardware virtualisation on worker nodes | **not deployed**, merged after the running candidate |
-| INF-030 | Spike: kured beside the upgrade controller on k3s | **not deployed**, merged after the running candidate |
-| [INF-040](plan/tickets/INF-040.md) | Chart bp-kured with the node patch configuration | **not deployed**, merged after the running candidate |
-| [INF-050](plan/tickets/INF-050.md) | Install kured | **not deployed**, merged after the running candidate |
-| [INF-051](plan/tickets/INF-051.md) | Check INF-G01: coordinated reboot, as a suite file | **not deployed**, merged after the running candidate |
-| [INF-052](plan/tickets/INF-052.md) | Check INF-G01: upgrade windows and recovery; set to required | **not deployed**, merged after the running candidate |
-| [INF-053](plan/tickets/INF-053.md) | Capability flag node-reboot: a gate run restarts nodes only when it declares the flag | **not deployed**, merged after the running candidate |
-| [INF-055](plan/tickets/INF-055.md) | Leave the kured slot out of the local reduced kit | **not deployed**, merged after the running candidate |
-| [INF-060](plan/tickets/INF-060.md) | Remove the reboot settings from cloud-init | **not deployed**, merged after the running candidate |
-| [INF-070](plan/tickets/INF-070.md) | Decision record for the infrastructure plane | **not deployed**, merged after the running candidate |
-| [INF-110](plan/tickets/INF-110.md) | Kinds Machine and MachineSource; inventory controller with the node source | **not deployed**, merged after the running candidate |
-| [INF-112](plan/tickets/INF-112.md) | Chart templates and image for the inventory controller | **not deployed**, merged after the running candidate |
-| [INF-120](plan/tickets/INF-120.md) | Runner image and node-mode tasks | **not deployed**, merged after the running candidate |
-| [INF-130](plan/tickets/INF-130.md) | Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | **not deployed**, merged after the running candidate |
-| [INF-132](plan/tickets/INF-132.md) | Chart templates for the operations controller | **not deployed**, merged after the running candidate |
-| [INF-133](plan/tickets/INF-133.md) | Check INF-G02: node host scans, as a suite file | **not deployed**, merged after the running candidate |
-| [INF-135](plan/tickets/INF-135.md) | Lock stage machine-ops in audit | **not deployed**, merged after the running candidate |
-| [INF-140](plan/tickets/INF-140.md) | Vulnerability matching and daily re-matching | **not deployed**, merged after the running candidate |
-| [INF-210](plan/tickets/INF-210.md) | Spike: composite resource in an Organization's release, changed placement, moved Primary | **not deployed**, merged after the running candidate |
-| [INF-512](plan/tickets/INF-512.md) | Runner test task: arguments, target check and Nuclei (profile network-passive) | **not deployed**, merged after the running candidate |
-| [INF-513](plan/tickets/INF-513.md) | Runner test task: the ZAP baseline scan and its SARIF report (profile web-passive) | **not deployed**, merged after the running candidate |
-| [INF-710](plan/tickets/INF-710.md) | Spike: the host security service on the operator-hosted stack | **not deployed**, merged after the running candidate |
-| [MIG-010](plan/tickets/MIG-010.md) | Decision record: migration is a platform product; correct the documents | **not deployed**, merged after the running candidate |
-| [MIG-030](plan/tickets/MIG-030.md) | Spike: a written volume boots on the reference cloud, through a unit Workspace | **not deployed**, merged after the running candidate |
-| MIG-050 | Spike: hermetic conversion and boot on a standard CI runner | **not deployed**, merged after the running candidate |
-| [MIG-060](plan/tickets/MIG-060.md) | Guard: no vendor disk library in the repository or in public images | **not deployed**, merged after the running candidate |
-| [NET-010](plan/tickets/NET-010.md) | Close peer and stale ports on the reference provider | **not deployed**, merged after the running candidate |
-| [NET-011](plan/tickets/NET-011.md) | API port limited to declared sources | **not deployed**, merged after the running candidate |
-| [NET-012](plan/tickets/NET-012.md) | Second provider firewall to the same rule | **not deployed**, merged after the running candidate |
-| [NET-013](plan/tickets/NET-013.md) | The gate dials the API port from an address in no list | **not deployed**, merged after the running candidate |
-| [NET-020](plan/tickets/NET-020.md) | Disable the k3s kube-proxy | **not deployed**, merged after the running candidate |
-| [NET-030](plan/tickets/NET-030.md) | Retired names lose their policy privileges | **not deployed**, merged after the running candidate |
-| [NET-031](plan/tickets/NET-031.md) | Stop reflecting the object-storage Secret to retired namespaces | **not deployed**, merged after the running candidate |
-| [NET-032](plan/tickets/NET-032.md) | Reserve platform namespace names as Organization slugs | **not deployed**, merged after the running candidate |
-| [NET-033](plan/tickets/NET-033.md) | The definition-of-done verifier stops requiring retired releases | **not deployed**, merged after the running candidate |
-| [NET-040](plan/tickets/NET-040.md) | Remove the unwired firewall and the unused SPIRE chart | **not deployed**, merged after the running candidate |
-| [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | **not deployed**, merged after the running candidate |
-| [NET-042](plan/tickets/NET-042.md) | Retire the two legacy per-Sovereign overlays | **not deployed**, merged after the running candidate |
-| [NET-050](plan/tickets/NET-050.md) | Zone decision record | **not deployed**, merged after the running candidate |
-| [NET-052](plan/tickets/NET-052.md) | Decision record 0026: NodePort ban and the gateway serving model | **not deployed**, merged after the running candidate |
-| [NET-055](plan/tickets/NET-055.md) | Canonical documents state the zone, firewall and default-deny design of record 0019 | **not deployed**, merged after the running candidate |
-| [NET-060](plan/tickets/NET-060.md) | Read-only census of the network posture | **not deployed**, merged after the running candidate |
-| [NET-070](plan/tickets/NET-070.md) | Wizard shows what the provisioner builds | **not deployed**, merged after the running candidate |
-| [NET-071](plan/tickets/NET-071.md) | Remove the zone virtual-cluster dialog, tab and stub kind | **not deployed**, merged after the running candidate |
-| [NET-072](plan/tickets/NET-072.md) | Placement selectors offer the host only | **not deployed**, merged after the running candidate |
-| [NET-080](plan/tickets/NET-080.md) | Pin the Organization virtual cluster chart | **not deployed**, merged after the running candidate |
-| [NET-090](plan/tickets/NET-090.md) | Network guards in CI | **not deployed**, merged after the running candidate |
-| [NET-095](plan/tickets/NET-095.md) | Policy chart: only the deny of the instance metadata address by default | **not deployed**, merged after the running candidate |
-| [NET-096](plan/tickets/NET-096.md) | Turn the metadata deny on in the kit | **not deployed**, merged after the running candidate |
-| [NET-097](plan/tickets/NET-097.md) | Gate check NET-G10: a Pod cannot reach the instance metadata address | **not deployed**, merged after the running candidate |
-| [NET-098](plan/tickets/NET-098.md) | The Hetzner storage node plugin is allowed to read instance metadata | **not deployed**, merged after the running candidate |
-| [NET-100](plan/tickets/NET-100.md) | Network registry output and validator | **not deployed**, merged after the running candidate |
-| [NET-102](plan/tickets/NET-102.md) | Registry in the Sovereign status, checked against the live cluster | **not deployed**, merged after the running candidate |
-| [NET-110](plan/tickets/NET-110.md) | Cilium base values to target | **not deployed**, merged after the running candidate |
-| [NET-125](plan/tickets/NET-125.md) | Mesh status read, and a mode switch, in the API | **not deployed**, merged after the running candidate |
-| [NET-133](plan/tickets/NET-133.md) | A local-affinity decision on every global Service | **not deployed**, merged after the running candidate |
-| [NET-135](plan/tickets/NET-135.md) | The plane-isolation policies admit the cross-region file sync and the snapshot job, and no longer depend on which namespaces exist at render time | **not deployed**, merged after the running candidate |
-| [NET-150](plan/tickets/NET-150.md) | Default-deny scaffolding and dial checks | **not deployed**, merged after the running candidate |
-| [NET-153](plan/tickets/NET-153.md) | Allow-list of the hand-over proof's deny-egress object | **not deployed**, merged after the running candidate |
-| [NET-170](plan/tickets/NET-170.md) | Organization fence: two host-side deny objects for the Organization's own pods | **not deployed**, merged after the running candidate |
-| [NET-172](plan/tickets/NET-172.md) | Gate check NET-G07: Organization isolation, journey ISO in both regions | **not deployed**, merged after the running candidate |
-| [NET-190](plan/tickets/NET-190.md) | Route admission by owner | **not deployed**, merged after the running candidate |
-| [NET-210](plan/tickets/NET-210.md) | Availability zone per region and a separation output | **not deployed**, merged after the running candidate |
-| [NET-212](plan/tickets/NET-212.md) | Show the separation; refuse the claim when it is none | **not deployed**, merged after the running candidate |
-| [NET-221](plan/tickets/NET-221.md) | Delete the four retired charts and their seed entries | **not deployed**, merged after the running candidate |
-| [NET-251](plan/tickets/NET-251.md) | Decision record: firewall mechanism and the package list of epic NET-250 | **not deployed**, merged after the running candidate |
-| [NET-252](plan/tickets/NET-252.md) | Lab test: HTTPS through the front listener, and cilium-envoy memory with the filter under load | **not deployed**, merged after the running candidate |
-| [NET-255](plan/tickets/NET-255.md) | Journey WAF, its corpus and gate check NET-G15 as expected-fail | **not deployed**, merged after the running candidate |
-| [NET-270](plan/tickets/NET-270.md) | Spike: firewall attachment | **not deployed**, merged after the running candidate |
-| [NET-280](plan/tickets/NET-280.md) | Spike: overlay profile | **not deployed**, merged after the running candidate |
-| NET-290 | Spike: platform-owned Cilium on the National Cloud's managed Kubernetes | **not deployed**, merged after the running candidate |
-| NET-300 | Spike: region separation on the reference cloud | **not deployed**, merged after the running candidate |
-| [NET-321](plan/tickets/NET-321.md) | Decision record: managed cluster class on the reference cloud | **not deployed**, merged after the running candidate |
-| [NET-330](plan/tickets/NET-330.md) | Spike: a bridged secondary network for virtual machines (conditional, dropped until INF-810 is scheduled) | **not deployed**, merged after the running candidate |
-| [PRD-010](plan/tickets/PRD-010.md) | Remove the unbacked open-banking claims from the Keycloak README | **not deployed**, merged after the running candidate |
-| [PRD-020](plan/tickets/PRD-020.md) | Decision record: later products | **not deployed**, merged after the running candidate |
-| [PRD-030](plan/tickets/PRD-030.md) | Product guard at today's values (rules G-P1 to G-P3) | **not deployed**, merged after the running candidate |
-| PRD-040 | Spike: authorisation server fitness, consent carrier and conformance run | **not deployed**, merged after the running candidate |
-| PRD-060 | Spike: vector search with row-level trimming on the platform's PostgreSQL | **not deployed**, merged after the running candidate |
-| [PRD-061](plan/tickets/PRD-061.md) | Spike: vector search with the readable principals on the chunk row | **not deployed**, merged after the running candidate |
-| PRD-070 | Spike: chat front end forwards the user's token | **not deployed**, merged after the running candidate |
-| PRD-080 | Spike: CPU images for embeddings, rerank, document conversion and transcription | **not deployed**, merged after the running candidate |
-| [PRD-101](plan/tickets/PRD-101.md) | Vendor the six public documents and write the profile | **not deployed**, merged after the running candidate |
-| [PRD-102](plan/tickets/PRD-102.md) | Generated types and server interfaces (oapi-codegen, strict server) | **not deployed**, merged after the running candidate |
-| [PRD-103](plan/tickets/PRD-103.md) | Ledger port and conformance kit | **not deployed**, merged after the running candidate |
-| [PRD-104](plan/tickets/PRD-104.md) | Consent package | **not deployed**, merged after the running candidate |
-| [PRD-105](plan/tickets/PRD-105.md) | Token package | **not deployed**, merged after the running candidate |
-| [PRD-106](plan/tickets/PRD-106.md) | CI workflow for the fingate module | **not deployed**, merged after the running candidate |
-| [PRD-202](plan/tickets/PRD-202.md) | cortex store: migrations, roles, trimmed query | **not deployed**, merged after the running candidate |
-| [PRD-203](plan/tickets/PRD-203.md) | cortex query process: token check, gateway client, search, definitions loader | **not deployed**, merged after the running candidate |
-| [PRD-204](plan/tickets/PRD-204.md) | cortex ingestion of uploads: job table, upload and document routes, index process, text parser, chunker, events stream | **not deployed**, merged after the running candidate |
-| [PRD-205](plan/tickets/PRD-205.md) | Assistants: models list, answers with citations, residency refusal | **not deployed**, merged after the running candidate |
-| [PRD-211](plan/tickets/PRD-211.md) | Document conversion parser | **not deployed**, merged after the running candidate |
-| [PRD-501](plan/tickets/PRD-501.md) | Resource server base: store, definitions loader, router with the token check, account-access consent resources, not-offered answers | **not deployed**, merged after the running candidate |
-| [PRD-502](plan/tickets/PRD-502.md) | Sandbox ledger | **not deployed**, merged after the running candidate |
-| [PRD-503](plan/tickets/PRD-503.md) | Keycloak consent extension | **not deployed**, merged after the running candidate |
-| [PRD-508](plan/tickets/PRD-508.md) | Account-information read operations and the ledger client | **not deployed**, merged after the running candidate |
-| [PRD-509](plan/tickets/PRD-509.md) | Internal authorisation API | **not deployed**, merged after the running candidate |
-| [PRD-513](plan/tickets/PRD-513.md) | Resource server: PostgreSQL consent store with migration 0001, the definitions informer and the fingate-api program | **not deployed**, merged after the running candidate |
-| [PRD-800](plan/tickets/PRD-800.md) | Adapter template for a second bank | **not deployed**, merged after the running candidate |
-| [SEC-005](plan/tickets/SEC-005.md) | Publish contract C8: seal provider and k3s bootstrap | **not deployed**, merged after the running candidate |
-| [SEC-006](plan/tickets/SEC-006.md) | Decision record 0018: secrets and trust | **not deployed**, merged after the running candidate |
-| [SEC-010](plan/tickets/SEC-010.md) | Close the public route to OpenBao system paths | **not deployed**, merged after the running candidate |
-| [SEC-020](plan/tickets/SEC-020.md) | Random k3s server token and separate agent token | **not deployed**, merged after the running candidate |
-| [SEC-030](plan/tickets/SEC-030.md) | etcd encryption on at first boot | **not deployed**, merged after the running candidate |
-| [SEC-040](plan/tickets/SEC-040.md) | Bootstrap secret hygiene on the node and reflector scope | **not deployed**, merged after the running candidate |
-| [SEC-071](plan/tickets/SEC-071.md) | Ratchet on passwords the provisioning service writes to Git | **not deployed**, merged after the running candidate |
-| [SEC-073](plan/tickets/SEC-073.md) | Remove the committed database passwords and rotate them | **not deployed**, merged after the running candidate |
-| [SEC-080](plan/tickets/SEC-080.md) | External Secrets quick scope | **not deployed**, merged after the running candidate |
-| [SEC-090](plan/tickets/SEC-090.md) | Guards | **not deployed**, merged after the running candidate |
-| [SEC-095](plan/tickets/SEC-095.md) | Exception register, source guard and Secret census | **not deployed**, merged after the running candidate |
-| [SEC-096](plan/tickets/SEC-096.md) | Census limit set from the first measured census; SEC-G11 required | **not deployed**, merged after the running candidate |
-| [SEC-100](plan/tickets/SEC-100.md) | Delete the abandoned OpenBao multi-region mechanisms | **not deployed**, merged after the running candidate |
-| [SEC-103](plan/tickets/SEC-103.md) | Remove the SealedSecret templates from the guacamole and netbird charts | **not deployed**, merged after the running candidate |
-| [SEC-104](plan/tickets/SEC-104.md) | Unwire bootstrap-kit slot 05 | **not deployed**, merged after the running candidate |
-| [SEC-105](plan/tickets/SEC-105.md) | Delete Sealed Secrets | **not deployed**, merged after the running candidate |
-| [SEC-110](plan/tickets/SEC-110.md) | Truth in the security documents | **not deployed**, merged after the running candidate |
-| [SEC-120](plan/tickets/SEC-120.md) | etcd dump check and node hygiene check, as check files | **not deployed**, merged after the running candidate |
-| [SEC-125](plan/tickets/SEC-125.md) | k3s bootstrap flags proven on a CI runner | **not deployed**, merged after the running candidate |
-| [SEC-126](plan/tickets/SEC-126.md) | The runbook states how and when to rotate the etcd encryption key of a running Sovereign | **not deployed**, merged after the running candidate |
-| [SEC-127](plan/tickets/SEC-127.md) | The k3s bootstrap-flags test pins its checkout action by commit hash and its k3s image by digest | **not deployed**, merged after the running candidate |
-| SEC-130 | Spike: OpenBao 2.7, static seal, self-initialisation, declared audit device | **not deployed**, merged after the running candidate |
-| SEC-135 | Spike: key-service seal on the reference cloud | **not deployed**, merged after the running candidate |
-| SEC-140 | Spike: injection into an Organization's virtual cluster | **not deployed**, merged after the running candidate |
-| [SEC-150](plan/tickets/SEC-150.md) | Seal hook of contract C8 in the three provider packs, with its call and the provisioner staging | **not deployed**, merged after the running candidate |
-| [SEC-152](plan/tickets/SEC-152.md) | Shared template writes the seal key files and the seal profile; seal volume on the reference pack | **not deployed**, merged after the running candidate |
-| [SEC-161](plan/tickets/SEC-161.md) | Reconciler: secrets mounts and accessor substitution | **not deployed**, merged after the running candidate |
-| SEC-271 | Spike: the policy engine verifies a signature with no public log | **not deployed**, merged after the running candidate |
-| SEC-280 | Spike: database engine on CloudNativePG | **not deployed**, merged after the running candidate |
-| [SOV-010](plan/tickets/SOV-010.md) | Record the cutover result of the baseline provision and correct the lifecycle documents | **not deployed**, merged after the running candidate |
-| [SOV-020](plan/tickets/SOV-020.md) | One default for the zero-touch switch | **not deployed**, merged after the running candidate |
-| [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | **not deployed**, merged after the running candidate |
-| [SOV-035](plan/tickets/SOV-035.md) | Delete the ProvisioningState kind and its unwired store | **not deployed**, merged after the running candidate |
-| [SOV-040](plan/tickets/SOV-040.md) | Guard G1: source-address ratchet | **not deployed**, merged after the running candidate |
-| [SOV-050](plan/tickets/SOV-050.md) | Guards G2, G3, G4, G7: shrink ratchets | **not deployed**, merged after the running candidate |
-| SOV-060 | Spike: born-local node registry list | **not deployed**, merged after the running candidate |
-| SOV-070 | Spike: a scoped cloud identity per Sovereign on the reference cloud | **not deployed**, merged after the running candidate |
-| SOV-080 | Spike: whole-state move, encrypted object-store state, zero-change plan, offline restore | **not deployed**, merged after the running candidate |
-| SOV-090 | Spike: authoritative DNS and outbound mail on the reference cloud | **not deployed**, merged after the running candidate |
-| [SOV-110](plan/tickets/SOV-110.md) | Contract C5: schema, kit key list, the upstream package and its validator | **not deployed**, merged after the running candidate |
-| [SOV-120](plan/tickets/SOV-120.md) | The sovereign-ops command and its image | **not deployed**, merged after the running candidate |
-| [SOV-121](plan/tickets/SOV-121.md) | The seed-repo command of sovereign-ops | **not deployed**, merged after the running candidate |
-| [SOV-130](plan/tickets/SOV-130.md) | Substrate window, part 1: modules and cloud-init take the variables document | **not deployed**, merged after the running candidate |
-| [SOV-131](plan/tickets/SOV-131.md) | Provider modules take the variables map of the upstream contract | **not deployed**, merged after the running candidate |
-| [SOV-132](plan/tickets/SOV-132.md) | Nodes boot with a local-first registry file, a wildcard entry and the public fallback off | **not deployed**, merged after the running candidate |
-| [SOV-133](plan/tickets/SOV-133.md) | The boot template and the provider contract take the variables document | **not deployed**, merged after the running candidate |
-| [SOV-134](plan/tickets/SOV-134.md) | The contract keys of the variables document land in the sovereign-variables ConfigMap | **not deployed**, merged after the running candidate |
-| [SOV-135](plan/tickets/SOV-135.md) | The mothership registry name is a proxy name served at the root, with an origin address per provider | **not deployed**, merged after the running candidate |
-| [SOV-140](plan/tickets/SOV-140.md) | Substrate window, part 2: revocable bootstrap access, peer tokens, node artifacts from the registry | **not deployed**, merged after the running candidate |
-| [SOV-141](plan/tickets/SOV-141.md) | Each peer region gets its own handover-peer token, given to the primary once at hand-over | **not deployed**, merged after the running candidate |
-| [SOV-142](plan/tickets/SOV-142.md) | New nodes fetch k3s, Flux and Gateway API install files from the registry, with fallback | **not deployed**, merged after the running candidate |
-| [SOV-143](plan/tickets/SOV-143.md) | The Secret register lists parent-bootstrap-token, with SOV-435 as the package that removes it | **not deployed**, merged after the running candidate |
-| [SOV-144](plan/tickets/SOV-144.md) | The post-back failure codes leave the exit code that the seal contract reserves | **not deployed**, merged after the running candidate |
-| [SOV-145](plan/tickets/SOV-145.md) | Two node files that nothing reads leave first boot | **not deployed**, merged after the running candidate |
-| [SOV-146](plan/tickets/SOV-146.md) | The child Kustomizations of first boot are also files under clusters/_template/root | **not deployed**, merged after the running candidate |
-| [SOV-148](plan/tickets/SOV-148.md) | Lab test: first-boot steps from a fetched, checksum-pinned bundle | **not deployed**, merged after the running candidate |
-| [SOV-149](plan/tickets/SOV-149.md) | The image pre-pull leaves first boot | **not deployed**, merged after the running candidate |
-| [SOV-150](plan/tickets/SOV-150.md) | Kit sources become substitutions, with a render-equivalence test | **not deployed**, merged after the running candidate |
-| [SOV-151](plan/tickets/SOV-151.md) | Kit pull Secret names and the hand-over switch read the Sovereign's variables | **not deployed**, merged after the running candidate |
-| [SOV-154](plan/tickets/SOV-154.md) | First boot applies one root Kustomization; its children come from Git | **not deployed**, merged after the running candidate |
-| [SOV-160](plan/tickets/SOV-160.md) | Registry projects, the Organization Git token and the two repositories are created at install | **not deployed**, merged after the running candidate |
-| [SOV-161](plan/tickets/SOV-161.md) | The pull robot of the local registry joins the pull secret at install | **not deployed**, merged after the running candidate |
-| [SOV-175](plan/tickets/SOV-175.md) | The Sovereign object gets its writer | **not deployed**, merged after the running candidate |
-| [SOV-180](plan/tickets/SOV-180.md) | The API serves the Sovereign's mode and variables, with the contract's defaults | **not deployed**, merged after the running candidate |
-| [SOV-181](plan/tickets/SOV-181.md) | The provisioning routes refuse a Sovereign that is not a mothership | **not deployed**, merged after the running candidate |
-| [SOV-183](plan/tickets/SOV-183.md) | The Organization controller and the provisioning service render sources and the pull secret from the variables | **not deployed**, merged after the running candidate |
-| [SOV-190](plan/tickets/SOV-190.md) | The console reads the mode from the API | **not deployed**, merged after the running candidate |
-| [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | **not deployed**, merged after the running candidate |
-| [SOV-241](plan/tickets/SOV-241.md) | Follower regions pivot the image registry of the other kit workloads that run there | **not deployed**, merged after the running candidate |
-| [SOV-320](plan/tickets/SOV-320.md) | Sign-in mail without the parent's credential | **not deployed**, merged after the running candidate |
-| [SOV-321](plan/tickets/SOV-321.md) | Spike: the Sovereign's own mail server on a running Sovereign | **not deployed**, merged after the running candidate |
-| [SOV-322](plan/tickets/SOV-322.md) | Sign-in mail from the Sovereign's own server: kit slot, settings, and the parent seed deleted | **not deployed**, merged after the running candidate |
-| [SOV-323](plan/tickets/SOV-323.md) | Relay mode: sign-in mail through a relay with a credential for that child alone | **not deployed**, merged after the running candidate |
-| [SOV-335](plan/tickets/SOV-335.md) | The variables document carries the path of the vulnerability database | **not deployed**, merged after the running candidate |
-| [SOV-336](plan/tickets/SOV-336.md) | The registry install creates the proxy project of the vulnerability database | **not deployed**, merged after the running candidate |
-| [SOV-337](plan/tickets/SOV-337.md) | The scanner reads the vulnerability database from the Sovereign's own registry | **not deployed**, merged after the running candidate |
-| [SOV-338](plan/tickets/SOV-338.md) | A kept variables document is brought to the keys of the contract before a module reads it | **not deployed**, merged after the running candidate |
-| [SOV-341](plan/tickets/SOV-341.md) | The kubeconfig route serves the primary region's file that the parent holds after hand-over | **not deployed**, merged after the running candidate |
-| [SOV-521](plan/tickets/SOV-521.md) | The release route promotes one region per request and rolls a region back to its recorded main | **not deployed**, merged after the running candidate |
-| [SOV-522](plan/tickets/SOV-522.md) | The release stage applies the provider pivot again where a candidate changes a package line | **not deployed**, merged after the running candidate |
-| [SOV-750](plan/tickets/SOV-750.md) | Spike: an auto-scaling group worker pool on the reference cloud | **not deployed**, merged after the running candidate |
-| [SVC-010](plan/tickets/SVC-010.md) | Decision record and glossary edits | **not deployed**, merged after the running candidate |
-| [SVC-020](plan/tickets/SVC-020.md) | Service-model ratchet guard | **not deployed**, merged after the running candidate |
-| [SVC-030](plan/tickets/SVC-030.md) | The Catalog page honours visibility and refuses what has no chart | **not deployed**, merged after the running candidate |
-| [SVC-040](plan/tickets/SVC-040.md) | Blueprint files move to apiVersion catalyst.openova.io/v1 | **not deployed**, merged after the running candidate |
-| [SVC-041](plan/tickets/SVC-041.md) | Blueprint names bp-<folder>, explicit visibility, and the two missing Blueprint files | **not deployed**, merged after the running candidate |
-| [SVC-060](plan/tickets/SVC-060.md) | Function-test convention and the data charts | **not deployed**, merged after the running candidate |
-| [SVC-070](plan/tickets/SVC-070.md) | Function tests: identity and secrets charts | **not deployed**, merged after the running candidate |
-| [SVC-080](plan/tickets/SVC-080.md) | Function tests: GitOps, registry and certificate charts | **not deployed**, merged after the running candidate |
-| [SVC-090](plan/tickets/SVC-090.md) | Function tests: network, names and edge charts | **not deployed**, merged after the running candidate |
-| [SVC-100](plan/tickets/SVC-100.md) | Function tests: admission, infrastructure and control-plane charts | **not deployed**, merged after the running candidate |
-| SVC-120 | Spike: Flux records test hooks and leaves Ready alone | **not deployed**, merged after the running candidate |
-| [SVC-125](plan/tickets/SVC-125.md) | Blueprint proofs check: the function-test result in the gate record | **not deployed**, merged after the running candidate |
-| [SVC-130](plan/tickets/SVC-130.md) | Enable function tests on the foundation slots | **not deployed**, merged after the running candidate |
-| [SVC-136](plan/tickets/SVC-136.md) | The foundation function tests pass on a fresh installation | **not deployed**, merged after the running candidate |
-| [SVC-150](plan/tickets/SVC-150.md) | One generator, part 1: embedded and console catalogue | **not deployed**, merged after the running candidate |
-| [SVC-159](plan/tickets/SVC-159.md) | The Blueprint files say what the seed says | **not deployed**, merged after the running candidate |
-| [SVC-160](plan/tickets/SVC-160.md) | One generator, part 2: the seed becomes generated | **not deployed**, merged after the running candidate |
-| [SVC-161](plan/tickets/SVC-161.md) | The seed sync script is deleted with its three importers and four order calls | **not deployed**, merged after the running candidate |
-| [SVC-162](plan/tickets/SVC-162.md) | Shelf deletion: README-only folders and scaffold Blueprint files | **not deployed**, merged after the running candidate |
-| [SVC-163](plan/tickets/SVC-163.md) | The Blueprint files carry the seed's configSchema | **not deployed**, merged after the running candidate |
-| [SVC-164](plan/tickets/SVC-164.md) | Delete the OpenMeter Blueprint | **not deployed**, merged after the running candidate |
-| [SVC-166](plan/tickets/SVC-166.md) | The umbrella chart's Blueprint file moves beside its chart | **not deployed**, merged after the running candidate |
-| [SVC-170](plan/tickets/SVC-170.md) | Contract C1: class and lifecycle on every Blueprint, with their readers | **not deployed**, merged after the running candidate |
-| [SVC-190](plan/tickets/SVC-190.md) | Delete the Blueprint controller | **not deployed**, merged after the running candidate |
-| [SVC-205](plan/tickets/SVC-205.md) | Lock stage blueprints to deny | **not deployed**, merged after the running candidate |
-| SVC-210 | Spike: the ring switch on the pinned Flux | **not deployed**, merged after the running candidate |
-| [SVC-220](plan/tickets/SVC-220.md) | Ring labels on the kit | **not deployed**, merged after the running candidate |
-| [SVC-250](plan/tickets/SVC-250.md) | Spike: composite resources in a release; bucket provisioning for an Organization | **not deployed**, merged after the running candidate |
-| SVC-315 | Spike: create a managed PostgreSQL instance through the API on the National Cloud | **not deployed**, merged after the running candidate |
-| SVC-340 | Spike: credential rotation on a native cache | **not deployed**, merged after the running candidate |
+| [SOV-242](plan/tickets/SOV-242.md) | The cutover repeats a failed step a few times with a growing pause, then stops in a failed state the sovereign-admin resumes | **not deployed**, merged after the running candidate |
 
 ## The environment: its events, installations and defects
 
-hw307 runs candidate `rc/20261119T151537Z-e4613c2` (commit e4613c2) since 19 Nov 17:36 UTC, installed with 0 hand changes: ready at 18:28; the hand-over chain stopped at its last step, the sovereignty hold, from 20:15. Of the 22 repairs of main merged for the fires, [#7898](https://github.com/openova-io/openova/pull/7898), [#7906](https://github.com/openova-io/openova/pull/7906), [#7905](https://github.com/openova-io/openova/pull/7905), [#7904](https://github.com/openova-io/openova/pull/7904), [#7907](https://github.com/openova-io/openova/pull/7907), [#7910](https://github.com/openova-io/openova/pull/7910), [#7911](https://github.com/openova-io/openova/pull/7911), [#7913](https://github.com/openova-io/openova/pull/7913), [#7914](https://github.com/openova-io/openova/pull/7914), [#7915](https://github.com/openova-io/openova/pull/7915), [#7916](https://github.com/openova-io/openova/pull/7916), [#7917](https://github.com/openova-io/openova/pull/7917), [#7918](https://github.com/openova-io/openova/pull/7918), [#7919](https://github.com/openova-io/openova/pull/7919), [#7920](https://github.com/openova-io/openova/pull/7920), [#7921](https://github.com/openova-io/openova/pull/7921), [#7923](https://github.com/openova-io/openova/pull/7923), [#7924](https://github.com/openova-io/openova/pull/7924), [#7925](https://github.com/openova-io/openova/pull/7925), [#7926](https://github.com/openova-io/openova/pull/7926), [#7927](https://github.com/openova-io/openova/pull/7927), [#7928](https://github.com/openova-io/openova/pull/7928) are in the running candidate; all are on the environment.
+hw307 runs candidate `rc/20261120T073828Z-11731a9` (commit 11731a9) since 20 Nov 09:20 UTC, installed with 0 hand changes: fired at 09:20, not ready yet. Of the 22 repairs of main merged for the fires, [#7898](https://github.com/openova-io/openova/pull/7898), [#7906](https://github.com/openova-io/openova/pull/7906), [#7905](https://github.com/openova-io/openova/pull/7905), [#7904](https://github.com/openova-io/openova/pull/7904), [#7907](https://github.com/openova-io/openova/pull/7907), [#7910](https://github.com/openova-io/openova/pull/7910), [#7911](https://github.com/openova-io/openova/pull/7911), [#7913](https://github.com/openova-io/openova/pull/7913), [#7914](https://github.com/openova-io/openova/pull/7914), [#7915](https://github.com/openova-io/openova/pull/7915), [#7916](https://github.com/openova-io/openova/pull/7916), [#7917](https://github.com/openova-io/openova/pull/7917), [#7918](https://github.com/openova-io/openova/pull/7918), [#7919](https://github.com/openova-io/openova/pull/7919), [#7920](https://github.com/openova-io/openova/pull/7920), [#7921](https://github.com/openova-io/openova/pull/7921), [#7923](https://github.com/openova-io/openova/pull/7923), [#7924](https://github.com/openova-io/openova/pull/7924), [#7925](https://github.com/openova-io/openova/pull/7925), [#7926](https://github.com/openova-io/openova/pull/7926), [#7927](https://github.com/openova-io/openova/pull/7927), [#7928](https://github.com/openova-io/openova/pull/7928) are in the running candidate; all are on the environment.
 
-<details><summary>Every event on the environment (97), the installations and the hand-changed tasks</summary>
+<details><summary>Every event on the environment (98), the installations and the hand-changed tasks</summary>
 
 | Time (UTC) | Kind | What happened |
 |---|---|---|
@@ -632,6 +454,7 @@ hw307 runs candidate `rc/20261119T151537Z-e4613c2` (commit e4613c2) since 19 Nov
 | 20 Nov 04:40 | hand change | For delivery 12 the pull Secret that candidate 13's release route requires (catalyst/release-pull-ghcr-delivery12, dockerconfigjson for ghcr.io) was created by hand in region a under the architect's ruling for this delivery only; the route deleted it in both regions. |
 | 20 Nov 04:42 | delivery | Delivery 12 (candidate 15, in place, region b first) failed in the route's prewarm: cutover step 03 could not read the Crossplane provider image on the Sovereign's own Harbor host (harbor.hw307.omani.works/proxy-xpkg, anonymous read 401); nothing moved in any region, the primary request was not sent, the pull Secret was deleted by the route. |
 | 20 Nov 08:48 to 08:58 | wipe | hw307 (the installation of fire 4) was wiped by candidate 16's engine (08:48 to 08:58) and swept clean: 0 leftovers, both Organization record sets released, only the bastion address still in use. The marketplace is down until hw307 is installed again; today's installs run under the test name hw308. |
+| 20 Nov 09:20 | fire | Test install 1 started a fresh two-region installation of candidate 16 under the test name hw308.omani.works, after the pre-flight passed on the first try (image path 93 of 93 after the parent's registry cache was repaired). |
 
 | Installation | Runs | From (UTC) | To (UTC) | Tasks deployed on it |
 |---|---|---|---|---|
@@ -639,7 +462,8 @@ hw307 runs candidate `rc/20261119T151537Z-e4613c2` (commit e4613c2) since 19 Nov
 | ac99fa0bc45b2540 | `rc/20261114T211446Z-de3e1ec`; the cloud refused both control-plane servers after 3 minutes, so no workload ever ran | 14 Nov 22:19 | 15 Nov 02:04 | 0 |
 | b82699b905faa56a | `rc/20261115T042424Z-4a0671c`; it could not finish by itself and was driven to the end of the hand-over chain with 13 hand changes | 15 Nov 04:53 | 15 Nov 15:25 | see the burndown |
 | 9836870916c31984 | `rc/20261115T144352Z-67402a1`; installed from nothing with 0 hand changes: ready 17:05, end of the hand-over chain 18:55; updated in place through the release route since 16 Nov | 15 Nov 15:58 | 19 Nov 17:15 | see the burndown |
-| 0d7b0dd5f63d11aa | `rc/20261119T151537Z-e4613c2` | 19 Nov 17:36 | 20 Nov 08:58 | 0 |
+| 0d7b0dd5f63d11aa | `rc/20261119T151537Z-e4613c2` | 19 Nov 17:36 | 20 Nov 08:58 | see the burndown |
+| aeb37ffdef31dc8b | `rc/20261120T073828Z-11731a9` | 20 Nov 09:20 | running | 448 |
 
 | Task | Defect on this installation | Repair on main |
 |---|---|---|
@@ -648,24 +472,24 @@ hw307 runs candidate `rc/20261119T151537Z-e4613c2` (commit e4613c2) since 19 Nov
 
 ## Right now
 
-Measured from GitHub at 09:01 UTC on 20 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 09:31 UTC on 20 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
-| **Overall completion** | **45.6%** of the tasks are merged (450 of 987). By effort that is 43.7% (318 of 728 agent-hours). Proven on a live environment: 0 tasks on the installation running now (4 were proven on the installation wiped on 14 November). |
-| **Estimated time still needed** | About **379 running hours** until every task is merged (about 16 days if the agents run day and night). About **379 running hours** until every task is also proven on an environment. Agent effort still to spend: about 410 agent-hours. |
-| How the estimate is made | Merged: 537 tasks are left; the last 12 hours merged 1.4 tasks an hour, lab results not counted, which gives 379 hours; the longest row of tasks that must follow one another is 23 long, at about 2 hours each, which gives 46 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
-| **Tokens used so far** | **34.7 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 31.6 billion to carry it out so far. Of the total, 33.7 billion are re-reads of text the models had already read once, which is the cheap kind; 881 million are text read for the first time and 143 million are text the models wrote. By model: Opus 5.5 26.6 billion, Fable 5.2 8.2 billion. At the published pay-as-you-go prices these tokens would cost about $15,700. |
-| **Tokens still expected** | About **41 billion** more until every task is merged, which makes about 75 billion in all; 46% of that is spent. Basis: carrying out the plan has used 99 million tokens for each agent-hour of merged work, and 410 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **7%** of this week's allowance, 31 hours into the week (the week runs from 19 Nov 02:00 to 26 Nov 02:00 UTC). Over the last 1.5 hours the usage meter rose by 5 points. At that rise this account's allowance is used up around **21 Nov 12:00 UTC**, 5 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **6 accounts**; measured from the tokens of the last 24 hours it is 4.3. The work still to merge needs about 5.9 weekly allowances by the token measure. |
-| How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 69 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
-| Tasks merged to the main branch | **450 of 987** |
-| Tasks with a written ticket | 420 |
-| Being worked on by an agent now | FND-107, NET-055, NET-120 ([#8227](https://github.com/openova-io/openova/pull/8227)), NET-213, PRD-206 ([#8473](https://github.com/openova-io/openova/pull/8473)), PRD-800, SEC-127, SEC-153 ([#8477](https://github.com/openova-io/openova/pull/8477)), SEC-162 ([#8460](https://github.com/openova-io/openova/pull/8460)), SOV-242 ([#8457](https://github.com/openova-io/openova/pull/8457)), SOV-338 |
+| **Overall completion** | **45.7%** of the tasks are merged (451 of 987). By effort that is 43.8% (319 of 728 agent-hours). Proven on a live environment: 22 tasks on the installation running now (4 were proven on the installation wiped on 14 November). |
+| **Estimated time still needed** | About **378 running hours** until every task is merged (about 16 days if the agents run day and night). About **378 running hours** until every task is also proven on an environment. Agent effort still to spend: about 409 agent-hours. |
+| How the estimate is made | Merged: 536 tasks are left; the last 12 hours merged 1.4 tasks an hour, lab results not counted, which gives 378 hours; the longest row of tasks that must follow one another is 23 long, at about 2 hours each, which gives 46 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Tokens used so far** | **34.8 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 31.6 billion to carry it out so far. Of the total, 33.7 billion are re-reads of text the models had already read once, which is the cheap kind; 885 million are text read for the first time and 143 million are text the models wrote. By model: Opus 5.5 26.6 billion, Fable 5.2 8.2 billion. At the published pay-as-you-go prices these tokens would cost about $15,700. |
+| **Tokens still expected** | About **41 billion** more until every task is merged, which makes about 75 billion in all; 46% of that is spent. Basis: carrying out the plan has used 99 million tokens for each agent-hour of merged work, and 409 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
+| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **9%** of this week's allowance, 32 hours into the week (the week runs from 19 Nov 02:00 to 26 Nov 02:00 UTC). Over the last 2.0 hours the usage meter rose by 7 points. At that rise this account's allowance is used up around **21 Nov 11:00 UTC**, 5 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **6 accounts**; measured from the tokens of the last 24 hours it is 4.3. The work still to merge needs about 5.8 weekly allowances by the token measure. |
+| How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 54 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
+| Tasks merged to the main branch | **451 of 987** |
+| Tasks with a written ticket | 421 |
+| Being worked on by an agent now | FND-107, NET-055, NET-120 ([#8227](https://github.com/openova-io/openova/pull/8227)), NET-213 ([#8484](https://github.com/openova-io/openova/pull/8484)), PRD-206 ([#8473](https://github.com/openova-io/openova/pull/8473)), PRD-800, SEC-127, SEC-153 ([#8477](https://github.com/openova-io/openova/pull/8477)), SEC-162 ([#8460](https://github.com/openova-io/openova/pull/8460)), SOV-162, SOV-338, SOV-523 |
 | Lab-test results waiting to merge | INF-350, NET-253 |
 | Lab tests started, each on its own branch in CI | 30: ACC-020, ACC-030, AIP-010, AIP-020, AIP-030, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-020, MIG-050, NET-270, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
-| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 79, 2026-11-15: 40, 2026-11-16: 23, 2026-11-17: 26, 2026-11-18: 34, 2026-11-19: 54, 2026-11-20: 28 |
-| Proven on the live environment hw307 | **0** on the installation running now (validated by the gate tool's verdict on a pair of gate runs made there). 4 were seen working in a browser on the installation wiped on 14 Nov 21:34 UTC: BSS-035, NET-041, NET-070, NET-072. Since that wipe hw307 is installed from release candidates cut from main and updated in place through the release route; it runs `rc/20261119T151537Z-e4613c2`, which holds 0 of the 450 merged tasks. |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 79, 2026-11-15: 40, 2026-11-16: 23, 2026-11-17: 26, 2026-11-18: 34, 2026-11-19: 54, 2026-11-20: 29 |
+| Proven on the live environment hw307 | **22** on the installation running now (validated by the gate tool's verdict on a pair of gate runs made there). 4 were seen working in a browser on the installation wiped on 14 Nov 21:34 UTC: BSS-035, NET-041, NET-070, NET-072. Since that wipe hw307 is installed from release candidates cut from main and updated in place through the release route; it runs `rc/20261120T073828Z-11731a9`, which holds 448 of the 451 merged tasks. |
 | Milestone: replacement mothership on Hetzner (SOV-920) | 51 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
 | Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
 
@@ -677,14 +501,14 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 
 | | |
 |---|---|
-| **Work left** | **1,742 points**. Not yet merged, of 2,934 points in the plan; 1,192 merged. |
-| **Tasks not yet merged** | **536**. Of 986 tasks in the plan; 450 merged. |
-| **Scope growth** | **+18% in 8 days**. +447 points since the start, from 2,487 to 2,934; 149 tasks added, +379 points; 6 dropped, -21 points; 51 open tasks re-sized, +89 points; 17 rises of 10 points or more are marked on the chart. |
-| **Not yet validated on the environment** | **2,934 points**. 986 tasks, deployed meaning in the commit the environment runs (candidate rc/20261119T151537Z-e4613c2), measured at 20 Nov 09:01 UTC; not merged: 536 tasks, 1,742 points; merged, not deployed: 450 tasks, 1,192 points; deployed, not validated: 0 tasks, 0 points; validated: 0 tasks. |
+| **Work left** | **1,745 points**. Not yet merged, of 2,942 points in the plan; 1,197 merged. |
+| **Tasks not yet merged** | **536**. Of 987 tasks in the plan; 451 merged. |
+| **Scope growth** | **+18% in 8 days**. +455 points since the start, from 2,487 to 2,942; 150 tasks added, +384 points; 6 dropped, -21 points; 52 open tasks re-sized, +92 points; 17 rises of 10 points or more are marked on the chart. |
+| **Not yet validated on the environment** | **2,882 points**. 965 tasks, deployed meaning in the commit the environment runs (candidate rc/20261120T073828Z-11731a9), measured at 20 Nov 09:31 UTC; not merged: 536 tasks, 1,745 points; merged, not deployed: 3 tasks, 12 points; deployed, not validated: 426 tasks, 1,125 points; validated: 22 tasks. |
 | **Projected end** | **4 Dec**. At the velocity of the last 72 hours, if the scope stops growing; planned end: 19 Nov 05:02 UTC. |
-| **Velocity, last 3 days** | **122 points a day**. 366 points (131 tasks) merged in the last 72 hours. |
+| **Velocity, last 3 days** | **123 points a day**. 368 points (130 tasks) merged in the last 72 hours. |
 | **Velocity needed** | **not measured**. The plan's end date is less than a day away or has passed, so no pace reaches it. |
-| **Not yet merged, by size** | **50 XS, 246 S, 240 M**. XS: 50 tasks, 50 points; S: 246 tasks, 492 points; M: 240 tasks, 1,200 points. |
+| **Not yet merged, by size** | **50 XS, 245 S, 241 M**. XS: 50 tasks, 50 points; S: 245 tasks, 490 points; M: 241 tasks, 1,205 points. |
 
 | Day (UTC) | Scope, points | Work left, points | Ideal, points | Tasks merged | Points merged | Tasks added | Scope change, points |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -697,7 +521,7 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 17 Nov | 2,833 | 1,968 | 454 | 24 | 63 | 0 | +3 |
 | 18 Nov | 2,883 | 1,878 | 79 | 52 | 140 | 18 | +50 |
 | 19 Nov | 2,899 | 1,746 | 0 | 50 | 148 | 13 | +16 |
-| 20 Nov, to 09:01 | 2,934 | 1,742 | 0 | 13 | 39 | 5 | +35 |
+| 20 Nov, to 09:31 | 2,942 | 1,745 | 0 | 14 | 44 | 6 | +43 |
 
 <details><summary>Rises of the scope by 10 points or more: 17 (the dots on the grey line)</summary>
 
@@ -737,24 +561,24 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 17 Nov | 24 | 24 | 63 |
 | 18 Nov | 24 | 52 | 140 |
 | 19 Nov | 24 | 50 | 148 |
-| 20 Nov, so far | 9 | 13 | 39 |
-| Average of the last 72 hours | 72 | 131 | 122 a day |
+| 20 Nov, so far | 10 | 14 | 44 |
+| Average of the last 72 hours | 72 | 130 | 123 a day |
 | Needed from now to the plan's end | 0 |  | not measured |
 
-How it is measured. Scope is the published plan on main as it stood at each of its 220 commits so far, the last at 20 Nov 08:17 UTC. It is exact at every commit; a change between two commits shows at the next one, so other figures on this page that read the plan in between can differ by a task or two. Merged means the task's done marker is on the main branch. The time is that of the merge that added it. A merged task keeps the points it merged with. Remaining is scope minus merged at every moment, so remaining can only rise when the scope grows. The ideal line runs from the scope at the start (12 Nov 14:02 UTC) to zero at the plan's end (19 Nov 05:02 UTC). That end comes from the schedule model of the first plan, as before. Days are UTC days. The first and the last day are part days.
+How it is measured. Scope is the published plan on main as it stood at each of its 222 commits so far, the last at 20 Nov 09:27 UTC. It is exact at every commit; a change between two commits shows at the next one, so other figures on this page that read the plan in between can differ by a task or two. Merged means the task's done marker is on the main branch. The time is that of the merge that added it. A merged task keeps the points it merged with. Remaining is scope minus merged at every moment, so remaining can only rise when the scope grows. The ideal line runs from the scope at the start (12 Nov 14:02 UTC) to zero at the plan's end (19 Nov 05:02 UTC). That end comes from the schedule model of the first plan, as before. Days are UTC days. The first and the last day are part days.
 
 ### On the environment: deployed and validated
 
-Read from git and the gate records on main at 09:01 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261119T151537Z-e4613c2` since 19 Nov 17:36 UTC), and as validated when the gate tool's verdict calls every check it delivers green, on a pair of gate runs made while the environment ran a candidate that holds it. The reader of the clusters below last ran at 09:00 UTC on 20 November.
+Read from git and the gate records on main at 09:31 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261120T073828Z-11731a9` since 20 Nov 09:20 UTC), and as validated when the gate tool's verdict calls every check it delivers green, on a pair of gate runs made while the environment ran a candidate that holds it. The reader of the clusters below last ran at 09:30 UTC on 20 November.
 
 | | Tasks |
 |---|---|
-| Merged tasks | 450 |
-| **Deployed**: in the commit the environment runs, not yet tested | **0** |
-| — of the merged, proven on a running environment (a test or a browser) | 198 |
+| Merged tasks | 451 |
+| **Deployed**: in the commit the environment runs, not yet tested | **448** |
+| — of the merged, proven on a running environment (a test or a browser) | 199 |
 | — of the merged, proven only by a fresh installation | 73 |
-| **Validated**: passed the acceptance gate twice | **0** |
-| Merged after the commit the environment runs, **not deployed** | **450** |
+| **Validated**: passed the acceptance gate twice | **22** |
+| Merged after the commit the environment runs, **not deployed** | **3** |
 
 | Release to the installation wiped on 14 Nov 21:34 UTC | When | Running now (checked) | Tasks it carried | Seen working there, before the wipe | Evidence |
 |---|---|---|---|---|---|
@@ -765,25 +589,25 @@ Read from git and the gate records on main at 09:01 UTC. A task counts as deploy
 | a | not read | | | | |
 | b | not read | | | | |
 
-Not deployed (450): ACC-020, ACC-030, ACC-040, ACC-050, ACC-060, AIP-010, AIP-020, AIP-030, AIP-031, AIP-040, AIP-041, AIP-042, AIP-050, AIP-060, AIP-070, AIP-101, AIP-102, AIP-103, AIP-104, AIP-105, AIP-108, AIP-111, AIP-112, AIP-113, AIP-114, AIP-120, AIP-130, AIP-131, AIP-150, AIP-151, AIP-201, AIP-221, AIP-222, AIP-223, AIP-224, AIP-225, AIP-227, AIP-229, AIP-250, BSS-010, BSS-020, BSS-030, BSS-035, BSS-040, BSS-050, BSS-060, BSS-141, BSS-S1, BSS-S2, CLD-010, CLD-021, CLD-022, CLD-023, CLD-030, CLD-040, CLD-050, CLD-055, CLD-061, CLD-062, CLD-063, CLD-064, CLD-065, CLD-066, CLD-067, CLD-070, CLD-071, CLD-075, CLD-076, CLD-080, CLD-086, CLD-087, CLD-089, CLD-090, CLD-091, CLD-092, CLD-093, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-161, CLD-185, CLD-211, CMP-005, CMP-010, CMP-012, CMP-014, CMP-016, CMP-030, CMP-036, CMP-073, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-041, CTL-044, CTL-045, CTL-050, CTL-055, CTL-060, CTL-061, CTL-110, CTL-112, CTL-150, CTL-151, CTL-160, CTL-201, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-300, CTL-320, CTL-330, CTL-331, CTL-332, CTL-333, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-700, FND-001, FND-002, FND-011, FND-012, FND-013, FND-014, FND-015, FND-017, FND-018, FND-019, FND-020, FND-021, FND-022, FND-023, FND-024, FND-025, FND-026, FND-027, FND-028, FND-029, FND-031, FND-032, FND-033, FND-034, FND-035, FND-036, FND-039, FND-040, FND-041, FND-051, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-059, FND-061, FND-062, FND-063, FND-064, FND-070, FND-071, FND-072, FND-073, FND-074, FND-075, FND-076, FND-077, FND-078, FND-079, FND-080, FND-088, FND-089, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-101, FND-102, FND-103, FND-104, FND-105, FND-106, FND-107, FND-110, FND-130, FND-131, FND-151, FND-153, FND-154, FND-155, FND-156, FND-157, FND-171, FND-173, FND-181, FND-206, FND-207, INF-010, INF-020, INF-030, INF-040, INF-050, INF-051, INF-052, INF-053, INF-055, INF-060, INF-070, INF-110, INF-112, INF-120, INF-130, INF-132, INF-133, INF-135, INF-140, INF-210, INF-512, INF-513, INF-710, MIG-010, MIG-030, MIG-050, MIG-060, NET-010, NET-011, NET-012, NET-013, NET-020, NET-030, NET-031, NET-032, NET-033, NET-040, NET-041, NET-042, NET-050, NET-052, NET-055, NET-060, NET-070, NET-071, NET-072, NET-080, NET-090, NET-095, NET-096, NET-097, NET-098, NET-100, NET-102, NET-110, NET-125, NET-133, NET-135, NET-150, NET-153, NET-170, NET-172, NET-190, NET-210, NET-212, NET-221, NET-251, NET-252, NET-255, NET-270, NET-280, NET-290, NET-300, NET-321, NET-330, PRD-010, PRD-020, PRD-030, PRD-040, PRD-060, PRD-061, PRD-070, PRD-080, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-106, PRD-202, PRD-203, PRD-204, PRD-205, PRD-211, PRD-501, PRD-502, PRD-503, PRD-508, PRD-509, PRD-513, PRD-800, SEC-005, SEC-006, SEC-010, SEC-020, SEC-030, SEC-040, SEC-071, SEC-073, SEC-080, SEC-090, SEC-095, SEC-096, SEC-100, SEC-103, SEC-104, SEC-105, SEC-110, SEC-120, SEC-125, SEC-126, SEC-127, SEC-130, SEC-135, SEC-140, SEC-150, SEC-152, SEC-161, SEC-271, SEC-280, SOV-010, SOV-020, SOV-030, SOV-035, SOV-040, SOV-050, SOV-060, SOV-070, SOV-080, SOV-090, SOV-110, SOV-120, SOV-121, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-135, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-148, SOV-149, SOV-150, SOV-151, SOV-154, SOV-160, SOV-161, SOV-175, SOV-180, SOV-181, SOV-183, SOV-190, SOV-220, SOV-241, SOV-320, SOV-321, SOV-322, SOV-323, SOV-335, SOV-336, SOV-337, SOV-338, SOV-341, SOV-521, SOV-522, SOV-750, SVC-010, SVC-020, SVC-030, SVC-040, SVC-041, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-120, SVC-125, SVC-130, SVC-136, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-210, SVC-220, SVC-250, SVC-315, SVC-340.
+Not deployed (3): AIP-070, FND-076, SOV-242.
 
-Since the wipe of 14 Nov 21:34 UTC the environment is installed from release candidates cut from main and updated in place by delivering a newer candidate through the product's release route; it runs `rc/20261119T151537Z-e4613c2` now, and a merged task reaches it with the next candidate that holds it. The release in the table above ran on the installation that was wiped.
+Since the wipe of 14 Nov 21:34 UTC the environment is installed from release candidates cut from main and updated in place by delivering a newer candidate through the product's release route; it runs `rc/20261120T073828Z-11731a9` now, and a merged task reaches it with the next candidate that holds it. The release in the table above ran on the installation that was wiped.
 
 ### Is it real? Delivery and quality, measured
 
-A merged task has passed its checks in CI. It counts as **validated** only when the acceptance gate has passed twice on the installation that runs it. Today **0 of the 450** merged tasks are validated. hw307 runs candidate `rc/20261119T151537Z-e4613c2` of main since 19 Nov 17:36 UTC, which holds 0 of the 450 merged tasks: they are deployed; 0 of them are validated by the gate tool's verdict on a pair of gate runs made there. The figures below are taken from GitHub and from main by script.
+A merged task has passed its checks in CI. It counts as **validated** only when the acceptance gate has passed twice on the installation that runs it. Today **22 of the 451** merged tasks are validated. hw307 runs candidate `rc/20261120T073828Z-11731a9` of main since 20 Nov 09:20 UTC, which holds 448 of the 451 merged tasks: they are deployed; 22 of them are validated by the gate tool's verdict on a pair of gate runs made there. The figures below are taken from GitHub and from main by script.
 
 ![From plan to proof: how many tasks reached each stage](dashboard/funnel.svg)
 
 | Stage | Tasks | Agent-hours |
 |---|---|---|
 | In the plan | 987 | 728 |
-| Ticket written | 458 | 325 |
-| Merged to main | 450 | 318 |
+| Ticket written | 459 | 326 |
+| Merged to main | 451 | 319 |
 | — of these: final at merge (a document, a guard, a check) | 122 | 80 |
-| — of these: need proof on an environment | 328 | 238 |
-| Deployed: running on hw307, in the commit it runs | 0 | 0 |
-| Validated: passed the acceptance gate twice | 0 | 0 |
+| — of these: need proof on an environment | 329 | 239 |
+| Deployed: running on hw307, in the commit it runs | 448 | 316 |
+| Validated: passed the acceptance gate twice | 22 | 16 |
 
 **What kind of work is merged.** If the merged work were mostly records and checks while the plan is mostly product, the bars would differ.
 
@@ -791,25 +615,26 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 
 | Kind of work | Merged: share of effort | Merged: tasks | Whole plan: share of effort | Whole plan: tasks |
 |---|---|---|---|---|
-| Product changes | 46% | 201 | 63% | 597 |
+| Product changes | 46% | 202 | 63% | 597 |
 | Dead code removed | 11% | 50 | 10% | 104 |
 | Guards and tests | 24% | 106 | 17% | 173 |
-| Records and decisions | 20% | 93 | 10% | 113 |
+| Records and decisions | 19% | 93 | 10% | 113 |
 
 | Measure | Now | What it tells |
 |---|---|---|
 | The plan's own checks (239) by state | 186 not-built, 17 expected-fail, 36 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
 | Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 45 replaced on purpose by a later task, 4 broken by a later merge, 0 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
-| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 19 red of 1774 (1.1%); 19 Nov: 38 red of 1825 (2.1%); 20 Nov: 3 red of 635 (0.5%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
-| Times an executor stopped and reported a ticket or main as wrong | 68 reports on 57 tasks, against 450 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +187,485 −111,163; Tests: +104,719 −27,504; Checks and tooling: +52,097 −5,085; Plan, tickets and documents: +710,693 −9,006; Other: +3,109 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
-| Fresh install from main: did it start, how long, how many releases ready | **4 fires from candidates of main**: fire 1 at 14 Nov 22:19 UTC, fire 1 failed at 22:22; fire 2 at 15 Nov 04:53 UTC, fire 2 stuck at 05:42; fire 3 at 15 Nov 15:58 UTC; fire 4 at 19 Nov 17:36 UTC, fire 4 chain stuck at 20:28. None finished by itself; the events are at the top of this page. | The only proof that the merged first-boot changes work together. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 19 red of 1774 (1.1%); 19 Nov: 38 red of 1825 (2.1%); 20 Nov: 3 red of 667 (0.4%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Times an executor stopped and reported a ticket or main as wrong | 68 reports on 57 tasks, against 451 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
+| Lines changed on main since the plan started | Product code and configuration: +187,883 −111,219; Tests: +104,982 −27,505; Checks and tooling: +52,097 −5,085; Plan, tickets and documents: +712,127 −9,023; Other: +3,109 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Fresh install from main: did it start, how long, how many releases ready | **5 fires from candidates of main**: fire 1 at 14 Nov 22:19 UTC, fire 1 failed at 22:22; fire 2 at 15 Nov 04:53 UTC, fire 2 stuck at 05:42; fire 3 at 15 Nov 15:58 UTC; fire 4 at 19 Nov 17:36 UTC, fire 4 chain stuck at 20:28; test install 1 (hw308) at 20 Nov 09:20 UTC. None finished by itself; the events are at the top of this page. | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **a pair of gate runs exists on the running installation** | That a person can do the thing: the five pillars. |
 
 ### The last 25 merged tasks
 
 | Merged (UTC) | Task | What it did | Pull request |
 |---|---|---|---|
+| 20 Nov 09:23 | [SOV-242](plan/tickets/SOV-242.md) | fix(cutover): repeat a failed step at most three times with a growing pause, then stop until the sovereign-admin resumes | [#8457](https://github.com/openova-io/openova/pull/8457) |
 | 20 Nov 08:39 | [FND-076](plan/tickets/FND-076.md) | ci: the standing gate updates the environment through the release route, one region per request | [#8361](https://github.com/openova-io/openova/pull/8361) |
 | 20 Nov 08:14 | [AIP-070](plan/tickets/AIP-070.md) | chore(platform): delete the hollow gateway charts bp-llm-gateway and bp-anthropic-adapter | [#8442](https://github.com/openova-io/openova/pull/8442) |
 | 20 Nov 06:41 | [PRD-211](plan/tickets/PRD-211.md) | feat(cortex): the documents parser posts an original to the converter and maps its document | [#8447](https://github.com/openova-io/openova/pull/8447) |
@@ -834,11 +659,10 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 | 19 Nov 20:32 | [SEC-152](plan/tickets/SEC-152.md) | feat(cloud-init): first boot writes the OpenBao seal key, prepares the seal volume and applies the seal profile | [#8387](https://github.com/openova-io/openova/pull/8387) |
 | 19 Nov 19:27 | [SOV-322](plan/tickets/SOV-322.md) | refactor(mail): kit slot 95 runs the mail server that sends the sign-in codes, and the parent mail seed is deleted | [#8383](https://github.com/openova-io/openova/pull/8383) |
 | 19 Nov 18:52 | [PRD-203](plan/tickets/PRD-203.md) | feat(cortex): query process with the realm token check, the gateway client, search and the definitions loader | [#8335](https://github.com/openova-io/openova/pull/8335) |
-| 19 Nov 18:38 | [AIP-151](plan/tickets/AIP-151.md) | fix(openova-mcp): every tool answer is redacted, made inert and fitted to 24,000 characters | [#8374](https://github.com/openova-io/openova/pull/8374) |
 
 ### Merged changes a user can see
 
-Of the 450 merged tasks, 122 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+Of the 451 merged tasks, 122 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
 
 | Task | What changes on the screen | Pull request | On hw307 |
 |---|---|---|---|
@@ -849,6 +673,7 @@ Of the 450 merged tasks, 122 are documents, decisions and checks that change no 
 | [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | [#7205](https://github.com/openova-io/openova/pull/7205) | not proven yet |
 | [SOV-190](plan/tickets/SOV-190.md) | The console reads the mode from the API | [#7532](https://github.com/openova-io/openova/pull/7532) | not proven yet |
 | [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | [#7303](https://github.com/openova-io/openova/pull/7303) | not proven yet |
+| [SOV-242](plan/tickets/SOV-242.md) | The cutover repeats a failed step a few times with a growing pause, then stops in a failed state the sovereign-admin resumes | [#8457](https://github.com/openova-io/openova/pull/8457) | not proven yet |
 | [SEC-103](plan/tickets/SEC-103.md) | Remove the SealedSecret templates from the guacamole and netbird charts | [#8031](https://github.com/openova-io/openova/pull/8031) | not proven yet |
 | [SEC-105](plan/tickets/SEC-105.md) | Delete Sealed Secrets | [#8064](https://github.com/openova-io/openova/pull/8064) | not proven yet |
 | [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | [#7288](https://github.com/openova-io/openova/pull/7288) | **seen working, ticket closed** |
@@ -974,9 +799,9 @@ Against the target of this plan, that work stands at **24% built** across the 14
 | | |
 |---|---|
 | Built before the baseline | **24%** of the target, by the code audit |
-| Tasks of the plan delivered since | **450 of 987** |
+| Tasks of the plan delivered since | **451 of 987** |
 | Epics in the backlog | 101, plus single fixes in 14 areas |
-| Still to spend | about 410 agent-hours and 411 million tokens |
+| Still to spend | about 409 agent-hours and 410 million tokens |
 | Last feature done, six agents in parallel | about 28 Nov (244 running hours at 16 a day) |
 | Releases | 48 updates of the environment and 10 fresh installs |
 
@@ -984,7 +809,7 @@ Against the target of this plan, that work stands at **24% built** across the 14
 
 The length of a bar is the size of that area, so a long bar is a big area and a short bar a small one. Dark blue is what was already built on 12 November. Green is what has been merged since. Grey is still to do. Sizes are in agent-hours: the green and grey parts are the plan's own estimate; the dark part is scaled from the audit percentage, so it is an estimate of size, not a record of hours spent.
 
-All 14 areas together: 24% was built before the baseline, and the target is now 57.2% built. 318 agent-hours of the plan are merged and 410 are still to do.
+All 14 areas together: 24% was built before the baseline, and the target is now 57.3% built. 319 agent-hours of the plan are merged and 409 are still to do.
 
 ![Progress per product area, to scale](dashboard/progress.svg)
 
@@ -992,7 +817,7 @@ All 14 areas together: 24% was built before the baseline, and the target is now 
 |---|---:|---:|---:|---:|---:|
 | Network and zones | 42% | 48 of 92 | 33 | 34 | 8% |
 | Delivery engine | 23% | 85 of 115 | 58 | 23 | 6% |
-| Independent Sovereign | 25% | 52 of 104 | 36 | 40 | 10% |
+| Independent Sovereign | 25% | 53 of 104 | 37 | 39 | 9% |
 | Multi-cloud | 29% | 49 of 87 | 35 | 29 | 7% |
 | Console and change through Git | 25% | 41 of 90 | 30 | 35 | 8% |
 | Billing | 60% | 10 of 42 | 6 | 27 | 7% |
@@ -1021,7 +846,7 @@ The number for now is the start score plus the share of the remaining distance t
 
 | Product area (start → now) | At the start | Target | Epics | Tasks | Agent-hours to do | Tokens to do, M | Done by |
 |---|---|---|---:|---:|---:|---:|---|
-| **Independent Sovereign** (25 → 61) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 104 | 40 | 40 | 25 Nov |
+| **Independent Sovereign** (25 → 62) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 104 | 39 | 39 | 25 Nov |
 | **Multi-cloud** (29 → 68) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 87 | 29 | 28 | 27 Nov |
 | **Security and secrets** (10 → 40) | The vault runs, but every application credential is still stored in etcd. | Credentials are mounted from the vault into the running workload. Urgent holes closed first. | 7 | 85 | 42 | 42 | 25 Nov |
 | **Network and zones** (42 → 70) | The data plane is sound. The network is open by default. | Deny by default, mesh declared in Git, edge nodes and a load balancer per region. | 6 | 92 | 34 | 35 | 28 Nov |
@@ -1044,13 +869,13 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 
 ## The backlog: every epic
 
-<details><summary><b>Independent Sovereign</b>: 9 epics, 104 tasks, 40 agent-hours, done by 25 Nov</summary>
+<details><summary><b>Independent Sovereign</b>: 9 epics, 104 tasks, 39 agent-hours, done by 25 Nov</summary>
 
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
 | A Sovereign is local from its first boot | 25 | 22 | 2.2 | 2.2 | 13 Nov | 15 Nov |
 | Ties to the parent cut at boot | 12 | 9 | 2.2 | 2.2 | 16 Nov | 18 Nov |
-| Hand-over in one short ordered step | 10 | 1 | 7.5 | 7.7 | 13 Nov | 21 Nov |
+| Hand-over in one short ordered step | 10 | 2 | 6.6 | 6.7 | 14 Nov | 21 Nov |
 | The Sovereign owns its own infrastructure state | 9 | 0 | 6.8 | 6.8 | 18 Nov | 21 Nov |
 | Release channel and in-place upgrade | 7 | 2 | 3.8 | 3.8 | 13 Nov | 21 Nov |
 | Sovereign: single fixes and lab tests | 21 | 17 | 2.3 | 2.2 | 16 Nov | 21 Nov |
@@ -1263,7 +1088,7 @@ A product change ships in an **update** of the running environment (R). A change
 
 How tickets are proven: 102 in a browser as an end user (Playwright with a screenshot), 535 by a test on the environment, 192 by a fresh install, 158 in CI only.
 
-<details><summary><b>R-001</b> Update of hw307 · 22 tickets · about 13 Nov</summary>
+<details><summary><b>R-001</b> Update of hw307 · 21 tickets · about 13 Nov</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1284,7 +1109,6 @@ How tickets are proven: 102 in a browser as an end user (Playwright with a scree
 | PRD-206 | cortex screens | browser, as an end user |
 | PRD-304 | bp-speech chart on CPU | test on the environment |
 | SOV-162 | The registry finds and heals a cached image index whose children are gone | test on the environment |
-| SOV-242 | The cutover repeats a failed step a few times with a growing pause, then stops in a failed state the sovereign | browser, as an end user |
 | SOV-523 | A delivery of the release route resumes after one eviction of any of its Pods | test on the environment |
 | SVC-135 | The Blueprint proofs check becomes required | test on the environment |
 | SVC-180 | Screens group by class; the dead branch goes | browser, as an end user |
@@ -1415,7 +1239,7 @@ How tickets are proven: 102 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-008</b> Update of hw308 · 6 tickets · about 15 Nov · waits for F-01, R-003, R-004, R-007</summary>
+<details><summary><b>R-008</b> Update of hw308 · 6 tickets · about 15 Nov · waits for F-01, R-001, R-003, R-004, R-007</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -2215,6 +2039,6 @@ How tickets are proven: 102 in a browser as an end user (Playwright with a scree
 
 ## Delivered since the baseline
 
-`ACC-020`, `ACC-030`, `ACC-040`, `ACC-050`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-030`, `AIP-031`, `AIP-040`, `AIP-041`, `AIP-042`, `AIP-050`, `AIP-060`, `AIP-070`, `AIP-101`, `AIP-102`, `AIP-103`, `AIP-104`, `AIP-105`, `AIP-108`, `AIP-111`, `AIP-112`, `AIP-113`, `AIP-114`, `AIP-120`, `AIP-130`, `AIP-131`, `AIP-150`, `AIP-151`, `AIP-201`, `AIP-221`, `AIP-222`, `AIP-223`, `AIP-224`, `AIP-225`, `AIP-227`, `AIP-229`, `AIP-250`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-040`, `BSS-050`, `BSS-060`, `BSS-141`, `BSS-S1`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-023`, `CLD-030`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-061`, `CLD-062`, `CLD-063`, `CLD-064`, `CLD-065`, `CLD-066`, `CLD-067`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-076`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-089`, `CLD-090`, `CLD-091`, `CLD-092`, `CLD-093`, `CLD-094`, `CLD-101`, `CLD-102`, `CLD-103`, `CLD-104`, `CLD-105`, `CLD-108`, `CLD-109`, `CLD-111`, `CLD-112`, `CLD-113`, `CLD-114`, `CLD-115`, `CLD-131`, `CLD-132`, `CLD-133`, `CLD-134`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CLD-211`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-038`, `CTL-039`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-061`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-151`, `CTL-160`, `CTL-201`, `CTL-223`, `CTL-230`, `CTL-231`, `CTL-233`, `CTL-240`, `CTL-300`, `CTL-320`, `CTL-330`, `CTL-331`, `CTL-332`, `CTL-333`, `CTL-340`, `CTL-345`, `CTL-346`, `CTL-347`, `CTL-348`, `CTL-350`, `CTL-355`, `CTL-420`, `CTL-700`, `FND-001`, `FND-002`, `FND-011`, `FND-012`, `FND-013`, `FND-014`, `FND-015`, `FND-017`, `FND-018`, `FND-019`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-024`, `FND-025`, `FND-026`, `FND-027`, `FND-028`, `FND-029`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-035`, `FND-036`, `FND-039`, `FND-040`, `FND-041`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-056`, `FND-057`, `FND-058`, `FND-059`, `FND-061`, `FND-062`, `FND-063`, `FND-064`, `FND-070`, `FND-071`, `FND-072`, `FND-073`, `FND-074`, `FND-075`, `FND-076`, `FND-077`, `FND-078`, `FND-079`, `FND-080`, `FND-088`, `FND-089`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-104`, `FND-105`, `FND-106`, `FND-107`, `FND-110`, `FND-130`, `FND-131`, `FND-151`, `FND-153`, `FND-154`, `FND-155`, `FND-156`, `FND-157`, `FND-171`, `FND-173`, `FND-181`, `FND-206`, `FND-207`, `INF-010`, `INF-020`, `INF-030`, `INF-040`, `INF-050`, `INF-051`, `INF-052`, `INF-053`, `INF-055`, `INF-060`, `INF-070`, `INF-110`, `INF-112`, `INF-120`, `INF-130`, `INF-132`, `INF-133`, `INF-135`, `INF-140`, `INF-210`, `INF-512`, `INF-513`, `INF-710`, `MIG-010`, `MIG-030`, `MIG-050`, `MIG-060`, `NET-010`, `NET-011`, `NET-012`, `NET-013`, `NET-020`, `NET-030`, `NET-031`, `NET-032`, `NET-033`, `NET-040`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-055`, `NET-060`, `NET-070`, `NET-071`, `NET-072`, `NET-080`, `NET-090`, `NET-095`, `NET-096`, `NET-097`, `NET-098`, `NET-100`, `NET-102`, `NET-110`, `NET-125`, `NET-133`, `NET-135`, `NET-150`, `NET-153`, `NET-170`, `NET-172`, `NET-190`, `NET-210`, `NET-212`, `NET-221`, `NET-251`, `NET-252`, `NET-255`, `NET-270`, `NET-280`, `NET-290`, `NET-300`, `NET-321`, `NET-330`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-061`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-202`, `PRD-203`, `PRD-204`, `PRD-205`, `PRD-211`, `PRD-501`, `PRD-502`, `PRD-503`, `PRD-508`, `PRD-509`, `PRD-513`, `PRD-800`, `SEC-005`, `SEC-006`, `SEC-010`, `SEC-020`, `SEC-030`, `SEC-040`, `SEC-071`, `SEC-073`, `SEC-080`, `SEC-090`, `SEC-095`, `SEC-096`, `SEC-100`, `SEC-103`, `SEC-104`, `SEC-105`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-126`, `SEC-127`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-150`, `SEC-152`, `SEC-161`, `SEC-271`, `SEC-280`, `SOV-010`, `SOV-020`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-132`, `SOV-133`, `SOV-134`, `SOV-135`, `SOV-140`, `SOV-141`, `SOV-142`, `SOV-143`, `SOV-144`, `SOV-145`, `SOV-146`, `SOV-148`, `SOV-149`, `SOV-150`, `SOV-151`, `SOV-154`, `SOV-160`, `SOV-161`, `SOV-175`, `SOV-180`, `SOV-181`, `SOV-183`, `SOV-190`, `SOV-220`, `SOV-241`, `SOV-320`, `SOV-321`, `SOV-322`, `SOV-323`, `SOV-335`, `SOV-336`, `SOV-337`, `SOV-338`, `SOV-341`, `SOV-521`, `SOV-522`, `SOV-750`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-040`, `SVC-041`, `SVC-060`, `SVC-070`, `SVC-080`, `SVC-090`, `SVC-100`, `SVC-120`, `SVC-125`, `SVC-130`, `SVC-136`, `SVC-150`, `SVC-159`, `SVC-160`, `SVC-161`, `SVC-162`, `SVC-163`, `SVC-164`, `SVC-166`, `SVC-170`, `SVC-190`, `SVC-205`, `SVC-210`, `SVC-220`, `SVC-250`, `SVC-315`, `SVC-340`.
+`ACC-020`, `ACC-030`, `ACC-040`, `ACC-050`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-030`, `AIP-031`, `AIP-040`, `AIP-041`, `AIP-042`, `AIP-050`, `AIP-060`, `AIP-070`, `AIP-101`, `AIP-102`, `AIP-103`, `AIP-104`, `AIP-105`, `AIP-108`, `AIP-111`, `AIP-112`, `AIP-113`, `AIP-114`, `AIP-120`, `AIP-130`, `AIP-131`, `AIP-150`, `AIP-151`, `AIP-201`, `AIP-221`, `AIP-222`, `AIP-223`, `AIP-224`, `AIP-225`, `AIP-227`, `AIP-229`, `AIP-250`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-040`, `BSS-050`, `BSS-060`, `BSS-141`, `BSS-S1`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-023`, `CLD-030`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-061`, `CLD-062`, `CLD-063`, `CLD-064`, `CLD-065`, `CLD-066`, `CLD-067`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-076`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-089`, `CLD-090`, `CLD-091`, `CLD-092`, `CLD-093`, `CLD-094`, `CLD-101`, `CLD-102`, `CLD-103`, `CLD-104`, `CLD-105`, `CLD-108`, `CLD-109`, `CLD-111`, `CLD-112`, `CLD-113`, `CLD-114`, `CLD-115`, `CLD-131`, `CLD-132`, `CLD-133`, `CLD-134`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CLD-211`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-038`, `CTL-039`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-061`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-151`, `CTL-160`, `CTL-201`, `CTL-223`, `CTL-230`, `CTL-231`, `CTL-233`, `CTL-240`, `CTL-300`, `CTL-320`, `CTL-330`, `CTL-331`, `CTL-332`, `CTL-333`, `CTL-340`, `CTL-345`, `CTL-346`, `CTL-347`, `CTL-348`, `CTL-350`, `CTL-355`, `CTL-420`, `CTL-700`, `FND-001`, `FND-002`, `FND-011`, `FND-012`, `FND-013`, `FND-014`, `FND-015`, `FND-017`, `FND-018`, `FND-019`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-024`, `FND-025`, `FND-026`, `FND-027`, `FND-028`, `FND-029`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-035`, `FND-036`, `FND-039`, `FND-040`, `FND-041`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-056`, `FND-057`, `FND-058`, `FND-059`, `FND-061`, `FND-062`, `FND-063`, `FND-064`, `FND-070`, `FND-071`, `FND-072`, `FND-073`, `FND-074`, `FND-075`, `FND-076`, `FND-077`, `FND-078`, `FND-079`, `FND-080`, `FND-088`, `FND-089`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-104`, `FND-105`, `FND-106`, `FND-107`, `FND-110`, `FND-130`, `FND-131`, `FND-151`, `FND-153`, `FND-154`, `FND-155`, `FND-156`, `FND-157`, `FND-171`, `FND-173`, `FND-181`, `FND-206`, `FND-207`, `INF-010`, `INF-020`, `INF-030`, `INF-040`, `INF-050`, `INF-051`, `INF-052`, `INF-053`, `INF-055`, `INF-060`, `INF-070`, `INF-110`, `INF-112`, `INF-120`, `INF-130`, `INF-132`, `INF-133`, `INF-135`, `INF-140`, `INF-210`, `INF-512`, `INF-513`, `INF-710`, `MIG-010`, `MIG-030`, `MIG-050`, `MIG-060`, `NET-010`, `NET-011`, `NET-012`, `NET-013`, `NET-020`, `NET-030`, `NET-031`, `NET-032`, `NET-033`, `NET-040`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-055`, `NET-060`, `NET-070`, `NET-071`, `NET-072`, `NET-080`, `NET-090`, `NET-095`, `NET-096`, `NET-097`, `NET-098`, `NET-100`, `NET-102`, `NET-110`, `NET-125`, `NET-133`, `NET-135`, `NET-150`, `NET-153`, `NET-170`, `NET-172`, `NET-190`, `NET-210`, `NET-212`, `NET-221`, `NET-251`, `NET-252`, `NET-255`, `NET-270`, `NET-280`, `NET-290`, `NET-300`, `NET-321`, `NET-330`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-061`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-202`, `PRD-203`, `PRD-204`, `PRD-205`, `PRD-211`, `PRD-501`, `PRD-502`, `PRD-503`, `PRD-508`, `PRD-509`, `PRD-513`, `PRD-800`, `SEC-005`, `SEC-006`, `SEC-010`, `SEC-020`, `SEC-030`, `SEC-040`, `SEC-071`, `SEC-073`, `SEC-080`, `SEC-090`, `SEC-095`, `SEC-096`, `SEC-100`, `SEC-103`, `SEC-104`, `SEC-105`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-126`, `SEC-127`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-150`, `SEC-152`, `SEC-161`, `SEC-271`, `SEC-280`, `SOV-010`, `SOV-020`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-132`, `SOV-133`, `SOV-134`, `SOV-135`, `SOV-140`, `SOV-141`, `SOV-142`, `SOV-143`, `SOV-144`, `SOV-145`, `SOV-146`, `SOV-148`, `SOV-149`, `SOV-150`, `SOV-151`, `SOV-154`, `SOV-160`, `SOV-161`, `SOV-175`, `SOV-180`, `SOV-181`, `SOV-183`, `SOV-190`, `SOV-220`, `SOV-241`, `SOV-242`, `SOV-320`, `SOV-321`, `SOV-322`, `SOV-323`, `SOV-335`, `SOV-336`, `SOV-337`, `SOV-338`, `SOV-341`, `SOV-521`, `SOV-522`, `SOV-750`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-040`, `SVC-041`, `SVC-060`, `SVC-070`, `SVC-080`, `SVC-090`, `SVC-100`, `SVC-120`, `SVC-125`, `SVC-130`, `SVC-136`, `SVC-150`, `SVC-159`, `SVC-160`, `SVC-161`, `SVC-162`, `SVC-163`, `SVC-164`, `SVC-166`, `SVC-170`, `SVC-190`, `SVC-205`, `SVC-210`, `SVC-220`, `SVC-250`, `SVC-315`, `SVC-340`.
 
 The same page with hover and filters is the file `north-star-dashboard.html` beside this one: download it and open it in a browser.
