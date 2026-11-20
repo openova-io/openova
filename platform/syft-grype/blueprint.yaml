@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-syft-grype
 spec:
-  version: 1.0.0
+  version: 1.0.1
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
