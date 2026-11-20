@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T14:15:03Z` |
+| Last refreshed | `2026-11-20T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8118](https://github.com/openova-io/openova/issues/8118) | NET-096 Turn the metadata deny on in the kit | Other |
 | [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
 | [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
 | [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
 | [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
+| [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
+| 2026-11-20T14:24 | [#8514](https://github.com/openova-io/openova/pull/8514) | fix(gate): the Organization isolation check measures the hos |  |
 | 2026-11-20T13:44 | [#8513](https://github.com/openova-io/openova/pull/8513) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T08:09 | [#8479](https://github.com/openova-io/openova/pull/8479) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:00 | [#8478](https://github.com/openova-io/openova/pull/8478) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:12 | [#8477](https://github.com/openova-io/openova/pull/8477) | #8475 | refactor(bootstrap): Flux renders four bootstrap Secrets fro |
-| 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
-| 2026-11-20T07:37 | [#8474](https://github.com/openova-io/openova/pull/8474) | #7087 | docs(ledger): plan update |
 
 ---
 
