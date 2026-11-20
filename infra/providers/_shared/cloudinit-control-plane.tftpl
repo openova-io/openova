@@ -229,95 +229,26 @@ write_files:
       EOT
     )}
 
-  # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
-  # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
-  # mirrors flux-system → catalyst-system on first reconcile.
-  # SEC-040: catalyst-system is the one namespace it is copied into; the
-  # platform API there is its only reader. To the reflector an empty list
-  # means every namespace.
-  - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
-    permissions: '0600'
-    encoding: gz+b64
-    content: ${base64gzip(<<-EOT
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: harbor-robot-token
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
-      type: Opaque
-      data:
-        token: ${base64encode(harbor_robot_token)}
-      EOT
-    )}
-
-  # ── powerdns-api-credentials Secret — EVICTED to Flux (#3888 / Refs #3847)
-  # The cert-manager DNS-01 webhook (bp-cert-manager-powerdns-webhook, slot 49)
-  # reads `api-key` from a Secret named `powerdns-api-credentials` in the
-  # `cert-manager` namespace. It is NO LONGER seeded by cloud-init: it is
-  # delivered as a Flux-reconciled resource in clusters/_template/sovereign-tls
-  # (powerdns-api-credentials.yaml), rendered straight into `cert-manager` from
-  # the sovereign-tls Kustomization's POWERDNS_API_KEY postBuild substitute
-  # (set in the flux-bootstrap block below).
-  #
-  # WHY evicted (the THIN-cloud-init mandate + #3847 root-cause fix): seeding it
-  # imperatively (`kubectl apply`) made it an ORPHAN in the `cert-manager` ns,
-  # which the `bootstrap-kit` Flux Kustomization (prune: true) OWNS → it got
-  # pruned on a fresh prov → DNS-01 "failed loading api key secret cert-manager/
-  # powerdns-api-credentials: not found" → no wildcard cert → console HTTPS 000
-  # (hw167). #3884's flux-system+reflector workaround pushed the 3-region render
-  # 90 B over the 32256 cap. A Flux-reconciled Git resource is owned by
-  # `sovereign-tls` (NOT pruned by bootstrap-kit), lands directly in
-  # `cert-manager` (no reflector hop), needs NO openbao/ESO, and reclaims the
-  # cloud-init bytes. sovereign-tls is the wildcard-cert-datapath Kustomization
-  # (it issues the Certificate this key's DNS-01 solver fulfils), reconciles in
-  # PARALLEL with a 1m retryInterval, and retries until the `cert-manager` ns
-  # exists — so the Secret is present before the DNS-01 challenge fires.
-  #
-  # SOV-130: the key reaches sovereign-tls through this Secret,
-  # flux-system/sovereign-tls-secrets (its postBuild.substituteFrom), not
-  # through the Kustomization's spec. Its one key, POWERDNS_API_KEY, holds the
-  # base64 form of the API key, as the inline value did. Applied below with
-  # the other bootstrap Secrets; it is never committed to Git.
-  - path: /var/lib/catalyst/sovereign-tls-secrets.yaml
+  # ── flux-system/bootstrap-seed: the raw values of four bootstrap Secrets ──
+  # SEC-153: one KEY=value line per value, the value base64-encoded so that
+  # no character of it can change the YAML Flux substitutes it into (the
+  # hand-over key is JSON). runcmd creates the Secret flux-system/bootstrap-seed
+  # from this file and shreds it. The Flux Kustomization bootstrap-secrets
+  # (clusters/_template/root/base-primary/bootstrap-secrets.yaml), which the kit
+  # depends on, renders harbor-robot-token, pdm-basicauth, sovereign-tls-secrets
+  # and catalyst-handover-jwt-public from it (postBuild.substituteFrom); their
+  # names, namespaces and reflector annotations are files in Git, under
+  # clusters/_template/bootstrap-secrets. Only the values must be here: no
+  # secret store exists before Flux, and the catalyst API, the pool-domain
+  # calls, the DNS-01 solver and the hand-over check read them from the start.
+  - path: /var/lib/catalyst/bootstrap-seed.env
     permissions: '0600'
     content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: sovereign-tls-secrets
-        namespace: flux-system
-      type: Opaque
-      stringData:
-        POWERDNS_API_KEY: "${base64encode(powerdns_api_key)}"
-
-  # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ───────────────
-  # catalyst-api calls PDM (Pool Domain Manager) with Basic auth for the
-  # Day-2 "Add another parent domain" flow. Reflector mirrors it out.
-  - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
-    permissions: '0600'
-    encoding: gz+b64
-    content: ${base64gzip(<<-EOT
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: pdm-basicauth
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor"
-      type: Opaque
-      data:
-        username: ${base64encode(pdm_basic_auth_user)}
-        password: ${base64encode(pdm_basic_auth_pass)}
-      EOT
-    )}
+      HARBOR_ROBOT_TOKEN=${base64encode(harbor_robot_token)}
+      PDM_BASIC_AUTH_USER=${base64encode(pdm_basic_auth_user)}
+      PDM_BASIC_AUTH_PASS=${base64encode(pdm_basic_auth_pass)}
+      POWERDNS_API_KEY=${base64encode(powerdns_api_key)}
+      HANDOVER_JWT_PUBLIC_KEY=${base64encode(handover_jwt_public_key)}
 
   # ── flux-system/object-storage Secret ─────────────────────────────────
   # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
@@ -367,19 +298,6 @@ write_files:
     encoding: gz+b64
     content: ${base64gzip(format("%s\n", chomp(replace(crossplane_provider_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 %{ endif ~}
-
-  # ── Handover-JWT public key: the Secret catalyst-api mounts ───────────
-  - path: /var/lib/catalyst/handover-jwt-public-secret.yaml
-    permissions: '0600'
-    content: |
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: catalyst-handover-jwt-public
-        namespace: catalyst-system
-      type: Opaque
-      data:
-        public.jwk: ${base64encode(handover_jwt_public_key)}
 
   # ── OpenBao seal: key files and seal profile (contract C8, SEC-152) ───
   # docs/contracts/c8-seal-provider.md, actions 1 and 4. The four inputs
@@ -647,8 +565,8 @@ CILIUMVALUES
           !/platform
           !/products
       ---
-      # SOV-154: the one root Kustomization. Its children (bootstrap-kit,
-      # sovereign-tls, bootstrap-kit-crs, sovereign-region-bootstrap,
+      # SOV-154: the one root Kustomization. Its children (bootstrap-secrets,
+      # bootstrap-kit, sovereign-tls, bootstrap-kit-crs, sovereign-region-bootstrap,
       # infrastructure-providers) are files under clusters/_template/root; the
       # path names the folder root/<region layout>-<region role>, or, for a
       # pack that renders no region Kustomization, root/<region role> of its
@@ -676,7 +594,9 @@ CILIUMVALUES
       # Flux reads it only after the GitRepository above has an artifact, so it
       # exists by then although bootstrap-kit is applied a moment earlier.
       # The one secret value, POWERDNS_API_KEY, is not here: it is the Secret
-      # flux-system/sovereign-tls-secrets (file sovereign-tls-secrets.yaml).
+      # flux-system/sovereign-tls-secrets, which the Kustomization
+      # bootstrap-secrets renders from the seed Secret flux-system/bootstrap-seed
+      # (file bootstrap-seed.env, SEC-153).
       apiVersion: v1
       kind: ConfigMap
       metadata:
@@ -1446,40 +1366,44 @@ runcmd:
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
   #
-  # #3804 (Refs #3642) — create the CRD-independent bootstrap namespaces
-  # (catalyst-system, openbao) idempotently FIRST so the namespaced secrets
-  # below land in an existing namespace. #4513: `kubectl create namespace`
-  # accepts EXACTLY ONE positional name ("error: exactly one NAME is required,
-  # got 2") — the prior two-name `create namespace catalyst-system openbao`
-  # died on this FIRST runcmd item, and because cloud-init halts runcmd on a
-  # non-zero exit the WHOLE remainder (bootstrap secrets, openbao seed,
-  # flux-bootstrap apply, cloud-init-complete marker) never ran → permanent
-  # 0-HR fresh-prov wedge. Loop one `create namespace` per name through the
-  # idempotent dry-run|apply idiom. handover-jwt→catalyst-system
-  # resolves here. The secret applies below run from
-  # `cd /var/lib/catalyst` so the 6 `-f` paths drop their dir prefix, keeping
-  # the render under Hetzner's 32256B cap. (powerdns-api-credentials no longer
-  # needs `cert-manager` created here — #3888 evicted it to the Flux
+  # #3804 (Refs #3642) — create the CRD-independent bootstrap namespace
+  # catalyst-system idempotently FIRST, through the dry-run|apply idiom, so
+  # the Secret catalyst-handover-jwt-public lands in an existing namespace.
+  # #4513: `kubectl create namespace` accepts EXACTLY ONE positional name
+  # ("error: exactly one NAME is required, got 2") — a two-name create died on
+  # this FIRST runcmd item, and because cloud-init halts runcmd on a non-zero
+  # exit the WHOLE remainder never ran → permanent 0-HR fresh-prov wedge.
+  # SEC-153: the kit applies its own Namespace catalyst-system (slot 13) only
+  # after the Kustomization bootstrap-secrets is ready, so first boot must
+  # create it. It no longer creates openbao: no object of first boot lands
+  # there since SEC-040 removed the recovery seed, and kit slot 08 declares
+  # that Namespace. The secret applies below run from `cd /var/lib/catalyst`
+  # so the `-f` paths drop their dir prefix. (powerdns-api-credentials no
+  # longer needs `cert-manager` created here — #3888 evicted it to the Flux
   # sovereign-tls Kustomization.)
   # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
   # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
   # The Secrets are applied with --server-side. A client-side apply
   # stores the whole manifest, so every value, in the annotation
   # kubectl.kubernetes.io/last-applied-configuration of the Secret.
-  # SEC-040: when the apply succeeds (&&), shred -u removes the seven files,
-  # so no bootstrap secret stays on the disk of the node. set -e (from the
-  # cilium item) ignores a failed command left of &&, so (exit $?) on the
-  # next line stops the boot script with the exit code of a failed apply,
-  # and the files stay. The template creates
+  # SEC-153: then `kubectl create secret` makes the seed Secret
+  # flux-system/bootstrap-seed from bootstrap-seed.env; create records no
+  # last-applied state either. The Flux Kustomization bootstrap-secrets renders
+  # four bootstrap Secrets from it.
+  # SEC-040: when the apply and the create succeed (&&), shred -u removes the
+  # three Secret files and the seed file, so no bootstrap secret stays on the
+  # disk of the node. set -e (from the cilium item) ignores a failed command
+  # left of &&, so (exit $?) on the next line stops the boot script with the
+  # exit code of a failed apply or create, and the files stay. The template creates
   # no recovery seed for OpenBao: the bp-openbao chart creates that Secret
   # when it is absent (platform/openbao/chart/templates/recovery-seed-bootstrap.yaml).
   # SEC-152: the same apply creates ConfigMap flux-system/sovereign-seal-profile
   # (contract C8, action 4). It holds no key bytes, so its file is not shredded.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
+    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -
     cd /var/lib/catalyst
-    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml
+    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env
     (exit $?)
 
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and

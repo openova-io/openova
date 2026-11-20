@@ -1,0 +1,18 @@
+# flux-system/pdm-basicauth (issue #879 Bug 2): catalyst-api calls PDM (Pool
+# Domain Manager) with Basic auth for the Day-2 "Add another parent domain"
+# flow. The reflector mirrors it into the namespaces listed. The values are the
+# seed's PDM_BASIC_AUTH_USER and PDM_BASIC_AUTH_PASS, base64-encoded.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pdm-basicauth
+  namespace: flux-system
+  annotations:
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor"
+type: Opaque
+data:
+  username: "${PDM_BASIC_AUTH_USER}"
+  password: "${PDM_BASIC_AUTH_PASS}"

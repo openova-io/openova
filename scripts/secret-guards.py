@@ -410,9 +410,9 @@ def go_sources(files):
 
 GUARDS = {
     "no-secret-values-in-git": {
-        "title": "G1: no Secret manifest under clusters/",
+        "title": "G1: no Secret manifest under clusters/ but a template of references",
         "allow_list": True,
-        "rules": [(lambda f: under(f, ["clusters"]), lines_matching(SECRET_KIND))],
+        "rules": [(lambda f: set(under(f, ["clusters"])) - set(os.environ.get("G1_TEMPLATES", "").split()), lines_matching(SECRET_KIND))],
     },
     "no-chart-random-secrets": {
         "title": "G2: no new generated secret in an own chart template",

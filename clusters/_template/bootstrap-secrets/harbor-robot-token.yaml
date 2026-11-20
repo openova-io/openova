@@ -1,0 +1,19 @@
+# flux-system/harbor-robot-token (issue #557): catalyst-api references it via
+# REQUIRED secretKeyRef. bp-reflector mirrors flux-system → catalyst-system on
+# first reconcile. SEC-040: catalyst-system is the one namespace it is copied
+# into; the platform API there is its only reader. To the reflector an empty
+# list means every namespace. The value is the seed's HARBOR_ROBOT_TOKEN, the
+# token base64-encoded.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-robot-token
+  namespace: flux-system
+  annotations:
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
+type: Opaque
+data:
+  token: "${HARBOR_ROBOT_TOKEN}"

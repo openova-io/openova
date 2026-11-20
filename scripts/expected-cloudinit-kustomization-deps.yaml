@@ -46,8 +46,26 @@
 kustomizations:
   - name: sovereign-root
     depends_on: []
-  - name: bootstrap-kit
+  - name: bootstrap-seed
+    # SEC-153 — one Job that builds the seed Secret flux-system/bootstrap-seed
+    # from the four bootstrap Secrets on a Sovereign installed before the seed
+    # existed, and finds it on any other. NO dependsOn. Provider-agnostic (NOT
+    # optional).
     depends_on: []
+  - name: bootstrap-secrets
+    # SEC-153 — renders the bootstrap Secrets (robot token, pool-domain login,
+    # DNS key, hand-over key) from the seed Secret flux-system/bootstrap-seed
+    # that first boot creates. It waits only for bootstrap-seed, so it never
+    # renders before the seed exists; it needs nothing else but the namespaces
+    # first boot creates. Provider-agnostic (NOT optional).
+    depends_on: [bootstrap-seed]
+  - name: bootstrap-kit
+    # SEC-153 — the kit reads the bootstrap Secrets from its first slots on
+    # (the platform API of slot 13 takes the robot token and the hand-over key
+    # at start), so it waits for the Kustomization that renders them. That
+    # Kustomization holds four Secrets and nothing that can wedge: the edge
+    # costs seconds, unlike the broad edges this file forbids.
+    depends_on: [bootstrap-secrets]
   - name: sovereign-tls
     # #3845 — NARROWED off the broad `bootstrap-kit` edge (the #3380 row-D
     # narrowing). The Sovereign's wildcard TLS + Gateway must not be gated on

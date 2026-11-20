@@ -261,6 +261,25 @@ locals {
     profile = try(yamldecode(local.files["/var/lib/catalyst/sovereign-seal-profile.yaml"]), null)
   }
 
+  # SEC-153 — the seed file first boot writes, one KEY=value line per value,
+  # and the bootstrap Secrets as Flux renders them from it: each manifest of
+  # clusters/_template/bootstrap-secrets, every ${NAME} replaced by the value
+  # NAME has in the seed (Flux substitutes the data of the seed Secret, which
+  # holds each line of that file), decoded. The seed file and every name a
+  # manifest references must exist: a missing one fails the render, never a
+  # default. With them the root's own files, decoded.
+  bootstrap_seed        = { for m in regexall("(?m)^([A-Z0-9_]+)=(.*)$", local.files["/var/lib/catalyst/bootstrap-seed.env"]) : m[0] => m[1] }
+  bootstrap_secrets_dir = "${path.module}/../../../../clusters/_template/bootstrap-secrets"
+  bootstrap_secrets_raw = { for f in sort(fileset(local.bootstrap_secrets_dir, "*.yaml")) : f => split("$${", file("${local.bootstrap_secrets_dir}/${f}")) if f != "kustomization.yaml" }
+  bootstrap_secrets = {
+    seed = local.bootstrap_seed
+    secrets = { for f, parts in local.bootstrap_secrets_raw : f => yamldecode(join("", concat([parts[0]], [
+      for part in slice(parts, 1, length(parts)) : "${local.bootstrap_seed[regex("^([A-Z0-9_]+)}", part)[0]]}${substr(part, length(regex("^[A-Z0-9_]+}", part)), -1)}"
+    ]))) }
+    resources = yamldecode(file("${local.bootstrap_secrets_dir}/kustomization.yaml")).resources
+    root      = { for f in fileset("${path.module}/../../../../clusters/_template/root/base-primary", "*.yaml") : f => yamldecode(file("${path.module}/../../../../clusters/_template/root/base-primary/${f}")) }
+  }
+
   # The render and every file it writes, decoded: the subject of the checks
   # that something appears nowhere a node reads.
   boot_text = join("\n", concat([local.rendered_cloud_init], [for p in sort(keys(local.files)) : local.files[p]]))
@@ -390,6 +409,10 @@ output "boot_text" {
 
 output "seal" {
   value = local.seal
+}
+
+output "bootstrap_secrets" {
+  value = local.bootstrap_secrets
 }
 
 output "files_sha256_hetzner" {

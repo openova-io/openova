@@ -10,6 +10,9 @@ spec:
   sourceRef:
     kind: GitRepository
     name: openova
+  # SEC-153: the bootstrap Secrets that the kit reads are rendered first.
+  dependsOn:
+    - name: bootstrap-secrets
   # wait/timeout contract (issue #492): bootstrap-kit Ready iff every
   # HR + Kustomization in it Ready=True; 5m timeout releases the
   # revision lock fast so each fix-forward applies on the next poll.
