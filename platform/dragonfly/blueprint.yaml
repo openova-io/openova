@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-dragonfly
 spec:
-  version: 0.1.3
+  version: 0.1.4
   card:
     title: Dragonfly
     description: >-
