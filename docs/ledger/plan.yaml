@@ -267,7 +267,7 @@ epics:
 - id: SVC-050
   title: 'Epic: function tests for the foundation ring'
   wave: W0
-  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-136, SVC-110, SVC-137, SVC-140, SVC-138, SVC-135]
+  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-136, SVC-110, SVC-137, SVC-140, SVC-138, SVC-139, SVC-135]
 - id: SVC-240
   title: 'Epic: first capability with two implementations, object storage'
   wave: W1d
@@ -19871,7 +19871,7 @@ packages:
   wave: W0
   size: XS
   lane: GATE
-  depends_on: [SVC-125, SVC-130, SVC-136, SVC-137, SVC-138]
+  depends_on: [SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139]
   after: []
   touches:
   - docs/ledger/gates.yaml
@@ -20037,6 +20037,41 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'bp-kured, storage-ready and bp-stalwart-sovereign run a function test on install with failures ignored, and bp-catalyst-platform has one: kured''s existing test waits for its DaemonSet; storage-ready''s new test passes when the class of expectedClass is the one default StorageClass; bp-stalwart-sovereign''s new test reads an SMTP banner 220 from the smtp port of its mail Service; bp-catalyst-platform''s new test asks GET /healthz of the Services catalyst-api and catalyst-ui and passes on 200 from both; each waits within the bound T its slot file states (900, and 1800 for bp-catalyst-platform) by frame rule 104; check SVC-G06 reads a release without test hooks as none from the message helm-controller writes, which ends in ": no test hooks", instead of a bare message no release carries; the service-model baseline counts the new tests and bp-catalyst-platform leaves its list of foundation charts without a function test.'
+- id: SVC-139
+  title: The function tests of bp-openbao, bp-reloader and bp-valkey wait for their subject within the bound
+  area: SVC
+  epic: SVC-050
+  type: fix
+  wave: W0
+  size: S
+  lane: CHARTS
+  depends_on: [SVC-137]
+  after: [FND-011, SOV-151, SEC-100, SEC-162, SVC-040, SVC-041, SVC-220, CTL-041]
+  touches:
+  - platform/openbao/chart/templates/tests/function-test.yaml
+  - platform/openbao/chart/tests/function-test-render.sh
+  - platform/reloader/chart/templates/tests/function-test.yaml
+  - platform/reloader/chart/tests/function-test-render.sh
+  - platform/valkey/chart/templates/tests/function-test.yaml
+  - platform/valkey/chart/tests/function-test-render.sh
+  - clusters/_template/bootstrap-kit/08-openbao.yaml
+  - clusters/_template/bootstrap-kit/28-reloader.yaml
+  - clusters/_template/bootstrap-kit/17-valkey.yaml
+  - tests/e2e/bootstrap-kit/function_test_bound_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The function tests of bp-openbao, bp-reloader and bp-valkey wait for their subject in their own region within the bound T of their release (frame rule 104), by the mechanism of SVC-137, then judge as before and fail naming a subject that never comes up: OpenBao''s health and the role external-secrets that the release''s own Deployment openbao-config writes; a ready reloader-reloader before the scratch ConfigMap changes (a change Reloader does not see is never acted on), then the 60 seconds of judgement, all by T - 60; PONG from valkey-primary, and a TERM at the Pod''s deadline prints the fail line naming the PING instead of a kill without output. The kit states T once per release as spec.values.functionTest.timeoutSeconds 900, equal to spec.install.timeout 15m, with spec.test.timeout 15m; the chart default stays 300. The three leave the list owed of tests/e2e/bootstrap-kit/function_test_bound_test.go, whose B5 render gives every valuesFrom target of a release a stand-in value.'
 - id: SVC-140
   title: Applications get the test stanza (after the topology freeze)
   area: SVC
