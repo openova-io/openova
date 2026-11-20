@@ -3,7 +3,7 @@
   "stages": {
     "access": "audit",
     "applications": "audit",
-    "blueprints": "audit",
+    "blueprints": "deny",
     "environments": "audit",
     "flux": "audit",
     "machine-ops": "audit",
