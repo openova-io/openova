@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-162, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-136, SOV-137, SOV-138, SOV-139, SOV-170, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-138, SOV-162, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-136, SOV-137, SOV-139, SOV-170, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -9524,7 +9524,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SOV-160, SOV-161, SOV-162, SOV-336, SVC-040, SVC-041, INF-040]
+  after: [FND-011]
   touches:
   - platform/harbor/chart/values.yaml
   - platform/harbor/chart/templates/pull-path-disruption-budgets.yaml
@@ -9536,16 +9536,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls platform/harbor/chart/templates/pull-path-disruption-budgets.yaml platform/kured/chart/templates/coredns-availability.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "bash platform/harbor/chart/tests/pull-path-availability.sh platform/harbor/chart"
+  - id: A2
+    run: "bash platform/kured/chart/tests/coredns-availability.sh platform/kured/chart"
+  - id: A3
+    run: "f=platform/harbor/README.md; test \"$(grep -c -x -F '### No single Pod on the pull path (SOV-138)' \"$f\")\" = 1 && grep -q -F 'templates/pull-path-disruption-budgets.yaml' \"$f\" && grep -q -F 'platform/kured/chart/templates/coredns-availability.yaml' \"$f\" && grep -q -F 'tests/pull-path-availability.sh' \"$f\""
+  - id: A4
+    run: "out=\"$(mktemp)\"; python3 scripts/check-budgets-allow-drain.py --charts platform/harbor/chart platform/kured/chart > \"$out\" 2>&1 || { tail -20 \"$out\"; exit 1; }; grep -q -E ', [1-9][0-9]* budgets and [0-9]+ CNPG Clusters judged' \"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'A drain of any one node never removes the last copy of the registry''s front, core or registry, or of the cluster DNS that they and their callers resolve through: two copies on two nodes, and a disruption budget that makes a drain wait while one copy is not Ready. Cost on the reference install, by the requests read on hw309: per region 64 MiB (nginx), 256 MiB (core), 320 MiB (registry and registryctl) and 70 MiB (CoreDNS), 710 MiB and 400 millicores; 1,420 MiB for two regions.'
+  delivers: Harbor's front, core and registry each run two copies spread over two nodes with a PodDisruptionBudget of minAvailable 1 that the chart renders only at two or more copies, bp-kured holds the k3s CoreDNS at two copies with a HorizontalPodAutoscaler of minReplicas and maxReplicas 2 and a PodDisruptionBudget of minAvailable 1 in kube-system, and a chart test of each chart holds both.
 - id: SOV-139
   title: A cloud-free harness drains the registry's node with the outside blocked and requires every workload back
   area: SOV
@@ -14859,7 +14869,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-231]
-  after: [FND-011, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-080, SVC-136, BSS-040]
+  after: [FND-011, SOV-138, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-080, SVC-136, BSS-040]
   touches:
   - platform/harbor/chart/**
   - scripts/secret-guard-baselines/*
@@ -15701,7 +15711,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-234, SEC-335]
-  after: [FND-011, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-080, SVC-136]
+  after: [FND-011, SOV-138, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-080, SVC-136]
   touches:
   - platform/harbor/chart/**
   - scripts/secret-guard-baselines/secret-object-register.yaml
