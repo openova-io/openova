@@ -10641,7 +10641,7 @@ packages:
   epic: SOV-200
   type: fix
   wave: W0
-  size: S
+  size: M
   lane: CONTROL
   depends_on: []
   after: []
