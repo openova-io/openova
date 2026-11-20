@@ -78,6 +78,7 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { useQuery } from '@tanstack/react-query'
+import { API_BASE } from '@/shared/config/urls'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
@@ -156,6 +157,31 @@ interface CellHoverInfo {
   depth: number
 }
 
+/** What the page reads of GET /api/v1/sovereign/self: status.regionSeparation
+ *  of the Sovereign object of its own cluster and the message of its
+ *  condition RegionSeparation (NET-213). The route leaves out what the
+ *  object does not hold. */
+interface SelfSeparation {
+  regionSeparation?: unknown
+  regionSeparationMessage?: unknown
+}
+
+/** One answer of GET /api/v1/sovereign/self, under the query key that
+ *  useResolvedDeploymentId uses, so the page reads the answer the console
+ *  already holds. A Sovereign route that answers 404 (the mothership) or
+ *  fails gives null. */
+const SELF_QUERY_KEY = ['sovereign', 'self'] as const
+
+async function fetchSelf(): Promise<SelfSeparation | null> {
+  const res = await fetch(`${API_BASE}/v1/sovereign/self`, { credentials: 'include' })
+  if (!res.ok) return null
+  return (await res.json()) as SelfSeparation
+}
+
+function text(v: unknown): string {
+  return typeof v === 'string' ? v : ''
+}
+
 let _onCellHover: ((info: CellHoverInfo | null) => void) | null = null
 let _onCellClick: ((item: TreemapItem, cellDepth: number) => void) | null = null
 
@@ -206,6 +232,17 @@ export function Dashboard({
   const sovereignFQDN = snapshot?.sovereignFQDN ?? snapshot?.result?.sovereignFQDN ?? null
 
   const isReady = (snapshot?.status ?? '').trim().toLowerCase() === 'ready'
+
+  // NET-213 — the region separation of this Sovereign, as its own self
+  // route answers it. Nothing is shown when the answer carries neither.
+  const selfQuery = useQuery<SelfSeparation | null>({
+    queryKey: SELF_QUERY_KEY,
+    queryFn: fetchSelf,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const separation = text(selfQuery.data?.regionSeparation)
+  const separationMessage = text(selfQuery.data?.regionSeparationMessage)
 
   // #6695 (founder 2026-08-26): the default layer stack is CONVERGENCE-GATED.
   //   • converging (status != ready) → PROVISIONING_DEFAULT_LAYERS
@@ -592,6 +629,31 @@ export function Dashboard({
         <span data-testid="dashboard-title" className="sr-only">
           Dashboard
         </span>
+
+        {/* NET-213 — the region separation of the Sovereign and the
+            message of its condition RegionSeparation. */}
+        {separation || separationMessage ? (
+          <div
+            className={`mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-xs text-[var(--color-text-dim)] ${
+              separation === 'none'
+                ? 'border-[color:rgba(245,158,11,0.4)] bg-[color:rgba(245,158,11,0.06)]'
+                : 'border-[var(--color-border)]'
+            }`}
+            data-testid="dashboard-region-separation"
+          >
+            {separation ? (
+              <span>
+                Region separation:{' '}
+                <strong className="text-[var(--color-text)]" data-testid="dashboard-region-separation-value">
+                  {separation}
+                </strong>
+              </span>
+            ) : null}
+            {separationMessage ? (
+              <span data-testid="dashboard-region-separation-message">{separationMessage}</span>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* #4731 — ONE treemap in both lifecycle states. While the
             deployment converges the defaults are the job-sourced

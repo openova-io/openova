@@ -452,6 +452,14 @@ rules:
   - apiGroups: ["catalyst.openova.io"]
     resources: ["blueprints", "environments"]
     verbs: ["get", "list", "watch"]
+  # Sovereign object of this cluster (NET-213): GET /api/v1/sovereign/self
+  # (internal/sovself) answers its status.regionSeparation and the message
+  # of the condition RegionSeparation. Read only, and only the one object
+  # the sovereign-object step of sovereign-ops writes.
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["sovereigns"]
+    resourceNames: ["sovereign-self"]
+    verbs: ["get"]
   # No write verb on blueprints (SVC-205): stage blueprints of the intent
   # lock is deny, Git owns every Blueprint and Flux writes it. A catalogue
   # edit commits to Git (catalog_edit_git.go, catalog_iac_edit.go).

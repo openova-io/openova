@@ -337,6 +337,25 @@ function RegionCard({
 }
 
 /* ── StepProvider ────────────────────────────────────────────────── */
+/** The notice for separation none on two or more regions: word for word the
+ *  message the writer of the Sovereign object gives the condition
+ *  RegionSeparation in that case. */
+const SAME_FAILURE_DOMAIN = 'Regions share one failure domain. Not a disaster-recovery configuration.'
+
+/**
+ * The region separation of a request, by the rule the writer of the
+ * Sovereign object applies to the regions of status.network
+ * (core/cmd/sovereign-ops/internal/sovereignobject/separation.go): site when
+ * every region has its own cloud region; zone when cloud regions repeat but
+ * every region has its own pair of cloud region and zone; none otherwise,
+ * and always for fewer than two regions. A request carries no zone, so it
+ * gives site or none.
+ */
+function requestSeparation(cloudRegions: string[]): 'site' | 'none' {
+  if (cloudRegions.length < 2) return 'none'
+  return new Set(cloudRegions).size === cloudRegions.length ? 'site' : 'none'
+}
+
 /**
  * StepProvider mode.
  *   • 'wizard'      — the canonical wizard step (default)
@@ -485,6 +504,14 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
     return acc + regionHourlyCost(provider, cpId, wkId, wkCount)
   }, 0)
 
+  /* The region separation of the request: its regions are every card, the
+     AIR-GAP region included. Stated once every region of a request of two or
+     more regions has its cloud region; with none, the notice says the
+     regions are not a disaster-recovery configuration. */
+  const cloudRegions = Array.from({ length: totalCards }, (_, i) => store.regionCloudRegions[i] ?? '')
+  const separationShown = cloudRegions.length >= 2 && cloudRegions.every(Boolean)
+  const separation = requestSeparation(cloudRegions)
+
   /* Max 3 cards per row */
   const gridCols = `repeat(${Math.min(totalCards, 3)}, 1fr)`
 
@@ -550,6 +577,26 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
           />
         )}
       </div>
+
+      {separationShown && (
+        <div
+          data-testid="step-provider-region-separation"
+          style={{
+            borderRadius: 8, padding: '9px 12px',
+            background: separation === 'none' ? 'rgba(245,158,11,0.06)' : 'rgba(56,189,248,0.04)',
+            border: separation === 'none' ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(56,189,248,0.12)',
+            display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: 'var(--wiz-text-sub)',
+          }}
+        >
+          <span>
+            Region separation:{' '}
+            <strong data-testid="step-provider-region-separation-value" style={{ color: 'var(--wiz-text-hi)' }}>{separation}</strong>
+          </span>
+          {separation === 'none' && (
+            <span data-testid="step-provider-region-separation-notice" style={{ color: '#F59E0B' }}>{SAME_FAILURE_DOMAIN}</span>
+          )}
+        </div>
+      )}
 
       {/* Total cost rollup — sums each region's (cp + worker*count) at its
           OWN provider's pricing. Operators see one bottom-line figure
