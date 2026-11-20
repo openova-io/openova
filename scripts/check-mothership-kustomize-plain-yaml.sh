@@ -17,12 +17,15 @@
 set -euo pipefail
 DIR="products/catalyst/chart/templates"
 [ -f "$DIR/kustomization.yaml" ] || { echo "SKIP: $DIR/kustomization.yaml not found (run from repo root)"; exit 0; }
+# A kustomize on PATH wins over kubectl's: the workflow installs the pinned release that
+# matches Flux's kustomize-controller, while the runner's kubectl embeds whatever kustomize
+# its own release carries.
 BIN=""
-if command -v kustomize >/dev/null 2>&1; then BIN="kustomize build"; fi
 if command -v kubectl   >/dev/null 2>&1; then BIN="kubectl kustomize"; fi
+if command -v kustomize >/dev/null 2>&1; then BIN="kustomize build"; fi
 [ -n "$BIN" ] || { echo "SKIP: neither kustomize nor kubectl available"; exit 0; }
 if $BIN "$DIR" >/dev/null 2>/tmp/mk-kustomize.err; then
-  echo "PASS: mothership raw-kustomize build of $DIR succeeds — no resources[] template carries a bare Helm {{ }} that would wedge the mothership GitOps (#5290/#5292)."
+  echo "PASS: mothership raw-kustomize build of $DIR succeeds ($BIN) — no resources[] template carries a bare Helm {{ }} that would wedge the mothership GitOps (#5290/#5292)."
   exit 0
 fi
 echo "FAIL: '$BIN $DIR' errored — a resources[] template likely contains a bare Helm {{ }} directive kustomize cannot parse (regression class #5290/#5292):"
