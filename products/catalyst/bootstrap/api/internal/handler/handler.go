@@ -17,6 +17,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverrecord"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -104,6 +105,8 @@ type Handler struct {
 	// the next tick. Capacity 1; a burst of POSTs collapses into one pass.
 	secondaryKubeconfigSecretKick     chan struct{}
 	secondaryKubeconfigSecretKickOnce sync.Once
+
+	deploymentRecordArrived cutoverrecord.Signal // raised by the import route; a cutover waiting for its record re-checks
 
 	// secondaryKubeconfigSecretInterval (#6027) — cadence of that loop. Zero
 	// falls back to secondaryKubeconfigSecretIntervalDefault; tests inject a

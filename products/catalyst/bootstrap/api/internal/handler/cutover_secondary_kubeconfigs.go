@@ -93,6 +93,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/openova-io/openova/core/controllers/pkg/kubeconfig"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverrecord"
 )
 
 // envCutoverSecondaryKubeconfigsSecret overrides the Secret name (runtime-
@@ -489,47 +490,10 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 			return n, nil
 		}
 		sort.Strings(missing)
-		secretRef := deps.ns + "/" + name
-		// abort carries the #6107 refusal into the ERROR, not only into a log
-		// line. Every message below ends with "no already-materialized Secret
-		// satisfies the expected count", which is true and useless when the
-		// Secret is right there: an operator reads it, finds the object, sees a
-		// parseable credential with a token in it, and has been told nothing
-		// about why the platform will not use it.
-		abort := func(format string, args ...any) (int, error) {
-			msg := fmt.Sprintf(format, args...)
-			if refusal != "" {
-				msg += " — " + refusal
-			}
-			return 0, fmt.Errorf("%s", msg)
-		}
-		switch {
-		case res.depID == "" && len(res.ambiguousPrefixes) > 0:
-			// #5488 task 3 — ambiguous on-disk fallback: never silently
-			// pick one of several deployment prefixes.
-			return abort(
-				"cutover: the resolved deployment record carries an EMPTY deployment id (degraded record after a catalyst-api restart, #5488) and %d distinct deployment prefixes exist on disk in %s (%s) — refusing to guess which one is this Sovereign's; expected %d secondary region(s) and no already-materialized %s Secret satisfies them. Recovery: re-import the deployment record (POST /api/v1/internal/deployments/import from the mothership) so the record can name its own id, then re-fire the cutover (#5359 fail-loud contract preserved)",
-				len(res.ambiguousPrefixes), secondaryKubeconfigsDir(), strings.Join(res.ambiguousPrefixes, ", "), expected, secretRef)
-		case res.depID == "":
-			// #5488 task 1 — the empty-ID record is its own diagnosable
-			// condition, not "0 readable".
-			return abort(
-				"cutover: the resolved deployment record carries an EMPTY deployment id (degraded record after a catalyst-api restart, #5488) while its spec expects %d secondary region(s) — the on-disk <depID>-<regionKey>.yaml kubeconfig paths in %s cannot be derived from a blank id, and no already-materialized %s Secret satisfies the expected count. Recovery: re-import the deployment record (POST /api/v1/internal/deployments/import from the mothership) or re-POST the secondary kubeconfig(s) via /sovereign/secondary-kubeconfig, then re-fire the cutover (#5359 fail-loud contract preserved)",
-				expected, secondaryKubeconfigsDir(), secretRef)
-		case len(paths) == 0:
-			// #5488 task 2 — an empty candidate map is "we never looked",
-			// not "the files were unreadable". Say so instead of printing
-			// an empty missing list.
-			return abort(
-				"cutover: deployment %s expects %d secondary region(s) but no candidate kubeconfig paths resolved (the in-memory secondary-kubeconfig map is empty — typical after a catalyst-api restart — and no %s-<regionKey>.yaml files were found in %s), and no already-materialized %s Secret satisfies the expected count — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
-				res.depID, expected, res.depID, secondaryKubeconfigsDir(), secretRef)
-		default:
-			// Original #5359 contract: candidate paths existed but the
-			// files are genuinely missing/unreadable/unusable — name each.
-			return abort(
-				"cutover: deployment %s expects %d secondary region(s) but only %d kubeconfig(s) are USABLE (rejected: %s) — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
-				res.depID, expected, len(data), strings.Join(missing, ", "))
-		}
+		// Why the count fell short, by the state of the record: not arrived yet
+		// (runCutover waits for it), degraded (#5488) or files short (#5359).
+		return 0, cutoverrecord.Shortfall{Arrived: dep != nil, DepID: res.depID, Expected: expected, Usable: len(data), Paths: len(paths),
+			Dir: secondaryKubeconfigsDir(), SecretRef: deps.ns + "/" + name, Ambiguous: res.ambiguousPrefixes, Missing: missing, Refusal: refusal}.Err()
 	}
 
 	annotations := map[string]string{
