@@ -210,3 +210,4 @@ platform/strimzi
 products/fabric
 products/relay
 platform/openmeter
+platform/catalyst-platform

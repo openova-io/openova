@@ -10,9 +10,9 @@ Outputs (all three committed; the pull request that changes an input commits the
 The seed holds one object for every Blueprint file that no seed-exclusions.yaml names. Its spec is the file's spec
 without the keys no reader reads from the object (NOT_SEEDED), with spec.source derived (kind HelmRepository, type
 oci, url oci://ghcr.io/openova-io, chart the Blueprint's name, version its version). The version is the file's
-spec.version, except: a Blueprint that
-platform/_catalog/chart-locations.yaml maps to a chart folder takes that chart's version, written as the template
-{{ .Chart.Version }} when the folder is the chart that holds the seed (Helm renders it there); a Blueprint without a
+spec.version, except: a Blueprint whose chart folder (beside its file, or the one
+platform/_catalog/chart-locations.yaml maps it to) is the chart that holds the seed takes the template
+{{ .Chart.Version }} (Helm renders it there); one mapped to another chart folder takes that chart's version; one without a
 chart folder takes the version that scripts/expected-unpublished-catalog-seed-pins.yaml registers for it. The labels
 are SEED_LABELS, the file's labels and the two of the Helm release. Every literal {{ and }} of a value is escaped.
 The exclusions are the shared file under platform/_catalog/ and, for a provider's Blueprint (its folder is listed
@@ -473,11 +473,10 @@ def seed_text(root, docs, excluded, errors):
             errors.append("%s: spec.source is derived from the name and the version; delete it" % rel)
             continue
         version = js_str(spec.get("version"))
-        if name in locations:
-            if locations[name] == SEED_CHART:
-                version = "seed-chart-version-0f3a"
-            else:
-                version = js_str((read_yaml(root, "%s/Chart.yaml" % locations[name], []) or {}).get("version"))
+        if locations.get(name, os.path.dirname(rel) + "/chart") == SEED_CHART:
+            version = "seed-chart-version-0f3a"
+        elif name in locations:
+            version = js_str((read_yaml(root, "%s/Chart.yaml" % locations[name], []) or {}).get("version"))
         elif not os.path.isfile(os.path.join(root, os.path.dirname(rel), "chart", "Chart.yaml")):
             if name not in registered:
                 errors.append("%s: %s is seeded and has no chart folder, no entry in %s and no pin in %s; "

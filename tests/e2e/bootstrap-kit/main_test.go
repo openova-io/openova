@@ -233,9 +233,10 @@ func TestBootstrapKit_BlueprintCardsHaveRequiredFields(t *testing.T) {
 //     kind: Blueprint and whose sibling chart/Chart.yaml exists is in scope.
 //   - Walk products/* — every direct subdirectory whose chart/blueprint.yaml
 //     is kind: Blueprint and whose sibling chart/Chart.yaml exists is in
-//     scope. (products/catalyst is excluded because its blueprint.yaml is
-//     at chart/crds/blueprint.yaml — a CRD definition, not a Blueprint
-//     manifest; the kind: filter naturally rejects it.)
+//     scope. products/catalyst/blueprint.yaml (bp-catalyst-platform) sits
+//     beside the umbrella chart, whose version the image builds raise on
+//     main before the release writer moves the Blueprint to it: there
+//     spec.version may lag the chart version, and never passes it.
 //
 // Each in-scope folder gets a subtest; a failure names the file and the
 // drift direction so the fix is mechanical.
@@ -332,6 +333,9 @@ func TestBootstrapKit_BlueprintVersionLockstepSweep(t *testing.T) {
 			if chart.Version == "" {
 				t.Errorf("Chart.yaml at %s has empty version", p.chartFile)
 				return
+			}
+			if ahead, ok := semverLess(chart.Version, bp.Spec.Version); ok && !ahead && p.name == filepath.Join("products", "catalyst") {
+				return // the umbrella Blueprint lags its chart until the release writer moves it (Discovery rule)
 			}
 			if chart.Version != bp.Spec.Version {
 				t.Errorf("LOCKSTEP DRIFT (TBD-A20, #1856):\n  %s\n    spec.version = %q\n  %s\n    version      = %q\n  → the auto-bump hook in .github/workflows/blueprint-release.yaml should have kept these in sync. If you bumped Chart.yaml manually, run:\n    sed -i 's/^  version: .*/  version: %s/' %s",
