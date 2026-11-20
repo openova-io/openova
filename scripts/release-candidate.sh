@@ -17,7 +17,10 @@
 #     Exit 2: more than one kernel component moved (named on stderr).
 #     Exit 3: the ref rc/<id> exists.
 #     Exit 4: the tool could not run (argument, commit not on origin/main, unreadable
-#             input, a shallow history, failed fetch or push).
+#             input, a shallow history, failed fetch or push), or a kernel chart at the
+#             commit has a file:// dependency that is not a library chart of this
+#             repository (the chart and the dependency are named on stderr): its version
+#             cannot be read, and a local path may not hide an upstream move.
 #     Exit 5: the pins could not all be measured: the coherence script exited 2 (CANNOT
 #             READ, e.g. a registry lookup that failed after its retries). Nothing was found
 #             incoherent; no ref is created; cut again (#7922).
@@ -39,7 +42,11 @@
 # Kernel components and where their upstream version is read at a commit:
 #   k3s: the default of variable "k3s_version" in infra/providers/*/variables.tf
 #   cilium flux crossplane openbao kyverno cnpg keycloak cert-manager:
-#     dependencies[*].version in platform/<component>/chart/Chart.yaml
+#     name=version of each dependencies[*] in platform/<component>/chart/Chart.yaml whose
+#     repository is not a file:// path. A file:// dependency is first-party, not upstream:
+#     at the commit cut it must resolve to a chart of this repository whose Chart.yaml says
+#     type: library (exit 4 otherwise). It is no part of the version, so a library
+#     dependency that appears or goes between two candidates is no move.
 #
 # Two variables exist only for scripts/test-release-candidate.sh. No workflow sets them.
 #   RC_COHERENCE_CMD  replaces the coherence command; it runs with bash -c in the checkout.
@@ -110,7 +117,10 @@ content_after_version() {
   return "$rc"
 }
 
-# kernel <sha>: one line per kernel component, "<component> <version>"; "-" when unreadable.
+# kernel <sha>: one line per kernel component, "<component> <version> [<name>=<version>@<file://
+# path>...]": <version> lists the dependencies that are not file:// paths ("-" when unreadable
+# or none); each file:// dependency follows as a field of its own, which the comparison of
+# cmd_cut does not read.
 kernel() {
   python3 - "$1" "$KERNEL_CHARTS" <<'PY'
 import re, subprocess, sys
@@ -133,11 +143,50 @@ for c in charts:
     text, deps = show(f"platform/{c}/chart/Chart.yaml"), []
     try:
         doc = yaml.safe_load(text) if text else None
-        deps = sorted(f"{d['name']}={d['version']}" for d in (doc or {}).get("dependencies") or [])
+        deps = sorted((str(d.get("repository") or "").startswith("file://"), f"{d['name']}={d['version']}", str(d.get("repository"))) for d in (doc or {}).get("dependencies") or [])
     except (yaml.YAMLError, KeyError, TypeError, AttributeError):
         deps = []
-    print(c, ",".join(deps) or "-")
+    print(c, ",".join(v for local, v, r in deps if not local) or "-", *(f"{v}@{r}" for local, v, r in deps if local))
 PY
+}
+
+# inrepo <path>: <path> without its "." and ".." parts; fails when it climbs out of the repository.
+inrepo() {
+  local p parts out=()
+  IFS=/ read -r -a parts <<< "$1"
+  for p in "${parts[@]}"; do
+    case "$p" in
+      "" | .) ;;
+      ..) [ "${#out[@]}" -gt 0 ] || return 1; unset 'out[${#out[@]}-1]' ;;
+      *) out+=("$p") ;;
+    esac
+  done
+  (IFS=/; printf '%s\n' "${out[*]}")
+}
+
+# libraries <sha>: reads the lines of kernel <sha> on stdin. A file:// dependency of a kernel
+# chart is no upstream version, so it may only be a library chart of this repository at <sha>
+# (an application chart or a missing path could hide an upstream move). Names each other one
+# on stderr; returns 1 when there is one.
+libraries() {
+  local f c x rel lib why bad=0
+  while read -r -a f; do
+    c="${f[0]:-}"
+    for x in "${f[@]:2}"; do
+      rel="${x#*@file://}" why=""
+      if [ "${rel#/}" != "$rel" ]; then why="an absolute path is not in this repository"
+      elif ! lib="$(inrepo "platform/$c/chart/$rel")"; then why="the path leaves this repository"
+      elif ! git cat-file -e "$1:$lib/Chart.yaml" 2>/dev/null; then why="$lib/Chart.yaml does not exist at $1"
+      elif ! git show "$1:$lib/Chart.yaml" | grep -E -q "^type:[[:space:]]*[\"']?library[\"']?[[:space:]]*(#.*)?$"; then
+        why="$lib/Chart.yaml does not say type: library at $1"
+      fi
+      if [ -n "$why" ]; then
+        say "kernel chart platform/$c/chart: the dependency ${x%%@*} (file://$rel) is not a library chart of this repository: $why"
+        bad=1
+      fi
+    done
+  done
+  return "$bad"
 }
 
 cmd_cut() {
@@ -172,7 +221,9 @@ cmd_cut() {
   [ "$rc" -eq 0 ] || die "the chart history at $sha could not be judged (exit $rc)"
 
   new="$(kernel "$sha")" || die "cannot read the kernel versions at $sha"
-  if printf '%s\n' "$new" | grep -E ' -$' >&2; then die "the kernel version above cannot be read at $sha"; fi
+  printf '%s\n' "$new" | libraries "$sha" \
+    || die "refused: a kernel chart at $sha has a file:// dependency that is not a library chart of this repository (named above)"
+  if printf '%s\n' "$new" | awk '$2 == "-" {print; n++} END {exit n == 0}' >&2; then die "the kernel version above cannot be read at $sha"; fi
   prev="$(candidates | { grep -v -x -F "$id" || true; } | tail -n 1)"
   if [ -z "$prev" ]; then
     say "no earlier candidate: nothing to compare the kernel versions with"
@@ -263,6 +314,6 @@ case "${1:-}" in
   cut) shift; cmd_cut "$@" ;;
   verify) shift; cmd_verify "$@" ;;
   prune) shift; cmd_prune "$@" ;;
-  -h|--help) sed -n '2,43p' "$0" ;;
+  -h|--help) sed -n '2,50p' "$0" ;;
   *) say "usage: release-candidate.sh cut [--commit <sha>] [--dry-run] | verify <id> | prune [--dry-run]"; exit 4 ;;
 esac
