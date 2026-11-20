@@ -23,8 +23,8 @@ HERE by the chart so it is already running by the time catalyst-api
 stamps the wait.
 
 WHAT IT DOES on registriesYamlActive=v2 (pivot.sh below), on its node: (1) containerd certs.d
-entries that send each upstream host of the offline-mirror map straight to the local registry
-(#4975; the #4639 `_default` dfdaemon catch-all is retired), with registry.<fqdn> pinned in the
+entries that send each upstream host of the offline-mirror map to the nodes' shared mirror first
+(SOV-137), then to the local registry (#4975), never to the origin, with registry.<fqdn> pinned in the
 node's /etc/hosts to its region's gateway (#5007); (2) once per cluster, guarded by a status flag,
 the dfdaemon upstream flip to the local registry (#4639 #4652, reached on its external :443 host,
 #4682). containerd re-reads certs.d per pull: no node restarts. It acks v2 only once the registry
@@ -99,29 +99,14 @@ data:
     # contract is unchanged.
     set -u
 
-    # #5191 — the pivot toolchain (curl + jq) is load-bearing: Harbor CA
-    # extraction, dragonfly-CA/dfdaemon patch, LB-IP discovery, and the per-node
-    # `registriesYaml` acks (write_node_ack / cm_patch_status) all shell out to
-    # them. The former `apk add ... || true` SILENTLY proceeded tool-less on an
-    # egress miss, so every ack failed (`jq: not found`) and the node never
-    # acked v2 — the step-04 daemonset-wait then wedged the WHOLE cutover with
-    # NO failed-step flag (observed live: hw268 2 rebooted nodes lost the apk
-    # toolchain with no egress to reinstall). Retry, then verify, then FAIL
-    # LOUD: a still-missing tool crashes the Pod (a visible CrashLoopBackOff
-    # that self-heals the moment apk succeeds), never a silent tool-less
-    # proceed. Explicit exit — `set -u` here is deliberate (NOT errexit), so the
-    # guard cannot rely on a non-zero apk killing the shell.
-    i=0
-    while [ "${i}" -lt 6 ]; do
-      apk add --no-cache curl jq >/dev/null 2>&1 && break
-      i=$((i + 1))
-      echo "[registry-pivot] WARN apk add curl jq failed (attempt ${i}/6); retry in $((i * 5))s" >&2
-      sleep $((i * 5))
+    # #5191 — curl and jq are load-bearing (CA copy, dfdaemon patch, VIP lookup, the per-node
+    # acks). SOV-137: they come with the image (images.kubectl, alpine/k8s, which steps 06, 10
+    # and 11 run), so nothing is installed at start and the Pod starts on a rebooted node with
+    # the outside blocked; the former `apk add curl jq` needed the internet at every start. A
+    # missing tool still fails loud: the Pod restarts, it never proceeds tool-less.
+    for t in curl jq; do
+      command -v "${t}" >/dev/null 2>&1 || { echo "[registry-pivot] FATAL ${t} is not in the image; refusing to proceed tool-less (#5191)" >&2; exit 1; }
     done
-    if ! command -v jq >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
-      echo "[registry-pivot] FATAL toolchain unavailable after 6 attempts (jq=$(command -v jq || echo MISSING) curl=$(command -v curl || echo MISSING)); refusing to proceed tool-less — exiting so the Pod restarts and retries rather than silently wedging the step-04 ack-wait. See #5191." >&2
-      exit 1
-    fi
 
     api="https://kubernetes.default.svc"
     token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
@@ -208,6 +193,17 @@ data:
       fi
       mv "$1/hosts.toml.new" "$1/hosts.toml"
     }
+    # SOV-137 — with --embedded-registry (SOV-136) k3s writes the node's mirror of the region's
+    # nodes (https://127.0.0.1:6443/v2) as the FIRST host of every name. Each file of the pivot
+    # keeps it first: this prints that block, line for line, from k3s's file for the name in $1
+    # (hosts.toml, hosts.toml.pre-pivot once pivoted, else the "*" file _default), or nothing.
+    k3s_mirror_block() {
+      for f in "$1/hosts.toml" "$1/hosts.toml.pre-pivot" "${certs_d}/_default/hosts.toml"; do
+        [ -f "${f}" ] && ! pivot_owns "${f}" || continue
+        awk '/^\[/ { m = ($0 ~ /^\[host\."https:\/\/(127\.0\.0\.1|\[::1\]):[0-9]+\/v2"\]$/) } m && NF' "${f}"
+        return 0
+      done
+    }
     write_offline_mirror_hosts() {
       # Retire the legacy #4639 dfdaemon catch-all, and only it: k3s writes
       # _default/hosts.toml for the "*" name of registries.yaml.
@@ -219,6 +215,7 @@ data:
         {
           echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
           echo "server = \"https://${LOCAL_REGISTRY_HOST}\""
+          k3s_mirror_block "${certs_d}/${LOCAL_REGISTRY_HOST}"
           echo "[host.\"https://${LOCAL_REGISTRY_HOST}\"]"
           echo "  capabilities = [\"pull\", \"resolve\"]"
           echo "  skip_verify = true"
@@ -233,10 +230,12 @@ data:
         [ -z "${h}" ] && continue
         [ "${h}" = "${LOCAL_REGISTRY_HOST}" ] && continue
         mkdir -p "${certs_d}/${h}"
+        blk=$(k3s_mirror_block "${certs_d}/${h}")
         if [ -z "${p}" ]; then
           # Mothership host-swap: path preserved (no override_path).
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
+            [ -z "${blk}" ] || printf '%s\n' "${blk}"
             echo "[host.\"https://${LOCAL_REGISTRY_HOST}\"]"
             echo "  capabilities = [\"pull\", \"resolve\"]"
             echo "  skip_verify = true"
@@ -246,6 +245,7 @@ data:
           # uses the URL path as the API root instead of appending its own /v2).
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
+            [ -z "${blk}" ] || printf '%s\n' "${blk}"
             echo "[host.\"https://${LOCAL_REGISTRY_HOST}/v2/${p}\"]"
             echo "  capabilities = [\"pull\", \"resolve\"]"
             echo "  override_path = true"
@@ -253,7 +253,7 @@ data:
           } > "${certs_d}/${h}/hosts.toml.new"
         fi
         put_hosts_toml "${certs_d}/${h}" || continue
-        echo "[registry-pivot]   wrote ${h}/hosts.toml -> https://${LOCAL_REGISTRY_HOST}${p:+/v2/${p}} on ${NODE_NAME}"
+        echo "[registry-pivot]   wrote ${h}/hosts.toml -> ${blk:+the nodes (k3s embedded mirror), then }https://${LOCAL_REGISTRY_HOST}${p:+/v2/${p}} on ${NODE_NAME}"
       done
     }
     # Rollback (and the dormant first run): only marked files go; the node's own come back.
@@ -838,7 +838,7 @@ spec:
         - operator: Exists
       containers:
         - name: pivot
-          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.hostExec.repository "tag" .Values.images.hostExec.tag "cutoverPhase" "pre" "Values" .Values) }}
+          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true

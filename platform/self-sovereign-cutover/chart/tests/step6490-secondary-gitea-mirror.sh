@@ -225,6 +225,9 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      lacks pivot_owns, the step-04 document is left out of BOTH trees, as
     #      axes 5, 8 and 10 do; tests/registry-pivot-keeps-k3s-files.sh executes
     #      the change. The axis switches itself off once origin/main holds it.
+    #      SOV-137 widens it: step 04 keeps the k3s embedded mirror first and runs
+    #      images.kubectl, in EVERY topology; while origin/main lacks
+    #      k3s_mirror_block the same document is left out (the pivot Go tests).
     #  21. every write into the local registry goes through one copy (offlinemirror_copy in
     #      _helpers.tpl: a list as its entries, then its own bytes), in EVERY topology: step
     #      03, the 03a resolver, step 08, the day-two warm and the follower prewarm script
@@ -235,7 +238,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     dropcpy=0
     grep -q 'offlinemirror_copy() {' "${TMP}/main.yaml" || dropcpy=1
     drop04o=0
-    grep -q 'pivot_owns() {' "${TMP}/main.yaml" || drop04o=1
+    { grep -q 'pivot_owns() {' "${TMP}/main.yaml" && grep -q 'k3s_mirror_block() {' "${TMP}/main.yaml"; } || drop04o=1
     droppiv=0
     grep -q 'prewarm_read_through() {' "${TMP}/main.yaml" || droppiv=1
     drop08k=0
