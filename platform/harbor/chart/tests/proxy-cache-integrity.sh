@@ -16,6 +16,9 @@
 #   5  a failed read deletes nothing (an error answer, no answer, a failed listing,
 #      an index listed without children); unread earlier counters stay as they are
 #   6  on by default: the default render holds the check; enabled=false renders nothing
+#   7  the Job the CronJob creates is admitted by the ClusterPolicy flux-managed:
+#      its jobTemplate.metadata carries app.kubernetes.io/managed-by: flux (the
+#      controller copies only those labels to the Job; the Pod keeps its own)
 set -euo pipefail
 
 CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
@@ -358,4 +361,15 @@ helm template harbor . --namespace harbor > "$TMP/all.yaml"
 grep -q -x -F "# Source: bp-harbor/$TPL" "$TMP/all.yaml" || fail "case 6: the full default render lacks the check"
 
 echo "ok 6 on by default"
-echo "proxy-cache-integrity: all 6 cases passed"
+
+# The lines between jobTemplate and its spec: the metadata of every Job.
+awk '/^  jobTemplate:$/ { f = 1; next } f && /^    spec:$/ { exit } f { print }' "$CRON" > "$TMP/job-meta.yaml"
+printf '%s\n' '    metadata:' '      labels:' '        app.kubernetes.io/managed-by: flux' \
+  '        catalyst.openova.io/blueprint: bp-harbor' '        catalyst.openova.io/component: proxy-cache-integrity' > "$TMP/job-meta-want.yaml"
+cmp -s "$TMP/job-meta.yaml" "$TMP/job-meta-want.yaml" \
+  || fail "case 7: the jobTemplate's metadata lacks app.kubernetes.io/managed-by: flux, so flux-managed denies every Job: $(cat "$TMP/job-meta.yaml")"
+for line in '            catalyst.openova.io/blueprint: bp-harbor' '            catalyst.openova.io/component: proxy-cache-integrity'; do
+  grep -q -x -F -e "$line" "$CRON" || fail "case 7: the Pod template lost the label '$line'"
+done
+echo "ok 7 the Job is admitted by flux-managed"
+echo "proxy-cache-integrity: all 7 cases passed"
