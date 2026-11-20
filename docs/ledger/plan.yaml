@@ -36357,7 +36357,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [PRD-204]
-  after: [SVC-040]
+  after: []
   touches:
   - products/cortex/internal/assistant/**
   - products/cortex/internal/httpapi/**
@@ -36370,16 +36370,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/cortex/internal/assistant/assistant.go; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "(cd products/cortex && go vet ./... && go test -count=1 ./cmd/cortex ./internal/assistant ./internal/gateway ./internal/httpapi)"
+  - id: A2
+    run: "printf '%s  %s\\n' 8dac25d34a03a2ac04387806470e40c9a4a468b62f86d19f66537715640aba6a products/cortex/README.md 7a38bbf6d2becb868b3673fffbb4d9bc90c979eff59a32e35afbb002d0bfe9f7 products/cortex/cmd/cortex/main.go 44591696cb91a3a7df57f85c55663bc6ae26d9306c5cd03da65591f2f0d4b9d8 products/cortex/cmd/cortex/main_test.go b44360bb3c14c28144c36f979aee400486865430cad5a2e8ba6c3c9979c3dc99 products/cortex/internal/assistant/assistant.go 69be257b7b88363104a66815074cf4825854a3f4c3f752e87690cc80a93909bf products/cortex/internal/assistant/assistant_test.go 5e7f22c10f0a803da1052b8ef7b8894271136fb31faf92fbd20b765064dfbf9d products/cortex/internal/gateway/gateway.go a0f32aae946a96a389f3020eaedb7407699651efb9a1cd6d2ef3c0187ed036f9 products/cortex/internal/gateway/gateway_test.go 06f5750888c2edd5754b18b9f20b3c24ae9a7671fb218461fe8c4fa07db4d5b4 products/cortex/internal/httpapi/assistants.go 3932f2ab6c2a34b3f04a603585e2f5f0881838b2b2cac72a8c3afd59c681b3a3 products/cortex/internal/httpapi/assistants_test.go 77d4c8bd3ad94ed6c735a3151900abcd20b36a38877d680a8049b8f29523d491 products/cortex/internal/httpapi/router.go 3f810c243c5c657afd1b3d6d3e713f8859eb19649aff3b1f607f8758033a3362 products/cortex/internal/httpapi/router_test.go | sha256sum --check --quiet -"
+  - id: A3
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(EveryRouteAuthenticated|NoQueryTextIsLogged|ModelsRoute|ChatRoute)$' ./internal/httpapi) | grep -c -E '^--- PASS: Test(EveryRouteAuthenticated|NoQueryTextIsLogged|ModelsRoute|ChatRoute) ' | grep -x 4"
+  - id: A4
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(Parse|FileKeepsTheLastValidVersion|Tiers|ChatAndOwners)$' ./internal/assistant ./internal/gateway) | grep -c -E '^--- PASS: Test(Parse|FileKeepsTheLastValidVersion|Tiers|ChatAndOwners) ' | grep -x 4"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: GET /v1/models and POST /v1/chat/completions with tiers, citations and the external-models refusal.
+  delivers: The cortex query process lists the assistants a caller may use on GET /v1/models and answers on POST /v1/chat/completions with one tiered search trimmed to the caller and one generation through the gateway's chat alias, with the passages as citations; it refuses tools, and refuses an answer with 409 external-models-not-allowed while the chat alias runs outside the Sovereign and the Organization has not allowed it.
 - id: PRD-206
   title: cortex screens
   area: PRD
