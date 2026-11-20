@@ -73,6 +73,7 @@
 //     step.<stepName>.finishedAt
 //     step.<stepName>.result   "success" | "failed" | "skipped"
 //     step.<stepName>.jobName  Job/DaemonSet name (audit pointer)
+//     autoRetry*               repetition record of a failed step (SOV-242)
 //   - Idempotency anchor: when `cutoverComplete == "true"` POST /start
 //     returns 200 with the existing state and does NOT re-run.
 //
@@ -128,6 +129,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverreconcile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -2937,6 +2939,13 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 	// The in-cluster auto-trigger + startup-resume keep this false (fail-closed)
 	// so an unattended genuine failure never auto-loops.
 	RecordRetryCall(h, h.resolveCutoverDeployment(), "", retrycall.RouteCutoverStart, retrycall.CutoverTarget(remirror), r)
+	// SOV-242: the only way past a halted step; a later failure gets a fresh budget.
+	if err := patchCutoverStatus(r.Context(), deps, cutoverreconcile.Cleared()); err != nil {
+		bus.endRun()
+		h.log.Error("[CUTOVER] repetition record clear failed; the cutover is not resumed", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "status-patch-failed", "detail": err.Error()})
+		return
+	}
 	go h.runCutoverWith(context.Background(), deps, steps, cutoverRunOpts{operatorRetry: true, remirror: remirror})
 
 	// Re-read status so the response reflects the freshly-patched

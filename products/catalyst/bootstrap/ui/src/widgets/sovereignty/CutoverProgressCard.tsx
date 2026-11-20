@@ -19,6 +19,7 @@
  */
 
 import { AlertCircle, Check, CircleDashed, Loader2 } from 'lucide-react'
+import { Button } from '@/shared/ui/button'
 import {
   cutoverStepDef,
   cutoverStepRows,
@@ -32,6 +33,10 @@ export interface CutoverProgressCardProps {
   status: CutoverStatus
   /** Stream-level error to surface above the rows; trumps per-step error. */
   streamError?: string | null
+  /** SOV-242 — the sovereign-admin's resume (POST /cutover/start), its progress and its error. */
+  onResume?: () => void
+  resuming?: boolean
+  resumeError?: string | null
 }
 
 const STEP_DOT_CLASSES: Record<CutoverStepStatus, string> = {
@@ -196,10 +201,17 @@ function SovereigntyAchievedSummary({ status }: { status: CutoverStatus }) {
 export function CutoverProgressCard({
   status,
   streamError,
+  onResume,
+  resuming,
+  resumeError,
 }: CutoverProgressCardProps) {
   // Compute progress: count `done` steps for the % bar.
   const doneCount = status.steps.filter((s) => s.status === 'done').length
   const failed = status.steps.find((s) => s.status === 'failed') ?? null
+  // SOV-242 — the reconciler judges `failedStep` and its record, never a row: a step can fail without a failed row.
+  const failedStep = status.failedStep
+  const auto = status.autoRetry
+  const spent = auto !== undefined && (auto.halted || auto.count >= auto.limit) // as Decide judges it: 3 of 3 is spent before the next pass marks it halted
   // Mid-cutover the response lists only the started steps; `totalSteps` counts all.
   const rows = cutoverStepRows(status.steps)
   const total = Math.max(rows.length, status.totalSteps ?? 0)
@@ -217,8 +229,8 @@ export function CutoverProgressCard({
             Cutover in progress
           </h3>
           <p className="mt-0.5 text-xs text-[var(--color-text-dim)]">
-            {failed
-              ? 'Cutover halted on a failed step. Review the error and re-trigger after the underlying issue is fixed.'
+            {failedStep
+              ? spent ? 'Cutover stopped on a failed step. Review the error and resume it after the underlying issue is fixed.' : 'A step failed. Review the error below.'
               : status.state === 'sovereign'
                 ? `All ${total} steps completed.`
                 : `Step ${doneCount} of ${total} complete — the operator is not required to keep this tab open.`}
@@ -252,6 +264,32 @@ export function CutoverProgressCard({
         >
           {streamError}
         </p>
+      ) : null}
+
+      {/* SOV-242 — a failed step: a repetition is pending (no Resume), or the reconciler has
+          not opened its record yet (where it is dormant it never does, so Resume stays), or the
+          budget is spent and the cutover is stopped until the sovereign-admin resumes it. */}
+      {failedStep ? (
+        <div
+          data-testid={spent ? 'cutover-stopped' : 'cutover-auto-retry'}
+          role={spent ? 'alert' : 'status'}
+          className={`mb-3 rounded-md border p-3 text-xs ${spent ? 'border-red-500/40 bg-red-500/5 text-red-300' : 'border-amber-500/40 bg-amber-500/5 text-amber-300'}`}
+        >
+          <p className="font-semibold">{spent ? 'Cutover stopped at step' : 'Failed step'} “{cutoverStepDef(failedStep).label}”</p>
+          <p className="mt-1">
+            {auto && spent
+              ? `It failed again after ${auto.count} automatic repetitions. The cutover goes on only when you resume it.`
+              : auto
+                ? `The engine repeats it automatically: repetition ${auto.count + 1} of ${auto.limit}${auto.nextAt ? ` at ${formatRel(auto.nextAt)}` : ''}.`
+                : 'No automatic repetition is scheduled yet: the engine schedules one within minutes where it repeats failed steps. You can also resume the cutover now.'}
+          </p>
+          {onResume && (spent || !auto) ? (
+            <Button data-testid="cutover-resume-button" size="sm" className="mt-2" onClick={onResume} loading={resuming}>
+              Resume cutover
+            </Button>
+          ) : null}
+          {resumeError ? <p className="mt-2 font-mono text-[11px]">{resumeError}</p> : null}
+        </div>
       ) : null}
 
       {status.settledRollOverrides ? (

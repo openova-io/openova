@@ -419,8 +419,42 @@ export interface CutoverStatus {
    * so an acceptance walk can SEE the cutover ran with an exclusion.
    */
   settledRollOverrides?: string
+  /** SOV-242 — the step the engine failed on (`failedStep`), with or without a row: what the reconciler judges. */
+  failedStep?: CutoverStepID
+  /** SOV-242 — the engine's automatic repetitions of the failed step, if it keeps a record for it. */
+  autoRetry?: CutoverAutoRetry
   /** Error message at the first-failed step. Empty in the success path. */
   error?: string
+}
+
+/**
+ * SOV-242 — the engine repeats a failed step at most `limit` times, each after
+ * a longer pause. `halted`: the budget is spent; the cutover goes on only when
+ * the sovereign-admin resumes it (POST /cutover/start).
+ */
+export interface CutoverAutoRetry {
+  count: number // automatic repetitions fired
+  limit: number
+  nextAt?: string // when the next one is due (RFC 3339 UTC)
+  halted: boolean
+}
+
+/**
+ * The `autoRetry*` keys of the status ConfigMap: at the top level of the flat
+ * frame of the event stream, under `raw` in the GET /status body.
+ */
+function parseAutoRetry(raw: Record<string, unknown>, failedStep?: string): CutoverAutoRetry | undefined {
+  const key = (k: string) => raw[k] ?? rawKey(raw, k)
+  if (failedStep === undefined || firstString(key('autoRetryStep')) !== failedStep) return undefined
+  const count = firstNumber(key('autoRetryCount'))
+  const limit = firstNumber(key('autoRetryLimit'))
+  if (count === undefined || limit === undefined) return undefined
+  return {
+    count,
+    limit,
+    nextAt: firstString(key('autoRetryNextAt')),
+    halted: key('autoRetryHalted') === 'true',
+  }
 }
 
 /**
@@ -552,6 +586,8 @@ export function parseCutoverStatus(input: unknown): CutoverStatus {
       raw.settledRollOverrides,
       rawKey(raw, 'settledRollOverrides'),
     ),
+    failedStep: isCutoverStepID(failedStep) ? failedStep : undefined,
+    autoRetry: parseAutoRetry(raw, failedStep),
     error: firstString(raw.error, raw.lastError),
   }
 }
@@ -622,10 +658,12 @@ export function buildInitialCutoverStatus(): CutoverStatus {
  * steps because the reducer's map() never sees them.
  */
 export function applyCutoverStepUpdate(
-  prev: CutoverStatus,
+  prior: CutoverStatus,
   update: CutoverStepStatusRecord,
 ): CutoverStatus {
-  if (!isCutoverStepID(update.step)) return prev
+  if (!isCutoverStepID(update.step)) return prior
+  // SOV-242 — a step starts only after the run's seed cleared `failedStep`: a running repetition is neither pending nor stopped.
+  const prev = update.status === 'running' && prior.failedStep !== undefined ? { ...prior, failedStep: undefined, autoRetry: undefined } : prior
   let changed = false
   let matched = false
   const nextSteps = prev.steps.map((s) => {
