@@ -92,6 +92,7 @@ ships:
 | `OPENOVA_MCP_RS256_PUBKEY_PEM` | PEM of the RS256 public key (Sovereign handover-jwt pubkey) when verify=rs256 |
 | `OPENOVA_MCP_HS256_SECRET` | HS256 shared secret when verify=hs256 |
 | `OPENOVA_MCP_BEARER` | stdio transport only: fallback bearer when a `tools/call` omits the `_auth.token` argument. The HTTP transport has no fallback bearer and reads the `Authorization` header alone |
+| `OPENOVA_MCP_BEARER_FILE` | stdio transport only: a file holding the fallback bearer, read at every `tools/list` and `tools/call`, so a bearer replaced in the file (by rename) is used from the next call on with no restart. Set, it replaces `OPENOVA_MCP_BEARER`; a missing or empty file means no fallback bearer |
 | `OPENOVA_MCP_EXPECTED_ISSUER` | optional exact `iss` claim pin — the instance-level trusted-realm boundary (#3988 §4.3) |
 | `OPENOVA_MCP_AGENT_ISSUER` | optional exact `iss` an agent token must carry; the chart sets it to `https://console.<sovereignFqdn>` when `sovereignFqdn` is set |
 | `OPENOVA_MCP_ORG_SCOPE` | optional Org slug pin for a per-Org instance — a token minted for a different Org is rejected outright |

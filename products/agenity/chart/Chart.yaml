@@ -371,7 +371,8 @@ version: 0.5.36
 # tokens.
 # 0.9.9 (AIP-151): the image embeds the openova-mcp binary whose tool answers
 # are fitted and inert.
-appVersion: "0.9.9"
+# 0.9.10 (AIP-152): the embedded openova-mcp reads its bearer file at every call.
+appVersion: "0.9.10"
 keywords:
   - agenity
   - agent-runtime

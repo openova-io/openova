@@ -31,6 +31,8 @@
 //	OPENOVA_MCP_BEARER            fallback bearer when a call omits _auth.
 //	                              Stdio transport only: the HTTP transport
 //	                              reads the Authorization header alone.
+//	OPENOVA_MCP_BEARER_FILE       stdio only: file of the fallback bearer, read
+//	                              at every call; set, it replaces the above.
 //	OPENOVA_MCP_AGENT_ISSUER      optional exact `iss` an agent token (typ
 //	                              agent) must carry. Empty = no agent issuer
 //	                              pin. Session tokens are not affected.
@@ -143,13 +145,13 @@ func main() {
 		}
 	}
 	reg := tools.NewRegistry(api)
-	srv := &server{reg: reg, resolver: resolver, fallbackBearer: os.Getenv("OPENOVA_MCP_BEARER"), out: os.Stdout}
+	srv := newStdioServer(reg, resolver, os.Stdout)
 	tenantHostLog := ""
 	if api != nil {
 		tenantHostLog = api.TenantHost()
 	}
-	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q issuer_pin=%q agent_issuer=%q org_scope=%q listen=%q",
-		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog,
+	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v bearer_file=%q tenant_host=%q issuer_pin=%q agent_issuer=%q org_scope=%q listen=%q",
+		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), srv.fallbackBearer != "", srv.bearerFile, tenantHostLog,
 		os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER"), os.Getenv("OPENOVA_MCP_AGENT_ISSUER"), os.Getenv("OPENOVA_MCP_ORG_SCOPE"), os.Getenv("OPENOVA_MCP_LISTEN"))
 
 	// ── Streamable-HTTP transport (#3988 §4.3, the standalone Service
@@ -192,6 +194,7 @@ type server struct {
 	reg            *tools.Registry
 	resolver       *identity.Resolver
 	fallbackBearer string
+	bearerFile     string // set: the fallback bearer is read from it at every call
 	out            io.Writer
 
 	// lineDelimited records the framing the most-recent inbound message
@@ -199,6 +202,31 @@ type server struct {
 	// false = LSP Content-Length framing. writeFrame mirrors it so the
 	// peer's transport reader can parse the reply (#4111).
 	lineDelimited bool
+}
+
+// The stdio fallback bearer comes from the file fallbackFileVar names, when set;
+// otherwise from fallbackVar, read once here.
+const fallbackVar, fallbackFileVar = "OPENOVA_MCP_BEARER", "OPENOVA_MCP_BEARER_FILE"
+
+func newStdioServer(reg *tools.Registry, resolver *identity.Resolver, out io.Writer) *server {
+	if f := strings.TrimSpace(os.Getenv(fallbackFileVar)); f != "" {
+		return &server{reg: reg, resolver: resolver, bearerFile: f, out: out}
+	}
+	return &server{reg: reg, resolver: resolver, fallbackBearer: os.Getenv(fallbackVar), out: out}
+}
+
+// fallback is the bearer of a call without an _auth token. A bearer file is
+// read at every call, so a bearer renewed in it needs no restart; a missing or
+// empty file gives no bearer, never one read earlier.
+func (s *server) fallback() string {
+	if s.bearerFile == "" {
+		return s.fallbackBearer
+	}
+	b, err := os.ReadFile(s.bearerFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func (s *server) dispatch(raw []byte) error {
@@ -249,7 +277,7 @@ func (s *server) handleToolsCall(req rpcRequest) error {
 		return s.writeError(req.ID, -32602, "invalid params", err.Error())
 	}
 
-	id, err := s.resolveBearer(extractBearer(s.fallbackBearer, params.Arguments))
+	id, err := s.resolveBearer(extractBearer(s.fallback(), params.Arguments))
 	if err != nil {
 		return s.writeError(req.ID, -32001, "unauthenticated", err.Error())
 	}
@@ -288,7 +316,7 @@ func (s *server) toolError(id json.RawMessage, err error) error {
 // resolveFromParams pulls a bearer out of a generic params blob (the
 // `_meta._auth.token` or `_auth.token` side-channel) for tools/list.
 func (s *server) resolveFromParams(params json.RawMessage) (*identity.Identity, error) {
-	return s.resolveBearer(extractBearer(s.fallbackBearer, params))
+	return s.resolveBearer(extractBearer(s.fallback(), params))
 }
 
 func (s *server) resolveBearer(bearer string) (*identity.Identity, error) {
