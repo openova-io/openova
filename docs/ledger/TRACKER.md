@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T01:45:04Z` |
+| Last refreshed | `2026-11-20T02:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8036](https://github.com/openova-io/openova/issues/8036) | CLD-064 Convert the adoption Composition to pipeline mode | Other |
 | [#8037](https://github.com/openova-io/openova/issues/8037) | MIG-030 Spike: a written volume boots on the reference cloud, through a unit Wor | Other |
 | [#8047](https://github.com/openova-io/openova/issues/8047) | CMP-020 The API tells the truth: live mode, no fixture data, no invented list | Other |
 | [#8066](https://github.com/openova-io/openova/issues/8066) | CTL-233 Console: Git-owned objects show Managed by Git | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8426](https://github.com/openova-io/openova/issues/8426) | CLD-133 Secondary-region suspend keys are set for every provider | Other |
 | [#8427](https://github.com/openova-io/openova/issues/8427) | NET-252 Lab test: HTTPS through the front listener, and cilium-envoy memory with | Other |
 | [#8433](https://github.com/openova-io/openova/issues/8433) | SOV-132 Nodes boot with a local-first registry file, a wildcard entry and the pu | Other |
+| [#8436](https://github.com/openova-io/openova/issues/8436) | SVC-205 Lock stage blueprints to deny | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T01:49 | [#8435](https://github.com/openova-io/openova/pull/8435) | #7087 | docs(ledger): plan update |
 | 2026-11-20T01:41 | [#8432](https://github.com/openova-io/openova/pull/8432) | #7087 | docs(ledger): plan update |
 | 2026-11-20T00:45 | [#8430](https://github.com/openova-io/openova/pull/8430) | #8426 | fix(cloud-init): the secondary-region suspend keys are compu |
 | 2026-11-20T00:15 | [#8429](https://github.com/openova-io/openova/pull/8429) | #8427 | docs(ledger): result of the lab test NET-252, HTTPS through  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T20:45 | [#8395](https://github.com/openova-io/openova/pull/8395) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:52 | [#8394](https://github.com/openova-io/openova/pull/8394) | #8386 | chore(catalog): delete the OpenMeter Blueprint and what list |
 | 2026-11-19T20:52 | [#8393](https://github.com/openova-io/openova/pull/8393) | #8391 | feat(ops-records): tool endpoint, console routes and the pro |
-| 2026-11-19T20:45 | [#8392](https://github.com/openova-io/openova/pull/8392) | #8389 | refactor(mail): a Sovereign in relay mode sends its sign-in  |
 
 ---
 
