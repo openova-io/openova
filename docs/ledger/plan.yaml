@@ -10609,7 +10609,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-132, SOV-135, SOV-161, SOV-175, SOV-190, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-132, SOV-135, SOV-161, SOV-175, SOV-190, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -13782,15 +13782,19 @@ packages:
   depends_on: [SEC-153]
   after: []
   touches:
+  - .github/workflows/check-flux-controller-pull-credential.yaml
   - .github/workflows/cloud-init-size.yaml
   - .github/workflows/cloudinit-golden.yaml
+  - clusters/_template/bootstrap-kit/03-flux.yaml
   - clusters/_template/bootstrap-secrets/**
   - clusters/_template/root/base-primary/bootstrap-secrets.yaml
+  - clusters/_template/root/base-primary/bootstrap-seed.yaml
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
   - infra/providers/_shared/tests/golden.auto.tfvars.json
   - infra/providers/_shared/tests/render.tf
   - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - scripts/check-flux-controller-pull-credential.sh
   - scripts/secret-guard-baselines/check-reflector-scope.txt
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - tests/e2e/bootstrap-kit/bootstrap_seed_upgrade_test.go
@@ -13820,14 +13824,16 @@ packages:
     run: "t=infra/providers/hetzner/tests/multi_region.tftest.hcl; test \"$(grep -c -x -F '    error_message = \"SEC-154: the secondary render must carry the values of ghcr-pull and object-storage in the seed file, no manifest of either, and the packed cloud-credentials file as on main.\"' \"$t\")\" = 1 && test \"$(grep -c -F 'strcontains(local.secondary_region_cloud_init[\"nbg1-1\"], \"\\n      GHCR_PULL_DOCKERCONFIGJSON=\")' \"$t\")\" = 1 && test \"$(grep -c -F 'CLD-185: the packed cloud-credentials file of the primary render' \"$t\")\" = 1"
   - id: A8
     run: "w=.github/workflows/cloud-init-size.yaml; test \"$(grep -c -x -F '      - name: Compare every surface with the base of the pull request' \"$w\")\" = 1 && test \"$(grep -c -x -F '          fetch-depth: 2' \"$w\")\" = 1 && test \"$(grep -c -F '( cd \"$d\" && NO_COLOR=1 bash scripts/cloudinit-size-check.sh both )' \"$w\")\" = 1"
+  - id: A9
+    run: "s=scripts/check-flux-controller-pull-credential.sh; w=.github/workflows/check-flux-controller-pull-credential.yaml; out=\"$(NO_COLOR=1 bash \"$s\" --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^  ok .* (the template source with the wait of the kit passes|no source fails and names the Secret ghcr-pull|a template in another namespace fails|a template without the wait of the kit fails|the first-boot source passes)$')\" = 5 && bash \"$s\" > /dev/null && test \"$(grep -c -x -F \"      - 'clusters/_template/bootstrap-secrets/**'\" \"$w\")\" = 2 && test \"$(grep -c -x -F \"      - 'clusters/_template/root/base-primary/**'\" \"$w\")\" = 2 && test \"$(grep -c -F 'applies /var/lib/catalyst/ghcr-pull-secret.yaml before Flux' clusters/_template/bootstrap-kit/03-flux.yaml)\" = 0 && test \"$(sed -n 1,16p clusters/_template/root/base-primary/bootstrap-seed.yaml | grep -c -F 'the six bootstrap Secrets')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
-  delivers: 'First boot no longer writes the manifests of ghcr-pull and object-storage: their values join the seed Secret flux-system/bootstrap-seed, and they are templates under clusters/_template/bootstrap-secrets, which the Flux Kustomization bootstrap-secrets renders from its path of main; cloud-credentials stays as on main, the packed entry of first boot, applied and shredded, until SEC-198; every control-plane surface of the start-up data of both providers and both region roles is smaller than on main and every worker surface equal, recorded per surface by the check packs against the base of the pull request; on a Sovereign installed before this change the Job bootstrap-seed-build adds the values its seed lacks from the live Secrets, never changes a value the seed holds, and writes nothing and names the Secret and key when a Secret, key or value is missing; guard G1 passes a template only when every name it references comes only from a postBuild.substituteFrom entry of kind Secret of each Flux Kustomization that renders its folder, and a Flux Kustomization it cannot read is a finding.'
+  delivers: 'First boot no longer writes the manifests of ghcr-pull and object-storage: their values join the seed Secret flux-system/bootstrap-seed, and they are templates under clusters/_template/bootstrap-secrets, which the Flux Kustomization bootstrap-secrets renders from its path of main; cloud-credentials stays as on main, the packed entry of first boot, applied and shredded, until SEC-198; every control-plane surface of the start-up data of both providers and both region roles is smaller than on main and every worker surface equal, recorded per surface by the check packs against the base of the pull request; on a Sovereign installed before this change the Job bootstrap-seed-build adds the values its seed lacks from the live Secrets, never changes a value the seed holds, and writes nothing and names the Secret and key when a Secret, key or value is missing; guard G1 passes a template only when every name it references comes only from a postBuild.substituteFrom entry of kind Secret of each Flux Kustomization that renders its folder, and a Flux Kustomization it cannot read is a finding; the guard check-flux-controller-pull-credential accepts the Secret that bp-flux''s ServiceAccount patch names from first boot or from a template of clusters/_template/bootstrap-secrets in flux-system, the template only while the Kustomization bootstrap-kit dependsOn bootstrap-secrets, and its workflow runs on a change of either.'
 - id: SEC-155
   title: Key-service seal on the reference cloud (only if SEC-135 answered YES)
   area: SEC
@@ -16857,7 +16863,7 @@ packages:
     expect: "0 1 1"
   acceptance:
   - id: A1
-    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"38219830baa8dd50d216470fb6ef60393c2122e8330eb4d1b29f069f3bbc7856  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
+    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"3b03856b008082ff04d757e0df3b09f494f2c0b9bb2b14e2e15e56edc414f566  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
   - id: A2
     run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"7c55d5b7fb19e0f76b22a545a6782d3da316a55a2c3ed36ea057eda07f1067df  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
   - id: A3
@@ -16867,7 +16873,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 6
+  ticket_rev: 7
   dropped: false
   delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with exactly the container restarts the platform makes, and the job summary states PASS or FAIL per case.'
 - id: NET-125
@@ -18146,7 +18152,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-132, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-132, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -18802,7 +18808,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-154, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
