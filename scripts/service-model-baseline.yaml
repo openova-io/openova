@@ -17,7 +17,7 @@ counts:
   G5.label-tier: 0
   G5.label-section: 1
   G6.function-test-charts: 32
-  G7.seed-exclusions: 16
+  G7.seed-exclusions: 15
   G8.slots-without-ring: 0
   G8.ring-edges-outside: 0
   G9.wizard-ids-without-chart: 3

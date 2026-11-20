@@ -1,6 +1,5 @@
 G2	clusters/_template/sovereign-region/multi-region-follower/git-sync-egress.yaml	1
 G2	clusters/_template/sovereign-region/multi-region/gitea-sync-ingress.yaml	1
-G2	platform/anthropic-adapter/chart/templates/networkpolicy.yaml	1
 G2	platform/bge/chart/templates/networkpolicy.yaml	1
 G2	platform/cilium-policies/chart/templates/00-placeholder.yaml	1
 G2	platform/cluster-autoscaler-hcloud/chart/templates/networkpolicy.yaml	1
@@ -18,7 +17,6 @@ G2	platform/knative/chart/templates/networkpolicy.yaml	1
 G2	platform/kserve/chart/templates/networkpolicy.yaml	1
 G2	platform/librechat/chart/templates/networkpolicy.yaml	1
 G2	platform/livekit/chart/templates/networkpolicy.yaml	1
-G2	platform/llm-gateway/chart/templates/networkpolicy.yaml	1
 G2	platform/matrix/chart/templates/networkpolicy.yaml	1
 G2	platform/nemo-guardrails/chart/templates/networkpolicy.yaml	1
 G2	platform/netbird/chart/templates/networkpolicy.yaml	1
