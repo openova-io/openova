@@ -36401,23 +36401,31 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [PRD-205]
-  after: [SVC-040]
+  after: []
   touches:
   - products/cortex/ui/**
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/cortex/ui; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/cortex/ui && npm ci --no-audit --no-fund > /dev/null && npm run build > /dev/null && test -f web/main.js && test -f web/screens/assistants.js && out=\"$(mktemp)\" && npm test > \"$out\" && test \"$(grep -c -E '^ℹ (pass 41|fail 0)$' \"$out\")\" = 2"
+  - id: A2
+    run: "cd products/cortex/ui && npm ci --no-audit --no-fund > /dev/null && out=\"$(mktemp)\" && npm test > \"$out\" && test \"$(grep -c -E '^✔ (adding a source on the screen saves the Application with If-Match and bindings unchanged|a save answered 409 reloads the Application, shows the difference and offers the draft again|save sends the whole parameters with If-Match to the Application update route|save sends bindings back unchanged, also when the edit touched them|save answered (409|412) reloads the Application and names the difference|load refuses an Application route that returns no version, so no save can overwrite another) \\(' \"$out\")\" = 7"
+  - id: A3
+    run: "cd products/cortex && go vet ./ui/ && go build ./ui/"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Screens for sources, upload, documents, job state and assistants; every save goes through the Application update route with If-Match and unchanged bindings.
+  delivers: The cortex screens show the sources, an upload with an optional reader list, the documents, the live job state and the assistants of one Organization, and every change of a definition is one save of the whole spec.parameters through the Application update route with If-Match and bindings sent back unchanged; on a conflict the screen reloads the Application and shows the difference.
 - id: PRD-207
   title: Gate checks for slice A1
   area: PRD
