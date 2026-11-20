@@ -63,6 +63,11 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for the store and for the role external-secrets,
+    # which this release's Deployment openbao-config writes, until 60 seconds
+    # before its bound T, the install timeout below, stated once as
+    # values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 15m
     # SEC-162: the upstream chart's server test mounts the server's volumes,
     # the seal directory among them, on any node. Only the chart's own
     # function test runs (bp-openbao templates/tests/function-test.yaml).
@@ -300,3 +305,5 @@ spec:
     peerTrust:
       selfRegion: '${SOVEREIGN_REGION_CANONICAL_LABEL:-}'
       regions: '${SOVEREIGN_REGIONS_JSON:-}'
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)

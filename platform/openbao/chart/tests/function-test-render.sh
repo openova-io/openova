@@ -81,12 +81,16 @@ helm template openbao . --namespace openbao --show-only "$TEST" "${SEAL[@]}" > "
 pod_script "$TMP/run.yaml" > "$TMP/run.sh"
 stub curl <<'EOF'
 #!/bin/bash
-# The store is initialised and unsealed. A login names a missing role (400, invalid role name) for the first $MISSING
-# logins, then a role that is bound to another service account.
+# The store refuses the first $DOWN health requests (0 when unset), then is initialised and unsealed. A login names a
+# missing role (400, invalid role name) for the first $MISSING logins, then a role that is bound to another service
+# account.
 out=/dev/null url=""
 while [ "$#" -gt 0 ]; do case "$1" in -o) out=$2; shift ;; http*) url=$1 ;; esac; shift; done
 case "$url" in
-  */v1/sys/health*) printf '{"initialized":true,"sealed":false}' > "$out"; printf 200 ;;
+  */v1/sys/health*)
+    h=$(( $(cat "$COUNT.health" 2>/dev/null || echo 0) + 1 )); echo "$h" > "$COUNT.health"
+    if [ "$h" -le "${DOWN:-0}" ]; then echo "curl: (7) Failed to connect to openbao port 8200: Connection refused" >&2; printf 000; exit 7; fi
+    printf '{"initialized":true,"sealed":false}' > "$out"; printf 200 ;;
   */login)
     n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
     if [ "$n" -le "$MISSING" ]; then printf '{"errors":["invalid role name"]}' > "$out"; printf 400
@@ -96,7 +100,24 @@ EOF
 mkdir -p "$TMP/etc"; printf 'a.b.c' > "$TMP/etc/token"
 runs pass "the test does not wait for the role the openbao-config Deployment writes" MISSING=3 SECONDS=0 BAO_ADDR=http://openbao:8200 AUTH_MOUNT=kubernetes AUTH_ROLE=external-secrets CHECK_LOGIN=yes
 runs fail "the test passes while the role is never written" MISSING=1000000 SECONDS=239 BAO_ADDR=http://openbao:8200 AUTH_MOUNT=kubernetes AUTH_ROLE=external-secrets CHECK_LOGIN=yes
-echo "[function-test] Case 5: self-initialisation off renders no test"
+grep -q -F 'the role external-secrets, which the Deployment openbao-config writes, is not on auth/kubernetes within 240 seconds' "$TMP/run.out" || fail "without functionTest.timeoutSeconds the wait for the role does not end at second 240 of 300"
+
+echo "[function-test] Case 5: functionTest.timeoutSeconds is the bound T: the Pod ends at T and the waits 60 seconds before it"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/run.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template openbao . --namespace openbao "${KIT[@]}" --set functionTest.timeoutSeconds=900 --show-only "$TEST" > "$TMP/bound.yaml"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+pod_script "$TMP/bound.yaml" > "$TMP/run.sh"
+LOGIN=(BAO_ADDR=http://openbao:8200 AUTH_MOUNT=kubernetes AUTH_ROLE=external-secrets CHECK_LOGIN=yes)
+rm -f "$TMP/count.health"
+runs pass "under T 900 the test does not wait for a store that answers after second 600" DOWN=3 MISSING=0 SECONDS=600 "${LOGIN[@]}"
+grep -q -x 4 "$TMP/count.health" || fail "under T 900 the test did not ask the health endpoint again until the store answered"
+runs pass "under T 900 the test does not wait for the role that openbao-config writes after second 600" MISSING=3 SECONDS=600 "${LOGIN[@]}"
+runs fail "under T 900 the test passes while the store never answers" DOWN=1000000 MISSING=0 SECONDS=839 "${LOGIN[@]}"
+grep -q -F 'the store did not answer GET http://openbao:8200/v1/sys/health with 200 within 840 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name the health endpoint and the wait of 840 seconds"
+runs fail "under T 900 the test passes while the role is never written" MISSING=1000000 SECONDS=839 "${LOGIN[@]}"
+grep -q -F 'the role external-secrets, which the Deployment openbao-config writes, is not on auth/kubernetes within 840 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name the role and the wait of 840 seconds"
+
+echo "[function-test] Case 6: self-initialisation off renders no test"
 helm template openbao . --namespace openbao "${KIT[@]}" --set selfInit.enabled=false > "$TMP/noinit.yaml"
 python3 "$CHECK" --chart bp-openbao --release openbao --absent < "$TMP/noinit.yaml"
 

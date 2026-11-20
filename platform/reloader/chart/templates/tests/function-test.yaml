@@ -24,12 +24,35 @@ rights it needs in its own namespace: get, create, patch and delete on
 configmaps, and get, create and delete on deployments. No Secret is read or
 written.
 
+Reloader acts only on a change it sees: a change made before it watches is
+lost, and no longer judgement can then pass (the subchart keeps
+reloadOnCreate and syncAfterRestart false). The kit installs this release
+without waiting for its workloads (install.disableWait), so at install the
+test can start before Reloader runs. After it has created the scratch objects
+the test therefore waits for a ready replica of Reloader's own Deployment
+(<release>-<subchart name>, reloader-reloader in the kit; the Role grants get
+on deployments) until 125 seconds before its bound T, and fails naming it when
+none is ready by then. It gives Reloader 5 seconds to list what it watches,
+changes the ConfigMap and judges for 60 seconds, so it ends by 60 seconds
+before T. T is functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds:
+the kit states the install timeout of its release there (docs/RUNBOOKS.md
+section 4.5); without it T is 300.
+
 Reloader has no switch that turns the chart off, so the test always renders.
 The image is the kubectl image the kit already pulls for bp-cnpg;
 functionTest.image overrides it.
 */ -}}
 {{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $ready := sub $bound 125 }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $sub := .Values.reloader | default dict }}
+{{- $reloader := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $reloader = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $reloader = printf "%s-%s" .Release.Name ($sub.nameOverride | default "reloader") | trunc 63 | trimSuffix "-" }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -98,7 +121,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -130,6 +153,8 @@ spec:
           value: {{ printf "%s-function-test-probe" .Release.Name | trunc 63 | trimSuffix "-" | quote }}
         - name: PROBE_IMAGE
           value: {{ $image | quote }}
+        - name: RELOADER
+          value: {{ $reloader | quote }}
         - name: POD_NAME
           valueFrom:
             fieldRef:
@@ -170,6 +195,15 @@ spec:
           probe='{"exec":{"command":["true"]},"periodSeconds":30}'
           printf '%s' '{"apiVersion":"apps/v1","kind":"Deployment","metadata":{'"${meta}"','"${owner}"',"annotations":{"helm.sh/hook":"test","configmap.reloader.stakater.com/reload":"'"${PROBE}"'"}},"spec":{"replicas":0,"selector":{"matchLabels":{"app.kubernetes.io/instance":"'"${PROBE}"'"}},"template":{"metadata":{"labels":{"app.kubernetes.io/instance":"'"${PROBE}"'","policy.cilium.io/enforced":"true"},"annotations":{"catalyst.openova.io/function-test-probe":"true"}},"spec":{"automountServiceAccountToken":false,"containers":[{"name":"probe","image":"'"${PROBE_IMAGE}"'","command":["sleep","3600"],"resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"50m","memory":"32Mi"}},"livenessProbe":'"${probe}"',"readinessProbe":'"${probe}"',"securityContext":{"runAsNonRoot":true,"runAsUser":1001,"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}},"envFrom":[{"configMapRef":{"name":"'"${PROBE}"'"}}]}]}}}}' \
             | k create -f - > /dev/null 2>/tmp/error || fail "the scratch Deployment was not created: $(oneline /tmp/error)"
+          while :; do
+            ready="$(k get deployment "${RELOADER}" -o jsonpath='{.status.readyReplicas}' 2>/tmp/error)" || ready=""
+            case "${ready}" in
+              "" | 0 | *[!0-9]*) ;;
+              *) break ;;
+            esac
+            [ "${SECONDS}" -lt {{ $ready }} ] || fail "the Deployment ${RELOADER} of Reloader has no ready replica within {{ $ready }} seconds (readyReplicas '${ready}'): $(oneline /tmp/error)"
+            sleep 5
+          done
           sleep 5
           k patch configmap "${PROBE}" --type merge -p '{"data":{"probe":"after"}}' > /dev/null 2>/tmp/error || fail "the scratch ConfigMap was not changed: $(oneline /tmp/error)"
           deadline=$(( $(date +%s) + 60 ))

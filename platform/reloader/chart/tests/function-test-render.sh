@@ -44,4 +44,84 @@ grep -q -E '^ *reloadStrategy: "?annotations"?$' values.yaml || fail "the chart 
 
 [ "$(grep -c -F '"harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"' "$TMP/default-test.yaml")" = 2 ] || fail "the test and the scratch Deployment do not both use the kit's kubectl image"
 
+echo "[function-test] Case 2: the test waits for Reloader's own Deployment, named as the subchart names it"
+grep -A1 -F 'name: RELOADER' "$TMP/default-test.yaml" > "$TMP/reloader-env.txt" || fail "the test does not name Reloader's Deployment"
+grep -q -F 'value: "reloader-reloader"' "$TMP/reloader-env.txt" || fail "the test does not wait for the Deployment reloader-reloader"
+grep -q -x '  name: reloader-reloader' "$TMP/default.yaml" || fail "the subchart renders no Deployment reloader-reloader"
+helm template reloader . --namespace reloader --set reloader.fullnameOverride=rl --show-only "$TEST" > "$TMP/override-test.yaml"
+grep -A1 -F 'name: RELOADER' "$TMP/override-test.yaml" > "$TMP/reloader-env.txt" || fail "with reloader.fullnameOverride the test does not name Reloader's Deployment"
+grep -q -F 'value: "rl"' "$TMP/reloader-env.txt" || fail "with reloader.fullnameOverride the test does not wait for the Deployment rl"
+
+echo "[function-test] Against stand-ins: the ConfigMap changes only after Reloader is ready, a Reloader that never comes up or never rolls fails"
+# pod_script <render>: the script of the test Pod as Kubernetes hands it to the shell. It is the block under args, with
+# every $$ turned into $ (Kubernetes expands $(VAR) and $$ in args before the shell reads them), and the Pod's paths moved
+# under $TMP. It runs against stand-in commands in $TMP/bin. The stand-in sleep returns at once, so the time a test
+# spends waiting for Reloader is the shell's SECONDS, which bash takes from the environment; the judgement after the
+# change reads the stand-in clock.
+pod_script() {
+  awk '/^      args:$/{a=1; next} a && /^        - [|]$/{b=1; next} b && /^$/{print; next} b && /^          /{print substr($0, 11); next} b{exit}' "$1" \
+    | sed -e 's/[$][$]/$/g' -e "s#/tmp/#$TMP/run/#g" -e "s#/var/run/secrets/kubernetes.io/serviceaccount#$TMP/etc#g"
+}
+# runs <pass|fail> <what> <VAR=value>...: runs the script with the stand-ins and the variables given; it must end that way.
+runs() {
+  local want=$1 what=$2 rc=0 last
+  shift 2
+  rm -rf "$TMP/run" "$TMP/count" "$TMP/count".*
+  mkdir -p "$TMP/run" "$TMP/etc"
+  env PATH="$TMP/bin:$PATH" COUNT="$TMP/count" HOME="$TMP/run" TEST_NAMESPACE=reloader PROBE=reloader-function-test-probe \
+    PROBE_IMAGE=kubectl:stand-in POD_NAME=reloader-function-test POD_UID=uid-1 RELOADER=reloader-reloader "$@" \
+    bash "$TMP/run.sh" > "$TMP/run.out" 2>&1 || rc=$?
+  last="$(tail -n 1 "$TMP/run.out")"
+  case "$want:$rc:$last" in
+    pass:0:"FUNCTION-TEST pass "* | fail:[1-9]*:"FUNCTION-TEST fail "*) ;;
+    *) fail "$what: exit code $rc, last line: $last" ;;
+  esac
+}
+# stub <name>: a stand-in command from standard input.
+stub() { mkdir -p "$TMP/bin"; cat > "$TMP/bin/$1"; chmod +x "$TMP/bin/$1"; }
+printf '#!/bin/sh\nexit 0\n' | stub sleep
+stub date <<'EOF'
+#!/bin/sh
+# Each call of the clock is 10 seconds after the one before.
+n=$(( $(cat "$COUNT.clock" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT.clock"
+echo $(( 1795000000 + n * 10 ))
+EOF
+stub kubectl <<'EOF'
+#!/bin/sh
+# The kubeconfig lines succeed, no scratch object of an earlier run is there, creates and deletes succeed. Reloader's
+# Deployment $RELOADER has no ready replica for the first $NOT_READY reads, then one. As Reloader does, a change of the
+# scratch ConfigMap is acted on only when Reloader was ready when it was made (ROLLS=no: never): it is then written
+# into the Pod template of the scratch Deployment; a change made before is lost.
+case "$1" in config) exit 0 ;; esac
+case "$*" in
+  *" get deployment $PROBE -o name"* | *" get configmap $PROBE -o name"*) echo "Error from server (NotFound): $*" >&2; exit 1 ;;
+  *" delete "*) exit 0 ;;
+  *" create -f -"*) cat > /dev/null; exit 0 ;;
+  *" get deployment $RELOADER "*)
+    n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
+    if [ "$n" -le "$NOT_READY" ]; then exit 0; fi
+    : > "$COUNT.ready"; printf 1 ;;
+  *" patch configmap $PROBE "*) if [ -f "$COUNT.ready" ] && [ "${ROLLS:-yes}" = yes ]; then : > "$COUNT.seen"; fi ;;
+  *" get deployment $PROBE -o jsonpath="*) if [ -f "$COUNT.seen" ]; then printf '{"type":"CONFIGMAP","name":"%s"}' "$PROBE"; fi ;;
+  *) echo "the stand-in does not know: kubectl $*" >&2; exit 1 ;;
+esac
+EOF
+mkdir -p "$TMP/etc"; printf 'a.b.c' > "$TMP/etc/token"; printf 'reloader' > "$TMP/etc/namespace"
+pod_script "$TMP/default-test.yaml" > "$TMP/run.sh"
+runs pass "the test does not wait for a Reloader that is ready after 3 reads, or changes the ConfigMap before it is ready" NOT_READY=3 SECONDS=0
+grep -q -x 4 "$TMP/count" || fail "the test did not read Reloader's Deployment again until it was ready"
+runs fail "the test passes while Reloader is never ready" NOT_READY=1000000 SECONDS=174
+grep -q -F 'the Deployment reloader-reloader of Reloader has no ready replica within 175 seconds' "$TMP/run.out" || fail "without functionTest.timeoutSeconds the wait for Reloader does not end at second 175 of 300, naming its Deployment"
+runs fail "the test passes while Reloader never rolls the scratch Deployment" NOT_READY=0 ROLLS=no SECONDS=0
+grep -q -F 'Reloader did not roll the scratch Deployment within 60 seconds of the ConfigMap change' "$TMP/run.out" || fail "a Reloader that never rolls does not fail after 60 seconds of judgement"
+
+echo "[function-test] Case 3: functionTest.timeoutSeconds is the bound T: the Pod ends at T, the wait for Reloader 125 seconds before it"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/default-test.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template reloader . --namespace reloader --set functionTest.timeoutSeconds=900 --show-only "$TEST" > "$TMP/bound.yaml"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+pod_script "$TMP/bound.yaml" > "$TMP/run.sh"
+runs pass "under T 900 the test does not wait for a Reloader that is ready after second 600" NOT_READY=3 SECONDS=600
+runs fail "under T 900 the test passes while Reloader is never ready" NOT_READY=1000000 SECONDS=774
+grep -q -F 'the Deployment reloader-reloader of Reloader has no ready replica within 775 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name Reloader's Deployment and the wait of 775 seconds"
+
 echo "function-test-render: all cases passed"
