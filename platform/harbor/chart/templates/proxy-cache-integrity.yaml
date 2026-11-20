@@ -303,6 +303,15 @@ spec:
   failedJobsHistoryLimit: 3
   startingDeadlineSeconds: 600
   jobTemplate:
+    {{- /* The Job the controller creates carries only these labels, never the
+      Flux labels of the release, and ns harbor is matched by the ClusterPolicy
+      flux-managed (Enforce after the hand-over): the label it names admits it.
+      The policy matches Jobs, not Pods. */}}
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: flux
+        catalyst.openova.io/blueprint: bp-harbor
+        catalyst.openova.io/component: proxy-cache-integrity
     spec:
       backoffLimit: 0
       activeDeadlineSeconds: 3000

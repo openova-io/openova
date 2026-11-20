@@ -85,6 +85,9 @@
 #       pre-flight check 7 and check 5 of scripts/check-train-coherent.sh).
 #       Needs helm, yq, jq and Go. Diagnostics go to stderr; exit 2 when a
 #       release cannot be rendered or the render yields zero refs.
+#       With KIT_RENDER_DIR=<dir> each release render is also written there as
+#       JSON, one object a line, in <n>.<chart>.<namespace>.jsonl (the namespace
+#       the release installs into): the input of tools/guards/cmd/cronjob-jobs.
 # Exit: 0 = clean, 1 = a hostage image ref reappeared, 2 = usage/setup error.
 
 set -euo pipefail
@@ -391,6 +394,9 @@ if [ "$LIST_MODE" = "1" ]; then
           empty)   LIST_EMPTY+=("$chart"); continue ;;
         esac
         LIST_RENDERED=$((LIST_RENDERED+1))
+        if [ -n "${KIT_RENDER_DIR:-}" ] && ! yq -o=json -I=0 '.' <<<"$rendered" > "$KIT_RENDER_DIR/$LIST_RENDERED.$chart.$ns.jsonl"; then
+          LIST_FAILED+=("$chart ($set): its render is not YAML, so it cannot be written to KIT_RENDER_DIR"); continue
+        fi
         printf '%s\n' "$rendered" | extract_install_images packages >> "$LIST_TMP/images"
       done < "$LIST_TMP/hr.jsonl"
     done
