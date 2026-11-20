@@ -62,15 +62,22 @@ type stubOptions struct {
 	user, password                    string
 	fillAfter                         time.Duration
 	absent, stale, indexed, childless map[string]bool
+	// holdGet: a GET of a GET-only blob is answered only once that blob was
+	// asked for by HEAD this many times (at most 20 s; 0 answers at once).
+	// Two images that share the blob then both find it missing before it is
+	// stored, whichever of them runs first: the order is set, not timed.
+	holdGet int
 }
 
 type stub struct {
 	opt     stubOptions
 	mu      sync.Mutex
 	first   map[string]time.Time
-	fetched map[string]bool // <repo>@<digest> of a GET-only blob fetched by GET
-	hits    int             // every request but the /v2/ ping
-	log     []string        // "<method> <path>" of every authorized request
+	fetched map[string]bool          // <repo>@<digest> of a GET-only blob fetched by GET
+	heads   map[string]int           // HEADs of a GET-only blob, by <repo>@<digest>
+	enough  map[string]chan struct{} // closed once heads reaches opt.holdGet
+	hits    int                      // every request but the /v2/ ping
+	log     []string                 // "<method> <path>" of every authorized request
 }
 
 func newStub(opt stubOptions) *stub {
@@ -86,7 +93,7 @@ func newStub(opt stubOptions) *stub {
 	if opt.childless == nil {
 		opt.childless = map[string]bool{}
 	}
-	return &stub{opt: opt, first: map[string]time.Time{}, fetched: map[string]bool{}}
+	return &stub{opt: opt, first: map[string]time.Time{}, fetched: map[string]bool{}, heads: map[string]int{}, enough: map[string]chan struct{}{}}
 }
 
 // record returns how many requests the stand-in had (the /v2/ ping aside) and
@@ -102,6 +109,17 @@ func (s *stub) record() (int, []string) {
 func getOnly(repo, digest string) bool {
 	return (strings.HasSuffix(repo, "getfill/app") || strings.HasSuffix(repo, "bigfill/app")) &&
 		(digest == stubTiny || digest == stubHuge)
+}
+
+// enoughHeads is the channel closed once the GET-only blob key was asked for
+// by HEAD opt.holdGet times. The caller holds s.mu.
+func (s *stub) enoughHeads(key string) chan struct{} {
+	ch, ok := s.enough[key]
+	if !ok {
+		ch = make(chan struct{})
+		s.enough[key] = ch
+	}
+	return ch
 }
 
 func stubIndex(child string) []byte {
@@ -279,11 +297,28 @@ func (s *stub) blob(w http.ResponseWriter, method, repo, digest string) {
 		// The origin fetches a proxied blob it lacks when, and only when, it is
 		// asked for it by GET; a HEAD of it answers 404 until then.
 		key := repo + "@" + digest
+		if method == http.MethodGet && s.opt.holdGet > 0 {
+			s.mu.Lock()
+			enough := s.enoughHeads(key)
+			s.mu.Unlock()
+			select {
+			case <-enough:
+			case <-time.After(20 * time.Second):
+			}
+		}
 		s.mu.Lock()
 		if method == http.MethodGet {
 			s.fetched[key] = true
 		}
 		stored := s.fetched[key]
+		if method == http.MethodHead {
+			// Counted with the answer decided: the HEAD that releases a held
+			// GET is still answered as before that GET.
+			s.heads[key]++
+			if s.heads[key] == s.opt.holdGet {
+				close(s.enoughHeads(key))
+			}
+		}
 		s.mu.Unlock()
 		if !stored {
 			s.unknown(w, "BLOB_UNKNOWN")

@@ -77,11 +77,11 @@
 #      (exit 2): an anonymous read is not what a node does.
 #   4. Per image (tools/guards/cmd/image-path probe): the manifest of the tag,
 #      the linux/amd64 child, then the config AND every layer by HEAD.
-#        - a blob of a PROXY project that answers 404 is "not cached yet": the
-#          origin fills a proxied image's blobs some minutes after its manifest
-#          was first asked for, so the manifest is asked for once more and the
-#          blobs are read again until PROBE_FILL_WAIT (default 10m) has passed;
-#        - still missing then, it is asked for by GET at the origin registry
+#        - a blob of a PROXY project that answers 404 is "not cached yet". Two
+#          things fill it, and both start at once: the origin pulls a proxied
+#          image's blobs by itself some minutes after its manifest was asked
+#          for, so the manifest is asked for once more; and each missing blob
+#          is asked for by GET at the origin registry
 #          itself (ORIGIN_REGISTRY_URL, default https://harbor.openova.io, the
 #          same variable as check 5 of check-train-coherent.sh; the same proxy
 #          project, the node's login; a pull, never a push): the origin stores
@@ -92,11 +92,18 @@
 #          fresh install that is ghcr.io, a registry the origin proxies; the
 #          probe refuses such an origin (exit 2), since the GET carries the
 #          node's credential. Smallest first, at most PROBE_FILL_MAX_BYTES
-#          (16 MiB) a run. The node path is read again until
-#          PROBE_FILL_SETTLE (2m); the run names every object it filled with
-#          its size; still missing then is NEVER FILLED, and so is a blob over
-#          the bound or of an image the list misses: nothing fills those by
-#          itself, they need a GET at the origin by hand;
+#          (16 MiB) a run. Then the blobs are read again at once and every
+#          PROBE_FILL_EVERY until PROBE_FILL_WAIT (default 10m) has passed:
+#          that wait is for a blob over the bound, which only the origin's own
+#          pull can fill, and for one a GET did not settle. The run lists each
+#          object found missing, which way it was filled and after how long;
+#          still missing then is NEVER FILLED. Left unfilled by design, and
+#          the run says so in its last lines: a blob over the bound that only
+#          a GET fills (NEVER FILLED, the line names it and the bound: GET it
+#          at the origin by hand, or raise PROBE_FILL_MAX_BYTES), and every
+#          image the list does not hold (never probed: this check passes, and
+#          at the fire its Pod stays in ImagePullBackOff when one of its blobs
+#          is one only a GET fills);
 #        - an index served with its linux/amd64 child unknown is a DAMAGED CACHE
 #          ENTRY, the repository named. Only a registry-side repair helps
 #          (story SOV-162); this check deletes nothing;
@@ -114,8 +121,8 @@
 #   scripts/check-mothership-proxy-image-path.sh --self-test          # stand-in registry and a fixture kit
 # Needs bash, jq, yq (v4), helm and Go (the list and the probe), curl (self-test).
 # Env: PROBE_PARALLEL (4), PROBE_TIMEOUT (25s), PROBE_FILL_WAIT (10m),
-#      PROBE_FILL_EVERY (20s), PROBE_FILL_SETTLE (2m), PROBE_FILL_MAX_BYTES
-#      (16777216), ORIGIN_REGISTRY_URL (https://harbor.openova.io),
+#      PROBE_FILL_EVERY (20s), PROBE_FILL_MAX_BYTES (16777216),
+#      ORIGIN_REGISTRY_URL (https://harbor.openova.io),
 #      MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
 #      KIT_VALUE_SETS (see check-freshprov-image-registry.sh).
 # Exit: 0 every image resolved whole; 1 at least one failed; 2 nothing could be
@@ -131,7 +138,6 @@ PROBE_PARALLEL="${PROBE_PARALLEL:-4}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-25s}"
 PROBE_FILL_WAIT="${PROBE_FILL_WAIT:-10m}"
 PROBE_FILL_EVERY="${PROBE_FILL_EVERY:-20s}"
-PROBE_FILL_SETTLE="${PROBE_FILL_SETTLE:-2m}"
 PROBE_FILL_MAX_BYTES="${PROBE_FILL_MAX_BYTES:-16777216}"
 MIRROR_TF="${MIRROR_TF:-${REPO_ROOT}/infra/providers/huawei/main.tf}"
 MODULE_REL="$(dirname "${MIRROR_TF#"${REPO_ROOT}"/}")"   # the module folder, under the repository root
@@ -345,7 +351,7 @@ build_image_list() {
 # probe <list> — the walk of every image; the summary line is the tool's.
 run_probe() {
   PROBE_USER="$1" PROBE_TOKEN="$2" "$TOOL" probe -parallel "$PROBE_PARALLEL" -timeout "$PROBE_TIMEOUT" \
-    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" -fill-settle "$PROBE_FILL_SETTLE" \
+    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" \
     -fill-max-bytes "$PROBE_FILL_MAX_BYTES" < "$3"
 }
 
@@ -413,7 +419,7 @@ if [ "$MODE" = "self-test" ]; then
   ORIGIN_REGISTRY_URL="http://127.0.0.1:${fport}"   # the stand-in plays the origin registry
   PROBE_ORIGIN="$(fill_origin)"
   export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS PROBE_ORIGIN
-  PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms; PROBE_FILL_SETTLE=2s
+  PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms
   node='robot$openova-bot'
   pr() { printf '%s\n' "$@" > "${WORK}/l.txt"; run_probe "$node" stub-node-token "${WORK}/l.txt"; }
   out="$(PROBE_ORIGIN="$doc_origin" pr ghcr.io/getfill/app:1)"; rc=$?
@@ -433,12 +439,13 @@ if [ "$MODE" = "self-test" ]; then
   out="$(PROBE_FILL_WAIT=2s pr ghcr.io/neverfill/app:1)"; rc=$?
   expect "layers not cached yet and never filled -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/neverfill/app:1 (NEVER FILLED)$" "$out"
   out="$(PROBE_FILL_WAIT=1s pr ghcr.io/getfill/app:1)"; rc=$?
-  expect "a blob the origin stores only on a GET -> filled by a GET there, PASS" 0 "$rc" "^PASS ghcr.io/getfill/app:1 .*(was not cached yet: filled by a GET at the origin, 1 object(s), 67 bytes)$" "$out"
+  expect "a blob the origin stores only on a GET -> filled at once by a GET there, PASS" 0 "$rc" "^PASS ghcr.io/getfill/app:1 .*(was not cached yet: filled by a GET at the origin, 1 object(s), 67 bytes, after [0-9]*s)$" "$out"
   expect "  the run counts it" 0 "$rc" "filled 1 object(s), 67 bytes, by a GET through the origin's proxy project at http://127.0.0.1:${fport} " "$out"
-  expect "  and names it with its size" 0 "$rc" "^    filled proxy-ghcr/getfill/app@sha256:1\{64\} 67 bytes$" "$out"
+  expect "  and names it with its size, the way and the time" 0 "$rc" "^    filled proxy-ghcr/getfill/app@sha256:1\{64\} 67 bytes by a GET at the origin after [0-9]*s$" "$out"
+  expect "  and says what it leaves unfilled by design" 0 "$rc" "^  ℹ left unfilled by design: a blob over the fill bound that only a GET fills (NEVER FILLED, .*); and every image this list does not hold (never probed, never filled: .* ImagePullBackOff at the fire)$" "$out"
   out="$(PROBE_FILL_WAIT=1s pr ghcr.io/bigfill/app:1)"; rc=$?
   expect "a layer over the fill bound is not fetched -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/bigfill/app:1 (NEVER FILLED)$" "$out"
-  expect "  and the line names the bound" 1 "$rc" "^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .* of 3221225472 bytes is over the fill bound of 16777216 bytes a run" "$out"
+  expect "  and the line names the bound, left unfilled by design" 1 "$rc" "^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .* left unfilled by design (a GET of it at the origin by hand, or a larger -fill-max-bytes), first sha256:222222222222 of 3221225472 bytes is over the fill bound of 16777216 bytes a run" "$out"
   out="$(pr ghcr.io/openova-io/openova/gone:920753e)"; rc=$?
   expect "a first-party image the hosted project lacks -> MISSING AT THE ORIGIN" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/gone:920753e (MISSING AT THE ORIGIN)$" "$out"
   printf 'ghcr.io/healthy/app:16\n' > "${WORK}/one.txt"
@@ -570,7 +577,7 @@ YAML
   expect "a source that yields no image FAILS the list" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'k3s' yielded no image" "$out"
   echo ""
   if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path check is broken." >&2; exit 1; fi
-  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, fills by a GET at the origin registry itself a blob only a GET fills (within its byte bound) and never sends that GET to a registry the origin proxies, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
+  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, fills at once by a GET at the origin registry itself a blob only a GET fills (within its byte bound), says what it leaves unfilled by design, and never sends that GET to a registry the origin proxies, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
   exit 0
 fi
 
