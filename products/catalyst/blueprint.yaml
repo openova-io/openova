@@ -11,7 +11,7 @@ spec:
   # This blueprint.yaml is the catalog-side declaration that catalyst-api
   # surfaces in the catalog UI and that the application-controller reads
   # for placement / topology / endpoints / sso / multi-instance per G117.
-  version: 1.4.2223
+  version: 1.4.2224
   card:
     title: Catalyst Platform
     summary: Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient.
