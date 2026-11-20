@@ -1,0 +1,11 @@
+# The OpenTofu provider packages of this pack (SOV-342), one line each: the source,
+# the version .terraform.lock.hcl pins, and the digest of the package's OCI index
+# as `go run ./cmd/tofu-providers pack` (tools/guards) builds it from the
+# linux/amd64 zip registry.opentofu.org serves. The workflow mirror-tofu-providers
+# publishes each at ghcr.io/openova-io/tofu-providers/<namespace>/<type>:<version>;
+# bash tools/guards/cmd/tofu-providers/write-list.sh writes the union of every
+# pack's list into the ConfigMap crossplane-system/opentofu-providers.
+registry.opentofu.org/hashicorp/aws 5.100.0 sha256:6aaa674b7445408860f52bb54a6a3a14177e4118fb0c1ff5740b6ae5e686e214
+registry.opentofu.org/hashicorp/random 3.9.1 sha256:20534f2f67c1cf6749f10eabeab642eae08deccf85bf532674fbf4c7e4a22c0e
+registry.opentofu.org/hashicorp/time 0.14.0 sha256:d41e7944a0ad1a3615282108801f87dc1a172175329aedb6d1f6afd587dffb55
+registry.opentofu.org/huaweicloud/huaweicloud 1.91.0 sha256:4a7387848bae87ce79424f047e141dda4cfd5e5ece639c0c23a6fdd4d46ae565
