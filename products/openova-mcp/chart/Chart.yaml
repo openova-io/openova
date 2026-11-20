@@ -127,7 +127,8 @@ version: 0.1.11
 # transport has no fallback bearer.
 # 0.2.9 (AIP-151): every tool answer is redacted, made inert and fitted to
 # 24,000 characters.
-appVersion: "0.2.9"
+# 0.2.10 (AIP-152): the stdio server reads its bearer file at every call.
+appVersion: "0.2.10"
 keywords:
   - mcp
   - agent
