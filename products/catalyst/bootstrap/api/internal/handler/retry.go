@@ -390,8 +390,8 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 		dep.Error = err.Error()
 		dep.mu.Unlock()
 		h.log.Error("retry provision failed", "id", dep.ID, "phase", retriedPhase, "err", err)
-		close(dep.done)
 		h.persistDeployment(dep)
+		close(dep.done)
 		return
 	}
 
@@ -430,9 +430,9 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 	dep.mu.Lock()
 	dep.FinishedAt = time.Now()
 	dep.mu.Unlock()
-	close(dep.done)
-	// Terminal persist for the retry — same reason as runProvisioning.
+	// Terminal persist for the retry, before done closes: as in runProvisioning.
 	h.persistDeployment(dep)
+	close(dep.done)
 }
 
 // validatePhaseID — exported helper for tests.

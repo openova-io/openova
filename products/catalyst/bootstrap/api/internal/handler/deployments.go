@@ -2331,6 +2331,11 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		h.runPhase1Watch(dep)
 	}
 
+	// Final persist (Phase 1 terminal state; a no-op after a Phase 0
+	// failure) runs BEFORE done closes: done says this goroutine finished
+	// (isDone), so no write may follow it — CI met one after it, 2026-11-20.
+	h.persistDeployment(dep)
+
 	// Close the SSE live channel + done signal AFTER both phases
 	// have settled. Existing tests that drive runProvisioning's
 	// failure-fast path (no real tofu) still hit close because the
@@ -2367,11 +2372,6 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		defer func() { _ = recover() }()
 		close(dep.done)
 	}()
-
-	// Final persist — captures Phase 1 terminal state when the watch
-	// ran, or is a no-op for the Phase 0 failure path (already
-	// persisted above).
-	h.persistDeployment(dep)
 }
 
 // commitPDMWithRetry promotes the deployment's PDM reservation to
