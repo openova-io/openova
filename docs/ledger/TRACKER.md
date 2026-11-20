@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T02:15:04Z` |
+| Last refreshed | `2026-11-20T02:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T02:16 | [#8437](https://github.com/openova-io/openova/pull/8437) | #8436 | feat(chart): switch stage blueprints of the intent lock to d |
 | 2026-11-20T01:49 | [#8435](https://github.com/openova-io/openova/pull/8435) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:04 | [#8434](https://github.com/openova-io/openova/pull/8434) | #8403 | fix(release): the kernel rule of a cut compares upstream ver |
 | 2026-11-20T01:41 | [#8432](https://github.com/openova-io/openova/pull/8432) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T21:49 | [#8399](https://github.com/openova-io/openova/pull/8399) | #8396 | feat(gate): BSS-G01 reads its sign-in code from a mailbox on |
 | 2026-11-19T20:51 | [#8397](https://github.com/openova-io/openova/pull/8397) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:45 | [#8395](https://github.com/openova-io/openova/pull/8395) | #7087 | docs(ledger): plan update |
-| 2026-11-19T20:52 | [#8394](https://github.com/openova-io/openova/pull/8394) | #8386 | chore(catalog): delete the OpenMeter Blueprint and what list |
 
 ---
 
