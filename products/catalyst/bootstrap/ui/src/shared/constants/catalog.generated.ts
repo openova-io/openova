@@ -3065,7 +3065,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -3080,7 +3080,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
