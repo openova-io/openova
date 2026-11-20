@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,16 +37,27 @@ import (
 //     the step. The days of a window are not read, as the days of the span
 //     are not: both are judged as if they were open every day, which is the
 //     strictest reading;
-//  3. chooses one worker node: the first node by name without the
-//     control-plane label that runs a workload Pod (a Running Pod that is not
-//     of a DaemonSet and not a static Pod). kured never restarts a
-//     control-plane node: the chart bp-kured keeps its DaemonSet off them
-//     (platform/kured/chart/values.yaml, affinity), and a DaemonSet that
-//     could run there fails the step. So do a node that is unschedulable or
-//     not Ready already, no control-plane node (that none restarts could not
-//     be observed), fewer than two worker nodes (the workloads need another
-//     node to move to), and no worker node with a workload Pod (a restart
-//     would move nothing off);
+//  3. chooses one worker node, a node without the control-plane label. It
+//     reads the nodes, every Pod of the region once, and the EndpointSlices
+//     of Service harbor/harbor, the registry's front: after the cutover every
+//     node pulls every image through it. The worker is the first by name
+//     that runs a Ready endpoint of the front; when no worker runs one, the
+//     first by name that runs a workload Pod (a Running Pod that is not of a
+//     DaemonSet and not a static Pod). The evidence says which rule chose.
+//     kured never restarts a control-plane node: the chart bp-kured keeps its
+//     DaemonSet off them (platform/kured/chart/values.yaml, affinity), and a
+//     DaemonSet that could run there fails the step. So do a node that is
+//     unschedulable or not Ready already, no control-plane node (that none
+//     restarts could not be observed), fewer than two worker nodes (the
+//     workloads need another node to move to), no worker node with a
+//     workload Pod (a restart would move nothing off), and a container of
+//     the region that waits on an image already (reason ErrImagePull or
+//     ImagePullBackOff: the drain could not be judged). For each workload
+//     Pod on the worker the step records its controller, the owner reference
+//     marked controller (a ReplicaSet of a Deployment counts as the
+//     Deployment), and how many Ready Pods that controller has in the region.
+//     A Pod of a Job, which ends by design, and a Pod without a controller,
+//     which nothing brings back, are not judged;
 //  4. waits when the reboot span is not open for the whole time limit: until
 //     the span opens the next time, at most rebootMaxWait. A longer wait
 //     fails the step;
@@ -56,11 +69,16 @@ import (
 //     boot identifier, no node is unschedulable, every node is Ready, none
 //     of the workload Pods that ran on the worker in step 3 is still on it
 //     (they moved off during the drain), the DaemonSet of kured has every
-//     Pod ready (its Pod on the worker among them: the node is back), and
-//     every HelmRelease of step 5 is Ready again (the workloads run). The
-//     time limit is one round of kured (period + lock release delay) plus
-//     rebootSettle. The step fails at once when a control-plane node shows a
-//     new boot identifier, when two nodes are unschedulable in one reading,
+//     Pod ready (its Pod on the worker among them: the node is back), every
+//     HelmRelease of step 5 is Ready again, every controller of step 3 has
+//     as many Ready Pods as it had then (the moved workloads run again), and
+//     no container, init or main, of a Pod of the region waits on an image;
+//     a container that waits fails the step even when every HelmRelease is
+//     Ready. At the time limit each such controller and container is named
+//     with its image. The time limit is one round of kured (period + lock
+//     release delay) plus rebootSettle. The step fails at once when a
+//     control-plane node shows a new boot identifier, when two nodes are
+//     unschedulable in one reading,
 //     when a node is unschedulable for longer than drain timeout + lock
 //     release delay, when the worker shows a new boot identifier and was
 //     never read unschedulable, or when a workload Pod of step 3 is still on
@@ -81,6 +99,11 @@ const (
 	rebootSettle    = 15 * time.Minute
 	rebootMaxWait   = 150 * time.Minute
 	rebootGap       = 30 // minutes from the end of a Plan window to the start of the reboot span, at least
+
+	rebootFront   = "harbor"            // Service harbor/harbor, the registry's front, in the namespace of the same name
+	rebootHash    = "pod-template-hash" // the label by which a Pod of a Deployment's ReplicaSet names its hash
+	rebootByFront = "the worker that runs a Ready endpoint of the registry front harbor/harbor"
+	rebootByName  = "the first worker by name that runs a workload Pod: no worker runs a Ready endpoint of the registry front harbor/harbor"
 )
 
 // rebootPod creates the sentinel file of its node and ends. Its values are
@@ -290,9 +313,11 @@ func (c rebootCheck) nodes(ctx context.Context, region kube.Region) (map[string]
 	return out, err
 }
 
-// rebootChoose returns the worker node that gets a pending reboot, or why the
-// region has none to give. workloads holds the workload Pods of each node.
-func rebootChoose(nodes map[string]rebootNode, workloads map[string][]string) ([]string, error) {
+// rebootChoose returns the worker node that gets a pending reboot and the rule
+// that chose it, or why the region has none to give. workloads holds the
+// workload Pods of each node, front the nodes that run a Ready endpoint of
+// the registry's front.
+func rebootChoose(nodes map[string]rebootNode, workloads map[string][]string, front map[string]bool) ([]string, string, error) {
 	var servers, workers, busy []string
 	for name, n := range nodes {
 		switch {
@@ -308,48 +333,165 @@ func rebootChoose(nodes map[string]rebootNode, workloads map[string][]string) ([
 	sort.Strings(busy)
 	switch {
 	case len(busy) > 0:
-		return nil, fmt.Errorf("unschedulable or not Ready before the check started: %s", strings.Join(busy, ", "))
+		return nil, "", fmt.Errorf("unschedulable or not Ready before the check started: %s", strings.Join(busy, ", "))
 	case len(servers) == 0:
-		return nil, fmt.Errorf("the region has %d nodes and none with the label %s: that no control-plane node restarts could not be observed", len(nodes), secControlPlane)
+		return nil, "", fmt.Errorf("the region has %d nodes and none with the label %s: that no control-plane node restarts could not be observed", len(nodes), secControlPlane)
 	case len(workers) < 2:
-		return nil, fmt.Errorf("the region has %d worker nodes: the check needs 2, one to restart and one to take its workloads", len(workers))
+		return nil, "", fmt.Errorf("the region has %d worker nodes: the check needs 2, one to restart and one to take its workloads", len(workers))
+	}
+	for _, name := range workers {
+		if front[name] {
+			return []string{name}, rebootByFront, nil
+		}
 	}
 	for _, name := range workers {
 		if len(workloads[name]) > 0 {
-			return []string{name}, nil
+			return []string{name}, rebootByName, nil
 		}
 	}
-	return nil, fmt.Errorf("none of the %d worker nodes runs a workload Pod (one not of a DaemonSet and not static): a restart would move nothing off", len(workers))
+	return nil, "", fmt.Errorf("none of the %d worker nodes runs a workload Pod (one not of a DaemonSet and not static): a restart would move nothing off", len(workers))
 }
 
-// workloads returns, by node, the workload Pods that the field selector
-// selects, each "<namespace>/<name> <uid>": every Pod that is not of a
-// DaemonSet, not a static Pod, not being deleted and in phase Pending or
-// Running. A drain moves exactly these off a node.
-func (c rebootCheck) workloads(ctx context.Context, region kube.Region, selector string) (map[string][]string, error) {
-	items, err := c.list(ctx, region, "pods", "-A", "--field-selector", selector)
+// rebootPodState is what the check reads of one Pod.
+type rebootPodState struct {
+	key, node, phase string // key: "<namespace>/<name> <uid>"
+	controller       string // "<Kind> <namespace>/<name>" of the controller that brings the Pod back; "" when none does
+	images           string // of its containers
+	workload, ready  bool
+}
+
+// rebootPods is one reading of every Pod of a region.
+type rebootPods struct {
+	pods  []rebootPodState
+	pulls []string // every container that waits on an image: "<namespace>/<pod>/<container> <reason> <image>", sorted
+}
+
+// rebootMoved is a controller of a Pod that the drain moves: its Ready Pods
+// before the reboot and the images of the moved Pod.
+type rebootMoved struct {
+	ready  int
+	images string
+}
+
+// pods reads every Pod of the region once. A workload Pod is one that is not
+// of a DaemonSet, not a static Pod, not being deleted and in phase Pending
+// or Running: a drain moves exactly these off a node.
+func (c rebootCheck) pods(ctx context.Context, region kube.Region) (rebootPods, error) {
+	items, err := c.list(ctx, region, "pods", "-A")
 	if err != nil {
-		return nil, err
+		return rebootPods{}, err
 	}
-	out := map[string][]string{}
+	out := rebootPods{pulls: []string{}}
 	for _, p := range items {
-		phase := p.Str("status", "phase")
-		if p.Str("metadata", "annotations", rebootMirror) != "" || p.Str("metadata", "deletionTimestamp") != "" || (phase != "Running" && phase != "Pending") {
-			continue
-		}
+		phase, deleting := p.Str("status", "phase"), p.Str("metadata", "deletionTimestamp") != ""
+		ready, _, _, _ := p.Condition("Ready")
+		s := rebootPodState{key: p.Namespace() + "/" + p.Name() + " " + p.Str("metadata", "uid"), node: p.Str("spec", "nodeName"), phase: phase,
+			ready: ready == "True" && !deleting}
 		daemon := false
 		for _, owner := range p.Objects("metadata", "ownerReferences") {
 			daemon = daemon || owner.Str("kind") == "DaemonSet"
+			if controls, _ := owner.Get("controller").(bool); controls {
+				s.controller = rebootController(p, owner.Str("kind"), owner.Str("name"))
+			}
 		}
-		if !daemon {
-			node := p.Str("spec", "nodeName")
-			out[node] = append(out[node], p.Namespace()+"/"+p.Name()+" "+p.Str("metadata", "uid"))
+		s.workload = !daemon && !deleting && p.Str("metadata", "annotations", rebootMirror) == "" && (phase == "Running" || phase == "Pending")
+		images := []string{}
+		for _, container := range p.Objects("spec", "containers") {
+			images = append(images, container.Str("image"))
+		}
+		s.images = strings.Join(images, " ")
+		out.pods = append(out.pods, s)
+		for _, field := range []string{"initContainerStatuses", "containerStatuses"} {
+			for _, status := range p.Objects("status", field) {
+				if reason := status.Str("state", "waiting", "reason"); reason == "ErrImagePull" || reason == "ImagePullBackOff" {
+					out.pulls = append(out.pulls, p.Namespace()+"/"+p.Name()+"/"+status.Str("name")+" "+reason+" "+status.Str("image"))
+				}
+			}
+		}
+	}
+	sort.Strings(out.pulls)
+	return out, nil
+}
+
+// rebootController names the controller of Pod p, kind and name of its owner
+// reference. A ReplicaSet that a Deployment made (its name is the
+// Deployment's, "-" and the Pod's label pod-template-hash) counts as the
+// Deployment, so that a Pod that comes back under a new ReplicaSet counts. A
+// Job ends its Pods by design: it is not named.
+func rebootController(p kube.Object, kind, name string) string {
+	if hash := p.Str("metadata", "labels", rebootHash); kind == "ReplicaSet" && hash != "" && strings.HasSuffix(name, "-"+hash) {
+		kind, name = "Deployment", strings.TrimSuffix(name, "-"+hash)
+	}
+	if kind == "Job" {
+		return ""
+	}
+	return kind + " " + p.Namespace() + "/" + name
+}
+
+// running returns, by node, the keys of the workload Pods in phase Running, sorted.
+func (r rebootPods) running() map[string][]string {
+	out := map[string][]string{}
+	for _, p := range r.pods {
+		if p.workload && p.phase == "Running" {
+			out[p.node] = append(out[p.node], p.key)
 		}
 	}
 	for node := range out {
 		sort.Strings(out[node])
 	}
-	return out, nil
+	return out
+}
+
+// stayed returns those of the workload Pods moving that are still on node.
+func (r rebootPods) stayed(node string, moving []string) []string {
+	on, out := map[string]bool{}, []string{}
+	for _, p := range r.pods {
+		on[p.key] = p.workload && p.node == node
+	}
+	for _, key := range moving {
+		if on[key] {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// readyBy returns the Ready Pods of each controller.
+func (r rebootPods) readyBy() map[string]int {
+	out := map[string]int{}
+	for _, p := range r.pods {
+		if p.ready && p.controller != "" {
+			out[p.controller]++
+		}
+	}
+	return out
+}
+
+// moved returns the controllers of the Pods moving, each with its Ready Pods
+// now and the images of the moved Pod.
+func (r rebootPods) moved(moving []string) map[string]rebootMoved {
+	out, ready := map[string]rebootMoved{}, r.readyBy()
+	for _, p := range r.pods {
+		if p.controller != "" && slices.Contains(moving, p.key) {
+			out[p.controller] = rebootMoved{ready: ready[p.controller], images: p.images}
+		}
+	}
+	return out
+}
+
+// front returns the nodes that run a Ready endpoint of the registry's front:
+// an endpoint of its EndpointSlices whose condition ready is true or unset.
+func (c rebootCheck) front(ctx context.Context, region kube.Region) (map[string]bool, error) {
+	items, err := c.list(ctx, region, "endpointslices.discovery.k8s.io", "-n", rebootFront, "-l", "kubernetes.io/service-name="+rebootFront)
+	out := map[string]bool{}
+	for _, s := range items {
+		for _, e := range s.Objects("endpoints") {
+			if ready, set := e.Get("conditions", "ready").(bool); (ready || !set) && e.Str("nodeName") != "" {
+				out[e.Str("nodeName")] = true
+			}
+		}
+	}
+	return out, err
 }
 
 // plans judges the upgrade Plans of every namespace. It puts into ev whether
@@ -390,30 +532,12 @@ func (c rebootCheck) releases(ctx context.Context, region kube.Region) (map[stri
 	return out, err
 }
 
-// stayed returns those of the workload Pods moving (from workloads) that are
-// still on node.
-func (c rebootCheck) stayed(ctx context.Context, region kube.Region, node string, moving []string) ([]string, error) {
-	now, err := c.workloads(ctx, region, "spec.nodeName="+node)
-	if err != nil {
-		return nil, err
-	}
-	on := map[string]bool{}
-	for _, p := range now[node] {
-		on[p] = true
-	}
-	out := []string{}
-	for _, p := range moving {
-		if on[p] {
-			out = append(out, p)
-		}
-	}
-	return out, nil
-}
-
-// recovery reads the DaemonSet of kured and the HelmReleases. It returns what
-// has not recovered yet, "" when kured has every Pod ready and every
-// HelmRelease of ready is Ready again.
-func (c rebootCheck) recovery(ctx context.Context, region kube.Region, ready []string, ev Evidence) (string, error) {
+// recovery reads the DaemonSet of kured and the HelmReleases, and judges them
+// with all, a reading of the Pods. It returns what has not recovered yet, ""
+// when kured has every Pod ready, every HelmRelease of ready is Ready again,
+// every controller of moved has as many Ready Pods as before and no
+// container waits on an image.
+func (c rebootCheck) recovery(ctx context.Context, region kube.Region, ready []string, moved map[string]rebootMoved, all rebootPods, ev Evidence) (string, error) {
 	sets, err := c.list(ctx, region, "daemonsets", "-n", rebootNamespace)
 	if err != nil {
 		return "", err
@@ -440,6 +564,19 @@ func (c rebootCheck) recovery(ctx context.Context, region kube.Region, ready []s
 	}
 	if len(notAgain) > 0 {
 		waiting = append(waiting, fmt.Sprintf("%d of %d HelmReleases that were Ready before are not Ready: %s", len(notAgain), len(ready), strings.Join(notAgain, ", ")))
+	}
+	pods, fewer := all.readyBy(), []string{}
+	for _, name := range slices.Sorted(maps.Keys(moved)) {
+		if m := moved[name]; pods[name] < m.ready {
+			fewer = append(fewer, fmt.Sprintf("%s has %d of %d Ready Pods (%s)", name, pods[name], m.ready, m.images))
+		}
+	}
+	ev["controllers_not_ready_again"], ev["image_waits"] = fewer, all.pulls
+	if len(fewer) > 0 {
+		waiting = append(waiting, fmt.Sprintf("%d of %d controllers whose Pods the drain moved have fewer Ready Pods than before: %s", len(fewer), len(moved), strings.Join(fewer, ", ")))
+	}
+	if len(all.pulls) > 0 {
+		waiting = append(waiting, fmt.Sprintf("%d containers of the region wait on an image: %s", len(all.pulls), strings.Join(all.pulls, ", ")))
 	}
 	return strings.Join(waiting, "; "), nil
 }
@@ -471,6 +608,7 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 	var k rebootSettings
 	var chosen, ready, moving []string
 	var before map[string]rebootNode
+	var moved map[string]rebootMoved
 	ns, created := "inf-reboot-"+strings.ToLower(NewRunID(c.now())), false
 	ok := step("kured is installed and its arguments give the settings", func(ev Evidence) (err error) {
 		k, err = c.settings(ctx, region)
@@ -478,24 +616,38 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		return err
 	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) error {
 		return c.plans(ctx, region, k, ev)
-	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, and one worker node that runs workloads is chosen", func(ev Evidence) (err error) {
+	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, no container waits on an image, and the worker that runs the registry front, else the first that runs workloads, is chosen", func(ev Evidence) (err error) {
 		if !k.workersOnly {
 			return fmt.Errorf("DaemonSet %s/%s can run on a node with the label %s, so kured could restart a region's control-plane node, which it must never do: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
 		}
 		if before, err = c.nodes(ctx, region); err != nil {
 			return err
 		}
-		running, err := c.workloads(ctx, region, "status.phase=Running")
+		all, err := c.pods(ctx, region)
 		if err != nil {
 			return err
 		}
-		chosen, err = rebootChoose(before, running)
-		ev["nodes"], ev["chosen"] = len(before), chosen
-		if err == nil {
-			moving = running[chosen[0]]
-			ev["workloads_to_move"] = moving
+		front, err := c.front(ctx, region)
+		if err != nil {
+			return err
 		}
-		return err
+		running := all.running()
+		var by string
+		chosen, by, err = rebootChoose(before, running, front)
+		ev["nodes"], ev["chosen"], ev["chosen_by"], ev["registry_front"] = len(before), chosen, by, slices.Sorted(maps.Keys(front))
+		if err != nil {
+			return err
+		}
+		moving, moved = running[chosen[0]], all.moved(running[chosen[0]])
+		counts := map[string]int{}
+		for name, m := range moved {
+			counts[name] = m.ready
+		}
+		ev["workloads_to_move"], ev["controllers_moved"], ev["image_waits_before"] = moving, counts, all.pulls
+		if len(all.pulls) > 0 {
+			return fmt.Errorf("%d containers of the region wait on an image before the check started, so the drain could not be judged: no node was touched: %s", len(all.pulls), strings.Join(all.pulls, ", "))
+		}
+		return nil
 	}) && step("the reboot span is open for the time limit", func(ev Evidence) error {
 		open, next := k.window(c.now())
 		ev["open_for"], ev["waited"] = open.String(), "0s"
@@ -548,16 +700,17 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, and every node, kured and every HelmRelease that was Ready is ready again within "+k.limit().String(), func(ev Evidence) error {
-		return c.watch(ctx, region, k, chosen, moving, before, ready, placed, ev)
+	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
+		return c.watch(ctx, region, k, chosen, moving, moved, before, ready, placed, ev)
 	})
 }
 
 // watch reads the nodes until the chosen worker has restarted with its
 // workload Pods moved off, every node is schedulable and Ready, kured has
-// every Pod ready and every HelmRelease of ready is Ready again, a rule is
-// broken or the time limit ends.
-func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
+// every Pod ready, every HelmRelease of ready is Ready again, every
+// controller of moved has its Ready Pods back and no container waits on an
+// image, a rule is broken or the time limit ends.
+func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, moved map[string]rebootMoved, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
 	since, drained, oldIDs, newIDs := map[string]time.Time{}, map[string]bool{}, map[string]string{}, map[string]string{}
 	for _, name := range chosen {
 		oldIDs[name] = before[name].boot
@@ -621,14 +774,14 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 			}
 			last = fmt.Sprintf("%d of %d nodes restarted, %d unschedulable, %d not Ready", len(newIDs), len(chosen), len(down), notReady)
 			if len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
-				stayed, err := c.stayed(ctx, region, chosen[0], moving)
-				if err == nil && len(stayed) > 0 {
+				all, err := c.pods(ctx, region)
+				if stayed := all.stayed(chosen[0], moving); err == nil && len(stayed) > 0 {
 					return fmt.Errorf("%d of the %d workload Pods that ran on %s are still on it after its restart, so its drain did not move them off: %s", len(stayed), len(moving), chosen[0], strings.Join(stayed, ", "))
 				}
 				var waiting string
 				if err == nil {
 					ev["workloads_moved_off"] = len(moving)
-					waiting, err = c.recovery(ctx, region, ready, ev)
+					waiting, err = c.recovery(ctx, region, ready, moved, all, ev)
 				}
 				switch {
 				case err != nil:
