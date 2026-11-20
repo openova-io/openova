@@ -11,6 +11,14 @@ package main
 //	*/filling/app      the layers answer 404 to HEAD until -fill-after has
 //	                   passed since the first request of a manifest of the repo
 //	*/neverfill/app    the layers never fill
+//	*/getfill/app      one manifest, config and two layers; the second layer
+//	                   (67 bytes) answers HEAD with 404 until it was fetched
+//	                   by GET once, the way the origin answers for a proxied
+//	                   blob it has not stored (20 November 2026: eight blobs
+//	                   of two cilium images, 67 to 351 bytes)
+//	*/bigfill/app      the same with two such layers: that one of 67 bytes
+//	                   and one of 3 GiB (its descriptor says so; the stand-in
+//	                   never serves that much)
 //	openova-io/openova/<name>  a first-party image at any tag: one image
 //	                   manifest, the way the warm-up's copy writes it; -indexed
 //	                   serves it the way ghcr publishes it, an index whose
@@ -44,18 +52,32 @@ var (
 	stubConfig  = "sha256:" + strings.Repeat("c", 64)
 	stubLayer1  = "sha256:" + strings.Repeat("e", 64)
 	stubLayer2  = "sha256:" + strings.Repeat("f", 64)
+	stubTiny    = "sha256:" + strings.Repeat("1", 64)
+	stubHuge    = "sha256:" + strings.Repeat("2", 64)
+	// stubSizes are the sizes the descriptors give; every other blob says 1.
+	stubSizes = map[string]int64{stubTiny: 67, stubHuge: 3 << 30}
 )
 
 type stubOptions struct {
 	user, password                    string
 	fillAfter                         time.Duration
 	absent, stale, indexed, childless map[string]bool
+	// holdGet: a GET of a GET-only blob is answered only once that blob was
+	// asked for by HEAD this many times (at most 20 s; 0 answers at once).
+	// Two images that share the blob then both find it missing before it is
+	// stored, whichever of them runs first: the order is set, not timed.
+	holdGet int
 }
 
 type stub struct {
-	opt   stubOptions
-	mu    sync.Mutex
-	first map[string]time.Time
+	opt     stubOptions
+	mu      sync.Mutex
+	first   map[string]time.Time
+	fetched map[string]bool          // <repo>@<digest> of a GET-only blob fetched by GET
+	heads   map[string]int           // HEADs of a GET-only blob, by <repo>@<digest>
+	enough  map[string]chan struct{} // closed once heads reaches opt.holdGet
+	hits    int                      // every request but the /v2/ ping
+	log     []string                 // "<method> <path>" of every authorized request
 }
 
 func newStub(opt stubOptions) *stub {
@@ -71,7 +93,33 @@ func newStub(opt stubOptions) *stub {
 	if opt.childless == nil {
 		opt.childless = map[string]bool{}
 	}
-	return &stub{opt: opt, first: map[string]time.Time{}}
+	return &stub{opt: opt, first: map[string]time.Time{}, fetched: map[string]bool{}, heads: map[string]int{}, enough: map[string]chan struct{}{}}
+}
+
+// record returns how many requests the stand-in had (the /v2/ ping aside) and
+// the authorized ones, method and path.
+func (s *stub) record() (int, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hits, append([]string(nil), s.log...)
+}
+
+// getOnly says whether a blob of repo answers HEAD with 404 until it was
+// fetched by GET once.
+func getOnly(repo, digest string) bool {
+	return (strings.HasSuffix(repo, "getfill/app") || strings.HasSuffix(repo, "bigfill/app")) &&
+		(digest == stubTiny || digest == stubHuge)
+}
+
+// enoughHeads is the channel closed once the GET-only blob key was asked for
+// by HEAD opt.holdGet times. The caller holds s.mu.
+func (s *stub) enoughHeads(key string) chan struct{} {
+	ch, ok := s.enough[key]
+	if !ok {
+		ch = make(chan struct{})
+		s.enough[key] = ch
+	}
+	return ch
 }
 
 func stubIndex(child string) []byte {
@@ -90,7 +138,11 @@ func stubIndex(child string) []byte {
 func stubManifest(note string, layers ...string) []byte {
 	ls := []map[string]any{}
 	for _, l := range layers {
-		ls = append(ls, map[string]any{"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip", "digest": l, "size": 1})
+		size, ok := stubSizes[l]
+		if !ok {
+			size = 1
+		}
+		ls = append(ls, map[string]any{"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip", "digest": l, "size": size})
 	}
 	b, _ := json.Marshal(map[string]any{
 		"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -148,6 +200,11 @@ func (s *stub) asked(repo string) {
 
 func (s *stub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
+	if p != "/v2/" && p != "/v2" {
+		s.mu.Lock()
+		s.hits++
+		s.mu.Unlock()
+	}
 	switch {
 	case p == "/token":
 		s.token(w, r)
@@ -164,6 +221,9 @@ func (s *stub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.send(w, http.StatusUnauthorized, "application/json", []byte(`{"errors":[{"code":"UNAUTHORIZED"}]}`))
 		return
 	}
+	s.mu.Lock()
+	s.log = append(s.log, r.Method+" "+p)
+	s.mu.Unlock()
 	parts := strings.Split(strings.TrimPrefix(p, "/v2/"), "/")
 	if len(parts) < 3 {
 		s.unknown(w, "NAME_UNKNOWN")
@@ -179,7 +239,7 @@ func (s *stub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "manifests":
 		s.manifest(w, repo, ref)
 	case "blobs":
-		s.blob(w, repo, ref)
+		s.blob(w, r.Method, repo, ref)
 	default:
 		s.unknown(w, "NAME_UNKNOWN")
 	}
@@ -215,6 +275,10 @@ func (s *stub) manifest(w http.ResponseWriter, repo, ref string) {
 	switch {
 	case strings.HasSuffix(repo, "single/app"):
 		s.send(w, http.StatusOK, single, stubManifest(repo, stubLayer1))
+	case strings.HasSuffix(repo, "getfill/app"):
+		s.send(w, http.StatusOK, single, stubManifest(repo, stubLayer1, stubTiny))
+	case strings.HasSuffix(repo, "bigfill/app"):
+		s.send(w, http.StatusOK, single, stubManifest(repo, stubTiny, stubHuge))
 	case !indexed:
 		s.unknown(w, "MANIFEST_UNKNOWN")
 	case !strings.HasPrefix(ref, "sha256:") && strings.HasSuffix(repo, "damaged/app"):
@@ -228,7 +292,41 @@ func (s *stub) manifest(w http.ResponseWriter, repo, ref string) {
 	}
 }
 
-func (s *stub) blob(w http.ResponseWriter, repo, digest string) {
+func (s *stub) blob(w http.ResponseWriter, method, repo, digest string) {
+	if getOnly(repo, digest) {
+		// The origin fetches a proxied blob it lacks when, and only when, it is
+		// asked for it by GET; a HEAD of it answers 404 until then.
+		key := repo + "@" + digest
+		if method == http.MethodGet && s.opt.holdGet > 0 {
+			s.mu.Lock()
+			enough := s.enoughHeads(key)
+			s.mu.Unlock()
+			select {
+			case <-enough:
+			case <-time.After(20 * time.Second):
+			}
+		}
+		s.mu.Lock()
+		if method == http.MethodGet {
+			s.fetched[key] = true
+		}
+		stored := s.fetched[key]
+		if method == http.MethodHead {
+			// Counted with the answer decided: the HEAD that releases a held
+			// GET is still answered as before that GET.
+			s.heads[key]++
+			if s.heads[key] == s.opt.holdGet {
+				close(s.enoughHeads(key))
+			}
+		}
+		s.mu.Unlock()
+		if !stored {
+			s.unknown(w, "BLOB_UNKNOWN")
+			return
+		}
+		s.send(w, http.StatusOK, "application/octet-stream", []byte(strings.Repeat("x", int(stubSizes[stubTiny]))))
+		return
+	}
 	present := digest == stubConfig || digest == stubLayer1 || digest == stubLayer2
 	switch {
 	case strings.HasPrefix(repo, "openova-io/openova/") && s.opt.absent[repo]:

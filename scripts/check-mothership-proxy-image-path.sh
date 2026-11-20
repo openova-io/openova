@@ -2,7 +2,8 @@
 # check-mothership-proxy-image-path.sh — prov pre-flight check 7 (#6778):
 # every image a fresh Sovereign pulls before its cutover must be pullable,
 # whole, along the path a node pulls it, with the credential a node is given,
-# BEFORE a fire. Read-only: GET and HEAD only, never a registry or cluster write.
+# BEFORE a fire. GET and HEAD only, never a push, a delete or a cluster write;
+# but the fill's GET of a proxied blob (step 4) makes the origin store it.
 #
 # ─── THE FAILURE CLASSES THIS GUARDS AGAINST ──────────────────────────────
 #
@@ -76,11 +77,33 @@
 #      (exit 2): an anonymous read is not what a node does.
 #   4. Per image (tools/guards/cmd/image-path probe): the manifest of the tag,
 #      the linux/amd64 child, then the config AND every layer by HEAD.
-#        - a blob of a PROXY project that answers 404 is "not cached yet": the
-#          origin fills a proxied image's blobs some minutes after its manifest
-#          was first asked for, so the manifest is asked for once more and the
-#          blobs are read again until PROBE_FILL_WAIT (default 10m) has passed;
-#          still missing then is NEVER FILLED;
+#        - a blob of a PROXY project that answers 404 is "not cached yet". Two
+#          things fill it, and both start at once: the origin pulls a proxied
+#          image's blobs by itself some minutes after its manifest was asked
+#          for, so the manifest is asked for once more; and each missing blob
+#          is asked for by GET at the origin registry
+#          itself (ORIGIN_REGISTRY_URL, default https://harbor.openova.io, the
+#          same variable as check 5 of check-train-coherent.sh; the same proxy
+#          project, the node's login; a pull, never a push): the origin stores
+#          a proxied blob only on a GET of it, and the relay in front of it
+#          asks by HEAD first, so no wait fills it (20 Nov 2026: eight blobs
+#          of 67-351 bytes of two cilium images, warmed by hand). NOT the
+#          document's ORIGIN_REGISTRY_SCHEME://ORIGIN_REGISTRY_HOST: on every
+#          fresh install that is ghcr.io, a registry the origin proxies; the
+#          probe refuses such an origin (exit 2), since the GET carries the
+#          node's credential. Smallest first, at most PROBE_FILL_MAX_BYTES
+#          (16 MiB) a run. Then the blobs are read again at once and every
+#          PROBE_FILL_EVERY until PROBE_FILL_WAIT (default 10m) has passed:
+#          that wait is for a blob over the bound, which only the origin's own
+#          pull can fill, and for one a GET did not settle. The run lists each
+#          object found missing, which way it was filled and after how long;
+#          still missing then is NEVER FILLED. Left unfilled by design, and
+#          the run says so in its last lines: a blob over the bound that only
+#          a GET fills (NEVER FILLED, the line names it and the bound: GET it
+#          at the origin by hand, or raise PROBE_FILL_MAX_BYTES), and every
+#          image the list does not hold (never probed: this check passes, and
+#          at the fire its Pod stays in ImagePullBackOff when one of its blobs
+#          is one only a GET fills);
 #        - an index served with its linux/amd64 child unknown is a DAMAGED CACHE
 #          ENTRY, the repository named. Only a registry-side repair helps
 #          (story SOV-162); this check deletes nothing;
@@ -98,7 +121,9 @@
 #   scripts/check-mothership-proxy-image-path.sh --self-test          # stand-in registry and a fixture kit
 # Needs bash, jq, yq (v4), helm and Go (the list and the probe), curl (self-test).
 # Env: PROBE_PARALLEL (4), PROBE_TIMEOUT (25s), PROBE_FILL_WAIT (10m),
-#      PROBE_FILL_EVERY (20s), MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
+#      PROBE_FILL_EVERY (20s), PROBE_FILL_MAX_BYTES (16777216),
+#      ORIGIN_REGISTRY_URL (https://harbor.openova.io),
+#      MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
 #      KIT_VALUE_SETS (see check-freshprov-image-registry.sh).
 # Exit: 0 every image resolved whole; 1 at least one failed; 2 nothing could be
 #       judged (no credential, no variables document, a source without image,
@@ -113,6 +138,7 @@ PROBE_PARALLEL="${PROBE_PARALLEL:-4}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-25s}"
 PROBE_FILL_WAIT="${PROBE_FILL_WAIT:-10m}"
 PROBE_FILL_EVERY="${PROBE_FILL_EVERY:-20s}"
+PROBE_FILL_MAX_BYTES="${PROBE_FILL_MAX_BYTES:-16777216}"
 MIRROR_TF="${MIRROR_TF:-${REPO_ROOT}/infra/providers/huawei/main.tf}"
 MODULE_REL="$(dirname "${MIRROR_TF#"${REPO_ROOT}"/}")"   # the module folder, under the repository root
 FIRST_PARTY_RE='^ghcr\.io/openova-io/openova/'
@@ -196,6 +222,17 @@ node_map() {
 # first segment of each project path), as a JSON list.
 proxy_projects() {
   jq -c -e '.REGISTRY_PROXY_PROJECTS_JSON | fromjson | [.[] | select(. != "") | split("/")[0]] | unique' "$1"
+}
+
+# fill_origin — the origin registry itself, scheme and host, whose proxy
+# projects the node path fronts and which the fill asks by GET:
+# ORIGIN_REGISTRY_URL, the same variable and default as check 5 of
+# scripts/check-train-coherent.sh. Never the document's ORIGIN_REGISTRY_HOST:
+# a fresh install's document says ghcr.io there (the provisioner's
+# LocalRegistryHost, copied by core/controllers/pkg/upstream), and the relay
+# address of ORIGIN_PROXY_ENDPOINTS_JSON is the node path, not the origin.
+fill_origin() {
+  printf '%s\n' "${ORIGIN_REGISTRY_URL:-https://harbor.openova.io}"
 }
 
 # node_user <main.tf> — the login the module writes into the `configs` of the map.
@@ -314,7 +351,8 @@ build_image_list() {
 # probe <list> — the walk of every image; the summary line is the tool's.
 run_probe() {
   PROBE_USER="$1" PROBE_TOKEN="$2" "$TOOL" probe -parallel "$PROBE_PARALLEL" -timeout "$PROBE_TIMEOUT" \
-    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" < "$3"
+    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" \
+    -fill-max-bytes "$PROBE_FILL_MAX_BYTES" < "$3"
 }
 
 # ─── Self-test ─────────────────────────────────────────────────────────────
@@ -369,15 +407,23 @@ if [ "$MODE" = "self-test" ]; then
   [ -s "$port_file" ] || { echo "SELF-TEST FAILED — the stand-in registry did not start" >&2; kill "$srv_pid" 2>/dev/null; exit 1; }
   fport="$(cat "$port_file")"
   # The map the module builds from its test's document with every origin
-  # pointed at the stand-in: the same SHAPE as a real one.
+  # pointed at the stand-in: the same SHAPE as a real one. Its
+  # ORIGIN_REGISTRY_HOST stays the document's (ghcr.io, as on a fresh install).
   jq --arg o "http://127.0.0.1:${fport}" '.ORIGIN_PROXY_ENDPOINTS_JSON |= (fromjson | map_values($o) | tojson)' \
     "$HWDOC" > "${WORK}/fixture-doc.json"
   fixture_mirrors="$(node_map "${WORK}/fixture-doc.json" "$HWTF" 1)"
   PROBE_PROXY_PROJECTS="$(proxy_projects "${WORK}/fixture-doc.json")"
-  export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS
+  doc_origin="$(jq -r '.ORIGIN_REGISTRY_SCHEME + "://" + .ORIGIN_REGISTRY_HOST' "${WORK}/fixture-doc.json")"
+  expect "the document of a real shape names a registry the origin proxies as its origin host" 0 0 "^https://ghcr.io$" "$doc_origin"
+  expect "  the fill asks the origin registry itself, not that" 0 0 "^https://harbor.openova.io$" "$(ORIGIN_REGISTRY_URL='' fill_origin)"
+  ORIGIN_REGISTRY_URL="http://127.0.0.1:${fport}"   # the stand-in plays the origin registry
+  PROBE_ORIGIN="$(fill_origin)"
+  export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS PROBE_ORIGIN
   PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms
   node='robot$openova-bot'
   pr() { printf '%s\n' "$@" > "${WORK}/l.txt"; run_probe "$node" stub-node-token "${WORK}/l.txt"; }
+  out="$(PROBE_ORIGIN="$doc_origin" pr ghcr.io/getfill/app:1)"; rc=$?
+  expect "the document's origin host as the fill's origin -> refused before any request, the credential never sent there" 2 "$rc" "^IMAGE-PATH FAIL 0/0: PROBE_ORIGIN https://ghcr.io is a registry the origin proxies (the node map rewrites ghcr.io into the proxy project proxy-ghcr), not the origin: " "$out"
   out="$(pr ghcr.io/healthy/app:16 harbor.openova.io/single/app:1.0 harbor.openova.io/redirected/app:1.0 ghcr.io/openova-io/openova/catalyst-api:1)"; rc=$?
   expect "healthy index+child+config+layers (a 301, a first-party image) -> PASS 4" 0 "$rc" "^IMAGE-PATH PASS 4 images resolved through the origin (index+child+config+layers)$" "$out"
   expect "  the first-party image came from the hosted project" 0 "$rc" "^PASS ghcr.io/openova-io/openova/catalyst-api:1 -> http://127.0.0.1:${fport}/openova-io/openova/catalyst-api:1 " "$out"
@@ -392,6 +438,14 @@ if [ "$MODE" = "self-test" ]; then
   expect "layers not cached yet, then filled -> PASS, and it says so" 0 "$rc" "^PASS ghcr.io/filling/app:1 .*(was not cached yet: filled after" "$out"
   out="$(PROBE_FILL_WAIT=2s pr ghcr.io/neverfill/app:1)"; rc=$?
   expect "layers not cached yet and never filled -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/neverfill/app:1 (NEVER FILLED)$" "$out"
+  out="$(PROBE_FILL_WAIT=1s pr ghcr.io/getfill/app:1)"; rc=$?
+  expect "a blob the origin stores only on a GET -> filled at once by a GET there, PASS" 0 "$rc" "^PASS ghcr.io/getfill/app:1 .*(was not cached yet: filled by a GET at the origin, 1 object(s), 67 bytes, after [0-9]*s)$" "$out"
+  expect "  the run counts it" 0 "$rc" "filled 1 object(s), 67 bytes, by a GET through the origin's proxy project at http://127.0.0.1:${fport} " "$out"
+  expect "  and names it with its size, the way and the time" 0 "$rc" "^    filled proxy-ghcr/getfill/app@sha256:1\{64\} 67 bytes by a GET at the origin after [0-9]*s$" "$out"
+  expect "  and says what it leaves unfilled by design" 0 "$rc" "^  ℹ left unfilled by design: a blob over the fill bound that only a GET fills (NEVER FILLED, .*); and every image this list does not hold (never probed, never filled: .* ImagePullBackOff at the fire)$" "$out"
+  out="$(PROBE_FILL_WAIT=1s pr ghcr.io/bigfill/app:1)"; rc=$?
+  expect "a layer over the fill bound is not fetched -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/bigfill/app:1 (NEVER FILLED)$" "$out"
+  expect "  and the line names the bound, left unfilled by design" 1 "$rc" "^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .* left unfilled by design (a GET of it at the origin by hand, or a larger -fill-max-bytes), first sha256:222222222222 of 3221225472 bytes is over the fill bound of 16777216 bytes a run" "$out"
   out="$(pr ghcr.io/openova-io/openova/gone:920753e)"; rc=$?
   expect "a first-party image the hosted project lacks -> MISSING AT THE ORIGIN" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/gone:920753e (MISSING AT THE ORIGIN)$" "$out"
   printf 'ghcr.io/healthy/app:16\n' > "${WORK}/one.txt"
@@ -523,7 +577,7 @@ YAML
   expect "a source that yields no image FAILS the list" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'k3s' yielded no image" "$out"
   echo ""
   if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path check is broken." >&2; exit 1; fi
-  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
+  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, fills at once by a GET at the origin registry itself a blob only a GET fills (within its byte bound), says what it leaves unfilled by design, and never sends that GET to a registry the origin proxies, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
   exit 0
 fi
 
@@ -546,7 +600,8 @@ jq -e '.variables | objects' "$HW_TFVARS" > "${WORK}/variables.json" 2>/dev/null
   && MIRRORS="$(node_map "${WORK}/variables.json" "$MIRROR_TF" 1)" \
   && PROXIES="$(proxy_projects "${WORK}/variables.json")" \
   || { echo "IMAGE-PATH FAIL 0/0: could not build the node registry map from .variables of $HW_TFVARS with the hosted rewrites of $MIRROR_TF"; exit 2; }
-export PROBE_MIRRORS="$MIRRORS" PROBE_PROXY_PROJECTS="$PROXIES"
+PROBE_ORIGIN="$(fill_origin)"
+export PROBE_MIRRORS="$MIRRORS" PROBE_PROXY_PROJECTS="$PROXIES" PROBE_ORIGIN
 
 if [ "$MODE" = "resolve" ]; then "$TOOL" resolve "$RESOLVE_REF"; exit $?; fi
 
