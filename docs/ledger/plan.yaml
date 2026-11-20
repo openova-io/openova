@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-162, SOV-170, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-162, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-170, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -10136,26 +10136,32 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: []
-  after: [FND-011, SOV-160, SOV-161, SOV-336, SVC-040, SVC-041, SVC-080, SVC-136]
+  after: [FND-011]
   touches:
-  - platform/harbor/chart/templates/
-  - platform/harbor/chart/tests/
+  - platform/harbor/chart/templates/proxy-cache-integrity.yaml
+  - platform/harbor/chart/tests/proxy-cache-integrity.sh
   - platform/harbor/chart/values.yaml
   - platform/harbor/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls platform/harbor/chart/templates | grep -c -x -F proxy-cache-integrity.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "bash platform/harbor/chart/tests/proxy-cache-integrity.sh platform/harbor/chart"
+  - id: A2
+    run: "python3 scripts/check-no-new-polling.py > /dev/null && test \"$(cd tools/guards && go run ./cmd/no-hand-marks --list | grep -c -E \"^ok +write platform/harbor/chart/templates/proxy-cache-integrity\\.yaml:\")\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A scheduled check of the registry chart bp-harbor reads, for every tagged artifact of each proxy (pull-through) project that is an image index, each child manifest and its config blob; on a miss it deletes that cached artifact so that the next pull fetches it whole, counts what it healed in a metric and reports each heal as a Kubernetes Event, and it never touches a hosted project. It runs on the parent's registry and on every Sovereign's own registry, both installed from bp-harbor.
+  delivers: A CronJob of bp-harbor reads, for every tagged image index of each pull-through project, each child manifest and its config blob through harbor-core, deletes the cached index when one of them answers 404 so that the next pull fetches the image whole, reports each deletion as a Kubernetes Event and in the counter harbor_proxy_cache_integrity_healed_total that a small Deployment serves for scraping, deletes nothing after a failed read, and never reads or changes a hosted project.
 - id: SOV-170
   title: The Sovereign repository is seeded at bootstrap and serves the root
   area: SOV
@@ -14548,7 +14554,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-231]
-  after: [FND-011, SOV-143, SOV-161, SOV-322, SOV-323, SOV-336, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SVC-040, SVC-041, SVC-080, SVC-136, BSS-040]
+  after: [FND-011, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SVC-040, SVC-041, SVC-080, SVC-136, BSS-040]
   touches:
   - platform/harbor/chart/**
   - scripts/secret-guard-baselines/*
@@ -15390,7 +15396,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-234, SEC-335]
-  after: [FND-011, SOV-143, SOV-161, SOV-322, SOV-323, SOV-336, SEC-095, SEC-096, SEC-153, SVC-040, SVC-041, SVC-080, SVC-136]
+  after: [FND-011, SOV-143, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-095, SEC-096, SEC-153, SVC-040, SVC-041, SVC-080, SVC-136]
   touches:
   - platform/harbor/chart/**
   - scripts/secret-guard-baselines/secret-object-register.yaml
