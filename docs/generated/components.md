@@ -17,7 +17,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/_catalog | - | - | - | - |
 | platform/_schemas | - | - | - | - |
 | platform/alloy | bp-alloy | bp-alloy | unlisted | 21 |
-| platform/anthropic-adapter | bp-anthropic-adapter | bp-anthropic-adapter | unlisted | - |
 | platform/bge | bp-bge | bp-bge | listed | - |
 | platform/bp-vcluster-helmrepo | bp-vcluster-helmrepo | bp-vcluster-helmrepo | unlisted | 60 |
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
@@ -57,7 +56,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/librechat | bp-librechat | bp-librechat | unlisted | - |
 | platform/litmus | bp-litmus | bp-litmus | unlisted | - |
 | platform/livekit | bp-livekit | bp-livekit | listed | - |
-| platform/llm-gateway | bp-llm-gateway | bp-llm-gateway | listed | - |
 | platform/loki | bp-loki | bp-loki | unlisted | 22 |
 | platform/machine-operations | bp-machine-operations | bp-machine-operations | unlisted | - |
 | platform/matrix | bp-matrix | bp-matrix | listed | - |

@@ -2090,86 +2090,6 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-llm-gateway
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: 1.0.2
-  card:
-    title: LLM Gateway
-    summary: Multi-provider LLM router with rate limits, cost tracking, and prompt caching.
-    description: Provider-agnostic LLM gateway (OpenAI, Anthropic, Bedrock, local). Pairs with bp-langfuse for traces.
-    icon: llm-gateway.svg
-    license: Apache-2.0
-    tags: [ai, llm, gateway, routing, cost]
-    docs: https://github.com/openova-io/openova/tree/main/platform/llm-gateway
-  visibility: listed
-  class: ai-service
-  lifecycle: experimental
-  configSchema:
-    type: object
-    properties:
-      replicas:
-        type: integer
-        default: 2
-        minimum: 1
-        maximum: 8
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-llm-gateway
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-llm-gateway
-    version: 1.0.2
-  topology:
-    supported: [active-active, singleton]
-    defaults:
-      multi-region: active-active
-      single-region: singleton
-    perTopology:
-      active-active:
-        replication:
-          backend: none
-          mode: none
-        switchover:
-          mechanism: none
-        placement:
-          tier: rtz
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: active
-      singleton:
-        placement:
-          tier: rtz
-          clusters: [rtz-A]
-          roles:
-            rtz-A: singleton
-  endpoints:
-  - name: ui
-    hostnameTemplate: llm.{{ "{{" }}.OrgDomain{{ "}}" }}
-    port: 443
-    protocol: https
-    tls: true
-    visibility: public
-    launchDefault: true
-    ssoEnabled: true
-  sso:
-    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
-    protocolMapper: oidc
-    silentLogin: true
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
   name: bp-loki
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -2518,7 +2438,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.4.168
+  version: 1.4.169
   card:
     title: NewAPI
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
@@ -2540,7 +2460,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: 1.4.168
+    version: 1.4.169
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2557,14 +2477,14 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton

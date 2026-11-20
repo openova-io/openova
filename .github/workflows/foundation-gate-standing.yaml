@@ -1,10 +1,22 @@
 name: foundation-gate-standing
 
-# The gate against the standing environment, after it was updated in place to a candidate. It
-# updates, wipes and installs nothing. Inputs: candidate_id, env, execution (as in
-# foundation-gate.yaml: hosted, the default, or parent). Every job runs on ubuntu-latest.
-#   test       scripts/standing-gate.py --self-test (also on pull requests that change it).
+# The gate against the standing environment: it updates the environment in place to a candidate
+# through the product's release route, then gates it twice. It wipes and installs nothing. Inputs:
+# candidate_id, env, execution (as in foundation-gate.yaml: hosted, the default, or parent; it
+# selects where the job regions works, and the job update always works on the parent). Every job
+# runs on ubuntu-latest.
+#   test       scripts/standing-gate.py --self-test and scripts/standing-update.sh --self-test (also
+#              on pull requests that change them).
 #   candidate  scripts/release-candidate.sh verify: the candidate's commit.
+#   update     in a Job on the parent (scripts/gate-parent-job.sh run --mode update), after the
+#              images of the Job are built or found: scripts/standing-update.sh delivers the candidate
+#              through the release route PUT /api/v1/sovereign/release, one region per request,
+#              region b then region a, with the OpenBao snapshot of each region taken and read back
+#              first, and a rollback request for each region it moved when a region does not converge
+#              or compares worse than its state before (FND-076). When both regions run the candidate
+#              and the route reports it delivered, it sends nothing. A refusal of the route (a stage
+#              conflict, a route installed before SOV-521) is named and stops the run; the update
+#              never works around it. Every wait reads once a minute.
 #   regions    with the kubeconfigs of the environment gate: `standing-gate.py source` for region b,
 #              then a (Flux applied the candidate commit or a descendant, read in the region's own
 #              Gitea), then `standing-gate.py converge` for both (every HelmRelease that is not
@@ -20,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_id:
-        description: The candidate rc/<id> that the standing environment was updated to
+        description: The candidate rc/<id> to update the standing environment to and gate
         required: true
       env:
         description: The environment label of the standing environment
@@ -33,6 +45,8 @@ on:
   pull_request:
     paths:
       - 'scripts/standing-gate.py'
+      - 'scripts/standing-update.sh'
+      - 'scripts/standing-update/**'
       - '.github/workflows/foundation-gate-standing.yaml'
 
 permissions:
@@ -51,6 +65,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: standing-gate.py self-test
         run: python3 scripts/standing-gate.py --self-test
+      - name: standing-update.sh self-test
+        run: bash scripts/standing-update.sh --self-test
 
   candidate:
     name: verify the candidate
@@ -93,9 +109,96 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "Candidate rc/$CANDIDATE_ID verified at commit $commit" >> "$GITHUB_STEP_SUMMARY"
 
+  update:
+    name: update the regions through the release route
+    needs: candidate
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: gate
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Check out the commit under test
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.23'
+          cache: false
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: The images of the Job, by digest
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.candidate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          bash scripts/gate-parent-job.sh image --candidate candidate --commit "$COMMIT" --output "$RUNNER_TEMP/images"
+          cat "$RUNNER_TEMP/images" >> "$GITHUB_OUTPUT"
+          { echo '### Images of the Job'; echo; echo '```'; cat "$RUNNER_TEMP/images"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: The parent kubeconfig (never echoed)
+        env:
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KP" ]; then echo "::error::the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/parent"
+          printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/parent/parent.yaml"
+      - name: Write kubeconfigs (never echoed)
+        env:
+          KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
+          KB: ${{ secrets.ACCEPTANCE_KUBECONFIG_B }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KA" ] || [ -z "$KB" ]; then echo "::error::ACCEPTANCE_KUBECONFIG_A/B secrets are not set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/kube"
+          printf '%s' "$KA" | base64 -d > "$RUNNER_TEMP/kube/a.yaml"
+          printf '%s' "$KB" | base64 -d > "$RUNNER_TEMP/kube/b.yaml"
+      - name: Deliver the candidate through the release route, in a Job on the parent
+        env:
+          COMMIT: ${{ needs.candidate.outputs.commit }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
+          ENV_LABEL: ${{ inputs.env }}
+          JOB_IMAGE: ${{ steps.images.outputs.job }}
+          GH_TOKEN: ${{ github.token }}
+          GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
+        run: |
+          set -euo pipefail
+          o="$RUNNER_TEMP/parent-update"
+          # The install's addresses, read here (kubeconfigs and DNS): the Job's Pods may reach these only.
+          targets="$(GATE_KUBECONFIG_A="$RUNNER_TEMP/kube/a.yaml" GATE_KUBECONFIG_B="$RUNNER_TEMP/kube/b.yaml" \
+            bash scripts/gate-parent-job.sh targets --env "$ENV_LABEL")"
+          GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$RUNNER_TEMP/kube/a.yaml" \
+            GATE_KUBECONFIG_B="$RUNNER_TEMP/kube/b.yaml" GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" \
+            GATE_RUN="$GITHUB_RUN_ID" CANDIDATE_COMMIT="$COMMIT" CANDIDATE_ID="$CANDIDATE_ID" ENV_LABEL="$ENV_LABEL" \
+            bash scripts/gate-parent-job.sh run --mode update --out "$o" --targets "$targets" --job-image "$JOB_IMAGE"
+          grep -qx 'rc=0' "$o/outputs" || { echo "::error::The update of the standing environment failed; the Job's log above names the step."; exit 1; }
+      - name: Delete the Job and its Secrets
+        if: always()
+        run: |
+          set -uo pipefail
+          p="$RUNNER_TEMP/parent/parent.yaml"
+          if [ -r "$p" ]; then
+            GATE_PARENT_KUBECONFIG="$p" bash scripts/gate-parent-job.sh cleanup --out "$RUNNER_TEMP/parent-update" \
+              || echo "::warning::The Job of this run or its Secrets could not be deleted; the Job deletes itself an hour after it ended."
+          fi
+          rm -f "$p"
+
   regions:
     name: the regions carry the candidate and have converged
-    needs: candidate
+    needs: [candidate, update]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: gate

@@ -211,3 +211,5 @@ products/fabric
 products/relay
 platform/openmeter
 platform/catalyst-platform
+platform/llm-gateway
+platform/anthropic-adapter

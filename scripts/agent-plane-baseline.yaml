@@ -5,12 +5,8 @@ forbiddenTools:
 - create_application
 rules:
   G1:
-    max: 12
+    max: 8
     allow:
-    - platform/anthropic-adapter/blueprint.yaml
-    - platform/anthropic-adapter/chart/templates/networkpolicy.yaml
-    - platform/anthropic-adapter/chart/values.yaml
-    - platform/llm-gateway/chart/templates/networkpolicy.yaml
     - platform/newapi/chart/values.yaml
     - products/agenity/README.md
     - products/agenity/chart/Chart.yaml
@@ -54,9 +50,8 @@ rules:
     allow:
     - platform/newapi/chart/values.yaml
   G5:
-    max: 5
+    max: 4
     allow:
-    - platform/anthropic-adapter/chart/templates/deployment.yaml
     - platform/openclaw/chart/Chart.yaml
     - platform/openclaw/chart/templates/controller-deployment.yaml
     - platform/openclaw/chart/templates/per-user-pod-template.yaml

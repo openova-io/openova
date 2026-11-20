@@ -5,10 +5,6 @@
 # Rule G7 of scripts/check-service-model.py counts the entries of the shared file; an entry leaves when its
 # Blueprint is published to the catalogue or its folder is deleted.
 exclusions:
-  - blueprint: bp-anthropic-adapter
-    reason: >-
-      No kit slot and no seed entry — not installable from either door today. Enumerated here, not
-      silenced; needs an owner call on seed-or-retire.
   - blueprint: bp-catalyst-edge-routes
     reason: >-
       Bootstrap-kit-owned — installs from slot 13e (13e-bp-catalyst-secondary-edge-routes.yaml).

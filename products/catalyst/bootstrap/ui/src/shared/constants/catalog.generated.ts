@@ -251,79 +251,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-anthropic-adapter",
-    "slug": "anthropic-adapter",
-    "title": "Anthropic Adapter",
-    "summary": "OpenAI ↔ Anthropic translation layer. Single Catalyst-authored Go\nservice that translates `/v1/chat/completions` (OpenAI) ↔\nAnthropic `/v1/messages`, including streaming SSE. Pairs with\nbp-llm-gateway so OpenAI-SDK clients can target Claude transparently.\n",
-    "icon": "anthropic-adapter.svg",
-    "tagline": null,
-    "tags": [
-      "llm",
-      "anthropic",
-      "claude",
-      "openai",
-      "adapter",
-      "proxy"
-    ],
-    "visibility": "unlisted",
-    "class": "ai-service",
-    "lifecycle": "experimental",
-    "version": "1.0.0",
-    "depends": [
-      "bp-external-secrets"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
     "id": "bp-bge",
     "slug": "bge",
     "title": "BGE Embeddings + Reranker",
@@ -471,7 +398,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.4.2203",
+    "version": "1.4.2207",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2293,7 +2220,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "lifecycle": "experimental",
     "version": "1.1.0",
     "depends": [
-      "bp-llm-gateway",
       "bp-vllm",
       "bp-bge",
       "bp-keycloak"
@@ -2410,76 +2336,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "class": "application",
     "lifecycle": "experimental",
     "version": "1.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
-    "id": "bp-llm-gateway",
-    "slug": "llm-gateway",
-    "title": "LLM Gateway",
-    "summary": "Multi-provider LLM router with rate limits, cost tracking, and prompt caching.",
-    "icon": "llm-gateway.svg",
-    "tagline": null,
-    "tags": [
-      "ai",
-      "llm",
-      "gateway",
-      "routing",
-      "cost"
-    ],
-    "visibility": "listed",
-    "class": "ai-service",
-    "lifecycle": "experimental",
-    "version": "1.0.2",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3040,7 +2896,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "class": "ai-service",
     "lifecycle": "experimental",
-    "version": "1.4.168",
+    "version": "1.4.169",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3065,7 +2921,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -3080,7 +2936,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -4928,7 +4784,6 @@ export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Objec
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/agenity/blueprint.yaml",
   "platform/alloy/blueprint.yaml",
-  "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
   "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
@@ -4968,7 +4823,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/librechat/blueprint.yaml",
   "platform/litmus/blueprint.yaml",
   "platform/livekit/blueprint.yaml",
-  "platform/llm-gateway/blueprint.yaml",
   "platform/loki/blueprint.yaml",
   "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
