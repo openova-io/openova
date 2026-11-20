@@ -38,8 +38,8 @@ import (
 //     promote, a stage that fails or refuses, and the bootstrap's deliver
 //     container whether the delivery completed or failed (its delivery Job's
 //     Pod killed included);
-//   - a bootstrap Job whose own Pod was killed runs none of that, and fails
-//     (backoffLimit 0). The Secret is owned by that Job, so the garbage
+//   - a bootstrap Job whose own Pod was killed, and not replaced (one eviction
+//     is, retryOneEviction), runs none of that, and fails. The Secret is owned by that Job, so the garbage
 //     collector deletes it when the Job is deleted: releaseTTLSeconds (three
 //     days) after the Job ended, by its ttlSecondsAfterFinished;
 //   - before that, the next request deletes it (removeReleasePullSecret), as no

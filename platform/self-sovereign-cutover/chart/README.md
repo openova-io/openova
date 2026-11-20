@@ -226,16 +226,19 @@ end of the prewarm, the start of promote, a stage that fails or refuses, and the
 bootstrap's deliver container whether the delivery completed or failed; that
 last one reads the names of step 03's follower copy from the delivery Job it
 composed, so a delivery Job whose Pod was killed leaves none. A bootstrap Job
-whose own Pod was killed runs no end and fails (`backoffLimit: 0`, as every Job
-of a delivery): the Secret is owned by it, so the garbage collector deletes it
+whose own Pod was killed, and not replaced (below), runs no end and fails: the
+Secret is owned by it, so the garbage collector deletes it
 with the Job, which its `ttlSecondsAfterFinished` deletes three days after it
 ended; the next request deletes it before that. That covers the primary's
 Secret only: copies such a killed stage made in the followers stay until the
 next delivery's end deletes the credential in every region. `GET` changes
 nothing.
 
-**A killed Pod.** No Job of a delivery replaces a Pod, so a Pod killed by a
-drained or lost node fails the delivery. Its containers record nothing then;
+**An evicted Pod** (a drained node). Every Job of a delivery replaces ONE Pod
+an eviction took, and the new Pod resumes from what the state records, read
+with certainty (`release-run.sh`, "An eviction"); a read or write that fails is
+made again, or the Pod stops and `resume` says why. **A killed Pod.** A Pod
+killed otherwise, or a second eviction, fails the delivery. Its containers record nothing then;
 the bootstrap's deliver records it: phase `failed`, the step, and per region
 what moved. "No region was promoted" is said only when the state is still at
 `staged`, which is certain because promote records `promoting` before it

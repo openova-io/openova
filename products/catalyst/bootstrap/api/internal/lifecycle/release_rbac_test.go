@@ -230,8 +230,8 @@ func (c kubectlCall) requests() ([]apiRequest, error) {
 			return nil, fmt.Errorf("logs of nothing")
 		}
 		kind, name, ok := strings.Cut(rest[0], "/")
-		if !ok {
-			return []apiRequest{{verb: "get", resource: "pods/log", namespace: ns, name: rest[0]}}, nil
+		if !ok || kubectlResources[kind][1] == "pods" { // a Pod's log: <pod> or pod/<pod>
+			return []apiRequest{{verb: "get", resource: "pods/log", namespace: ns, name: strings.TrimPrefix(rest[0], kind+"/")}}, nil
 		}
 		if gr := kubectlResources[kind]; gr[1] != "jobs" {
 			return nil, fmt.Errorf("logs of %q, which the model does not know", rest[0])
