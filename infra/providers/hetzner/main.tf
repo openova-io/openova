@@ -641,60 +641,38 @@ locals {
   # injected into the shared template as string vars. Everything else is
   # identical across clouds. NEVER re-add bootstrap logic here.
 
-  # registry mirror — Hetzner routes upstream pulls through harbor.openova.io
-  # pull-through proxy projects (containerd reads /etc/rancher/k3s/registries.yaml).
-  registry_mirror_yaml_hetzner = <<-EOT
-    mirrors:
-      "docker.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-dockerhub/$1"
-      "quay.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-quay/$1"
-      "gcr.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-gcr/$1"
-      "registry.k8s.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-k8s/$1"
-      "ghcr.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-ghcr/$1"
-      # #3913: route the two remaining upstream registries through Harbor too,
-      # so the bootstrap-time mirror set MATCHES the proven post-cutover set in
-      # self-sovereign-cutover/04-registry-pivot-daemonset.yaml (ghcr/docker/
-      # k8s/gcr/quay/xpkg/ecr). Before this, crossplane provider packages from
-      # xpkg.upbound.io (e.g. provider-hcloud, the bp-mgmt-vcluster controllers)
-      # and any public.ecr.aws image pulled DIRECT from upstream — exactly the
-      # un-proxied-pull class #3913 closes. The proxy-xpkg + proxy-ecr Harbor
-      # projects already exist on harbor.openova.io (the 04-pivot rewrite proves
-      # it), so this is a pure config add with no new infra.
-      "xpkg.upbound.io":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-xpkg/$1"
-      "public.ecr.aws":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-ecr/$1"
-    configs:
-      "harbor.openova.io":
-        auth:
-          username: "robot$openova-bot"
-          password: "${var.harbor_robot_token}"
-  EOT
+  # SOV-132: the node registry file /etc/rancher/k3s/registries.yaml, built
+  # from the variables document by the rule of contract C5 (Go form:
+  # upstream.Variables.RegistriesYAML): each proxy name lists this region's
+  # registry, then (while SOVEREIGN_CONSUME is origin) its origin, with a
+  # rewrite to its project path when that is not empty; then entries for
+  # LOCAL_REGISTRY_HOST, for ORIGIN_REGISTRY_HOST (while origin, unless it is a
+  # proxy name) and "*". With --disable-default-registry-endpoint no name falls
+  # back to a public address (SOV-060). The parent's robot login goes to each
+  # origin that serves a proxy project. Written as JSON (YAML too, shorter).
+  node_registry_local       = "https://${var.variables["LOCAL_REGISTRY_HOST"]}"
+  node_registry_origin_on   = var.variables["SOVEREIGN_CONSUME"] == "origin"
+  node_registry_projects    = jsondecode(var.variables["REGISTRY_PROXY_PROJECTS_JSON"])
+  node_registry_origin_host = "${var.variables["ORIGIN_REGISTRY_SCHEME"]}://${var.variables["ORIGIN_REGISTRY_HOST"]}"
+  node_registry_origin = {
+    for n, p in local.node_registry_projects : n => coalesce(lookup(jsondecode(var.variables["ORIGIN_PROXY_ENDPOINTS_JSON"]), n, ""), local.node_registry_origin_host)
+  }
+  node_registry_hosted_rewrites = {}
+  registry_mirror_yaml_hetzner = jsonencode({
+    mirrors = merge(
+      { for n, p in local.node_registry_projects : n => merge(
+        { endpoint = concat([local.node_registry_local], local.node_registry_origin_on ? [local.node_registry_origin[n]] : []) },
+        { for k, r in { rewrite = lookup(local.node_registry_hosted_rewrites, n, { "(.*)" = "${p}/$1" }) } : k => r if p != "" || contains(keys(local.node_registry_hosted_rewrites), n) },
+      ) },
+      { (var.variables["LOCAL_REGISTRY_HOST"]) = { endpoint = [local.node_registry_local] } },
+      { for h in [var.variables["ORIGIN_REGISTRY_HOST"]] : h => { endpoint = [local.node_registry_local, local.node_registry_origin_host] } if local.node_registry_origin_on && !contains(keys(local.node_registry_projects), h) },
+      { "*" = { endpoint = [local.node_registry_local] } },
+    )
+    configs = {
+      for h in distinct([for n, p in local.node_registry_projects : regex("^[a-z]+://([^/]+)", local.node_registry_origin[n])[0] if local.node_registry_origin_on && p != ""]) :
+      h => { auth = { username = "robot$openova-bot", password = var.harbor_robot_token } }
+    }
+  })
 
   # node external-IP discovery — Hetzner metadata service (hard dependency:
   # Hetzner populates 169.254.169.254/hetzner/v1/metadata/public-ipv4).
@@ -827,7 +805,7 @@ locals {
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
-    harbor_robot_token         = var.harbor_robot_token # #2842: seed harbor mirror auth on worker nodes
+    registry_mirror_yaml       = local.registry_mirror_yaml_hetzner # SOV-132: the control plane's file
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 
   # Strip ALL pure-comment lines (any indent) from the rendered cloud-init
@@ -1618,7 +1596,7 @@ locals {
       cp_private_ip              = local.secondary_region_cp_ips[k]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
-      harbor_robot_token         = var.harbor_robot_token # #2842: seed harbor mirror auth on worker nodes
+      registry_mirror_yaml       = local.registry_mirror_yaml_hetzner # SOV-132: the control plane's file
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 

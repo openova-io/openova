@@ -147,10 +147,9 @@ write_files:
 %{ endif ~}
 
   # ── k3s containerd registry mirror — PROVIDER-INJECTED ────────────────
-  # Body composed per-provider in main.tf (registry_mirror_yaml local):
-  #   Hetzner → harbor.openova.io pull-through proxy projects.
-  #   Huawei  → bastion-openova registry:2 mirrors (kom4dc NAT bypass).
-  #   AWS/Azure/GCP → empty (no mirror) renders no `mirrors:` block.
+  # Body composed in the provider module from the variables document
+  # (SOV-132): each proxy name with this region's registry first and its
+  # origin second, and the wildcard "*" with this region's registry alone.
   # k3s reads this at start to configure containerd.
   #
   # CLD-185: this file and six more below (the four bootstrap Secrets, the
@@ -1179,10 +1178,13 @@ runcmd:
     # forensic-blind). Fix: download-to-FILE (failure visible) then run; 5x
     # linear backoff for the #3232/#3829 class; exhaustion fail-loud (sentinel +
     # exit 88, huawei log-push). Re-run is idempotent.
+    # SOV-132: --disable-default-registry-endpoint: a name with an entry in
+    # registries.yaml never falls back to its public address, and the
+    # wildcard entry gives every other name one (lab test SOV-060).
     for i in 1 2 3 4 5; do
       sh /var/lib/catalyst/oci_fetch k3s-install ${replace(k3s_version, "+", "-")} /var/lib/catalyst/k3s-install.sh https://get.k3s.io \
         && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_server_token} \
-           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} %{ if tonumber(split(".", k3s_version)[1]) >= 35 }--kube-apiserver-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-apiserver-arg=runtime-config=certificates.k8s.io/v1beta1=true --kube-controller-manager-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-scheduler-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true %{ endif }--write-kubeconfig-mode=0600" \
+           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --disable-default-registry-endpoint --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} %{ if tonumber(split(".", k3s_version)[1]) >= 35 }--kube-apiserver-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-apiserver-arg=runtime-config=certificates.k8s.io/v1beta1=true --kube-controller-manager-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-scheduler-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true %{ endif }--write-kubeconfig-mode=0600" \
            sh /var/lib/catalyst/k3s-install.sh \
         && break
       [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; ${fail_mark_cmd}k3s-install-FAILED||true; exit 88; }
