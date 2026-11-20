@@ -22,6 +22,14 @@
 // cutover engine reads them. An absent phase is Bootstrapping. An absent
 // custody holder is parent.
 //
+// The region separation comes from the Sovereign object of its own cluster
+// (catalyst.openova.io, sovereigns, sovereign-self), whose writer is the
+// sovereign-object step of sovereign-ops: status.regionSeparation is
+// answered as regionSeparation and the message of the condition
+// RegionSeparation as regionSeparationMessage. Each is answered as the
+// object holds it, and left out when the object, its status or the
+// condition is absent.
+//
 // One answer is kept for CacheTTL, so an anonymous caller cannot turn every
 // request into reads of the cluster. A read that fails is logged and
 // counts as an absent object; such an answer is not kept.
@@ -43,6 +51,9 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -60,6 +71,16 @@ const (
 const CacheTTL = 15 * time.Second
 
 const readTimeout = 5 * time.Second
+
+// The Sovereign object of the cluster and the condition that states its
+// region separation, as core/cmd/sovereign-ops/internal/sovereignobject
+// writes them. TestSovereignObjectIsTheWriters compares the names.
+const (
+	sovereignName       = "sovereign-self"
+	separationCondition = "RegionSeparation"
+)
+
+var sovereignGVR = schema.GroupVersionResource{Group: "catalyst.openova.io", Version: "v1alpha1", Resource: "sovereigns"}
 
 // contractDefaults holds the contract C5 default of each key this route
 // reads. TestDefaultsAreTheContracts compares them with the schema.
@@ -109,28 +130,47 @@ type Response struct {
 	CustodyHolder     string  `json:"custodyHolder"`
 	Release           Release `json:"release"`
 	KubernetesVersion string  `json:"kubernetesVersion"`
+	// RegionSeparation is status.regionSeparation of the Sovereign object
+	// and RegionSeparationMessage the message of its condition
+	// RegionSeparation; each is left out when the object does not hold it.
+	RegionSeparation        string `json:"regionSeparation,omitempty"`
+	RegionSeparationMessage string `json:"regionSeparationMessage,omitempty"`
 }
 
 // Resolver returns the deployment id and the name of the Sovereign this
 // process runs on. ok is false when the process is not on a Sovereign.
 type Resolver func(r *http.Request) (deploymentID, fqdn string, ok bool)
 
-// state is everything of the answer that is read from the cluster.
+// state is everything of the answer that is read from the ConfigMaps and
+// the server version.
 type state struct {
 	mode, consume, channel, version, phase, custody, kube string
 }
 
+// separation is what the answer carries of the Sovereign object.
+type separation struct {
+	value, message string
+}
+
+// answer is everything of the answer that is read from the cluster.
+type answer struct {
+	state
+	separation
+}
+
 // Route serves GET /api/v1/sovereign/self.
 type Route struct {
-	resolve   Resolver
-	log       *slog.Logger
-	newClient func() (kubernetes.Interface, error)
-	env       func(string) string
-	now       func() time.Time
+	resolve    Resolver
+	log        *slog.Logger
+	newClient  func() (kubernetes.Interface, error)
+	newDynamic func() (dynamic.Interface, error)
+	env        func(string) string
+	now        func() time.Time
 
 	mu       sync.Mutex
 	client   kubernetes.Interface
-	kept     state
+	dyn      dynamic.Interface
+	kept     answer
 	keptAt   time.Time
 	haveKept bool
 }
@@ -144,7 +184,7 @@ func newRoute(resolve Resolver, log *slog.Logger, newClient func() (kubernetes.I
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Route{resolve: resolve, log: log, newClient: newClient, env: env, now: now}
+	return &Route{resolve: resolve, log: log, newClient: newClient, newDynamic: inClusterDynamic, env: env, now: now}
 }
 
 // inCluster returns a client of the cluster the process runs in. Every
@@ -156,6 +196,17 @@ func inCluster() (kubernetes.Interface, error) {
 	}
 	cfg.Timeout = readTimeout
 	return kubernetes.NewForConfig(cfg)
+}
+
+// inClusterDynamic returns the client that reads the Sovereign object, with
+// the same timeout.
+func inClusterDynamic() (dynamic.Interface, error) {
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.Timeout = readTimeout
+	return dynamic.NewForConfig(cfg)
 }
 
 // Serve answers the route. On a process that is not on a Sovereign it
@@ -175,14 +226,16 @@ func (rt *Route) Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, Response{
-		DeploymentID:      id,
-		SovereignFQDN:     fqdn,
-		Mode:              s.mode,
-		Phase:             s.phase,
-		Consume:           s.consume,
-		CustodyHolder:     s.custody,
-		Release:           Release{Channel: s.channel, Version: s.version},
-		KubernetesVersion: s.kube,
+		DeploymentID:            id,
+		SovereignFQDN:           fqdn,
+		Mode:                    s.mode,
+		Phase:                   s.phase,
+		Consume:                 s.consume,
+		CustodyHolder:           s.custody,
+		Release:                 Release{Channel: s.channel, Version: s.version},
+		KubernetesVersion:       s.kube,
+		RegionSeparation:        s.value,
+		RegionSeparationMessage: s.message,
 	})
 }
 
@@ -205,7 +258,7 @@ func (rt *Route) MothershipOnly(next http.Handler) http.Handler {
 
 // current returns the kept answer while it is younger than CacheTTL, and
 // reads the cluster otherwise.
-func (rt *Route) current() state {
+func (rt *Route) current() answer {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.haveKept && rt.now().Sub(rt.keptAt) < CacheTTL {
@@ -214,8 +267,50 @@ func (rt *Route) current() state {
 	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 	defer cancel()
 	s, complete := rt.read(ctx)
-	if complete {
-		rt.kept, rt.keptAt, rt.haveKept = s, rt.now(), true
+	sep, sepRead := rt.readSeparation(ctx)
+	a := answer{state: s, separation: sep}
+	if complete && sepRead {
+		rt.kept, rt.keptAt, rt.haveKept = a, rt.now(), true
+	}
+	return a
+}
+
+// readSeparation reads the region separation of the Sovereign object. ok is
+// false when the object could not be read for another reason than its
+// absence; the separation is then absent.
+func (rt *Route) readSeparation(ctx context.Context) (separation, bool) {
+	if rt.dyn == nil {
+		c, err := rt.newDynamic()
+		if err != nil {
+			rt.log.Warn("sovereign self: no cluster client for the Sovereign object; the region separation is absent", "err", err)
+			return separation{}, false
+		}
+		rt.dyn = c
+	}
+	obj, err := rt.dyn.Resource(sovereignGVR).Get(ctx, sovereignName, metav1.GetOptions{})
+	switch {
+	case err == nil:
+		return separationOf(obj.Object), true
+	case apierrors.IsNotFound(err):
+		return separation{}, true
+	default:
+		rt.log.Warn("sovereign self: cannot read the Sovereign object; the region separation is absent", "name", sovereignName, "err", err)
+		return separation{}, false
+	}
+}
+
+// separationOf returns status.regionSeparation of a Sovereign object and
+// the message of its condition RegionSeparation, each as the object holds
+// it.
+func separationOf(obj map[string]interface{}) separation {
+	var s separation
+	s.value, _, _ = unstructured.NestedString(obj, "status", "regionSeparation")
+	conditions, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	for _, c := range conditions {
+		m, _ := c.(map[string]interface{})
+		if t, _ := m["type"].(string); t == separationCondition {
+			s.message, _ = m["message"].(string)
+		}
 	}
 	return s
 }

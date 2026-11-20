@@ -416,3 +416,46 @@ describe('Dashboard — inner-tile drill (issue #1927)', () => {
     expect(layers[idx2] ?? layers[layers.length - 1]).toBe('application')
   })
 })
+
+/**
+ * NET-213 — the overview page shows the region separation of the Sovereign
+ * and the message of its condition RegionSeparation, as GET
+ * /api/v1/sovereign/self answers them; nothing when the answer lacks them.
+ */
+describe('Dashboard — the region separation from the self answer', () => {
+  const NOTICE = 'Regions share one failure domain. Not a disaster-recovery configuration.'
+
+  /** fetch answers the self route with self and every other URL as before. */
+  function answerSelf(self: Record<string, unknown>) {
+    const asked: string[] = []
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input)
+      asked.push(url)
+      const body = url.endsWith('/v1/sovereign/self') ? self : { events: [], state: undefined, done: false }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as unknown as Response)
+    }) as typeof fetch
+    return asked
+  }
+
+  it('shows the value and the message of the self answer', async () => {
+    answerSelf({
+      deploymentId: 'd-1',
+      sovereignFQDN: 'alpha.example.org',
+      regionSeparation: 'none',
+      regionSeparationMessage: NOTICE,
+    })
+    renderDashboard('d-1', { items: [], total_count: 0 })
+    expect((await screen.findByTestId('dashboard-region-separation-value')).textContent).toBe('none')
+    expect(screen.getByTestId('dashboard-region-separation-message').textContent).toBe(NOTICE)
+  })
+
+  it('shows nothing when the self answer lacks them', async () => {
+    const asked = answerSelf({ deploymentId: 'd-1', sovereignFQDN: 'alpha.example.org' })
+    renderDashboard('d-1', { items: [], total_count: 0 })
+    await screen.findByTestId('dashboard-page')
+    await waitFor(() => expect(asked.some((u) => u.endsWith('/v1/sovereign/self'))).toBe(true))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(screen.queryByTestId('dashboard-region-separation')).toBeNull()
+    expect(screen.queryByText(NOTICE)).toBeNull()
+  })
+})
