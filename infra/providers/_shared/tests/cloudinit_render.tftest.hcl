@@ -244,6 +244,14 @@ run "hetzner_render_is_valid" {
     condition     = jsonencode(output.seal.profile) == jsonencode({ apiVersion = "v1", kind = "ConfigMap", metadata = { name = "sovereign-seal-profile", namespace = "flux-system" }, data = { kind = "static-node-file", stanza = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n" } }) && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ") && length(regexall("sovereign-seal-profile\\.yaml", output.rendered_cloud_init)) == 2
     error_message = "SEC-152: /var/lib/catalyst/sovereign-seal-profile.yaml must be ConfigMap flux-system/sovereign-seal-profile with data.kind and data.stanza of the hook, applied by the server-side apply of the bootstrap Secrets and not shredded."
   }
+
+  # SOV-149: first boot pulls no image ahead of time (kubelet pulls on
+  # demand), and the registry token never stands in runcmd in plain text:
+  # only the pull Secret carries it, base64-encoded.
+  assert {
+    condition     = !strcontains(output.rendered_cloud_init, "crictl") && !strcontains(output.rendered_cloud_init, "prepull") && !strcontains(output.rendered_cloud_init, "render-test-token")
+    error_message = "SOV-149: the rendered cloud-init must pull no image (no crictl, no prepull) and must not carry the registry token in plain text."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -450,6 +458,13 @@ run "huawei_render_is_valid" {
   assert {
     condition     = output.seal.key == "render-test-seal-key-32-bytes-ok" && output.seal.profile.data.kind == "static-node-file" && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ")
     error_message = "SEC-152 (huawei branch): the seal key file and the seal profile must be written and applied as in the hetzner branch."
+  }
+
+  # SOV-149 (IPv4-only branch): no pre-pull of the Flux controller images or
+  # of the database image either, and no plain registry token.
+  assert {
+    condition     = !strcontains(output.rendered_cloud_init, "crictl") && !strcontains(output.rendered_cloud_init, "prepull") && !strcontains(output.rendered_cloud_init, "ghcr.io/fluxcd/") && !strcontains(output.rendered_cloud_init, "render-test-token")
+    error_message = "SOV-149 (huawei branch): the rendered cloud-init must pull no image (no crictl, no prepull, no Flux image list) and must not carry the registry token in plain text."
   }
 }
 

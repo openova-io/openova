@@ -22,6 +22,7 @@ echo "[function-test] Case 1: default render (the webhook is created) carries th
 helm template external-secrets . --namespace external-secrets-system > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-external-secrets --release external-secrets < "$TMP/default.yaml"
 helm template external-secrets . --namespace external-secrets-system --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 grep -q -F 'kubectl create --dry-run=server' "$TMP/default-test.yaml" || fail "the test does not make a server-side dry-run create"
 grep -q -F 'resources: ["externalsecrets"]' "$TMP/default-test.yaml" || fail "the test Role does not name the resource externalsecrets"
 grep -q -F 'value: "external-secrets.io/v1beta1"' "$TMP/default-test.yaml" || fail "without external-secrets.io/v1 the test does not use v1beta1"

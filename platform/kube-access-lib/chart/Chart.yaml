@@ -1,0 +1,26 @@
+apiVersion: v2
+name: kube-access-lib
+# 0.1.0: the ONE way a Helm test hook of this repository reaches the Kubernetes
+# API server: an explicit kubeconfig built from the Pod's own ServiceAccount, as
+# the bp-sso-bridge reconciler builds it (templates/_kube_access.tpl).
+#
+# A LIBRARY chart: it renders nothing on its own and is consumed as a
+# `file://../../kube-access-lib/chart` dependency, so `helm dependency build`
+# VENDORS it into every consumer's packaged OCI artifact (the topology-lib
+# pattern). blueprint-release.yaml skips `type: library` charts.
+version: 0.1.0
+type: library
+description: |
+  OpenOva API access helper library. One named template,
+  kube-access-lib.in-cluster-kubeconfig: shell lines that point kubectl at the
+  API server through the Pod's ServiceAccount, so that a client flag such as
+  --request-timeout cannot send kubectl to http://localhost:8080.
+keywords:
+  - catalyst
+  - kubectl
+  - helm-test
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+annotations:
+  catalyst.openova.io/no-upstream: "true"

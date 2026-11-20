@@ -18,7 +18,7 @@ description: |
   rolling restart of the dependent workloads marked with
   `reloader.stakater.com/auto: "true"` (or per-resource annotations).
 type: application
-version: 1.0.2
+version: 1.0.3
 appVersion: "v1.4.16"
 keywords: [catalyst, blueprint, reloader, configmap, secret, rotation, security]
 maintainers:
@@ -29,6 +29,11 @@ maintainers:
 # on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
 # version is operator-bumpable via PR + Blueprint release.
 dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
   - name: reloader
     version: "2.2.11"
     repository: "https://stakater.github.io/stakater-charts"

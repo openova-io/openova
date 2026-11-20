@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-kured
 spec:
-  version: 0.1.2
+  version: 0.1.3
   card:
     title: kured
     summary: Coordinated node reboots, one node at a time inside the reboot span, and the node's unattended-upgrade configuration.

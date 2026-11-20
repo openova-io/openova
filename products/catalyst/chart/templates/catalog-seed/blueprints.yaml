@@ -301,7 +301,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.8
+  version: 1.2.9
   card:
     title: cert-manager
     summary: X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against.
@@ -316,7 +316,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager
-    version: 1.2.8
+    version: 1.2.9
   topology:
     supported: [singleton]
     defaults:
@@ -350,7 +350,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.2
+  version: 1.0.3
   card:
     title: cert-manager — Issuers
     summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
@@ -365,7 +365,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-issuers
-    version: 1.0.2
+    version: 1.0.3
   topology:
     supported: [singleton]
     defaults:
@@ -399,7 +399,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.1
+  version: 1.1.2
   card:
     title: cert-manager PowerDNS Webhook
     summary: ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.
@@ -414,7 +414,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-powerdns-webhook
-    version: 1.1.1
+    version: 1.1.2
   topology:
     supported: [singleton]
     defaults:
@@ -606,7 +606,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.17
+  version: 1.0.18
   card:
     title: CloudNativePG
     summary: PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).
@@ -646,7 +646,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
-    version: 1.0.17
+    version: 1.0.18
   topology:
     supported: [singleton]
     defaults:
@@ -817,7 +817,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.11
+  version: 1.1.12
   card:
     title: Crossplane
     summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
@@ -832,7 +832,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane
-    version: 1.1.11
+    version: 1.1.12
   topology:
     supported: [singleton]
     defaults:
@@ -861,7 +861,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.3.8
+  version: 1.3.9
   card:
     title: Crossplane Claims
     summary: Sovereign-scoped Crossplane Composite Resource claims (XRDs + Compositions) — the in-cluster contract the control plane uses to request infrastructure from bp-crossplane.
@@ -876,7 +876,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane-claims
-    version: 1.3.8
+    version: 1.3.9
   topology:
     supported: [singleton]
     defaults:
@@ -949,7 +949,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.7
+  version: 1.1.8
   card:
     title: External Secrets Operator
     summary: Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.
@@ -967,7 +967,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets
-    version: 1.1.7
+    version: 1.1.8
   topology:
     supported: [singleton]
     defaults:
@@ -998,7 +998,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.14
+  version: 1.0.15
   card:
     title: External Secrets — Stores
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
@@ -1033,7 +1033,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-external-secrets-stores
-    version: 1.0.14
+    version: 1.0.15
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -1096,7 +1096,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.10
+  version: 1.2.11
   card:
     title: Flux
     summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
@@ -1111,7 +1111,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-flux
-    version: 1.2.10
+    version: 1.2.11
   topology:
     supported: [singleton]
     defaults:
@@ -1832,7 +1832,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.57
+  version: 1.0.58
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1867,7 +1867,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.57
+    version: 1.0.58
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -2518,7 +2518,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.4.167
+  version: 1.4.168
   card:
     title: NewAPI
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
@@ -2540,7 +2540,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: 1.4.167
+    version: 1.4.168
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -3163,7 +3163,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.2
+  version: 1.0.3
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -3198,7 +3198,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-reloader
-    version: 1.0.2
+    version: 1.0.3
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -3271,7 +3271,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.236
+  version: 0.1.237
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3286,7 +3286,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.236
+    version: 0.1.237
   topology:
     supported: [singleton]
     defaults:
@@ -3371,7 +3371,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.28
+  version: 0.2.29
   card:
     title: SSO Bridge
     summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
@@ -3386,7 +3386,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: 0.2.28
+    version: 0.2.29
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -3895,7 +3895,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.3
+  version: 0.2.4
   card:
     title: vCluster HelmRepository
     summary: Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover.
@@ -3913,7 +3913,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vcluster-helmrepo
-    version: 0.2.3
+    version: 0.2.4
   topology:
     supported: [singleton]
     defaults:

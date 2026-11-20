@@ -111,12 +111,12 @@ grep -q "_domainkey.omantel.omani.works" <<<"$out" \
 
 # Submission Secret with canonical 5-key shape (b64-encoded values).
 # Decode and assert the sender + host bytes look right.
-b64host=$(echo "$out" | awk '/smtp-host: /{print $2; exit}' | tr -d '"')
+b64host=$(awk '/smtp-host: /{print $2; exit}' <<<"$out" | tr -d '"')
 host_dec=$(echo "$b64host" | base64 -d 2>/dev/null || true)
 [[ "$host_dec" == "mail.omantel.omani.works" ]] \
   || { echo "FAIL: smtp-host decoded to '$host_dec', expected 'mail.omantel.omani.works'"; exit 1; }
 
-b64from=$(echo "$out" | awk '/smtp-from: /{print $2; exit}' | tr -d '"')
+b64from=$(awk '/smtp-from: /{print $2; exit}' <<<"$out" | tr -d '"')
 from_dec=$(echo "$b64from" | base64 -d 2>/dev/null || true)
 [[ "$from_dec" == "noreply@omantel.omani.works" ]] \
   || { echo "FAIL: smtp-from decoded to '$from_dec'"; exit 1; }

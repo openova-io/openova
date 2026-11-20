@@ -151,7 +151,7 @@ check_render() {
     printf '%s\n' "${maps}" | sort -u | sed 's/^/  /' >&2
     return 1
   fi
-  first_map="$(printf '%s\n' "${maps}" | head -1)"
+  first_map="$(head -1 <<<"${maps}")"
   if [ -z "${first_map}" ]; then
     echo "FAIL[vacuity]: HOST_PROJECT_MAP rendered EMPTY — a grep for any host would pass trivially (#5442)" >&2
     return 1

@@ -6,7 +6,7 @@ name: bp-external-secrets
 # harbor-proxy-pull Enforce policy (and races the Docker Hub pull throttle), so
 # the post-upgrade hook Job never ran → `helm upgrade` failed its post-upgrade
 # hook → Flux rolled the 1.1.4->1.1.5 bump back on hw305.
-version: 1.1.7
+version: 1.1.8
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
   (ESO) — controller-only as of 1.1.0. Depends on the upstream
@@ -45,6 +45,11 @@ maintainers:
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
 dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
   - name: external-secrets
     version: "0.10.7"
     repository: "https://charts.external-secrets.io"

@@ -62,6 +62,8 @@ fail() {
 
 # ─── Phase 1 — render + structural assertions ────────────────────────────
 echo "== Phase 1: render chart + extract the cloudadoption inline module =="
+# The chart includes the library kube-access-lib (file://); charts/ is gitignored.
+helm dependency build "${CHART}" >/dev/null
 helm template adoption-region-check "${CHART}" > "${WORK}/rendered.yaml"
 
 yq ea "select(.kind == \"Composition\" and .metadata.name == \"${COMPOSITION}\") \

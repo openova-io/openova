@@ -19,6 +19,7 @@ echo "[function-test] Case 1: default render reads the ClusterIssuer letsencrypt
 helm template cert-manager-issuers . --namespace cert-manager > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-cert-manager-issuers --release cert-manager-issuers < "$TMP/default.yaml"
 helm template cert-manager-issuers . --namespace cert-manager --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 grep -q -F 'value: "letsencrypt-http01-prod"' "$TMP/default-test.yaml" || fail "the test does not read exactly the ClusterIssuer letsencrypt-http01-prod"
 grep -q -E '^  name: letsencrypt-http01-prod$' "$TMP/default.yaml" || fail "the chart renders no ClusterIssuer letsencrypt-http01-prod"
 grep -q -F 'resources: ["clusterissuers"]' "$TMP/default-test.yaml" || fail "the test ClusterRole does not name clusterissuers"

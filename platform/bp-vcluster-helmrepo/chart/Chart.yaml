@@ -29,7 +29,7 @@ name: bp-vcluster-helmrepo
 # \"loft\" not found" — convergence blocker #2 (vCluster CRD-equivalent
 # install on Sovereign). Spawning any tenant org's vCluster gates on
 # this slot.
-version: 0.2.3
+version: 0.2.4
 appVersion: "0.33.0"
 description: |
   Catalyst Blueprint that pre-stages the upstream loft-sh vcluster
@@ -77,3 +77,10 @@ keywords: [catalyst, blueprint, vcluster, loft, helmrepository, tenant-spawn]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
+
+dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"

@@ -101,7 +101,7 @@ name: bp-cnpg
 #       4635277cae4ffed9). FIX: switch both to `command: ["/bin/bash", ...]`
 #       (the image carries /bin/bash + /usr/bin/openssl; webhook-gate-hook.yaml
 #       already uses bash). Refs #4322 #4143 #4201 #4326.
-version: 1.0.17
+version: 1.0.18
 description: |
   Catalyst-curated Blueprint umbrella chart for CloudNativePG. Depends on
   the upstream `cloudnative-pg` chart as a Helm subchart so
@@ -123,6 +123,11 @@ maintainers:
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
 dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
   - name: cloudnative-pg
     version: "0.28.0"
     # 2026-09-02 — https://cloudnative-pg.github.io/charts now 301s to

@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-external-secrets
 spec:
-  version: 1.1.7
+  version: 1.1.8
   card:
     title: External Secrets Operator
     summary: Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.

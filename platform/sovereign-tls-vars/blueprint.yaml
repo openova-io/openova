@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-sovereign-tls-vars
 spec:
-  version: 0.1.3
+  version: 0.1.4
   card:
     title: Sovereign TLS Vars
     summary: |

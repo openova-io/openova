@@ -45,7 +45,7 @@ fi
 echo "[g117-5-tier1-sso-clients] Case 1: realm-import JSON parses"
 if ! echo "${realm_json}" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
   echo "FAIL: realm-import JSON is not valid JSON" >&2
-  echo "${realm_json}" | head -50 >&2
+  head -50 <<<"${realm_json}" >&2
   exit 1
 fi
 echo "  PASS"

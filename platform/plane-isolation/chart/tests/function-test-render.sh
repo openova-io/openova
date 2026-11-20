@@ -19,6 +19,7 @@ echo "[function-test] Case 1: default render tests keycloak from the namespace d
 helm template plane-isolation . --namespace catalyst-system --set renderUnconditional=true --api-versions cilium.io/v2 > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-plane-isolation --release plane-isolation < "$TMP/default.yaml"
 helm template plane-isolation . --namespace catalyst-system --api-versions cilium.io/v2 --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 grep -q -F 'value: "http://keycloak.keycloak.svc.cluster.local:80/"' "$TMP/default-test.yaml" || fail "the test does not connect to the keycloak Service"
 grep -q -F 'resourceNames: ["keycloak"]' "$TMP/default-test.yaml" || fail "the test Role is not limited to the Endpoints keycloak"
 grep -q -F 'kind: CiliumNetworkPolicy' "$TMP/default-test.yaml" || fail "no egress policy for the test Pod"

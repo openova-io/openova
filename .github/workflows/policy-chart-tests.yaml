@@ -80,6 +80,13 @@ jobs:
         with:
           version: v3.18.4
 
+      # The chart's function test includes the library kube-access-lib
+      # (file://../../kube-access-lib/chart); charts/ is gitignored, so the
+      # render needs the dependency built first.
+      - name: Build the policy chart's dependencies (the vendored kube-access-lib)
+        if: steps.decide.outputs.run == 'true'
+        run: helm dependency build platform/kyverno-policies/chart
+
       - name: Install PyYAML
         if: steps.decide.outputs.run == 'true'
         run: python3 -m pip install --quiet pyyaml

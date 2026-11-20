@@ -35,6 +35,7 @@ helm template crossplane-claims . --namespace crossplane-system > "$TMP/default.
 python3 "$CHECK" --chart bp-crossplane-claims --release crossplane-claims < "$TMP/default.yaml"
 helm template crossplane-claims . --namespace crossplane-system --skip-tests > "$TMP/default-plain.yaml"
 helm template crossplane-claims . --namespace crossplane-system --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 xrds "$TMP/default-plain.yaml" > "$TMP/want.txt"
 awk 'f { sub(/^ *value: "/, ""); sub(/"$/, ""); print; exit } /^ *- name: XRDS$/ { f = 1 }' "$TMP/default-test.yaml" \
   | tr ' ' '\n' | sed '/^$/d' | sort > "$TMP/got.txt"

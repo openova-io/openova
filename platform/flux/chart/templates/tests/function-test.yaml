@@ -129,6 +129,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           for controller in ${CONTROLLERS}; do
             ips="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get pods -l "app=${controller}" --field-selector=status.phase=Running -o jsonpath='{.items[*].status.podIP}' 2>/tmp/error)" \

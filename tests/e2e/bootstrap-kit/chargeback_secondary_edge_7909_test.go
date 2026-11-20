@@ -154,7 +154,8 @@ func TestBootstrapKit_ChargebackServedFromEveryRegion(t *testing.T) {
 	}
 	edgeDir := filepath.Join(root, "platform", "catalyst-edge-routes", "chart")
 	cbDir := filepath.Join(root, "products", "chargeback", "chart")
-	ensureChartDeps(t, helmBin, cbDir) // the docrender sub-chart, file://, charts/ is gitignored
+	ensureChartDeps(t, helmBin, cbDir)   // the docrender sub-chart, file://, charts/ is gitignored
+	ensureChartDeps(t, helmBin, edgeDir) // the kube-access-lib library, file://
 	const peer = "guard-7909-region-b"
 
 	// Leg B armed (region-b, slot 13e values after substitution).

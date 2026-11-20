@@ -117,6 +117,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           probe='{"apiVersion":"postgresql.cnpg.io/v1","kind":"Cluster","metadata":{"name":"function-test-probe","namespace":"'"${TEST_NAMESPACE}"'"},"spec":{"instances":1,"storage":{"size":"1Gi"}}}'
           if ! answer="$(printf '%s' "${probe}" | kubectl create --dry-run=server -f - -o jsonpath='{.metadata.name}' 2>/tmp/error)"; then

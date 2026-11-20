@@ -51,7 +51,7 @@
 // GET semantics (unchanged contract for operator break-glass /
 // wizard "Download kubeconfig"):
 //
-//   - 200 application/yaml when KubeconfigPath is set and readable.
+//   - 200 application/yaml when KubeconfigPath (else <id>.yaml) is readable.
 //     The bytes returned are the ON-DISK file with the cluster /
 //     context / user names rewritten from k3s's hardcoded `default`
 //     to the Sovereign's subdomain (e.g. `otech94`) so the operator
@@ -110,8 +110,8 @@ const maxKubeconfigBytes = 1 << 20
 // GetKubeconfig — GET /api/v1/deployments/{id}/kubeconfig.
 //
 // Returns the kubeconfig as application/yaml by reading the file
-// at Result.KubeconfigPath. An absent or unreadable path yields
-// HTTP 409 with body {"error": "not-implemented"} so the wizard's
+// at Result.KubeconfigPath, else <kubeconfigsDir>/<id>.yaml. No file
+// yields HTTP 409 with body {"error": "not-implemented"} so the wizard's
 // existing StepSuccess.test.tsx fallback path keeps working.
 func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -146,11 +146,15 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 		path = dep.Result.KubeconfigPath
 	}
 	dep.mu.Unlock()
+	if _, err := os.Stat(filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")); path == "" && h.kubeconfigsDir != "" && err == nil {
+		path = filepath.Join(h.kubeconfigsDir, dep.ID+".yaml")
+	}
+	primary := path
 
 	// Per-region override: derive the path from kubeconfigsDir +
-	// id-region.yaml. Empty region falls through to the primary path
-	// stamped on Result.KubeconfigPath (preserves backwards-compat for
-	// every caller that doesn't pass the query).
+	// id-region.yaml. Empty region serves the primary's file: the path on
+	// the record, else the bare <id>.yaml a record without a path (as after
+	// hand-over) still has on disk (SOV-341). Same for the primary's region.
 	//
 	// TBD-A10b (t24 zero-touch, 2026-05-18, issue #1845): the cloud-init
 	// PUT-back uses the tofu secondary-region key shape
@@ -189,7 +193,7 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 				h.log.Info("kubeconfig per-region resolved via slot-suffix glob",
 					"id", id, "region", region, "matchedPath", path, "candidates", len(matches),
 				)
-			} else if region == dep.Request.Region {
+			} else if region == dep.Request.Region && primary != "" {
 				// Issue #1882: PutKubeconfig stores the primary at
 				// bare `<id>.yaml` (no region suffix) while secondaries
 				// land at `<id>-<region>.yaml` (or the slot-suffixed
@@ -200,13 +204,9 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 				// Validate() at provisioner.go:511), neither the exact
 				// match nor the glob hits — but the primary kubeconfig
 				// DOES exist at bare `<id>.yaml`. Resolve to the
-				// primary path stamped on Result.KubeconfigPath rather
-				// than 409'ing on what is structurally a valid query.
-				dep.mu.Lock()
-				if dep.Result != nil && dep.Result.KubeconfigPath != "" {
-					path = dep.Result.KubeconfigPath
-				}
-				dep.mu.Unlock()
+				// primary's file found above rather than 409'ing on
+				// what is structurally a valid query.
+				path = primary
 				h.log.Info("kubeconfig per-region resolved via primary-region fallback to bare path",
 					"id", id, "region", region, "matchedPath", path,
 				)

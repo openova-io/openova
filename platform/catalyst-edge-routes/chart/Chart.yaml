@@ -32,7 +32,7 @@ name: bp-catalyst-edge-routes
 #   half (the global annotations on the real Services) ships in
 #   bp-catalyst-platform 1.4.1190 gated on multiRegion.enabled. VALIDATES on
 #   the next fresh 2-region prov (hw281). Refs #5289.
-version: 0.2.3
+version: 0.2.4
 description: |
   Region-b (secondary control-plane) edge for a 2-region Catalyst Sovereign.
   Renders ClusterMesh global-Service stubs + api/console/marketplace
@@ -61,3 +61,10 @@ maintainers:
 annotations:
   catalyst.openova.io/no-upstream: "true"
   catalyst.openova.io/smoke-render-mode: default-off
+
+dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
