@@ -7284,7 +7284,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CLD-121]
-  after: [NET-041, NET-070, SVC-040, SVC-162, SVC-164]
+  after: [NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164]
   touches:
   - products/catalyst/bootstrap/ui/src/lib/providers.api.ts
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
@@ -11443,7 +11443,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [CLD-105, CLD-115, CLD-133, SOV-132, SOV-181, SOV-323, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, SVC-040, SVC-162, SVC-164, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120, AIP-227]
+  after: [CLD-105, CLD-115, CLD-133, SOV-132, SOV-181, SOV-323, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, NET-213, SVC-040, SVC-162, SVC-164, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120, AIP-227]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -11862,7 +11862,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, CTL-112, FND-032, SOV-435, CLD-175]
-  after: [NET-071, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, CTL-223, CTL-233, CTL-355]
+  after: [NET-071, NET-213, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, CTL-223, CTL-233, CTL-355]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/internal/lifecycle/pools.go
@@ -12129,7 +12129,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-310, SOV-330, SOV-405, SOV-430, SOV-510]
-  after: [FND-011, CLD-105, CLD-113, CLD-115, SOV-323, SOV-338, NET-041, NET-070, SVC-040, SVC-162, SVC-164, SVC-190, CTL-347, CMP-020, AIP-120]
+  after: [FND-011, CLD-105, CLD-113, CLD-115, SOV-323, SOV-338, NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164, SVC-190, CTL-347, CMP-020, AIP-120]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -12264,7 +12264,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, FND-156, CLD-030, CLD-105, CLD-114, CLD-115, SOV-050, SOV-183, SOV-323, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-333, CTL-347, CMP-020, BSS-040, AIP-070, AIP-120]
+  after: [FND-011, FND-156, CLD-030, CLD-105, CLD-114, CLD-115, SOV-050, SOV-183, SOV-323, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-213, NET-221, SVC-040, SVC-041, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-333, CTL-347, CMP-020, BSS-040, AIP-070, AIP-120]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -12298,7 +12298,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-620]
-  after: [FND-011, CLD-114, SOV-242, NET-080, NET-170, SVC-040, SVC-190, SVC-205]
+  after: [FND-011, CLD-114, SOV-242, NET-080, NET-170, NET-213, SVC-040, SVC-190, SVC-205]
   touches:
   - core/controllers/sovereign/**
   - products/catalyst/chart/templates/controllers/
@@ -14438,7 +14438,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-095, FND-096, FND-099, FND-156, CLD-030, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SOV-322, SOV-323, SEC-095, SEC-096, SEC-105, SEC-153, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-221, SVC-040, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-070, AIP-120, INF-135]
+  after: [FND-011, FND-095, FND-096, FND-099, FND-156, CLD-030, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SOV-322, SOV-323, SEC-095, SEC-096, SEC-105, SEC-153, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-213, NET-221, SVC-040, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-070, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -17830,7 +17830,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [NET-212]
-  after: [FND-011, FND-095, SOV-180, SOV-181, SVC-040, SVC-205]
+  after: [FND-011]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.tsx
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.test.tsx
@@ -17843,16 +17843,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c regionSeparation products/catalyst/bootstrap/api/internal/sovself/sovself.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/pages/wizard/steps/StepProvider.test.tsx src/pages/sovereign/Dashboard.test.tsx --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/pages/(wizard/steps/StepProvider\\.test\\.tsx > StepProvider — the region separation of the request > (two regions in two cloud regions show site and no notice|two regions in one cloud region show none and the notice word for word|one region shows neither the separation nor the notice|picking the cloud region of the first region for the second turns site into none)|sovereign/Dashboard\\.test\\.tsx > Dashboard — the region separation from the self answer > (shows the value and the message of the self answer|shows nothing when the self answer lacks them))( [0-9.]+m?s)?$' \"$out\")\" = 6"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && out=\"$(mktemp)\" && go test -count=1 -v ./internal/sovself/ > \"$out\" && test \"$(grep -c -E '^--- PASS: (TestServeRegionSeparation|TestServeWithoutRegionSeparation|TestServeRegionSeparationReadError|TestSovereignObjectIsTheWriters) ' \"$out\")\" = 4"
+  - id: A3
+    run: "f=\"$(mktemp)\" && helm template t products/catalyst/chart --show-only templates/clusterrole-cutover-driver.yaml > \"$f\" && test \"$(grep -c -E '^ *resources: .*\"sovereigns\"' \"$f\")\" = 1 && test \"$(grep -B1 -A2 -x -F '    resources: [\"sovereigns\"]' \"$f\" | tr -d ' ')\" = \"$(printf '%s\\n' '-apiGroups:[\"catalyst.openova.io\"]' 'resources:[\"sovereigns\"]' 'resourceNames:[\"sovereign-self\"]' 'verbs:[\"get\"]')\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The provider step of the wizard states the region separation of a request before anything is provisioned. It applies the rule of NET-210, which the writer of NET-212 applies to the regions of status.network (core/cmd/sovereign-ops/internal/sovereignobject/separation.go), to the request''s own regions: site when every region has its own cloud region, zone when they share one cloud region and each has its own zone, none otherwise and always for fewer than two regions. The request carries no zone, so a request gives site or none. With none on a request of two or more regions it shows "Regions share one failure domain. Not a disaster-recovery configuration." The Sovereign''s overview page shows status.regionSeparation and the message of the condition RegionSeparation, which GET /api/v1/sovereign/self (SOV-180) now serves: the route reads them from the Sovereign object of its own cluster and adds them to its answer as regionSeparation and regionSeparationMessage; no new route and no second reader of the object.'
+  delivers: The provider step of the wizard states the region separation of a request (site when every region has its own cloud region, none otherwise) with the notice for none on two or more regions, and the overview page of the Sovereign console shows status.regionSeparation and the message of the condition RegionSeparation, which GET /api/v1/sovereign/self now answers from the Sovereign object of its own cluster.
 - id: NET-221
   title: Delete the four retired charts and their seed entries
   area: NET
@@ -18773,7 +18781,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -23370,7 +23378,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-178, CTL-260, SOV-240]
-  after: [FND-011, FND-156, CLD-030, CLD-113, CLD-114, SOV-183, SOV-322, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-333, CTL-347, CMP-020, BSS-040, AIP-070, AIP-120, INF-135]
+  after: [FND-011, FND-156, CLD-030, CLD-113, CLD-114, SOV-183, SOV-322, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-213, NET-221, SVC-040, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, CTL-333, CTL-347, CMP-020, BSS-040, AIP-070, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/values.yaml
   - products/catalyst/chart/templates/**
@@ -29612,7 +29620,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-106, AIP-155, AIP-156, AIP-160, AIP-182]
-  after: [FND-011, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, SOV-341, NET-011, NET-071, NET-080, SVC-190, SVC-205, CTL-223, CTL-231, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020, BSS-040, AIP-070, INF-135]
+  after: [FND-011, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, SOV-341, NET-011, NET-071, NET-080, NET-213, SVC-190, SVC-205, CTL-223, CTL-231, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CMP-020, BSS-040, AIP-070, INF-135]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_*.go
   - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
