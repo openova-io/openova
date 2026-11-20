@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T15:30:05Z` |
+| Last refreshed | `2026-11-20T15:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,8 +309,10 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
 | 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
+| 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
 | 2026-11-20T14:24 | [#8514](https://github.com/openova-io/openova/pull/8514) | fix(gate): the Organization isolation check measures the hos |  |
 | 2026-11-20T13:44 | [#8513](https://github.com/openova-io/openova/pull/8513) | #7087 | docs(ledger): plan update |
+| 2026-11-20T15:35 | [#8512](https://github.com/openova-io/openova/pull/8512) | #8407 | fix(seaweedfs): the cross-region filer sync survives a roll  |
 | 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
 | 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
 | 2026-11-20T09:21 | [#8481](https://github.com/openova-io/openova/pull/8481) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:17 | [#8480](https://github.com/openova-io/openova/pull/8480) | #7087 | docs(ledger): plan update |
-| 2026-11-20T08:09 | [#8479](https://github.com/openova-io/openova/pull/8479) | #7087 | docs(ledger): plan update |
-| 2026-11-20T08:00 | [#8478](https://github.com/openova-io/openova/pull/8478) | #7087 | docs(ledger): plan update |
 
 ---
 
