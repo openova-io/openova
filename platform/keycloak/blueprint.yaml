@@ -8,7 +8,7 @@ spec:
   #   per-Org console returns to that console's /login instead of 400 "Invalid
   #   redirect uri" (hw307). Single-zone Sovereigns: same behaviour, the
   #   sovereign-admin host is the first redirectUri.
-  version: 1.5.17
+  version: 1.5.18
   card:
     title: Keycloak
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
