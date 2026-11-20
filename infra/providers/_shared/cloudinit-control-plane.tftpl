@@ -152,8 +152,8 @@ write_files:
   # origin second, and the wildcard "*" with this region's registry alone.
   # k3s reads this at start to configure containerd.
   #
-  # CLD-185: this file and six more below (the four bootstrap Secrets, the
-  # cloud-credentials Secret and the Crossplane provider) travel packed:
+  # CLD-185: this file and two more below (the cloud-credentials Secret and
+  # the Crossplane provider) travel packed:
   # `encoding: gz+b64`, the text gzipped and base64-encoded in the template.
   # cloud-init writes the decoded text, the same bytes the plain file had, so
   # the Hetzner render stays under its user_data cap. A provider-injected
@@ -164,83 +164,24 @@ write_files:
     encoding: gz+b64
     content: ${base64gzip(format("%s\n", chomp(replace(registry_mirror_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
-  # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
-  # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
-  # it to every workload namespace so catalyst-* + bp-* pods pull cleanly.
-  #
-  # #3819 (rename sme→org-services fallout): the SME service mesh namespace was
-  # renamed `sme`→`org-services` in #3383 (commit 7f6dfca23). The companion DB
-  # secrets (`sme-database-secret` reflect target etc., 16d-bp-postgres-shared-c)
-  # were re-pointed at `org-services`, but THIS image-pull reflect list was left
-  # at the now-dead `sme` ns → `ghcr-pull` never landed in `org-services` →
-  # every org-services Deployment (imagePullSecrets:[ghcr-pull]) hit
-  # `FailedToRetrieveImagePullSecret (ghcr-pull)` → ImagePullBackOff for the whole
-  # funnel/BSS mesh (admin/auth/billing/catalog/console/domain/gateway/marketplace/
-  # notification/organization/provisioning) → marketplace 503. Point the reflect
-  # lists at the post-#3383 mesh namespace. Refs #3383.
-  #
-  # #4246/#4328 (per-Org image-pull): per-Org workload namespaces are created
-  # dynamically and CANNOT be enumerated statically. Their HelmReleases run
-  # private `ghcr.io/openova-io/openova/*` images (newapi, wordpress-tenant-pg,
-  # openclaw, stalwart-tenant) needing `ghcr-pull`; an unmatched ns falls back to
-  # anonymous pull → `401 Unauthorized` → ImagePullBackOff. Reflector entries are
-  # full-match REGEXes. #4293/#4295 renamed the per-Org ns from `org-<uuid>` to
-  # the bare Organization SLUG (= subdomain, e.g. `tkt0626`; manifests.go
-  # `name: {{ .Slug }}`), which matched NEITHER the static list NOR `org-.*` →
-  # 401 on every fresh Org (live omantel.biz).
-  #
-  # #4423: the reflector parses each annotation value as a COMMA-SEPARATED list
-  # of regex entries, so a regex containing a literal comma is split mid-pattern.
-  # #4332 added the signup validator `[a-z][a-z0-9-]{2,30}` (handlers.go:28)
-  # verbatim — but the `{2,30}` quantifier's comma split it into the two broken
-  # fragments `[a-z][a-z0-9-]{2` + `30}`, neither of which matches any slug. So
-  # `ghcr-pull` STILL never reflected into a slug-named Org ns (oc272x9q etc.) →
-  # ImagePullBackOff persisted on every fresh funnel Org. Use the comma-FREE
-  # equivalent `[a-z][a-z0-9-]*` (leading lowercase letter + DNS-label tail,
-  # min length 1, unbounded) so the comma-split keeps it intact; it covers every
-  # slug the `{2,30}`-bounded validator accepts. `org-.*` retained for legacy
-  # org-<uuid> namespaces. NEVER put a `{m,n}` quantifier in a reflector list.
-  # Refs #3383, #4246, #4293, #4328, #4423.
-  - path: /var/lib/catalyst/ghcr-pull-secret.yaml
-    permissions: '0600'
-    encoding: gz+b64
-    content: ${base64gzip(<<-EOT
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: ghcr-pull
-        namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,flux-system,org-.*,[a-z][a-z0-9-]*"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "org-services,catalyst,catalyst-system,gitea,harbor,org-.*,[a-z][a-z0-9-]*"
-      type: kubernetes.io/dockerconfigjson
-      data:
-        .dockerconfigjson: ${base64encode(jsonencode({
-          auths = {
-            "ghcr.io" = {
-              username = ghcr_pull_username
-              password = ghcr_pull_token
-              auth     = ghcr_pull_auth_b64
-            }
-          }
-        }))}
-      EOT
-    )}
-
-  # ── flux-system/bootstrap-seed: the raw values of four bootstrap Secrets ──
+  # ── flux-system/bootstrap-seed: the raw values of the bootstrap Secrets ──
   # SEC-153: one KEY=value line per value, the value base64-encoded so that
   # no character of it can change the YAML Flux substitutes it into (the
   # hand-over key is JSON). runcmd creates the Secret flux-system/bootstrap-seed
   # from this file and shreds it. The Flux Kustomization bootstrap-secrets
   # (clusters/_template/root/base-primary/bootstrap-secrets.yaml), which the kit
-  # depends on, renders harbor-robot-token, pdm-basicauth, sovereign-tls-secrets
-  # and catalyst-handover-jwt-public from it (postBuild.substituteFrom); their
-  # names, namespaces and reflector annotations are files in Git, under
+  # depends on, renders six Secrets from it (postBuild.substituteFrom):
+  # harbor-robot-token, pdm-basicauth, sovereign-tls-secrets,
+  # catalyst-handover-jwt-public, ghcr-pull and object-storage; their names,
+  # namespaces, types, keys and reflector annotations are files in Git, under
   # clusters/_template/bootstrap-secrets. Only the values must be here: no
-  # secret store exists before Flux, and the catalyst API, the pool-domain
-  # calls, the DNS-01 solver and the hand-over check read them from the start.
+  # secret store exists before Flux, and the kit's first pull (ghcr-pull), the
+  # catalyst API, the pool-domain calls, the DNS-01 solver, the hand-over check
+  # and the registry and backup charts (object-storage) read them from the start.
+  # SEC-154: GHCR_PULL_DOCKERCONFIGJSON is the whole .dockerconfigjson, one value
+  # under one name; the five OBJECT_STORAGE_* values fill the ten keys of
+  # object-storage. cloud-credentials is not in the seed: its manifest is the
+  # packed file below, as before.
   - path: /var/lib/catalyst/bootstrap-seed.env
     permissions: '0600'
     content: |
@@ -249,35 +190,12 @@ write_files:
       PDM_BASIC_AUTH_PASS=${base64encode(pdm_basic_auth_pass)}
       POWERDNS_API_KEY=${base64encode(powerdns_api_key)}
       HANDOVER_JWT_PUBLIC_KEY=${base64encode(handover_jwt_public_key)}
-
-  # ── flux-system/object-storage Secret ─────────────────────────────────
-  # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
-  # AWS S3 / …). Harbor + Velero HelmReleases read these keys. Emit BOTH
-  # the canonical `s3-*` keys and the bare aliases so every chart variant
-  # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
-  - path: /var/lib/catalyst/object-storage-secret.yaml
-    permissions: '0600'
-    encoding: gz+b64
-    content: ${base64gzip(<<-EOT
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: object-storage
-        namespace: flux-system
-      type: Opaque
-      stringData:
-        endpoint: "${object_storage_endpoint}"
-        region: "${object_storage_region}"
-        bucket: "${object_storage_bucket_name}"
-        s3-endpoint: "${object_storage_endpoint}"
-        s3-region: "${object_storage_region}"
-        s3-bucket: "${object_storage_bucket_name}"
-        s3-access-key: "${object_storage_access_key}"
-        s3-secret-key: "${object_storage_secret_key}"
-        access-key: "${object_storage_access_key}"
-        secret-key: "${object_storage_secret_key}"
-      EOT
-    )}
+      GHCR_PULL_DOCKERCONFIGJSON=${base64encode(jsonencode({ auths = { "ghcr.io" = { username = ghcr_pull_username, password = ghcr_pull_token, auth = ghcr_pull_auth_b64 } } }))}
+      OBJECT_STORAGE_ENDPOINT=${base64encode(object_storage_endpoint)}
+      OBJECT_STORAGE_REGION=${base64encode(object_storage_region)}
+      OBJECT_STORAGE_BUCKET=${base64encode(object_storage_bucket_name)}
+      OBJECT_STORAGE_ACCESS_KEY=${base64encode(object_storage_access_key)}
+      OBJECT_STORAGE_SECRET_KEY=${base64encode(object_storage_secret_key)}
 
   # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
   # Vendor-agnostic name (#425). Body composed per-provider in main.tf:
@@ -1383,27 +1301,28 @@ runcmd:
   # sovereign-tls Kustomization.)
   # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
   # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
-  # The Secrets are applied with --server-side. A client-side apply
+  # SEC-152: the apply creates ConfigMap flux-system/sovereign-seal-profile
+  # (contract C8, action 4). It holds no key bytes, so its file is not shredded.
+  # The same apply applies the cloud-credentials Secret, the one Secret
+  # manifest first boot still writes, with --server-side: a client-side apply
   # stores the whole manifest, so every value, in the annotation
   # kubectl.kubernetes.io/last-applied-configuration of the Secret.
-  # SEC-153: then `kubectl create secret` makes the seed Secret
+  # SEC-153, SEC-154: then `kubectl create secret` makes the seed Secret
   # flux-system/bootstrap-seed from bootstrap-seed.env; create records no
   # last-applied state either. The Flux Kustomization bootstrap-secrets renders
-  # four bootstrap Secrets from it.
+  # six bootstrap Secrets from it.
   # SEC-040: when the apply and the create succeed (&&), shred -u removes the
-  # three Secret files and the seed file, so no bootstrap secret stays on the
-  # disk of the node. set -e (from the cilium item) ignores a failed command
+  # cloud-credentials file and the seed file, so no bootstrap secret stays on
+  # the disk of the node. set -e (from the cilium item) ignores a failed command
   # left of &&, so (exit $?) on the next line stops the boot script with the
   # exit code of a failed apply or create, and the files stay. The template creates
   # no recovery seed for OpenBao: the bp-openbao chart creates that Secret
   # when it is absent (platform/openbao/chart/templates/recovery-seed-bootstrap.yaml).
-  # SEC-152: the same apply creates ConfigMap flux-system/sovereign-seal-profile
-  # (contract C8, action 4). It holds no key bytes, so its file is not shredded.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -
     cd /var/lib/catalyst
-    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env
+    kubectl apply --server-side -f sovereign-seal-profile.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u cloud-credentials-secret.yaml bootstrap-seed.env
     (exit $?)
 
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and

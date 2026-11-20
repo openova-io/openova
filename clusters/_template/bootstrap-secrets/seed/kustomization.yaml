@@ -1,12 +1,14 @@
-# The builder of the seed Secret flux-system/bootstrap-seed (SEC-153), applied
-# by the Flux Kustomization bootstrap-seed
+# The builder of the seed Secret flux-system/bootstrap-seed (SEC-153, SEC-154),
+# applied by the Flux Kustomization bootstrap-seed
 # (clusters/_template/root/base-primary/bootstrap-seed.yaml) before the
-# Kustomization bootstrap-secrets renders the four bootstrap Secrets from the
+# Kustomization bootstrap-secrets renders the bootstrap Secrets from the
 # seed. Not a resource of ../kustomization.yaml: nothing here is substituted.
 #
-# A Sovereign installed before SEC-153 holds the four Secrets and no seed; the
-# Job builds the seed from them. Any other Sovereign's first boot created the
-# seed; the Job finds it and does nothing. The three tests
+# A Sovereign installed before SEC-153 holds the bootstrap Secrets and no seed;
+# the Job builds the seed from them. A Sovereign installed before SEC-154 holds
+# a seed without the values of ghcr-pull and object-storage;
+# the Job adds them from those Secrets. Any other Sovereign's first boot wrote
+# every value; the Job finds them and does nothing. The tests
 # TestBootstrapSeedUpgrade* in tests/e2e/bootstrap-kit run its script.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

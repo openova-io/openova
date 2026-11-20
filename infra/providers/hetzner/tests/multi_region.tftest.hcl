@@ -1307,6 +1307,23 @@ run "post_back_render_fits_the_size_guards_with_room" {
     error_message = "CLD-185: the packed cloud-credentials file of the primary render must be the provider's Secret body without its comment lines."
   }
 
+  assert {
+    condition = (
+      strcontains(local.secondary_region_cloud_init["nbg1-1"], "\n      GHCR_PULL_DOCKERCONFIGJSON=")
+      && strcontains(local.secondary_region_cloud_init["nbg1-1"], join("", [
+        "\n      GHCR_PULL_DOCKERCONFIGJSON=${base64encode(jsonencode({ auths = { "ghcr.io" = { username = "openova-bot", password = var.ghcr_pull_token, auth = base64encode("openova-bot:${var.ghcr_pull_token}") } } }))}\n",
+        "      OBJECT_STORAGE_ENDPOINT=${base64encode("https://${var.object_storage_region}.your-objectstorage.com")}\n",
+        "      OBJECT_STORAGE_REGION=${base64encode(var.object_storage_region)}\n",
+        "      OBJECT_STORAGE_BUCKET=${base64encode(var.object_storage_bucket_name)}\n",
+        "      OBJECT_STORAGE_ACCESS_KEY=${base64encode(var.object_storage_access_key)}\n",
+        "      OBJECT_STORAGE_SECRET_KEY=${base64encode(var.object_storage_secret_key)}\n",
+      ]))
+      && !strcontains(local.secondary_region_cloud_init["nbg1-1"], "ghcr-pull-secret.yaml") && !strcontains(local.secondary_region_cloud_init["nbg1-1"], "object-storage-secret.yaml")
+      && strcontains(local.secondary_region_cloud_init["nbg1-1"], "\n  - path: /var/lib/catalyst/cloud-credentials-secret.yaml\n    permissions: '0600'\n    encoding: gz+b64\n    content: ")
+    )
+    error_message = "SEC-154: the secondary render must carry the values of ghcr-pull and object-storage in the seed file, no manifest of either, and the packed cloud-credentials file as on main."
+  }
+
   # SOV-132: this document has no origin per name and its origin host is not a
   # proxy name: every name takes the origin registry, the origin host gets an
   # entry of its own (local first), and only it gets the robot login.
