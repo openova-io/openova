@@ -175,7 +175,10 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
 			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep, NodesRequested: nodesRequested,
 				PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans, Preflight: preflight, APIPortOutside: apiPortOutside,
-				PeerPortsOutside: peerPortsOutside}, Caps: runCaps(r.run.Capabilities, cfg.Chain), Chain: cfg.Chain}
+				PeerPortsOutside: peerPortsOutside}, Caps: map[string]bool{}}
+		for _, c := range r.run.Capabilities {
+			cc.Caps[c] = true
+		}
 		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
 	r.runAtEnd(ctx)

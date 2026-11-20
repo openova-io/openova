@@ -33,17 +33,19 @@ name: foundation-gate
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
 #              started from (that record has an empty candidate.id and certifies nothing). Waits up
 #              to 180 minutes until the hand-over chain has ended, on the engine's own facts in region
-#              A's ConfigMap catalyst/self-sovereign-cutover-status (complete, or failed at a step with
-#              the engine's repetitions spent, else not ended at the deadline; gate-parent-job.sh
-#              live_wait, the same function in both executions), runs the suite with --run-in cloud
-#              --record in every state but unreachable, and tells it the chain's state (ACCEPT_CHAIN;
-#              the checks whose subject the chain changes are skipped unless it is complete). The
-#              record of a chain that has ended is committed (PASS or FAIL), and only if
-#              acceptance-gate.py validate-record accepts it; then scripts/gate-run-outcome.py judges
-#              the run on this environment. The record of a chain not ended is an artifact of the run,
-#              its checks are in the summary, and the run's result is NOT-MEASURED with the chain's
-#              state: the verdict counts a check's PASS in two records of one candidate and does not
-#              read the state of the install, so a PASS measured while the chain runs would count.
+#              A's ConfigMap catalyst/self-sovereign-cutover-status (gate-parent-job.sh live_wait, the
+#              same function in both executions): complete, halted (failed at a step after the
+#              engine's repetitions), failed (failed at a step with no repetition recorded for 5
+#              minutes), not ended at the deadline, or unreachable. In every state but unreachable it
+#              runs the suite with --run-in cloud --record, with the same inputs in every state. One
+#              function, gate-parent-job.sh plan, decides what becomes of the record; the steps use
+#              its output verbatim. Only the record of a COMPLETE chain is committed (PASS or FAIL),
+#              and only if acceptance-gate.py validate-record accepts it; then
+#              scripts/gate-run-outcome.py judges the run on this environment. In every other state
+#              the record is an artifact of the run, its checks are in the summary, and the run's
+#              result is NOT-MEASURED with the chain's state: the verdict counts a check's PASS in two
+#              records of one candidate and does not look at the install, so a PASS measured on an
+#              install whose cutover failed would count as proof of that candidate.
 #              Between the suite and the validation it runs gate check FND-G07: it creates the user
 #              gate-<run id>@<env>.omani.works in the realm sovereign of region A (kcadm.sh in the Pod
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
@@ -135,7 +137,7 @@ on:
         default: hosted
     outputs:
       result:
-        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain had not ended (the record is not committed); FAIL when no valid record was written
+        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain was not complete (halted, failed or not ended; the record is not committed); FAIL when no valid record was written
         value: ${{ jobs.live.outputs.result }}
     secrets:
       ACCEPTANCE_KUBECONFIG_A:
@@ -495,8 +497,9 @@ jobs:
           # The suite reads the commit it was built from from GITHUB_SHA: make it this checkout's commit.
           GITHUB_SHA="$(git rev-parse HEAD)"
           export GITHUB_SHA
-          # The state of the hand-over chain and what the run does with it (gate-parent-job.sh plan), as
-          # outputs of this step; false when the suite does not run (unreachable).
+          # The state of the hand-over chain and the decision of gate-parent-job.sh plan, verbatim, as the
+          # outputs plan_state, plan_suite, plan_commit and plan_result of this step; false when the suite
+          # does not run (unreachable).
           plan_outputs() { # $1 chain, $2 chain_state
             plan="$(bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" plan "$1")"
             { echo "chain=$1"; echo "chain_state=$2"; while IFS= read -r l; do echo "plan_$l"; done <<< "$plan"; } >> "$GITHUB_OUTPUT"
@@ -540,10 +543,9 @@ jobs:
             rm -f "$RUNNER_TEMP/sso/result.json"
             [ -f "$o/files/sso/result.json" ] && cp "$o/files/sso/result.json" "$RUNNER_TEMP/sso/result.json"
           else
-            # The wait of the step before ended in a state that runs the suite. As in the Job, the run
-            # tells the suite the chain's state, and the capabilities stay as given (inner_live says why).
+            # The wait of the step before ended in a state that runs the suite, with the same inputs in
+            # every state (the suite is the candidate's and may be older than this workflow).
             plan_outputs "$HOSTED_CHAIN" "$HOSTED_CHAIN_STATE" || exit 1
-            export ACCEPT_CHAIN="$HOSTED_CHAIN_STATE"
             bash scripts/acceptance-sovereign.sh "$ENV_LABEL" --record | tee "$RUNNER_TEMP/acceptance.log"
             rc=${PIPESTATUS[0]}
           fi
@@ -753,15 +755,15 @@ jobs:
           rec="docs/ledger/acceptance/$(basename "$files")"
           cp "candidate/$files" "$rec"
           echo "file=$rec" >> "$GITHUB_OUTPUT"
-          # The run's result, and whether the record is committed: only the record of a chain that has ended is.
-          plan="$(bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec")"
-          echo "result=$(sed -n 's/^result=//p' <<< "$plan")" >> "$GITHUB_OUTPUT"
           if ! python3 scripts/acceptance-gate.py validate-record "$rec"; then
             echo "::error::The record is not valid. It is not committed; it is kept as an artifact of this run."
             exit 1
           fi
           echo "valid=true" >> "$GITHUB_OUTPUT"
-          echo "commit=$(sed -n 's/^commit=//p' <<< "$plan")" >> "$GITHUB_OUTPUT"
+          # The decision of gate-parent-job.sh plan, verbatim (state, suite, commit, result): only the record
+          # of a complete chain is committed; chain_plan in that script says why. The self-test of the
+          # script holds the commit steps below to this one output.
+          bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec" >> "$GITHUB_OUTPUT"
       - name: Upload record + log
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -772,12 +774,12 @@ jobs:
             ${{ runner.temp }}/acceptance.log
           if-no-files-found: warn
       - name: "Release writer: push with the release-writer key"
-        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
+        if: always() && steps.record.outputs.commit == 'true'
         uses: ./.github/actions/use-release-writer
         with:
           key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Commit the record (PASS or FAIL, a failure is evidence too)
-        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
+        if: always() && steps.record.outputs.commit == 'true'
         env:
           REC: ${{ steps.record.outputs.file }}
           RESULT: ${{ steps.record.outputs.result }}
@@ -794,7 +796,7 @@ jobs:
           done
           echo "::error::could not push the gate record"; exit 1
       - name: Judge the run on this environment
-        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
+        if: always() && steps.record.outputs.commit == 'true'
         working-directory: candidate
         env:
           REC: ${{ steps.record.outputs.file }}
@@ -805,16 +807,16 @@ jobs:
           rc=${PIPESTATUS[0]}
           { echo '### Outcome on this environment'; echo; echo '```'; cat "$RUNNER_TEMP/outcome.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
-      - name: "NOT MEASURED: the hand-over chain had not ended"
-        if: always() && steps.run.outputs.plan_suite == 'true' && steps.run.outputs.plan_commit == 'false' && steps.run.outputs.not_measured != 'true'
+      - name: "NOT MEASURED: the hand-over chain was not complete"
+        if: always() && steps.run.outputs.plan_result == 'NOT-MEASURED' && steps.run.outputs.not_measured != 'true'
         env:
           STATE: ${{ steps.run.outputs.chain_state }}
         run: |
           set -uo pipefail
-          # Its checks were judged (the table of the step "Run the suite" above), but the record of an install
-          # whose chain has not ended never counts: it is not committed, the step "Upload record + log"
-          # keeps it as an artifact of this run, and the job's result is NOT-MEASURED.
-          msg="The hand-over chain: $STATE. The record of an install whose hand-over chain has not ended never counts as evidence, so it is not committed to docs/ledger/acceptance/; it is an artifact of this run. Start another run when the chain has ended."
+          # gate-parent-job.sh plan decided it (halted, failed or not ended). The suite ran and its checks are in
+          # the table of the step "Run the suite", but only the record of a complete chain is committed: this
+          # one is an artifact of the run (step "Upload record + log"), and the job's result is NOT-MEASURED.
+          msg="The hand-over chain: $STATE. This run measured nothing that counts: only the record of an install whose hand-over chain is complete is committed to docs/ledger/acceptance/, so this record is an artifact of this run, and its checks are in the table of the step Run the suite."
           { echo '### NOT MEASURED'; echo; echo "Result: NOT-MEASURED (the hand-over chain: $STATE)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
           echo "::error title=Gate run NOT MEASURED::$msg"
           exit 4

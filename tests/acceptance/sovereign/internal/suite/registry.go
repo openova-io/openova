@@ -124,7 +124,6 @@ type CheckContext struct {
 	Deploy    *DeploymentInfo
 	Caps      map[string]bool // capability flags declared for this run
 	Prior     []*Step         // the steps recorded before the checks started; read-only
-	Chain     string          // the state of the hand-over chain the gate's wait read (--chain), "" when not given
 }
 
 // StepRecorder appends steps to the run record.
@@ -277,10 +276,8 @@ func (c checkRecorder) Skip(id, name, reason string) {
 }
 
 // runChecks records one result for every selected check, in manifest order.
-// A check whose needs the run did not declare is skipped and not run; so is a
-// check whose subject the hand-over chain changes in a run in the cloud whose
-// chain the gate read as not complete (cutover.go). When discovery failed no check is run: each
-// is recorded SKIP with that reason.
+// A check whose needs the run did not declare is skipped and not run. When
+// discovery failed no check is run: each is recorded SKIP with that reason.
 func (r *runner) runChecks(ctx context.Context, m *Manifest, checks []Check, cc *CheckContext, discovered bool) {
 	cc.Prior = append([]*Step(nil), r.run.Steps...)
 	for _, c := range checks {
@@ -289,16 +286,15 @@ func (r *runner) runChecks(ctx context.Context, m *Manifest, checks []Check, cc 
 		rec := checkRecorder{r: r, id: e.ID}
 		first := len(r.run.Steps)
 		missing := []string{}
-		for _, n := range checkNeeds(e, cc.RunIn, cc.Chain) {
+		for _, n := range e.Needs {
 			if !cc.Caps[n] {
 				missing = append(missing, n)
 			}
 		}
 		switch {
 		case len(missing) > 0:
-			// A SKIP for unmet needs is one for a need of the manifest (pass rule 5).
-			res.unmet = !slices.Equal(missing, []string{CutoverComplete})
-			rec.Skip("-", "check not run", skipReason(e.ID, missing, cc.Chain))
+			res.unmet = true
+			rec.Skip("-", "check not run", "the run does not declare "+strings.Join(missing, ", "))
 		case !discovered:
 			rec.Skip("-", "check not run", "discovery (D0) failed")
 		default:
