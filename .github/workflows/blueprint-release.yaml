@@ -1650,8 +1650,9 @@ jobs:
   # pinned `platform/**`/`products/**` values.yaml image, so it covers whichever
   # component just published — no per-blueprint wiring needed. No catalyst_sha is
   # passed (this is the component path, not a catalyst build); the chart render +
-  # component extraction cover everything. continue-on-error lives in the
-  # reusable workflow's job, so a partial warmup never fails the release.
+  # component extraction cover everything. No job of this workflow `needs:` the
+  # warmup, so it never blocks a publish; a partial warmup is a warning, and an
+  # image list that could not be built fails the warmup job, visibly.
   #
   # `if: always() && matrix non-empty` so the warmup still runs the broad re-warm
   # even if one matrix `build` leg failed (fail-fast is off) — it warms whatever

@@ -10,6 +10,11 @@
 # through .github/actions/use-release-writer), never with the workflow token: the ruleset
 # .github/rulesets/rc.json lets only a deploy key create a ref under rc/. A run with dry_run
 # set to true runs every check of the cut and pushes nothing.
+#
+# Check 5 of the coherence script reads the origin's hosted project (every first-party image the
+# kit pins must be there with the digest ghcr has) as the warmup's robot, robot$openova-warmup
+# (the secret BASTION_HARBOR_ROBOT_TOKEN, the same one .github/workflows/warmup-bastion-harbor.yaml
+# pushes with), and ghcr with the workflow token. Without them the cut is "could not be measured".
 name: cut-release-candidate
 
 on:
@@ -69,6 +74,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Set up the Go of tools/guards (the image list and the registry walk)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
       - name: Install PyYAML and yq
         run: |
           set -e
@@ -85,6 +95,8 @@ jobs:
       - name: Cut
         env:
           GH_TOKEN: ${{ github.token }}
+          ORIGIN_USER: 'robot$openova-warmup'
+          ORIGIN_TOKEN: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
           COMMIT: ${{ inputs.commit }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |

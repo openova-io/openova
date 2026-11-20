@@ -16,7 +16,7 @@
 # slot pin stayed put, so the OCI artifact published and every fresh Sovereign
 # silently installed the previous version behind a green build.
 #
-# WHAT IT ASSERTS (four checks)
+# WHAT IT ASSERTS (five checks)
 # ─────────────────────────────
 #   1. VERSIONS MOVE FORWARD. For every chart the train touches, main's version
 #      never regressed across its own history, and no open PR that actually
@@ -42,6 +42,20 @@
 #      This script asserts they match a FRESH REGENERATION
 #      rather than reading them as authoritative — a committed generated file is
 #      evidence of nothing except that somebody committed it.
+#
+#   5. EVERY FIRST-PARTY IMAGE THE KIT PINS IS AT THE ORIGIN. Since SOV-132 a
+#      node pulls ghcr.io/openova-io/openova/* from the origin's hosted project
+#      only (no public fallback), so an image the commit pins and the origin
+#      lacks is a fresh install that cannot converge: on 20 November 2026
+#      rc/20261120T073828Z-11731a9 pinned continuum-controller:920753e and
+#      sovereign-ops:fe65309, absent there. The list is the first-party part
+#      of the list prov pre-flight check 7 builds
+#      (scripts/check-mothership-proxy-image-path.sh --list-only --first-party);
+#      each image must be at ORIGIN_REGISTRY_URL (default https://harbor.openova.io)
+#      with the digest ghcr has (tools/guards/cmd/image-path origin-has, with
+#      ORIGIN_USER/ORIGIN_TOKEN, and GHCR_TOKEN or GH_TOKEN for ghcr). Each
+#      missing image is named and the train is INCOHERENT; an origin that cannot
+#      be read, or no credential for it, is CANNOT READ, never a pass.
 #
 # ON DELEGATION — why this script calls guards instead of re-checking them
 # ───────────────────────────────────────────────────────────────────────
@@ -118,7 +132,8 @@
 #     zero result and would kill the script under `set -e`.
 #
 # USAGE
-#   scripts/check-train-coherent.sh                 # full pre-flight (needs gh)
+#   scripts/check-train-coherent.sh                 # full pre-flight (needs gh; check 5
+#                                                   # needs helm, yq, jq, Go and the origin login)
 #   scripts/check-train-coherent.sh --no-ghcr       # offline: checks 1,2,4 only
 #   scripts/check-train-coherent.sh --fire-readiness  # + the fire-readiness table
 #   scripts/check-train-coherent.sh --self-test     # fixtures; proves each check fails
@@ -603,6 +618,52 @@ tc_run_guard() { # <label> <cmd...>
   return 0
 }
 
+# ── check 5: the first-party images at the origin ─────────────────────────
+#
+# tc_build_tool <dir> builds tools/guards/cmd/image-path into <dir> (2 when it
+# cannot). tc_check_origin <list> <origin-url> <ghcr-url> runs its origin-has
+# on the list, with ORIGIN_USER/ORIGIN_TOKEN and GHCR_USER/GHCR_TOKEN from the
+# environment: 0 every image is at the origin with the digest ghcr has, 1 at
+# least one is not (each named on a MISSING line), 2 a registry or the
+# credential could not be read.
+IMAGE_PATH_TOOL=""
+tc_build_tool() { # <dir>
+  ( cd "$REPO_ROOT/tools/guards" && go build -o "$1/image-path" ./cmd/image-path ) >/dev/null 2>&1 || return 2
+  IMAGE_PATH_TOOL="$1/image-path"
+}
+tc_check_origin() { # <list> <origin-url> <ghcr-url>
+  [ -n "$IMAGE_PATH_TOOL" ] && [ -s "$1" ] || { echo "CANNOT READ: no tool or no first-party image list"; return 2; }
+  "$IMAGE_PATH_TOOL" origin-has -origin "$2" -ghcr "$3" < "$1"
+}
+# tc_judge_origin <rc> <stdout> records check 5's result from the exit code
+# AND the lines, and always records one: each MISSING line is a failure and
+# each CANNOT READ line an unread input; then 0 is ok only with the tool's
+# PASS line; 1 that named no image is still a failure; 2 without a CANNOT READ
+# line (a Go runtime panic exits 2 with its trace on stderr, which is not this
+# output) is recorded unread here; any other code (killed, crashed) is a
+# failure of the cut, never a pass.
+tc_judge_origin() { # <rc> <stdout>
+  local rc="$1" line nfail=0 nread=0
+  while IFS= read -r line; do
+    case "$line" in
+      "MISSING AT THE ORIGIN "*|"MISSING ON GHCR "*) fail "5 $line"; nfail=$((nfail+1)) ;;
+      "CANNOT READ"*|"ORIGIN-HAS CANNOT READ"*) unread "5 $line"; nread=$((nread+1)) ;;
+    esac
+  done <<< "$2"
+  case "$rc" in
+    0) if printf '%s\n' "$2" | grep -qE '^ORIGIN-HAS PASS '; then
+         [ $((nfail+nread)) -gt 0 ] || ok "5 $(printf '%s\n' "$2" | grep -E '^ORIGIN-HAS PASS ')"
+       else
+         unread "5 origin-has exited 0 without its ORIGIN-HAS PASS line: nothing is concluded"
+       fi ;;
+    1) [ "$nfail" -gt 0 ] || fail "5 origin-has exited 1 and named no image"
+       note "5 a fresh install of this commit cannot pull the images named above: push them to the origin's hosted project (.github/workflows/warmup-bastion-harbor.yaml, by hand for this ref) and run again" ;;
+    2) [ "$nread" -gt 0 ] || unread "5 origin-has exited 2 without a CANNOT READ line (a crash; its stderr is above): nothing is concluded" ;;
+    *) fail "5 origin-has exited $rc (killed or crashed): whether the first-party images are at the origin was not measured, and the cut does not pass on that" ;;
+  esac
+  return 0
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 #                                 SELF-TEST
 # ═══════════════════════════════════════════════════════════════════════════
@@ -825,18 +886,87 @@ run_self_test() {
     tc_check_sites "$RX" "platform/ghost" "bp-ghost"
   echo
 
+  # ── CHECK 5 — the first-party images at the origin ──────────────────────
+  # Two stand-in registries of tools/guards/cmd/image-path: ghcr, which has
+  # every first-party image (sovereign-ops as an index, the way ghcr publishes
+  # a multi-platform image), and the origin, which lacks continuum-controller
+  # (the 20 November 2026 cut), holds catalyst-ui with another digest, and
+  # holds sovereign-ops the way the warm-up's copy writes it (the linux/amd64
+  # child under the tag).
+  echo "CHECK 5  every first-party image is at the origin"
+  # The verdict check 5 records from what the tool did, whatever it did: a
+  # crash or a kill never leaves the check without a result.
+  printf 'ghcr.io/openova-io/openova/catalyst-api:36440b2\n' > "$T/fp-one"
+  printf '#!/bin/sh\necho "panic: runtime error: invalid memory address or nil pointer dereference" >&2\necho "goroutine 1 [running]:" >&2\nexit 2\n' > "$T/tool-panic"
+  printf '#!/bin/sh\nkill -9 $$\n' > "$T/tool-killed"
+  printf '#!/bin/sh\nexit 1\n' > "$T/tool-mute-1"
+  printf '#!/bin/sh\necho "PRESENT ghcr.io/openova-io/openova/catalyst-api:36440b2 sha256:0"\nexit 0\n' > "$T/tool-no-pass"
+  chmod +x "$T/tool-panic" "$T/tool-killed" "$T/tool-mute-1" "$T/tool-no-pass"
+  st_case "5 judge: exit 2 without a CANNOT READ line (a panic) is CANNOT READ" 2 st_judge "$T/tool-panic" "$T/fp-one"
+  st_case "5 judge: the tool killed is a failure of the cut, never a pass"     1 st_judge "$T/tool-killed" "$T/fp-one"
+  st_case "5 judge: exit 1 that names no image is still INCOHERENT"           1 st_judge "$T/tool-mute-1" "$T/fp-one"
+  st_case "5 judge: exit 0 without the tool's PASS line is not a pass"        2 st_judge "$T/tool-no-pass" "$T/fp-one"
+  if tc_build_tool "$T"; then
+    "$IMAGE_PATH_TOOL" stub -port-file "$T/ghcr.port" -indexed openova-io/openova/sovereign-ops & local ghcr_pid=$!
+    "$IMAGE_PATH_TOOL" stub -port-file "$T/origin.port" -user 'robot$openova-warmup' -password origin-pw \
+      -absent openova-io/openova/continuum-controller -stale openova-io/openova/catalyst-ui & local origin_pid=$!
+    local _ G O
+    for _ in $(seq 1 50); do [ -s "$T/ghcr.port" ] && [ -s "$T/origin.port" ] && break; sleep 0.1; done
+    G="http://127.0.0.1:$(cat "$T/ghcr.port" 2>/dev/null)"
+    O="http://127.0.0.1:$(cat "$T/origin.port" 2>/dev/null)"
+    printf 'ghcr.io/openova-io/openova/catalyst-api:36440b2\nghcr.io/openova-io/openova/sovereign-ops:fe65309\n' > "$T/fp-clean"
+    printf 'ghcr.io/openova-io/openova/catalyst-api:36440b2\nghcr.io/openova-io/openova/continuum-controller:920753e\n' > "$T/fp-absent"
+    printf 'ghcr.io/openova-io/openova/catalyst-ui:36440b2\n' > "$T/fp-stale"
+    st_case "5 origin: every image there with ghcr's digest"           0 st_origin 'robot$openova-warmup' origin-pw "$T/fp-clean" "$O" "$G"
+    st_case "5 origin: one first-party image absent is INCOHERENT"     1 st_origin 'robot$openova-warmup' origin-pw "$T/fp-absent" "$O" "$G"
+    st_case "5 origin: the absent image is named"                      0 st_origin_names 'robot$openova-warmup' origin-pw "$T/fp-absent" "$O" "$G" \
+      'MISSING AT THE ORIGIN ghcr.io/openova-io/openova/continuum-controller:920753e'
+    st_case "5 origin: another digest under the tag is INCOHERENT"     1 st_origin 'robot$openova-warmup' origin-pw "$T/fp-stale" "$O" "$G"
+    st_case "5 origin: an origin that cannot be reached is CANNOT READ" 2 st_origin 'robot$openova-warmup' origin-pw "$T/fp-clean" "http://127.0.0.1:1" "$G"
+    st_case "5 origin: no origin credential is CANNOT READ, never pass" 2 st_origin "" "" "$T/fp-clean" "$O" "$G"
+    st_case "5 origin: an empty list is CANNOT READ"                   2 st_origin 'robot$openova-warmup' origin-pw "$T/missing-list" "$O" "$G"
+    st_case "5 judge: the tool's PASS (an index among them) is coherent" 0 st_judge "$IMAGE_PATH_TOOL" "$T/fp-clean" "$O" "$G"
+    st_case "5 judge: the tool's MISSING line is INCOHERENT"           1 st_judge "$IMAGE_PATH_TOOL" "$T/fp-absent" "$O" "$G"
+    kill "$ghcr_pid" "$origin_pid" 2>/dev/null || true
+    wait "$ghcr_pid" "$origin_pid" 2>/dev/null || true
+  else
+    st_fail=$((st_fail+1))
+    printf '  FAIL  %-58s (needs Go)\n' "5 origin: tools/guards/cmd/image-path builds"
+  fi
+  echo
+
   echo "──────────────────────────────────────────────────────────────────────"
   printf 'self-test: %d passed, %d failed\n' "$st_pass" "$st_fail"
   if [ "$st_fail" -gt 0 ]; then
     echo "SELF-TEST FAILED — this guard cannot be trusted to fire." >&2
     return 1
   fi
-  echo "SELF-TEST OK — each of the four checks went RED on its violating"
+  echo "SELF-TEST OK — each of the five checks went RED on its violating"
   echo "fixture, GREEN on its clean fixture, and both narrowing controls held."
   return 0
 }
 
 # self-test helpers that turn a helper's output into an exit code
+st_origin() { # <origin-user> <origin-token> <list> <origin> <ghcr> → tc_check_origin's exit code
+  export ORIGIN_USER="$1" ORIGIN_TOKEN="$2" GHCR_USER="" GHCR_TOKEN=""
+  tc_check_origin "$3" "$4" "$5"
+}
+st_judge() { # <tool> <list> [<origin> <ghcr>] → the verdict check 5 records for that tool's run, as an exit code
+  local out rc
+  C_FAIL=0; C_READ=0; IMAGE_PATH_TOOL="$1"
+  export ORIGIN_USER="robot\$openova-warmup" ORIGIN_TOKEN=origin-pw GHCR_USER="" GHCR_TOKEN=""
+  out="$(tc_check_origin "$2" "${3:-http://127.0.0.1:1}" "${4:-http://127.0.0.1:1}" 2>/dev/null)"; rc=$?
+  tc_judge_origin "$rc" "$out" >/dev/null
+  [ "$C_READ" -eq 0 ] || return 2
+  [ "$C_FAIL" -eq 0 ] || return 1
+  return 0
+}
+st_origin_names() { # <as st_origin> <line> → 0 when the output holds the line
+  local out
+  out="$(st_origin "$1" "$2" "$3" "$4" "$5")"
+  printf '%s\n' "$out" | grep -cF -- "$6" >/dev/null
+}
+
 st_probe_guard() { # <stub>  → mirror tc_run_guard's verdict as an exit code
   C_FAIL=0; C_READ=0
   tc_run_guard "stub" "$1" >/dev/null 2>&1
@@ -1242,6 +1372,34 @@ case "$grc" in
 esac
 echo
 
+# ───────────────────────────── CHECK 5 ─────────────────────────────────────
+echo "── CHECK 5 — every first-party image the kit pins is at the origin ─────"
+if [ "$DO_GHCR" = 1 ]; then
+  ORIGIN_REGISTRY_URL="${ORIGIN_REGISTRY_URL:-https://harbor.openova.io}"
+  prev="$(tc_errexit_state)"; set +e
+  bash "$SCRIPT_DIR/check-mothership-proxy-image-path.sh" --list-only --first-party > "$TMP/first-party" 2> "$TMP/first-party.err"
+  lrc=$?
+  tc_errexit_restore "$prev"
+  grep -E '^  ℹ source ' "$TMP/first-party.err" | sed 's/^  ℹ /  ·  5 /' || true
+  if [ "$lrc" -ne 0 ]; then
+    unread "5 the first-party image list of the kit could not be built (rc=$lrc)"
+    grep -v '^WARNING: Kubernetes' "$TMP/first-party.err" | sed 's/^/      | /'
+  elif ! tc_build_tool "$TMP"; then
+    unread "5 tools/guards/cmd/image-path could not be built (needs Go)"
+  else
+    export ORIGIN_USER="${ORIGIN_USER:-}" ORIGIN_TOKEN="${ORIGIN_TOKEN:-}"
+    export GHCR_USER="${GHCR_USER:-openova-bot}" GHCR_TOKEN="${GHCR_TOKEN:-${GH_TOKEN:-$(gh auth token 2>/dev/null || true)}}"
+    prev="$(tc_errexit_state)"; set +e
+    oout="$(tc_check_origin "$TMP/first-party" "$ORIGIN_REGISTRY_URL" "https://ghcr.io" 2> "$TMP/origin.err")"; orc=$?
+    tc_errexit_restore "$prev"
+    if [ "$orc" -gt 1 ] && [ -s "$TMP/origin.err" ]; then sed 's/^/      | /' "$TMP/origin.err"; fi
+    tc_judge_origin "$orc" "$oout"
+  fi
+else
+  note "5 SKIPPED (--no-ghcr): whether the first-party images are at the origin"
+fi
+echo
+
 # ── fire-readiness statement ───────────────────────────────────────────────
 if [ "$DO_FIRE" = 1 ]; then
   echo "════════════════════════════════════════════════════════════════════════"
@@ -1341,7 +1499,8 @@ if [ "$DO_GHCR" = 0 ]; then
   echo " NOT a fire clearance. --no-ghcr skipped:"
   echo "   · check 1b — whether two open PRs claim the same chart version"
   echo "   · check 3  — whether the delivery pins resolve on GHCR at all"
-  echo " Both need the GitHub API. Re-run without --no-ghcr before firing."
+  echo "   · check 5  — whether the first-party images are at the origin"
+  echo " They need the GitHub API and the origin. Re-run without --no-ghcr before firing."
   echo "════════════════════════════════════════════════════════════════════════"
   exit 0
 fi

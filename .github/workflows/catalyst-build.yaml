@@ -551,9 +551,9 @@ jobs:
   # cold-pulling DIRECT from ghcr on a fresh prov (live: the omantel.biz demo
   # Org's pg-driver image took 20+ min to pull). Here we pass the just-pushed
   # catalyst SHA so the warmup ALSO covers the rolling catalyst-api/ui :<SHA>
-  # tags the parallel deploy job is about to pin. continue-on-error lives in the
-  # reusable workflow's job; the deploy job does NOT `needs:` this, so the deploy
-  # proceeds in parallel regardless of warmup outcome.
+  # tags the parallel deploy job is about to pin. The deploy job does NOT
+  # `needs:` this, so the deploy proceeds in parallel regardless of warmup
+  # outcome; a warmup failure is not continue-on-error, so it shows red here.
   warmup-bastion-harbor:
     needs: [build-ui]
     uses: ./.github/workflows/warmup-bastion-harbor.yaml

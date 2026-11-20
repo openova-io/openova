@@ -1,439 +1,150 @@
 #!/usr/bin/env bash
 # check-mothership-proxy-image-path.sh — prov pre-flight check 7 (#6778):
-# every image a fresh Sovereign pulls through the mothership proxy must be
-# FULLY resolvable — the way the kubelet resolves it — BEFORE a fire.
-# Read-only: GETs only, never a registry or cluster write.
+# every image a fresh Sovereign pulls before its cutover must be pullable,
+# whole, along the path a node pulls it, with the credential a node is given,
+# BEFORE a fire. Read-only: GET and HEAD only, never a registry or cluster write.
 #
-# ─── THE FAILURE CLASS THIS GUARDS AGAINST ────────────────────────────────
+# ─── THE FAILURE CLASSES THIS GUARDS AGAINST ──────────────────────────────
 #
-# 2026-09-01 the mothership registry blob store was wiped by hand (memory
-# `reference_mothership_harbor_retention_filled_disk_never_wipe_registry`).
-# Harbor's proxy-cache kept its MANIFEST rows, so every surface the pre-flight
-# measured still answered 200:
-#     harbor.openova.io/api/v2.0/health              -> 200 (components up)
-#     http://212.72.24.20:5000/v2/ and :5002/v2/     -> 200 (registry ping)
-#     GET /v2/proxy-ghcr/cloudnative-pg/postgresql/manifests/16 -> 200 (index)
-# while the OCI index's linux/amd64 CHILD manifest, and the blobs behind it,
-# were gone:
-#     GET .../manifests/sha256:<amd64 child>            -> 404
-# containerd fails that pull with `failed to copy: httpReadSeeker`, so on
-# hw306 and hw307 every `shared-pg-*-initdb` Pod sat in ImagePullBackOff,
-# Phase 1 timed out after 2 h 40 min, keycloak and every SSO-dependent chart
-# never installed, and two fresh Sovereigns were burned on a fault the
-# mothership already had. A health endpoint and a `/v2/` ping cannot fail on a
-# damaged cache entry; neither can a manifest-by-tag GET. Only the full walk
-# the kubelet performs — tag -> index -> platform child -> config blob — can.
-#
-# ─── WHY THE STAGE MATTERS (the contract's core distinction) ──────────────
-#
-# containerd does NOT treat every registry miss alike, so neither does this:
-#
-#   * INDEX 404 at the mirror  -> survivable. containerd falls back to the
-#     upstream host (with the node's pull Secret). Slow and hostage to that
-#     registry's uptime, but it converges. Reported WARN, and the fallback is
-#     PROBED: if upstream cannot serve it either, the pin is genuinely
-#     unpullable and that IS a FAIL.
-#   * CHILD or CONFIG missing behind a 200 index -> fatal. containerd has
-#     already accepted this mirror's index; there is no fallback from mid-walk.
-#     The pull dies. This is the hw306/hw307 shape and it hard-FAILS the gate.
-#
-# Collapsing those two into one verdict would either fire into a wedge or
-# refuse to fire over a slow path. Both were observed live on 2026-09-02.
+# 2026-09-01: the parent's registry blob store was wiped by hand. The proxy
+# cache kept its MANIFEST rows, so a health endpoint, a `/v2/` ping and a GET of
+# a tag's index all answered 200 while the index's linux/amd64 CHILD manifest
+# was gone; hw306 and hw307 were fired into it (every shared-pg initdb Pod in
+# ImagePullBackOff, Phase 1 timed out, #6778 #6795).
+# 2026-11-20: release candidate rc/20261120T073828Z-11731a9. This check said
+# `IMAGE-PATH PASS 93` while a fresh install would have failed:
+#   - its list missed at least 36 images the install pulls (raw manifests of
+#     clusters/_template such as the Job of slot 12b, whose tag is a
+#     Kustomization `images: newTag`; components only kit variables switch on,
+#     the continuum controller; 18 charts that render EMPTY at their defaults;
+#     k3s's own images);
+#   - it read no layer, and read anonymously because its default robot account
+#     was refused; the origin answered 200 for an index whose linux/amd64 child
+#     was `manifest unknown` (25 repositories), and HEAD 404 for blobs it had
+#     not cached yet;
+#   - continuum-controller:920753e and sovereign-ops:fe65309 were absent from
+#     the origin's hosted project.
+# Since SOV-132 every node pulls EVERY image through the origin (its proxy
+# projects for upstream images, its hosted project `openova-io` for
+# ghcr.io/openova-io/openova/*) with --disable-default-registry-endpoint:
+# there is no public fallback, so what the origin cannot serve, no node pulls.
 #
 # ─── CONTRACT ─────────────────────────────────────────────────────────────
 #
-#   1. The image list is BUILT FROM THE REPO, never a hand list:
-#        - `scripts/check-freshprov-image-registry.sh --list-images` renders
-#          every bootstrap-kit chart (the #5281 renderer; there is no second
-#          one) and emits every install `image:` / `imageName:` ref;
-#        - the CNPG images the shared-pg / per-app postgres Clusters pull:
-#          platform/postgres (imageName + pgVersion), platform/newapi
-#          (cnpg.cluster.imageName), platform/cnpg-pair (repository:tag when
-#          pinned), platform/cnpg (the cloudnative-pg controller image) —
-#          those charts render empty at default values, so the pins are read
-#          from their values.yaml;
-#        - the Phase-0 images cloud-init pulls: the flux `crictl pull` warm-up
-#          list and the cilium `helm upgrade --install --version` pair, read
-#          from infra/providers/_shared/cloudinit-control-plane.tftpl.
-#   2. Each ref is resolved THE WAY THE NODE RESOLVES IT, from the node
-#      registry map /etc/rancher/k3s/registries.yaml. Since SOV-132 no module
-#      holds that map as text: each provider module builds it from the
-#      installation's variables document (`registry_mirror_yaml_<provider>`
+#   1. The image list is BUILT FROM WHAT A FRESH INSTALL APPLIES, never a hand
+#      list. Four sources, each counted; a source that yields no image FAILS
+#      (exit 2), because a list that lost a source is not the list. An image
+#      is an `image:` or `imageName:` value, or the `spec.package` of a
+#      Crossplane Provider, Function or Configuration (pkg.crossplane.io): the
+#      package fetch bypasses containerd, but the provider's and function's
+#      Deployment runs that same ref as its container image, which the kubelet
+#      pulls through the node map:
+#        kit     every HelmRelease of clusters/_template/bootstrap-kit (the
+#                files its kustomization.yaml lists), rendered with the values
+#                the kit gives it: `check-freshprov-image-registry.sh
+#                --list-images`, the one renderer (see its block for the value
+#                sets and the Flux substitution);
+#        raw     every manifest under clusters/_template that a Flux
+#                Kustomization applies (the folders a `path:
+#                ./clusters/_template/<folder>` names, HelmReleases excluded:
+#                they are the kit), with the `images:` overrides of the
+#                Kustomization that applies the folder (spec.images of a Flux
+#                Kustomization, images of a kustomization.yaml);
+#        k3s     the images k3s itself pulls: the release's k3s-images.txt,
+#                pinned in infra/providers/_shared/k3s-images/<version>.txt for
+#                the default of variable k3s_version of the huawei module;
+#        phase0  what cloud-init pulls before Flux: the cilium chart version
+#                it installs (infra/providers/_shared/cloudinit-control-plane.tftpl).
+#      `--list-only` prints the list (`--first-party`: only the images
+#      ghcr.io/openova-io/openova/*, which the node takes from the hosted
+#      project). The same list feeds .github/workflows/warmup-bastion-harbor.yaml
+#      and check 5 of scripts/check-train-coherent.sh.
+#   2. Each ref is resolved THE WAY THE NODE RESOLVES IT, from the node registry
+#      map /etc/rancher/k3s/registries.yaml. Each provider module builds that map
+#      from the installation's variables document (`registry_mirror_yaml_<provider>`
 #      in infra/providers/<provider>/main.tf, the rule of
-#      upstream.Variables.RegistriesYAML), so this probe builds the same map
-#      the same way (node_map below): the document is `.variables` of
-#      HW_TFVARS, the hosted rewrites are the module's
-#      `node_registry_hosted_rewrites` (MIRROR_TF). Every entry lists the
-#      Sovereign's own registry first; before the fire that registry does not
-#      exist, so the probe walks the next endpoint, the origin the node pulls
-#      through (for the parent that is its NAT-bypass face, #3913, which can
-#      answer differently from its external face: measured 2026-09-02).
-#      Every node starts k3s with --disable-default-registry-endpoint, so a
-#      host that no mirror of the map serves (only the `*` entry, which lists
-#      the Sovereign's own registry alone) has no path at all: FAIL.
-#   3. Per image: GET the manifest for the tag (OCI index, docker list and
-#      single manifests all accepted); if it is an index, GET the linux/amd64
-#      child by digest; then GET the config blob with `Range: bytes=0-255`
-#      (200/206). 401 challenges are answered by minting a token from the
-#      WWW-Authenticate realm — one code path for Harbor, ghcr, Docker Hub,
-#      quay and gcr — with the robot pull credential for the mirror host and
-#      the ghcr pull credential for upstream ghcr. Tokens are cached per realm
-#      and never printed. Redirects are followed (Harbor 301s a Docker Hub
-#      path onto library/, and blob GETs may redirect to an object store);
-#      a token is never handed to a host it was not minted for.
-#   4. Summary line (paste it into the train manifest):
-#          IMAGE-PATH PASS <n> images resolved through proxy-* (index+child+config)
+#      upstream.Variables.RegistriesYAML), so this check builds the same map the
+#      same way (node_map below): the document is `.variables` of HW_TFVARS, the
+#      hosted rewrites are the module's `node_registry_hosted_rewrites`
+#      (MIRROR_TF). Every entry lists the Sovereign's own registry first; before
+#      the fire that registry does not exist, so the node pulls through the next
+#      endpoint, the origin. A host no mirror of the map serves has no path.
+#   3. The credential is the one the node is given: the login of the `configs`
+#      of that map, `robot$openova-bot` (read from MIRROR_TF; HARBOR_ROBOT_USER
+#      overrides it) with HARBOR_ROBOT_TOKEN from the environment, else the
+#      `.harbor_robot_token` of HW_TFVARS. Without it the check refuses to run
+#      (exit 2): an anonymous read is not what a node does.
+#   4. Per image (tools/guards/cmd/image-path probe): the manifest of the tag,
+#      the linux/amd64 child, then the config AND every layer by HEAD.
+#        - a blob of a PROXY project that answers 404 is "not cached yet": the
+#          origin fills a proxied image's blobs some minutes after its manifest
+#          was first asked for, so the manifest is asked for once more and the
+#          blobs are read again until PROBE_FILL_WAIT (default 10m) has passed;
+#          still missing then is NEVER FILLED;
+#        - an index served with its linux/amd64 child unknown is a DAMAGED CACHE
+#          ENTRY, the repository named. Only a registry-side repair helps
+#          (story SOV-162); this check deletes nothing;
+#        - a first-party image (the hosted project) whose tag or blob is absent
+#          is MISSING AT THE ORIGIN.
+#   5. Summary line (paste it into the train manifest):
+#          IMAGE-PATH PASS <n> images resolved through the origin (index+child+config+layers)
 #          IMAGE-PATH FAIL <k>/<n>: <first 5 failures>
-#      An EMPTY image list is a FAIL ("no images extracted") — a probe that
-#      passes because it probed nothing is worse than no probe.
 #
 # ─── USAGE ────────────────────────────────────────────────────────────────
-#   HW_TFVARS=<tofu.auto.tfvars.json> scripts/check-mothership-proxy-image-path.sh
-#       credentials = .harbor_robot_token / .ghcr_pull_token of that file
-#       (or HARBOR_ROBOT_TOKEN / GHCR_PULL_TOKEN in the environment); the
-#       node registry map is built from its .variables (needed by --resolve too)
-#   scripts/check-mothership-proxy-image-path.sh --images <file>   # targeted list
-#   scripts/check-mothership-proxy-image-path.sh --list-only       # print the built list, no network
-#   scripts/check-mothership-proxy-image-path.sh --resolve <ref>   # show the node's resolution of one ref
-#   scripts/check-mothership-proxy-image-path.sh --self-test       # local fake-mirror fixture
-# Env: PROBE_PARALLEL (default 4), PROBE_TIMEOUT (seconds, default 25),
-#      MIRROR_TF (the provider module whose hosted rewrites the map takes),
-#      HARBOR_ROBOT_USER (default robot$catalyst), GHCR_PULL_USER.
-# Exit: 0 = every image resolved (WARN mirror-misses allowed); 1 = at least
-#       one image failed; 2 = usage / vacuity (no images) / setup error.
-#
-# Credentials are NEVER printed. Fix for a FAIL at stage=child or stage=config:
-# purge the damaged proxy-cache entry as Harbor ADMIN (the robot gets 401 on
-# delete) so the next pull re-fetches from upstream, then re-run.
-# Refs #6778 #6795.
+#   HW_TFVARS=<tofu.auto.tfvars.json> [HARBOR_ROBOT_TOKEN=...] scripts/check-mothership-proxy-image-path.sh
+#   scripts/check-mothership-proxy-image-path.sh --images <file>      # a targeted list (still needs HW_TFVARS)
+#   scripts/check-mothership-proxy-image-path.sh --list-only [--first-party] [--root <dir>] [--sources "kit raw k3s phase0"]
+#   scripts/check-mothership-proxy-image-path.sh --resolve <ref>      # the node's resolution of one ref
+#   scripts/check-mothership-proxy-image-path.sh --self-test          # stand-in registry and a fixture kit
+# Needs bash, jq, yq (v4), helm and Go (the list and the probe), curl (self-test).
+# Env: PROBE_PARALLEL (4), PROBE_TIMEOUT (25s), PROBE_FILL_WAIT (10m),
+#      PROBE_FILL_EVERY (20s), MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
+#      KIT_VALUE_SETS (see check-freshprov-image-registry.sh).
+# Exit: 0 every image resolved whole; 1 at least one failed; 2 nothing could be
+#       judged (no credential, no variables document, a source without image,
+#       a list that could not be built).
+# Credentials are NEVER printed. Refs #6778 #6795.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-HARBOR_ROBOT_USER="${HARBOR_ROBOT_USER:-robot\$catalyst}"
-GHCR_PULL_USER="${GHCR_PULL_USER:-openova-bot}"
 PROBE_PARALLEL="${PROBE_PARALLEL:-4}"
-PROBE_TIMEOUT="${PROBE_TIMEOUT:-25}"
+PROBE_TIMEOUT="${PROBE_TIMEOUT:-25s}"
+PROBE_FILL_WAIT="${PROBE_FILL_WAIT:-10m}"
+PROBE_FILL_EVERY="${PROBE_FILL_EVERY:-20s}"
 MIRROR_TF="${MIRROR_TF:-${REPO_ROOT}/infra/providers/huawei/main.tf}"
-CLOUDINIT="${CLOUDINIT:-${REPO_ROOT}/infra/providers/_shared/cloudinit-control-plane.tftpl}"
-HARBOR_HOST="${HARBOR_HOST:-harbor.openova.io}"
+MODULE_REL="$(dirname "${MIRROR_TF#"${REPO_ROOT}"/}")"   # the module folder, under the repository root
+FIRST_PARTY_RE='^ghcr\.io/openova-io/openova/'
 
-IMAGES_FILE=""; MODE="probe"; RESOLVE_REF=""
+IMAGES_FILE=""; MODE="probe"; RESOLVE_REF=""; FIRST_PARTY=0; LIST_ROOT="$REPO_ROOT"
+LIST_SOURCES="kit raw k3s phase0"
 while [ $# -gt 0 ]; do
   case "$1" in
     --images) IMAGES_FILE="${2:?--images needs a file}"; shift 2 ;;
     --parallel) PROBE_PARALLEL="${2:?--parallel needs N}"; shift 2 ;;
     --list-only) MODE="list"; shift ;;
+    --first-party) FIRST_PARTY=1; shift ;;
+    --root) LIST_ROOT="$(cd "${2:?--root needs a folder}" && pwd)" || exit 2; shift 2 ;;
+    --sources) LIST_SOURCES="${2:?--sources needs a list}"; shift 2 ;;
     --resolve) MODE="resolve"; RESOLVE_REF="${2:?--resolve needs an image ref}"; shift 2 ;;
     --self-test) MODE="self-test"; shift ;;
-    -h|--help) sed -n '2,120p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,100p' "$0"; exit 0 ;;
     *) echo "usage error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
   esac
 done
+CLOUDINIT="${CLOUDINIT:-${LIST_ROOT}/infra/providers/_shared/cloudinit-control-plane.tftpl}"
+VALUE_SETS="${KIT_VALUE_SETS:-tests/fixtures/variables/today.env tests/fixtures/variables/today.env+tests/fixtures/variables/two-region-secondary.env}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# ─── The worker: node-path resolution + the 3-stage walk + the fixture ─────
-WORKER="${WORK}/probe.py"
-cat > "$WORKER" <<'PY'
-import base64, http.client, json, os, re, ssl, sys, time, urllib.parse, hashlib
-
-ACCEPT = ", ".join([
-    "application/vnd.oci.image.index.v1+json",
-    "application/vnd.docker.distribution.manifest.list.v2+json",
-    "application/vnd.oci.image.manifest.v1+json",
-    "application/vnd.docker.distribution.manifest.v2+json",
-])
-INDEX_TYPES = {"application/vnd.oci.image.index.v1+json",
-               "application/vnd.docker.distribution.manifest.list.v2+json"}
-
-def apply_rewrite(rules, path):
-    for pattern, repl in (rules or {}).items():
-        try:
-            rx = re.compile(pattern)
-        except re.error:
-            continue
-        mm = rx.match(path)
-        if mm:
-            out = repl.replace("$0", mm.group(0))
-            for i in range(1, (mm.re.groups or 0) + 1):
-                out = out.replace("$%d" % i, mm.group(i) or "")
-            return out
-    return None
-
-def split_ref(ref):
-    """image ref -> (host, path, reference). A bare name resolves to docker.io."""
-    name, digest = ref.split("@", 1) if "@" in ref else (ref, None)
-    last = name.rsplit("/", 1)[-1]
-    if ":" in last:
-        name, tag = name.rsplit(":", 1)
-    else:
-        tag = "latest"
-    first = name.split("/", 1)[0]
-    if "/" in name and ("." in first or ":" in first or first == "localhost"):
-        host, path = first, name.split("/", 1)[1]
-    else:
-        host, path = "docker.io", name
-    # Docker Hub's implicit namespace: `busybox` and `docker.io/busybox` are
-    # both `library/busybox` on the wire. The mirror serves the wire path.
-    if host in ("docker.io", "registry-1.docker.io", "index.docker.io") and "/" not in path:
-        path = "library/" + path
-    return host, path, (digest or tag)
-
-def resolve(ref, mirrors):
-    """-> ("ok", endpoint, repo, reference, upstream_host, upstream_path)
-       |  ("skip", reason, None, None, None, None)"""
-    if "{{" in ref or "${" in ref:
-        return ("skip", "helm/envsubst placeholder", None, None, None, None)
-    if "*" in ref or "?" in ref:
-        # A Kyverno allowed-image GLOB (`*/proxy-*/*`) renders into an `image:`
-        # field but is a policy pattern, not something a kubelet pulls.
-        return ("skip", "image GLOB pattern (Kyverno policy match), not a pull", None, None, None, None)
-    if "/" not in ref and ":" not in ref and "@" not in ref:
-        # A registry-less, tag-less bare word is a cloud SERVER-image slug
-        # (`ubuntu-24.04`, the cluster-autoscaler node config), not a container
-        # image — the same case scripts/check-freshprov-image-registry.sh names.
-        return ("skip", "registry-less untagged slug '%s' — a server image, not a container image" % ref, None, None, None, None)
-    host, path, reference = split_ref(ref)
-    entry = mirrors.get(host) or mirrors.get("*")
-    if not entry:
-        return ("skip", "host %s is not in the node registry mirror (#5281 class)" % host, None, None, None, None)
-    endpoints = entry.get("endpoint") or []
-    if not endpoints:
-        return ("fail", "host=%s [no mirror of the node map serves it before the fire, and the default endpoint is off]" % host, None, None, None, None)
-    repo = apply_rewrite(entry.get("rewrite"), path) or path
-    return ("ok", endpoints[0].rstrip("/"), repo, reference, host, path)
-
-class Client:
-    """GET with WWW-Authenticate Bearer handling — one code path for Harbor,
-    ghcr, Docker Hub, quay and gcr. Tokens cached per realm, never printed."""
-    def __init__(self, timeout, creds, cache_dir):
-        self.timeout = timeout; self.creds = creds; self.cache = cache_dir; self.conns = {}
-    def _conn(self, scheme, host, port):
-        key = (scheme, host, port)
-        if key not in self.conns:
-            if scheme == "https":
-                ctx = ssl.create_default_context()
-                if os.environ.get("PROBE_INSECURE") == "1":
-                    ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-                self.conns[key] = http.client.HTTPSConnection(host, port or 443, timeout=self.timeout, context=ctx)
-            else:
-                self.conns[key] = http.client.HTTPConnection(host, port or 80, timeout=self.timeout)
-        return self.conns[key]
-    def _raw(self, url, headers):
-        u = urllib.parse.urlsplit(url)
-        key = (u.scheme, u.hostname, u.port)
-        for attempt in (1, 2):
-            try:
-                c = self._conn(*key)
-                c.request("GET", u.path + (("?" + u.query) if u.query else ""), headers=headers)
-                r = c.getresponse(); body = r.read()
-                return r.status, {k.lower(): v for k, v in r.getheaders()}, body
-            except Exception as e:
-                self.conns.pop(key, None)
-                if attempt == 2:
-                    return 0, {}, str(e).encode()
-    def _token(self, challenge, host):
-        parts = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
-        realm = parts.get("realm")
-        if not realm:
-            return ""
-        q = {k: parts[k] for k in ("service", "scope") if parts.get(k)}
-        url = realm + ("?" + urllib.parse.urlencode(q) if q else "")
-        ck = None
-        if self.cache:
-            ck = os.path.join(self.cache, hashlib.sha1(url.encode()).hexdigest() + ".tok")
-            if os.path.exists(ck) and time.time() - os.path.getmtime(ck) < 900:
-                with open(ck) as f:
-                    return f.read().strip()
-        hdr = {"Accept": "application/json"}
-        cred = self.creds.get(host)
-        if cred:
-            hdr["Authorization"] = "Basic " + base64.b64encode(("%s:%s" % cred).encode()).decode()
-        st, _, body = self._raw(url, hdr)
-        if st != 200:
-            return ""
-        try:
-            d = json.loads(body); tok = d.get("token") or d.get("access_token") or ""
-        except Exception:
-            return ""
-        if ck and tok:
-            tmp = ck + ".%d" % os.getpid()
-            with open(tmp, "w") as f:
-                f.write(tok)
-            os.replace(tmp, ck)
-        return tok
-    def get(self, url, extra=None, redirects=3):
-        headers = dict(extra or {})
-        host = urllib.parse.urlsplit(url).hostname
-        st, hd, body = self._raw(url, headers)
-        for _ in range(redirects + 1):
-            if st == 401 and hd.get("www-authenticate", "").lower().startswith("bearer"):
-                tok = self._token(hd["www-authenticate"], host)
-                if not tok:
-                    break
-                headers["Authorization"] = "Bearer " + tok
-                st, hd, body = self._raw(url, headers)
-            if st in (301, 302, 303, 307, 308) and hd.get("location"):
-                nxt = urllib.parse.urljoin(url, hd["location"])
-                if urllib.parse.urlsplit(nxt).hostname != host:
-                    headers.pop("Authorization", None)   # never hand a token to a foreign blob store
-                url = nxt; host = urllib.parse.urlsplit(url).hostname
-                st, hd, body = self._raw(url, headers)
-                continue
-            break
-        return st, hd, body
-
-def walk(cli, base, repo, reference):
-    """The kubelet's own walk: tag -> index -> linux/amd64 child -> config blob.
-    -> (True, note) | (False, stage, http, detail)"""
-    st, hd, body = cli.get("%s/v2/%s/manifests/%s" % (base, repo, reference), {"Accept": ACCEPT})
-    if st != 200:
-        return (False, "index", st, "%s:%s" % (repo, reference))
-    try:
-        doc = json.loads(body)
-    except Exception:
-        return (False, "index", st, "%s:%s (manifest is not JSON)" % (repo, reference))
-    mt = (hd.get("content-type") or "").split(";")[0].strip() or doc.get("mediaType", "")
-    child = None
-    if mt in INDEX_TYPES or "manifests" in doc:
-        cands = [m for m in doc.get("manifests", [])
-                 if (m.get("platform") or {}).get("os") == "linux"
-                 and (m.get("platform") or {}).get("architecture") == "amd64"]
-        if not cands:
-            return (False, "child", 0, "%s:%s (index carries no linux/amd64 entry)" % (repo, reference))
-        child = cands[0]["digest"]
-        st, hd, body = cli.get("%s/v2/%s/manifests/%s" % (base, repo, child), {"Accept": ACCEPT})
-        if st != 200:
-            return (False, "child", st, "%s@%s" % (repo, child))
-        try:
-            doc = json.loads(body)
-        except Exception:
-            return (False, "child", st, "%s@%s (child manifest is not JSON)" % (repo, child))
-    cfg = (doc.get("config") or {}).get("digest")
-    if not cfg:
-        if doc.get("schemaVersion") == 1:
-            return (True, "child=%s config=n/a(schema1)" % (child or "-")[:19])
-        return (False, "config", 0, "%s (manifest carries no config digest)" % repo)
-    st, hd, body = cli.get("%s/v2/%s/blobs/%s" % (base, repo, cfg), {"Range": "bytes=0-255"})
-    if st not in (200, 206):
-        return (False, "config", st, "%s blob %s" % (repo, cfg[:19]))
-    return (True, "child=%s config=%s" % ((child or "-")[:19], st))
-
-def probe(ref, mirrors, creds, cache):
-    kind, base, repo, reference, up_host, up_path = resolve(ref, mirrors)
-    if kind != "ok":
-        return ("SKIP %s %s" if kind == "skip" else "FAIL %s stage=mirror %s") % (ref, base)
-    cli = Client(float(os.environ.get("PROBE_TIMEOUT", "25")), creds, cache)
-    res = walk(cli, base, repo, reference)
-    if res[0]:
-        return "PASS %s -> %s/%s:%s %s" % (ref, base, repo, reference, res[1])
-    stage, code, detail = res[1], res[2], res[3]
-    if stage != "index":
-        # THE hw306/hw307 SHAPE. containerd has already accepted this mirror's
-        # index; a missing child or config aborts the pull outright (`failed to
-        # copy: httpReadSeeker`). There is no upstream fallback from mid-walk,
-        # so there is no second opinion to ask for.
-        return "FAIL %s stage=%s http=%s %s [the mirror served an index whose %s is gone — the pull dies here, no fallback]" % (
-            ref, stage, code, detail, stage)
-    # A clean miss at the INDEX is survivable: containerd falls back to the
-    # upstream host with the node's pull Secret. Probe that fallback rather than
-    # calling a slow path a wedge — and FAIL when upstream cannot serve it
-    # either, which is a genuinely unpullable pin.
-    up_base = "https://%s" % ("registry-1.docker.io" if up_host in ("docker.io", "index.docker.io") else up_host)
-    ures = walk(cli, up_base, up_path, reference)
-    if ures[0]:
-        return "WARN %s mirror-miss stage=index http=%s (%s) — upstream %s/%s serves it, so the node falls back to a DIRECT pull (slow, and hostage to that registry)" % (
-            ref, code, detail, up_host, up_path)
-    return "FAIL %s stage=index http=%s %s [upstream %s/%s also fails: stage=%s http=%s]" % (
-        ref, code, detail, up_host, up_path, ures[1], ures[2])
-
-# ─── self-test fixture: a fake mirror with healthy and damaged entries ─────
-def serve(port_file):
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    OK_CHILD = "sha256:" + "a" * 64; BROKEN_CHILD = "sha256:" + "b" * 64; CFG = "sha256:" + "c" * 64
-    def index(child):
-        return json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
-                           "manifests": [{"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": child, "size": 1,
-                                          "platform": {"os": "linux", "architecture": "amd64"}},
-                                         {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "d" * 64, "size": 1,
-                                          "platform": {"os": "linux", "architecture": "arm64"}}]}).encode()
-    def manifest():
-        return json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                           "config": {"mediaType": "application/vnd.oci.image.config.v1+json", "digest": CFG, "size": 256},
-                           "layers": []}).encode()
-    class H(BaseHTTPRequestHandler):
-        def log_message(self, *a): pass
-        def _send(self, code, body=b"", ctype="application/json", extra=None):
-            self.send_response(code); self.send_header("Content-Type", ctype)
-            for k, v in (extra or {}).items():
-                self.send_header(k, v)
-            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-        def do_GET(self):
-            p = urllib.parse.urlsplit(self.path).path
-            if p == "/token":
-                return self._send(200, json.dumps({"token": "fixture-token"}).encode())
-            if p == "/v2/":
-                # the ping the OLD pre-flight trusted: 200 even for the damaged entry
-                return self._send(200, b"{}")
-            parts = p.split("/")
-            if len(parts) >= 5 and parts[1] == "v2" and parts[-2] == "manifests":
-                repo, ref = "/".join(parts[2:-2]), parts[-1]
-                if not self.headers.get("Authorization"):
-                    return self._send(401, b"{}", extra={"WWW-Authenticate": 'Bearer realm="http://%s/token",service="fixture"' % self.headers.get("Host")})
-                if repo.endswith("redirected/app"):
-                    # Harbor redirects EVERY path under a repo it relocates (a
-                    # Docker Hub short path onto library/), tag and digest alike.
-                    return self._send(301, b"", extra={"Location": "/v2/%s/manifests/%s" % (repo.replace("redirected/app", "healthy/app"), ref)})
-                healthy = repo.endswith("healthy/app"); damaged = repo.endswith("damaged/app"); single = repo.endswith("single/app")
-                if not (healthy or damaged or single):
-                    return self._send(404, b'{"errors":[{"code":"MANIFEST_UNKNOWN"}]}')
-                if not ref.startswith("sha256:"):
-                    if single:
-                        return self._send(200, manifest(), "application/vnd.oci.image.manifest.v1+json")
-                    return self._send(200, index(OK_CHILD if healthy else BROKEN_CHILD), "application/vnd.oci.image.index.v1+json")
-                if ref == OK_CHILD:
-                    return self._send(200, manifest(), "application/vnd.oci.image.manifest.v1+json")
-                return self._send(404, b'{"errors":[{"code":"MANIFEST_UNKNOWN"}]}')   # the hw306/hw307 shape
-            if len(parts) >= 5 and parts[1] == "v2" and parts[-2] == "blobs":
-                repo = "/".join(parts[2:-2])
-                if repo.endswith("redirected/app"):
-                    return self._send(301, b"", extra={"Location": "/v2/%s/blobs/%s" % (repo.replace("redirected/app", "healthy/app"), parts[-1])})
-                if parts[-1] == CFG:
-                    self.send_response(206); self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Range", "bytes 0-255/256"); self.send_header("Content-Length", "256")
-                    self.end_headers(); self.wfile.write(b"{" + b" " * 255); return
-                return self._send(404, b'{"errors":[{"code":"BLOB_UNKNOWN"}]}')
-            return self._send(404, b"{}")
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
-    with open(port_file + ".tmp", "w") as f:
-        f.write(str(srv.server_address[1]))
-    os.replace(port_file + ".tmp", port_file)
-    srv.serve_forever()
-
-def load_ctx():
-    mirrors = json.loads(os.environ["PROBE_MIRRORS"])
-    creds = {}
-    if os.environ.get("PROBE_HARBOR_HOST") and os.environ.get("PROBE_ROBOT_TOKEN"):
-        creds[os.environ["PROBE_HARBOR_HOST"]] = (os.environ.get("PROBE_ROBOT_USER", "robot$catalyst"), os.environ["PROBE_ROBOT_TOKEN"])
-    if os.environ.get("PROBE_GHCR_TOKEN"):
-        creds["ghcr.io"] = (os.environ.get("PROBE_GHCR_USER", "openova-bot"), os.environ["PROBE_GHCR_TOKEN"])
-    return mirrors, creds, os.environ.get("PROBE_TOKEN_CACHE", "")
-
-if __name__ == "__main__":
-    op = sys.argv[1]
-    if op == "probe":
-        mirrors, creds, cache = load_ctx()
-        print(probe(sys.argv[2], mirrors, creds, cache), flush=True)
-    elif op == "resolve":
-        mirrors, _, _ = load_ctx()
-        kind, base, repo, reference, _, _ = resolve(sys.argv[2], mirrors)
-        print("%s %s %s" % (kind.upper(), base if kind != "ok" else "%s/%s" % (base, repo), reference or ""))
-    elif op == "serve":
-        serve(sys.argv[2])
-PY
+# ─── The registry half, in Go (tools/guards/cmd/image-path) ───────────────
+TOOL="${WORK}/image-path"
+if ! ( cd "${REPO_ROOT}/tools/guards" && go build -o "$TOOL" ./cmd/image-path ) >"${WORK}/build.log" 2>&1; then
+  echo "IMAGE-PATH FAIL 0/0: cannot build tools/guards/cmd/image-path (needs Go):"; sed 's/^/  /' "${WORK}/build.log"
+  exit 2
+fi
 
 # ─── The node registry map, built the way the provider modules build it ───
 # SOV-132: `registry_mirror_yaml_<provider>` of infra/providers/<provider>/
@@ -481,6 +192,17 @@ node_map() {
   jq -c -e --argjson hosted "$hosted" --arg prefire "${3:-}" "$NODE_MAP_JQ" "$1"
 }
 
+# proxy_projects <document.json> — the proxy projects of the origin (the
+# first segment of each project path), as a JSON list.
+proxy_projects() {
+  jq -c -e '.REGISTRY_PROXY_PROJECTS_JSON | fromjson | [.[] | select(. != "") | split("/")[0]] | unique' "$1"
+}
+
+# node_user <main.tf> — the login the module writes into the `configs` of the map.
+node_user() {
+  sed -n -E 's/.*auth = \{ username = "([^"]+)".*/\1/p' "$1" | head -1
+}
+
 # tftest_document <multi_region.tftest.hcl> — the module test's own variables
 # document (its top-level `variables = { ... }`) as JSON.
 tftest_document() {
@@ -488,102 +210,122 @@ tftest_document() {
     | sed -n -E 's/^ +([A-Z0-9_]+) += (".*")$/["\1",\2]/p' | jq -s -e 'map({(.[0]): .[1]}) | add'
 }
 
-# ─── Build the image list from the repo ───────────────────────────────────
-build_image_list() {
-  local out="$1"
-  : > "$out"
-  # (a) every rendered bootstrap-kit install image — the #5281 renderer.
-  ROOT="$REPO_ROOT" bash "${SCRIPT_DIR}/check-freshprov-image-registry.sh" --list-images >> "$out" \
-    || echo "WARN: check-freshprov-image-registry.sh --list-images exited non-zero (the rendered set may be partial)" >&2
-  # (b) CNPG postgres + cloudnative-pg controller pins. platform/postgres renders
-  #     no `image:` (the CNPG Cluster CR carries imageName) and cnpg-pair/newapi
-  #     are conditional at default values, so the pins are read from the values.
-  python3 - "$REPO_ROOT" <<'PY' >> "$out"
-import sys, os, yaml
-root = sys.argv[1]
-def load(p):
-    try:
-        with open(os.path.join(root, p)) as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
-out = set()
-def walk(d):
-    if isinstance(d, dict):
-        if isinstance(d.get("imageName"), str) and "/" in d["imageName"]:
-            img = d["imageName"]; pg = str(d.get("pgVersion") or "")
-            out.add(img if ":" in img.rsplit("/", 1)[-1] else (img + ":" + pg if pg else img))
-        if isinstance(d.get("repository"), str) and "cloudnative-pg" in d["repository"] and d.get("tag"):
-            out.add("%s:%s" % (d["repository"], d["tag"]))
-        for x in d.values():
-            walk(x)
-    elif isinstance(d, list):
-        for x in d:
-            walk(x)
-for p in ("platform/postgres/chart/values.yaml", "platform/newapi/chart/values.yaml",
-          "platform/cnpg-pair/chart/values.yaml", "platform/cnpg/chart/values.yaml"):
-    walk(load(p))
-for x in sorted(out):
-    print(x)
-PY
-  # (c) Phase-0 cloud-init pulls: the flux `crictl pull` warm-up list + the
-  #     cilium chart version the node helm-installs.
-  if [ -s "$CLOUDINIT" ]; then
-    awk '/for img in \\$/{f=1; next} f && /; do/{f=0} f{gsub(/[[:space:]\\]/,""); if ($0!="") print}' "$CLOUDINIT" >> "$out"
-    cv="$(grep -oE 'helm upgrade --install cilium cilium/cilium --version [0-9][0-9.]*' "$CLOUDINIT" | head -1 | awk '{print $NF}')"
-    if [ -n "$cv" ]; then printf 'quay.io/cilium/cilium:v%s\nquay.io/cilium/operator-generic:v%s\n' "$cv" "$cv" >> "$out"; fi
-  else
-    echo "WARN: cloud-init source not found at $CLOUDINIT — Phase-0 flux/cilium images not added" >&2
-  fi
-  sed -i '/^$/d' "$out"
-  sort -u -o "$out" "$out"
+# ─── The sources of the image list ────────────────────────────────────────
+# Each writes refs, one a line, to stdout; nothing printed is a source that
+# yielded no image.
+
+# value_args <set> — the -vars arguments of `image-path subst` for one value set.
+value_args() {
+  local p; local -a parts
+  IFS='+' read -r -a parts <<< "$1"
+  for p in "${parts[@]}"; do printf -- '-vars\n%s\n' "${LIST_ROOT}/${p}"; done
 }
 
-# ─── Probe runner ─────────────────────────────────────────────────────────
-# run_probe <images-file> — per-image lines + the IMAGE-PATH summary.
-# 0 = pass (WARN mirror-misses allowed), 1 = fail, 2 = vacuity.
-run_probe() {
-  local list="$1" results="${WORK}/results.txt" n start elapsed pass fail warn skip probed
-  n="$(sed '/^$/d' "$list" | wc -l)"
-  if [ "$n" -eq 0 ]; then
-    echo "IMAGE-PATH FAIL 0/0: no images extracted"
-    return 2
-  fi
-  mkdir -p "${WORK}/tokens"
-  start="$(date +%s)"
-  sed '/^$/d' "$list" | PROBE_TOKEN_CACHE="${WORK}/tokens" PROBE_TIMEOUT="$PROBE_TIMEOUT" \
-    xargs -P "$PROBE_PARALLEL" -n 1 -d '\n' python3 "$WORKER" probe > "$results" 2>>"${WORK}/probe.err"
-  elapsed=$(( $(date +%s) - start ))
-  pass="$(grep -c '^PASS ' "$results" || true)"
-  fail="$(grep -c '^FAIL ' "$results" || true)"
-  warn="$(grep -c '^WARN ' "$results" || true)"
-  skip="$(grep -c '^SKIP ' "$results" || true)"
-  sort "$results"
-  [ -s "${WORK}/probe.err" ] && { echo "  worker stderr:"; head -5 "${WORK}/probe.err"; }
-  [ "$skip" -gt 0 ] && echo "  ⚠ ${skip} ref(s) skipped (no node-mirror entry — the #5281 guard owns that class): $(grep '^SKIP ' "$results" | awk '{print $2}' | head -5 | tr '\n' ' ')"
-  [ "$warn" -gt 0 ] && echo "  ⚠ ${warn} ref(s) miss the mirror at the index and fall back to a DIRECT upstream pull (slow, not a wedge): $(grep '^WARN ' "$results" | awk '{print $2}' | head -5 | tr '\n' ' ')"
-  probed=$((pass + warn + fail))
-  echo "  ℹ probed ${probed} image(s) in ${elapsed}s (parallel=${PROBE_PARALLEL}, node map built from the variables document)"
-  if [ "$probed" -eq 0 ]; then
-    echo "IMAGE-PATH FAIL 0/0: no images extracted (every ref was skipped or the worker produced no result)"
-    return 2
-  fi
-  if [ "$fail" -eq 0 ]; then
-    echo "IMAGE-PATH PASS $((pass + warn)) images resolved through proxy-* (index+child+config)"
+src_kit() {
+  ROOT="$LIST_ROOT" IMAGE_PATH_BIN="$TOOL" KIT_VALUE_SETS="$VALUE_SETS" \
+    bash "${SCRIPT_DIR}/check-freshprov-image-registry.sh" --list-images 2>"${WORK}/kit.err" \
+    || { echo "  the kit could not be rendered:" >&2; grep -v '^WARNING: Kubernetes' "${WORK}/kit.err" | sed 's/^/    /' >&2; return 2; }
+}
+
+src_raw() {
+  local kdir="${LIST_ROOT}/clusters/_template" p f set found="${WORK}/raw-found.tsv" ov="${WORK}/raw-overrides.jsonl"
+  local -a folders vargs
+  : > "$found"; : > "$ov"
+  mapfile -t folders < <(grep -rhoE 'path: \./clusters/_template/[A-Za-z0-9._/-]+' "$kdir" "${LIST_ROOT}/infra/providers/_shared" 2>/dev/null \
+    | sed -E 's#^path: \./clusters/_template/##; s#/+$##' | sort -u)
+  [ "${#folders[@]}" -gt 0 ] || { echo "  raw: no Flux Kustomization under $kdir names a folder" >&2; return 0; }
+  while IFS= read -r f; do
+    yq -o=json -I=0 'select(.kind == "Kustomization" and ((.apiVersion // "") | test("^kustomize\.toolkit\.fluxcd\.io/")) and ((.spec.images // []) | length) > 0)
+      | {"path": (.spec.path | sub("^\./clusters/_template/"; "") | sub("/+$"; "")), "images": .spec.images}' "$f" >> "$ov" 2>/dev/null
+  done < <(find "$kdir" -type f -name '*.yaml')
+  for p in "${folders[@]}"; do
+    [ -d "$kdir/$p" ] || continue
+    if [ -f "$kdir/$p/kustomization.yaml" ]; then
+      P="$p" yq -o=json -I=0 'select(((.images // []) | length) > 0) | {"path": strenv(P), "images": .images}' "$kdir/$p/kustomization.yaml" >> "$ov" 2>/dev/null
+    fi
+    while IFS= read -r f; do
+      for set in $VALUE_SETS; do
+        mapfile -t vargs < <(value_args "$set")
+        yq 'select(.kind != "HelmRelease") | ... comments=""' "$f" 2>/dev/null > "${WORK}/raw.yaml" \
+          && "$TOOL" subst "${vargs[@]}" < "${WORK}/raw.yaml" > "${WORK}/raw.sub.yaml" 2>"${WORK}/raw.err" \
+          || { echo "  raw: ${f#"${LIST_ROOT}"/} cannot be read or substituted: $(head -1 "${WORK}/raw.err")" >&2; return 2; }
+        yq '(.. | select(tag == "!!map") | (.image, .imageName) | select(tag == "!!str")),
+          (select(((.apiVersion // "") | test("^pkg\.crossplane\.io/")) and (.kind == "Provider" or .kind == "Function" or .kind == "Configuration"))
+            | .spec.package | select(tag == "!!str"))' "${WORK}/raw.sub.yaml" 2>/dev/null \
+          | while IFS= read -r img; do [ -n "$img" ] && printf '%s\t%s\n' "$p" "$img"; done >> "$found"
+      done
+    done < <(find "$kdir/$p" -type f \( -name '*.yaml' -o -name '*.yml' \) ! -name kustomization.yaml | sort)
+  done
+  # An override of the Kustomization that applies the folder: newName, then a
+  # digest or newTag (kustomize's images transformer).
+  sort -u "$found" | jq -R -r --slurpfile ov "$ov" '
+    split("\t") as [$folder, $img]
+    | ($img | capture("^(?<name>[^@]+?)(:(?<tag>[^:/@]+))?(@(?<digest>.+))?$")) as $r
+    | ([$ov[] | select(.path == $folder) | .images[] | select(.name == $r.name)] | first) as $o
+    | if $o == null then $img
+      else ($o.newName // $r.name) + (if $o.digest then "@" + $o.digest elif $o.newTag then ":" + ($o.newTag | tostring) elif $r.tag then ":" + $r.tag else "" end)
+      end'
+}
+
+src_k3s() {
+  local tf="${LIST_ROOT}/${MODULE_REL}/variables.tf" v f
+  v="$(awk '/^variable "k3s_version"/ {k = 1} k && /^[[:space:]]*default[[:space:]]*=/ {gsub(/[" ]/, ""); sub(/^default=/, ""); print; exit}' "$tf" 2>/dev/null)"
+  f="${LIST_ROOT}/infra/providers/_shared/k3s-images/${v}.txt"
+  if [ -z "$v" ] || [ ! -s "$f" ]; then
+    echo "  k3s: no image list is pinned for k3s '${v:-?}' (the release's k3s-images.txt as infra/providers/_shared/k3s-images/${v:-?}.txt)" >&2
     return 0
   fi
-  local first5
-  first5="$(grep '^FAIL ' "$results" | head -5 | awk '{printf "%s%s (%s %s)", (NR>1?"; ":""), $2, $3, $4}')"
-  echo "IMAGE-PATH FAIL ${fail}/${probed}: ${first5}"
-  return 1
+  sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$f"
 }
 
-# ─── Self-test: the probe logic against a local fake mirror ───────────────
+src_phase0() {
+  local cv
+  [ -s "$CLOUDINIT" ] || { echo "  phase0: no cloud-init template at $CLOUDINIT" >&2; return 0; }
+  awk '/for img in \\$/{f=1; next} f && /; do/{f=0} f{gsub(/[[:space:]\\]/,""); if ($0!="") print}' "$CLOUDINIT"
+  cv="$(grep -oE 'helm upgrade --install cilium cilium/cilium --version [0-9][0-9.]*' "$CLOUDINIT" | head -1 | awk '{print $NF}')"
+  if [ -n "$cv" ]; then printf 'quay.io/cilium/cilium:v%s\nquay.io/cilium/operator-generic:v%s\n' "$cv" "$cv"; fi
+}
+
+# build_image_list <out> — the list of a fresh install; one count line per
+# source into ${WORK}/counts. 2 when a source failed or yielded no image.
+build_image_list() {
+  local out="$1" s n fp rc
+  : > "$out"; : > "${WORK}/counts"
+  for s in $LIST_SOURCES; do
+    case "$s" in kit|raw|k3s|phase0) ;; *) echo "  unknown source '$s'" >> "${WORK}/counts"; return 2 ;; esac
+    rc=0; "src_$s" > "${WORK}/src-$s.txt" || rc=$?
+    sed -i -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "${WORK}/src-$s.txt"
+    n="$(sort -u "${WORK}/src-$s.txt" | wc -l)"
+    fp="$(sort -u "${WORK}/src-$s.txt" | grep -cE "$FIRST_PARTY_RE")"
+    echo "  ℹ source ${s}: ${n} image(s), ${fp} first-party" >> "${WORK}/counts"
+    if [ "$rc" -ne 0 ]; then echo "IMAGE-PATH FAIL 0/0: the source '${s}' could not be read" >> "${WORK}/counts"; return 2; fi
+    if [ "$n" -eq 0 ]; then echo "IMAGE-PATH FAIL 0/0: the source '${s}' yielded no image (a list that lost a source is not the list)" >> "${WORK}/counts"; return 2; fi
+    cat "${WORK}/src-$s.txt" >> "$out"
+  done
+  sort -u -o "$out" "$out"
+  if [ "$FIRST_PARTY" = "1" ]; then
+    grep -E "$FIRST_PARTY_RE" "$out" > "${out}.fp" || true
+    mv "${out}.fp" "$out"
+    [ -s "$out" ] || { echo "IMAGE-PATH FAIL 0/0: no first-party image in the list" >> "${WORK}/counts"; return 2; }
+  fi
+  return 0
+}
+
+# probe <list> — the walk of every image; the summary line is the tool's.
+run_probe() {
+  PROBE_USER="$1" PROBE_TOKEN="$2" "$TOOL" probe -parallel "$PROBE_PARALLEL" -timeout "$PROBE_TIMEOUT" \
+    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" < "$3"
+}
+
+# ─── Self-test ─────────────────────────────────────────────────────────────
 if [ "$MODE" = "self-test" ]; then
   st_fail=0
   expect() { # expect <label> <want-rc> <got-rc> <must-contain> <output>
     if [ "$3" = "$2" ] && printf '%s' "$5" | grep -q -- "$4"; then echo "  ok   $1"
     else echo "  FAIL $1 (rc=$3 want $2; output must contain '$4')"; printf '%s\n' "$5" | sed 's/^/       | /'; st_fail=1; fi
+  }
+  lacks() { # lacks <label> <must-not-contain> <output>
+    if printf '%s' "$3" | grep -q -- "$2"; then echo "  FAIL $1 (output must not contain '$2')"; st_fail=1; else echo "  ok   $1"; fi
   }
   echo "== self-test: the node's resolution table is the map the provider modules build =="
   P="${REPO_ROOT}/infra/providers"
@@ -592,8 +334,9 @@ if [ "$MODE" = "self-test" ]; then
     keys="$(node_map "${WORK}/doc-${p}.json" "${P}/${p}/main.tf" 2>&1 | jq -r 'keys | join(" ")' 2>&1)"
     expect "${p}: the map of its module test's document has the ten entries of a child" 0 "$drc" "^\* docker.io gcr.io ghcr.io harbor.openova.io quay.io registry-1.docker.io registry.k8s.io registry.sov.example.test xpkg.upbound.io$" "$keys"
   done
-  rp() { PROBE_MIRRORS="$1" python3 "$WORKER" resolve "$2"; }
-  hw="$(node_map "${WORK}/doc-huawei.json" "${P}/huawei/main.tf" 1)"
+  rp() { PROBE_MIRRORS="$1" "$TOOL" resolve "$2"; }
+  HWDOC="${WORK}/doc-huawei.json"; HWTF="${P}/huawei/main.tf"
+  hw="$(node_map "$HWDOC" "$HWTF" 1)"
   r() { rp "$hw" "$1"; }
   o="http://registry.parent.example.test:5000"
   expect "ghcr bare -> the origin's proxy-ghcr"   0 0 "^OK $o/proxy-ghcr/cloudnative-pg/postgresql 16$" "$(r ghcr.io/cloudnative-pg/postgresql:16)"
@@ -608,98 +351,221 @@ if [ "$MODE" = "self-test" ]; then
   expect "host outside the list -> only *, FAIL"  0 0 "^FAIL host=mirror.gcr.io " "$(r mirror.gcr.io/library/busybox:1.36)"
   expect "the Sovereign's own registry -> FAIL"   0 0 "^FAIL host=registry.sov.example.test " "$(r registry.sov.example.test/openova-io/app:1)"
   expect "hetzner: no hosted rewrite there"       0 0 "^OK https://registry.parent.example.test/proxy-ghcr/openova-io/openova/catalyst-api 1e45db8$" "$(rp "$(node_map "${WORK}/doc-hetzner.json" "${P}/hetzner/main.tf" 1)" ghcr.io/openova-io/openova/catalyst-api:1e45db8)"
-  jq '.SOVEREIGN_CONSUME = "local"' "${WORK}/doc-huawei.json" > "${WORK}/doc-local.json"
-  expect "SOVEREIGN_CONSUME local -> no origin"   0 0 "^FAIL host=ghcr.io " "$(rp "$(node_map "${WORK}/doc-local.json" "${P}/huawei/main.tf" 1)" ghcr.io/cloudnative-pg/postgresql:16)"
-  jq '.ORIGIN_REGISTRY_HOST = "registry.parent.example.test"' "${WORK}/doc-huawei.json" > "${WORK}/doc-originhost.json"
-  expect "origin host not a proxy name -> entry"  0 0 "^OK https://registry.parent.example.test/openova-io/app 1$" "$(rp "$(node_map "${WORK}/doc-originhost.json" "${P}/huawei/main.tf" 1)" registry.parent.example.test/openova-io/app:1)"
+  jq '.SOVEREIGN_CONSUME = "local"' "$HWDOC" > "${WORK}/doc-local.json"
+  expect "SOVEREIGN_CONSUME local -> no origin"   0 0 "^FAIL host=ghcr.io " "$(rp "$(node_map "${WORK}/doc-local.json" "$HWTF" 1)" ghcr.io/cloudnative-pg/postgresql:16)"
+  jq '.ORIGIN_REGISTRY_HOST = "registry.parent.example.test"' "$HWDOC" > "${WORK}/doc-originhost.json"
+  expect "origin host not a proxy name -> entry"  0 0 "^OK https://registry.parent.example.test/openova-io/app 1$" "$(rp "$(node_map "${WORK}/doc-originhost.json" "$HWTF" 1)" registry.parent.example.test/openova-io/app:1)"
   expect "placeholder is SKIP"                    0 0 "^SKIP helm/envsubst placeholder" "$(r '{{ .Values.image }}:latest')"
   expect "Kyverno allowed-image GLOB is SKIP"     0 0 "^SKIP image GLOB pattern" "$(r '*/proxy-*/*')"
-  expect "server-image slug is SKIP"              0 0 "^SKIP registry-less untagged slug" "$(r ubuntu-24.04)"
+  expect "a bare name is docker.io library/:latest" 0 0 "^OK $o/proxy-dockerhub/library/busybox latest$" "$(r busybox)"
+  expect "the node's login is read from the module" 0 0 '^robot\$openova-bot$' "$(node_user "$HWTF")"
+  expect "the proxy projects are read from the document" 0 0 '"proxy-ghcr"' "$(proxy_projects "$HWDOC")"
 
+  echo "== self-test: the walk against a stand-in origin (tools/guards/cmd/image-path stub) =="
   port_file="${WORK}/port"
-  python3 "$WORKER" serve "$port_file" & srv_pid=$!
+  "$TOOL" stub -port-file "$port_file" -user 'robot$openova-bot' -password stub-node-token -fill-after 2s \
+    -absent openova-io/openova/gone & srv_pid=$!
   for _ in $(seq 1 50); do [ -s "$port_file" ] && break; sleep 0.1; done
-  [ -s "$port_file" ] || { echo "SELF-TEST FAILED — the fixture mirror did not start" >&2; kill "$srv_pid" 2>/dev/null; exit 1; }
+  [ -s "$port_file" ] || { echo "SELF-TEST FAILED — the stand-in registry did not start" >&2; kill "$srv_pid" 2>/dev/null; exit 1; }
   fport="$(cat "$port_file")"
-  # The fixture map is the map the module builds from its test's document with
-  # every origin pointed at the fixture: the same SHAPE as a real one, so the
-  # probe walks it end to end.
+  # The map the module builds from its test's document with every origin
+  # pointed at the stand-in: the same SHAPE as a real one.
   jq --arg o "http://127.0.0.1:${fport}" '.ORIGIN_PROXY_ENDPOINTS_JSON |= (fromjson | map_values($o) | tojson)' \
-    "${WORK}/doc-huawei.json" > "${WORK}/fixture-doc.json"
-  fixture_mirrors="$(node_map "${WORK}/fixture-doc.json" "${P}/huawei/main.tf" 1)"
-  export PROBE_MIRRORS="$fixture_mirrors"
-  echo "== self-test: all-200 fixture must PASS =="
-  printf 'ghcr.io/healthy/app:16\nharbor.openova.io/single/app:1.0\nharbor.openova.io/redirected/app:1.0\n' > "${WORK}/ok.txt"
-  out="$(run_probe "${WORK}/ok.txt")"; rc=$?
-  expect "healthy index+child+config (and a 301) -> PASS 3" 0 "$rc" "^IMAGE-PATH PASS 3 images resolved through proxy-\* (index+child+config)$" "$out"
-  expect "the 401 challenge was answered (no auth failures)" 0 0 "^PASS harbor.openova.io/single/app:1.0" "$out"
-  echo "== self-test: the same image with its host taken out of the node map must FAIL =="
+    "$HWDOC" > "${WORK}/fixture-doc.json"
+  fixture_mirrors="$(node_map "${WORK}/fixture-doc.json" "$HWTF" 1)"
+  PROBE_PROXY_PROJECTS="$(proxy_projects "${WORK}/fixture-doc.json")"
+  export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS
+  PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms
+  node='robot$openova-bot'
+  pr() { printf '%s\n' "$@" > "${WORK}/l.txt"; run_probe "$node" stub-node-token "${WORK}/l.txt"; }
+  out="$(pr ghcr.io/healthy/app:16 harbor.openova.io/single/app:1.0 harbor.openova.io/redirected/app:1.0 ghcr.io/openova-io/openova/catalyst-api:1)"; rc=$?
+  expect "healthy index+child+config+layers (a 301, a first-party image) -> PASS 4" 0 "$rc" "^IMAGE-PATH PASS 4 images resolved through the origin (index+child+config+layers)$" "$out"
+  expect "  the first-party image came from the hosted project" 0 "$rc" "^PASS ghcr.io/openova-io/openova/catalyst-api:1 -> http://127.0.0.1:${fport}/openova-io/openova/catalyst-api:1 " "$out"
   jq '.REGISTRY_PROXY_PROJECTS_JSON |= (fromjson | del(."harbor.openova.io") | tojson)' "${WORK}/fixture-doc.json" > "${WORK}/fixture-cut.json"
-  export PROBE_MIRRORS="$(node_map "${WORK}/fixture-cut.json" "${P}/huawei/main.tf" 1)"
-  printf 'ghcr.io/healthy/app:16\nharbor.openova.io/single/app:1.0\n' > "${WORK}/cut.txt"
-  out="$(run_probe "${WORK}/cut.txt")"; rc=$?
-  expect "a host no mirror of the node map serves -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/2: harbor.openova.io/single/app:1.0 (stage=mirror host=harbor.openova.io)$" "$out"
-  export PROBE_MIRRORS="$fixture_mirrors"
-  echo "== self-test: index 200 + amd64 child 404 must FAIL (the hw306/hw307 shape) =="
-  printf 'ghcr.io/healthy/app:16\nghcr.io/damaged/app:16\n' > "${WORK}/bad.txt"
-  out="$(run_probe "${WORK}/bad.txt")"; rc=$?
-  expect "damaged child -> FAIL 1/2 naming stage=child http=404" 1 "$rc" "^IMAGE-PATH FAIL 1/2: ghcr.io/damaged/app:16 (stage=child http=404)$" "$out"
-  expect "and it says the pull dies with no fallback" 0 0 "the pull dies here, no fallback" "$out"
-  expect "the /v2/ ping the old check trusted answers 200 for that same damaged entry" 0 0 "^200$" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${fport}/v2/")"
-  echo "== self-test: a mirror index miss whose upstream is ALSO gone must FAIL =="
-  printf 'ghcr.io/missing/app:1\n' > "${WORK}/missing.txt"
-  out="$(run_probe "${WORK}/missing.txt")"; rc=$?
-  expect "missing everywhere -> FAIL stage=index http=404 + upstream named" 1 "$rc" "stage=index http=404" "$out"
-  expect "  ^ and the upstream verdict is reported too" 0 0 "upstream ghcr.io/missing/app also fails" "$out"
-  echo "== self-test: vacuity — an empty list must FAIL =="
+  out="$(PROBE_MIRRORS="$(node_map "${WORK}/fixture-cut.json" "$HWTF" 1)" pr ghcr.io/healthy/app:16 harbor.openova.io/single/app:1.0)"; rc=$?
+  expect "a host no mirror of the node map serves -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/2: harbor.openova.io/single/app:1.0 (NO NODE PATH)$" "$out"
+  out="$(pr ghcr.io/healthy/app:16 ghcr.io/damaged/app:16)"; rc=$?
+  expect "index 200 + amd64 child unknown -> DAMAGED CACHE ENTRY" 1 "$rc" "^IMAGE-PATH FAIL 1/2: ghcr.io/damaged/app:16 (DAMAGED CACHE ENTRY)$" "$out"
+  expect "  naming the repository, deleting nothing" 1 "$rc" "DAMAGED CACHE ENTRY http://127.0.0.1:${fport}/proxy-ghcr/damaged/app \[.*this check deletes nothing\]" "$out"
+  expect "  the /v2/ ping the old check trusted answers 200 all the same" 0 0 "^200$" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${fport}/v2/")"
+  out="$(pr ghcr.io/filling/app:1)"; rc=$?
+  expect "layers not cached yet, then filled -> PASS, and it says so" 0 "$rc" "^PASS ghcr.io/filling/app:1 .*(was not cached yet: filled after" "$out"
+  out="$(PROBE_FILL_WAIT=2s pr ghcr.io/neverfill/app:1)"; rc=$?
+  expect "layers not cached yet and never filled -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/neverfill/app:1 (NEVER FILLED)$" "$out"
+  out="$(pr ghcr.io/openova-io/openova/gone:920753e)"; rc=$?
+  expect "a first-party image the hosted project lacks -> MISSING AT THE ORIGIN" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/gone:920753e (MISSING AT THE ORIGIN)$" "$out"
+  printf 'ghcr.io/healthy/app:16\n' > "${WORK}/one.txt"
+  out="$(run_probe "$node" "" "${WORK}/one.txt")"; rc=$?
+  expect "no credential -> nothing is read" 2 "$rc" "^IMAGE-PATH FAIL 0/0: no credential" "$out"
+  out="$(run_probe 'robot$catalyst' stub-node-token "${WORK}/one.txt")"; rc=$?
+  expect "a credential the origin refuses -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/healthy/app:16 (CREDENTIAL REFUSED)$" "$out"
   : > "${WORK}/empty.txt"
-  out="$(run_probe "${WORK}/empty.txt")"; rc=$?
+  out="$(run_probe "$node" stub-node-token "${WORK}/empty.txt")"; rc=$?
   expect "empty list -> FAIL 'no images extracted'" 2 "$rc" "^IMAGE-PATH FAIL 0/0: no images extracted" "$out"
-  printf '%s\n' '{{ .Values.image }}:latest' '*/proxy-*/*' > "${WORK}/allskip.txt"
-  out="$(run_probe "${WORK}/allskip.txt")"; rc=$?
+  out="$(pr '{{ .Values.image }}:latest' '*/proxy-*/*')"; rc=$?
   expect "all-skipped list -> FAIL 'no images extracted'" 2 "$rc" "^IMAGE-PATH FAIL 0/0: no images extracted" "$out"
   kill "$srv_pid" 2>/dev/null; wait "$srv_pid" 2>/dev/null
+
+  echo "== self-test: the list holds one image of each source of a fixture install =="
+  F="${WORK}/fixture"
+  mkdir -p "$F/clusters/_template/bootstrap-kit" "$F/clusters/_template/fixture-raw" "$F/platform/fixture/chart/templates" \
+    "$F/products" "$F/${MODULE_REL}" "$F/infra/providers/_shared/k3s-images" "$F/tests/fixtures/variables"
+  printf 'resources:\n  - 01-fixture.yaml\n  - 02-fixture-base.yaml\n  - 12b-raw.yaml\n' > "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
+  cat > "$F/clusters/_template/bootstrap-kit/01-fixture.yaml" <<'YAML'
+# ${A comment the substitution never sees}
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-fixture
+  namespace: flux-system
+spec:
+  releaseName: fixture
+  targetNamespace: fixture
+  chart:
+    spec:
+      chart: bp-fixture
+      version: 1.0.0
+  values:
+    enabled: ${FIXTURE_ENABLED:-false}
+    image: ghcr.io/openova-io/openova/fixture-app:kit1
+    package: xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1
+YAML
+  # A release of the same chart that the kit switches on itself, whatever the
+  # value set: the kit source keeps an image when the overlay is not laid on.
+  cat > "$F/clusters/_template/bootstrap-kit/02-fixture-base.yaml" <<'YAML'
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-fixture-base
+  namespace: flux-system
+spec:
+  releaseName: fixture-base
+  targetNamespace: fixture
+  chart:
+    spec:
+      chart: bp-fixture
+      version: 1.0.0
+  values:
+    enabled: true
+    image: ghcr.io/openova-io/openova/fixture-base:kit1
+    package: xpkg.upbound.io/crossplane-contrib/fixture-base-provider:kit1
+YAML
+  cat > "$F/clusters/_template/bootstrap-kit/12b-raw.yaml" <<'YAML'
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fixture-raw
+  namespace: flux-system
+spec:
+  path: ./clusters/_template/fixture-raw
+  images:
+    - name: ghcr.io/openova-io/openova/fixture-ops
+      newTag: raw1
+YAML
+  printf 'apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: ops\nspec:\n  template:\n    spec:\n      containers:\n        - name: ops\n          image: ghcr.io/openova-io/openova/fixture-ops\n' \
+    > "$F/clusters/_template/fixture-raw/job.yaml"
+  # A Crossplane package is an image (its Deployment runs the same ref); a
+  # `package:` of another kind is not.
+  pkgdocs='apiVersion: pkg.crossplane.io/v1\nkind: %s\nmetadata:\n  name: fixture\nspec:\n  package: %s\n---\napiVersion: example.test/v1\nkind: Widget\nmetadata:\n  name: fixture\nspec:\n  package: fixture-not-an-image\n'
+  # shellcheck disable=SC2059
+  printf "$pkgdocs" Function xpkg.upbound.io/crossplane-contrib/fixture-fn:v1 > "$F/clusters/_template/fixture-raw/function.yaml"
+  # shellcheck disable=SC2059
+  printf "{{- if .Values.enabled }}\n${pkgdocs}{{- end }}\n" Provider '{{ .Values.package }}' > "$F/platform/fixture/chart/templates/provider.yaml"
+  printf 'apiVersion: v2\nname: bp-fixture\nversion: 1.0.0\n' > "$F/platform/fixture/chart/Chart.yaml"
+  printf 'enabled: false\nimage: ghcr.io/openova-io/openova/fixture-app:default\npackage: xpkg.upbound.io/crossplane-contrib/fixture-provider:default\n' > "$F/platform/fixture/chart/values.yaml"
+  printf '{{- if .Values.enabled }}\napiVersion: v1\nkind: Pod\nmetadata:\n  name: app\nspec:\n  containers:\n    - name: app\n      image: {{ .Values.image }}\n{{- end }}\n' \
+    > "$F/platform/fixture/chart/templates/pod.yaml"
+  printf 'variable "k3s_version" {\n  type    = string\n  default = "v9.9.9+k3s1"\n}\n' > "$F/${MODULE_REL}/variables.tf"
+  printf '# the release list\ndocker.io/rancher/mirrored-pause:3.6\n' > "$F/infra/providers/_shared/k3s-images/v9.9.9+k3s1.txt"
+  printf 'runcmd:\n  - rt helm upgrade --install cilium cilium/cilium --version 9.9.9 -n kube-system\n' > "$F/infra/providers/_shared/cloudinit-control-plane.tftpl"
+  # The fixture component (fixture-app, fixture-provider) is switched on ONLY by
+  # the overlay of a region of a two-region install, as CONTINUUM_ENABLED is
+  # (false in today.env): the default value sets must lay the overlay on.
+  printf '# the single-region primary: the fixture component is off here\nFIXTURE_ENABLED=false\n' > "$F/tests/fixtures/variables/today.env"
+  printf '# a region of a two-region install: only this overlay switches the fixture component on\nFIXTURE_ENABLED=true\n' > "$F/tests/fixtures/variables/two-region-secondary.env"
+  ls1() { env -u KIT_VALUE_SETS bash "$0" --list-only --root "$F" "$@" 2>&1; }
+  out="$(ls1)"; rc=$?
+  for img in ghcr.io/openova-io/openova/fixture-app:kit1 ghcr.io/openova-io/openova/fixture-ops:raw1 docker.io/rancher/mirrored-pause:3.6 quay.io/cilium/cilium:v9.9.9 \
+    xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1 xpkg.upbound.io/crossplane-contrib/fixture-fn:v1 ghcr.io/openova-io/openova/fixture-base:kit1; do
+    expect "the list holds $img" 0 "$rc" "^${img}$" "$out"
+  done
+  lacks "  but not the package of a kind that is not a Crossplane package" "fixture-not-an-image" "$out"
+  expect "  and counts each source" 0 "$rc" "^  ℹ source raw: 2 image(s), 1 first-party$" "$out"
+  out="$(KIT_VALUE_SETS=tests/fixtures/variables/today.env bash "$0" --list-only --root "$F" 2>&1)"; rc=$?
+  expect "with today.env alone the list still builds" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-base:kit1$" "$out"
+  lacks "  but loses the component only the overlay switches on" "fixture-app:kit1" "$out"
+  lacks "  and its Crossplane package" "fixture-provider:kit1" "$out"
+  out="$(cd "$F" && env -u KIT_VALUE_SETS ROOT="$F" IMAGE_PATH_BIN="$TOOL" bash "${SCRIPT_DIR}/check-freshprov-image-registry.sh" --list-images 2>&1)"; rc=$?
+  expect "the renderer's own default value sets lay the overlay on too" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-app:kit1$" "$out"
+  mkdir -p "$F/clusters/_template/bootstrap-kit/folder-entry"
+  cp "$F/clusters/_template/bootstrap-kit/kustomization.yaml" "${WORK}/kustomization.keep"
+  printf '  - folder-entry\n' >> "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
+  out="$(ls1)"; rc=$?
+  expect "a kit entry that is not a file (a folder) fails the source" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'kit' could not be read" "$out"
+  expect "  and is named" 2 "$rc" "folder-entry: not a file of the kit" "$out"
+  cp "${WORK}/kustomization.keep" "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
+  lacks "the chart at its DEFAULT values renders no image (the handling before this change loses it)" "image:" \
+    "$(helm template fixture "$F/platform/fixture/chart" 2>&1)"
+  without() { # without <label> <sources> <lost> <kept>: the list still builds, without that source's image
+    out="$(ls1 --sources "$2")"; rc=$?
+    expect "without the $1 handling the list still builds" 0 "$rc" "$4" "$out"
+    lacks "  but loses $3" "$3" "$out"
+  }
+  without kit "raw k3s phase0" "fixture-app:kit1" "^ghcr.io/openova-io/openova/fixture-ops:raw1$"
+  without raw "kit k3s phase0" "fixture-ops" "^ghcr.io/openova-io/openova/fixture-app:kit1$"
+  without k3s "kit raw phase0" "mirrored-pause" "^quay.io/cilium/cilium:v9.9.9$"
+  without phase0 "kit raw k3s" "quay.io/cilium/cilium" "^docker.io/rancher/mirrored-pause:3.6$"
+  out="$(ls1 --first-party)"; rc=$?
+  expect "--first-party keeps the first-party images" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-ops:raw1$" "$out"
+  lacks "  and drops the others" "mirrored-pause" "$out"
+  rm "$F/infra/providers/_shared/k3s-images/v9.9.9+k3s1.txt"
+  out="$(ls1)"; rc=$?
+  expect "a source that yields no image FAILS the list" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'k3s' yielded no image" "$out"
   echo ""
-  if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path probe is broken." >&2; exit 1; fi
-  echo "SELF-TEST PASSED — reads the node mirror map the modules build, fails a host no mirror serves, fails a damaged child, passes a healthy entry, refuses an empty list."
+  if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path check is broken." >&2; exit 1; fi
+  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
+  exit 0
+fi
+
+# ─── List only ────────────────────────────────────────────────────────────
+LIST="${WORK}/images.txt"
+if [ "$MODE" = "list" ]; then
+  build_image_list "$LIST"; rc=$?
+  cat "${WORK}/counts" >&2
+  [ "$rc" -eq 0 ] || exit 2
+  cat "$LIST"
   exit 0
 fi
 
 # ─── The node's resolution table ──────────────────────────────────────────
 # The map the module builds from the installation's own variables document,
-# in its pre-fire view. --list-only needs none.
-if [ "$MODE" != "list" ]; then
-  [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ] \
-    || { echo "IMAGE-PATH FAIL 0/0: no variables document (set HW_TFVARS to the installation's tofu.auto.tfvars.json; the node registry map is built from its .variables)"; exit 2; }
-  jq -e '.variables | objects' "$HW_TFVARS" > "${WORK}/variables.json" 2>/dev/null \
-    && MIRRORS="$(node_map "${WORK}/variables.json" "$MIRROR_TF" 1)" \
-    || { echo "IMAGE-PATH FAIL 0/0: could not build the node registry map from .variables of $HW_TFVARS with the hosted rewrites of $MIRROR_TF"; exit 2; }
-  export PROBE_MIRRORS="$MIRRORS"
-fi
+# in its pre-fire view.
+[ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ] \
+  || { echo "IMAGE-PATH FAIL 0/0: no variables document (set HW_TFVARS to the installation's tofu.auto.tfvars.json; the node registry map is built from its .variables)"; exit 2; }
+jq -e '.variables | objects' "$HW_TFVARS" > "${WORK}/variables.json" 2>/dev/null \
+  && MIRRORS="$(node_map "${WORK}/variables.json" "$MIRROR_TF" 1)" \
+  && PROXIES="$(proxy_projects "${WORK}/variables.json")" \
+  || { echo "IMAGE-PATH FAIL 0/0: could not build the node registry map from .variables of $HW_TFVARS with the hosted rewrites of $MIRROR_TF"; exit 2; }
+export PROBE_MIRRORS="$MIRRORS" PROBE_PROXY_PROJECTS="$PROXIES"
 
-if [ "$MODE" = "resolve" ]; then python3 "$WORKER" resolve "$RESOLVE_REF"; exit 0; fi
+if [ "$MODE" = "resolve" ]; then "$TOOL" resolve "$RESOLVE_REF"; exit $?; fi
 
 # ─── Image list ───────────────────────────────────────────────────────────
-LIST="${WORK}/images.txt"
 if [ -n "$IMAGES_FILE" ]; then
   [ -s "$IMAGES_FILE" ] || { echo "IMAGE-PATH FAIL 0/0: no images extracted (--images file '$IMAGES_FILE' is empty or missing)"; exit 2; }
   sed '/^$/d' "$IMAGES_FILE" | sort -u > "$LIST"
 else
-  build_image_list "$LIST"
+  build_image_list "$LIST"; rc=$?
+  cat "${WORK}/counts"
+  [ "$rc" -eq 0 ] || exit 2
 fi
-if [ "$MODE" = "list" ]; then cat "$LIST"; exit 0; fi
 
-# ─── Credentials (never printed) ──────────────────────────────────────────
-if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
-  [ -z "${HARBOR_ROBOT_TOKEN:-}" ] && HARBOR_ROBOT_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("harbor_robot_token",""))' "$HW_TFVARS" 2>/dev/null)"
-  [ -z "${GHCR_PULL_TOKEN:-}" ] && GHCR_PULL_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("ghcr_pull_token",""))' "$HW_TFVARS" 2>/dev/null)"
+# ─── The node's credential (never printed) ────────────────────────────────
+NODE_USER="${HARBOR_ROBOT_USER:-$(node_user "$MIRROR_TF")}"
+if [ -z "${HARBOR_ROBOT_TOKEN:-}" ]; then
+  HARBOR_ROBOT_TOKEN="$(jq -r '.harbor_robot_token // empty' "$HW_TFVARS" 2>/dev/null)"
 fi
-export PROBE_HARBOR_HOST="$HARBOR_HOST"
-export PROBE_ROBOT_USER="$HARBOR_ROBOT_USER"
-export PROBE_ROBOT_TOKEN="${HARBOR_ROBOT_TOKEN:-}"
-export PROBE_GHCR_USER="$GHCR_PULL_USER"
-export PROBE_GHCR_TOKEN="${GHCR_PULL_TOKEN:-}"
 
-echo "Probing $(wc -l < "$LIST") image ref(s) along the node's own mirror path (index -> linux/amd64 child -> config blob) …"
-run_probe "$LIST"
+echo "Probing $(wc -l < "$LIST") image ref(s) along the node's own mirror path (index -> linux/amd64 child -> config and every layer) as ${NODE_USER:-?} …"
+run_probe "${NODE_USER:-}" "${HARBOR_ROBOT_TOKEN:-}" "$LIST"
 exit $?
