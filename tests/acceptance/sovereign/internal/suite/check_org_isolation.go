@@ -67,15 +67,20 @@ import (
 //
 //	ISO-1 the three kubeconfig Secrets of A exist in r and hold one kubeconfig,
 //	      which reaches the vCluster of A; that kubeconfig lists its own
-//	      namespace and dial Pod, no namespace of the host (catalyst-system,
-//	      openbao, gitea, the host namespaces of A and B) and no dial Pod of B.
+//	      namespace and dial Pod, no namespace of the host (by its UID: no
+//	      namespace that the kubeconfig of r lists, which holds catalyst-system,
+//	      openbao, gitea and the host namespaces of A and B; and by name: none
+//	      of these but A's own) and no dial Pod of B.
 //	ISO-2 the Pod of A times out on the DNS Service of B in r, on a DNS Pod of
 //	      B in r and on a DNS Pod of B in p (the selector of the fence across
 //	      the mesh). Before that the Pod of B in r connects to the DNS Service
 //	      and the DNS Pod of B in r, so these targets answer.
 //	ISO-3 it times out on the ClusterIP of openbao/openbao:8200,
 //	      gitea/gitea-http:3000 and catalyst-system/catalyst-api:8080, each a
-//	      Service with a ready endpoint (or the row fails).
+//	      Service with a ready endpoint (or the row fails). A headless Service
+//	      (gitea/gitea-http has clusterIP None) has no ClusterIP: it is dialed
+//	      at every ready endpoint address on its port, one row each, and has
+//	      at least one such endpoint (or the row fails).
 //	ISO-4 it times out on the ClusterIP of the host API server
 //	      (default/kubernetes:443, with a ready endpoint), on port 10250 of the
 //	      InternalIP of every Ready node of r and on 169.254.169.254:80.
@@ -122,8 +127,13 @@ var isoPlatform = []DialTarget{
 }
 
 // isoHostNamespaces are namespaces of the host that the kubeconfig of A must
-// not list, besides the host namespaces of A and B.
+// not list, besides the host namespaces of A and B. ISO-1 judges every host
+// namespace by its UID; these must be among those the host lists, or the
+// comparison proves nothing.
 var isoHostNamespaces = []string{"catalyst-system", "openbao", "gitea"}
+
+// isoNamespaceUIDs is the output of ISO-1's namespace list: name=uid of each.
+const isoNamespaceUIDs = `jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}{" "}{end}`
 
 // isoServerRE finds the host of the https server of a kubeconfig.
 var isoServerRE = regexp.MustCompile(`(?m)^\s*server:\s*"?https://([^:/\s"]+)`)
@@ -438,21 +448,47 @@ func (j *isoJourney) startPods(ctx context.Context) bool {
 }
 
 // listOwn is the second half of ISO-1: what the kubeconfig of A lists.
+//
+// A namespace is judged by its identity (metadata.uid), not by its name: a
+// name collides by design. The organization controller creates inside the
+// vCluster of every Organization a namespace with exactly the name of the
+// Organization's host namespace, the target namespace of its Applications
+// (appsNamespaceTemplate, core/controllers/organization/internal/gitops/
+// manifests.go), and the vCluster holds a namespace keycloak for the host
+// Service keycloak/keycloak it replicates. So the kubeconfig of A lists
+// iso-a-<tag> as the vCluster's own object, and its name proves nothing about
+// the host. A host namespace seen through the kubeconfig of A carries the UID
+// that the kubeconfig of the region reads for it, so every namespace A lists
+// must carry a UID and none may carry a host's. The collision covers only
+// those two names: the host namespace of B, catalyst-system, openbao and gitea
+// still fail by name whatever their UID (B's Kustomization applied through the
+// kubeconfig of A, or a mapping from the host, would create them). Any other
+// namespace named like a host namespace with another UID is the vCluster's own
+// and is recorded, not failed.
+//
+// The Pods of B are judged by name, and that name cannot collide: the dial Pod
+// of B is <ns>/pol-dial-<tag>b-1, a name that carries the run of B, nothing in
+// the vCluster of A creates it, and the syncer writes no Pod from the host into
+// a vCluster (on the host the Pod is <name>-x-<ns>-x-vcluster anyway).
 func (j *isoJourney) listOwn(ctx context.Context) {
 	for _, region := range j.cc.Regions {
-		j.step("ISO-1: the kubeconfig of A in region "+region.ID+" lists its namespace "+j.ns+" and its dial Pod, and no namespace of the host and no dial Pod of B", func(ev Evidence) error {
+		j.step("ISO-1: the kubeconfig of A in region "+region.ID+" lists its namespace "+j.ns+" and its dial Pod, and no namespace of the host (by UID) and no dial Pod of B", func(ev Evidence) error {
 			v := j.a.vc[region.ID]
 			k := j.vcKubectl(v)
-			out, err := k(v.region, ctx, nil, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+			namespaces, uids, err := isoNamespaces(ctx, k, v.region)
 			if err != nil {
 				return err
 			}
-			namespaces := strings.Fields(string(out))
-			if out, err = k(v.region, ctx, nil, "get", "pods", "-A", "-o", `jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}`); err != nil {
+			out, err := k(v.region, ctx, nil, "get", "pods", "-A", "-o", `jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}`)
+			if err != nil {
 				return err
 			}
 			pods := strings.Fields(string(out))
-			ev["region"], ev["namespaces"], ev["pods"] = region.ID, namespaces, pods
+			hostNames, hostUIDs, err := isoNamespaces(ctx, j.c.kubectl, region)
+			if err != nil {
+				return err
+			}
+			ev["region"], ev["namespaces"], ev["pods"], ev["host_namespaces"] = region.ID, namespaces, pods, len(hostNames)
 			own := v.dialer.Pods()
 			switch {
 			case !contains(namespaces, j.ns):
@@ -461,10 +497,33 @@ func (j *isoJourney) listOwn(ctx context.Context) {
 				return fmt.Errorf("the kubeconfig of A lists no Pod %v of its own, so the list proves nothing", own)
 			}
 			for _, ns := range append([]string{j.a.namespace, j.b.namespace}, isoHostNamespaces...) {
-				if contains(namespaces, ns) {
-					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host", ns)
+				if hostUIDs[ns] == "" {
+					return fmt.Errorf("the kubeconfig of region %s lists no namespace %s with a UID, so the identity of the namespaces of A proves nothing", region.ID, ns)
 				}
 			}
+			host := map[string]string{} // UID -> name of every host namespace
+			for _, ns := range hostNames {
+				if hostUIDs[ns] != "" {
+					host[hostUIDs[ns]] = ns
+				}
+			}
+			named := append([]string{j.b.namespace}, isoHostNamespaces...) // never the vCluster's own name
+			twins := []string{}
+			for _, ns := range namespaces {
+				if uids[ns] == "" {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s without a UID, so the identity proves nothing", ns)
+				}
+				if name, ok := host[uids[ns]]; ok {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host (it lists %s with the host's UID %s)", name, ns, uids[ns])
+				}
+				if contains(named, ns) {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host by name (with the UID %s)", ns, uids[ns])
+				}
+				if hostUIDs[ns] != "" {
+					twins = append(twins, ns+"="+uids[ns]+" (host "+hostUIDs[ns]+")")
+				}
+			}
+			ev["own_namespaces_named_like_host_namespaces"] = twins
 			for _, p := range j.b.vc[region.ID].dialer.Pods() {
 				if contains(pods, p) {
 					return fmt.Errorf("the kubeconfig of A lists the Pod %s of B", p)
@@ -473,6 +532,20 @@ func (j *isoJourney) listOwn(ctx context.Context) {
 			return nil
 		})
 	}
+}
+
+// isoNamespaces lists the namespaces that k reaches in r, by name, and the UID of each.
+func isoNamespaces(ctx context.Context, k kubectlFunc, r kube.Region) ([]string, map[string]string, error) {
+	out, err := k(r, ctx, nil, "get", "namespaces", "-o", isoNamespaceUIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	names, uids := []string{}, map[string]string{}
+	for _, f := range strings.Fields(string(out)) {
+		name, uid, _ := strings.Cut(f, "=")
+		names, uids[name] = append(names, name), uid
+	}
+	return names, uids, nil
 }
 
 // readTargets reads the targets of every region.
@@ -497,17 +570,26 @@ func (j *isoJourney) readTargets(ctx context.Context) bool {
 			}
 			host := &Dialer{Kubectl: j.c.kubectl, Region: region}
 			for _, s := range isoPlatform {
-				ip, err := isoClusterIP(ctx, host, s)
+				addrs, headless, err := isoAddresses(ctx, host, s)
 				if err != nil {
 					return err
 				}
-				t.rest = append(t.rest, isoRow{"ISO-3", "the Service " + s.Namespace + "/" + s.Service, DialTarget{Address: ip, Port: s.Port}})
+				what := "the Service " + s.Namespace + "/" + s.Service
+				if headless {
+					what = "a ready endpoint of the headless Service " + s.Namespace + "/" + s.Service
+				}
+				for _, a := range addrs {
+					t.rest = append(t.rest, isoRow{"ISO-3", what, DialTarget{Address: a, Port: s.Port}})
+				}
 			}
 			api := DialTarget{Namespace: "default", Service: "kubernetes", Port: 443}
-			if ip, err = isoClusterIP(ctx, host, api); err != nil {
+			addrs, _, err := isoAddresses(ctx, host, api)
+			if err != nil {
 				return err
 			}
-			t.rest = append(t.rest, isoRow{"ISO-4", "the host API server (default/kubernetes)", DialTarget{Address: ip, Port: api.Port}})
+			for _, a := range addrs {
+				t.rest = append(t.rest, isoRow{"ISO-4", "the host API server (default/kubernetes)", DialTarget{Address: a, Port: api.Port}})
+			}
 			nodes, err := isoNodes(ctx, j.c.kubectl, region)
 			if err != nil {
 				return err
@@ -526,26 +608,85 @@ func (j *isoJourney) readTargets(ctx context.Context) bool {
 	return ok
 }
 
-// isoClusterIP is the ClusterIP of the Service t in the region of host. The
-// Service must have a ready endpoint: without one nothing listens, and a
-// timeout would prove nothing.
-func isoClusterIP(ctx context.Context, host *Dialer, t DialTarget) (string, error) {
+// isoAddresses are the addresses at which the Service t of the region of host
+// is dialed on t.Port, and whether it is headless. A Service with a ClusterIP
+// is dialed at its ClusterIP and must have a ready endpoint: without one
+// nothing listens, and a timeout would prove nothing. A headless Service
+// (clusterIP None, as gitea/gitea-http of the upstream gitea chart) has no
+// address of its own: its clients reach its ready endpoints directly, so those
+// are its listeners, and every ready endpoint address whose EndpointSlice
+// serves TCP port t.Port is dialed; at least one must exist.
+func isoAddresses(ctx context.Context, host *Dialer, t DialTarget) ([]string, bool, error) {
 	out, err := host.Kubectl(host.Region, ctx, nil, "-n", t.Namespace, "get", "service", t.Service, "-o", "jsonpath={.spec.clusterIP}")
 	if err != nil {
-		return "", err
+		return nil, false, err
 	}
 	ip := strings.TrimSpace(string(out))
+	if ip == "None" {
+		var addrs []string
+		if addrs, err = isoReadyAddresses(ctx, host, t); err == nil && len(addrs) == 0 {
+			err = fmt.Errorf("the headless Service %s/%s of region %s has no ready endpoint on TCP port %d: nothing listens, so a timeout would prove nothing",
+				t.Namespace, t.Service, host.Region.ID, t.Port)
+		}
+		return addrs, true, err
+	}
 	if net.ParseIP(ip) == nil {
-		return "", fmt.Errorf("the Service %s/%s of region %s has no ClusterIP (%q)", t.Namespace, t.Service, host.Region.ID, ip)
+		return nil, false, fmt.Errorf("the Service %s/%s of region %s has no ClusterIP (%q)", t.Namespace, t.Service, host.Region.ID, ip)
 	}
 	n, err := host.ReadyEndpoints(ctx, t)
 	if err != nil {
-		return "", err
+		return nil, false, err
 	}
 	if n == 0 {
-		return "", fmt.Errorf("the Service %s/%s of region %s has no ready endpoint: nothing listens, so a timeout would prove nothing", t.Namespace, t.Service, host.Region.ID)
+		return nil, false, fmt.Errorf("the Service %s/%s of region %s has no ready endpoint: nothing listens, so a timeout would prove nothing", t.Namespace, t.Service, host.Region.ID)
 	}
-	return ip, nil
+	return []string{ip}, false, nil
+}
+
+// isoSlices is what the check reads of a list of EndpointSlices.
+type isoSlices struct {
+	Items []struct {
+		Endpoints []struct {
+			Addresses  []string `json:"addresses"`
+			Conditions struct {
+				Ready *bool `json:"ready"`
+			} `json:"conditions"`
+		} `json:"endpoints"`
+		Ports []struct {
+			Name     string `json:"name"`
+			Port     *int   `json:"port"`
+			Protocol string `json:"protocol"`
+		} `json:"ports"`
+	} `json:"items"`
+}
+
+// isoReadyAddresses are the addresses of the ready endpoints of the Service t
+// in the region of host, from its EndpointSlices that serve TCP port t.Port;
+// an endpoint whose ready condition is not set counts as ready.
+func isoReadyAddresses(ctx context.Context, host *Dialer, t DialTarget) ([]string, error) {
+	out, err := host.Kubectl(host.Region, ctx, nil, "-n", t.Namespace, "get", "endpointslices", "-l", "kubernetes.io/service-name="+t.Service, "-o", "json")
+	if err != nil {
+		return nil, fmt.Errorf("read the EndpointSlices of the Service %s/%s: %v", t.Namespace, t.Service, err)
+	}
+	var list isoSlices
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("the EndpointSlices of the Service %s/%s are not JSON: %v", t.Namespace, t.Service, err)
+	}
+	var addrs []string
+	for _, s := range list.Items {
+		serves := false
+		for _, p := range s.Ports {
+			serves = serves || (p.Port != nil && *p.Port == t.Port && (p.Protocol == "TCP" || p.Protocol == ""))
+		}
+		for _, e := range s.Endpoints {
+			for _, a := range e.Addresses {
+				if serves && (e.Conditions.Ready == nil || *e.Conditions.Ready) && net.ParseIP(a) != nil && !contains(addrs, a) {
+					addrs = append(addrs, a)
+				}
+			}
+		}
+	}
+	return addrs, nil
 }
 
 // isoDNSPod is the address and the TCP port of a ready endpoint of the DNS
@@ -555,21 +696,7 @@ func isoDNSPod(ctx context.Context, k kubectlFunc, r kube.Region) (DialTarget, e
 	if err != nil {
 		return DialTarget{}, err
 	}
-	var list struct {
-		Items []struct {
-			Endpoints []struct {
-				Addresses  []string `json:"addresses"`
-				Conditions struct {
-					Ready *bool `json:"ready"`
-				} `json:"conditions"`
-			} `json:"endpoints"`
-			Ports []struct {
-				Name     string `json:"name"`
-				Port     *int   `json:"port"`
-				Protocol string `json:"protocol"`
-			} `json:"ports"`
-		} `json:"items"`
-	}
+	var list isoSlices
 	if err := json.Unmarshal(out, &list); err != nil {
 		return DialTarget{}, fmt.Errorf("the EndpointSlices of the DNS Service of %s are not JSON: %v", r.ID, err)
 	}
