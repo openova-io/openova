@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T17:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-20T17:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
 | 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T10:03 | [#8485](https://github.com/openova-io/openova/pull/8485) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:08 | [#8484](https://github.com/openova-io/openova/pull/8484) | #8483 | fix(console): the wizard and the overview page state the reg |
 | 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
-| 2026-11-20T09:21 | [#8481](https://github.com/openova-io/openova/pull/8481) | #7087 | docs(ledger): plan update |
 
 ---
 
