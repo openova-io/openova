@@ -25,12 +25,14 @@ import (
 // From the installed cutover chart the bootstrap reads only what staging needs:
 // the image and the Gitea and upstream settings of step 01, the kit rewrite and
 // UPSTREAM_PREFIX of step 06, the pin extractor (03b) and, on a Sovereign with
-// follower regions, the follower pivot Job of step 06. Its contract with a
-// chart version: platform/self-sovereign-cutover/chart/README.md, "Release
+// follower regions, the follower pivot Job of step 06; when step 11 carries it,
+// its package-line rewrite and settings (SOV-522). Its contract with a chart
+// version: platform/self-sovereign-cutover/chart/README.md, "Release
 // mechanism".
 const (
 	mirrorStepConfigMap    = "cutover-step-01-gitea-mirror"
 	pivotStepConfigMap     = "cutover-step-06-helmrepository-patches"
+	providerStepConfigMap  = "cutover-step-11-crossplane-provider-pivot"
 	pinsConfigMap          = "cutover-bootstrap-kit-pins"
 	followerPivotConfigMap = "cutover-secondary-pivot-script"
 	secondaryKubeconfigs   = "cutover-secondary-kubeconfigs"
@@ -75,6 +77,10 @@ type releaseInputs struct {
 	followers      int
 	followerNames  []string // the follower regions, as the state names them
 	cutoverRelease string   // <namespace>/<name> of the cutover HelmRelease
+	// providerEnv is step 11's settings of its package-line rewrite, set when
+	// its ConfigMap carries provider-pivot.sh (SOV-522); the primary's stage
+	// then applies that rewrite again to a Provider file a candidate changes.
+	providerEnv []corev1.EnvVar
 	// promotedFrom and promotedTo are what the promote of the region a
 	// rollback names recorded (SOV-521): the main of the stage and the commit
 	// pushed.
@@ -193,6 +199,9 @@ func readReleaseInputs(ctx context.Context, cs kubernetes.Interface, ns string) 
 			return nil, &dependencyError{fmt.Sprintf("step 06 (%s) sets no UPSTREAM_PREFIX", pivotStepConfigMap)}
 		}
 	}
+	if in.providerEnv, err = readProviderPivot(ctx, cs, ns); err != nil {
+		return nil, err
+	}
 
 	sec, err := cs.CoreV1().Secrets(ns).Get(ctx, secondaryKubeconfigs, metav1.GetOptions{})
 	switch {
@@ -220,6 +229,36 @@ func readReleaseInputs(ctx context.Context, cs kubernetes.Interface, ns string) 
 		in.follower, in.followerNS = &job, job.Namespace
 	}
 	return in, nil
+}
+
+// readProviderPivot reads cutover step 11's package-line rewrite (SOV-522):
+// when its ConfigMap carries provider-pivot.sh, the variables the stage runs it
+// with (step 11's own settings); otherwise none, and the stage refuses a
+// conflict on a Provider file as before.
+func readProviderPivot(ctx context.Context, cs kubernetes.Interface, ns string) ([]corev1.EnvVar, error) {
+	cm, err := cs.CoreV1().ConfigMaps(ns).Get(ctx, providerStepConfigMap, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(cm.Data["provider-pivot.sh"]) == "" {
+		return nil, nil
+	}
+	ps, err := podSpecOf(cm)
+	if err != nil {
+		return nil, err
+	}
+	env := []corev1.EnvVar{plain("PROVIDER_PIVOT", "/provider-pivot/provider-pivot.sh")}
+	for _, n := range []string{"SOVEREIGN_FQDN", "REGISTRY_PATH", "UPSTREAM_HOST", "MOTHERSHIP_PROXY_PREFIX"} {
+		v, _ := envValue(ps.Containers[0].Env, n)
+		if v == "" && n != "MOTHERSHIP_PROXY_PREFIX" {
+			return nil, &dependencyError{fmt.Sprintf("step 11 (%s) sets no %s", providerStepConfigMap, n)}
+		}
+		env = append(env, plain(n, v))
+	}
+	return env, nil
 }
 
 // releaseRequest is the body of PUT /api/v1/sovereign/release. Region names
@@ -283,6 +322,10 @@ func (in *releaseInputs) runContainer(name, phase, ns, job string, req releaseRe
 		{Name: "release-pins", MountPath: "/pin-extractor", ReadOnly: true},
 		{Name: "release-state", MountPath: "/release-state"},
 		{Name: "release-secondary-kubeconfigs", MountPath: "/secondary-kubeconfigs", ReadOnly: true},
+	}
+	if in.providerEnv != nil {
+		c.Env = setEnvs(c.Env, in.providerEnv...)
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: "release-provider-pivot", MountPath: "/provider-pivot", ReadOnly: true})
 	}
 	return c
 }
@@ -397,6 +440,11 @@ func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labe
 		{Name: "release-state", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "release-secondary-kubeconfigs", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
 			SecretName: secondaryKubeconfigs, Optional: &optional}}},
+	}
+	if in.providerEnv != nil {
+		vols = append(vols, corev1.Volume{Name: "release-provider-pivot", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: providerStepConfigMap},
+			Items:                []corev1.KeyToPath{{Key: "provider-pivot.sh", Path: "provider-pivot.sh"}}}}})
 	}
 	pod := corev1.PodSpec{
 		ServiceAccountName: in.mirrorPod.ServiceAccountName,

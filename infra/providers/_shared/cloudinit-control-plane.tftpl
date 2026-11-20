@@ -921,6 +921,19 @@ CILIUMVALUES
             # cluster renders its own half of the CNPG pair (the chart
             # normalizes "secondary" → replica).
             SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
+            # SECONDARY_HR_SUSPEND and SECONDARY_EDGE_SUSPEND (CLD-133) are
+            # computed from the same region role for every provider. They sat
+            # in one pack's substitutes only, so a secondary control plane of
+            # another pack fell to the kit defaults and ran the primary-only
+            # slots (the umbrella bp-catalyst-platform among them, G2 #2574).
+            # SECONDARY_HR_SUSPEND is "true" on every secondary control plane:
+            # the slots that read it stay suspended there.
+            # SECONDARY_EDGE_SUSPEND is its inverse (#5289): kit slot 13e
+            # un-suspends only on a secondary control plane, where it proxies
+            # the api, console and marketplace hosts to the primary's
+            # singletons. A single-region Sovereign has only the primary.
+            SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
+            SECONDARY_EDGE_SUSPEND: "${sovereign_region_role == "primary" ? "true" : "false"}"
             SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
             SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
 %{ if provider_substitutes_yaml != "" ~}

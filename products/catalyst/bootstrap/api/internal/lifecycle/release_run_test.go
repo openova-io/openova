@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // kubectlStub stands for kubectl in release-run.sh (a shell function named
@@ -745,5 +748,114 @@ func TestReleaseRunDeliversOneRegionThroughTheCandidatesMechanism(t *testing.T) 
 	}
 	if st["region-b.promotedTo"] != bStaged || st["primary.promotedTo"] != "" {
 		t.Fatalf("the state: region-b.promotedTo %q (want %s), primary.promotedTo %q", st["region-b.promotedTo"], bStaged, st["primary.promotedTo"])
+	}
+}
+
+// providerPath is the Provider whose package line cutover step 11 rewrote
+// when a candidate changed it (SOV-522).
+const providerPath = "clusters/_template/infrastructure/providers/base/provider-opentofu.yaml"
+
+func providerYAML(pkg string) string {
+	return "apiVersion: pkg.crossplane.io/v1\nkind: Provider\nmetadata:\n  name: provider-opentofu\nspec:\n  package: " + pkg + "\n"
+}
+
+// step11 is cutover step 11's ConfigMap: the chart's own provider-pivot.sh and
+// the settings of its container.
+func step11(t *testing.T) *corev1.ConfigMap {
+	return cm(providerStepConfigMap, map[string]string{
+		"provider-pivot.sh": chartScript(t, "11-crossplane-provider-pivot-job.yaml", "provider-pivot.sh"),
+		"podSpec": "containers:\n  - name: crossplane-provider-pivot\n    env:\n      - {name: SOVEREIGN_FQDN, value: test.example}\n" +
+			"      - {name: REGISTRY_PATH, value: proxy-xpkg}\n      - {name: UPSTREAM_HOST, value: xpkg.upbound.io}\n" +
+			"      - {name: MOTHERSHIP_PROXY_PREFIX, value: harbor.parent.example/proxy-xpkg}\n"})
+}
+
+// The bootstrap's stage runs step 11's provider-pivot.sh with step 11's own
+// settings when the installed chart carries it, and nothing of it otherwise.
+func TestReleaseBootstrapCarriesTheProviderPivotOfStep11(t *testing.T) {
+	for _, c := range []struct {
+		extra []runtime.Object
+		want  string
+	}{{nil, ""}, {[]runtime.Object{step11(t)}, "PROVIDER_PIVOT=/provider-pivot/provider-pivot.sh SOVEREIGN_FQDN=test.example REGISTRY_PATH=proxy-xpkg " +
+		"UPSTREAM_HOST=xpkg.upbound.io MOTHERSHIP_PROXY_PREFIX=harbor.parent.example/proxy-xpkg mount=/provider-pivot volume=" + providerStepConfigMap + ":provider-pivot.sh"}} {
+		in, err := readReleaseInputs(context.Background(), fake.NewSimpleClientset(append(installed(false, false), c.extra...)...), testNS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		job, _, err := composeRelease(in, releaseRequest{Candidate: testCandidate}, testNS, "sovereign-release", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pod, got := job.Spec.Template.Spec, []string{}
+		for _, e := range pod.InitContainers[0].Env {
+			if strings.Contains(" PROVIDER_PIVOT SOVEREIGN_FQDN REGISTRY_PATH UPSTREAM_HOST MOTHERSHIP_PROXY_PREFIX ", " "+e.Name+" ") {
+				got = append(got, e.Name+"="+e.Value)
+			}
+		}
+		for _, m := range pod.InitContainers[0].VolumeMounts {
+			if m.Name == "release-provider-pivot" {
+				got = append(got, "mount="+m.MountPath)
+			}
+		}
+		for _, v := range pod.Volumes {
+			if v.Name == "release-provider-pivot" && v.ConfigMap != nil && len(v.ConfigMap.Items) == 1 {
+				got = append(got, "volume="+v.ConfigMap.Name+":"+v.ConfigMap.Items[0].Key)
+			}
+		}
+		if strings.Join(got, " ") != c.want {
+			t.Fatalf("the stage container carries\n%s\nwant\n%s", strings.Join(got, " "), c.want)
+		}
+	}
+}
+
+// A candidate that changes a package line step 11 rewrote: the stage, run with
+// the environment the bootstrap gives it, takes the candidate's line and
+// applies step 11's rewrite again; without step 11's file it refuses, as before.
+func TestReleaseStageReappliesTheProviderPivotOfStep11(t *testing.T) {
+	f := newFixture(t)
+	in, err := readReleaseInputs(context.Background(), fake.NewSimpleClientset(append(installed(false, false), step11(t))...), testNS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.write(f.scripts, "provider-pivot.sh", chartScript(t, "11-crossplane-provider-pivot-job.yaml", "provider-pivot.sh"))
+	var env []string
+	for _, e := range in.providerEnv {
+		env = append(env, e.Name+"="+strings.Replace(e.Value, "/provider-pivot/", f.scripts+"/", 1))
+	}
+	// The installed release gains the Provider; the Sovereign's main merges it
+	// and commits step 11's rewrite, as the cutover did.
+	w, s := f.dir+"/work", f.dir+"/sovereign"
+	f.write(w, providerPath, providerYAML("xpkg.upbound.io/upbound/provider-opentofu@sha256:"+strings.Repeat("a", 64)))
+	f.git(w, "add", "-A")
+	f.git(w, "commit", "-q", "-m", "installed release with a Provider")
+	f.installed = f.git(w, "rev-parse", "HEAD")
+	f.git(w, "push", "-q", f.upstream, "main")
+	f.git(s, "pull", "-q", "--no-rebase", "--no-edit", f.upstream, "main")
+	cmd := command("sh", "-c", `. "$PROVIDER_PIVOT"; provider_pivot_target; lookup_pkg_digest() { :; }; edited=0; provider_pivot_file "$1"`, "step11", providerPath)
+	cmd.Dir, cmd.Env = s, append(os.Environ(), env...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("step 11: %v\n%s", err, out)
+	}
+	f.git(s, "commit", "-q", "-am", "cutover: pivot Crossplane Provider spec.package")
+	f.main = f.git(s, "rev-parse", "HEAD")
+	f.git(s, "push", "-q", f.repo, "HEAD:refs/heads/main")
+	newPkg := "upbound/provider-opentofu@sha256:" + strings.Repeat("b", 64)
+	id, _ := f.candidate(1, func(w string) { f.write(w, providerPath, providerYAML("xpkg.upbound.io/"+newPkg)) })
+
+	out, code := f.region([]string{"sh"}, "PHASE=stage", "CANDIDATE="+id)
+	if r := resultOf(out); code != 3 || r["phase"] != "conflict" || !strings.Contains(out, "release-report region=primary conflict "+providerPath) {
+		t.Fatalf("without step 11's file: exit %d, result %v, want a conflict on %s\n%s", code, r, providerPath, out)
+	}
+	for _, sh := range shells() {
+		out, code = f.region(sh, append([]string{"PHASE=stage", "CANDIDATE=" + id}, env...)...)
+		r := resultOf(out)
+		if code != 0 || r["phase"] != "staged" {
+			t.Fatalf("%v: stage: exit %d, result %v\n%s", sh, code, r, out)
+		}
+		if got, want := f.show(r["staged"], providerPath), strings.TrimSuffix(providerYAML("harbor.test.example/proxy-xpkg/"+newPkg), "\n"); got != want {
+			t.Fatalf("%v: the staged Provider is\n%s\nwant the candidate's line with step 11's rewrite\n%s", sh, got, want)
+		}
+		if !strings.Contains(out, "resolved "+providerPath+": the content of rc/"+id+", this region's registry rewrite (provider) applied again") || f.remote("main") != f.main {
+			t.Fatalf("%v: the report does not name the Provider as taken from the candidate, or main moved\n%s", sh, out)
+		}
 	}
 }
