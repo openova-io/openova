@@ -80,7 +80,16 @@
 #          origin fills a proxied image's blobs some minutes after its manifest
 #          was first asked for, so the manifest is asked for once more and the
 #          blobs are read again until PROBE_FILL_WAIT (default 10m) has passed;
-#          still missing then is NEVER FILLED;
+#        - still missing then, it is asked for by GET at the origin
+#          (ORIGIN_REGISTRY_SCHEME://ORIGIN_REGISTRY_HOST of the document, the
+#          same proxy project, the node's login; a pull, never a push): the
+#          origin stores a proxied blob only on a GET of it, and the relay in
+#          front of it asks by HEAD first, so no wait fills it (20 Nov 2026:
+#          eight blobs of 67-351 bytes of two cilium images, warmed by hand).
+#          Smallest first, at most PROBE_FILL_MAX_BYTES (16 MiB) a run: a
+#          larger layer is left to the origin's own pull. The node path is
+#          read again until PROBE_FILL_SETTLE (2m); the run names every object
+#          it filled with its size; still missing then is NEVER FILLED;
 #        - an index served with its linux/amd64 child unknown is a DAMAGED CACHE
 #          ENTRY, the repository named. Only a registry-side repair helps
 #          (story SOV-162); this check deletes nothing;
@@ -98,7 +107,8 @@
 #   scripts/check-mothership-proxy-image-path.sh --self-test          # stand-in registry and a fixture kit
 # Needs bash, jq, yq (v4), helm and Go (the list and the probe), curl (self-test).
 # Env: PROBE_PARALLEL (4), PROBE_TIMEOUT (25s), PROBE_FILL_WAIT (10m),
-#      PROBE_FILL_EVERY (20s), MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
+#      PROBE_FILL_EVERY (20s), PROBE_FILL_SETTLE (2m), PROBE_FILL_MAX_BYTES
+#      (16777216), MIRROR_TF, CLOUDINIT, HARBOR_ROBOT_USER,
 #      KIT_VALUE_SETS (see check-freshprov-image-registry.sh).
 # Exit: 0 every image resolved whole; 1 at least one failed; 2 nothing could be
 #       judged (no credential, no variables document, a source without image,
@@ -113,6 +123,8 @@ PROBE_PARALLEL="${PROBE_PARALLEL:-4}"
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-25s}"
 PROBE_FILL_WAIT="${PROBE_FILL_WAIT:-10m}"
 PROBE_FILL_EVERY="${PROBE_FILL_EVERY:-20s}"
+PROBE_FILL_SETTLE="${PROBE_FILL_SETTLE:-2m}"
+PROBE_FILL_MAX_BYTES="${PROBE_FILL_MAX_BYTES:-16777216}"
 MIRROR_TF="${MIRROR_TF:-${REPO_ROOT}/infra/providers/huawei/main.tf}"
 MODULE_REL="$(dirname "${MIRROR_TF#"${REPO_ROOT}"/}")"   # the module folder, under the repository root
 FIRST_PARTY_RE='^ghcr\.io/openova-io/openova/'
@@ -196,6 +208,13 @@ node_map() {
 # first segment of each project path), as a JSON list.
 proxy_projects() {
   jq -c -e '.REGISTRY_PROXY_PROJECTS_JSON | fromjson | [.[] | select(. != "") | split("/")[0]] | unique' "$1"
+}
+
+# origin_url <document.json> — the origin registry, scheme and host, whose
+# proxy projects the node path fronts; empty when the document names none.
+origin_url() {
+  jq -r 'if (.ORIGIN_REGISTRY_SCHEME // "") != "" and (.ORIGIN_REGISTRY_HOST // "") != ""
+         then .ORIGIN_REGISTRY_SCHEME + "://" + .ORIGIN_REGISTRY_HOST else empty end' "$1"
 }
 
 # node_user <main.tf> — the login the module writes into the `configs` of the map.
@@ -314,7 +333,8 @@ build_image_list() {
 # probe <list> — the walk of every image; the summary line is the tool's.
 run_probe() {
   PROBE_USER="$1" PROBE_TOKEN="$2" "$TOOL" probe -parallel "$PROBE_PARALLEL" -timeout "$PROBE_TIMEOUT" \
-    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" < "$3"
+    -fill-wait "$PROBE_FILL_WAIT" -fill-every "$PROBE_FILL_EVERY" -fill-settle "$PROBE_FILL_SETTLE" \
+    -fill-max-bytes "$PROBE_FILL_MAX_BYTES" < "$3"
 }
 
 # ─── Self-test ─────────────────────────────────────────────────────────────
@@ -370,12 +390,15 @@ if [ "$MODE" = "self-test" ]; then
   fport="$(cat "$port_file")"
   # The map the module builds from its test's document with every origin
   # pointed at the stand-in: the same SHAPE as a real one.
-  jq --arg o "http://127.0.0.1:${fport}" '.ORIGIN_PROXY_ENDPOINTS_JSON |= (fromjson | map_values($o) | tojson)' \
+  jq --arg o "http://127.0.0.1:${fport}" --arg h "127.0.0.1:${fport}" \
+    '.ORIGIN_PROXY_ENDPOINTS_JSON |= (fromjson | map_values($o) | tojson) | .ORIGIN_REGISTRY_SCHEME = "http" | .ORIGIN_REGISTRY_HOST = $h' \
     "$HWDOC" > "${WORK}/fixture-doc.json"
   fixture_mirrors="$(node_map "${WORK}/fixture-doc.json" "$HWTF" 1)"
   PROBE_PROXY_PROJECTS="$(proxy_projects "${WORK}/fixture-doc.json")"
-  export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS
-  PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms
+  PROBE_ORIGIN="$(origin_url "${WORK}/fixture-doc.json")"
+  export PROBE_MIRRORS="$fixture_mirrors" PROBE_PROXY_PROJECTS PROBE_ORIGIN
+  expect "the origin the fill asks is read from the document" 0 0 "^http://127.0.0.1:${fport}$" "$PROBE_ORIGIN"
+  PROBE_FILL_WAIT=10s; PROBE_FILL_EVERY=500ms; PROBE_FILL_SETTLE=2s
   node='robot$openova-bot'
   pr() { printf '%s\n' "$@" > "${WORK}/l.txt"; run_probe "$node" stub-node-token "${WORK}/l.txt"; }
   out="$(pr ghcr.io/healthy/app:16 harbor.openova.io/single/app:1.0 harbor.openova.io/redirected/app:1.0 ghcr.io/openova-io/openova/catalyst-api:1)"; rc=$?
@@ -392,6 +415,13 @@ if [ "$MODE" = "self-test" ]; then
   expect "layers not cached yet, then filled -> PASS, and it says so" 0 "$rc" "^PASS ghcr.io/filling/app:1 .*(was not cached yet: filled after" "$out"
   out="$(PROBE_FILL_WAIT=2s pr ghcr.io/neverfill/app:1)"; rc=$?
   expect "layers not cached yet and never filled -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/neverfill/app:1 (NEVER FILLED)$" "$out"
+  out="$(PROBE_FILL_WAIT=1s pr ghcr.io/getfill/app:1)"; rc=$?
+  expect "a blob the origin stores only on a GET -> filled by a GET there, PASS" 0 "$rc" "^PASS ghcr.io/getfill/app:1 .*(was not cached yet: filled by a GET at the origin, 1 object(s), 67 bytes)$" "$out"
+  expect "  the run counts it" 0 "$rc" "filled 1 object(s), 67 bytes, by a GET through the origin's proxy project at http://127.0.0.1:${fport} " "$out"
+  expect "  and names it with its size" 0 "$rc" "^    filled proxy-ghcr/getfill/app@sha256:1\{64\} 67 bytes$" "$out"
+  out="$(PROBE_FILL_WAIT=1s pr ghcr.io/bigfill/app:1)"; rc=$?
+  expect "a layer over the fill bound is not fetched -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/bigfill/app:1 (NEVER FILLED)$" "$out"
+  expect "  and the line names the bound" 1 "$rc" "^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .* of 3221225472 bytes is over the fill bound of 16777216 bytes a run" "$out"
   out="$(pr ghcr.io/openova-io/openova/gone:920753e)"; rc=$?
   expect "a first-party image the hosted project lacks -> MISSING AT THE ORIGIN" 1 "$rc" "^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/gone:920753e (MISSING AT THE ORIGIN)$" "$out"
   printf 'ghcr.io/healthy/app:16\n' > "${WORK}/one.txt"
@@ -523,7 +553,7 @@ YAML
   expect "a source that yields no image FAILS the list" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'k3s' yielded no image" "$out"
   echo ""
   if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path check is broken." >&2; exit 1; fi
-  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
+  echo "SELF-TEST PASSED — builds the map the modules build, walks index, child, config and every layer with the node's login, waits for a blob that is not cached yet, fills by a GET at the origin a blob only a GET fills (within its byte bound), names a damaged cache entry and a first-party image missing at the origin, refuses to run without a credential, and lists one image of each source."
   exit 0
 fi
 
@@ -546,7 +576,8 @@ jq -e '.variables | objects' "$HW_TFVARS" > "${WORK}/variables.json" 2>/dev/null
   && MIRRORS="$(node_map "${WORK}/variables.json" "$MIRROR_TF" 1)" \
   && PROXIES="$(proxy_projects "${WORK}/variables.json")" \
   || { echo "IMAGE-PATH FAIL 0/0: could not build the node registry map from .variables of $HW_TFVARS with the hosted rewrites of $MIRROR_TF"; exit 2; }
-export PROBE_MIRRORS="$MIRRORS" PROBE_PROXY_PROJECTS="$PROXIES"
+PROBE_ORIGIN="$(origin_url "${WORK}/variables.json")"
+export PROBE_MIRRORS="$MIRRORS" PROBE_PROXY_PROJECTS="$PROXIES" PROBE_ORIGIN
 
 if [ "$MODE" = "resolve" ]; then "$TOOL" resolve "$RESOLVE_REF"; exit $?; fi
 

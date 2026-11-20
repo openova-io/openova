@@ -17,7 +17,15 @@ import (
 // of the map the provider modules build.
 func origin(t *testing.T, opt stubOptions) (string, string) {
 	t.Helper()
-	srv := httptest.NewServer(newStub(opt))
+	_, base, mirrors := originStub(t, opt)
+	return base, mirrors
+}
+
+// originStub is origin that also returns the stand-in, to read what it was asked.
+func originStub(t *testing.T, opt stubOptions) (*stub, string, string) {
+	t.Helper()
+	st := newStub(opt)
+	srv := httptest.NewServer(st)
 	t.Cleanup(srv.Close)
 	m := map[string]mirror{
 		"ghcr.io": {Endpoint: []string{srv.URL}, Rewrite: map[string]string{
@@ -31,7 +39,7 @@ func origin(t *testing.T, opt stubOptions) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return srv.URL, string(b)
+	return st, srv.URL, string(b)
 }
 
 func runWith(t *testing.T, env map[string]string, stdin string, args ...string) (int, string) {
@@ -112,6 +120,90 @@ func TestProbe(t *testing.T) {
 
 	rc, out = runWith(t, env, "quay.io/cilium/cilium:v1\n", fast...)
 	want(t, "a host no mirror serves before the fire", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: quay.io/cilium/cilium:v1 \(NO NODE PATH\)$`)
+}
+
+// TestProbeFill: a proxied blob the origin stores only once it is asked for
+// it by GET, behind a node path that asks by HEAD (20 November 2026: eight
+// blobs of two cilium images, 67 to 351 bytes, warmed by hand before a fire).
+func TestProbeFill(t *testing.T) {
+	opt := stubOptions{user: robot, password: "node-token"}
+	fast := []string{"probe", "-fill-wait", "300ms", "-fill-every", "100ms", "-fill-settle", "1s"}
+	env := func(mirrors, origin, token string) map[string]string {
+		e := probeEnv(mirrors, robot, token)
+		e["PROBE_ORIGIN"] = origin
+		return e
+	}
+	tiny := "sha256:" + strings.Repeat("1", 64)
+	huge := "sha256:" + strings.Repeat("2", 64)
+	blobGets := func(st *stub) []string {
+		var gets []string
+		_, log := st.record()
+		for _, l := range log {
+			if strings.HasPrefix(l, "GET ") && strings.Contains(l, "/blobs/") {
+				gets = append(gets, l)
+			}
+		}
+		return gets
+	}
+
+	// The node path and the origin are one registry here: what the origin
+	// stores, the relay in front of it serves.
+	st, base, mirrors := originStub(t, opt)
+	rc, out := runWith(t, env(mirrors, base, "node-token"), "ghcr.io/getfill/app:1\n", fast...)
+	want(t, "a blob only a GET fills is filled and passes", rc, 0, out, `(?m)^IMAGE-PATH PASS 1 images resolved through the origin`)
+	want(t, "  the image says how", rc, 0, out, `(?m)^PASS ghcr.io/getfill/app:1 -> .*/proxy-ghcr/getfill/app:1 child=- blobs=3 \(was not cached yet: filled by a GET at the origin, 1 object\(s\), 67 bytes\)$`)
+	want(t, "  the run counts 1 filled", rc, 0, out, `(?m)^  ℹ filled 1 object\(s\), 67 bytes, by a GET through the origin's proxy project at http://127\.0\.0\.1:\d+ \(the bound: 16777216 bytes a run, 67 read\)$`)
+	want(t, "  and names it with its size", rc, 0, out, `(?m)^    filled proxy-ghcr/getfill/app@`+tiny+` 67 bytes$`)
+	if g := blobGets(st); len(g) != 1 || g[0] != "GET /v2/proxy-ghcr/getfill/app/blobs/"+tiny {
+		t.Errorf("one GET of the one blob that was missing, at the proxy project, got %q", g)
+	}
+
+	// The origin stores it, the node path still cannot read it.
+	_, _, nodeOnly := originStub(t, opt)
+	far, farBase, _ := originStub(t, opt)
+	rc, out = runWith(t, env(nodeOnly, farBase, "node-token"), "ghcr.io/getfill/app:1\n", fast...)
+	want(t, "still unreadable through the node path after the fill", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/getfill/app:1 \(NEVER FILLED\)$`)
+	want(t, "  naming the blob", rc, 1, out, `(?m)^FAIL ghcr.io/getfill/app:1 NEVER FILLED .*/proxy-ghcr/getfill/app:1 \[1 blob\(s\) not cached yet and still missing after 300ms, first sha256:111111111111; the fill: 1 fetched by a GET at the origin and read again for 1s\]$`)
+	want(t, "  and the run says it is not filled", rc, 1, out, `(?m)^  ℹ filled 0 object\(s\), 0 bytes, .*\n  ⚠ fetched proxy-ghcr/getfill/app@`+tiny+` 67 bytes at the origin, and the node path still does not read it$`)
+	if g := blobGets(far); len(g) != 1 {
+		t.Errorf("the origin is asked once by GET, got %q", g)
+	}
+
+	// A damaged cache entry is a registry repair: nothing is fetched for it.
+	dmg, _, dmgMirrors := originStub(t, opt)
+	far, farBase, _ = originStub(t, opt)
+	rc, out = runWith(t, env(dmgMirrors, farBase, "node-token"), "ghcr.io/damaged/app:16\n", fast...)
+	want(t, "a damaged entry still fails", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/damaged/app:16 \(DAMAGED CACHE ENTRY\)$`)
+	if hits, _ := far.record(); hits != 0 || len(blobGets(dmg)) != 0 {
+		t.Errorf("a damaged entry is never fetched: origin requests=%d, node blob GETs=%q", hits, blobGets(dmg))
+	}
+
+	// The bound: a 3 GiB layer is never read by the pre-flight.
+	st, base, mirrors = originStub(t, opt)
+	rc, out = runWith(t, env(mirrors, base, "node-token"), "ghcr.io/bigfill/app:1\n", fast...)
+	want(t, "the bound stops the fill of a large layer", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/bigfill/app:1 \(NEVER FILLED\)$`)
+	want(t, "  and the line says so", rc, 1, out, `(?m)^FAIL ghcr.io/bigfill/app:1 NEVER FILLED .*\[1 blob\(s\) not cached yet and still missing after 300ms, first sha256:222222222222; the fill: 1 fetched by a GET at the origin and read again for 1s; 1 not fetched, left to the origin's own pull, first sha256:222222222222 of 3221225472 bytes is over the fill bound of 16777216 bytes a run \(67 used\)\]$`)
+	want(t, "  and the run", rc, 1, out, `(?m)^  ⚠ not fetched proxy-ghcr/bigfill/app@`+huge+` 3221225472 bytes: `)
+	want(t, "  the small one is filled all the same", rc, 1, out, `(?m)^    filled proxy-ghcr/bigfill/app@`+tiny+` 67 bytes$`)
+	for _, g := range blobGets(st) {
+		if strings.Contains(g, huge) {
+			t.Errorf("the layer over the bound was asked for: %s", g)
+		}
+	}
+	st, base, mirrors = originStub(t, opt)
+	rc, out = runWith(t, env(mirrors, base, "node-token"), "ghcr.io/getfill/app:1\n", append(fast, "-fill-max-bytes", "66")...)
+	want(t, "a bound below the blob stops it", rc, 1, out, `(?m)^FAIL ghcr.io/getfill/app:1 NEVER FILLED .*; the fill: 1 not fetched, left to the origin's own pull, first sha256:111111111111 of 67 bytes is over the fill bound of 66 bytes a run \(0 used\)\]$`)
+	if g := blobGets(st); len(g) != 0 {
+		t.Errorf("nothing over the bound is fetched, got %q", g)
+	}
+
+	// No credential: nothing is read, nothing is filled.
+	far, farBase, _ = originStub(t, opt)
+	rc, out = runWith(t, env(mirrors, farBase, ""), "ghcr.io/getfill/app:1\n", fast...)
+	want(t, "no credential still fails closed", rc, 2, out, `(?m)^IMAGE-PATH FAIL 0/0: no credential`)
+	if hits, _ := far.record(); hits != 0 {
+		t.Errorf("without a credential the origin is asked nothing, got %d request(s)", hits)
+	}
 }
 
 func TestOriginHas(t *testing.T) {
