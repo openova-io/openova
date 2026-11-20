@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -21,8 +22,11 @@ import (
 // which the node is cordoned, shows a new boot identifier and is uncordoned;
 // -1 is never. While the first node, the control-plane node, is cordoned and
 // has not booted, the API does not answer. The workload Pods of a node move
-// off it once it is cordoned, unless stuck. The clock moves only when the
-// check waits.
+// off it once it is cordoned, unless stuck: each comes back on another node
+// under a new uid, as back says. The name of a workload Pod says its
+// controller: "job-..." a Job, "...-0" a StatefulSet, any other a ReplicaSet
+// of a Deployment (its name up to the last "-"). The clock moves only when
+// the check waits.
 type rebootWorld struct {
 	t          *testing.T
 	clock      time.Time
@@ -33,6 +37,10 @@ type rebootWorld struct {
 	servers    bool                // the DaemonSet can run on control-plane nodes
 	workloads  map[string][]string // node -> the names of its workload Pods ("<namespace>/<name>"); every node also runs a Pod of a DaemonSet
 	stuck      bool                // the workload Pods never move off their node
+	back       map[string]string   // workload Pod -> how it comes back after it moved: "" Ready, "never" never Ready, "pull" waits on its image, "rolled" Ready under a new ReplicaSet
+	waits      map[string]string   // workload Pod that does not move -> "before" its container waits on its image from the start, "after" from the first restart on
+	front      map[string]string   // node -> its endpoint of Service harbor/harbor: "ready", "not ready", "unset" (no condition ready); nil: no endpoint
+	frontErr   error               // of get endpointslices
 	restarts   map[string][3]int   // by node
 	sick       map[string]string   // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
 	noPlanKind bool                // the cluster does not serve the kind of the upgrade Plans
@@ -66,7 +74,37 @@ func newRebootWorld() *rebootWorld {
 		workloads: map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}, "w-1": {"shop/web-1", "shop/db-0"}, "w-2": {"shop/web-2"}},
 		plans:     []obj{rebootPlan("k3s-server", "22:00", "00:00", "UTC", rebootAllDays...), rebootPlan("k3s-agent", "22:00", "00:00", "UTC", rebootAllDays...)},
 		kuredBack: 750, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
-		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}}
+		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}, back: map[string]string{}, waits: map[string]string{}}
+}
+
+// rebootTestPod is workload Pod ns/name on node, with its controller as its
+// name says. hash is the pod-template-hash of a Pod of a ReplicaSet; wait is
+// the reason its container "main" waits with, "init <reason>" the reason of
+// its init container "prepare" (main then waits with PodInitializing), ""
+// none.
+func rebootTestPod(ns, name, uid, node, hash string, ready bool, wait string) obj {
+	meta, base := obj{"namespace": ns, "name": name, "uid": uid}, name[:strings.LastIndex(name, "-")]
+	switch {
+	case strings.HasPrefix(name, "etcd-"):
+		meta["annotations"] = obj{rebootMirror: "x"}
+	case strings.HasPrefix(name, "job-"):
+		meta["ownerReferences"] = []obj{{"kind": "Job", "name": name, "controller": true}}
+	case strings.HasSuffix(name, "-0"):
+		meta["ownerReferences"] = []obj{{"kind": "StatefulSet", "name": base, "controller": true}}
+	default:
+		meta["labels"] = obj{"pod-template-hash": hash}
+		meta["ownerReferences"] = []obj{{"kind": "ReplicaSet", "name": base + "-" + hash, "controller": true}}
+	}
+	image := "registry.example/" + base + ":1"
+	main := obj{"name": "main", "image": image, "state": obj{"running": obj{}}}
+	status := obj{"phase": "Running", "conditions": kubeConditions("Ready", map[bool]string{true: "True", false: "False"}[ready]), "containerStatuses": []obj{main}}
+	if reason, init := strings.CutPrefix(wait, "init "); init {
+		status["initContainerStatuses"] = []obj{{"name": "prepare", "image": image, "state": obj{"waiting": obj{"reason": reason}}}}
+		status["phase"], main["state"] = "Pending", obj{"waiting": obj{"reason": "PodInitializing"}}
+	} else if wait != "" {
+		status["phase"], main["state"] = "Pending", obj{"waiting": obj{"reason": wait}}
+	}
+	return obj{"metadata": meta, "spec": obj{"nodeName": node, "containers": []obj{{"name": "main", "image": image}}}, "status": status}
 }
 
 func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader, args ...string) ([]byte, error) {
@@ -130,29 +168,43 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 				"status": obj{"conditions": kubeConditions("Ready", map[bool]string{true: "True", false: "False"}[ready])}})
 		}
 		return []byte(kubeList(list...)), nil
-	case strings.Contains(joined, " pods -A --field-selector "):
-		_, selector, _ := strings.Cut(joined, " --field-selector ")
+	case strings.HasSuffix(joined, " pods -A"):
 		list := []obj{}
 		for _, node := range w.nodes {
-			if selector != "status.phase=Running" && selector != "spec.nodeName="+node {
-				continue
-			}
 			list = append(list, obj{"metadata": obj{"namespace": "kube-system", "name": "cilium-" + node, "uid": "uid-cilium-" + node,
-				"ownerReferences": []obj{{"kind": "DaemonSet", "name": "cilium"}}}, "spec": obj{"nodeName": node}, "status": obj{"phase": "Running"}})
-			moved := !w.stuck && in(w.restarts[node][0], -1)
+				"ownerReferences": []obj{{"kind": "DaemonSet", "name": "cilium", "controller": true}}}, "spec": obj{"nodeName": node},
+				"status": obj{"phase": "Running", "conditions": kubeConditions("Ready", "True")}})
+			moved, other := !w.stuck && in(w.restarts[node][0], -1), map[bool]string{true: "w-2", false: "w-3"}[node == "w-3"]
 			for _, name := range w.workloads[node] {
 				ns, n, _ := strings.Cut(name, "/")
-				meta := obj{"namespace": ns, "name": n, "uid": "uid-" + n, "ownerReferences": []obj{{"kind": "ReplicaSet", "name": n}}}
-				if strings.HasPrefix(n, "etcd-") {
-					meta = obj{"namespace": ns, "name": n, "uid": "uid-" + n, "annotations": obj{rebootMirror: "x"}}
+				wait := map[string]string{"before": "init ErrImagePull", "after": "init ImagePullBackOff"}[w.waits[name]]
+				if w.waits[name] == "after" && !in(600, -1) {
+					wait = ""
 				}
-				if moved {
-					continue // evicted: its replacement runs on another node, under another uid
+				if !moved {
+					list = append(list, rebootTestPod(ns, n, "uid-"+n, node, "7f9c", wait == "", wait))
+					continue
 				}
-				list = append(list, obj{"metadata": meta, "spec": obj{"nodeName": node}, "status": obj{"phase": "Running"}})
+				// evicted: its replacement runs on another node, under another uid
+				state, hash := w.back[name], map[bool]string{true: "5d2b", false: "7f9c"}[w.back[name] == "rolled"]
+				wait = map[bool]string{true: "ImagePullBackOff", false: ""}[state == "pull"]
+				list = append(list, rebootTestPod(ns, n, "uid-"+n+"-2", other, hash, state == "" || state == "rolled", wait))
 			}
 		}
 		return []byte(kubeList(list...)), nil
+	case strings.HasSuffix(joined, " endpointslices.discovery.k8s.io -n harbor -l kubernetes.io/service-name=harbor"):
+		if w.frontErr != nil {
+			return nil, w.frontErr
+		}
+		endpoints := []obj{}
+		for _, node := range slices.Sorted(maps.Keys(w.front)) {
+			e := obj{"addresses": []string{"10.43.0.1"}, "nodeName": node, "conditions": obj{"ready": w.front[node] == "ready"}}
+			if w.front[node] == "unset" {
+				e["conditions"] = obj{}
+			}
+			endpoints = append(endpoints, e)
+		}
+		return []byte(kubeList(obj{"metadata": obj{"namespace": "harbor", "name": "harbor-x7k2p"}, "endpoints": endpoints})), nil
 	case strings.HasSuffix(joined, " nodes"):
 		list := []obj{}
 		for _, name := range w.nodes {
@@ -219,6 +271,8 @@ func TestRebootCheck(t *testing.T) {
 		regions int    // the regions that got a sentinel Pod
 		waited  string // how long the first region waited for the reboot span; "" is 0s
 		chosen  string // the node that got the sentinel Pod; "" is w-1
+		by      string // the rule that chose it, in a check that passes; "" is rebootByName
+		judged  int    // the controllers of the moved Pods, in a check that passes; 0 is 2
 	}{
 		"one worker restarts in each region, its workloads move off and it comes back": {regions: 2},
 		"journey J1 did not pass":       {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
@@ -244,7 +298,7 @@ func TestRebootCheck(t *testing.T) {
 			fails: "no usable value for: --end-time, --reboot-sentinel with the hostPath of the volume sentinel, --start-time, --time-zone"},
 		"the first worker runs no workload: the next one is chosen": {change: func(w *rebootWorld) {
 			w.workloads["w-1"], w.restarts["w-1"], w.restarts["w-2"] = nil, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
-		}, regions: 2, chosen: "w-2"},
+		}, regions: 2, chosen: "w-2", judged: 1},
 		"no worker runs a workload": {change: func(w *rebootWorld) { w.workloads = map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}} },
 			fails: "none of the 3 worker nodes runs a workload Pod"},
 		"the region has one worker":         {change: func(w *rebootWorld) { w.nodes = w.nodes[:2] }, fails: "the region has 1 worker nodes: the check needs 2"},
@@ -300,6 +354,36 @@ func TestRebootCheck(t *testing.T) {
 				w.releases[name] = "never"
 			}
 		}, fails: "none of 3 HelmReleases is Ready, so their recovery cannot be judged"},
+		"the worker that runs the registry front is chosen": {change: func(w *rebootWorld) {
+			w.front, w.restarts["w-1"], w.restarts["w-2"] = map[string]string{"cp-1": "ready", "w-1": "not ready", "w-2": "ready"}, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
+			w.workloads["w-2"] = append(w.workloads["w-2"], "harbor/harbor-nginx-1")
+		}, regions: 2, chosen: "w-2", by: rebootByFront},
+		"an endpoint of the registry front without the condition ready counts as Ready": {change: func(w *rebootWorld) {
+			w.front, w.restarts["w-1"], w.restarts["w-3"] = map[string]string{"w-3": "unset"}, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
+			w.workloads["w-3"] = []string{"harbor/harbor-nginx-1"}
+		}, regions: 2, chosen: "w-3", by: rebootByFront, judged: 1},
+		"without a registry front the first worker by name is chosen": {change: func(w *rebootWorld) {
+			w.front = map[string]string{"cp-1": "ready", "w-2": "not ready"}
+		}, regions: 2},
+		"the registry front cannot be read": {change: func(w *rebootWorld) { w.frontErr = errors.New("endpointslices.discovery.k8s.io is forbidden") },
+			fails: "endpointslices.discovery.k8s.io is forbidden"},
+		"the registry front waits on its image after the drain of its node": {change: func(w *rebootWorld) {
+			w.front, w.restarts["w-1"], w.restarts["w-2"] = map[string]string{"w-2": "ready"}, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
+			w.workloads["w-2"], w.back["harbor/harbor-nginx-1"] = append(w.workloads["w-2"], "harbor/harbor-nginx-1"), "pull"
+		}, fails: "1 of 2 controllers whose Pods the drain moved have fewer Ready Pods than before: Deployment harbor/harbor-nginx has 0 of 1 Ready Pods (registry.example/harbor-nginx:1); " +
+			"1 containers of the region wait on an image: harbor/harbor-nginx-1/main ImagePullBackOff registry.example/harbor-nginx:1", regions: 1, chosen: "w-2"},
+		"a moved workload that is not Ready again fails": {change: func(w *rebootWorld) { w.back["shop/db-0"] = "never" },
+			fails: "1 of 2 controllers whose Pods the drain moved have fewer Ready Pods than before: StatefulSet shop/db has 0 of 1 Ready Pods (registry.example/db:1)", regions: 1},
+		"a moved Pod that comes back under a new ReplicaSet of its Deployment counts": {change: func(w *rebootWorld) { w.back["shop/web-1"] = "rolled" }, regions: 2},
+		"a moved Pod of a Job is not judged": {change: func(w *rebootWorld) {
+			w.workloads["w-1"], w.back["scan/job-1"] = append(w.workloads["w-1"], "scan/job-1"), "never"
+		}, regions: 2},
+		"a container waiting on an image fails while every HelmRelease is Ready": {change: func(w *rebootWorld) {
+			w.workloads["w-3"], w.waits["mon/agent-1"], w.releases["catalyst-system/bp-catalyst-platform"] = []string{"mon/agent-1"}, "after", "ready"
+		}, fails: "0 not Ready; 1 containers of the region wait on an image: mon/agent-1/prepare ImagePullBackOff registry.example/agent:1", regions: 1},
+		"a container that waits on an image before the check: no node is touched": {change: func(w *rebootWorld) {
+			w.workloads["w-3"], w.waits["mon/agent-1"] = []string{"mon/agent-1"}, "before"
+		}, fails: "1 containers of the region wait on an image before the check started, so the drain could not be judged: no node was touched: mon/agent-1/prepare ErrImagePull registry.example/agent:1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newRebootWorld()
@@ -326,8 +410,14 @@ func TestRebootCheck(t *testing.T) {
 			workers := strconv.Itoa(len(w.nodes) - 1)
 			if last := steps[len(steps)-1]; tc.fails == "" && (last.Evidence["most_unschedulable"] != 1 || last.Evidence["failed_readings"] != 0 ||
 				len(last.Evidence["boot_ids_after"].(map[string]string)) != 1 || last.Evidence["kured_ready"] != workers+"/"+workers ||
-				last.Evidence["workloads_moved_off"] == nil || len(last.Evidence["control_plane_boot_ids"].(map[string]string)) != 1) {
+				last.Evidence["workloads_moved_off"] == nil || len(last.Evidence["control_plane_boot_ids"].(map[string]string)) != 1 ||
+				len(last.Evidence["controllers_not_ready_again"].([]string)) != 0 || len(last.Evidence["image_waits"].([]string)) != 0) {
 				t.Errorf("the evidence of the last step is %v", last.Evidence)
+			}
+			choose, judged := slices.IndexFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Name, "kured cannot run on control-plane nodes") }), map[bool]int{true: 2, false: tc.judged}[tc.judged == 0]
+			if tc.fails == "" && (choose < 0 || steps[choose].Evidence["chosen_by"] != nonEmpty(tc.by, rebootByName) ||
+				len(steps[choose].Evidence["controllers_moved"].(map[string]int)) != judged) {
+				t.Errorf("the node choice says %v, want %q and %d controllers of the moved Pods", steps[choose].Evidence, nonEmpty(tc.by, rebootByName), judged)
 			}
 		})
 	}

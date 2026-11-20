@@ -130,6 +130,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverreconcile"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverrecord"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1902,8 +1903,14 @@ func (h *Handler) runCutoverWith(acquireCtx context.Context, deps *cutoverDeps, 
 	// resume) — idempotent. FAIL-LOUD: a multi-region deployment whose
 	// secondary kubeconfigs cannot all be materialized aborts here —
 	// running the chain anyway would re-mint the exact #5359 false
-	// positive (cc=true with region-B still tethered to github/ghcr).
-	if nSecondaries, err := h.materializeSecondaryKubeconfigsSecret(ctx, deps); err != nil {
+	// positive (cc=true with region-B still tethered to github/ghcr). A record
+	// that has not arrived yet is waited for, within a bound (cutoverrecord).
+	nSecondaries, err := cutoverrecord.Wait{StartedAt: priorStatus["cutoverStartedAt"], ImportBudget: handoverExportBudget(), Arrived: h.deploymentRecordArrived.C(), Log: h.log,
+		Waiting: func(msg string) {
+			h.publishCutoverEvent(bus, cutoverEvent{Phase: cutoverPhaseStarted, Level: "info", Message: msg})
+		},
+	}.Run(ctx, func() (int, error) { return h.materializeSecondaryKubeconfigsSecret(ctx, deps) })
+	if err != nil {
 		finishedAt := time.Now().UTC()
 		_ = patchCutoverStatus(ctx, deps, map[string]string{
 			"currentStep": "",

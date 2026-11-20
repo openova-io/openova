@@ -1,0 +1,194 @@
+name: mirror-tofu-providers
+
+# Publish the OpenTofu provider packages as an OCI provider mirror (SOV-342).
+#
+# The provider pod of provider-opentofu installs providers only from the mirror that its CLI
+# configuration names (clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml):
+# ghcr.io/openova-io/tofu-providers/<namespace>/<type>:<version>, OpenTofu 1.10's oci_mirror.
+# The packages are listed, each with the digest of its OCI index, in the ConfigMap
+# crossplane-system/opentofu-providers (opentofu-providers.yaml), which write-list.sh writes
+# from the tofu-providers.txt of every provider pack.
+#
+# Jobs:
+#   test     the tests of tools/guards/cmd/tofu-providers, its check of the tree (every version
+#            a module requires, a lock file pins or a pack names is listed), and the offline
+#            init of scripts/check-tofu-init-from-mirror.sh --self-test with OpenTofu 1.10.8, the
+#            release the provider image runs.
+#   regenerate and prove no diff
+#            the list is what write-list.sh writes from the packs' lists (the job name registers
+#            the generator: scripts/generator_registry.py).
+#   publish  for each listed package: the linux_amd64 zip at the download address that
+#            registry.opentofu.org gives for the version, checked against the registry's
+#            SHA-256; the layout `tofu-providers pack` builds from it; the job fails when the
+#            digest it builds differs from the list. When the tag is absent at the origin it
+#            pushes the layout with ORAS 1.3.0 using the job's token, then reads it back; when
+#            the tag exists, the job fails when its digest differs from the list. A tag is never
+#            moved. It prints PUSHED or PRESENT <address>@<digest> per package.
+#
+# It runs on the pull request that changes the list, a pack's list, lock file or modules, the
+# composition, the command or this file, so the origin holds a package before the change that
+# lists it merges, and again on main. The path filter leaves out the command's *_test.go files:
+# the generator registry counts a file's provider lines at its sources only when each source is
+# scanned or lies in a plug-in path, and the provider-leak scanner reads no test file. Those
+# tests run in tree-guards on every pull request. Event-driven only; the jobs contact no cluster.
+
+on:
+  pull_request:
+    paths:
+      - 'infra/providers/*/*.tf'
+      - 'infra/providers/*/seal/*.tf'
+      - 'infra/providers/*/.terraform.lock.hcl'
+      - 'infra/providers/*/pack.yaml'
+      - 'infra/providers/*/tofu-providers.txt'
+      - 'platform/crossplane-claims/chart/templates/compositions/cloudadoption.yaml'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml'
+      - 'scripts/check-tofu-init-from-mirror.sh'
+      - 'tools/guards/cmd/tofu-providers/**'
+      - '!tools/guards/cmd/tofu-providers/*_test.go'
+      - '.github/workflows/mirror-tofu-providers.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/*/*.tf'
+      - 'infra/providers/*/seal/*.tf'
+      - 'infra/providers/*/.terraform.lock.hcl'
+      - 'infra/providers/*/pack.yaml'
+      - 'infra/providers/*/tofu-providers.txt'
+      - 'platform/crossplane-claims/chart/templates/compositions/cloudadoption.yaml'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml'
+      - 'scripts/check-tofu-init-from-mirror.sh'
+      - 'tools/guards/cmd/tofu-providers/**'
+      - '!tools/guards/cmd/tofu-providers/*_test.go'
+      - '.github/workflows/mirror-tofu-providers.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests, check and offline init
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+      - name: Tests of the command
+        run: cd tools/guards && go vet ./cmd/tofu-providers/ && go test -count=1 ./cmd/tofu-providers/
+      - name: Every version a module requires, a lock file pins or a pack names is listed
+        run: cd tools/guards && go run ./cmd/tofu-providers check
+      - name: tofu init installs only from the mirror, every outside host unreachable
+        run: bash scripts/check-tofu-init-from-mirror.sh --self-test
+
+  regenerate:
+    name: regenerate and prove no diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+      - name: The list is what write-list.sh writes from the packs' lists
+        run: bash tools/guards/cmd/tofu-providers/write-list.sh -check
+
+  publish:
+    name: publish the listed packages
+    needs: [test, regenerate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      LIST: clusters/_template/infrastructure/providers/base/opentofu-providers.yaml
+      MIRROR: ghcr.io/openova-io/tofu-providers
+      ORAS_VERSION: 1.3.0
+      ORAS_SHA256: 6cdc692f929100feb08aa8de584d02f7bcc30ec7d88bc2adc2054d782db57c64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+      - name: Install ORAS and build the command
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          tarball="$RUNNER_TEMP/oras.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          echo "${ORAS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" -C "$RUNNER_TEMP/bin" oras
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          (cd tools/guards && go build -o "$RUNNER_TEMP/bin/tofu-providers" ./cmd/tofu-providers)
+          "$RUNNER_TEMP/bin/oras" version
+      - name: Log in to the origin registry
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: oras login ghcr.io --username "$ACTOR" --password-stdin <<< "$TOKEN"
+      - name: Build each listed package, check its digest, push it when absent
+        run: |
+          set -euo pipefail
+          yq '.data.providers' "$LIST" > "$RUNNER_TEMP/list"
+          work="$RUNNER_TEMP/packages"
+          count=0
+          while read -r source version digest; do
+            [ -n "$source" ] || continue
+            path="${source#registry.opentofu.org/}"
+            meta="$(curl -fsSL --retry 3 "https://registry.opentofu.org/v1/providers/${path}/${version}/download/linux/amd64")"
+            url="$(jq -r .download_url <<< "$meta")"
+            sum="$(jq -r .shasum <<< "$meta")"
+            file="$(jq -r .filename <<< "$meta")"
+            if ! [[ $file =~ ^terraform-provider-[a-z0-9-]+_${version//./\\.}_linux_amd64\.zip$ ]]; then
+              echo "::error::${source} ${version}: the registry names the file '${file}'"
+              exit 1
+            fi
+            mkdir -p "$work/$path"
+            curl -fsSL --retry 3 -o "$work/$path/$file" "$url"
+            got="$(sha256sum "$work/$path/$file")"
+            got="${got%% *}"
+            if [ "$got" != "$sum" ]; then
+              echo "::error::${source} ${version}: the zip has SHA-256 ${got}; the registry gives ${sum}"
+              exit 1
+            fi
+            built="$(tofu-providers pack -out "$work/$path/layout" -version "$version" "$work/$path/$file")"
+            if [ "$built" != "$digest" ]; then
+              echo "::error::${source} ${version}: pack builds ${built}; the list holds ${digest}"
+              exit 1
+            fi
+            target="${MIRROR}/${path}:${version}"
+            if oras manifest fetch --descriptor "$target" > "$RUNNER_TEMP/remote.json" 2> "$RUNNER_TEMP/remote.err"; then
+              have="$(jq -r .digest "$RUNNER_TEMP/remote.json")"
+              if [ "$have" != "$digest" ]; then
+                echo "::error::${target} is ${have}; the list holds ${digest}. A tag is never moved."
+                exit 1
+              fi
+              echo "PRESENT ${target}@${digest}"
+            elif grep -q -i 'not found' "$RUNNER_TEMP/remote.err"; then
+              oras cp --from-oci-layout "$work/$path/layout:$version" "$target"
+              oras manifest fetch --descriptor "$target" > "$RUNNER_TEMP/remote.json"
+              have="$(jq -r .digest "$RUNNER_TEMP/remote.json")"
+              if [ "$have" != "$digest" ]; then
+                echo "::error::${target} reads back ${have} after the push; the list holds ${digest}"
+                exit 1
+              fi
+              echo "PUSHED ${target}@${digest}"
+            else
+              echo "::error::${target} cannot be read: $(cat "$RUNNER_TEMP/remote.err")"
+              exit 1
+            fi
+            rm -rf "${work:?}/$path"
+            count=$((count + 1))
+          done < "$RUNNER_TEMP/list"
+          if [ "$count" = 0 ]; then
+            echo "::error::${LIST} lists no package"
+            exit 1
+          fi
+          echo "${count} package(s) at ${MIRROR}"

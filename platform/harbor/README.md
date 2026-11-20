@@ -236,6 +236,47 @@ Sovereign installed before this layout, the follower's core waits after that
 upgrade until the parent's next pass has copied the key (its steady-state
 heal runs every 5 minutes).
 
+### No single Pod on the pull path (SOV-138)
+
+After the sovereignty cutover every node pulls its images only from this
+registry, through three components: the front (`harbor-nginx`), the core
+(`harbor-core`) and the registry (`harbor-registry` with `registryctl`). When
+one of them runs a single Pod, the drain of its node (kured's reboot of a
+patched kernel) takes the pull path away for the whole region: the
+replacement Pod, and every other Pod moved off that node whose image its new
+node does not hold, can pull only through the component that is gone.
+Measured on a fresh two-region install: the drained node ran the single front
+and was the only node that held its image; 14 of the 21 Pods moved off it
+waited on the front.
+
+- `harbor.nginx`, `harbor.core` and `harbor.registry` run `replicas: 2`, spread
+  by `kubernetes.io/hostname` (`maxSkew: 1`, `whenUnsatisfiable:
+  DoNotSchedule`, `nodeTaintsPolicy: Honor`, so a cordoned node does not count
+  and a region of two schedulable nodes still places the replacement). The
+  upstream chart adds each component's own `labelSelector`.
+- `templates/pull-path-disruption-budgets.yaml` renders a PodDisruptionBudget
+  per component, named like its Deployment, `minAvailable: 1`,
+  `unhealthyPodEvictionPolicy: AlwaysAllow`, with the upstream selector
+  (`release`, `app`, `component`). A drain evicts one copy and waits while the
+  other is not Ready; a copy that is not Ready is evicted without waiting. A
+  component at one copy gets no budget, because a budget of `minAvailable: 1`
+  at one copy refuses every eviction (`scripts/check-budgets-allow-drain.py`).
+- Two registry copies need storage they share. Slot 19 sets
+  `persistence.imageChartStorage.type: s3`, and the registry mounts no volume
+  claim. A render that keeps `type: filesystem` on a ReadWriteOnce claim sets
+  `harbor.registry.replicas: 1`.
+- The cluster DNS is on the same path (the components and every caller of the
+  registry resolve through it); bp-kured holds k3s's CoreDNS at two copies with
+  a budget of its own (`platform/kured/chart/templates/coredns-availability.yaml`).
+- Kept single: Harbor's redis, one StatefulSet with a ReadWriteOnce volume in
+  the primary region that the other region reaches over the mesh (#5406); two
+  unreplicated copies would split the sessions. `harbor-jobservice` and
+  `harbor-portal` are not on the pull path and keep one copy.
+- Cost, by the requests in `values.yaml`: 64 MiB (nginx), 256 MiB (core) and
+  320 MiB (registry and registryctl) more per region.
+
+Guarded by `tests/pull-path-availability.sh`.
+
 ### Proxy-cache integrity check (SOV-162)
 
 A pull-through (proxy cache) project can hold a cached image index that answers

@@ -1,0 +1,59 @@
+{{- /*
+SOV-138: the registry's pull path keeps one copy through any drain.
+
+After the sovereignty cutover every node pulls its images only from this
+registry: through the front (harbor-nginx), the core (harbor-core) and the
+registry (harbor-registry). values.yaml runs each with two copies spread over
+two nodes. The upstream chart renders no PodDisruptionBudget, so this file
+renders one per component, minAvailable 1: a drain evicts one copy, and waits
+while the other is not Ready, so it never removes the last copy.
+
+- A component renders its budget only at two or more copies. At one copy a
+  budget of minAvailable 1 refuses every eviction and no drain of its node
+  can finish (scripts/check-budgets-allow-drain.py, #7922).
+- unhealthyPodEvictionPolicy AlwaysAllow: a copy that is not Ready serves
+  nothing, and evicting it never waits on the budget; the last Ready copy is
+  still kept.
+- The selector is the upstream chart's own: `release` and `app` (its
+  harbor.matchLabels) and `component`. The name is its Deployment's name
+  (harbor.fullname plus the component).
+- The front renders no Deployment when expose.type is ingress or route; then
+  it gets no budget either.
+
+Harbor's redis is not here: it is one StatefulSet with a ReadWriteOnce volume
+in the primary region, reached by the other region over the mesh (#5406), and
+two unreplicated copies would split the sessions.
+*/ -}}
+{{- $h := .Values.harbor | default dict -}}
+{{- $app := default "harbor" $h.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- $full := "" -}}
+{{- if $h.fullnameOverride -}}
+{{- $full = $h.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if contains $app .Release.Name -}}
+{{- $full = .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $full = printf "%s-%s" .Release.Name $app | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- $expose := dig "expose" "type" "" $h -}}
+{{- range $component := list "nginx" "core" "registry" }}
+{{- $copies := int (dig $component "replicas" 1 $h) -}}
+{{- $rendered := or (ne $component "nginx") (and (ne $expose "ingress") (ne $expose "route")) -}}
+{{- if and $rendered (ge $copies 2) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-%s" $full $component }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" $ | nindent 4 }}
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      release: {{ $.Release.Name }}
+      app: {{ $app | quote }}
+      component: {{ $component }}
+{{- end }}
+{{- end }}

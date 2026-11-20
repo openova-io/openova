@@ -21,6 +21,12 @@ kind: Kustomization
 # Kustomization (`infrastructure-providers`, wait:true + a `Provider Healthy`
 # healthCheck) and gating ../../base behind it with `dependsOn` breaks the
 # cycle — the established bootstrap-kit → bootstrap-kit-crs idiom.
+#
+# SOV-342: the two ConfigMaps of the OpenTofu provider mirror. The provider pod mounts
+# opentofu-cli-config (the CLI configuration of every tofu init: providers only from
+# the mirror); opentofu-providers lists the packages the mirror holds, with digests.
 resources:
   - provider-opentofu.yaml
   - function-patch-and-transform.yaml
+  - opentofu-cli-config.yaml
+  - opentofu-providers.yaml

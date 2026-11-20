@@ -331,7 +331,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.2.4",
+    "version": "0.2.5",
     "depends": [
       "bp-cilium",
       "bp-gateway-api"
@@ -398,7 +398,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.4.2230",
+    "version": "1.4.2237",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -992,7 +992,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "depends": [
       "bp-cilium"
     ],
@@ -1124,7 +1124,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -1521,7 +1521,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.2.59",
+    "version": "1.2.60",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -1991,7 +1991,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2629,7 +2629,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.3.8",
+    "version": "1.3.9",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3277,7 +3277,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.18",
+    "version": "0.1.19",
     "depends": [
       "bp-cilium"
     ],

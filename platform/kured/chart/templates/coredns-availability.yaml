@@ -1,0 +1,53 @@
+{{- /*
+SOV-138: the cluster DNS keeps one copy through any drain that kured starts.
+
+CoreDNS (Deployment kube-system/coredns, Pods labelled k8s-app: kube-dns) is
+the k3s add-on, not a chart of the kit. The registry's front, core and
+registry resolve each other, redis and the database through it, every caller
+of the registry resolves its name through it, and after the sovereignty
+cutover its own image comes through the registry. The k3s manifest sets no
+replica count, so it runs one copy, and a drain of its node leaves the cluster
+without DNS until the replacement is up.
+
+This chart, which drains the nodes, renders two objects next to it:
+
+- a HorizontalPodAutoscaler with minReplicas = maxReplicas = 2. The autoscaler
+  raises a target below minReplicas to it before it reads any metric, so the
+  count is two without metrics; k3s never resets it, because its manifest
+  carries no replica count. The k3s manifest already spreads the copies by
+  kubernetes.io/hostname (DoNotSchedule).
+- a PodDisruptionBudget of minAvailable 1 on k8s-app: kube-dns: a drain evicts
+  one copy and waits while the other is not Ready. A copy that is not Ready is
+  evicted without waiting (unhealthyPodEvictionPolicy AlwaysAllow).
+
+Both live in kube-system, where CoreDNS runs, whatever the release namespace.
+*/ -}}
+{{- $labels := dict "app.kubernetes.io/name" "coredns-availability" "app.kubernetes.io/instance" .Release.Name -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: coredns
+  minReplicas: 2
+  maxReplicas: 2
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      k8s-app: kube-dns

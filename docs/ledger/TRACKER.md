@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T18:30:06Z` |
+| Last refreshed | `2026-11-20T22:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,13 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
-| [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
-| [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
-| [#8140](https://github.com/openova-io/openova/issues/8140) | CLD-094 Standing check CLD-G12: the plan of a provisioned deployment shows no ch | Other |
-| [#8141](https://github.com/openova-io/openova/issues/8141) | SVC-150 One generator, part 1: embedded and console catalogue | Other |
-| [#8145](https://github.com/openova-io/openova/issues/8145) | INF-133 Check INF-G02: node host scans, as a suite file | Other |
-| [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
 | [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
 | [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
 | [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
@@ -300,6 +293,13 @@ flowchart LR
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
 | [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
 | [#8528](https://github.com/openova-io/openova/issues/8528) | SVC-137 The function tests wait for their subject in their own region within the | Other |
+| [#8532](https://github.com/openova-io/openova/issues/8532) | SOV-136 Nodes share the images they hold: the k3s embedded registry mirror is on | Other |
+| [#8533](https://github.com/openova-io/openova/issues/8533) | SOV-137 The registry pivot keeps the nodes' shared mirror first and starts with  | Other |
+| [#8534](https://github.com/openova-io/openova/issues/8534) | SOV-342 The provider pod installs OpenTofu providers only from an OCI mirror of  | Other |
+| [#8536](https://github.com/openova-io/openova/issues/8536) | INF-056 Check INF-G01 restarts the node of the registry's front and requires eve | Other |
+| [#8538](https://github.com/openova-io/openova/issues/8538) | SOV-138 No single Pod on the registry's pull path: Harbor's front, core and regi | Other |
+| [#8547](https://github.com/openova-io/openova/issues/8547) | The harbor chart's admin-secret test cannot fail on a broken pipe: six printf |  | Other |
+| [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
 
 ---
 
@@ -307,8 +307,25 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
+| 2026-11-20T20:52 | [#8548](https://github.com/openova-io/openova/pull/8548) | #7087 | docs(ledger): plan update |
+| 2026-11-20T20:52 | [#8546](https://github.com/openova-io/openova/pull/8546) | #8538 | fix(charts): the registry front, core and registry and the c |
+| 2026-11-20T20:57 | [#8545](https://github.com/openova-io/openova/pull/8545) | #8534 | fix(crossplane): the provider pod installs OpenTofu provider |
+| 2026-11-20T21:04 | [#8543](https://github.com/openova-io/openova/pull/8543) | #8536 | test(gate): check INF-G01 drains the worker of the registry  |
+| 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
+| 2026-11-20T21:06 | [#8540](https://github.com/openova-io/openova/pull/8540) | fix(tests): three Go tests of the platform API stop failing  |  |
+| 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
+| 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
+| 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
+| 2026-11-20T19:00 | [#8531](https://github.com/openova-io/openova/pull/8531) | #7087 | docs(ledger): plan update |
+| 2026-11-20T18:53 | [#8530](https://github.com/openova-io/openova/pull/8530) | #7087 | docs(ledger): plan update |
+| 2026-11-20T21:34 | [#8529](https://github.com/openova-io/openova/pull/8529) | #8528 | fix(charts): six function tests wait for their subject in th |
+| 2026-11-20T18:34 | [#8527](https://github.com/openova-io/openova/pull/8527) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:27 | [#8526](https://github.com/openova-io/openova/pull/8526) | #7087 | docs(ledger): plan update |
+| 2026-11-20T18:43 | [#8525](https://github.com/openova-io/openova/pull/8525) | #8494 | fix(gate): the gate's candidate verification gets the origin |
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
+| 2026-11-20T18:50 | [#8523](https://github.com/openova-io/openova/pull/8523) | #5488 | fix(cutover): the first step does not fail because the deplo |
+| 2026-11-20T20:42 | [#8522](https://github.com/openova-io/openova/pull/8522) | #8494 | fix(install): the image pre-flight fills a cache entry that  |
 | 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
@@ -320,23 +337,6 @@ flowchart LR
 | 2026-11-20T15:35 | [#8512](https://github.com/openova-io/openova/pull/8512) | #8407 | fix(seaweedfs): the cross-region filer sync survives a roll  |
 | 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
-| 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:39 | [#8507](https://github.com/openova-io/openova/pull/8507) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:28 | [#8506](https://github.com/openova-io/openova/pull/8506) | #5468 | fix(cutover): the registry prewarm copies an image whose man |
-| 2026-11-20T12:24 | [#8505](https://github.com/openova-io/openova/pull/8505) | #8500 | fix(openova-mcp): the stdio tool server reads its bearer fro |
-| 2026-11-20T11:50 | [#8504](https://github.com/openova-io/openova/pull/8504) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:10 | [#8503](https://github.com/openova-io/openova/pull/8503) | #8501 | fix(catalyst-api): the token route admits the agent workspac |
-| 2026-11-20T17:46 | [#8502](https://github.com/openova-io/openova/pull/8502) | #4423 | refactor(bootstrap): Flux renders the pull login and the obj |
-| 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
-| 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
-| 2026-11-20T11:43 | [#8496](https://github.com/openova-io/openova/pull/8496) | #4639 | fix(cutover): the dormant registry pivot does not delete the |
-| 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:27 | [#8494](https://github.com/openova-io/openova/pull/8494) | fix(install): the image path of a fresh install is checked w |  |
-| 2026-11-20T11:25 | [#8493](https://github.com/openova-io/openova/pull/8493) | #8490 | fix(release): a delivery resumes after one eviction of any o |
-| 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
-| 2026-11-20T11:15 | [#8491](https://github.com/openova-io/openova/pull/8491) | #8487 | fix(harbor): the registry finds and heals a cached image ind |
-| 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
-| 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
 
 ---
 

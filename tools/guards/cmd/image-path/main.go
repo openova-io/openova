@@ -20,16 +20,47 @@
 // --disable-default-registry-endpoint, so there is no fallback to a public
 // registry: what the origin cannot serve, the node cannot pull. The node's
 // credential is PROBE_USER and PROBE_TOKEN; without it the probe refuses to run
-// (exit 2), because an anonymous read is not what a node does. Verdicts:
+// (exit 2), because an anonymous read is not what a node does. PROBE_ORIGIN
+// (scheme and host) is the origin registry itself, whose proxy projects the
+// node path fronts (the script passes ORIGIN_REGISTRY_URL, by default
+// https://harbor.openova.io); without it nothing is filled and a blob no wait
+// fills is NEVER FILLED, as before the fill existed. The fill's GET carries
+// the node's credential, so a PROBE_ORIGIN whose host the node map rewrites
+// into a proxy project (ghcr.io, quay.io, …: a registry the origin proxies,
+// not the origin) is refused before any request (exit 2). Verdicts:
 //
 //	PASS                    tag, child, config and every layer answered.
-//	not cached yet          a blob of a PROXY project answered 404 on HEAD. The
-//	                        origin fills a proxied image's blobs by itself some
-//	                        minutes after its manifest was first asked for, so
-//	                        the probe asks for the manifest once more and reads
-//	                        the blobs again until -fill-wait (default 10m) has
-//	                        passed. Filled in time is a PASS that says so.
-//	NEVER FILLED            still missing when -fill-wait has passed.
+//	not cached yet          a blob of a PROXY project answered 404 on HEAD.
+//	                        Two things fill it and the probe starts both at
+//	                        once. The origin pulls a proxied image's blobs by
+//	                        itself some minutes after its manifest was asked
+//	                        for, so the manifest is asked for once more. And
+//	                        the origin stores a proxied blob it lacks once that
+//	                        blob is asked for by GET, while the node path (the
+//	                        relay in front of the origin) asks by HEAD first,
+//	                        so no wait fills such a blob: with PROBE_ORIGIN
+//	                        each missing blob is asked for by GET at the origin
+//	                        at once (the same proxy project, the node's
+//	                        credential: a pull, never a push, never a hosted
+//	                        project, never the admin API), smallest first, at
+//	                        most -fill-max-bytes a run. Then the node path is
+//	                        read again at once and every -fill-every until
+//	                        -fill-wait (default 10m) has passed: that wait is
+//	                        for a blob over the bound, which only the origin's
+//	                        own pull can fill, and for one a GET did not
+//	                        settle. Readable in time is a PASS that says which
+//	                        way its blobs were filled and after how long, and
+//	                        the run lists every such object the same way.
+//	NEVER FILLED            still missing through the node path when -fill-wait
+//	                        has passed; the line says what the fill did for it.
+//	                        Left unfilled by design: a blob over what is left
+//	                        of the bound that only a GET fills (the line names
+//	                        it and the bound: a GET of it at the origin by
+//	                        hand, or a run with a larger -fill-max-bytes), and
+//	                        every image the list does not hold (never probed,
+//	                        so never filled: when one of its blobs is one only
+//	                        a GET fills, its Pod stays in ImagePullBackOff at
+//	                        the fire). The run says both in its last lines.
 //	DAMAGED CACHE ENTRY     the origin serves the index but not its linux/amd64
 //	                        child. Only a registry-side repair helps (story
 //	                        SOV-162); this command deletes nothing.
@@ -199,7 +230,11 @@ type reply struct {
 	err    error
 }
 
-func (c *client) raw(method, u string, header http.Header) reply {
+// maxBody is the most of a reply body a manifest or a token read keeps.
+const maxBody = 8 << 20
+
+// raw sends one request and keeps at most limit bytes of the reply body.
+func (c *client) raw(method, u string, header http.Header, limit int64) reply {
 	req, err := http.NewRequest(method, u, nil)
 	if err != nil {
 		return reply{err: err}
@@ -210,7 +245,7 @@ func (c *client) raw(method, u string, header http.Header) reply {
 		return reply{err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	return reply{status: resp.StatusCode, header: resp.Header, body: body, err: err}
 }
 
@@ -245,7 +280,7 @@ func (c *client) bearer(challenge string) string {
 	if c.pass != "" {
 		h.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.user+":"+c.pass)))
 	}
-	r := c.raw(http.MethodGet, u, h)
+	r := c.raw(http.MethodGet, u, h, maxBody)
 	if r.err != nil || r.status != http.StatusOK {
 		return ""
 	}
@@ -271,12 +306,17 @@ func (c *client) bearer(challenge string) string {
 // do sends a request, answers one 401 challenge and follows up to three
 // redirects. A credential never goes to a host other than the one asked.
 func (c *client) do(method, u string, header http.Header) reply {
+	return c.doLimit(method, u, header, maxBody)
+}
+
+// doLimit is do keeping at most limit bytes of the body of the last reply.
+func (c *client) doLimit(method, u string, header http.Header, limit int64) reply {
 	header = header.Clone()
 	if header == nil {
 		header = http.Header{}
 	}
 	host := hostOf(u)
-	r := c.raw(method, u, header)
+	r := c.raw(method, u, header, limit)
 	answered := false
 	for hops := 0; hops < 4 && r.err == nil; hops++ {
 		if r.status == http.StatusUnauthorized && !answered {
@@ -294,7 +334,7 @@ func (c *client) do(method, u string, header http.Header) reply {
 			default:
 				return r
 			}
-			r = c.raw(method, u, header)
+			r = c.raw(method, u, header, limit)
 			continue
 		}
 		if r.status >= 300 && r.status < 400 && r.header.Get("Location") != "" {
@@ -311,7 +351,7 @@ func (c *client) do(method, u string, header http.Header) reply {
 				header.Del("Authorization")
 				host = hostOf(u)
 			}
-			r = c.raw(method, u, header)
+			r = c.raw(method, u, header, limit)
 			continue
 		}
 		break
@@ -325,6 +365,25 @@ func hostOf(u string) string {
 		return ""
 	}
 	return p.Host
+}
+
+// proxiedBy names the proxy project into which the node map rewrites the host
+// of u, or "" when that host is not a registry the origin proxies. On every
+// fresh install the variables document's ORIGIN_REGISTRY_HOST is ghcr.io, one
+// such registry; the origin itself (harbor.openova.io) is served at the root.
+func proxiedBy(u string, mirrors map[string]mirror, proxies map[string]bool) string {
+	p, err := url.Parse(u)
+	if err != nil || p.Host == "" {
+		return ""
+	}
+	for _, h := range []string{p.Host, p.Hostname()} {
+		for _, to := range mirrors[h].Rewrite {
+			if project, _, _ := strings.Cut(to, "/"); proxies[project] {
+				return project
+			}
+		}
+	}
+	return ""
 }
 
 // ---- the walk
@@ -341,9 +400,11 @@ type manifest struct {
 	} `json:"manifests"`
 	Config struct {
 		Digest string `json:"digest"`
+		Size   int64  `json:"size"`
 	} `json:"config"`
 	Layers []struct {
 		Digest string `json:"digest"`
+		Size   int64  `json:"size"`
 	} `json:"layers"`
 	FSLayers []struct {
 		BlobSum string `json:"blobSum"`
@@ -356,6 +417,7 @@ type walked struct {
 	detail string
 	child  string
 	blobs  []string
+	sizes  map[string]int64 // the size each blob's descriptor gives (none for schema 1)
 }
 
 func (c *client) manifests(base, repo, reference string) walked {
@@ -393,11 +455,14 @@ func (c *client) manifests(base, repo, reference string) walked {
 			return walked{stage: "child", child: w.child, detail: "the child manifest is not JSON"}
 		}
 	}
+	w.sizes = map[string]int64{}
 	if m.Config.Digest != "" {
 		w.blobs = append(w.blobs, m.Config.Digest)
+		w.sizes[m.Config.Digest] = m.Config.Size
 	}
 	for _, l := range m.Layers {
 		w.blobs = append(w.blobs, l.Digest)
+		w.sizes[l.Digest] = l.Size
 	}
 	for _, l := range m.FSLayers {
 		w.blobs = append(w.blobs, l.BlobSum)
@@ -434,12 +499,276 @@ func short(d string) string {
 	return d
 }
 
+// reread reads the missing blobs through the node path again, at once when
+// now is set and then every `every`, until none is missing or `bound` has
+// passed since `since`. It returns the blobs still missing and, for each
+// blob that became readable, how long after `since` it was first read.
+func (c *client) reread(base, repo string, missing []string, since time.Time, bound, every time.Duration, now bool) ([]string, map[string]time.Duration, error) {
+	after := map[string]time.Duration{}
+	for len(missing) > 0 && time.Since(since) < bound {
+		if !now {
+			time.Sleep(every)
+		}
+		now = false
+		still, err := c.heads(base, repo, missing)
+		if err != nil {
+			return nil, nil, err
+		}
+		left := map[string]bool{}
+		for _, b := range still {
+			left[b] = true
+		}
+		for _, b := range missing {
+			if !left[b] {
+				after[b] = time.Since(since)
+			}
+		}
+		missing = still
+	}
+	return missing, after, nil
+}
+
+// longest is the longest of the times in after of the blobs in of.
+func longest(after map[string]time.Duration, of []string) time.Duration {
+	var d time.Duration
+	for _, b := range of {
+		d = max(d, after[b])
+	}
+	return d.Round(time.Second)
+}
+
+// ---- the fill: a GET of a proxied blob at the origin
+
+// defaultFillMaxBytes bounds the bytes one run reads to fill. The case is the
+// tiny blob: on 20 November 2026 the eight blobs no wait filled were 67 to 351
+// bytes, 1,460 in all, and were filled by hand. 16 MiB is more than 10,000
+// times that and covers any config or small layer. A larger layer is never
+// read by a pre-flight: it is left to the origin's own pull, which the second
+// manifest request starts, for -fill-wait. A large layer that only a GET
+// fills is therefore NEVER FILLED by design, and the line names it and the
+// bound: it needs a GET of it at the origin by hand, or a run with a larger
+// -fill-max-bytes. The bytes are read and dropped, so the bound is also the
+// most the fill ever holds in memory.
+const defaultFillMaxBytes = 16 << 20
+
+// fillState is what became of one object the fill met, by <repo>@<digest>.
+type fillState struct {
+	size     int64
+	status   string // asking, fetched, stopped, refused
+	why      string
+	readable bool          // read through the node path after the fill
+	after    time.Duration // how long after it was found missing it was read
+	done     chan struct{} // closed once status is no longer asking
+}
+
+// filler asks the origin, by GET and at once, for a blob of a proxy project
+// that the node path cannot read: the origin stores such a blob only when it
+// is asked for it by GET, and the relay in front of it asks by HEAD first, so
+// no wait fills it. The GET goes to the same path of the same proxy project,
+// with the node's own credential: a pull, at the origin itself and never at a
+// registry the origin proxies (see proxiedBy). A hosted project is never asked
+// (a miss there is MISSING AT THE ORIGIN), nothing is pushed, and the
+// registry's admin API is never called.
+type filler struct {
+	c      *client
+	origin string
+	max    int64
+	mu     sync.Mutex
+	used   int64
+	state  map[string]*fillState
+}
+
+// fillOutcome is what the fill did for one image: the status each blob it met
+// ended in (fetched, stopped, refused) and why, and what it fetched.
+type fillOutcome struct {
+	status, why map[string]string
+	fetched     int
+	bytes       int64
+}
+
+// fill asks the origin, smallest first, for each blob of repo in missing. An
+// object another image of the run asked for already is not asked again: its
+// answer is waited for and counted here as well, with its size. An
+// object whose size the manifest does not give, or that does not fit in what
+// is left of -fill-max-bytes, is not asked for: it is stopped, and only the
+// origin's own pull can fill it.
+func (f *filler) fill(repo string, missing []string, sizes map[string]int64) fillOutcome {
+	order := append([]string(nil), missing...)
+	sort.SliceStable(order, func(i, j int) bool { return sizes[order[i]] < sizes[order[j]] })
+	o := fillOutcome{status: map[string]string{}, why: map[string]string{}}
+	for _, b := range order {
+		key, size := repo+"@"+b, sizes[b]
+		f.mu.Lock()
+		s, seen := f.state[key]
+		if !seen {
+			s = &fillState{size: size, status: "asking", done: make(chan struct{})}
+			switch {
+			case size <= 0:
+				s.status, s.why = "stopped", fmt.Sprintf("%s: the manifest gives no size", short(b))
+			case f.used+size > f.max:
+				s.status, s.why = "stopped", fmt.Sprintf("%s of %d bytes is over the fill bound of %d bytes a run (%d used)", short(b), size, f.max, f.used)
+			default:
+				f.used += size
+			}
+			if s.status != "asking" {
+				close(s.done)
+			}
+			f.state[key] = s
+		}
+		ask := !seen && s.status == "asking"
+		f.mu.Unlock()
+		if ask {
+			// At most the size the manifest gives: a registry that serves more
+			// serves another object, and the bound holds either way.
+			r := f.c.doLimit(http.MethodGet, fmt.Sprintf("%s/v2/%s/blobs/%s", f.origin, repo, b), http.Header{}, size)
+			f.mu.Lock()
+			switch {
+			case r.err != nil:
+				f.used -= size
+				s.status, s.why = "refused", fmt.Sprintf("%s: %v", short(b), r.err)
+			case r.status != http.StatusOK:
+				f.used -= size
+				s.status, s.why = "refused", fmt.Sprintf("%s: http=%d", short(b), r.status)
+			default:
+				f.used += int64(len(r.body)) - size
+				s.status, s.size = "fetched", int64(len(r.body))
+			}
+			close(s.done)
+			f.mu.Unlock()
+		}
+		// Another image of the run may still be asking for the same object:
+		// its answer is this image's answer too, so wait for it.
+		<-s.done
+		f.mu.Lock()
+		o.status[b], o.why[b] = s.status, s.why
+		if s.status == "fetched" {
+			o.fetched++
+			o.bytes += s.size
+		}
+		f.mu.Unlock()
+	}
+	return o
+}
+
+// settled records when the node path first read each object of repo the fill
+// met: the first image that reads a shared object sets it.
+func (f *filler) settled(repo string, after map[string]time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for b, d := range after {
+		if s, ok := f.state[repo+"@"+b]; ok && !s.readable {
+			s.readable, s.after = true, d
+		}
+	}
+}
+
+// filledHow says, for a PASS line, which way the blobs found missing were
+// filled and after how long. Without a fill every blob was filled by the
+// origin's own pull, and the line keeps the form it had before the fill.
+func filledHow(asked []string, after map[string]time.Duration, o fillOutcome) string {
+	var got, own []string
+	for _, b := range asked {
+		if o.status[b] == "fetched" {
+			got = append(got, b)
+		} else {
+			own = append(own, b)
+		}
+	}
+	if len(got) == 0 {
+		return fmt.Sprintf("filled after %s", longest(after, own))
+	}
+	how := fmt.Sprintf("filled by a GET at the origin, %d object(s), %d bytes, after %s", len(got), o.bytes, longest(after, got))
+	if len(own) > 0 {
+		how += fmt.Sprintf("; filled by the origin's own pull, %d object(s), after %s", len(own), longest(after, own))
+	}
+	return how
+}
+
+// note says, for a NEVER FILLED line, what became of the blobs still missing.
+func (o fillOutcome) note(missing []string, wait time.Duration) string {
+	count, first := map[string]int{}, map[string]string{}
+	for _, b := range missing {
+		st := o.status[b]
+		count[st]++
+		if first[st] == "" {
+			first[st] = o.why[b]
+		}
+	}
+	var parts []string
+	if n := count["fetched"]; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d fetched at once by a GET at the origin and still not read through the node path after %s", n, wait))
+	}
+	if n := count["stopped"]; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d not fetched and not filled by the origin's own pull within %s either, left unfilled by design (a GET of it at the origin by hand, or a larger -fill-max-bytes), first %s", n, wait, first["stopped"]))
+	}
+	if n := count["refused"]; n > 0 {
+		parts = append(parts, fmt.Sprintf("the origin refused the GET of %d, first %s", n, first["refused"]))
+	}
+	if n := o.fetched - count["fetched"]; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d other(s) of the image filled by a GET at the origin", n))
+	}
+	return "the fill: " + strings.Join(parts, "; ")
+}
+
+// report writes every object the run found missing: which way it was filled
+// and after how long, or why it was not, and what the fill leaves unfilled by
+// design.
+func (f *filler) report(w io.Writer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keys := make([]string, 0, len(f.state))
+	for k := range f.state {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var got, own, unread, stopped, refused []string
+	var gotBytes int64
+	for _, k := range keys {
+		s := f.state[k]
+		switch {
+		case s.readable && s.status == "fetched":
+			got = append(got, k)
+			gotBytes += s.size
+		case s.readable:
+			own = append(own, k)
+		case s.status == "fetched":
+			unread = append(unread, k)
+		case s.status == "refused":
+			refused = append(refused, k)
+		default:
+			stopped = append(stopped, k)
+		}
+	}
+	say(w, "  ℹ filled %d object(s), %d bytes, by a GET through the origin's proxy project at %s (the bound: %d bytes a run, %d read)\n",
+		len(got), gotBytes, f.origin, f.max, f.used)
+	for _, k := range got {
+		say(w, "    filled %s %d bytes by a GET at the origin after %s\n", k, f.state[k].size, f.state[k].after.Round(time.Second))
+	}
+	if len(own) > 0 {
+		say(w, "  ℹ filled %d object(s) by the origin's own pull (over the bound, or the GET did not fill it)\n", len(own))
+	}
+	for _, k := range own {
+		say(w, "    filled %s %d bytes by the origin's own pull after %s\n", k, f.state[k].size, f.state[k].after.Round(time.Second))
+	}
+	for _, k := range unread {
+		say(w, "  ⚠ fetched %s %d bytes at the origin, and the node path still does not read it\n", k, f.state[k].size)
+	}
+	for _, k := range stopped {
+		say(w, "  ⚠ not fetched %s %d bytes, and the origin's own pull did not fill it: %s\n", k, f.state[k].size, f.state[k].why)
+	}
+	for _, k := range refused {
+		say(w, "  ⚠ the origin refused the GET of %s: %s\n", k, f.state[k].why)
+	}
+	say(w, "  ℹ left unfilled by design: a blob over the fill bound that only a GET fills (NEVER FILLED, the line names it and the bound: GET it at the origin by hand, or run again with a larger -fill-max-bytes, the script's PROBE_FILL_MAX_BYTES); and every image this list does not hold (never probed, never filled: when one of its blobs is one only a GET fills, this check passes and its Pod stays in ImagePullBackOff at the fire)\n")
+}
+
 type probeConfig struct {
 	mirrors   map[string]mirror
 	proxies   map[string]bool
 	user      string
 	fillWait  time.Duration
 	fillEvery time.Duration
+	fill      *filler // nil: no origin is named, nothing is filled
 }
 
 // probe walks one ref and returns its line: PASS, FAIL or SKIP first.
@@ -486,21 +815,33 @@ func probe(c *client, cfg probeConfig, ref string) string {
 	if !proxy {
 		return fmt.Sprintf("FAIL %s MISSING AT THE ORIGIN %s [%d of %d blobs of the hosted project are absent, first %s: publish it again]", ref, where, len(missing), len(w.blobs), short(missing[0]))
 	}
-	// Not cached yet: ask for the manifest once, then read the blobs again
-	// until the bound has passed.
+	// Not cached yet. Both fills start at once: the manifest is asked for once
+	// more (that starts the origin's own pull), and each missing blob within
+	// the bound is asked for by GET at the origin (no wait fills a blob the
+	// origin stores only on a GET). Then the blobs are read again until the
+	// bound has passed: the wait is for what the GET did not fill.
+	since := time.Now()
 	_ = c.manifests(res.base, res.repo, res.ref)
-	start := time.Now()
-	for time.Since(start) < cfg.fillWait {
-		time.Sleep(cfg.fillEvery)
-		missing, err = c.heads(res.base, res.repo, missing)
-		if err != nil {
-			return fmt.Sprintf("FAIL %s stage=blob %s %v", ref, where, err)
-		}
-		if len(missing) == 0 {
-			return fmt.Sprintf("%s (was not cached yet: filled after %s)", pass, time.Since(start).Round(time.Second))
-		}
+	var o fillOutcome
+	if cfg.fill != nil {
+		o = cfg.fill.fill(res.repo, missing, w.sizes)
 	}
-	return fmt.Sprintf("FAIL %s NEVER FILLED %s [%d blob(s) not cached yet and still missing after %s, first %s]", ref, where, len(missing), cfg.fillWait, short(missing[0]))
+	asked := missing
+	missing, after, err := c.reread(res.base, res.repo, missing, since, cfg.fillWait, cfg.fillEvery, o.fetched > 0)
+	if err != nil {
+		return fmt.Sprintf("FAIL %s stage=blob %s %v", ref, where, err)
+	}
+	if cfg.fill != nil {
+		cfg.fill.settled(res.repo, after)
+	}
+	if len(missing) == 0 {
+		return fmt.Sprintf("%s (was not cached yet: %s)", pass, filledHow(asked, after, o))
+	}
+	never := fmt.Sprintf("FAIL %s NEVER FILLED %s [%d blob(s) not cached yet and still missing after %s, first %s", ref, where, len(missing), cfg.fillWait, short(missing[0]))
+	if cfg.fill == nil {
+		return never + "]"
+	}
+	return fmt.Sprintf("%s; %s]", never, o.note(missing, cfg.fillWait))
 }
 
 func orDash(s string) string {
@@ -532,7 +873,8 @@ func runProbe(args []string, in io.Reader, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", 25*time.Second, "timeout of one request")
 	fillWait := fs.Duration("fill-wait", 10*time.Minute, "how long a blob that is not cached yet may take to fill")
 	fillEvery := fs.Duration("fill-every", 20*time.Second, "pause between two reads of a blob that is not cached yet")
-	if fs.Parse(args) != nil || fs.NArg() != 0 || *parallel < 1 {
+	fillMax := fs.Int64("fill-max-bytes", defaultFillMaxBytes, "the most bytes a run reads to fill blobs at the origin (PROBE_ORIGIN)")
+	if fs.Parse(args) != nil || fs.NArg() != 0 || *parallel < 1 || *fillMax < 0 {
 		return 2
 	}
 	user, token := os.Getenv("PROBE_USER"), os.Getenv("PROBE_TOKEN")
@@ -562,7 +904,18 @@ func runProbe(args []string, in io.Reader, stdout, stderr io.Writer) int {
 		sayln(stdout, "IMAGE-PATH FAIL 0/0: no images extracted")
 		return 2
 	}
+	origin := strings.TrimRight(os.Getenv("PROBE_ORIGIN"), "/")
+	if p := proxiedBy(origin, cfg.mirrors, cfg.proxies); p != "" {
+		say(stdout, "IMAGE-PATH FAIL 0/0: PROBE_ORIGIN %s is a registry the origin proxies (the node map rewrites %s into the proxy project %s), not the origin: the fill's GET carries the node's credential and is never sent there (set ORIGIN_REGISTRY_URL to the origin registry itself)\n",
+			origin, hostOf(origin), p)
+		return 2
+	}
 	c := newClient(*timeout, user, token)
+	fillDesc := ", no fill: PROBE_ORIGIN names no origin"
+	if origin != "" {
+		cfg.fill = &filler{c: c, origin: origin, max: *fillMax, state: map[string]*fillState{}}
+		fillDesc = fmt.Sprintf(", a blob not cached yet asked for at once by a GET at %s, at most %d bytes a run, then read again for up to %s", origin, *fillMax, *fillWait)
+	}
 	lines := make([]string, len(refs))
 	start := time.Now()
 	jobs := make(chan int)
@@ -582,15 +935,18 @@ func runProbe(args []string, in io.Reader, stdout, stderr io.Writer) int {
 	close(jobs)
 	wg.Wait()
 	sort.Strings(lines)
-	var pass, fail, skip, filled int
+	var pass, fail, skip, filled, gotten int
 	var fails, skips []string
 	for _, l := range lines {
 		sayln(stdout, l)
 		switch {
 		case strings.HasPrefix(l, "PASS "):
 			pass++
-			if strings.Contains(l, "was not cached yet") {
+			if strings.Contains(l, "was not cached yet: filled after") || strings.Contains(l, "filled by the origin's own pull") {
 				filled++
+			}
+			if strings.Contains(l, "was not cached yet: filled by a GET") {
+				gotten++
 			}
 		case strings.HasPrefix(l, "SKIP "):
 			skip++
@@ -606,8 +962,14 @@ func runProbe(args []string, in io.Reader, stdout, stderr io.Writer) int {
 	if filled > 0 {
 		say(stdout, "  ℹ %d image(s) were not cached yet at the origin and filled within %s\n", filled, *fillWait)
 	}
+	if gotten > 0 {
+		say(stdout, "  ℹ %d image(s) were not cached yet at the origin and filled by a GET there\n", gotten)
+	}
+	if cfg.fill != nil {
+		cfg.fill.report(stdout)
+	}
 	probed := pass + fail
-	say(stdout, "  ℹ probed %d image(s) in %s (parallel=%d, credential %s, layers by HEAD)\n", probed, time.Since(start).Round(time.Second), *parallel, user)
+	say(stdout, "  ℹ probed %d image(s) in %s (parallel=%d, credential %s, layers by HEAD%s)\n", probed, time.Since(start).Round(time.Second), *parallel, user, fillDesc)
 	if probed == 0 {
 		sayln(stdout, "IMAGE-PATH FAIL 0/0: no images extracted (every ref was skipped)")
 		return 2

@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-external-secrets-stores
 spec:
-  version: 1.0.15
+  version: 1.0.16
   card:
     title: External Secrets — Stores
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.

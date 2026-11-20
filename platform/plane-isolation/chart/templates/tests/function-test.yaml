@@ -12,7 +12,15 @@ keycloak.keycloak.svc.cluster.local, port 80).
 The test Pod runs in functionTest.namespace (default "default"), a namespace
 that the target does not admit. It first reads, through the Kubernetes API, the
 Endpoints of the target Service and requires at least one ready address, so a
-target that is down cannot pass the test. Then it connects to the Service. It
+target that is down cannot pass the test. Another release delivers the target
+(bp-keycloak), and this release cannot depend on it without moving the
+isolation policies behind the identity service, so on a fresh install the test
+runs before the target is up: it reads the Endpoints again every 5 seconds
+until 60 seconds before its bound T, and fails naming the target Service when
+it has no ready address by then. T is functionTest.timeoutSeconds, the Pod's
+activeDeadlineSeconds: the kit states the install timeout of its release
+there, no shorter than the target release's (docs/RUNBOOKS.md section 4.5);
+without it T is 300. Then it connects to the Service. It
 passes when the name resolves (curl does not fail with exit code 6) and the
 connection is not made within 5 seconds (curl exit code 28, or 7 when it is
 refused). It fails when the connection is made: then a namespace outside the
@@ -45,6 +53,8 @@ webhook gate), which carries curl; functionTest.image overrides it.
 {{- end }}
 {{- if and .Values.enabled $protected (ne $testNamespace "flux-system") (ne $testNamespace $targetNamespace) }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -153,7 +163,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -197,11 +207,11 @@ spec:
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           ready=""
-          for attempt in 1 2 3 4 5 6; do
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
             ready="$(kubectl --request-timeout=15s -n "${TARGET_NAMESPACE}" get endpoints "${TARGET_SERVICE}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/tmp/error)" && [ -n "${ready}" ] && break
             sleep 5
           done
-          [ -n "${ready}" ] || fail "the Service ${TARGET_NAMESPACE}/${TARGET_SERVICE} has no ready address, so the test cannot judge: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          [ -n "${ready}" ] || fail "the Service ${TARGET_NAMESPACE}/${TARGET_SERVICE} has no ready address within {{ $wait }} seconds, so the test cannot judge: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
           code="$(curl -sS --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "${TARGET_URL}" 2>/tmp/error)"
           rc=$?
           case "${rc}" in

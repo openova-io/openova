@@ -116,5 +116,15 @@ printf 200
 EOF
 runs pass "the test does not wait for a manager that refuses 20 connections" REFUSE=20 SECONDS=0 HEALTH_URL=http://dragonfly-manager:8080/healthy
 runs fail "the test passes against a manager that never answers" REFUSE=1000000 SECONDS=239 HEALTH_URL=http://dragonfly-manager:8080/healthy
+grep -q -F 'within 240 seconds' "$TMP/run.out" || fail "without functionTest.timeoutSeconds the wait does not end at second 240 of 300"
+
+echo "[function-test] Case 6: functionTest.timeoutSeconds is the bound T: the Pod ends at T and the wait 60 seconds before it"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/run.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template dragonfly . --namespace dragonfly --set functionTest.timeoutSeconds=900 --show-only "$TEST" > "$TMP/bound.yaml"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+pod_script "$TMP/bound.yaml" > "$TMP/run.sh"
+runs pass "under T 900 the test does not wait for a manager that comes up after second 600" REFUSE=20 SECONDS=600 HEALTH_URL=http://dragonfly-manager:8080/healthy
+runs fail "under T 900 the test passes against a manager that never answers" REFUSE=1000000 SECONDS=839 HEALTH_URL=http://dragonfly-manager:8080/healthy
+grep -q -F 'the manager did not answer GET http://dragonfly-manager:8080/healthy with 200 within 840 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name the manager's /healthy and the wait of 840 seconds"
 
 echo "function-test-render: all cases passed"

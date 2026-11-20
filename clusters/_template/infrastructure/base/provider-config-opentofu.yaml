@@ -35,6 +35,16 @@ spec:
   credentials:
     - filename: cloud-credentials.env
       source: None
+    # SOV-342: the OpenTofu CLI configuration. provider-opentofu writes it into
+    # each Workspace's folder as .tofurc and runs tofu init with
+    # TF_CLI_CONFIG_FILE=./.tofurc, so every provider is installed only from the
+    # OCI provider mirror it names, never from the public registry. The file is
+    # the ConfigMap crossplane-system/opentofu-cli-config that the provider pod
+    # mounts (../providers/base/provider-opentofu.yaml).
+    - filename: .tofurc
+      source: Filesystem
+      fs:
+        path: /etc/opentofu/cli/.tofurc
   configuration: |
     // Catalyst-default OpenTofu provider configuration for adoption
     // Workspaces. Per-Workspace inline modules override/extend this.

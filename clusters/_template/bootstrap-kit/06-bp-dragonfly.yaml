@@ -68,6 +68,10 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for the manager's /healthy itself until 60
+    # seconds before its bound T, the install timeout below, stated once as
+    # values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 15m
   # interval 1m so install remediation retries fire within ~5min total
   # (mirrors the slot-19 harbor cadence). Dragonfly's manager waits on its
   # bundled mysql + redis init, which can legitimately take a few minutes on
@@ -93,7 +97,7 @@ spec:
       # 127.0.0.1:4001; upstream registry = ghcr (ghcr-pull auth). Every
       # workload + initContainer carries non-zero resources.requests for the
       # host-ns Kyverno resource-requests Enforce policy.
-      version: 0.1.4
+      version: 0.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-dragonfly
@@ -146,3 +150,5 @@ spec:
               # (harbor-core.harbor.svc) in a single line — a separate, later-
               # validated step (platform/self-sovereign-cutover/), NOT here.
               addr: ${SOVEREIGN_DRAGONFLY_UPSTREAM_REGISTRY:=https://ghcr.io}
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)

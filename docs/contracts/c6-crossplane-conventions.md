@@ -181,7 +181,31 @@ impossible.
   `${REGISTRY_HOST}/${REGISTRY_PATH_TOFU_PROVIDERS}`, and from nowhere else.
 - Both keys are contract C5 keys. Manifests write the two-key form, never one
   combined key.
-- The mirror is filled from each pack's `spec.tofuProviders` (CLD-172).
+- The mirror is an OCI provider mirror (OpenTofu 1.10 and later, `oci_mirror`):
+  one repository `<namespace>/<type>` per provider, the version as the tag, an
+  index of artifact type `application/vnd.opentofu.provider` with one manifest
+  per platform (linux/amd64) whose single layer is the zip the origin registry
+  serves. The configuration has no `direct`, `network_mirror` or
+  `filesystem_mirror` method, so a provider the mirror lacks fails `tofu init`.
+- The provider pod's configuration is the ConfigMap
+  `crossplane-system/opentofu-cli-config`, key `.tofurc` (SOV-342). The
+  DeploymentRuntimeConfig of `provider-opentofu` mounts it at
+  `/etc/opentofu/cli` and the pull credential, the Secret that
+  `REGISTRY_PULL_SECRET` names, at `/etc/opentofu/oci/config.json`; the
+  ProviderConfig `default` writes the file into each Workspace as its
+  credential `.tofurc` (source `Filesystem`). Before the cutover the address is
+  the origin, `ghcr.io/openova-io/tofu-providers`; the cutover copies the
+  packages into the Sovereign's registry and moves the address there (SOV-343);
+  SOV-240 writes it in the two-key form.
+- The packages are listed, each with the digest of its OCI index, in the
+  ConfigMap `crossplane-system/opentofu-providers`, which
+  `tools/guards/cmd/tofu-providers/write-list.sh` writes from each pack's
+  `infra/providers/<pack>/tofu-providers.txt`: the versions its lock file
+  pins. `go run ./cmd/tofu-providers check` (in `tools/guards`) fails when a
+  version a module requires, a lock file pins or a pack names is not listed.
+  The workflow `mirror-tofu-providers` publishes every listed package at the
+  origin before the change that lists it merges, and fails when a digest
+  differs from the list.
 
 ## Packages
 
