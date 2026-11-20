@@ -992,7 +992,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "depends": [
       "bp-cilium"
     ],
