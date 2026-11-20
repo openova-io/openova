@@ -1,4 +1,4 @@
-infra=46
+infra=18
 kit=67
 charts=144
 api=18

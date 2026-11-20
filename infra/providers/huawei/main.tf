@@ -897,150 +897,57 @@ locals {
   # The Kubernetes bootstrap lives in infra/providers/_shared/cloudinit-
   # control-plane.tftpl (ONE template, every cloud). These locals carry the
   # ONLY Huawei-specific pieces (the "hard dependency" exceptions, plan §5):
-  # bastion registry mirror (kom4dc NAT bypass), the iptables DNAT +
+  # the ghcr.io rewrite of the hosted project (#4049), the iptables DNAT +
   # console-less log self-upload prelude (#3132), huawei-ak/sk creds, and the
   # HCS-specific k3s flags (watch-cache tuning + topology labels). The EIP is
   # per-region so node_external_ip_cmd / kubeconfig_put_block are built inline
   # in the cp_cloud_init_by_region loop below.
 
-  # registry mirror — Huawei routes pulls through the bastion-openova
-  # registry:2 caches on direct EIP 212.72.24.20 (kom4dc NAT blocklist bypass,
-  # Wave 5.106 #2462). harbor + docker.io mirror via :5000 / :5002 (#2842).
-  #
-  # #3913 (revert of regression 4049d61f4): the bastion :5000 cache is NOT a
-  # harbor-only/docker-only front — it is the SAME Harbor proxy-cache as
-  # harbor.openova.io, reachable over the LOCAL EIP 212.72.24.20 with NO NAT
-  # egress. It already serves the proxy-ghcr / proxy-quay / proxy-gcr / proxy-k8s
-  # projects (anon-pullable; verified live 2026-06-21: flux source-controller,
-  # cnpg, external-secrets, openbao, oauth2-proxy, kube-apiserver, gcr distroless
-  # all return manifest HTTP 200 via http://212.72.24.20:5000/v2/proxy-*/...).
-  #
-  # 4049d61f4 wrongly re-routed ghcr/quay/gcr/registry.k8s.io to the EXTERNAL
-  # https://harbor.openova.io. On kom4dc, reaching harbor.openova.io needs NAT
-  # egress → draws a reputation-blocklisted ("poisoned") EIP → cloud-init's
-  # Flux/cilium/k8s image pulls stall → region-a never bootstraps → prov FAILS.
-  # The bastion is the NAT-bypass local registry built exactly to avoid this.
-  # Route ghcr/quay/gcr/registry.k8s.io through the bastion :5000 with the SAME
-  # proxy-* rewrites — zero NAT egress, exactly like harbor + docker.io already do.
-  #
-  # #4600 — xpkg.upbound.io is NO LONGER mirrored through the bastion Harbor.
-  # The Crossplane provider-opentofu package pulls DIRECTLY from xpkg.upbound.io
-  # (the #4002/#4018 adoption seam). The former rewrite to
-  # `harbor.openova.io/proxy-xpkg` (#4488/#4491/#4542) was an ARTIFICIAL bastion
-  # tether: (a) the Crossplane xpkg fetcher (go-containerregistry K8sFetcher)
-  # bypasses THIS containerd mirror entirely, so the rewrite was always inert
-  # for the actual provider-package pull; and (b) the bastion `proxy-xpkg`
-  # proxy-cache project never existed → `401 project proxy-xpkg not found` →
-  # provider-opentofu Installed=False. Live-proven 2026-06-28: xpkg.upbound.io
-  # answers (HTTP 401 anon-challenge) in 0.43s direct from the Huawei Sovereign,
-  # so the "poisoned NAT" premise that justified the tether is false. public.ecr.aws
-  # stays on https://harbor.openova.io (its proxy-ecr project is out of scope
-  # here and unrelated to the Crossplane adoption seam). docker.io stays on the
-  # bastion :5002 cache.
-  #
-  # #4049 (2026-06-21) — every image Huawei→Huawei, INCLUDING PRIVATE catalyst.
-  # The ghcr.io mirror now carries TWO ordered rewrite rules (k3s/containerd
-  # evaluates them first-match-wins):
-  #   1. `openova-io/openova/(.*)` → `openova-io/openova/$1` — the PRIVATE
-  #      catalyst image set (catalyst-api/ui, the *-controllers, marketplace-*,
-  #      console, admin, the sme services-*). These are NOT anon-pullable, so
-  #      the bastion's anonymous `proxy-ghcr` PROXY-CACHE 404s them (Harbor's
-  #      github-ghcr adapter can't do ghcr's 2-step bearer-token flow, so it
-  #      never caches a private blob). They are instead NATIVE-PUSHED into the
-  #      HOSTED bastion project `openova-io` by the catalyst-build warmup step
-  #      (.github/workflows/catalyst-build.yaml, mirrors the cutover
-  #      03-harbor-prewarm Job) on EVERY catalyst build — catalyst changes every
-  #      build, so the warmup re-pushes the latest tags. This rule routes the
-  #      private namespace to that hosted project so nodes pull catalyst
-  #      bastion-local (28 MB/s) with ZERO ghcr egress — killing the #4049
-  #      15-min FirstSeenTimeout wedge (hw182 RCA: nodes cold-fetching private
-  #      catalyst DIRECT from ghcr at 2.3 MB/s). This also replaces the former
-  #      cloud-init `crictl pull --creds ghcr.io/openova-io/openova/*` direct-
-  #      ghcr pre-pull block (now deleted in _shared/cloudinit-control-plane).
-  #   2. `(.*)` → `proxy-ghcr/$1` — the PUBLIC ghcr images (fluxcd/*,
-  #      cloudnative-pg/*, …) keep using the already-warm anon proxy-cache.
-  # The hosted `openova-io` project is PRIVATE, so node pulls authenticate via
-  # the `212.72.24.20:5000` configs.auth block (the same `robot$openova-bot`
-  # Harbor robot the warmup pushes with). PREREQUISITE (orchestrator/founder):
-  # the hosted `openova-io` project must exist on the bastion Harbor + the robot
-  # must have pull on it (the warmup step ensures-creates the project via the
-  # Harbor API). xpkg/ecr/docker.io routing is unchanged.
-  registry_mirror_yaml_huawei = <<-EOT
-    mirrors:
-      "harbor.openova.io":
-        endpoint:
-          - "http://212.72.24.20:5000"
-      "docker.io":
-        endpoint:
-          - "http://212.72.24.20:5002"
-      "registry-1.docker.io":
-        endpoint:
-          - "http://212.72.24.20:5002"
-      "quay.io":
-        endpoint:
-          - "http://212.72.24.20:5000"
-        rewrite:
-          "(.*)": "proxy-quay/$1"
-      "gcr.io":
-        endpoint:
-          - "http://212.72.24.20:5000"
-        rewrite:
-          "(.*)": "proxy-gcr/$1"
-      "registry.k8s.io":
-        endpoint:
-          - "http://212.72.24.20:5000"
-        rewrite:
-          "(.*)": "proxy-k8s/$1"
-      "ghcr.io":
-        endpoint:
-          - "http://212.72.24.20:5000"
-        rewrite:
-          # #4049 (hw182 live-proven 2026-06-22): containerd renders the YAML
-          # `rewrite:` map into a hosts.toml `[host.<x>.rewrite]` TOML MAP and
-          # iterates it in NON-DETERMINISTIC (Go map) order — file/list order is
-          # NOT honored (proven: `openova-io` rule listed first STILL lost to the
-          # catch-all). A plain `(.*)` catch-all therefore SHADOWS the specific
-          # `openova-io/openova/...` rule ~half the time → the private catalyst
-          # ref gets rewritten to `proxy-ghcr/openova-io/...` (404, anon cache
-          # can't serve the private blob) → containerd falls back to the upstream
-          # `server = https://ghcr.io` → 401. The two rules MUST be mutually
-          # exclusive. RE2 has no negative-lookahead, so the catch-all is anchored
-          # to NOT match the `openova-io/openova/` prefix via a first-mismatch
-          # alternation. PRIVATE openova catalyst → hosted bastion project
-          # `openova-io` (warmed by the catalyst-build job, served from the
-          # bastion :5000 pull-through cache of the PUBLIC Contabo `openova-io`
-          # project — proven 0.9s warm pull, 61.7 MiB, zero ghcr egress).
-          # Everything else (fluxcd/*, cloudnative-pg/*, …) → the anon proxy-ghcr
-          # cache (verified still routes correctly).
-          "^openova-io/openova/(.*)": "openova-io/openova/$1"
-          "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
-      # #4600 — xpkg.upbound.io is NOT mirrored through the bastion Harbor.
-      # The Crossplane provider-opentofu package pulls DIRECTLY from
-      # xpkg.upbound.io (live-proven reachable sub-second from the Huawei
-      # Sovereign — see clusters/_template/.../base/provider-opentofu.yaml).
-      # The Crossplane xpkg fetcher bypasses this containerd mirror anyway, so
-      # the former `harbor.openova.io/proxy-xpkg` rewrite was both inert for
-      # the fetcher AND an artificial bastion tether for node-level pulls.
-      "public.ecr.aws":
-        endpoint:
-          - "https://harbor.openova.io"
-        rewrite:
-          "(.*)": "proxy-ecr/$1"
-    configs:
-      "212.72.24.20:5000":
-        auth:
-          username: "robot$openova-bot"
-          password: "${var.harbor_robot_token}"
-        tls:
-          insecure_skip_verify: true
-      "212.72.24.20:5002":
-        tls:
-          insecure_skip_verify: true
-      "harbor.openova.io":
-        auth:
-          username: "robot$openova-bot"
-          password: "${var.harbor_robot_token}"
-  EOT
+  # SOV-132: the node registry file /etc/rancher/k3s/registries.yaml, built
+  # from the variables document by the rule of contract C5 (Go form:
+  # upstream.Variables.RegistriesYAML): each proxy name lists this region's
+  # registry, then (while SOVEREIGN_CONSUME is origin) its origin, with a
+  # rewrite to its project path when that is not empty; then entries for
+  # LOCAL_REGISTRY_HOST, for ORIGIN_REGISTRY_HOST (while origin, unless it is a
+  # proxy name) and "*". With --disable-default-registry-endpoint no name falls
+  # back to a public address (SOV-060). The parent's robot login goes to each
+  # origin that serves a proxy project. Written as JSON (YAML too, shorter).
+  # The registry address inside this cloud comes from the document too.
+  node_registry_local       = "https://${var.variables["LOCAL_REGISTRY_HOST"]}"
+  node_registry_origin_on   = var.variables["SOVEREIGN_CONSUME"] == "origin"
+  node_registry_projects    = jsondecode(var.variables["REGISTRY_PROXY_PROJECTS_JSON"])
+  node_registry_origin_host = "${var.variables["ORIGIN_REGISTRY_SCHEME"]}://${var.variables["ORIGIN_REGISTRY_HOST"]}"
+  node_registry_origin = {
+    for n, p in local.node_registry_projects : n => coalesce(lookup(jsondecode(var.variables["ORIGIN_PROXY_ENDPOINTS_JSON"]), n, ""), local.node_registry_origin_host)
+  }
+  # #4049: the rewrite of ghcr.io routes the PRIVATE catalyst images
+  # (openova-io/openova/*) to the hosted project openova-io and every other
+  # ghcr image to proxy-ghcr. containerd renders the rewrite map into
+  # hosts.toml and applies it in Go map order, not list order, so the two
+  # rules must be mutually exclusive: RE2 has no negative lookahead, so the
+  # catch-all is anchored to NOT match the openova-io/openova/ prefix by a
+  # first-mismatch alternation (hw182, 2026-06-22).
+  node_registry_hosted_rewrites = {
+    "ghcr.io" = {
+      "^openova-io/openova/(.*)"                                                                                                                                                                     = "openova-io/openova/$1"
+      "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)" = "proxy-ghcr/$0"
+    }
+  }
+  registry_mirror_yaml_huawei = jsonencode({
+    mirrors = merge(
+      { for n, p in local.node_registry_projects : n => merge(
+        { endpoint = concat([local.node_registry_local], local.node_registry_origin_on ? [local.node_registry_origin[n]] : []) },
+        { for k, r in { rewrite = lookup(local.node_registry_hosted_rewrites, n, { "(.*)" = "${p}/$1" }) } : k => r if p != "" || contains(keys(local.node_registry_hosted_rewrites), n) },
+      ) },
+      { (var.variables["LOCAL_REGISTRY_HOST"]) = { endpoint = [local.node_registry_local] } },
+      { for h in [var.variables["ORIGIN_REGISTRY_HOST"]] : h => { endpoint = [local.node_registry_local, local.node_registry_origin_host] } if local.node_registry_origin_on && !contains(keys(local.node_registry_projects), h) },
+      { "*" = { endpoint = [local.node_registry_local] } },
+    )
+    configs = {
+      for h in distinct([for n, p in local.node_registry_projects : regex("^[a-z]+://([^/]+)", local.node_registry_origin[n])[0] if local.node_registry_origin_on && p != ""]) :
+      h => { auth = { username = "robot$openova-bot", password = var.harbor_robot_token } }
+    }
+  })
 
   # cloud-credentials Secret — Huawei AK/SK (#425 vendor-agnostic name).
   cloud_credentials_secret_yaml_huawei = <<-EOT
@@ -1178,12 +1085,8 @@ locals {
       # all collapse to single-region. Huawei CCM doesn't stamp
       # standard topology labels by default; cloudinit fills the gap.
       region = r.code
-      # #2842 (2026-06-03): harbor robot token for the registries.yaml
-      # `configs.harbor.openova.io.auth` block — without this, every
-      # uncached pull of an upstream image referencing harbor.openova.io
-      # 401s and containerd loops on stale-ingest-locks. Mirrors the CP
-      # template binding (line 788).
-      harbor_robot_token = var.harbor_robot_token
+      # SOV-132: the control plane's registry file, with its robot login.
+      registry_mirror_yaml = local.registry_mirror_yaml_huawei
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
 

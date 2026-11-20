@@ -434,6 +434,10 @@ HCL
 
 # Worker templates are per-provider and take a much smaller var set (see the
 # `worker_cloud_init = templatefile(...)` call in infra/providers/<p>/main.tf).
+# SOV-132: a worker writes the registry file the module builds as it is, so the
+# reference render passes the file the module builds for the worst-case
+# document (WORKER_REGISTRY_FILE, read by check_provider from the worst-case
+# worker render), never an empty map that would leave its bytes out.
 fixture_worker_hetzner() {
   cat <<'HCL'
     sovereign_fqdn             = "t99.omani.works"
@@ -442,8 +446,8 @@ fixture_worker_hetzner() {
     cp_private_ip              = "10.0.1.2"
     enable_unattended_upgrades = true
     enable_fail2ban            = true
-    harbor_robot_token         = "harborTESTrobotTESTtoken0001"
 HCL
+  printf '    registry_mirror_yaml       = file("%s")\n' "${WORKER_REGISTRY_FILE}"
 }
 
 fixture_worker_huawei() {
@@ -455,8 +459,8 @@ fixture_worker_huawei() {
     region                     = "me-east-215-a"
     enable_unattended_upgrades = true
     enable_fail2ban            = true
-    harbor_robot_token         = "harborTESTrobotTESTtoken0001"
 HCL
+  printf '    registry_mirror_yaml       = file("%s")\n' "${WORKER_REGISTRY_FILE}"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -539,6 +543,28 @@ check_provider() {
   shared_cp="${PROVIDERS_DIR}/_shared/cloudinit-control-plane.tftpl"
   worker_tftpl="${PROVIDERS_DIR}/${provider}/cloudinit-worker.tftpl"
   rc=0
+  # The gate: the worst-case surfaces, rendered from the module's own
+  # expressions (scripts/cloudinit-size-check.py). Each line is
+  # "<label><TAB><bytes><TAB><limit>". DUMP_DIR, when set, keeps the renders.
+  out="$(mktemp "${TMPDIR:-/tmp}/cloudinit-size-worst.XXXXXX")"
+  dump="${DUMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/cloudinit-size-dump.XXXXXX")}"
+  if ! TOFU_BIN="${TOFU_BIN}" "${PY_BIN}" "${SCRIPT_DIR}/cloudinit-size-check.py" "${provider}" --dump "${dump}" > "${out}"; then
+    err "${provider}: the worst-case render FAILED (see above)"
+    gha "::error title=cloud-init-size ${provider}::the worst-case render failed — see job log"
+    rm -f "${out}"; [ -n "${DUMP_DIR:-}" ] || rm -rf "${dump}"; return 1
+  fi
+  # SOV-132: the registry file the module builds for the worst-case document,
+  # as the worst-case worker writes it, for the worker reference render.
+  WORKER_REGISTRY_FILE="$(mktemp "${TMPDIR:-/tmp}/cloudinit-size-registries.XXXXXX")"
+  awk '$0 == "  - path: /etc/rancher/k3s/registries.yaml" {f = 1; next}
+       f == 1 && $0 == "    content: |" {f = 2; next}
+       f == 2 && /^      / {print substr($0, 7); next}
+       f == 2 {exit}' "${dump}/${provider}_worker_primary_region_worst_case.yaml" > "${WORKER_REGISTRY_FILE}"
+  [ -n "${DUMP_DIR:-}" ] || rm -rf "${dump}"
+  if [ ! -s "${WORKER_REGISTRY_FILE}" ]; then
+    err "${provider}: the worst-case worker render writes no /etc/rancher/k3s/registries.yaml"
+    rc=1
+  fi
   case "${provider}" in
     hetzner)
       reference_surface "hetzner control-plane, reference" "${shared_cp}" fixture_cp_hetzner || rc=1
@@ -548,17 +574,9 @@ check_provider() {
       reference_surface "huawei control-plane, reference" "${shared_cp}" fixture_cp_huawei || rc=1
       reference_surface "huawei worker, reference" "${worker_tftpl}" fixture_worker_huawei || rc=1
       ;;
-    *) err "unknown provider: ${provider} (want hetzner|huawei)"; return 2 ;;
+    *) err "unknown provider: ${provider} (want hetzner|huawei)"; rm -f "${out}" "${WORKER_REGISTRY_FILE}"; return 2 ;;
   esac
-  # The gate: the worst-case surfaces, rendered from the module's own
-  # expressions (scripts/cloudinit-size-check.py). Each line is
-  # "<label><TAB><bytes><TAB><limit>". DUMP_DIR, when set, keeps the renders.
-  out="$(mktemp "${TMPDIR:-/tmp}/cloudinit-size-worst.XXXXXX")"
-  if ! TOFU_BIN="${TOFU_BIN}" "${PY_BIN}" "${SCRIPT_DIR}/cloudinit-size-check.py" "${provider}" ${DUMP_DIR:+--dump "${DUMP_DIR}"} > "${out}"; then
-    err "${provider}: the worst-case render FAILED (see above)"
-    gha "::error title=cloud-init-size ${provider}::the worst-case render failed — see job log"
-    rm -f "${out}"; return 1
-  fi
+  rm -f "${WORKER_REGISTRY_FILE}"
   surfaces=0
   tab="$(printf '\t')"
   while IFS="${tab}" read -r label size limit; do
