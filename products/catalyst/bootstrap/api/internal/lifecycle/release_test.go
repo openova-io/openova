@@ -369,7 +369,7 @@ func TestReleaseDeliveryIsTheBootstrapOfTheCandidatesMechanism(t *testing.T) {
 			if len(pod.InitContainers) != 1 || pod.InitContainers[0].Name != "stage" || len(pod.Containers) != 1 || pod.Containers[0].Name != "deliver" {
 				t.Fatalf("want init [stage] and [deliver]; have %v and %v", pod.InitContainers, pod.Containers)
 			}
-			if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
+			if *job.Spec.BackoffLimit != 1 || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
 				t.Fatalf("backoff %d, deadline %d, restart %s", *job.Spec.BackoffLimit, *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
 			}
 			for i, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {

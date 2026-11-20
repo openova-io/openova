@@ -17,7 +17,7 @@
 # follower region b whose stage is recorded too. It runs the chart's own
 # files/release/release-run.sh (promote, rollback), which runs the chart's
 # files/release/release-region.sh in the primary. kubectl is a stub that
-# answers the status patches and the read of the Gitea token and refuses
+# answers the status patches, their read and the read of the Gitea token, and refuses
 # anything else, so any call that reaches region b fails the case. Cases:
 #   A promote with RELEASE_REGION=primary: the primary's main is the staged
 #     commit, region b gets no call, the state records primary.promotedFrom,
@@ -68,12 +68,14 @@ cp "${SCRIPTS}/release-run.sh" "${SCRIPTS}/release-region.sh" "${TMP}/release/"
 printf 'apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: __JOB__\n  namespace: gitea\n' >"${TMP}/release/follower-job.yaml"
 : >"${TMP}/release/kit-rewrite.sh"; : >"${TMP}/release/extract-pins.sh"
 
-# The kubectl stub: status patches and the Gitea token; anything else (a call
-# to region b above all) is refused and kept in STUB/unexpected.
+# The kubectl stub: status patches, the read of the state they make (SOV-523)
+# and the Gitea token; anything else (a call to region b above all) is refused
+# and kept in STUB/unexpected.
 cat >"${STUB}/kubectl" <<'EOF'
 #!/bin/sh
 case " $* " in
   *" patch configmap "*) while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB}/status"; shift; done ;;
+  *" get configmap sovereign-release -o json "*) jq -s '{data: (map(.data) | add // {})}' "${STUB}/status" ;;
   *" get secret "*jsonpath*) printf '%s' release-test-token | base64 ;;
   *) echo "kubectl $*" >>"${STUB}/unexpected"; echo "kubectl stub: refused: $*" >&2; exit 9 ;;
 esac

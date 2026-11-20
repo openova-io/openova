@@ -80,6 +80,17 @@
 # step 03's copy from the delivery Job it composed). A rollback carries none.
 # No region keeps an upstream credential after a delivery (cutover step 06
 # strips the parent's); the next delivery sends one again.
+#
+# An eviction (SOV-523). Every Job of a delivery replaces ONE Pod a disruption
+# took (RELEASE_RETRY: no other exit is retried, and no new Pod starts before
+# that one is gone); a Job's end is read from its conditions, its result from
+# the log of its current Pod. The new Pod resumes from what it read with
+# certainty (sure: a failed read or write is made again, or the Pod stops and
+# records why as resume; a failure is never taken for "not done"): the stage
+# stages nothing when this request's delivery Job exists, and deliver waits for
+# it; the prewarm is skipped when the state names this Job prewarmedBy, recorded
+# before the credential goes; promote keeps the promoteRegion an earlier Pod
+# reached, and checks and promotes again (promoted where main is the staged).
 set -eu
 : "${RELEASE_NAMESPACE:?}" "${RELEASE_STATUS_CM:?}" "${CANDIDATE:?}"
 : "${DRY_RUN:=false}" "${STATE:=/release-state}" "${SECONDARY_KUBECONFIGS:=/secondary-kubeconfigs}"
@@ -92,7 +103,8 @@ set -eu
 : "${MECHANISM_SUFFIX:=-release}" "${RELEASE_JOB:=sovereign-release}" "${STATE_SEED:=}"
 : "${SECONDARY_KUBECONFIGS_SECRET:=cutover-secondary-kubeconfigs}"
 : "${SERVER_DRY_RUN:=false}" "${DRY_RUN_PULL_SECRET:=release-pull-dry-run}"
-: "${RELEASE_REGION:=}" "${PROMOTED_FROM:=}" "${PROMOTED_TO:=}"
+: "${RELEASE_REGION:=}" "${PROMOTED_FROM:=}" "${PROMOTED_TO:=}" "${RELEASE_TRIES:=5}"
+RELEASE_RETRY='{"backoffLimit": 1, "podReplacementPolicy": "Failed", "podFailurePolicy": {"rules": [{"action": "Count", "onPodConditions": [{"type": "DisruptionTarget", "status": "True"}]}, {"action": "FailJob", "onExitCodes": {"operator": "NotIn", "values": [0]}}]}}'
 mkdir -p "${STATE}"
 # A delivery Job starts with what the bootstrap's stage recorded (STATE_SEED).
 if [ -n "${STATE_SEED}" ] && [ -d "${STATE_SEED}" ]; then
@@ -149,7 +161,22 @@ status_put() {
 # not run without; it fails when the patch does.
 status_must() {
   _j=$(jq -cn '$ARGS.named' "$@")
-  kubectl -n "${RELEASE_NAMESPACE}" patch configmap "${RELEASE_STATUS_CM}" --type merge -p "{\"data\":${_j}}" >/dev/null
+  sure "${STATE}/status-must.out" kubectl -n "${RELEASE_NAMESPACE}" patch configmap "${RELEASE_STATUS_CM}" --type merge -p "{\"data\":${_j}}"
+}
+
+# resumed <how>; stop_pod <why>: a Pod after an eviction records (resume) how it
+# resumed, or why it stops, and writes no phase over an earlier Pod's record.
+resumed() { status_put --arg resume "a Pod of ${RELEASE_JOB} resumed: $1" --arg updatedAt "$(now)"; say "resumed: $1"; }
+stop_pod() { status_put --arg resume "a Pod of ${RELEASE_JOB} stopped: $1" --arg updatedAt "$(now)"; say "FAILED: $1"; exit 1; }
+
+# sure <file> <command...>: a call a resume or a record rests on, its output in
+# <file>; one that fails is made again, RELEASE_TRIES times in all.
+sure() {
+  _sf="$1"; shift; _st=1
+  until "$@" >"${_sf}" 2>"${_sf}.err"; do
+    [ "${_st}" -lt "${RELEASE_TRIES}" ] || return 1
+    _st=$((_st + 1)); sleep "${FOLLOWER_POLL_SECONDS}"
+  done
 }
 
 state_get() { cat "${STATE}/$1.$2" 2>/dev/null || true; }
@@ -169,6 +196,25 @@ record() {
 
 followers() {
   for _kc in "${SECONDARY_KUBECONFIGS}"/*.yaml; do [ -e "${_kc}" ] && echo "${_kc}"; done
+}
+
+# job_end <namespace> <job> [<kubeconfig>]: ok or failed by the Job's condition
+# Complete or Failed, else nothing (.status.failed counts a replaced Pod).
+job_end() {
+  _jn="$1"; _jj="$2"; _jk="${3:-}"; set --; [ -z "${_jk}" ] || set -- --kubeconfig "${_jk}"
+  case " $(kubectl "$@" -n "${_jn}" get job "${_jj}" -o 'jsonpath={.status.conditions[?(@.status=="True")].type}' 2>/dev/null || true) " in
+    *" Complete "*) echo ok ;;
+    *" Failed "*) echo failed ;;
+  esac
+}
+
+# job_pod <file> <namespace> <job> [<kubeconfig>]: into <file>, the newest Pod
+# of the Job (its current attempt; logs job/<job> reads the oldest), or fails.
+job_pod() {
+  _pf="$1"; _pn="$2"; _pj="$3"; _pk="${4:-}"; set --; [ -z "${_pk}" ] || set -- --kubeconfig "${_pk}"
+  sure "${_pf}.json" kubectl "$@" -n "${_pn}" get pods -l "job-name=${_pj}" -o json || return 1
+  jq -r '[.items[] | [.metadata.creationTimestamp, ([.status.conditions[]? | select(.type == "DisruptionTarget" and .status == "True")] == []), .metadata.name]]
+    | sort | last | .[2] // empty' "${_pf}.json" >"${_pf}" && [ -s "${_pf}" ]
 }
 
 # selected <region>: whether promote acts on <region>: every region when the
@@ -308,8 +354,8 @@ delivery_env() {
 }
 
 # delivery_unrecorded <why>: the record of a delivery that ended without its
-# containers recording how: its Pod was killed (an eviction, a lost node) or a
-# deadline passed. No Job of a delivery replaces a Pod (backoffLimit 0), so
+# containers recording how: its Pod was killed (a second eviction, a lost node)
+# or a deadline passed. The Job replaces no other Pod (RELEASE_RETRY), so
 # that is a failed delivery: phase failed, the step, and per region what moved.
 # It writes only over the phases the containers leave while they run (staged,
 # promoting), never over a cause they recorded. "No region was promoted" is
@@ -451,7 +497,8 @@ compose_delivery() {
   done
   jq -n --slurpfile p3 "${MECH}/p03.json" --slurpfile p1 "${MECH}/p01.json" --arg job "${RELEASE_JOB}-delivery" \
     --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" --arg pull "${_pull:-${PULL_SECRET}}" --arg sfx "${MECHANISM_SUFFIX}" \
-    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" --arg region "${RELEASE_REGION}" '
+    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" --arg region "${RELEASE_REGION}" \
+    --argjson retry "${RELEASE_RETRY}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     def setall($es): reduce $es[] as $e (.; setenv($e));
@@ -464,7 +511,7 @@ compose_delivery() {
      + ([("SECONDARY_HARBOR_NAMESPACE", "SECONDARY_GHCR_DEST_SECRET") as $n | select(envof($c3; $n) != "") | plain($n; envof($c3; $n))])) as $common |
     ($c3 | .name = "prewarm" | .args = ((.command // []) + (.args // [])) | .command = ["/bin/sh", "/release/release-run.sh", "prewarm"]
       | .env = ((.env // []) | setenv(plain("UPSTREAM_BRANCH"; "release/" + $cand))
-          | setenv({name: "GHCR_DOCKERCONFIG", valueFrom: {secretKeyRef: {name: $pull, key: ".dockerconfigjson"}}})
+          | setenv({name: "GHCR_DOCKERCONFIG", valueFrom: {secretKeyRef: {name: $pull, key: ".dockerconfigjson", optional: true}}})
           | setenv(plain("GHCR_DOCKERCONFIG_NAMESPACE"; $ns))
           | if any(.[]; .name == "SECONDARY_GHCR_SOURCE_SECRET") then setenv(plain("SECONDARY_GHCR_SOURCE_NAMESPACE"; $ns)) | setenv(plain("SECONDARY_GHCR_SOURCE_SECRET"; $pull)) else . end
           | setall($common + [plain("SECONDARY_KUBECONFIGS"; "/release-secondary-kubeconfigs")]))
@@ -483,7 +530,7 @@ compose_delivery() {
     {app: "sovereign-release", cand: $cand} as $l |
     {apiVersion: "batch/v1", kind: "Job",
      metadata: {name: $job, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $cand}},
-     spec: {backoffLimit: 0, activeDeadlineSeconds: (($s3.activeDeadlineSeconds // 0) + 7200), ttlSecondsAfterFinished: 259200,
+     spec: ($retry + {activeDeadlineSeconds: (($s3.activeDeadlineSeconds // 0) + 7200), ttlSecondsAfterFinished: 259200,
        template: {metadata: {labels: {"app.kubernetes.io/component": "sovereign-release"}},
          spec: ({serviceAccountName: $s3.serviceAccountName, restartPolicy: "Never", securityContext: $s3.securityContext,
            imagePullSecrets: $s3.imagePullSecrets, nodeSelector: $s3.nodeSelector, tolerations: $s3.tolerations, affinity: $s3.affinity,
@@ -494,7 +541,7 @@ compose_delivery() {
              {name: "release-state", emptyDir: {}},
              {name: "release-recorded", configMap: {name: "sovereign-release-recorded"}},
              {name: "release-secondary-kubeconfigs", secret: {secretName: $kcs, optional: true}}]),
-           initContainers: [$prewarm], containers: [$promote]} | with_entries(select(.value != null)))}}}'
+           initContainers: [$prewarm], containers: [$promote]} | with_entries(select(.value != null)))}})}'
 }
 
 # follower_job_of_mechanism: the rendered follower pivot Job of step 06, turned
@@ -506,12 +553,12 @@ follower_job_of_mechanism() {
   [ -s "${MECH}/follower-src.yaml" ] || return 0
   _urepo=$(jq -r '([.containers[0].env[]? | select(.name == "UPSTREAM_REPO_URL") | .value] | .[0]) // ""' "${MECH}/p01.json")
   k8s_json "${MECH}/follower-src.yaml" >"${MECH}/follower-src.json" || return 1
-  head -n 1 "${MECH}/follower-src.json" | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" '
+  head -n 1 "${MECH}/follower-src.json" | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" --argjson retry "${RELEASE_RETRY}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     .metadata.name = "__JOB__" | del(.metadata.resourceVersion, .metadata.uid)
     | .metadata.labels = ((.metadata.labels // {}) + {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $cand, "catalyst.openova.io/secondary-region": "__REGION__"})
-    | .spec.backoffLimit = 0 | .spec.activeDeadlineSeconds = 7200 | .spec.ttlSecondsAfterFinished = 259200
+    | .spec += $retry | .spec.activeDeadlineSeconds = 7200 | .spec.ttlSecondsAfterFinished = 259200
     | .spec.template.metadata.labels = ((.spec.template.metadata.labels // {}) + {"app.kubernetes.io/component": "sovereign-release"})
     | .spec.template.spec.containers[0] |= (.name = "release" | .command = ["/bin/sh", "/release/release-region.sh"] | del(.args)
         | .env = ((.env // []) | map(select(.name != "LOCAL_PREFIX" and .name != "TRUST_SECRET"))
@@ -761,6 +808,13 @@ run_delivery() {
   plan_submit "${MECH}/plan-deliver.tsv" || { _mech_why="cannot create ${_mech_why}"; return 1; }
   status_put --arg deliveryJob "${_dj}" --arg updatedAt "$(now)"
   say "the delivery runs as Job ${RELEASE_NAMESPACE}/${_dj}: prewarm and promote of $(cat "${MECH}/version")"
+  delivery_wait "${_dj}"
+}
+
+# delivery_wait <job>: wait for the delivery Job MECH/delivery-job.json (made by
+# compose, or read by a resumed stage), and print the log of its current Pod.
+delivery_wait() {
+  _dj="$1"
   _start=$(date +%s)
   _deadline=$(( _start + $(jq '.spec.activeDeadlineSeconds' "${MECH}/delivery-job.json") + 600 ))
   _end=""; _stall=""
@@ -775,13 +829,14 @@ run_delivery() {
         [ -z "${_s}" ] || say "WARN: the delivery Job has started no container: ${_s}"
       fi
     fi
-    _ok=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
-    _bad=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.failed}' 2>/dev/null || true)
-    if [ "${_ok:-0}" -ge 1 ] 2>/dev/null; then _end=ok; break; fi
-    if [ "${_bad:-0}" -ge 1 ] 2>/dev/null; then _end=failed; break; fi
+    _end=$(job_end "${RELEASE_NAMESPACE}" "${_dj}")
+    [ -z "${_end}" ] || break
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
-  kubectl -n "${RELEASE_NAMESPACE}" logs "job/${_dj}" --all-containers=true --tail=-1 2>&1 || true
+  if job_pod "${STATE}/delivery.pod" "${RELEASE_NAMESPACE}" "${_dj}"; then
+    _dp=$(cat "${STATE}/delivery.pod")
+    kubectl -n "${RELEASE_NAMESPACE}" logs "pod/${_dp}" --all-containers=true --tail=-1 2>&1 || true
+  fi
   # 3: the Job ran and failed, or did not end. Its containers recorded the step
   # and the cause, or, its Pod killed or its deadline passed, nothing:
   # delivery_unrecorded then records what the state shows.
@@ -825,7 +880,7 @@ run_follower() {
   # What the API server refuses ends the phase at once, with its answer.
   _sub="${SECONDARY_GITEA_NAMESPACE}/sovereign-release-scripts"
   if submit "${_kc}" ssa "${STATE}/${_region}.${_ph}.scripts.json"; then
-    kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --wait=true >/dev/null
+    kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --cascade=foreground --wait=true >/dev/null
     _sub="Job ${SECONDARY_GITEA_NAMESPACE}/${_job}"
     submit "${_kc}" ssa-recreate "${STATE}/${_region}.${_ph}.job" && _sub=""
   fi
@@ -839,13 +894,15 @@ run_follower() {
   _deadline=$(( $(date +%s) + FOLLOWER_WAIT_SECONDS ))
   _end=""
   while [ "$(date +%s)" -lt "${_deadline}" ]; do
-    _ok=$(kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${_job}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
-    _bad=$(kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${_job}" -o jsonpath='{.status.failed}' 2>/dev/null || true)
-    if [ "${_ok:-0}" -ge 1 ] 2>/dev/null; then _end=ok; break; fi
-    if [ "${_bad:-0}" -ge 1 ] 2>/dev/null; then _end=failed; break; fi
+    _end=$(job_end "${SECONDARY_GITEA_NAMESPACE}" "${_job}" "${_kc}")
+    [ -z "${_end}" ] || break
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
-  kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${_job}" --tail=-1 >"${_out}" 2>&1 || true
+  # The result: the log of the current Pod; one that cannot be read says so.
+  _fp=""; ! job_pod "${STATE}/${_region}.${_ph}.pod" "${SECONDARY_GITEA_NAMESPACE}" "${_job}" "${_kc}" || _fp=$(cat "${STATE}/${_region}.${_ph}.pod")
+  if [ -z "${_fp}" ] || ! sure "${_out}" kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "pod/${_fp}" --tail=-1; then
+    echo "release-report region=${_region} reason the Job ended ${_end:-not} and the log of its current Pod ${_fp:-(none)} cannot be read" >>"${_out}"
+  fi
   if [ -z "${_end}" ]; then
     # Nothing waits for it any more, so it must not run on: a promote that
     # starts after the wait gave up would move this region unobserved.
@@ -865,7 +922,7 @@ run_follower() {
 # the request that promoted it, or of its rollback, stays as it is.
 promote_region() {
   _pr="$1"; shift
-  _from=$(state_get "${_pr}" main); _to=$(state_get "${_pr}" staged)
+  _from=$(state_get "${_pr}" from); _to=$(state_get "${_pr}" staged)
   "$@" promote || return 1
   [ "${_from}" != "${_to}" ] || return 0
   status_put --arg "${_pr}.promotedFrom" "${_from}" --arg "${_pr}.promotedTo" "${_to}" --arg "${_pr}.phase" promoted --arg updatedAt "$(now)"
@@ -877,6 +934,7 @@ promote_region() {
 # promoteRegion did not move, whichever answers of the regions before it were
 # written (delivery_unrecorded); promote records "" with phase promoting.
 promote_reach() {
+  if [ -n "${_reached:-}" ]; then [ "$1" != "${_reached}" ] || _reached=""; return 0; fi
   status_must --arg promoteRegion "$1" --arg updatedAt "$(now)" && return 0
   say "FAILED: cannot record in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM} that promote reached region $1, so neither it nor a region after it is pushed"
   status_put --arg phase failed --arg failedStep promote \
@@ -901,6 +959,16 @@ verdict() {
 
 case "${1:-}" in
   stage)
+    # When this request's delivery Job exists, an earlier Pod staged every
+    # region; staging again would push release/<id> anew under that Job.
+    if [ "${DRY_RUN}" != "true" ]; then
+      mkdir -p "${MECH}"
+      sure "${MECH}/delivery-job.json" kubectl -n "${RELEASE_NAMESPACE}" get job "${RELEASE_JOB}-delivery" -o json --ignore-not-found \
+        || stop_pod "it cannot read whether Job ${RELEASE_JOB}-delivery exists; nothing is staged again or removed"
+      if [ -s "${MECH}/delivery-job.json" ]; then
+        : >"${STATE}/resumed"; resumed "Job ${RELEASE_JOB}-delivery exists, so nothing is staged again"; exit 0
+      fi
+    fi
     if ! region_check; then
       status_put --arg phase refused --arg failedStep stage --arg message "${_region_why}; nothing moved in any region" --arg updatedAt "$(now)"
       say "REFUSED: ${_region_why}"
@@ -976,14 +1044,18 @@ case "${1:-}" in
     ;;
   deliver)
     # The bootstrap's last container: the candidate's own release-run.sh runs
-    # the delivery. What it does not get to record is recorded here.
-    if [ ! -s "${MECH}/release-run.sh" ]; then
+    # the delivery. What it does not get to record is recorded here; after a
+    # resumed stage, it waits for the delivery Job an earlier Pod created.
+    _drc=0
+    if [ -e "${STATE}/resumed" ]; then
+      delivery_wait "${RELEASE_JOB}-delivery" || _drc=$?
+    elif [ ! -s "${MECH}/release-run.sh" ]; then
       status_put --arg phase failed --arg failedStep deliver --arg message "no rendered release mechanism in ${MECH}: nothing moved in any region" --arg updatedAt "$(now)"
       credential_remove || true
       exit 1
+    else
+      sh "${MECH}/release-run.sh" compose || _drc=$?
     fi
-    _drc=0
-    sh "${MECH}/release-run.sh" compose || _drc=$?
     # Whatever the delivery's end, the credential goes in every region; with
     # step 03's copy in each follower under the names of the delivery Job the
     # candidate composed in this Pod (a Pod of it killed in its prewarm deleted
@@ -991,7 +1063,8 @@ case "${1:-}" in
     : "${SECONDARY_HARBOR_NAMESPACE:=$(delivery_env SECONDARY_HARBOR_NAMESPACE)}" "${SECONDARY_GHCR_DEST_SECRET:=$(delivery_env SECONDARY_GHCR_DEST_SECRET)}"
     credential_remove || true
     if [ "${_drc}" -ne 0 ]; then
-      delivery_unrecorded "the candidate's release-run.sh compose exited ${_drc}"
+      [ -n "${_mech_why}" ] || _mech_why="the candidate's release-run.sh compose exited ${_drc}"
+      delivery_unrecorded "${_mech_why}"
       exit "${_drc}"
     fi
     ;;
@@ -1028,9 +1101,20 @@ case "${1:-}" in
     # container's log as it runs and to STATE/prewarm.log, for the cause.
     shift
     [ "$#" -gt 0 ] || { say "usage: release-run.sh prewarm <command of cutover step 03...>"; exit 2; }
+    # Skipped when an earlier Pod of this Job completed it; when none did (read
+    # with certainty), none promoted and the credential is still here.
+    sure "${STATE}/state.json" kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o json \
+      || stop_pod "it cannot read the state, so whether an earlier Pod completed the prewarm is unknown; it pushed no region"
+    if [ "$(jq -r '.data.prewarmedBy // ""' "${STATE}/state.json")" = "${RELEASE_JOB}" ]; then resumed "an earlier Pod completed the prewarm"; exit 0; fi
     rm -f "${STATE}/prewarm.rc"
     { _prc=0; "$@" || _prc=$?; echo "${_prc}" >"${STATE}/prewarm.rc"; } 2>&1 | tee "${STATE}/prewarm.log"
     _prc=$(cat "${STATE}/prewarm.rc" 2>/dev/null || echo 1)
+    # Recorded before the credential goes, or the delivery stops before promote.
+    if [ "${_prc}" -eq 0 ] && ! status_must --arg prewarmedBy "${RELEASE_JOB}" --arg updatedAt "$(now)"; then
+      credential_remove || true
+      status_put --arg phase failed --arg failedStep prewarm --arg message "prewarm failed: it cannot record its end (prewarmedBy), which a Pod after an eviction reads; nothing moved in any region" --arg updatedAt "$(now)"
+      exit 1
+    fi
     credential_remove || true
     if [ "${_prc}" -ne 0 ]; then
       _cause=$(first_cause "${STATE}/prewarm.log")
@@ -1049,8 +1133,15 @@ case "${1:-}" in
   promote)
     # Recorded before any region is checked or pushed, or nothing is: a state
     # still at staged then says with certainty that no region moved
-    # (delivery_unrecorded). promoteRegion "": no region is reached yet.
-    if ! status_must --arg phase promoting --arg promoteRegion "" --arg updatedAt "$(now)"; then
+    # (delivery_unrecorded). promoteRegion "": no region is reached yet; a Pod
+    # after an eviction keeps the one an earlier Pod reached (promote_reach).
+    sure "${STATE}/state.json" kubectl -n "${RELEASE_NAMESPACE}" get configmap "${RELEASE_STATUS_CM}" -o json \
+      || stop_pod "it cannot read the state, so whether an earlier Pod began the promote is unknown; it pushed no region"
+    for _r in $(promote_order); do printf '%s' "$(state_get "${_r}" main)" >"${STATE}/${_r}.from"; done
+    _reached=$(jq -r '.data.promoteRegion // empty' "${STATE}/state.json")
+    if [ "$(jq '(.data // {}) | has("promoteRegion")' "${STATE}/state.json")" = true ]; then
+      resumed "the promote an earlier Pod began, which reached ${_reached:-no region}"
+    elif ! status_must --arg phase promoting --arg promoteRegion "" --arg updatedAt "$(now)"; then
       say "FAILED: cannot record phase promoting in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM}; no region was promoted"
       exit 1
     fi
