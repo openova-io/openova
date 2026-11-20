@@ -13,12 +13,17 @@ test always renders.
 
 The kit installs this release without waiting for its workloads
 (install.disableWait), so at install the test runs before the servers are up:
-it adds the stream again every 5 seconds until second 240 of its 300 (adding a
-stream again with the same configuration is answered as a success). The names
-hold the time and a random number. The script never writes two dollar signs in
-a row: Kubernetes turns them into one in a container's args before the shell
-reads them.
+it adds the stream again every 5 seconds until 60 seconds before its bound T
+(adding a stream again with the same configuration is answered as a success),
+and fails naming the stream add when no server answers by then. T is
+functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the kit states
+the install timeout of its release there (docs/RUNBOOKS.md section 4.5);
+without it T is 300. The names hold the time and a random number. The script
+never writes two dollar signs in a row: Kubernetes turns them into one in a
+container's args before the shell reads them.
 */ -}}
+{{- $bound := int ((.Values.functionTest | default dict).timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $sub := .Values.nats | default dict }}
 {{- $name := $sub.nameOverride | default "nats" }}
 {{- $fullname := "" }}
@@ -45,7 +50,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   automountServiceAccountToken: false
   containers:
     - name: function-test
@@ -73,7 +78,7 @@ spec:
           subject="function-test.${id}"
           body="function test message ${id}"
           until out="$(nats --server "${NATS_URL}" stream add "${stream}" --subjects "${subject}" --storage file --replicas 1 --defaults 2>&1)"; do
-            [ "$(( $(date +%s) - start ))" -lt 240 ] || fail "stream add on ${NATS_URL} failed for 240 seconds: $(oneline "${out}")"
+            [ "$(( $(date +%s) - start ))" -lt {{ $wait }} ] || fail "stream add on ${NATS_URL} failed for {{ $wait }} seconds: $(oneline "${out}")"
             sleep 5
           done
           # From here every failure deletes the scratch stream, then fails.

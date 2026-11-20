@@ -9,6 +9,14 @@ only through the webhook, so it passes when the answer names the group
 version <webhook.groupName>/v1alpha1 and the resource kind ChallengePayload
 that cert-manager sends to a DNS-01 solver. It writes nothing.
 
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the webhook Pod is
+up and the API server answers ServiceUnavailable: it asks again every 5
+seconds until 60 seconds before its bound T, and fails naming the API group
+when the group is not served by then. T is functionTest.timeoutSeconds, the
+Pod's activeDeadlineSeconds: the kit states the install timeout of its release
+there (docs/RUNBOOKS.md section 4.5); without it T is 300.
+
 Every authenticated user may read discovery documents, so the ServiceAccount
 of this file needs no binding. It renders only when the chart renders the
 APIService (apiService.enabled). The image is the kubectl image the kit
@@ -17,6 +25,8 @@ already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
 {{- if .Values.apiService.enabled }}
 {{- $group := .Values.webhook.groupName }}
 {{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
 apiVersion: v1
 kind: ServiceAccount
@@ -45,7 +55,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -83,14 +93,14 @@ spec:
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           ok=""
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
             if kubectl --request-timeout=10s get --raw "/apis/${GROUP_VERSION}" > /tmp/answer 2>/tmp/error; then
               ok="yes"
               break
             fi
             sleep 5
           done
-          [ -n "${ok}" ] || fail "GET /apis/${GROUP_VERSION} failed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          [ -n "${ok}" ] || fail "the API group ${GROUP_VERSION} is not served within {{ $wait }} seconds: GET /apis/${GROUP_VERSION} failed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
           grep -q -E "\"groupVersion\" *: *\"${GROUP_VERSION}\"" /tmp/answer || fail "the answer names another group version: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
           grep -q -E '"kind" *: *"ChallengePayload"' /tmp/answer || fail "the API group serves no ChallengePayload: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
           echo "FUNCTION-TEST pass {{ .Chart.Name }} the webhook serves the API group ${GROUP_VERSION}"

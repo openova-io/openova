@@ -83,5 +83,17 @@ EOF
 RUN_SHELL=sh runs pass "the test does not wait for servers that answer after 5 requests (150 seconds)" REFUSE=5 NATS_URL=nats://nats-jetstream:4222
 rm -f "$TMP/count.clock"
 RUN_SHELL=sh runs fail "the test passes while no server ever answers" REFUSE=1000000 NATS_URL=nats://nats-jetstream:4222
+grep -q -F 'stream add on nats://nats-jetstream:4222 failed for 240 seconds' "$TMP/run.out" || fail "without functionTest.timeoutSeconds the wait does not end at second 240 of 300"
+
+echo "[function-test] Case 3: functionTest.timeoutSeconds is the bound T: the Pod ends at T and the wait 60 seconds before it"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/run.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template nats-jetstream . --namespace nats-system --set functionTest.timeoutSeconds=900 --show-only templates/tests/function-test.yaml > "$TMP/bound.yaml"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+pod_script "$TMP/bound.yaml" > "$TMP/run.sh"
+rm -f "$TMP/count.clock"
+RUN_SHELL=sh runs pass "under T 900 the test does not wait for servers that answer after 20 requests (600 seconds)" REFUSE=20 NATS_URL=nats://nats-jetstream:4222
+rm -f "$TMP/count.clock"
+RUN_SHELL=sh runs fail "under T 900 the test passes while no server ever answers" REFUSE=1000000 NATS_URL=nats://nats-jetstream:4222
+grep -q -F 'stream add on nats://nats-jetstream:4222 failed for 840 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name the stream add and the wait of 840 seconds"
 
 echo "function-test-render: all cases passed"

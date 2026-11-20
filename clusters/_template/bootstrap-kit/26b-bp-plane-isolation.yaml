@@ -55,6 +55,13 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for a ready address of its target, bp-keycloak's
+    # Service, itself until 60 seconds before its bound T, the install timeout
+    # below, stated once as values.functionTest.timeoutSeconds
+    # (docs/RUNBOOKS.md section 4.5). A dependsOn on bp-keycloak would put the
+    # isolation policies behind the identity service (see install below), so
+    # its install timeout is no shorter than bp-keycloak's (30m, slot 09).
+    timeout: 30m
   interval: 15m
   releaseName: plane-isolation
   targetNamespace: catalyst-system
@@ -155,7 +162,9 @@ spec:
         name: bp-plane-isolation
         namespace: flux-system
   install:
-    timeout: 5m
+    # 30m: the bound of the function test (above); with disableWait it bounds
+    # nothing else of the install.
+    timeout: 30m
     # The per-component policies land in namespaces other charts own
     # (keycloak/gitea/…), which may not all be Ready when this HR
     # reconciles. disableWait so the HR reaches Ready on apply (the
@@ -169,3 +178,6 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  values:
+    functionTest:
+      timeoutSeconds: 1800  # T = install.timeout (30m)

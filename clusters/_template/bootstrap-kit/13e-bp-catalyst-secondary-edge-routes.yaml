@@ -52,6 +52,12 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for every parent of every route to accept it
+    # itself until 60 seconds before its bound T, the install timeout below,
+    # stated once as values.functionTest.timeoutSeconds (docs/RUNBOOKS.md
+    # section 4.5). The console Gateway comes from the sovereign-tls
+    # Kustomization, which no dependsOn of a HelmRelease can name.
+    timeout: 15m
   # #5289 — un-suspend ONLY on the secondary CP. SECONDARY_EDGE_SUSPEND renders
   # "false" on secondary CPs (sovereign_region_role != "primary") and "true" on
   # the primary CP + on any single-region prov (the only CP is "primary"),
@@ -64,6 +70,7 @@ spec:
     # catalyst-system pre-exists (slot 13 raw Namespace, applied on all CPs);
     # createNamespace is a harmless idempotent safety net.
     createNamespace: true
+    timeout: 15m
   dependsOn:
     # gateway.networking.k8s.io CRDs (HTTPRoute + ReferenceGrant) must be
     # registered before this chart's routes admit. Do NOT depend on
@@ -140,3 +147,5 @@ spec:
       # secondary CP of a two-region prov.
       chargeback:
         enabled: true
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)
