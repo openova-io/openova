@@ -3191,7 +3191,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.239
+  version: 0.1.240
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3206,7 +3206,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.239
+    version: 0.1.240
   topology:
     supported: [singleton]
     defaults:
