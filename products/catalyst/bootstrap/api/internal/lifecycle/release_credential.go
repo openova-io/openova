@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,35 +24,43 @@ import (
 // sovereign-admin writes a Secret with kubectl. So the credential travels IN
 // THE REQUEST, from the signed-in sovereign-admin over the console's TLS, as
 // {"credential": {"registry": "ghcr.io", "username": ..., "password": ...}}
-// (a token goes in password). The route checks it against the registry before
-// anything is written, then makes the delivery's pull Secret itself:
+// (a token goes in password). The route signs in to the registry with it
+// before anything is written, then makes the delivery's pull Secret itself:
 // releasePullSecret in the cutover namespace, created with the field manager
-// releaseFieldManager, labelled with the Job it is for and owned by it (so the
-// Job's removal removes it too). The credential is in
-// that Secret and in no other object of the route: not in the state, a
-// ConfigMap, an event, a log line, a Job (the containers reference the Secret
-// by name) or an answer.
+// releaseFieldManager, labelled with the Job it is for and owned by it. The
+// credential is in that Secret and in no other object of the route: not in the
+// state, a ConfigMap, an event, a log line, a Job (the containers reference the
+// Secret by name) or an answer.
 //
-// The Secret lives for the delivery only. The release scripts delete it, with
-// its copies in every follower region, when the prewarm ends, when the stage
-// fails or refuses, and when the delivery Job ends without its prewarm having
-// done so (release-run.sh delivery_wait, run by the bootstrap's deliver
-// container). A bootstrap Job that is killed past its one retry removes
-// nothing; the route does, the next time it is asked: every request, and every
-// read of the state while no release Job runs, removes a pull Secret no running
-// Job is using (removeReleasePullSecret).
+// The Secret lives for the delivery only, and goes in every outcome:
+//   - the release scripts delete it, with its copies in every follower region,
+//     at every end of a delivery: the end of the prewarm, the start of
+//     promote, a stage that fails or refuses, and the bootstrap's deliver
+//     container whether the delivery completed or failed (its delivery Job's
+//     Pod killed included);
+//   - a bootstrap Job whose own Pod was killed runs none of that, and fails
+//     (backoffLimit 0). The Secret is owned by that Job, so the garbage
+//     collector deletes it when the Job is deleted: releaseTTLSeconds (three
+//     days) after the Job ended, by its ttlSecondsAfterFinished;
+//   - before that, the next request deletes it (removeReleasePullSecret), as no
+//     release Job runs then. That is the primary's Secret only: copies the
+//     killed Job's stage made in the followers stay until the next delivery's
+//     end deletes the credential in every region.
+//
+// A read of the state (GET) changes nothing, this Secret included.
 const (
 	// releasePullSecret is the one name of the delivery's pull Secret: one
-	// release Job runs at a time, and the catalyst-api account may delete this
-	// name only (clusterrole-cutover-driver.yaml).
+	// release Job runs at a time.
 	releasePullSecret   = "sovereign-release-pull"
 	releaseFieldManager = "catalyst-release"
 	releaseJobLabel     = "catalyst.openova.io/release-job"
 	// upstreamRegistry is the registry a delivery copies charts and images
 	// from: the cutover chart's step 03 reads the auth entry of this host
 	// (.auths["ghcr.io"]) from the pull Secret.
-	upstreamRegistry      = "ghcr.io"
-	registryCheckDeadline = 20 * time.Second
+	upstreamRegistry = "ghcr.io"
+	// registryCheckDeadline bounds the sign-in, inside the request's own
+	// releaseReadTimeout, so that a slow registry leaves the writes time.
+	registryCheckDeadline = 10 * time.Second
 )
 
 // registryCredential is the field credential of a delivery request.
@@ -93,13 +100,16 @@ func (e *errCredentialRefused) Error() string {
 	return fmt.Sprintf("%s refused the credential (HTTP %d)", upstreamRegistry, e.status)
 }
 
-// registryProbe checks a credential against a registry the way a client of the
-// distribution API signs in: GET <base>/v2/ with the credential; a registry
+// registryProbe signs in to a registry with a credential the way a client of
+// the distribution API does: GET <base>/v2/ with the credential; a registry
 // that takes it answers 200. A registry with token auth answers 401 with a
 // Bearer challenge; the credential then asks the challenge's realm for a token,
 // which a registry that takes it answers 200 and one that refuses it 401 or
-// 403. The token, the answers' bodies and the credential are never kept,
-// logged or returned.
+// 403. It proves the sign-in only, not read access to the packages a release
+// pins (the token is asked with the challenge's own scope): a credential that
+// signs in but may not read them fails the prewarm, which names the package and
+// deletes the credential. The token, the answers' bodies and the credential
+// are never kept, logged or returned.
 type registryProbe struct {
 	client *http.Client
 	base   string // https://<registry>; a test's server otherwise
@@ -248,22 +258,4 @@ func removeReleasePullSecret(ctx context.Context, cs kubernetes.Interface, ns st
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// releaseRetry lets a Job of the delivery replace ONE Pod that the cluster
-// took away: an eviction (a drained node, kured's nightly reboot), a
-// preemption, a lost node; Kubernetes marks such a Pod DisruptionTarget. Any
-// exit of the release scripts themselves fails the Job at once: they recorded
-// the step and the cause, removed the credential, and a second run would only
-// overwrite that record. Every step a replacement Pod runs again repeats or
-// resumes safely (release-run.sh, "An eviction").
-func releaseRetry(spec *batchv1.JobSpec) {
-	backoff := int32(1)
-	spec.BackoffLimit = &backoff
-	spec.PodFailurePolicy = &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
-		{Action: batchv1.PodFailurePolicyActionCount, OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{
-			{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue}}},
-		{Action: batchv1.PodFailurePolicyActionFailJob, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
-			Operator: batchv1.PodFailurePolicyOnExitCodesOpNotIn, Values: []int32{0}}},
-	}}
 }

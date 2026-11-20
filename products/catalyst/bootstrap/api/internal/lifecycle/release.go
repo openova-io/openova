@@ -43,12 +43,12 @@ import (
 //  2. prewarm: the candidate's cutover step 03, reading the pins of release/<id>, copies
 //     every chart and image they declare into the Sovereign's registry and stops
 //     by name on any it cannot copy. Its upstream credential is the request's
-//     credential, which the route checks against the registry and keeps in the
-//     Secret it makes for the delivery (release_credential.go); the stage
-//     copies it into every follower region (step 03's follower leg reads it
-//     there); when the prewarm ends, or the stage fails, the Job deletes it in
-//     every region, and a failed prewarm is recorded as phase failed with the
-//     step and its cause.
+//     credential, with which the route signs in to the registry and which it
+//     keeps in the Secret it makes for the delivery (release_credential.go);
+//     the stage copies it into every follower region (step 03's follower leg
+//     reads it there); every end of the delivery deletes it in every region,
+//     and a failed prewarm is recorded as phase failed with the step and its
+//     cause.
 //  3. promote: if no region's main moved since stage, push release/<id> as main
 //     in every region, a fast-forward the server checks. Never a force push.
 //
@@ -137,9 +137,8 @@ type ReleaseRoute struct {
 	clients func() (kubernetes.Interface, error)
 	now     func() time.Time
 	getenv  func(string) string
-	// checkCredential asks the upstream registry whether it takes the
-	// request's credential: nil, an *errCredentialRefused, or why it could not
-	// be asked.
+	// checkCredential signs in to the upstream registry with the request's
+	// credential: nil, an *errCredentialRefused, or why it could not be asked.
 	checkCredential func(context.Context, registryCredential) error
 }
 
@@ -203,8 +202,9 @@ func (rt *ReleaseRoute) cutoverStatus() string {
 // {"candidate": "<id>", "dryRun": false, "credential": {"registry": "ghcr.io",
 // "username": "<user>", "password": "<password or token>"}, "region": "<region>",
 // "rollback": false}; region and rollback are optional (SOV-521). A delivery
-// needs the credential: the route asks the registry whether it takes it, and
-// refuses, naming that, before anything is written; then it keeps it in the
+// needs the credential: the route signs in to the registry with it (a sign-in,
+// not read access to the pinned packages, which the prewarm proves), and
+// refuses, naming why, before anything is written; then it keeps it in the
 // pull Secret it makes for the delivery (release_credential.go). A dry run and
 // a rollback copy nothing from the registry, so they refuse a credential: it
 // would travel for nothing. The field pullSecret, a Secret a sovereign-admin
@@ -381,7 +381,7 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	}
 	var pull *corev1.Secret
 	if len(credentialEnv(req)) > 0 {
-		heldIn = "accepted by " + upstreamRegistry + "; held in the Secret " + ns + "/" + releasePullSecret + " for this delivery only, and deleted in every region when it ends"
+		heldIn = "signed in to " + upstreamRegistry + " (read access to the packages the release pins is proven by its prewarm); held in the Secret " + ns + "/" + releasePullSecret + " for this delivery only, and deleted in every region when it ends"
 		if pull, err = pullSecretFor(ns, name, req.Candidate, *req.Credential); err != nil {
 			refuse(w, http.StatusInternalServerError, "compose-failed", err.Error())
 			return
@@ -424,9 +424,10 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadGateway, "job-create-failed", err.Error())
 		return
 	}
-	// The pull Secret after the Job, owned by it: while the Job exists a read
-	// of the state never takes the Secret for a leftover, and the Job's
-	// removal removes it too. The stage reads it only at its end, minutes on.
+	// The pull Secret after the Job, owned by it: the garbage collector deletes
+	// it with the Job, which its ttlSecondsAfterFinished (releaseTTLSeconds)
+	// deletes after it ends, killed or not. The stage reads it only at its end,
+	// minutes on.
 	if pull != nil {
 		pull.OwnerReferences = []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: made.Name, UID: made.UID}}
 		if err := makeReleasePullSecret(ctx, cs, pull); err != nil {
@@ -529,9 +530,7 @@ func releaseView(data map[string]string, job *batchv1.Job, pods []corev1.Pod) ma
 	return v
 }
 
-// Status handles GET /api/v1/sovereign/release. It is also the finaliser of a
-// bootstrap Job that was killed past its retry before its scripts deleted the
-// pull Secret: once no release Job runs, a read of the state removes it.
+// Status handles GET /api/v1/sovereign/release.
 func (rt *ReleaseRoute) Status(w http.ResponseWriter, r *http.Request) {
 	if !SovereignAdmin(auth.ClaimsFromContext(r.Context())) {
 		refuse(w, http.StatusForbidden, "forbidden", "the release state is read by a sovereign-admin (tier admin or owner)")
@@ -545,11 +544,6 @@ func (rt *ReleaseRoute) Status(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), releaseReadTimeout)
 	defer cancel()
 	ns := rt.namespace()
-	if removed, err := removeReleasePullSecret(ctx, cs, ns); err != nil && rt.log != nil {
-		rt.log.Warn("release: cannot remove the pull Secret no release Job uses; the next request removes it", "secret", ns+"/"+releasePullSecret, "error", err.Error())
-	} else if removed && rt.log != nil {
-		rt.log.Info("release: removed the pull Secret of a release Job that ended without deleting it", "secret", ns+"/"+releasePullSecret)
-	}
 	st, err := cs.CoreV1().ConfigMaps(ns).Get(ctx, ReleaseStatusConfigMap, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		writeJSON(w, http.StatusOK, map[string]any{"phase": "none", "status": map[string]string{}})

@@ -369,10 +369,9 @@ func TestReleaseDeliveryIsTheBootstrapOfTheCandidatesMechanism(t *testing.T) {
 			if len(pod.InitContainers) != 1 || pod.InitContainers[0].Name != "stage" || len(pod.Containers) != 1 || pod.Containers[0].Name != "deliver" {
 				t.Fatalf("want init [stage] and [deliver]; have %v and %v", pod.InitContainers, pod.Containers)
 			}
-			if *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
-				t.Fatalf("deadline %d, restart %s", *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
+			if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
+				t.Fatalf("backoff %d, deadline %d, restart %s", *job.Spec.BackoffLimit, *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
 			}
-			assertRetriesOneEviction(t, "the bootstrap Job", job.Spec)
 			for i, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {
 				want := []string{"/bin/sh /release/release-run.sh stage", "/bin/sh /release/release-run.sh deliver"}[i]
 				if strings.Join(c.Command, " ") != want || c.Image != cutoverImage {
@@ -459,7 +458,6 @@ func TestReleaseFollowerJobIsTheCutoverFollowerPivotJob(t *testing.T) {
 		if v := j.Spec.Template.Spec.Volumes; len(v) != 1 || v[0].ConfigMap == nil || v[0].ConfigMap.Name != releaseScriptsConfigMap {
 			t.Fatalf("follower volumes: %v", v)
 		}
-		assertRetriesOneEviction(t, "the follower Job", j.Spec)
 		// The step 03 that runs is the candidate's: whatever the installed one
 		// says, the route cannot know; the stage says, from the candidate's.
 		st, _ := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), ReleaseStatusConfigMap, metav1.GetOptions{})

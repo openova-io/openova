@@ -27,21 +27,6 @@ import (
 // The route makes the delivery's pull Secret from the credential of the
 // request; nothing is made by hand on the Sovereign (release_credential.go).
 
-// assertRetriesOneEviction fails unless a Job of the delivery replaces one Pod
-// the cluster took away and fails at once on any exit of its own scripts.
-func assertRetriesOneEviction(t *testing.T, what string, spec batchv1.JobSpec) {
-	t.Helper()
-	p := spec.PodFailurePolicy
-	if spec.BackoffLimit == nil || *spec.BackoffLimit != 1 || p == nil || len(p.Rules) != 2 ||
-		p.Rules[0].Action != batchv1.PodFailurePolicyActionCount || len(p.Rules[0].OnPodConditions) != 1 ||
-		p.Rules[0].OnPodConditions[0].Type != corev1.DisruptionTarget ||
-		p.Rules[1].Action != batchv1.PodFailurePolicyActionFailJob || p.Rules[1].OnExitCodes == nil ||
-		p.Rules[1].OnExitCodes.Operator != batchv1.PodFailurePolicyOnExitCodesOpNotIn || fmt.Sprint(p.Rules[1].OnExitCodes.Values) != "[0]" {
-		b, _ := json.Marshal(spec.PodFailurePolicy)
-		t.Fatalf("%s does not replace one evicted Pod (backoffLimit 1, a DisruptionTarget counted) and fail on its scripts' exit: backoffLimit %v, podFailurePolicy %s", what, spec.BackoffLimit, b)
-	}
-}
-
 // credentialIn names the objects of the fake cluster (ConfigMaps, Jobs,
 // Secrets, Events) other than the pull Secret that hold the credential.
 func credentialIn(t *testing.T, cs kubernetes.Interface) []string {
@@ -122,7 +107,10 @@ func TestReleaseRouteMakesThePullSecretFromTheRequestsCredential(t *testing.T) {
 		}
 	}
 	st := statusOf(t, cs)
-	if _, old := st["pullSecret"]; old || !strings.Contains(st["credential"], "held in the Secret "+testNS+"/"+releasePullSecret) {
+	// The registry was signed in to; read access to the pinned packages is
+	// the prewarm's to prove, and the state claims no more.
+	if _, old := st["pullSecret"]; old || !strings.HasPrefix(st["credential"], "signed in to ghcr.io") ||
+		strings.Contains(st["credential"], "accepted") || !strings.Contains(st["credential"], "held in the Secret "+testNS+"/"+releasePullSecret) {
 		t.Fatalf("the state: credential %q, pullSecret present %v", st["credential"], old)
 	}
 	if found := credentialIn(t, cs); len(found) > 0 {
@@ -202,19 +190,40 @@ func pullSecretOf(t *testing.T, cs kubernetes.Interface) *corev1.Secret {
 	return s
 }
 
-// A pull Secret a killed release Job left is removed when the next request
-// arrives, whatever it asks, and on a read of the state once no release Job
-// runs; a running Job's is kept.
-func TestReleasePullSecretLeftoverIsRemoved(t *testing.T) {
-	get := func(cs kubernetes.Interface) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/release", nil)
-		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, admin))
-		w := httptest.NewRecorder()
-		route(cs, nil).Status(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("GET: code %d: %s", w.Code, w.Body)
-		}
+// The pull Secret goes with the bootstrap Job when nothing else removed it (the
+// Job's own Pod killed, so its scripts ran no end): the Job replaces no Pod
+// (backoffLimit 0), so it fails; its ttlSecondsAfterFinished, three days,
+// deletes it; and the Secret, owned by that Job by name and UID, is then
+// deleted by the garbage collector.
+func TestReleasePullSecretGoesWithItsJob(t *testing.T) {
+	cs := fake.NewSimpleClientset(installed(false, false)...)
+	cs.PrependReactor("create", "jobs", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		a.(k8stesting.CreateAction).GetObject().(*batchv1.Job).UID = "uid-of-the-release-job"
+		return false, nil, nil
+	})
+	if w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`",`+testCredentialJSON+`}`); w.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", w.Code, w.Body)
 	}
+	job := onlyJob(t, cs)
+	if job.Spec.BackoffLimit == nil || *job.Spec.BackoffLimit != 0 {
+		t.Fatalf("the bootstrap Job replaces a killed Pod: backoffLimit %v", job.Spec.BackoffLimit)
+	}
+	if releaseTTLSeconds != 3*24*3600 || job.Spec.TTLSecondsAfterFinished == nil || *job.Spec.TTLSecondsAfterFinished != releaseTTLSeconds {
+		t.Fatalf("the bootstrap Job's ttlSecondsAfterFinished is %v, want %d (three days)", job.Spec.TTLSecondsAfterFinished, 3*24*3600)
+	}
+	s := pullSecretOf(t, cs)
+	if s == nil || len(s.OwnerReferences) != 1 {
+		t.Fatalf("the pull Secret has no single owner: %v", s)
+	}
+	if o := s.OwnerReferences[0]; o.APIVersion != "batch/v1" || o.Kind != "Job" || o.Name != job.Name || o.UID != "uid-of-the-release-job" {
+		t.Fatalf("the pull Secret is not owned by the bootstrap Job %s (uid-of-the-release-job): %+v", job.Name, o)
+	}
+}
+
+// A pull Secret a killed release Job left is removed when the next request
+// arrives, whatever it asks (no release Job runs then); a read of the state
+// changes nothing, that Secret included.
+func TestReleasePullSecretLeftoverIsRemoved(t *testing.T) {
 	t.Run("a dry run removes it and makes none", func(t *testing.T) {
 		cs := fake.NewSimpleClientset(append(installed(false, false), releaseJob("sovereign-release-1", true), leftover())...)
 		if w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","dryRun":true}`); w.Code != http.StatusAccepted {
@@ -243,18 +252,23 @@ func TestReleasePullSecretLeftoverIsRemoved(t *testing.T) {
 			t.Fatal("the leftover pull Secret is still there after a rollback request")
 		}
 	})
-	t.Run("a read of the state removes it once no Job runs", func(t *testing.T) {
-		cs := fake.NewSimpleClientset(releaseJob("sovereign-release-1", true), leftover())
-		get(cs)
-		if pullSecretOf(t, cs) != nil {
-			t.Fatal("a read of the state kept the pull Secret of a Job that ended")
+	t.Run("a read of the state changes nothing", func(t *testing.T) {
+		cs := fake.NewSimpleClientset(releaseJob("sovereign-release-1", true), leftover(),
+			cm(ReleaseStatusConfigMap, map[string]string{"phase": "failed", "job": "sovereign-release-1"}))
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/release", nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, admin))
+		w := httptest.NewRecorder()
+		route(cs, nil).Status(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET: code %d: %s", w.Code, w.Body)
 		}
-	})
-	t.Run("a read of the state keeps a running Job's", func(t *testing.T) {
-		cs := fake.NewSimpleClientset(releaseJob("sovereign-release-1", false), leftover())
-		get(cs)
+		for _, a := range cs.Actions() {
+			if v := a.GetVerb(); v != "get" && v != "list" {
+				t.Errorf("a read of the state did %s %s", v, a.GetResource().Resource)
+			}
+		}
 		if pullSecretOf(t, cs) == nil {
-			t.Fatal("a read of the state removed the pull Secret of a Job that runs")
+			t.Fatal("a read of the state removed the pull Secret")
 		}
 	})
 }

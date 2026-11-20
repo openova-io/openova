@@ -21,7 +21,8 @@ import (
 // (STUB_DIR/registry-<region>.yml), keeps the Secrets of each region under
 // STUB_DIR/secrets/<region>/<ns>/ (the region is the basename of --kubeconfig;
 // "primary" without one),
-// records every status patch, and runs a follower Job it is asked to apply:
+// records every status patch (a read of the state as JSON answers them folded,
+// any other read its last phase), and runs a follower Job it is asked to apply:
 // release-region.sh with the plain environment of the applied manifest (its
 // /release paths mapped to STUB_RELEASE) and GITEA_PAT, the way the follower
 // region's kubelet would. Its logs and its outcome are then what get and logs
@@ -61,8 +62,10 @@ case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
   *" get helmreleases.helm.toolkit.fluxcd.io "*) cat "${STUB_DIR}/cutover-hr.json" 2>/dev/null || exit 1 ;;
   *" get configmap sovereign-release "*)
-    k=$(printf '%s\n' "$*" | sed -n 's/.*{\.data\.\([A-Za-z0-9.]*\)}.*/\1/p'); [ -n "${k}" ] || k=phase
-    jq -rs --arg k "${k}" '[.[] | .data[$k] // empty] | last // ""' "${STUB_DIR}/status" 2>/dev/null ;;
+    case " $* " in
+      *" -o json "*) jq -s '{data: (map(.data // {}) | add // {})}' "${STUB_DIR}/status" ;;
+      *) grep -o '"phase":"[^"]*"' "${STUB_DIR}/status" | tail -n 1 | sed 's/.*:"//; s/"$//' ;;
+    esac ;;
   *" get secret "*jsonpath*) printf '%s' "${STUB_PAT}" | base64 ;;
   *" get secret "*)
     f="${STUB_DIR}/secrets/${region}/$2/$5.json"
@@ -89,9 +92,6 @@ case " $* " in
     fi
     if [ "${region}" = primary ] && jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
       name=$(jq -r .metadata.name "${STUB_DIR}/applied")
-      if [ -f "${STUB_DIR}/job-${name}.json" ]; then
-        echo "Error from server (AlreadyExists): error when creating \"STDIN\": jobs.batch \"${name}\" already exists" >&2; exit 1
-      fi
       cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.json"
       sh "${STUB_DIR}/kubelet" "${STUB_DIR}/job-${name}.json"
       exit 0
@@ -114,15 +114,9 @@ case " $* " in
     echo "${rc}" >"${STUB_DIR}/job-${name}.rc" ;;
   *" get job "*)
     rc=$(cat "${STUB_DIR}/job-$5.rc" 2>/dev/null || echo running)
-    if [ ! -f "${STUB_DIR}/job-$5.json" ] && [ ! -f "${STUB_DIR}/job-$5.yaml" ]; then
-      case " $* " in *" --ignore-not-found "*) exit 0 ;; esac
-      echo "Error from server (NotFound): jobs.batch \"$5\" not found" >&2; exit 1
-    fi
-    case " $* " in
-      *" -o name "*) echo "job.batch/$5" ;;
-      *" -o json "*) cat "${STUB_DIR}/job-$5.json" ;;
-      *conditions*) case "${rc}" in 0) echo "SuccessCriteriaMet Complete " ;; running) ;; *) echo "FailureTarget Failed " ;; esac ;;
-      *) echo "kubectl stub: unexpected read of a Job: $*" >&2; exit 9 ;;
+    case "$*" in
+      *succeeded*) [ "${rc}" = 0 ] && echo 1 ;;
+      *failed*) [ "${rc}" != 0 ] && [ "${rc}" != running ] && echo 1 ;;
     esac
     exit 0 ;;
   *" logs "*) n="${4#job/}"; cat "${STUB_DIR}/job-${n}.log" ;;
@@ -137,83 +131,57 @@ esac
 // init container and container in order, with only its own environment (a
 // secretKeyRef read from the stub's Secrets of its namespace) and every
 // mountPath in its command, arguments and values mapped to its volume's
-// directory. A secretKeyRef to a Secret that does not exist is empty when it is
-// optional and keeps the container from starting otherwise, as on a node. The
-// first container that fails ends the Pod; job-<name>.rc and job-<name>.log are
-// what get job and logs answer. STUB_EVICT=<container> evicts the Pod before
-// that container starts (a drained node: DisruptionTarget, its containers
-// killed with 143), in the first Pod only, or in every Pod with
-// STUB_EVICT_EVERY=1; the Job then replaces the Pod, with new emptyDirs, as its
-// pod failure policy and backoffLimit decide, as the Job controller does.
+// directory. The first container that fails ends the Pod; job-<name>.rc and
+// job-<name>.log are what get job and logs answer. STUB_KILL=<container> kills
+// the Pod before that container starts (a drained node, a lost node): the Job
+// replaces no Pod (backoffLimit 0), so it fails, and no container of it
+// recorded why.
 const kubeletStub = `#!/bin/sh
 set -u
 j="$1"; name=$(jq -r .metadata.name "$j"); ns=$(jq -r .metadata.namespace "$j")
+root="${STUB_DIR}/pod-${name}"; mkdir -p "$root/vol"
 log="${STUB_DIR}/job-${name}.log"; : >"$log"
 end() { echo "$1" >"${STUB_DIR}/job-${name}.rc"; exit 0; }
-# retried: whether the Job replaces a Pod an eviction took: the first rule of
-# its pod failure policy that matches the Pod (its DisruptionTarget, or the 143
-# of its killed container) decides; none matching counts toward backoffLimit.
-retried() {
-  jq -e --argjson n "$1" 'def m: if .onPodConditions then any(.onPodConditions[]; .type == "DisruptionTarget")
-      elif .onExitCodes then ((.onExitCodes.values | index(143)) as $i | if .onExitCodes.operator == "In" then $i != null else $i == null end)
-      else false end;
-    (.spec.backoffLimit // 6) as $b | ([(.spec.podFailurePolicy.rules // [])[] | select(m)] | first // {action: "Count"}) as $r |
-    if $r.action == "Ignore" then true elif $r.action == "Count" then $n <= $b else false end' "$j" >/dev/null
-}
-# pod <attempt>: run one Pod of the Job; its exit is the first failing
-# container's, 200 when it was evicted.
-pod() {
-  root="${STUB_DIR}/pod-${name}-$1"; mkdir -p "$root/vol"
-  jq -c '.spec.template.spec.volumes[]' "$j" >"$root/vols"
-  while IFS= read -r v; do
-    vn=$(printf '%s' "$v" | jq -r .name); d="$root/vol/$vn"; mkdir -p "$d"
-    cm=$(printf '%s' "$v" | jq -r '.configMap.name // empty')
-    sec=$(printf '%s' "$v" | jq -r '.secret.secretName // empty')
-    if [ -n "$cm" ]; then
-      f="${STUB_DIR}/cm/${cm}.json"
-      [ -f "$f" ] || { echo "kubelet: ConfigMap ${cm} of volume ${vn} does not exist" >>"$log"; return 1; }
-      if [ "$(printf '%s' "$v" | jq '.configMap.items // [] | length')" -gt 0 ]; then
-        printf '%s' "$v" | jq -r '.configMap.items[] | .key + " " + .path' >"$root/items"
-      else
-        jq -r '.data | keys[] | . + " " + .' "$f" >"$root/items"
-      fi
-      while read -r k p; do jq -r --arg k "$k" '.data[$k]' "$f" >"$d/$p"; done <"$root/items"
-    elif [ "$sec" = cutover-secondary-kubeconfigs ]; then
-      for kc in "${STUB_KUBECONFIGS}"/*.yaml; do [ -e "$kc" ] && cp "$kc" "$d/"; done
+jq -c '.spec.template.spec.volumes[]' "$j" >"$root/vols"
+while IFS= read -r v; do
+  vn=$(printf '%s' "$v" | jq -r .name); d="$root/vol/$vn"; mkdir -p "$d"
+  cm=$(printf '%s' "$v" | jq -r '.configMap.name // empty')
+  sec=$(printf '%s' "$v" | jq -r '.secret.secretName // empty')
+  if [ -n "$cm" ]; then
+    f="${STUB_DIR}/cm/${cm}.json"
+    [ -f "$f" ] || { echo "kubelet: ConfigMap ${cm} of volume ${vn} does not exist" >>"$log"; end 1; }
+    if [ "$(printf '%s' "$v" | jq '.configMap.items // [] | length')" -gt 0 ]; then
+      printf '%s' "$v" | jq -r '.configMap.items[] | .key + " " + .path' >"$root/items"
+    else
+      jq -r '.data | keys[] | . + " " + .' "$f" >"$root/items"
     fi
-  done <"$root/vols"
-  jq -c '(.spec.template.spec.initContainers // [])[], .spec.template.spec.containers[]' "$j" >"$root/ctrs"
-  while IFS= read -r c; do
-    cn=$(printf '%s' "$c" | jq -r .name)
-    if [ "${STUB_EVICT:-}" = "$cn" ] && { [ "$1" = 1 ] || [ "${STUB_EVICT_EVERY:-}" = 1 ]; }; then
-      echo "kubelet: Pod $1 of ${name} is evicted before container ${cn} starts (DisruptionTarget)" >>"$log"
-      return 200
-    fi
-    m=$(printf '%s' "$c" | jq -c --arg r "$root/vol" '[(.volumeMounts // [])[] | {key: .mountPath, value: ($r + "/" + .name)}] | from_entries')
-    remap='def remap: . as $s | reduce ($m | to_entries[]) as $e ($s; if (. == $e.key or startswith($e.key + "/")) then $e.value + .[($e.key | length):] else . end);'
-    { echo "secretval() { f=\"${STUB_DIR}/secrets/primary/${ns}/\$1.json\"; if [ -f \"\$f\" ]; then jq -r --arg k \"\$2\" '.data[\$k]' \"\$f\" | base64 -d; elif [ \"\$3\" != true ]; then echo \"kubelet: CreateContainerConfigError: secret \\\"\$1\\\" not found\" >&2; exit 97; fi; }"
-      printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' (.env // [])[] |
-        if .value != null then "export \(.name)=\(.value | remap | @sh)"
-        elif .valueFrom.secretKeyRef then "_v=\"$(secretval \(.valueFrom.secretKeyRef.name | @sh) \(.valueFrom.secretKeyRef.key | @sh) \(.valueFrom.secretKeyRef.optional // false | tostring))\" || exit 97; export \(.name)=\"$_v\""
-        else empty end'; } >"$root/env.sh"
-    printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' ((.command // []) + (.args // []))[] | remap' >"$root/argv"
-    echo "kubelet: Pod $1, container ${cn}" >>"$log"
-    rc=0
-    env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" \
-      FOLLOWER_POLL_SECONDS=1 FOLLOWER_WAIT_SECONDS=60 sh -c '_kr="$1"; . "$_kr/env.sh"; set --; while IFS= read -r a; do set -- "$@" "$a"; done <"$_kr/argv"; "$@"' kubelet "$root" \
-      >>"$log" 2>&1 </dev/null || rc=$?
-    [ "$rc" -eq 0 ] || return "$rc"
-  done <"$root/ctrs"
-  return 0
-}
-n=1
-while :; do
-  rc=0; pod "$n" || rc=$?
-  [ "$rc" = 200 ] || end "$rc"
-  if ! retried "$n"; then echo "kubelet: the Job does not replace the evicted Pod: it fails" >>"$log"; end 1; fi
-  echo "kubelet: the Job replaces the evicted Pod $n" >>"$log"
-  n=$((n + 1))
-done
+    while read -r k p; do jq -r --arg k "$k" '.data[$k]' "$f" >"$d/$p"; done <"$root/items"
+  elif [ "$sec" = cutover-secondary-kubeconfigs ]; then
+    for kc in "${STUB_KUBECONFIGS}"/*.yaml; do [ -e "$kc" ] && cp "$kc" "$d/"; done
+  fi
+done <"$root/vols"
+jq -c '(.spec.template.spec.initContainers // [])[], .spec.template.spec.containers[]' "$j" >"$root/ctrs"
+while IFS= read -r c; do
+  m=$(printf '%s' "$c" | jq -c --arg r "$root/vol" '[(.volumeMounts // [])[] | {key: .mountPath, value: ($r + "/" + .name)}] | from_entries')
+  remap='def remap: . as $s | reduce ($m | to_entries[]) as $e ($s; if (. == $e.key or startswith($e.key + "/")) then $e.value + .[($e.key | length):] else . end);'
+  { echo "secretval() { jq -r --arg k "\$2" '.data[\$k]' "${STUB_DIR}/secrets/primary/${ns}/\$1.json" | base64 -d; }"
+    printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' (.env // [])[] |
+      if .value != null then "export \(.name)=\(.value | remap | @sh)"
+      elif .valueFrom.secretKeyRef then "export \(.name)=\"$(secretval \(.valueFrom.secretKeyRef.name | @sh) \(.valueFrom.secretKeyRef.key | @sh))\""
+      else empty end'; } >"$root/env.sh"
+  printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' ((.command // []) + (.args // []))[] | remap' >"$root/argv"
+  if [ -n "${STUB_KILL:-}" ] && [ "$(printf '%s' "$c" | jq -r .name)" = "${STUB_KILL}" ]; then
+    echo "kubelet: the Pod is killed before container ${STUB_KILL} starts" >>"$log"
+    end 137
+  fi
+  echo "kubelet: container $(printf '%s' "$c" | jq -r .name)" >>"$log"
+  rc=0
+  env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" \
+    FOLLOWER_POLL_SECONDS=1 FOLLOWER_WAIT_SECONDS=60 sh -c '_kr="$1"; . "$_kr/env.sh"; set --; while IFS= read -r a; do set -- "$@" "$a"; done <"$_kr/argv"; "$@"' kubelet "$root" \
+    >>"$log" 2>&1 </dev/null || rc=$?
+  [ "$rc" -eq 0 ] || end "$rc"
+done <"$root/ctrs"
+end 0
 `
 
 // follower is a second region: its own Gitea, whose main is the installed

@@ -229,104 +229,92 @@ func TestReleaseDeliveryGivesEachFollowerThePullCredentialAndLeavesNone(t *testi
 	r.credentialNowhereElse(out + logs)
 }
 
-// A drained node does not fail a delivery: the delivery Job replaces a Pod an
-// eviction took, once, and what the new Pod runs again is safe. Evicted before
-// its prewarm, the new Pod copies with the credential, which is still there;
-// evicted after it (the credential already deleted), the new Pod copies
-// nothing again, starts although the Secret is gone (optional), and promotes.
-func TestReleaseDeliveryJobSurvivesAnEviction(t *testing.T) {
+// A delivery Job whose Pod is killed (a drained node, a lost node) fails: no
+// Job of a delivery replaces a Pod. Its containers then record nothing; the
+// state says the delivery failed, in which step, and that no region was
+// promoted, which it can say because promote had not begun. The bootstrap's
+// deliver removes the credential in every region, step 03's copy in the
+// follower included, under the names of the delivery Job it composed.
+func TestReleaseDeliveryJobKilledIsAFailedDeliveryAndLeavesNoCredential(t *testing.T) {
 	for _, before := range []string{"prewarm", "promote"} {
-		t.Run("evicted before "+before, func(t *testing.T) {
+		t.Run("killed before its "+before, func(t *testing.T) {
 			r, req := credentialFixture(t, false, false)
-			r.env = append(r.env, "STUB_EVICT="+before)
+			r.env = append(r.env, "STUB_KILL="+before)
 			if out, code := r.run("stage", req); code != 0 {
 				t.Fatalf("stage: exit %d\n%s", code, out)
 			}
 			out, code := r.run("deliver", req)
 			logs := r.jobLog(req)
+			if !strings.Contains(logs, "the Pod is killed before container "+before) {
+				t.Fatalf("the Pod was not killed:\n%s", logs)
+			}
 			st := r.status()
-			if code != 0 || st["phase"] != "delivered" {
-				t.Fatalf("a delivery whose Pod was evicted before %s: exit %d, phase %q (%s)\n%s\n%s", before, code, st["phase"], st["message"], out, logs)
+			if code == 0 || st["phase"] != "failed" || st["failedStep"] != "prewarm" ||
+				!strings.HasPrefix(st["message"], "the delivery Job sovereign-release-delivery failed; the delivery ended before its promote began") ||
+				!strings.Contains(st["message"], "no region was promoted") {
+				t.Fatalf("a killed delivery Job: exit %d, phase %q, failedStep %q, message %q\n%s\n%s", code, st["phase"], st["failedStep"], st["message"], out, logs)
 			}
-			if !strings.Contains(logs, "the Job replaces the evicted Pod 1") {
-				t.Fatalf("the Pod was not evicted:\n%s", logs)
+			if r.remote("main") != r.main || r.followerRef("main") != r.followerMain {
+				t.Fatal("a killed delivery Job moved a main")
 			}
-			if before == "promote" && !strings.Contains(logs, "resumed: an earlier Pod of sovereign-release-delivery completed the prewarm") {
-				t.Fatalf("the second Pod ran the prewarm again:\n%s", logs)
-			}
-			if r.remote("main") == r.main || r.followerRef("main") == r.followerMain {
-				t.Fatal("the delivery promoted no region")
-			}
-			r.noCredentialLeft("after a delivery with an eviction")
+			r.noCredentialLeft("after the delivery Job was killed before its " + before)
 			r.credentialNowhereElse(out + logs)
 		})
 	}
 }
 
-// A delivery Job killed past its one retry deletes nothing itself; the
-// bootstrap's deliver container that waits for it is its finaliser: the
-// credential is removed in every region, step 03's copy in the follower's
-// harbor namespace included, and the state says the Job ended without a cause.
-func TestReleaseDeliveryJobKilledPastItsRetryLeavesNoCredential(t *testing.T) {
-	r, req := credentialFixture(t, false, false)
-	r.env = append(r.env, "STUB_EVICT=prewarm", "STUB_EVICT_EVERY=1")
-	if out, code := r.run("stage", req); code != 0 {
-		t.Fatalf("stage: exit %d\n%s", code, out)
+// A delivery killed during its promote: the state names, region by region in
+// the order promote pushes them, what moved, what may have moved and what
+// promote never reached, and never says that nothing moved. The candidate's
+// compose stands for that delivery here: it leaves the state a promote leaves
+// when its Pod is killed, and exits.
+func TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved(t *testing.T) {
+	const maybe = "May have moved, its promote was the one running and its main is not read here:"
+	for _, c := range []struct {
+		name     string
+		follower bool // whether the follower's promote answered before the Pod was killed
+		want     []string
+	}{
+		{"after it promoted the follower", true, []string{"Promoted: region-b.", maybe + " primary.", "promote never reached it: none"}},
+		{"while it promoted the follower", false, []string{"Promoted: none.", maybe + " region-b.", "promote never reached it: primary"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			data := map[string]string{"phase": "promoting", "deliveryJob": "sovereign-release-delivery"}
+			if c.follower {
+				b, err := os.ReadFile(filepath.Clean(r.state + "/region-b.staged"))
+				if err != nil || len(b) == 0 {
+					t.Fatalf("the stage recorded no staged commit of region-b: %v", err)
+				}
+				data["region-b.promote"] = "region=region-b phase=promoted main=" + string(b) + " staged=" + string(b)
+				data["region-b.promotedTo"] = string(b)
+			}
+			p, err := json.Marshal(map[string]any{"data": data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.write(r.state+"/mechanism", "release-run.sh", "#!/bin/sh\nkubectl -n catalyst patch configmap sovereign-release --type merge -p '"+string(p)+"'\nexit 1\n")
+			out, code := r.run("deliver", req)
+			st := r.status()
+			if code == 0 || st["phase"] != "failed" || st["failedStep"] != "promote" || strings.Contains(st["message"], "no region was promoted") ||
+				!strings.HasPrefix(st["message"], "the candidate's release-run.sh compose exited 1; the delivery ended during its promote") {
+				t.Fatalf("a delivery killed in its promote: exit %d, phase %q, failedStep %q, message %q\n%s", code, st["phase"], st["failedStep"], st["message"], out)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(st["message"], w) {
+					t.Errorf("the state does not say %q: %s", w, st["message"])
+				}
+			}
+			for _, s := range [][2]string{{"primary", testNS}, {"region-b", testNS}} {
+				if r.secretData(s[0], s[1], releasePull) != nil {
+					t.Errorf("region %s still holds %s/%s", s[0], s[1], releasePull)
+				}
+			}
+		})
 	}
-	out, code := r.run("deliver", req)
-	st := r.status()
-	if code == 0 || st["phase"] != "failed" || st["failedStep"] != "deliver" || !strings.Contains(st["message"], "failed before its containers recorded a cause") {
-		t.Fatalf("a killed delivery Job: exit %d, phase %q, failedStep %q, message %q\n%s\n%s", code, st["phase"], st["failedStep"], st["message"], out, r.jobLog(req))
-	}
-	r.noCredentialLeft("after the delivery Job was killed")
-	if r.remote("main") != r.main || r.followerRef("main") != r.followerMain {
-		t.Fatal("a killed delivery Job moved a main")
-	}
-}
-
-// The bootstrap Job replaces a Pod an eviction took, once. Its stage repeats
-// from the start (release/<id> force-pushed again, nothing promoted yet); but
-// once the first Pod created the delivery Job, the new Pod stages nothing and
-// its deliver waits for that Job.
-func TestReleaseBootstrapSurvivesAnEviction(t *testing.T) {
-	t.Run("evicted during the stage", func(t *testing.T) {
-		r, req := credentialFixture(t, false, false)
-		if out, code := r.run("stage", req); code != 0 {
-			t.Fatalf("stage of the first Pod: exit %d\n%s", code, out)
-		}
-		r.state = t.TempDir() // the new Pod's emptyDir
-		if out, code := r.run("stage", req); code != 0 || strings.Contains(out, "resumed") {
-			t.Fatalf("stage of the second Pod: exit %d; want a stage that runs again\n%s", code, out)
-		}
-		out, code := r.run("deliver", req)
-		if st := r.status(); code != 0 || st["phase"] != "delivered" {
-			t.Fatalf("deliver: exit %d, phase %q\n%s\n%s", code, st["phase"], out, r.jobLog(req))
-		}
-		r.noCredentialLeft("after the delivery")
-	})
-	t.Run("evicted after it created the delivery Job", func(t *testing.T) {
-		r, req := credentialFixture(t, false, false)
-		if out, code := r.run("stage", req); code != 0 {
-			t.Fatalf("stage of the first Pod: exit %d\n%s", code, out)
-		}
-		if out, code := r.run("deliver", req); code != 0 {
-			t.Fatalf("deliver of the first Pod: exit %d\n%s\n%s", code, out, r.jobLog(req))
-		}
-		staged, primary, follower := r.remote("release/"+req.Candidate), r.remote("main"), r.followerRef("main")
-		r.state = t.TempDir()
-		out, code := r.run("stage", req)
-		if code != 0 || !strings.Contains(out, "resumed: the delivery Job catalyst/sovereign-release-delivery exists") {
-			t.Fatalf("stage of the second Pod: exit %d; want it to stage nothing\n%s", code, out)
-		}
-		out2, code := r.run("deliver", req)
-		if st := r.status(); code != 0 || st["phase"] != "delivered" || !strings.Contains(out2, "resumed: waiting for the delivery Job") {
-			t.Fatalf("deliver of the second Pod: exit %d, phase %q; want it to wait for the delivery Job\n%s", code, st["phase"], out2)
-		}
-		if r.remote("release/"+req.Candidate) != staged || r.remote("main") != primary || r.followerRef("main") != follower {
-			t.Fatal("the second Pod of the bootstrap moved a branch the first Pod's delivery had pushed")
-		}
-		r.credentialNowhereElse(out + out2)
-	})
 }
 
 func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *testing.T) {

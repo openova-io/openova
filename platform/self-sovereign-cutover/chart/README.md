@@ -204,41 +204,45 @@ rollback refused after the region moved.
 for `ghcr.io` (step 06 strips it), and nothing is made on it by hand. A delivery
 request carries the credential itself, from the signed-in sovereign-admin over
 the console's TLS: `"credential": {"registry": "ghcr.io", "username": "<user>",
-"password": "<password or token>"}`. The route asks the registry whether it
-takes it (the distribution API's sign-in: `/v2/`, then the token realm) and,
-before anything is written, answers `422 registry-credential-missing`,
-`registry-credential-registry` or `registry-credential-refused`, or `502
-registry-unreachable`. Then it makes the pull Secret `sovereign-release-pull`
-in the cutover namespace itself (field manager `catalyst-release`, labelled
-with and owned by the bootstrap Job) and passes its name as `PULL_SECRET`. The
-credential is in that Secret and its copies only: never in a log line, the
-state, a ConfigMap, an event, a Job, the region's Git or an answer. A dry run
-and a rollback refuse a credential (`dry-run-credential`, `rollback-credential`);
-the former field `pullSecret`, a Secret made by hand, is refused
-(`400 pull-secret-removed`). The Secret is deleted in every region when the
-prewarm ends, when the stage fails or refuses, and, for a delivery Job that
-ends without its prewarm having done so, by the bootstrap's deliver container
-that waits for it (`delivery_wait`); a bootstrap Job killed past its retry
-leaves it to the route, which removes it on the next request and on any read of
-the state once no release Job runs. The route removes the primary's Secret
-only: a bootstrap killed after its stage copied the Secret into the followers
-and before it created the delivery Job leaves those copies until the next
-delivery's end deletes them in every region.
+"password": "<password or token>"}`. The route signs in to the registry with it
+(the distribution API's sign-in: `/v2/`, then the token realm, which must be
+https) and, before anything is written, answers `422
+registry-credential-missing`, `registry-credential-registry` or
+`registry-credential-refused`, or `502 registry-unreachable`. The sign-in
+proves the credential, not its read access to the packages the release pins:
+the state says `signed in to ghcr.io`, and a credential that may not read a
+pinned package fails the prewarm, which names it. Then the route makes the pull
+Secret `sovereign-release-pull` in the cutover namespace itself (field manager
+`catalyst-release`, labelled with and owned by the bootstrap Job) and passes its
+name as `PULL_SECRET`. The credential is in that Secret and its copies only:
+never in a log line, the state, a ConfigMap, an event, a Job, the region's Git
+or an answer. A dry run and a rollback refuse a credential
+(`dry-run-credential`, `rollback-credential`); the former field `pullSecret`, a
+Secret made by hand, is refused (`400 pull-secret-removed`).
 
-**A drained node.** Every Job of a delivery (the bootstrap, the delivery Job,
-each follower's Job) replaces one Pod the cluster took away: `backoffLimit: 1`
-with a pod failure policy that counts a `DisruptionTarget` and fails the Job on
-any exit of the release scripts, which record their cause and must not be run
-over it. A replacement Pod repeats or resumes: the stage repeats (it
-force-pushes `release/<id>` again; nothing is promoted yet) unless the delivery
-Job an earlier Pod created exists, and then stages nothing while deliver waits
-for that Job; the prewarm repeats until an earlier Pod of the delivery Job
-completed it (`prewarmedBy` in the state), and then copies nothing again and
-starts without the credential it already deleted (the reference is optional);
-check, promote and rollback answer done for a region that already holds what
-they push. A Job's end is read from its conditions, never `.status.failed`,
-which counts the replaced Pod. `tests/step7938-delivery-survives-eviction.sh`
-runs this chart's scripts on a Git repository on disk for each of these.
+The Secret goes in every outcome. The release scripts delete it in every region
+(the copies in each follower and the source) at every end of a delivery: the
+end of the prewarm, the start of promote, a stage that fails or refuses, and the
+bootstrap's deliver container whether the delivery completed or failed; that
+last one reads the names of step 03's follower copy from the delivery Job it
+composed, so a delivery Job whose Pod was killed leaves none. A bootstrap Job
+whose own Pod was killed runs no end and fails (`backoffLimit: 0`, as every Job
+of a delivery): the Secret is owned by it, so the garbage collector deletes it
+with the Job, which its `ttlSecondsAfterFinished` deletes three days after it
+ended; the next request deletes it before that. That covers the primary's
+Secret only: copies such a killed stage made in the followers stay until the
+next delivery's end deletes the credential in every region. `GET` changes
+nothing.
+
+**A killed Pod.** No Job of a delivery replaces a Pod, so a Pod killed by a
+drained or lost node fails the delivery. Its containers record nothing then;
+the bootstrap's deliver records it: phase `failed`, the step, and per region
+what moved. "No region was promoted" is said only when the state is still at
+`staged`, which is certain because promote records `promoting` before it
+checks or pushes any region, or stops. A delivery killed during its promote
+names each region in the order promote pushes them (the followers, then the
+primary): promoted, unchanged, the one whose promote was running (may have
+moved; its `main` is not read), and those it never reached.
 
 **What a chart version must carry for the bootstrap** (contract `1`):
 

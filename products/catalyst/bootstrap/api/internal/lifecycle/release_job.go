@@ -340,9 +340,9 @@ func (in *releaseInputs) runContainer(name, phase, ns, job string, req releaseRe
 // credentialEnv names the pull Secret the route made from the request's
 // credential, which the stage copies into every follower and the candidate's
 // prewarm deletes in every region when it ends (the bootstrap deletes it when
-// the stage or the deliver container fails first, or the delivery Job ends
-// without a prewarm that did). A dry run and a rollback name none, so they
-// delete none.
+// the stage fails or refuses, and its deliver container when the delivery
+// ends, however it ended). A dry run and a rollback name none, so they delete
+// none.
 func credentialEnv(req releaseRequest) []corev1.EnvVar {
 	if req.DryRun || req.Rollback || req.Credential == nil {
 		return nil
@@ -372,12 +372,8 @@ func (in *releaseInputs) followerJobManifest(req releaseRequest) (string, error)
 	j.Labels["app.kubernetes.io/component"] = releaseComponent
 	j.Labels[releaseCandidateLabel] = req.Candidate
 	j.Labels["catalyst.openova.io/secondary-region"] = "__REGION__"
-	deadline, ttl := int64(releaseGitSeconds), int32(releaseTTLSeconds)
-	j.Spec.ActiveDeadlineSeconds, j.Spec.TTLSecondsAfterFinished = &deadline, &ttl
-	// Each phase of release-region.sh repeats safely: stage force-pushes
-	// release/<id> again, check reads, promote and rollback answer done when
-	// the region's main already is what they push.
-	releaseRetry(&j.Spec)
+	backoff, deadline, ttl := int32(0), int64(releaseGitSeconds), int32(releaseTTLSeconds)
+	j.Spec.BackoffLimit, j.Spec.ActiveDeadlineSeconds, j.Spec.TTLSecondsAfterFinished = &backoff, &deadline, &ttl
 	if j.Spec.Template.Labels == nil {
 		j.Spec.Template.Labels = map[string]string{}
 	}
@@ -480,19 +476,15 @@ func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labe
 		pod.InitContainers = []corev1.Container{in.runContainer("stage", "stage", ns, name, req)}
 		pod.Containers = []corev1.Container{in.runContainer("deliver", "deliver", ns, name, req)}
 	}
-	ttl := int32(releaseTTLSeconds)
+	backoff, ttl := int32(0), int32(releaseTTLSeconds)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels, Annotations: annotations},
 		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoff,
 			ActiveDeadlineSeconds:   &deadline,
 			TTLSecondsAfterFinished: &ttl,
 			Template:                corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: pod},
 		},
 	}
-	// A Pod an eviction replaced stages again from the start, or, when the
-	// delivery Job it started exists, stages nothing and waits for that Job
-	// (release-run.sh stage and deliver); a rollback answers done when the
-	// region already holds it.
-	releaseRetry(&job.Spec)
 	return job, scripts, nil
 }
