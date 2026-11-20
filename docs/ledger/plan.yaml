@@ -20031,7 +20031,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The function tests of bp-nats-jetstream, bp-cert-manager-powerdns-webhook, bp-external-secrets-stores, bp-catalyst-edge-routes (release bp-catalyst-secondary-edge), bp-dragonfly and bp-plane-isolation wait for their subject in their own region until 60 seconds before the bound T of their release and then judge as before, failing with the name of a subject that never comes up; the kit states T once per release as spec.values.functionTest.timeoutSeconds, equal to spec.install.timeout and to spec.test.timeout (900 seconds, 1800 for bp-plane-isolation, whose install timeout rises to the 30 minutes of bp-keycloak; the edge release gains an install timeout of 15 minutes), the chart default stays 300 seconds, a Go test of the kit holds every tested HelmRelease to that bound and lists the releases still owed, and docs/RUNBOOKS.md section 4.5 states the rule.
 - id: SVC-138
