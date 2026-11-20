@@ -1,0 +1,38 @@
+# crossplane-system/opentofu-cli-config (SOV-342): the OpenTofu CLI configuration of
+# every `tofu init` the provider pod runs for a Workspace. The ProviderConfig default
+# (../../base/provider-config-opentofu.yaml) copies the key .tofurc, mounted by the
+# DeploymentRuntimeConfig of provider-opentofu.yaml at /etc/opentofu/cli, into each
+# Workspace's folder as its credential .tofurc (source Filesystem), and
+# provider-opentofu v1.1.11 runs init with TF_CLI_CONFIG_FILE=./.tofurc.
+#
+# One installation method: the OCI provider mirror (OpenTofu 1.10 and later) at the
+# origin, ghcr.io/openova-io/tofu-providers/<namespace>/<type>, for every provider of
+# registry.opentofu.org. Without a provider_installation block OpenTofu takes the
+# implied configuration, which ends in the public registry; with this one a provider
+# the mirror does not hold fails init and is never fetched from outside. The packages
+# the mirror holds are listed in opentofu-providers.yaml. The pull credential is the
+# Secret that REGISTRY_PULL_SECRET names (ghcr-pull; the reflector keeps its copy in
+# crossplane-system), mounted at /etc/opentofu/oci; a credential file that cannot be
+# read fails init. The cutover moves this address to the Sovereign's registry
+# (SOV-343). The Kustomization infrastructure-providers substitutes from
+# sovereign-variables, and Flux writes a doubled dollar sign as one: the template
+# reaches OpenTofu with the interpolations of namespace and type.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opentofu-cli-config
+  namespace: crossplane-system
+  labels:
+    catalyst.openova.io/component: crossplane
+data:
+  .tofurc: |
+    provider_installation {
+      oci_mirror {
+        repository_template = "ghcr.io/openova-io/tofu-providers/$${namespace}/$${type}"
+        include             = ["registry.opentofu.org/*/*"]
+      }
+    }
+
+    oci_default_credentials {
+      docker_style_config_files = ["/etc/opentofu/oci/config.json"]
+    }

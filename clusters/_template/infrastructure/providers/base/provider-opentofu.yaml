@@ -106,6 +106,18 @@ spec:
                 - secretRef:
                     name: cloud-credentials
                     optional: true
+              # SOV-342: the OpenTofu CLI configuration (the ProviderConfig default
+              # copies /etc/opentofu/cli/.tofurc into each Workspace's folder) and the
+              # pull credential it names (/etc/opentofu/oci/config.json): providers
+              # are installed only from the OCI provider mirror, never from the
+              # public registry.
+              volumeMounts:
+                - name: opentofu-cli-config
+                  mountPath: /etc/opentofu/cli
+                  readOnly: true
+                - name: opentofu-pull-credential
+                  mountPath: /etc/opentofu/oci
+                  readOnly: true
               # #4739: resources.requests are MANDATORY. The host-ns Kyverno
               # `resource-requests` + `resource-limits` Enforce policies DENY any
               # pod that omits both cpu+memory requests. Without this the
@@ -152,3 +164,20 @@ spec:
                 periodSeconds: 20
                 timeoutSeconds: 5
                 failureThreshold: 6
+          # SOV-342: the volumes the container package-runtime mounts. The pull
+          # credential is the Secret that REGISTRY_PULL_SECRET names, read only (the
+          # reflector keeps the copy of flux-system/ghcr-pull here; its writers are
+          # named in clusters/_template/bootstrap-secrets/ghcr-pull.yaml). optional:
+          # a pod without it still starts, and tofu init then fails on the missing
+          # credential file instead of reaching another source.
+          volumes:
+            - name: opentofu-cli-config
+              configMap:
+                name: opentofu-cli-config
+            - name: opentofu-pull-credential
+              secret:
+                secretName: ${REGISTRY_PULL_SECRET:=ghcr-pull}
+                optional: true
+                items:
+                  - key: .dockerconfigjson
+                    path: config.json
