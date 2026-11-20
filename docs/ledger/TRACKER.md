@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T20:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-20T20:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
 | 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
@@ -317,6 +318,7 @@ flowchart LR
 | 2026-11-20T18:43 | [#8525](https://github.com/openova-io/openova/pull/8525) | #8494 | fix(gate): the gate's candidate verification gets the origin |
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:50 | [#8523](https://github.com/openova-io/openova/pull/8523) | #5488 | fix(cutover): the first step does not fail because the deplo |
+| 2026-11-20T20:42 | [#8522](https://github.com/openova-io/openova/pull/8522) | #8494 | fix(install): the image pre-flight fills a cache entry that  |
 | 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T11:50 | [#8504](https://github.com/openova-io/openova/pull/8504) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:10 | [#8503](https://github.com/openova-io/openova/pull/8503) | #8501 | fix(catalyst-api): the token route admits the agent workspac |
 | 2026-11-20T17:46 | [#8502](https://github.com/openova-io/openova/pull/8502) | #4423 | refactor(bootstrap): Flux renders the pull login and the obj |
-| 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
-| 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
 
 ---
 
