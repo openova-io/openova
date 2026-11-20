@@ -12345,7 +12345,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-940, SOV-950]
-  after: [CLD-094, CLD-105, CLD-114, CLD-115, SOV-323, SOV-338, SVC-040, INF-112]
+  after: [CLD-094, CLD-105, CLD-114, CLD-115, SOV-323, SOV-338, SEC-154, SVC-040, INF-112]
   touches:
   - core/controllers/sovereign/internal/controller/provision.go
   - products/catalyst/bootstrap/api/internal/provisioner/**
@@ -13794,7 +13794,9 @@ packages:
   - infra/providers/_shared/tests/golden.auto.tfvars.json
   - infra/providers/_shared/tests/render.tf
   - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - products/catalyst/bootstrap/api/internal/provisioner/cloudinit_path_test.go
   - scripts/check-flux-controller-pull-credential.sh
+  - scripts/local-pack.sh
   - scripts/secret-guard-baselines/check-reflector-scope.txt
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - tests/e2e/bootstrap-kit/bootstrap_seed_upgrade_test.go
@@ -13826,14 +13828,22 @@ packages:
     run: "w=.github/workflows/cloud-init-size.yaml; test \"$(grep -c -x -F '      - name: Compare every surface with the base of the pull request' \"$w\")\" = 1 && test \"$(grep -c -x -F '          fetch-depth: 2' \"$w\")\" = 1 && test \"$(grep -c -F '( cd \"$d\" && NO_COLOR=1 bash scripts/cloudinit-size-check.sh both )' \"$w\")\" = 1"
   - id: A9
     run: "s=scripts/check-flux-controller-pull-credential.sh; w=.github/workflows/check-flux-controller-pull-credential.yaml; out=\"$(NO_COLOR=1 bash \"$s\" --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^  ok .* (the template source with the wait of the kit passes|no source fails and names the Secret ghcr-pull|a template in another namespace fails|a template without the wait of the kit fails|the first-boot source passes)$')\" = 5 && bash \"$s\" > /dev/null && test \"$(grep -c -x -F \"      - 'clusters/_template/bootstrap-secrets/**'\" \"$w\")\" = 2 && test \"$(grep -c -x -F \"      - 'clusters/_template/root/base-primary/**'\" \"$w\")\" = 2 && test \"$(grep -c -F 'applies /var/lib/catalyst/ghcr-pull-secret.yaml before Flux' clusters/_template/bootstrap-kit/03-flux.yaml)\" = 0 && test \"$(sed -n 1,16p clusters/_template/root/base-primary/bootstrap-seed.yaml | grep -c -F 'the six bootstrap Secrets')\" = 1"
+  - id: A10
+    run: "d=clusters/_template/bootstrap-secrets; test \"$(grep -c -x -F '    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent' \"$d/ghcr-pull.yaml\")\" = 1 && test \"$(grep -c -F 'kustomize.toolkit.fluxcd.io/ssa' \"$d/object-storage.yaml\")\" = 0 && test \"$(cat \"$d\"/*.yaml | grep -v -E '^ *#' | grep -c -F 'kustomize.toolkit.fluxcd.io/')\" = 1"
+  - id: A11
+    run: "f=tools/guards/cmd/secret-templates/laterwriters.go; test \"$(grep -c -F '\"flux-system/ghcr-pull\"' \"$f\")\" = 1 && test \"$(grep -c -E '\"(platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job\\.yaml|platform/harbor/chart/templates/pull-robot-job\\.yaml|scripts/local-pack\\.sh)\"' \"$f\")\" = 3 && cd tools/guards && test \"$(NO_COLOR=1 go test -count=1 -v -run '^Test(LaterWriter|RenderOnce)' ./cmd/secret-templates/ | grep -c -E '^--- PASS: Test(LaterWriterTemplateWithoutRenderOnceIsAFinding|LaterWriterTemplateRenderedOncePasses|RenderOnceWithoutALaterWriterIsAFinding|LaterWriterFileMissingIsAFinding) ')\" = 4 && cd ../.. && bash scripts/check-no-secret-values-in-git.sh > /dev/null"
+  - id: A12
+    run: "s=scripts/local-pack.sh; test \"$(grep -c -x -E 'PULL_SECRET_LIMIT=[0-9]+' \"$s\")\" = 1 && out=\"$(NO_COLOR=1 bash \"$s\" --self-test 2>&1)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^ok   pin_flux: (the pull Secret appears late and is patched|the pull Secret never appears and the failure names flux-system/ghcr-pull|a failed patch fails and prints no pull credential set)$')\" = 3"
+  - id: A13
+    run: "cd products/catalyst/bootstrap/api && test \"$(NO_COLOR=1 go test -count=1 -v -run '^TestCloudInit_ReflectorNamespaces' ./internal/provisioner/ | grep -c -E '^--- PASS: TestCloudInit_ReflectorNamespaces(NoCommaQuantifier|CommaQuantifierIsAFinding) ')\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 3
+  ticket_rev: 4
   dropped: false
-  delivers: 'First boot no longer writes the manifests of ghcr-pull and object-storage: their values join the seed Secret flux-system/bootstrap-seed, and they are templates under clusters/_template/bootstrap-secrets, which the Flux Kustomization bootstrap-secrets renders from its path of main; cloud-credentials stays as on main, the packed entry of first boot, applied and shredded, until SEC-198; every control-plane surface of the start-up data of both providers and both region roles is smaller than on main and every worker surface equal, recorded per surface by the check packs against the base of the pull request; on a Sovereign installed before this change the Job bootstrap-seed-build adds the values its seed lacks from the live Secrets, never changes a value the seed holds, and writes nothing and names the Secret and key when a Secret, key or value is missing; guard G1 passes a template only when every name it references comes only from a postBuild.substituteFrom entry of kind Secret of each Flux Kustomization that renders its folder, and a Flux Kustomization it cannot read is a finding; the guard check-flux-controller-pull-credential accepts the Secret that bp-flux''s ServiceAccount patch names from first boot or from a template of clusters/_template/bootstrap-secrets in flux-system, the template only while the Kustomization bootstrap-kit dependsOn bootstrap-secrets, and its workflow runs on a change of either.'
+  delivers: 'First boot no longer writes the manifests of ghcr-pull and object-storage: their values join the seed Secret flux-system/bootstrap-seed, and they are templates under clusters/_template/bootstrap-secrets, which the Flux Kustomization bootstrap-secrets renders from its path of main; cloud-credentials stays as on main, the packed entry of first boot, applied and shredded, until SEC-198; every control-plane surface of the start-up data of both providers and both region roles is smaller than on main and every worker surface equal, recorded per surface by the check packs against the base of the pull request; on a Sovereign installed before this change the Job bootstrap-seed-build adds the values its seed lacks from the live Secrets, never changes a value the seed holds, and writes nothing and names the Secret and key when a Secret, key or value is missing; guard G1 passes a template only when every name it references comes only from a postBuild.substituteFrom entry of kind Secret of each Flux Kustomization that renders its folder, and a Flux Kustomization it cannot read is a finding; the guard check-flux-controller-pull-credential accepts the Secret that bp-flux''s ServiceAccount patch names from first boot or from a template of clusters/_template/bootstrap-secrets in flux-system, the template only while the Kustomization bootstrap-kit dependsOn bootstrap-secrets, and its workflow runs on a change of either; the template of ghcr-pull is rendered once (kustomize.toolkit.fluxcd.io/ssa: IfNotPresent), so the logins its later writers add (the cutover''s step 06, bp-harbor''s pull-robot Job, the local pack) are never written back by Flux, and object-storage is applied as before; guard G1''s command holds the list of Secrets with a later writer and refuses a listed Secret''s template without that annotation, the annotation on a Secret not listed and a listed writer file that does not exist; the local pack waits for flux-system/ghcr-pull within a stated bound and fails on a patch that fails; the reflector test of the provisioner reads ghcr-pull''s lists from its template.'
 - id: SEC-155
   title: Key-service seal on the reference cloud (only if SEC-135 answered YES)
   area: SEC
@@ -18834,7 +18844,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
