@@ -60,7 +60,9 @@ jobs:
   freshprov-image-registry:
     name: Reject non-mirror-served Phase-1 image hosts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The list of a fresh install renders every kit release with two value
+    # sets (13 minutes on a shared host); the guard's own render comes after.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +132,22 @@ jobs:
           EOF
           helm repo update >/dev/null 2>&1
           exit 0
+
+      - name: The list of a fresh install holds the images the 20 November candidate lacked
+        # rc/20261120T073828Z-11731a9 pinned continuum-controller (switched on
+        # only by a kit variable: CONTINUUM_ENABLED is false in today.env and
+        # true in two-region-secondary.env) and sovereign-ops (the raw Job of
+        # slot 12b, its tag only a Kustomization `images: newTag`); the list
+        # of the day had neither, and the origin lacked both. This fails on a
+        # list builder that renders only today.env or skips the raw manifests.
+        run: |
+          set -euo pipefail
+          bash scripts/check-mothership-proxy-image-path.sh --list-only --first-party > "$RUNNER_TEMP/first-party.txt"
+          for repo in continuum-controller sovereign-ops; do
+            grep -qE "^ghcr\.io/openova-io/openova/${repo}:[^[:space:]]+$" "$RUNNER_TEMP/first-party.txt" \
+              || { echo "::error title=image list::ghcr.io/openova-io/openova/${repo} is not in the first-party list of a fresh install"; exit 1; }
+            grep -E "^ghcr\.io/openova-io/openova/${repo}:" "$RUNNER_TEMP/first-party.txt"
+          done
 
       - name: Run fresh-prov image-registry guard
         run: bash scripts/check-freshprov-image-registry.sh

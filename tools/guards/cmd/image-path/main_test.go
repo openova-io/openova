@@ -60,7 +60,9 @@ const robot = "robot$openova-bot"
 
 func TestProbe(t *testing.T) {
 	opt := stubOptions{user: robot, password: "node-token", fillAfter: 300 * time.Millisecond,
-		absent: map[string]bool{"openova-io/openova/gone": true}}
+		absent:    map[string]bool{"openova-io/openova/gone": true},
+		indexed:   map[string]bool{"openova-io/openova/multi": true},
+		childless: map[string]bool{"openova-io/openova/half": true}}
 	_, mirrors := origin(t, opt)
 	fast := []string{"probe", "-fill-wait", "3s", "-fill-every", "100ms"}
 	env := probeEnv(mirrors, robot, "node-token")
@@ -82,6 +84,22 @@ func TestProbe(t *testing.T) {
 
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/gone:920753e\n", fast...)
 	want(t, "first-party image absent from the hosted project", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/gone:920753e \(MISSING AT THE ORIGIN\)$`)
+
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/multi:1\n", fast...)
+	want(t, "a first-party index with its child", rc, 0, out, `(?m)^PASS ghcr.io/openova-io/openova/multi:1 -> .*/openova-io/openova/multi:1 child=sha256:[0-9a-f]{12} blobs=2$`)
+
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/half:1\n", fast...)
+	want(t, "a hosted index whose child is absent is missing at the origin", rc, 1, out, `(?m)^IMAGE-PATH FAIL 1/1: ghcr.io/openova-io/openova/half:1 \(MISSING AT THE ORIGIN\)$`)
+	want(t, "  with the remedy to publish it again", rc, 1, out, `(?m)^FAIL ghcr.io/openova-io/openova/half:1 MISSING AT THE ORIGIN .*/openova-io/openova/half:1 \[the hosted project openova-io serves the index, but its linux/amd64 child sha256:[0-9a-f]{12} is absent: publish it again\]$`)
+	if strings.Contains(out, "DAMAGED CACHE ENTRY") {
+		t.Errorf("a hosted project is not a cache, its miss is not a damaged cache entry:\n%s", out)
+	}
+
+	rc, out = runWith(t, env, "busybox\n", fast...)
+	want(t, "a bare name is walked as docker.io/library/<name>:latest", rc, 1, out, `(?m)^FAIL busybox NOT AT THE ORIGIN .*/proxy-dockerhub/library/busybox:latest `)
+	if strings.Contains(out, "SKIP") || strings.Contains(out, "skipped") {
+		t.Errorf("a bare name is a pull, never skipped:\n%s", out)
+	}
 
 	rc, out = runWith(t, probeEnv(mirrors, robot, ""), "ghcr.io/healthy/app:16\n", fast...)
 	want(t, "no credential: nothing is read", rc, 2, out, `(?m)^IMAGE-PATH FAIL 0/0: no credential`)
@@ -115,6 +133,24 @@ func TestOriginHas(t *testing.T) {
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/catalyst-ui:1\n", args...)
 	want(t, "the tag carries another digest", rc, 1, out, `(?m)^MISSING AT THE ORIGIN ghcr.io/openova-io/openova/catalyst-ui:1: .* carries sha256:[0-9a-f]+, ghcr has sha256:`)
 
+	// ghcr publishes an index; the warm-up's `skopeo copy` (no --all) writes
+	// its linux/amd64 child under the tag, so the origin's tag is the child.
+	idx := map[string]bool{"openova-io/openova/sovereign-ops": true}
+	ghcrIdx := httptest.NewServer(newStub(stubOptions{indexed: idx}))
+	t.Cleanup(ghcrIdx.Close)
+	argsIdx := []string{"origin-has", "-origin", base, "-ghcr", ghcrIdx.URL}
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", argsIdx...)
+	want(t, "an index on ghcr, its linux/amd64 child at the origin as the warm-up copies it", rc, 0, out, `(?m)^ORIGIN-HAS PASS 1 `)
+	whole, _ := origin(t, stubOptions{user: "robot$openova-warmup", password: "pw", indexed: idx})
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", "origin-has", "-origin", whole, "-ghcr", ghcrIdx.URL)
+	want(t, "an index on ghcr, the same index at the origin (a copy with --all)", rc, 0, out, `(?m)^ORIGIN-HAS PASS 1 `)
+	half, _ := origin(t, stubOptions{user: "robot$openova-warmup", password: "pw", childless: idx})
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", "origin-has", "-origin", half, "-ghcr", ghcrIdx.URL)
+	want(t, "an index at the origin whose child is absent", rc, 1, out, `(?m)^MISSING AT THE ORIGIN ghcr.io/openova-io/openova/sovereign-ops:fe65309: .* is an index whose linux/amd64 child sha256:[0-9a-f]+ is absent: publish it again$`)
+	staleIdx, _ := origin(t, stubOptions{user: "robot$openova-warmup", password: "pw", stale: idx})
+	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", "origin-has", "-origin", staleIdx, "-ghcr", ghcrIdx.URL)
+	want(t, "an index on ghcr, another image at the origin", rc, 1, out, `(?m)^MISSING AT THE ORIGIN ghcr.io/openova-io/openova/sovereign-ops:fe65309: .* carries sha256:[0-9a-f]+, ghcr has sha256:[0-9a-f]+ \(the linux/amd64 image a node pulls\)$`)
+
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/catalyst-api:1\n", "origin-has", "-origin", "http://127.0.0.1:1", "-ghcr", ghcr.URL)
 	want(t, "the origin cannot be reached", rc, 2, out, `(?m)^ORIGIN-HAS CANNOT READ 1/1`)
 
@@ -134,6 +170,7 @@ func TestResolve(t *testing.T) {
 		"ghcr.io/openova-io/other:1":                "proxy-ghcr/openova-io/other",
 		"ghcr.io/cloudnative-pg/postgresql:16":      "proxy-ghcr/cloudnative-pg/postgresql",
 		"busybox:1.36":                              "proxy-dockerhub/library/busybox",
+		"busybox":                                   "proxy-dockerhub/library/busybox",
 	} {
 		if r := resolve(ref, m); r.kind != "ok" || r.repo != wantRepo {
 			t.Errorf("%s -> %+v, want repo %s", ref, r, wantRepo)

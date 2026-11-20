@@ -91,11 +91,10 @@ on:
 jobs:
   warmup-bastion-harbor:
     runs-on: ubuntu-latest
-    # Non-blocking: a warmup failure must NOT block the caller's deploy /
-    # chart-publish path (kubelet still pulls on demand; the worst case is the
-    # OLD #4049 slow-cold-pull, not a broken deploy). Callers MUST NOT make
-    # downstream jobs `needs:` this one.
-    continue-on-error: true
+    # Non-blocking AND visible: a warmup failure must NOT block the caller's
+    # deploy / chart-publish path, so callers MUST NOT make downstream jobs
+    # `needs:` this one; and it is not continue-on-error, so a failure (an
+    # image list that could not be built) turns the run red where it is seen.
     permissions:
       contents: read
       packages: read
@@ -186,11 +185,14 @@ jobs:
 
           # The first-party images of a fresh install, from the list builder of
           # prov pre-flight check 7 and of check 5 of the cut. A list that
-          # cannot be built is an error of this step, never an empty warmup.
+          # cannot be built is an error of this step, never an empty warmup:
+          # the images that do not depend on it (the catalyst SHA tags and the
+          # component pins below) are pushed all the same, then the step fails.
+          list_failed=0
           if ! images="$(bash openova-src/scripts/check-mothership-proxy-image-path.sh --list-only --first-party 2>/tmp/list.err)"; then
             grep -v '^WARNING: Kubernetes' /tmp/list.err || true
-            echo "::error title=warmup list::the first-party image list of the fresh install could not be built (see above)"
-            exit 1
+            echo "::error title=warmup list::the first-party image list of the fresh install could not be built (see above); the images that do not depend on it are pushed, then this step fails"
+            images=""; list_failed=1
           fi
           grep -E '^  ℹ source ' /tmp/list.err || true
 
@@ -238,7 +240,7 @@ jobs:
           count=$(printf '%s\n' "${images}" | sed '/^$/d' | wc -l | tr -d ' ')
           if [ "${count}" -eq 0 ]; then
             echo "::warning::No openova-io images resolved from chart render — nothing to warm."
-            exit 0
+            exit "${list_failed}"
           fi
           echo "[warmup] ${count} image(s) to push into ${HARBOR_HOST}/${HARBOR_PROJECT}:"
           printf '%s\n' "${images}"
@@ -302,10 +304,14 @@ jobs:
           for f in "${cpdir}"/*.ok;   do [ -e "${f}" ] && { ok=$((ok+1)); echo "[warmup] OK   $(cat "${f}")"; }; done
           for f in "${cpdir}"/*.fail; do [ -e "${f}" ] && { fail=$((fail+1)); echo "[warmup] FAIL $(cat "${f}")"; echo "---"; cat "${cpdir}/$(basename "${f}" .fail).log" 2>/dev/null | tail -20; echo "---"; }; done
           echo "[warmup] pushed ${ok} ok, ${fail} failed (of ${count})."
-          # Non-fatal even on partial failure: the workflow is continue-on-error
-          # and must not block the caller. A FAIL count surfaces in the log + the
-          # step's own non-zero exit so an operator sees it, but the pipeline
-          # proceeds (kubelet on-demand pull is the safety net).
+          # A copy that failed is a warning (the next warmup retries it); the
+          # caller is never blocked, as no job of it `needs:` this one.
           if [ "${fail}" -gt 0 ]; then
             echo "::warning title=#4049 warmup partial::${fail}/${count} image(s) failed to warm the bastion — nodes may cold-pull those (see logs above)."
+          fi
+          # The list of the fresh install could not be built: the images above
+          # are pushed, the install's own are not, and that is a failure.
+          if [ "${list_failed}" -ne 0 ]; then
+            echo "::error title=warmup list::the first-party images of the fresh install were not pushed: their list could not be built (see the start of this step); ${ok} image(s) that do not depend on it were pushed"
+            exit 1
           fi

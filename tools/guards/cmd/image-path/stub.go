@@ -11,8 +11,13 @@ package main
 //	*/filling/app      the layers answer 404 to HEAD until -fill-after has
 //	                   passed since the first request of a manifest of the repo
 //	*/neverfill/app    the layers never fill
-//	openova-io/openova/<name>  a first-party image at any tag, unless -absent
-//	                   names the repository; -stale gives it another digest
+//	openova-io/openova/<name>  a first-party image at any tag: one image
+//	                   manifest, the way the warm-up's copy writes it; -indexed
+//	                   serves it the way ghcr publishes it, an index whose
+//	                   linux/amd64 child is that manifest; -childless serves the
+//	                   index while its child is unknown; -absent names a
+//	                   repository the registry lacks; -stale gives it another
+//	                   image
 //
 // Every /v2/ path but the ping needs a Bearer token from /token, which needs
 // the Basic login -user/-password when -user is set.
@@ -42,9 +47,9 @@ var (
 )
 
 type stubOptions struct {
-	user, password string
-	fillAfter      time.Duration
-	absent, stale  map[string]bool
+	user, password                    string
+	fillAfter                         time.Duration
+	absent, stale, indexed, childless map[string]bool
 }
 
 type stub struct {
@@ -59,6 +64,12 @@ func newStub(opt stubOptions) *stub {
 	}
 	if opt.stale == nil {
 		opt.stale = map[string]bool{}
+	}
+	if opt.indexed == nil {
+		opt.indexed = map[string]bool{}
+	}
+	if opt.childless == nil {
+		opt.childless = map[string]bool{}
 	}
 	return &stub{opt: opt, first: map[string]time.Time{}}
 }
@@ -177,15 +188,23 @@ func (s *stub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *stub) manifest(w http.ResponseWriter, repo, ref string) {
 	const index, single = "application/vnd.oci.image.index.v1+json", "application/vnd.oci.image.manifest.v1+json"
 	if strings.HasPrefix(repo, "openova-io/openova/") {
-		if s.opt.absent[repo] {
-			s.unknown(w, "MANIFEST_UNKNOWN")
-			return
-		}
-		note := repo + ":" + ref
+		note := repo
 		if s.opt.stale[repo] {
 			note += " (stale)"
 		}
-		s.send(w, http.StatusOK, single, stubManifest(note, stubLayer1))
+		image := stubManifest(note, stubLayer1)
+		sum := sha256.Sum256(image)
+		digest := "sha256:" + hex.EncodeToString(sum[:])
+		switch {
+		case s.opt.absent[repo]:
+			s.unknown(w, "MANIFEST_UNKNOWN")
+		case strings.HasPrefix(ref, "sha256:") && (ref != digest || s.opt.childless[repo]):
+			s.unknown(w, "MANIFEST_UNKNOWN")
+		case !strings.HasPrefix(ref, "sha256:") && (s.opt.indexed[repo] || s.opt.childless[repo]):
+			s.send(w, http.StatusOK, index, stubIndex(digest))
+		default:
+			s.send(w, http.StatusOK, single, image)
+		}
 		return
 	}
 	s.asked(repo)
@@ -246,6 +265,8 @@ func runStub(args []string, stderr io.Writer) int {
 	fillAfter := fs.Duration("fill-after", 2*time.Second, "how long */filling/app takes to fill its layers")
 	absent := fs.String("absent", "", "first-party repositories (openova-io/openova/<name>) this registry lacks, comma separated")
 	stale := fs.String("stale", "", "first-party repositories this registry holds with another digest, comma separated")
+	indexed := fs.String("indexed", "", "first-party repositories served as an index over their linux/amd64 image (as ghcr publishes them), comma separated")
+	childless := fs.String("childless", "", "first-party repositories whose index is served while its linux/amd64 child is unknown, comma separated")
 	if fs.Parse(args) != nil || *portFile == "" {
 		return 2
 	}
@@ -264,7 +285,8 @@ func runStub(args []string, stderr io.Writer) int {
 		return 2
 	}
 	srv := &http.Server{Handler: newStub(stubOptions{user: *user, password: *password, fillAfter: *fillAfter,
-		absent: commaSet(*absent), stale: commaSet(*stale)}), ReadHeaderTimeout: 10 * time.Second}
+		absent: commaSet(*absent), stale: commaSet(*stale), indexed: commaSet(*indexed), childless: commaSet(*childless)}),
+		ReadHeaderTimeout: 10 * time.Second}
 	if err := srv.Serve(ln); err != nil {
 		sayln(stderr, err)
 		return 2

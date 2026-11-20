@@ -357,7 +357,7 @@ if [ "$MODE" = "self-test" ]; then
   expect "origin host not a proxy name -> entry"  0 0 "^OK https://registry.parent.example.test/openova-io/app 1$" "$(rp "$(node_map "${WORK}/doc-originhost.json" "$HWTF" 1)" registry.parent.example.test/openova-io/app:1)"
   expect "placeholder is SKIP"                    0 0 "^SKIP helm/envsubst placeholder" "$(r '{{ .Values.image }}:latest')"
   expect "Kyverno allowed-image GLOB is SKIP"     0 0 "^SKIP image GLOB pattern" "$(r '*/proxy-*/*')"
-  expect "server-image slug is SKIP"              0 0 "^SKIP registry-less untagged slug" "$(r ubuntu-24.04)"
+  expect "a bare name is docker.io library/:latest" 0 0 "^OK $o/proxy-dockerhub/library/busybox latest$" "$(r busybox)"
   expect "the node's login is read from the module" 0 0 '^robot\$openova-bot$' "$(node_user "$HWTF")"
   expect "the proxy projects are read from the document" 0 0 '"proxy-ghcr"' "$(proxy_projects "$HWDOC")"
 
@@ -410,7 +410,7 @@ if [ "$MODE" = "self-test" ]; then
   F="${WORK}/fixture"
   mkdir -p "$F/clusters/_template/bootstrap-kit" "$F/clusters/_template/fixture-raw" "$F/platform/fixture/chart/templates" \
     "$F/products" "$F/${MODULE_REL}" "$F/infra/providers/_shared/k3s-images" "$F/tests/fixtures/variables"
-  printf 'resources:\n  - 01-fixture.yaml\n  - 12b-raw.yaml\n' > "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
+  printf 'resources:\n  - 01-fixture.yaml\n  - 02-fixture-base.yaml\n  - 12b-raw.yaml\n' > "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
   cat > "$F/clusters/_template/bootstrap-kit/01-fixture.yaml" <<'YAML'
 # ${A comment the substitution never sees}
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -429,6 +429,26 @@ spec:
     enabled: ${FIXTURE_ENABLED:-false}
     image: ghcr.io/openova-io/openova/fixture-app:kit1
     package: xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1
+YAML
+  # A release of the same chart that the kit switches on itself, whatever the
+  # value set: the kit source keeps an image when the overlay is not laid on.
+  cat > "$F/clusters/_template/bootstrap-kit/02-fixture-base.yaml" <<'YAML'
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-fixture-base
+  namespace: flux-system
+spec:
+  releaseName: fixture-base
+  targetNamespace: fixture
+  chart:
+    spec:
+      chart: bp-fixture
+      version: 1.0.0
+  values:
+    enabled: true
+    image: ghcr.io/openova-io/openova/fixture-base:kit1
+    package: xpkg.upbound.io/crossplane-contrib/fixture-base-provider:kit1
 YAML
   cat > "$F/clusters/_template/bootstrap-kit/12b-raw.yaml" <<'YAML'
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -458,16 +478,32 @@ YAML
   printf 'variable "k3s_version" {\n  type    = string\n  default = "v9.9.9+k3s1"\n}\n' > "$F/${MODULE_REL}/variables.tf"
   printf '# the release list\ndocker.io/rancher/mirrored-pause:3.6\n' > "$F/infra/providers/_shared/k3s-images/v9.9.9+k3s1.txt"
   printf 'runcmd:\n  - rt helm upgrade --install cilium cilium/cilium --version 9.9.9 -n kube-system\n' > "$F/infra/providers/_shared/cloudinit-control-plane.tftpl"
-  printf 'FIXTURE_ENABLED=true\n' > "$F/tests/fixtures/variables/today.env"
-  printf '# a region of a two-region install\nFIXTURE_ENABLED=true\n' > "$F/tests/fixtures/variables/two-region-secondary.env"
-  ls1() { bash "$0" --list-only --root "$F" "$@" 2>&1; }
+  # The fixture component (fixture-app, fixture-provider) is switched on ONLY by
+  # the overlay of a region of a two-region install, as CONTINUUM_ENABLED is
+  # (false in today.env): the default value sets must lay the overlay on.
+  printf '# the single-region primary: the fixture component is off here\nFIXTURE_ENABLED=false\n' > "$F/tests/fixtures/variables/today.env"
+  printf '# a region of a two-region install: only this overlay switches the fixture component on\nFIXTURE_ENABLED=true\n' > "$F/tests/fixtures/variables/two-region-secondary.env"
+  ls1() { env -u KIT_VALUE_SETS bash "$0" --list-only --root "$F" "$@" 2>&1; }
   out="$(ls1)"; rc=$?
   for img in ghcr.io/openova-io/openova/fixture-app:kit1 ghcr.io/openova-io/openova/fixture-ops:raw1 docker.io/rancher/mirrored-pause:3.6 quay.io/cilium/cilium:v9.9.9 \
-    xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1 xpkg.upbound.io/crossplane-contrib/fixture-fn:v1; do
+    xpkg.upbound.io/crossplane-contrib/fixture-provider:kit1 xpkg.upbound.io/crossplane-contrib/fixture-fn:v1 ghcr.io/openova-io/openova/fixture-base:kit1; do
     expect "the list holds $img" 0 "$rc" "^${img}$" "$out"
   done
   lacks "  but not the package of a kind that is not a Crossplane package" "fixture-not-an-image" "$out"
   expect "  and counts each source" 0 "$rc" "^  ℹ source raw: 2 image(s), 1 first-party$" "$out"
+  out="$(KIT_VALUE_SETS=tests/fixtures/variables/today.env bash "$0" --list-only --root "$F" 2>&1)"; rc=$?
+  expect "with today.env alone the list still builds" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-base:kit1$" "$out"
+  lacks "  but loses the component only the overlay switches on" "fixture-app:kit1" "$out"
+  lacks "  and its Crossplane package" "fixture-provider:kit1" "$out"
+  out="$(cd "$F" && env -u KIT_VALUE_SETS ROOT="$F" IMAGE_PATH_BIN="$TOOL" bash "${SCRIPT_DIR}/check-freshprov-image-registry.sh" --list-images 2>&1)"; rc=$?
+  expect "the renderer's own default value sets lay the overlay on too" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-app:kit1$" "$out"
+  mkdir -p "$F/clusters/_template/bootstrap-kit/folder-entry"
+  cp "$F/clusters/_template/bootstrap-kit/kustomization.yaml" "${WORK}/kustomization.keep"
+  printf '  - folder-entry\n' >> "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
+  out="$(ls1)"; rc=$?
+  expect "a kit entry that is not a file (a folder) fails the source" 2 "$rc" "^IMAGE-PATH FAIL 0/0: the source 'kit' could not be read" "$out"
+  expect "  and is named" 2 "$rc" "folder-entry: not a file of the kit" "$out"
+  cp "${WORK}/kustomization.keep" "$F/clusters/_template/bootstrap-kit/kustomization.yaml"
   lacks "the chart at its DEFAULT values renders no image (the handling before this change loses it)" "image:" \
     "$(helm template fixture "$F/platform/fixture/chart" 2>&1)"
   without() { # without <label> <sources> <lost> <kept>: the list still builds, without that source's image
@@ -480,7 +516,7 @@ YAML
   without k3s "kit raw phase0" "mirrored-pause" "^quay.io/cilium/cilium:v9.9.9$"
   without phase0 "kit raw k3s" "quay.io/cilium/cilium" "^docker.io/rancher/mirrored-pause:3.6$"
   out="$(ls1 --first-party)"; rc=$?
-  expect "--first-party keeps the two first-party images" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-ops:raw1$" "$out"
+  expect "--first-party keeps the first-party images" 0 "$rc" "^ghcr.io/openova-io/openova/fixture-ops:raw1$" "$out"
   lacks "  and drops the others" "mirrored-pause" "$out"
   rm "$F/infra/providers/_shared/k3s-images/v9.9.9+k3s1.txt"
   out="$(ls1)"; rc=$?

@@ -348,6 +348,8 @@ if [ "$LIST_MODE" = "1" ]; then
   declare -A RENDERED_KEY=()
   LIST_EMPTY=(); LIST_FAILED=(); LIST_RENDERED=0; LIST_SUSPENDED=0; LIST_RELEASES=0
   : > "$LIST_TMP/images"
+  # The default is held by the self-test of check-mothership-proxy-image-path.sh
+  # (a fixture component only the overlay switches on must be in the list).
   for set in ${KIT_VALUE_SETS:-tests/fixtures/variables/today.env tests/fixtures/variables/today.env+tests/fixtures/variables/two-region-secondary.env}; do
     vargs=()
     IFS='+' read -r -a parts <<< "$set"
@@ -356,7 +358,9 @@ if [ "$LIST_MODE" = "1" ]; then
       vargs+=(-vars "$p")
     done
     for f in "${KIT_FILES[@]}"; do
-      [ -f "$BK_DIR/$f" ] || continue
+      # An entry that is not a file of the kit (a folder, a remote) applies
+      # what this list does not read: it fails the source, never vanishes.
+      if [ ! -f "$BK_DIR/$f" ]; then LIST_FAILED+=("$f: not a file of the kit (a folder or a remote is not read here, so its images would be missing)"); continue; fi
       if ! yq 'select(.kind == "HelmRelease") | ... comments=""' "$BK_DIR/$f" > "$LIST_TMP/hr.yaml" 2>/dev/null; then
         LIST_FAILED+=("$f: does not parse"); continue
       fi

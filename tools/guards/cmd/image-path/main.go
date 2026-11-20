@@ -34,20 +34,29 @@
 //	                        child. Only a registry-side repair helps (story
 //	                        SOV-162); this command deletes nothing.
 //	MISSING AT THE ORIGIN   a first-party image (the hosted project, not a proxy
-//	                        project) whose tag or blob the origin does not have.
+//	                        project) whose tag, linux/amd64 child or blob the
+//	                        origin does not have: the project is written by a
+//	                        push, so the remedy is to publish it again.
 //	NOT AT THE ORIGIN       a proxy project answers no manifest for the tag.
 //	CREDENTIAL REFUSED      the origin refuses the node's credential.
 //
 // Exit codes: 0 every image passed; 1 at least one failed; 2 nothing could be
 // judged (no credential, no image, a usage error).
 //
-// origin-has reads refs ghcr.io/openova-io/openova/<name>:<tag>, asks ghcr for
-// the digest of each tag (GHCR_USER, GHCR_TOKEN) and the origin (-origin, with
-// ORIGIN_USER and ORIGIN_TOKEN) for the digest of the same path and tag: the
-// node map rewrites ghcr.io/openova-io/openova/<name> to the hosted project
-// path openova-io/openova/<name>. Exit 0 every image is there with the digest
-// ghcr has; 1 at least one is missing or carries another digest (each is
-// named); 2 a registry could not be read, so nothing is concluded.
+// origin-has reads refs ghcr.io/openova-io/openova/<name>:<tag> and compares,
+// for each, what a node pulls from ghcr (GHCR_USER, GHCR_TOKEN) and from the
+// origin (-origin, with ORIGIN_USER and ORIGIN_TOKEN) at the same path and tag:
+// the node map rewrites ghcr.io/openova-io/openova/<name> to the hosted project
+// path openova-io/openova/<name>. What a node pulls is the linux/amd64 image
+// manifest: the child when the tag holds an index, else the manifest itself.
+// That is also what the warm-up writes: .github/workflows/warmup-bastion-harbor.yaml
+// copies with `skopeo copy` at its default (--multi-arch system, on an amd64
+// runner), which writes an index's linux/amd64 child, unchanged, under the tag,
+// so the origin's tag carries the digest of ghcr's child, never that of ghcr's
+// index. An origin that holds the whole index (a copy with --all) passes when
+// its linux/amd64 child is ghcr's and is served. Exit 0 every image is there;
+// 1 at least one is missing or carries another image (each is named); 2 a
+// registry could not be read, so nothing is concluded.
 package main
 
 import (
@@ -145,16 +154,17 @@ func resolve(ref string, mirrors map[string]mirror) resolved {
 		return resolved{kind: "skip", why: "helm/envsubst placeholder"}
 	case strings.ContainsAny(ref, "*?"):
 		return resolved{kind: "skip", why: "image GLOB pattern (Kyverno policy match), not a pull"}
-	case !strings.ContainsAny(ref, "/:@"):
-		return resolved{kind: "skip", why: fmt.Sprintf("registry-less untagged slug '%s', a server image, not a container image", ref)}
 	}
+	// A bare name (busybox) is a pull like any other: containerd reads it as
+	// docker.io/library/<name>:latest and, since SOV-132, pulls it through the
+	// docker.io entry of the map.
 	host, path, reference := splitRef(ref)
 	m, ok := mirrors[host]
 	if !ok {
 		m, ok = mirrors["*"]
 	}
 	if !ok {
-		return resolved{kind: "skip", why: fmt.Sprintf("host %s is not in the node registry mirror", host)}
+		return resolved{kind: "fail", why: fmt.Sprintf("host=%s [the node registry map has no entry for it and no \"*\", and the default endpoint is off]", host)}
 	}
 	if len(m.Endpoint) == 0 {
 		return resolved{kind: "fail", why: fmt.Sprintf("host=%s [no mirror of the node map serves it before the fire, and the default endpoint is off]", host)}
@@ -454,6 +464,11 @@ func probe(c *client, cfg probeConfig, ref string) string {
 		return fmt.Sprintf("FAIL %s NOT AT THE ORIGIN %s [the proxy project %s answers no manifest for the tag]", ref, where, project)
 	case w.stage == "index":
 		return fmt.Sprintf("FAIL %s stage=index http=%d %s %s", ref, w.status, where, w.detail)
+	case w.stage == "child" && w.status == http.StatusNotFound && !proxy:
+		// The hosted project is written by a push, not filled by a cache: an
+		// index there whose child is absent was published incompletely.
+		return fmt.Sprintf("FAIL %s MISSING AT THE ORIGIN %s [the hosted project %s serves the index, but its linux/amd64 child %s is absent: publish it again]",
+			ref, where, project, short(w.child))
 	case w.stage == "child" && w.status == http.StatusNotFound:
 		return fmt.Sprintf("FAIL %s DAMAGED CACHE ENTRY %s/%s [the index is served, its linux/amd64 child %s is unknown: a registry-side repair (story SOV-162); this check deletes nothing]",
 			ref, res.base, res.repo, short(w.child))
@@ -469,7 +484,7 @@ func probe(c *client, cfg probeConfig, ref string) string {
 		return pass
 	}
 	if !proxy {
-		return fmt.Sprintf("FAIL %s MISSING AT THE ORIGIN %s [%d of %d blobs of the hosted project are absent, first %s]", ref, where, len(missing), len(w.blobs), short(missing[0]))
+		return fmt.Sprintf("FAIL %s MISSING AT THE ORIGIN %s [%d of %d blobs of the hosted project are absent, first %s: publish it again]", ref, where, len(missing), len(w.blobs), short(missing[0]))
 	}
 	// Not cached yet: ask for the manifest once, then read the blobs again
 	// until the bound has passed.
@@ -637,32 +652,66 @@ func first(l []string, n int) []string {
 
 // ---- origin-has
 
-// digestOf asks a registry for the digest of a manifest: the
-// Docker-Content-Digest of a HEAD, else the sha256 of a GET's body.
-func digestOf(c *client, base, repo, reference string) (string, int, error) {
-	u := fmt.Sprintf("%s/v2/%s/manifests/%s", base, repo, reference)
-	r := c.do(http.MethodHead, u, http.Header{"Accept": {accept}})
-	if r.err != nil {
-		return "", 0, r.err
-	}
-	if r.status == http.StatusOK && r.header.Get("Docker-Content-Digest") != "" {
-		return r.header.Get("Docker-Content-Digest"), r.status, nil
-	}
-	if r.status != http.StatusOK {
-		return "", r.status, nil
-	}
-	r = c.do(http.MethodGet, u, http.Header{"Accept": {accept}})
-	if r.err != nil {
-		return "", 0, r.err
-	}
-	if r.status != http.StatusOK {
-		return "", r.status, nil
-	}
+// pulled is what a node pulls for a tag. image is the digest of the image
+// manifest it runs: the linux/amd64 child when the tag holds an index, else
+// the manifest under the tag. index is the digest of that index ("" for a
+// single manifest). status is the registry's answer; inChild says that a
+// failed answer was the child's, noAmd64 that the index has no linux/amd64
+// entry.
+type pulled struct {
+	image, index     string
+	status           int
+	inChild, noAmd64 bool
+}
+
+// manifestDigest is the Docker-Content-Digest of a reply, else the sha256 of
+// its body.
+func manifestDigest(r reply) string {
 	if d := r.header.Get("Docker-Content-Digest"); d != "" {
-		return d, r.status, nil
+		return d
 	}
 	sum := sha256.Sum256(r.body)
-	return "sha256:" + hex.EncodeToString(sum[:]), r.status, nil
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// pull reads a tag the way a node does: the manifest under the tag and, when
+// that is an index, its linux/amd64 child by digest.
+func pull(c *client, base, repo, reference string) (pulled, error) {
+	get := func(ref string) reply {
+		return c.do(http.MethodGet, fmt.Sprintf("%s/v2/%s/manifests/%s", base, repo, ref), http.Header{"Accept": {accept}})
+	}
+	r := get(reference)
+	if r.err != nil {
+		return pulled{}, r.err
+	}
+	if r.status != http.StatusOK {
+		return pulled{status: r.status}, nil
+	}
+	var m manifest
+	if json.Unmarshal(r.body, &m) != nil {
+		return pulled{}, fmt.Errorf("the manifest of %s:%s is not JSON", repo, reference)
+	}
+	if len(m.Manifests) == 0 && !strings.Contains(m.MediaType, "index") && !strings.Contains(m.MediaType, "manifest.list") {
+		return pulled{image: manifestDigest(r), status: http.StatusOK}, nil
+	}
+	p := pulled{index: manifestDigest(r), status: http.StatusOK}
+	for _, e := range m.Manifests {
+		if e.Platform.OS == "linux" && e.Platform.Arch == "amd64" {
+			p.image = e.Digest
+			break
+		}
+	}
+	if p.image == "" {
+		p.noAmd64 = true
+		return p, nil
+	}
+	if r = get(p.image); r.err != nil {
+		return pulled{}, r.err
+	}
+	if r.status != http.StatusOK {
+		p.status, p.inChild = r.status, true
+	}
+	return p, nil
 }
 
 func runOriginHas(args []string, in io.Reader, stdout, stderr io.Writer) int {
@@ -695,37 +744,52 @@ func runOriginHas(args []string, in io.Reader, stdout, stderr io.Writer) int {
 			continue
 		}
 		_, path, reference := splitRef(ref)
-		want, st, err := digestOf(src, strings.TrimRight(*ghcr, "/"), path, reference)
+		want, err := pull(src, strings.TrimRight(*ghcr, "/"), path, reference)
 		switch {
 		case err != nil:
 			say(stdout, "CANNOT READ %s: ghcr: %v\n", ref, err)
 			unread++
 			continue
-		case st == http.StatusNotFound:
+		case want.status == http.StatusNotFound && want.inChild:
+			say(stdout, "MISSING ON GHCR %s: the index names a linux/amd64 child %s that ghcr does not serve\n", ref, want.image)
+			missing++
+			continue
+		case want.status == http.StatusNotFound:
 			say(stdout, "MISSING ON GHCR %s: the commit pins a tag that was never published\n", ref)
 			missing++
 			continue
-		case st != http.StatusOK:
-			say(stdout, "CANNOT READ %s: ghcr answered http=%d\n", ref, st)
+		case want.status != http.StatusOK:
+			say(stdout, "CANNOT READ %s: ghcr answered http=%d\n", ref, want.status)
 			unread++
 			continue
+		case want.noAmd64:
+			say(stdout, "MISSING ON GHCR %s: the index %s carries no linux/amd64 image, the one a node pulls\n", ref, want.index)
+			missing++
+			continue
 		}
-		got, st, err := digestOf(dst, base, path, reference)
+		got, err := pull(dst, base, path, reference)
+		at := fmt.Sprintf("%s/%s:%s", base, path, reference)
 		switch {
 		case err != nil:
 			say(stdout, "CANNOT READ %s: the origin %s: %v\n", ref, base, err)
 			unread++
-		case st == http.StatusNotFound:
-			say(stdout, "MISSING AT THE ORIGIN %s: %s/%s:%s is absent (ghcr has %s)\n", ref, base, path, reference, want)
+		case got.status == http.StatusNotFound && got.inChild:
+			say(stdout, "MISSING AT THE ORIGIN %s: %s is an index whose linux/amd64 child %s is absent: publish it again\n", ref, at, got.image)
 			missing++
-		case st != http.StatusOK:
-			say(stdout, "CANNOT READ %s: the origin %s answered http=%d\n", ref, base, st)
+		case got.status == http.StatusNotFound:
+			say(stdout, "MISSING AT THE ORIGIN %s: %s is absent (ghcr has %s)\n", ref, at, want.image)
+			missing++
+		case got.status != http.StatusOK:
+			say(stdout, "CANNOT READ %s: the origin %s answered http=%d\n", ref, base, got.status)
 			unread++
-		case got != want:
-			say(stdout, "MISSING AT THE ORIGIN %s: %s/%s:%s carries %s, ghcr has %s\n", ref, base, path, reference, got, want)
+		case got.noAmd64:
+			say(stdout, "MISSING AT THE ORIGIN %s: %s is an index without a linux/amd64 image (ghcr has %s)\n", ref, at, want.image)
+			missing++
+		case got.image != want.image:
+			say(stdout, "MISSING AT THE ORIGIN %s: %s carries %s, ghcr has %s (the linux/amd64 image a node pulls)\n", ref, at, got.image, want.image)
 			missing++
 		default:
-			say(stdout, "PRESENT %s %s\n", ref, want)
+			say(stdout, "PRESENT %s %s\n", ref, want.image)
 		}
 	}
 	switch {
