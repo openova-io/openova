@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T04:15:03Z` |
+| Last refreshed | `2026-11-20T04:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:18 | [#8453](https://github.com/openova-io/openova/pull/8453) | #8449 | fix(charts): the foundation function tests wait for their se |
 | 2026-11-20T03:52 | [#8451](https://github.com/openova-io/openova/pull/8451) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:12 | [#8450](https://github.com/openova-io/openova/pull/8450) | #8445 | feat(catalyst-api): forward the console routes /api/v1/ops t |
 | 2026-11-20T03:46 | [#8448](https://github.com/openova-io/openova/pull/8448) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:22 | [#8411](https://github.com/openova-io/openova/pull/8411) | #8410 | test(acceptance): a client of the model contract for the gat |
-| 2026-11-19T22:45 | [#8409](https://github.com/openova-io/openova/pull/8409) | #7087 | docs(ledger): plan update |
-| 2026-11-19T22:54 | [#8408](https://github.com/openova-io/openova/pull/8408) | fix(gate): the parent execution reaches the install it is as |  |
 
 ---
 
