@@ -1,7 +1,8 @@
 // Package httpapi is the HTTP interface of the cortex query process.
 //
 // Handler serves the routes that the Organization's gateway publishes: POST /v1/search,
-// GET /v1/sources and the document routes of documents.go. The token check wraps the whole
+// GET /v1/sources, the document routes of documents.go and the assistant routes of
+// assistants.go. The token check wraps the whole
 // router, so it runs before routing: a call
 // without an accepted token ends with 401 unauthenticated whatever it addresses, and a route
 // handler also refuses a request that reached it without a caller. Health serves the
@@ -25,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/cortex/internal/assistant"
 	"github.com/openova-io/openova/products/cortex/internal/auth"
 	"github.com/openova-io/openova/products/cortex/internal/events"
 	"github.com/openova-io/openova/products/cortex/internal/ingest"
@@ -44,6 +46,7 @@ type Authenticator interface {
 type Config struct {
 	Auth      Authenticator
 	Search    *search.Service
+	Assistant *assistant.Service // the assistants of GET /v1/models and POST /v1/chat/completions
 	Store     store.Store
 	Uploads   Uploader                        // stages an upload; *ingest.Intake is one
 	Originals ingest.Objects                  // the originals bucket, read by the content route
@@ -82,6 +85,8 @@ func New(cfg Config) *Server {
 	s.route("GET /v1/documents/{id}/content", s.content)
 	s.route("DELETE /v1/documents/{id}", s.deleteDocument)
 	s.route("GET /v1/events", s.events)
+	s.route("GET /v1/models", s.models)
+	s.route("POST /v1/chat/completions", s.chat)
 	s.internal("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
