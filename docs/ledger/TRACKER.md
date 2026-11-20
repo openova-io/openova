@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T04:30:07Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-20T05:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
 | 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:18 | [#8453](https://github.com/openova-io/openova/pull/8453) | #8449 | fix(charts): the foundation function tests wait for their se |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:37 | [#8416](https://github.com/openova-io/openova/pull/8416) | #8414 | fix(api): the kubeconfig route serves the primary region fil |
 | 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
-| 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
-| 2026-11-19T23:22 | [#8411](https://github.com/openova-io/openova/pull/8411) | #8410 | test(acceptance): a client of the model contract for the gat |
 
 ---
 
