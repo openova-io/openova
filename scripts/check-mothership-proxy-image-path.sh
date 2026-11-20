@@ -55,19 +55,22 @@
 #        - the Phase-0 images cloud-init pulls: the flux `crictl pull` warm-up
 #          list and the cilium `helm upgrade --install --version` pair, read
 #          from infra/providers/_shared/cloudinit-control-plane.tftpl.
-#   2. Each ref is resolved THE WAY THE NODE RESOLVES IT, from the Terraform
-#      that writes /etc/rancher/k3s/registries.yaml
-#      (infra/providers/huawei/main.tf `registry_mirror_yaml_huawei`). That
-#      heredoc is YAML and is parsed as YAML — host -> endpoint + rewrite
-#      rules — so a mirror edit changes what this probe walks, with nothing to
-#      keep in sync. On kom4dc that endpoint is the bastion EIP
-#      (http://212.72.24.20:5000 / :5002), the mothership Harbor's NAT-bypass
-#      face (#3913) — NOT https://harbor.openova.io, which a node never uses
-#      and which answers differently (measured 2026-09-02: a child manifest
-#      404 on the external face was 200 on the face the node pulls through).
-#      A host with no mirror entry (xpkg.upbound.io, mirror.gcr.io, …) is
-#      SKIPPED and named — that class belongs to
-#      scripts/check-freshprov-image-registry.sh (#5281), not here.
+#   2. Each ref is resolved THE WAY THE NODE RESOLVES IT, from the node
+#      registry map /etc/rancher/k3s/registries.yaml. Since SOV-132 no module
+#      holds that map as text: each provider module builds it from the
+#      installation's variables document (`registry_mirror_yaml_<provider>`
+#      in infra/providers/<provider>/main.tf, the rule of
+#      upstream.Variables.RegistriesYAML), so this probe builds the same map
+#      the same way (node_map below): the document is `.variables` of
+#      HW_TFVARS, the hosted rewrites are the module's
+#      `node_registry_hosted_rewrites` (MIRROR_TF). Every entry lists the
+#      Sovereign's own registry first; before the fire that registry does not
+#      exist, so the probe walks the next endpoint, the origin the node pulls
+#      through (for the parent that is its NAT-bypass face, #3913, which can
+#      answer differently from its external face: measured 2026-09-02).
+#      Every node starts k3s with --disable-default-registry-endpoint, so a
+#      host that no mirror of the map serves (only the `*` entry, which lists
+#      the Sovereign's own registry alone) has no path at all: FAIL.
 #   3. Per image: GET the manifest for the tag (OCI index, docker list and
 #      single manifests all accepted); if it is an index, GET the linux/amd64
 #      child by digest; then GET the config blob with `Range: bytes=0-255`
@@ -87,13 +90,14 @@
 # ─── USAGE ────────────────────────────────────────────────────────────────
 #   HW_TFVARS=<tofu.auto.tfvars.json> scripts/check-mothership-proxy-image-path.sh
 #       credentials = .harbor_robot_token / .ghcr_pull_token of that file
-#       (or HARBOR_ROBOT_TOKEN / GHCR_PULL_TOKEN in the environment)
+#       (or HARBOR_ROBOT_TOKEN / GHCR_PULL_TOKEN in the environment); the
+#       node registry map is built from its .variables (needed by --resolve too)
 #   scripts/check-mothership-proxy-image-path.sh --images <file>   # targeted list
 #   scripts/check-mothership-proxy-image-path.sh --list-only       # print the built list, no network
 #   scripts/check-mothership-proxy-image-path.sh --resolve <ref>   # show the node's resolution of one ref
 #   scripts/check-mothership-proxy-image-path.sh --self-test       # local fake-mirror fixture
 # Env: PROBE_PARALLEL (default 4), PROBE_TIMEOUT (seconds, default 25),
-#      MIRROR_TF (the Terraform carrying registries.yaml),
+#      MIRROR_TF (the provider module whose hosted rewrites the map takes),
 #      HARBOR_ROBOT_USER (default robot$catalyst), GHCR_PULL_USER.
 # Exit: 0 = every image resolved (WARN mirror-misses allowed); 1 = at least
 #       one image failed; 2 = usage / vacuity (no images) / setup error.
@@ -145,19 +149,6 @@ ACCEPT = ", ".join([
 INDEX_TYPES = {"application/vnd.oci.image.index.v1+json",
                "application/vnd.docker.distribution.manifest.list.v2+json"}
 
-def mirror_table(tf_path):
-    """The node's own resolution table, parsed from the Terraform that WRITES
-    /etc/rancher/k3s/registries.yaml. The heredoc body is YAML, so it is read
-    as YAML rather than pattern-matched: host -> {endpoint: [...],
-    rewrite: {regex: replacement}}."""
-    src = open(tf_path).read()
-    m = re.search(r'registry_mirror_yaml_huawei\s*=\s*<<-?EOT\n(.*?)\n\s*EOT', src, re.S)
-    if not m:
-        raise SystemExit("FATAL: registry_mirror_yaml_huawei heredoc not found in %s" % tf_path)
-    body = re.sub(r'\$\{[^}]*\}', 'REDACTED', m.group(1))
-    import yaml
-    return (yaml.safe_load(body) or {}).get("mirrors", {}) or {}
-
 def apply_rewrite(rules, path):
     for pattern, repl in (rules or {}).items():
         try:
@@ -206,12 +197,12 @@ def resolve(ref, mirrors):
         # image — the same case scripts/check-freshprov-image-registry.sh names.
         return ("skip", "registry-less untagged slug '%s' — a server image, not a container image" % ref, None, None, None, None)
     host, path, reference = split_ref(ref)
-    entry = mirrors.get(host)
+    entry = mirrors.get(host) or mirrors.get("*")
     if not entry:
         return ("skip", "host %s is not in the node registry mirror (#5281 class)" % host, None, None, None, None)
     endpoints = entry.get("endpoint") or []
     if not endpoints:
-        return ("skip", "host %s has a mirror entry with no endpoint" % host, None, None, None, None)
+        return ("fail", "host=%s [no mirror of the node map serves it before the fire, and the default endpoint is off]" % host, None, None, None, None)
     repo = apply_rewrite(entry.get("rewrite"), path) or path
     return ("ok", endpoints[0].rstrip("/"), repo, reference, host, path)
 
@@ -333,8 +324,8 @@ def walk(cli, base, repo, reference):
 
 def probe(ref, mirrors, creds, cache):
     kind, base, repo, reference, up_host, up_path = resolve(ref, mirrors)
-    if kind == "skip":
-        return "SKIP %s %s" % (ref, base)
+    if kind != "ok":
+        return ("SKIP %s %s" if kind == "skip" else "FAIL %s stage=mirror %s") % (ref, base)
     cli = Client(float(os.environ.get("PROBE_TIMEOUT", "25")), creds, cache)
     res = walk(cli, base, repo, reference)
     if res[0]:
@@ -433,18 +424,69 @@ def load_ctx():
 
 if __name__ == "__main__":
     op = sys.argv[1]
-    if op == "mirrors":
-        print(json.dumps(mirror_table(sys.argv[2])))
-    elif op == "probe":
+    if op == "probe":
         mirrors, creds, cache = load_ctx()
         print(probe(sys.argv[2], mirrors, creds, cache), flush=True)
     elif op == "resolve":
         mirrors, _, _ = load_ctx()
         kind, base, repo, reference, _, _ = resolve(sys.argv[2], mirrors)
-        print("%s %s %s" % (kind.upper(), base if kind == "skip" else "%s/%s" % (base, repo), reference or ""))
+        print("%s %s %s" % (kind.upper(), base if kind != "ok" else "%s/%s" % (base, repo), reference or ""))
     elif op == "serve":
         serve(sys.argv[2])
 PY
+
+# ─── The node registry map, built the way the provider modules build it ───
+# SOV-132: `registry_mirror_yaml_<provider>` of infra/providers/<provider>/
+# main.tf is built from the variables document by the rule of
+# upstream.Variables.RegistriesYAML. NODE_MAP_JQ is that rule for `mirrors`:
+# each proxy name N with project path P lists the local registry, then (while
+# SOVEREIGN_CONSUME is origin) ORIGIN_PROXY_ENDPOINTS_JSON[N] or the default
+# origin, with the module's hosted rewrite of N, else "(.*)" -> "P/$1" when P
+# is not empty; then LOCAL_REGISTRY_HOST (local only), ORIGIN_REGISTRY_HOST
+# (local, origin; only while origin and when it is not a proxy name) and "*"
+# (local only). With $prefire "1" the local registry, which the fire creates,
+# is dropped from every entry: what is left is what a node can pull through
+# before the fire.
+NODE_MAP_JQ='. as $d
+  | ("https://" + $d.LOCAL_REGISTRY_HOST) as $local
+  | ($d.SOVEREIGN_CONSUME == "origin") as $on
+  | ($d.REGISTRY_PROXY_PROJECTS_JSON | fromjson) as $projects
+  | ($d.ORIGIN_PROXY_ENDPOINTS_JSON | fromjson) as $origins
+  | ($d.ORIGIN_REGISTRY_SCHEME + "://" + $d.ORIGIN_REGISTRY_HOST) as $origin
+  | (($projects | to_entries | map(.key as $n | .value as $p | {($n): (
+        {endpoint: ([$local] + (if $on then [($origins[$n] // "") | if . == "" then $origin else . end] else [] end))}
+        + (if ($hosted | has($n)) then {rewrite: $hosted[$n]} elif $p != "" then {rewrite: {"(.*)": ($p + "/$1")}} else {} end))})
+      | add) // {})
+    + {($d.LOCAL_REGISTRY_HOST): {endpoint: [$local]}}
+    + (if $on and (($projects | has($d.ORIGIN_REGISTRY_HOST)) | not) then {($d.ORIGIN_REGISTRY_HOST): {endpoint: [$local, $origin]}} else {} end)
+    + {"*": {endpoint: [$local]}}
+  | if $prefire == "1" then map_values(.endpoint |= map(select(. != $local))) else . end'
+
+# hosted_rewrites <main.tf> — the module's `node_registry_hosted_rewrites` as JSON.
+hosted_rewrites() {
+  grep -q -E '^  node_registry_hosted_rewrites = \{' "$1" \
+    || { echo "no node_registry_hosted_rewrites in $1: that module builds no node registry map" >&2; return 2; }
+  awk '/^  node_registry_hosted_rewrites = \{$/ {r = 1; next}
+       r && /^  \}$/ {exit}
+       r && /^    "[^"]*" = \{$/ {h = $1; next}
+       r && /^      "/ {s = $0; sub(/^ +/, "", s); i = index(s, "\" "); v = substr(s, i + 1); sub(/^ *= */, "", v); print "[" h "," substr(s, 1, i) "," v "]"}' "$1" \
+    | jq -s -e 'reduce .[] as $x ({}; .[$x[0]][$x[1]] = $x[2])'
+}
+
+# node_map <document.json> <main.tf> [1] — the node registry map (`mirrors`)
+# the module builds from that document; with 1, its pre-fire view.
+node_map() {
+  local hosted
+  hosted="$(hosted_rewrites "$2")" || return 2
+  jq -c -e --argjson hosted "$hosted" --arg prefire "${3:-}" "$NODE_MAP_JQ" "$1"
+}
+
+# tftest_document <multi_region.tftest.hcl> — the module test's own variables
+# document (its top-level `variables = { ... }`) as JSON.
+tftest_document() {
+  awk '/^variables \{$/ {t = 1} t && /^  variables = \{$/ {v = 1; next} v && /^  \}$/ {exit} v' "$1" \
+    | sed -n -E 's/^ +([A-Z0-9_]+) += (".*")$/["\1",\2]/p' | jq -s -e 'map({(.[0]): .[1]}) | add'
+}
 
 # ─── Build the image list from the repo ───────────────────────────────────
 build_image_list() {
@@ -521,7 +563,7 @@ run_probe() {
   [ "$skip" -gt 0 ] && echo "  ⚠ ${skip} ref(s) skipped (no node-mirror entry — the #5281 guard owns that class): $(grep '^SKIP ' "$results" | awk '{print $2}' | head -5 | tr '\n' ' ')"
   [ "$warn" -gt 0 ] && echo "  ⚠ ${warn} ref(s) miss the mirror at the index and fall back to a DIRECT upstream pull (slow, not a wedge): $(grep '^WARN ' "$results" | awk '{print $2}' | head -5 | tr '\n' ' ')"
   probed=$((pass + warn + fail))
-  echo "  ℹ probed ${probed} image(s) in ${elapsed}s (parallel=${PROBE_PARALLEL}, node-mirror endpoints from $(basename "$MIRROR_TF"))"
+  echo "  ℹ probed ${probed} image(s) in ${elapsed}s (parallel=${PROBE_PARALLEL}, node map built from the variables document)"
   if [ "$probed" -eq 0 ]; then
     echo "IMAGE-PATH FAIL 0/0: no images extracted (every ref was skipped or the worker produced no result)"
     return 2
@@ -543,20 +585,33 @@ if [ "$MODE" = "self-test" ]; then
     if [ "$3" = "$2" ] && printf '%s' "$5" | grep -q -- "$4"; then echo "  ok   $1"
     else echo "  FAIL $1 (rc=$3 want $2; output must contain '$4')"; printf '%s\n' "$5" | sed 's/^/       | /'; st_fail=1; fi
   }
-  echo "== self-test: the node's resolution table comes from the Terraform =="
-  real_mirrors="$(python3 "$WORKER" mirrors "$MIRROR_TF" 2>&1)"; mrc=$?
-  expect "registries.yaml heredoc parses out of $(basename "$MIRROR_TF")" 0 "$mrc" '"ghcr.io"' "$real_mirrors"
-  export PROBE_MIRRORS="$real_mirrors"
-  r() { python3 "$WORKER" resolve "$1"; }
-  expect "ghcr bare -> bastion proxy-ghcr"        0 0 "^OK http://212.72.24.20:5000/proxy-ghcr/cloudnative-pg/postgresql 16$" "$(r ghcr.io/cloudnative-pg/postgresql:16)"
-  expect "private catalyst -> hosted project"     0 0 "^OK http://212.72.24.20:5000/openova-io/openova/catalyst-api 1e45db8$" "$(r ghcr.io/openova-io/openova/catalyst-api:1e45db8)"
-  expect "harbor host -> the same bastion face"   0 0 "^OK http://212.72.24.20:5000/proxy-ghcr/cloudnative-pg/postgresql 16$" "$(r harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16)"
-  expect "quay -> proxy-quay"                     0 0 "^OK http://212.72.24.20:5000/proxy-quay/cilium/cilium v1.19.3$" "$(r quay.io/cilium/cilium:v1.19.3)"
-  expect "docker.io -> the :5002 face, path kept" 0 0 "^OK http://212.72.24.20:5002/velero/velero v1.18.0$" "$(r docker.io/velero/velero:v1.18.0)"
-  expect "short name -> :5002 library/"           0 0 "^OK http://212.72.24.20:5002/library/busybox 1.36$" "$(r busybox:1.36)"
-  expect "digest ref probes BY DIGEST"            0 0 "^OK http://212.72.24.20:5000/proxy-k8s/pause sha256:0123$" "$(r registry.k8s.io/pause:3.9@sha256:0123)"
-  expect "docker.io official image gets library/" 0 0 "^OK http://212.72.24.20:5002/library/busybox latest$" "$(r docker.io/busybox:latest)"
-  expect "host with no mirror entry is SKIP"      0 0 "^SKIP host xpkg.upbound.io is not in the node registry mirror" "$(r xpkg.upbound.io/crossplane/crossplane:v1.18.0)"
+  echo "== self-test: the node's resolution table is the map the provider modules build =="
+  P="${REPO_ROOT}/infra/providers"
+  for p in huawei hetzner; do
+    tftest_document "${P}/${p}/tests/multi_region.tftest.hcl" > "${WORK}/doc-${p}.json"; drc=$?
+    keys="$(node_map "${WORK}/doc-${p}.json" "${P}/${p}/main.tf" 2>&1 | jq -r 'keys | join(" ")' 2>&1)"
+    expect "${p}: the map of its module test's document has the ten entries of a child" 0 "$drc" "^\* docker.io gcr.io ghcr.io harbor.openova.io quay.io registry-1.docker.io registry.k8s.io registry.sov.example.test xpkg.upbound.io$" "$keys"
+  done
+  rp() { PROBE_MIRRORS="$1" python3 "$WORKER" resolve "$2"; }
+  hw="$(node_map "${WORK}/doc-huawei.json" "${P}/huawei/main.tf" 1)"
+  r() { rp "$hw" "$1"; }
+  o="http://registry.parent.example.test:5000"
+  expect "ghcr bare -> the origin's proxy-ghcr"   0 0 "^OK $o/proxy-ghcr/cloudnative-pg/postgresql 16$" "$(r ghcr.io/cloudnative-pg/postgresql:16)"
+  expect "private catalyst -> hosted project"     0 0 "^OK $o/openova-io/openova/catalyst-api 1e45db8$" "$(r ghcr.io/openova-io/openova/catalyst-api:1e45db8)"
+  expect "harbor host -> its origin, at the root" 0 0 "^OK $o/proxy-ghcr/cloudnative-pg/postgresql 16$" "$(r harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16)"
+  expect "quay -> proxy-quay"                     0 0 "^OK $o/proxy-quay/cilium/cilium v1.19.3$" "$(r quay.io/cilium/cilium:v1.19.3)"
+  expect "docker.io -> proxy-dockerhub"           0 0 "^OK $o/proxy-dockerhub/velero/velero v1.18.0$" "$(r docker.io/velero/velero:v1.18.0)"
+  expect "short name -> proxy-dockerhub library/" 0 0 "^OK $o/proxy-dockerhub/library/busybox 1.36$" "$(r busybox:1.36)"
+  expect "digest ref probes BY DIGEST"            0 0 "^OK $o/proxy-k8s/pause sha256:0123$" "$(r registry.k8s.io/pause:3.9@sha256:0123)"
+  expect "docker.io official image gets library/" 0 0 "^OK $o/proxy-dockerhub/library/busybox latest$" "$(r docker.io/busybox:latest)"
+  expect "xpkg -> its own origin, at the root"    0 0 "^OK https://xpkg.example.test/crossplane/crossplane v1.18.0$" "$(r xpkg.upbound.io/crossplane/crossplane:v1.18.0)"
+  expect "host outside the list -> only *, FAIL"  0 0 "^FAIL host=mirror.gcr.io " "$(r mirror.gcr.io/library/busybox:1.36)"
+  expect "the Sovereign's own registry -> FAIL"   0 0 "^FAIL host=registry.sov.example.test " "$(r registry.sov.example.test/openova-io/app:1)"
+  expect "hetzner: no hosted rewrite there"       0 0 "^OK https://registry.parent.example.test/proxy-ghcr/openova-io/openova/catalyst-api 1e45db8$" "$(rp "$(node_map "${WORK}/doc-hetzner.json" "${P}/hetzner/main.tf" 1)" ghcr.io/openova-io/openova/catalyst-api:1e45db8)"
+  jq '.SOVEREIGN_CONSUME = "local"' "${WORK}/doc-huawei.json" > "${WORK}/doc-local.json"
+  expect "SOVEREIGN_CONSUME local -> no origin"   0 0 "^FAIL host=ghcr.io " "$(rp "$(node_map "${WORK}/doc-local.json" "${P}/huawei/main.tf" 1)" ghcr.io/cloudnative-pg/postgresql:16)"
+  jq '.ORIGIN_REGISTRY_HOST = "registry.parent.example.test"' "${WORK}/doc-huawei.json" > "${WORK}/doc-originhost.json"
+  expect "origin host not a proxy name -> entry"  0 0 "^OK https://registry.parent.example.test/openova-io/app 1$" "$(rp "$(node_map "${WORK}/doc-originhost.json" "${P}/huawei/main.tf" 1)" registry.parent.example.test/openova-io/app:1)"
   expect "placeholder is SKIP"                    0 0 "^SKIP helm/envsubst placeholder" "$(r '{{ .Values.image }}:latest')"
   expect "Kyverno allowed-image GLOB is SKIP"     0 0 "^SKIP image GLOB pattern" "$(r '*/proxy-*/*')"
   expect "server-image slug is SKIP"              0 0 "^SKIP registry-less untagged slug" "$(r ubuntu-24.04)"
@@ -566,19 +621,25 @@ if [ "$MODE" = "self-test" ]; then
   for _ in $(seq 1 50); do [ -s "$port_file" ] && break; sleep 0.1; done
   [ -s "$port_file" ] || { echo "SELF-TEST FAILED — the fixture mirror did not start" >&2; kill "$srv_pid" 2>/dev/null; exit 1; }
   fport="$(cat "$port_file")"
-  # A fixture mirror table of the same SHAPE as the real one: every upstream
-  # host is mirrored onto the fixture, so the probe walks it end to end.
-  fixture_mirrors="$(python3 -c '
-import json,sys
-p=sys.argv[1]
-print(json.dumps({"ghcr.io": {"endpoint": ["http://127.0.0.1:%s" % p], "rewrite": {"(.*)": "proxy-ghcr/$1"}},
-                  "harbor.openova.io": {"endpoint": ["http://127.0.0.1:%s" % p]}}))' "$fport")"
+  # The fixture map is the map the module builds from its test's document with
+  # every origin pointed at the fixture: the same SHAPE as a real one, so the
+  # probe walks it end to end.
+  jq --arg o "http://127.0.0.1:${fport}" '.ORIGIN_PROXY_ENDPOINTS_JSON |= (fromjson | map_values($o) | tojson)' \
+    "${WORK}/doc-huawei.json" > "${WORK}/fixture-doc.json"
+  fixture_mirrors="$(node_map "${WORK}/fixture-doc.json" "${P}/huawei/main.tf" 1)"
   export PROBE_MIRRORS="$fixture_mirrors"
   echo "== self-test: all-200 fixture must PASS =="
   printf 'ghcr.io/healthy/app:16\nharbor.openova.io/single/app:1.0\nharbor.openova.io/redirected/app:1.0\n' > "${WORK}/ok.txt"
   out="$(run_probe "${WORK}/ok.txt")"; rc=$?
   expect "healthy index+child+config (and a 301) -> PASS 3" 0 "$rc" "^IMAGE-PATH PASS 3 images resolved through proxy-\* (index+child+config)$" "$out"
   expect "the 401 challenge was answered (no auth failures)" 0 0 "^PASS harbor.openova.io/single/app:1.0" "$out"
+  echo "== self-test: the same image with its host taken out of the node map must FAIL =="
+  jq '.REGISTRY_PROXY_PROJECTS_JSON |= (fromjson | del(."harbor.openova.io") | tojson)' "${WORK}/fixture-doc.json" > "${WORK}/fixture-cut.json"
+  export PROBE_MIRRORS="$(node_map "${WORK}/fixture-cut.json" "${P}/huawei/main.tf" 1)"
+  printf 'ghcr.io/healthy/app:16\nharbor.openova.io/single/app:1.0\n' > "${WORK}/cut.txt"
+  out="$(run_probe "${WORK}/cut.txt")"; rc=$?
+  expect "a host no mirror of the node map serves -> FAIL" 1 "$rc" "^IMAGE-PATH FAIL 1/2: harbor.openova.io/single/app:1.0 (stage=mirror host=harbor.openova.io)$" "$out"
+  export PROBE_MIRRORS="$fixture_mirrors"
   echo "== self-test: index 200 + amd64 child 404 must FAIL (the hw306/hw307 shape) =="
   printf 'ghcr.io/healthy/app:16\nghcr.io/damaged/app:16\n' > "${WORK}/bad.txt"
   out="$(run_probe "${WORK}/bad.txt")"; rc=$?
@@ -594,20 +655,27 @@ print(json.dumps({"ghcr.io": {"endpoint": ["http://127.0.0.1:%s" % p], "rewrite"
   : > "${WORK}/empty.txt"
   out="$(run_probe "${WORK}/empty.txt")"; rc=$?
   expect "empty list -> FAIL 'no images extracted'" 2 "$rc" "^IMAGE-PATH FAIL 0/0: no images extracted" "$out"
-  printf 'xpkg.upbound.io/crossplane/crossplane:v1.18.0\n' > "${WORK}/allskip.txt"
+  printf '%s\n' '{{ .Values.image }}:latest' '*/proxy-*/*' > "${WORK}/allskip.txt"
   out="$(run_probe "${WORK}/allskip.txt")"; rc=$?
   expect "all-skipped list -> FAIL 'no images extracted'" 2 "$rc" "^IMAGE-PATH FAIL 0/0: no images extracted" "$out"
   kill "$srv_pid" 2>/dev/null; wait "$srv_pid" 2>/dev/null
   echo ""
   if [ "$st_fail" -ne 0 ]; then echo "SELF-TEST FAILED — the image-path probe is broken." >&2; exit 1; fi
-  echo "SELF-TEST PASSED — parses the node mirror table, fails a damaged child, passes a healthy entry, refuses an empty list."
+  echo "SELF-TEST PASSED — reads the node mirror map the modules build, fails a host no mirror serves, fails a damaged child, passes a healthy entry, refuses an empty list."
   exit 0
 fi
 
 # ─── The node's resolution table ──────────────────────────────────────────
-[ -s "$MIRROR_TF" ] || { echo "IMAGE-PATH FAIL 0/0: mirror source $MIRROR_TF not found (needs the registries.yaml heredoc)"; exit 2; }
-MIRRORS="$(python3 "$WORKER" mirrors "$MIRROR_TF")" || { echo "IMAGE-PATH FAIL 0/0: could not parse the node registry mirror from $MIRROR_TF"; exit 2; }
-export PROBE_MIRRORS="$MIRRORS"
+# The map the module builds from the installation's own variables document,
+# in its pre-fire view. --list-only needs none.
+if [ "$MODE" != "list" ]; then
+  [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ] \
+    || { echo "IMAGE-PATH FAIL 0/0: no variables document (set HW_TFVARS to the installation's tofu.auto.tfvars.json; the node registry map is built from its .variables)"; exit 2; }
+  jq -e '.variables | objects' "$HW_TFVARS" > "${WORK}/variables.json" 2>/dev/null \
+    && MIRRORS="$(node_map "${WORK}/variables.json" "$MIRROR_TF" 1)" \
+    || { echo "IMAGE-PATH FAIL 0/0: could not build the node registry map from .variables of $HW_TFVARS with the hosted rewrites of $MIRROR_TF"; exit 2; }
+  export PROBE_MIRRORS="$MIRRORS"
+fi
 
 if [ "$MODE" = "resolve" ]; then python3 "$WORKER" resolve "$RESOLVE_REF"; exit 0; fi
 

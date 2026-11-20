@@ -204,10 +204,10 @@ variables {
     REGISTRY_HOST                      = "registry.parent.example.test"
     REGISTRY_SCHEME                    = "https"
     LOCAL_REGISTRY_HOST                = "registry.sov.example.test"
-    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_HOST               = "ghcr.io"
     ORIGIN_REGISTRY_SCHEME             = "https"
     ORIGIN_REGISTRY_CA_B64             = ""
-    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{\"docker.io\":\"https://registry.parent.example.test\",\"gcr.io\":\"https://registry.parent.example.test\",\"ghcr.io\":\"https://registry.parent.example.test\",\"harbor.openova.io\":\"https://registry.parent.example.test\",\"quay.io\":\"https://registry.parent.example.test\",\"registry-1.docker.io\":\"https://registry.parent.example.test\",\"registry.k8s.io\":\"https://registry.parent.example.test\",\"xpkg.upbound.io\":\"https://xpkg.example.test\"}"
     REGISTRY_PULL_SECRET               = "ghcr-pull"
     REGISTRY_PATH_CHARTS               = "openova-io"
     REGISTRY_PATH_RELEASE              = "openova-io/release"
@@ -216,7 +216,7 @@ variables {
     REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
     REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
     REGISTRY_PATH_VULN_DB              = "proxy-vulndb/aquasecurity/trivy-db"
-    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"harbor.openova.io\":\"\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"\"}"
     RELEASE_PUBLIC_KEY_B64             = ""
     RELEASE_CHANNEL                    = "stable"
     RELEASE_VERSION                    = ""
@@ -979,6 +979,123 @@ run "pod_certificate_gates_from_k3s_1_35" {
   }
 }
 
+# ── SOV-132: the node registry file follows the variables document ───────
+# The document above is a child's: its origin host (ghcr.io) is a proxy name,
+# so it gets no second entry; every name has its own origin; two names are
+# served at the root (no rewrite); the origin that serves no proxy project
+# gets no login. Every server and agent starts k3s with the flag.
+run "node_registry_file_follows_the_variables_document" {
+  command = plan
+
+  assert {
+    condition = jsonencode(yamldecode(local.registry_mirror_yaml_hetzner)) == jsonencode({
+      configs = { "registry.parent.example.test" = { auth = { username = "robot$openova-bot", password = var.harbor_robot_token } } }
+      mirrors = {
+        "*"                         = { endpoint = ["https://registry.sov.example.test"] }
+        "docker.io"                 = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-dockerhub/$1" } }
+        "gcr.io"                    = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-gcr/$1" } }
+        "ghcr.io"                   = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-ghcr/$1" } }
+        "harbor.openova.io"         = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"] }
+        "quay.io"                   = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-quay/$1" } }
+        "registry-1.docker.io"      = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-dockerhub/$1" } }
+        "registry.k8s.io"           = { endpoint = ["https://registry.sov.example.test", "https://registry.parent.example.test"], rewrite = { "(.*)" = "proxy-k8s/$1" } }
+        "registry.sov.example.test" = { endpoint = ["https://registry.sov.example.test"] }
+        "xpkg.upbound.io"           = { endpoint = ["https://registry.sov.example.test", "https://xpkg.example.test"] }
+      }
+    })
+    error_message = "SOV-132: the registry file must follow the rule of contract C5 for the document of this test."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "\n  - path: /etc/rancher/k3s/registries.yaml\n    permissions: '0600'\n    encoding: gz+b64\n    content: ${base64gzip(format("%s\n", local.registry_mirror_yaml_hetzner))}\n") && strcontains(local.control_plane_cloud_init, " --disable=local-storage --disable-default-registry-endpoint --cluster-cidr=")
+    error_message = "SOV-132: the control plane must write the registry file and start k3s with --disable-default-registry-endpoint."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init, "\n  - path: /etc/rancher/k3s/registries.yaml\n    permissions: '0600'\n    content: |\n      ${local.registry_mirror_yaml_hetzner}\n") && strcontains(local.worker_cloud_init, "INSTALL_K3S_EXEC=\"agent --disable-default-registry-endpoint --kubelet-arg=")
+    error_message = "SOV-132: every worker must write the control plane's registry file and start the k3s agent with --disable-default-registry-endpoint."
+  }
+}
+
+# ── SOV-132: the file of a Sovereign that consumes only its own registry ──
+# The document above with SOVEREIGN_CONSUME "local", and an origin host that
+# is not a proxy name, so that the missing entry for ORIGIN_REGISTRY_HOST is
+# the work of the local branch and not of the skip of SOV-135. Every name
+# lists only the Sovereign's own registry, "*" too, and no pull login is
+# written (upstream.Variables.RegistriesYAML renders none).
+run "node_registry_file_without_origin_when_consume_is_local" {
+  command = plan
+
+  variables {
+    variables = {
+      SOVEREIGN_MODE                     = "sovereign"
+      SOVEREIGN_CONSUME                  = "local"
+      HANDOVER_AUTO                      = "false"
+      HANDOVER_HOLD_SECONDS              = "600"
+      REGISTRY_HOST                      = "registry.parent.example.test"
+      REGISTRY_SCHEME                    = "https"
+      LOCAL_REGISTRY_HOST                = "registry.sov.example.test"
+      ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+      ORIGIN_REGISTRY_SCHEME             = "https"
+      ORIGIN_REGISTRY_CA_B64             = ""
+      ORIGIN_PROXY_ENDPOINTS_JSON        = "{\"docker.io\":\"https://registry.parent.example.test\",\"gcr.io\":\"https://registry.parent.example.test\",\"ghcr.io\":\"https://registry.parent.example.test\",\"harbor.openova.io\":\"https://registry.parent.example.test\",\"quay.io\":\"https://registry.parent.example.test\",\"registry-1.docker.io\":\"https://registry.parent.example.test\",\"registry.k8s.io\":\"https://registry.parent.example.test\",\"xpkg.upbound.io\":\"https://xpkg.example.test\"}"
+      REGISTRY_PULL_SECRET               = "ghcr-pull"
+      REGISTRY_PATH_CHARTS               = "openova-io"
+      REGISTRY_PATH_RELEASE              = "openova-io/release"
+      REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+      REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+      REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+      REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+      REGISTRY_PATH_VULN_DB              = "proxy-vulndb/aquasecurity/trivy-db"
+      REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"harbor.openova.io\":\"\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"\"}"
+      RELEASE_PUBLIC_KEY_B64             = ""
+      RELEASE_CHANNEL                    = "stable"
+      RELEASE_VERSION                    = ""
+      RELEASE_AUTO                       = "false"
+      RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+      ORIGIN_PARENT_FQDN                 = "parent.example.test"
+      ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+      DNS_MODE                           = "delegated"
+      DNS_UPSTREAM_API_URL               = ""
+      MAIL_MODE                          = "local"
+      MAIL_RELAY_HOST                    = ""
+      MAIL_RELAY_PORT                    = "587"
+      MAIL_FROM                          = ""
+      MAIL_RELAY_SECRET                  = ""
+      K3S_VERSION                        = "v1.31.8+k3s1"
+      K3S_UPGRADE_CONCURRENCY            = "1"
+      CLOUD_CREDENTIAL_MODE              = "supplied"
+      CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+      CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+      GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+    }
+  }
+
+  assert {
+    condition = jsonencode(yamldecode(local.registry_mirror_yaml_hetzner)) == jsonencode({
+      configs = {}
+      mirrors = {
+        "*"                         = { endpoint = ["https://registry.sov.example.test"] }
+        "docker.io"                 = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-dockerhub/$1" } }
+        "gcr.io"                    = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-gcr/$1" } }
+        "ghcr.io"                   = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-ghcr/$1" } }
+        "harbor.openova.io"         = { endpoint = ["https://registry.sov.example.test"] }
+        "quay.io"                   = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-quay/$1" } }
+        "registry-1.docker.io"      = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-dockerhub/$1" } }
+        "registry.k8s.io"           = { endpoint = ["https://registry.sov.example.test"], rewrite = { "(.*)" = "proxy-k8s/$1" } }
+        "registry.sov.example.test" = { endpoint = ["https://registry.sov.example.test"] }
+        "xpkg.upbound.io"           = { endpoint = ["https://registry.sov.example.test"] }
+      }
+    })
+    error_message = "SOV-132: with SOVEREIGN_CONSUME local the registry file must follow the rule of contract C5: the Sovereign's own registry only, no origin."
+  }
+
+  assert {
+    condition     = alltrue([for n, m in yamldecode(local.registry_mirror_yaml_hetzner).mirrors : jsonencode(m.endpoint) == jsonencode(["https://registry.sov.example.test"])]) && !contains(keys(yamldecode(local.registry_mirror_yaml_hetzner).mirrors), var.variables["ORIGIN_REGISTRY_HOST"]) && length(yamldecode(local.registry_mirror_yaml_hetzner).configs) == 0
+    error_message = "SOV-132: with SOVEREIGN_CONSUME local every entry, \"*\" included, must list only the local registry, ORIGIN_REGISTRY_HOST must have no entry and no pull login may be written."
+  }
+}
+
 # ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
 # without exactly the keys of contract C5 is refused at plan time.
 run "variables_handover_auto_reaches_cloud_init" {
@@ -1188,6 +1305,20 @@ run "post_back_render_fits_the_size_guards_with_room" {
   assert {
     condition     = strcontains(local.control_plane_cloud_init, "    encoding: gz+b64\n    content: ${base64gzip(format("%s\n", chomp(replace(local.cloud_credentials_secret_yaml_hetzner_primary, "/(?m)^[ ]*#( |$).*\n/", ""))))}\n")
     error_message = "CLD-185: the packed cloud-credentials file of the primary render must be the provider's Secret body without its comment lines."
+  }
+
+  # SOV-132: this document has no origin per name and its origin host is not a
+  # proxy name: every name takes the origin registry, the origin host gets an
+  # entry of its own (local first), and only it gets the robot login.
+  assert {
+    condition = (
+      length(yamldecode(local.registry_mirror_yaml_hetzner).mirrors) == 11
+      && jsonencode(yamldecode(local.registry_mirror_yaml_hetzner).mirrors[var.variables["ORIGIN_REGISTRY_HOST"]]) == jsonencode({ endpoint = ["https://${var.variables["LOCAL_REGISTRY_HOST"]}", "https://${var.variables["ORIGIN_REGISTRY_HOST"]}"] })
+      && alltrue([for n, m in yamldecode(local.registry_mirror_yaml_hetzner).mirrors : m.endpoint[1] == "https://${var.variables["ORIGIN_REGISTRY_HOST"]}" if length(m.endpoint) == 2])
+      && jsonencode(keys(yamldecode(local.registry_mirror_yaml_hetzner).configs)) == jsonencode([var.variables["ORIGIN_REGISTRY_HOST"]])
+      && strcontains(local.secondary_region_worker_cloud_init["nbg1-1"], "    content: |\n      ${local.registry_mirror_yaml_hetzner}\n")
+    )
+    error_message = "SOV-132: with no origin per name, every name must take the origin registry, the origin host must have its own entry, and only it the login; the secondary worker must write the file too."
   }
 }
 

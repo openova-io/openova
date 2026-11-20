@@ -1,11 +1,17 @@
 {{- /*
 Function test of bp-gitea (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
 
-It sends GET /api/v1/version to the subchart's HTTP Service
+It sends GET /api/healthz to the subchart's HTTP Service
 <fullname>-http.<namespace>.svc.cluster.local:<gitea.service.http.port, default 3000>.
-It passes when the answer is HTTP 200 and names a version: Gitea's web
-server, its configuration and its API router answer. It sends no credential
-and writes nothing.
+It passes when the answer is HTTP 200 and holds the check "database:ping":
+Gitea's web server answers, and it pinged its database and its cache, each
+with the status pass (Gitea answers 500 when a check fails). It sends no
+credential and writes nothing.
+
+It does not ask /api/v1/version: with service.REQUIRE_SIGNIN_VIEW (values.yaml)
+Gitea answers every /api/v1 request without a sign-in with 403. /api/healthz
+is served before the sign-in rules. At install the test runs right after the
+chart is applied, so it asks every 5 seconds until second 240.
 
 <fullname> is computed the way the subchart computes it. The chart has no
 master gate, so the test always renders. The image is the kubectl image this
@@ -69,8 +75,8 @@ spec:
       env:
         - name: HOME
           value: /tmp
-        - name: VERSION_URL
-          value: {{ printf "http://%s-http.%s.svc.cluster.local:%v/api/v1/version" $fullname $svcNamespace $port | quote }}
+        - name: HEALTH_URL
+          value: {{ printf "http://%s-http.%s.svc.cluster.local:%v/api/healthz" $fullname $svcNamespace $port | quote }}
       volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -79,15 +85,15 @@ spec:
         - |
           set -u
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { [ -f "$1" ] && tr '\n' ' ' < "$1" | tr -s ' ' | cut -c1-200; }
           code=""
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            code="$(curl -sS --max-time 10 -o /tmp/answer -w '%{http_code}' "${VERSION_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+          while [ "${SECONDS}" -lt 240 ]; do
+            code="$(curl -sS --max-time 10 -o /tmp/answer -w '%{http_code}' "${HEALTH_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
             sleep 5
           done
-          [ "${code}" = "200" ] || fail "GET ${VERSION_URL} answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
-          version="$(grep -o -E '"version" *: *"[^"]+"' /tmp/answer | head -1 | sed -E 's/^"version" *: *"//; s/"$//')"
-          [ -n "${version}" ] || fail "the answer names no version: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
-          echo "FUNCTION-TEST pass {{ .Chart.Name }} the Gitea API answered with version ${version}"
+          [ "${code}" = "200" ] || fail "GET ${HEALTH_URL} answered '${code}': $(oneline /tmp/error) $(oneline /tmp/answer)"
+          grep -q -F '"database:ping"' /tmp/answer || fail "the health answer holds no database check: $(oneline /tmp/answer)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} GET ${HEALTH_URL} answered 200: Gitea pinged its database and its cache"
   volumes:
     - name: tmp
       emptyDir: {}

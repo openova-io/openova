@@ -18,93 +18,14 @@ packages:
 %{ endif ~}
 
 write_files:
-  # Wave 5.100 (#2447) — k3s-agent containerd registry mirror. Mirrors
-  # harbor.openova.io → bastion harbor-cache (212.72.24.20:5000). See
-  # cloudinit-control-plane.tftpl Wave 5.100 comment for full rationale.
+  # ── containerd registry mirrors (SOV-132) ────────────────────────────
+  # The k3s agent does NOT inherit the server's registries.yaml; each node
+  # reads its own. The body is the control plane's, built in main.tf from the
+  # variables document (local.registry_mirror_yaml_huawei).
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0644'
     content: |
-      # Wave 5.106 (#2462): mirror docker.io + registry-1.docker.io through bastion
-      # direct dockerhub proxy at :5002 (separate registry:2 instance running on
-      # bastion-openova, proxy mode → registry-1.docker.io upstream). Wave 5.105
-      # tried port :5000/v2/proxy-dockerhub but containerd appends /v2/<image> →
-      # double-/v2/ path (HTTP 404). The :5002 proxy serves /v2/<image> directly,
-      # matching containerd's canonical mirror semantics.
-      #
-      # Why this exists: bp-keycloak postgresql, bp-falco falcoctl, bp-cnpg initdb
-      # for gitea/openova-flow/powerdns Postgres clusters — all reference docker.io
-      # directly. From Huawei VPC NAT EIPs Cloudflare/Cloudfront DNS resolves
-      # intermittently (`dial tcp: lookup production.cloudfront.docker.com: Try
-      # again`) → ImagePullBackOff → CNPG postgres init never completes → bp-gitea/
-      # bp-catalyst-platform/sov-tls cascading FAIL (hw07 49d43efbaf2a46c2 evidence).
-      #
-      # #2842 (2026-06-03) — REMOVED ghcr.io / reg.kyverno.io / quay.io mirror
-      # entries (previously bastion :5003/:5004/:5005). RCA: the bastion proxies
-      # are anonymous-only registry:2 instances; they CANNOT authenticate against
-      # private packages under `ghcr.io/openova-io/*`. Live evidence on hw86
-      # wea28e1: containerd looped on stale-ingest-lock for 25+ min against
-      # ghcr.io/openova-io/catalyst-api after :5003 returned HTTP 401, and the
-      # catalyst-api Pod stayed in CreateContainerConfigError. Direct pull (no
-      # mirror rewrite) uses the per-namespace `ghcr-pull` Secret reflector-
-      # mirrored from flux-system and succeeds in seconds. reg.kyverno.io +
-      # quay.io are purely public — direct pull is the canonical path.
-      # harbor.openova.io mirror is KEPT because :5000 has a working
-      # `harbor-robot-token` via the reflected Secret. docker.io /
-      # registry-1.docker.io mirrors are KEPT because :5002 is a public-image
-      # cache (no auth required).
-      #
-      # #4049 (2026-06-22) — RE-ADD a SCOPED ghcr.io mirror to WORKERS. The
-      # CATALYST Pods (catalyst-api/ui + controllers + the sme mesh) schedule on
-      # WORKER nodes, so the #4049 warm path is USELESS unless the workers route
-      # ghcr.io/openova-io/openova/* through the bastion :5000 hosted project too
-      # (the control-plane-only mirror in main.tf never reaches a catalyst Pod).
-      # The #2842 reason ghcr.io was removed (anon proxies can't auth private
-      # ghcr) is now MOOT for this namespace: the private catalyst set is
-      # NATIVE-PUSHED into the bastion HOSTED `openova-io` project (warmed by the
-      # catalyst-build job) and served via :5000 with the robot$openova-bot auth
-      # below — proven 0.9s warm pull on hw182. PUBLIC ghcr (fluxcd/cnpg/…) still
-      # routes via the anon proxy-ghcr cache. Mutually-exclusive rewrite (see the
-      # main.tf control-plane block for the containerd map-order hazard the
-      # anchored exclusion guards against).
-      mirrors:
-        "harbor.openova.io":
-          endpoint:
-            - "http://212.72.24.20:5000"
-        "docker.io":
-          endpoint:
-            - "http://212.72.24.20:5002"
-        "registry-1.docker.io":
-          endpoint:
-            - "http://212.72.24.20:5002"
-        "ghcr.io":
-          endpoint:
-            - "http://212.72.24.20:5000"
-          rewrite:
-            "^openova-io/openova/(.*)": "openova-io/openova/$1"
-            "^(openova-io/(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^/]).*|(?:[^o]|o[^p]|op[^e]|ope[^n]|open[^o]|openo[^v]|openov[^a]|openova[^-]|openova-[^i]|openova-i[^o]).*)": "proxy-ghcr/$0"
-      configs:
-        "212.72.24.20:5000":
-          auth:
-            username: "robot$openova-bot"
-            password: "${harbor_robot_token}"
-          tls:
-            insecure_skip_verify: true
-        "212.72.24.20:5002":
-          tls:
-            insecure_skip_verify: true
-        # #2842 (2026-06-03) — STRUCTURAL fix for "401 on every uncached pull".
-        # Mirrors cloudinit-control-plane.tftpl. G3 RCA: every hw86 node has
-        # /var/lib/rancher/k3s/agent/etc/containerd/certs.d/<host>/hosts.toml
-        # mirroring 7 public registries through https://harbor.openova.io,
-        # but containerd had no creds → 401 → stale-ingest-lock loop. Defense:
-        # seed harbor robot credentials so direct-to-harbor.openova.io paths
-        # (chart-injected image refs, k3s hosts.toml, autoscaler-spawned
-        # workers) authenticate. Same pattern as hetzner/cloudinit-control-
-        # plane.tftpl lines 392-396.
-        "harbor.openova.io":
-          auth:
-            username: "robot$openova-bot"
-            password: "${harbor_robot_token}"
+      ${indent(6, chomp(registry_mirror_yaml))}
 
   - path: /etc/sysctl.d/99-catalyst-inotify.conf
     permissions: '0644'
@@ -226,7 +147,7 @@ runcmd:
       INSTALL_K3S_VERSION=${k3s_version} \
       K3S_TOKEN=${k3s_token} \
       K3S_URL=https://${cp_private_ip}:6443 \
-      INSTALL_K3S_EXEC="agent --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label=catalyst.openova.io/provider=huawei --node-label=openova.io/region=hw-${region}-rtz-prod --node-label=topology.kubernetes.io/region=${region} --node-label=topology.kubernetes.io/zone=${region}%{ if tonumber(split(".", k3s_version)[1]) >= 35 } --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true%{ endif }" \
+      INSTALL_K3S_EXEC="agent --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label=catalyst.openova.io/provider=huawei --node-label=openova.io/region=hw-${region}-rtz-prod --node-label=topology.kubernetes.io/region=${region} --node-label=topology.kubernetes.io/zone=${region}%{ if tonumber(split(".", k3s_version)[1]) >= 35 } --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true%{ endif }" \
       sh -; then
       echo "openova-k3s-agent-install: get.k3s.io install step failed; exiting nonzero for systemd retry"
       exit 1

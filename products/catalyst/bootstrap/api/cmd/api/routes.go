@@ -129,6 +129,7 @@ func buildRouter(d routeDeps) chi.Router {
 		registerSessionOrganizations(rg, d)
 		registerSessionBilling(rg, d)
 		registerSessionSovereign(rg, d)
+		registerSessionOps(rg, d)
 	})
 	return r
 }

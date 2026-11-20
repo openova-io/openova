@@ -60,51 +60,14 @@ write_files:
       backend = systemd
 %{ endif ~}
 
-  # ── containerd registry mirrors + harbor auth ────────────────────────
-  # #2842 (2026-06-03): worker nodes were MISSING this file entirely — only
-  # the control-plane template (cloudinit-control-plane.tftpl lines 362-396)
-  # wrote it. Result: every Hetzner worker pulled images direct (no harbor
-  # cache) AND had no credentials for `harbor.openova.io`, so any chart or
-  # manifest that hardcodes a `harbor.openova.io/proxy-*` reference (or any
-  # mirror-rewritten pull) 401'd → containerd stale-ingest-lock loop. The
-  # k3s agent does NOT inherit the server's registries.yaml; each node reads
-  # its own local file. This block is byte-identical to the control-plane
-  # template (issue #557 Step 2 + #2868) so the harbor robot token is seeded
-  # at bootstrap on EVERY node, fresh provs included.
+  # ── containerd registry mirrors (SOV-132) ────────────────────────────
+  # The k3s agent does NOT inherit the server's registries.yaml; each node
+  # reads its own. The body is the control plane's, built in main.tf from the
+  # variables document (local.registry_mirror_yaml_hetzner).
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0600'
     content: |
-      mirrors:
-        "docker.io":
-          endpoint:
-            - "https://harbor.openova.io"
-          rewrite:
-            "(.*)": "proxy-dockerhub/$1"
-        "quay.io":
-          endpoint:
-            - "https://harbor.openova.io"
-          rewrite:
-            "(.*)": "proxy-quay/$1"
-        "gcr.io":
-          endpoint:
-            - "https://harbor.openova.io"
-          rewrite:
-            "(.*)": "proxy-gcr/$1"
-        "registry.k8s.io":
-          endpoint:
-            - "https://harbor.openova.io"
-          rewrite:
-            "(.*)": "proxy-k8s/$1"
-        "ghcr.io":
-          endpoint:
-            - "https://harbor.openova.io"
-          rewrite:
-            "(.*)": "proxy-ghcr/$1"
-      configs:
-        "harbor.openova.io":
-          auth:
-            username: "robot$openova-bot"
-            password: "${harbor_robot_token}"
+      ${indent(6, chomp(registry_mirror_yaml))}
 
 runcmd:
   - swapoff -a
@@ -173,7 +136,7 @@ runcmd:
   # too. Full rationale in _shared/cloudinit-control-plane.tftpl (k3s leg).
   # AIP-201: from k3s 1.35 on the kubelet also turns on the Pod Certificate
   # feature gates; see _shared/cloudinit-control-plane.tftpl (k3s leg).
-  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label catalyst.openova.io/role=worker%{ if tonumber(split(".", k3s_version)[1]) >= 35 } --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true%{ endif }" sh -'
+  - 'curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${k3s_version} K3S_URL=https://${cp_private_ip}:6443 K3S_TOKEN=${k3s_token} INSTALL_K3S_EXEC="agent --disable-default-registry-endpoint --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --node-label catalyst.openova.io/role=worker%{ if tonumber(split(".", k3s_version)[1]) >= 35 } --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true%{ endif }" sh -'
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
 final_message: "Catalyst worker bootstrap complete after $UPTIME seconds"

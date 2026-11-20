@@ -11,6 +11,13 @@ seaweedfs.s3.enabled and seaweedfs.s3.enableAuth are true and
 seaweedfs.s3.existingConfigSecret is empty. <fullname> is computed the way the
 subchart computes it. The S3 client is the AWS command-line tool of the kubectl
 image the kit already pulls (bp-cnpg uses it). functionTest.image overrides it.
+
+The bucket name is function-test-<seconds>-<random>. The script never writes
+two dollar signs in a row: Kubernetes turns them into one in a container's
+args before the shell reads them, which made a bucket name end in a literal
+dollar sign that no S3 server accepts. Before the bucket is created, the test
+lists the buckets every 5 seconds until the endpoint answers, at most until
+second 210: at install it runs right after the chart is applied.
 */ -}}
 {{- $sub := .Values.seaweedfs | default dict }}
 {{- $s3 := $sub.s3 | default dict }}
@@ -88,7 +95,11 @@ spec:
           export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
           printf '[default]\nregion = us-east-1\ns3 =\n    addressing_style = path\n' > "${AWS_CONFIG_FILE}"
           s3() { aws --endpoint-url "${S3_ENDPOINT}" s3api "$@" > /tmp/out 2> /tmp/error; }
-          bucket="function-test-$(date +%s)-$$"
+          until aws --endpoint-url "${S3_ENDPOINT}" --cli-connect-timeout 5 --cli-read-timeout 10 s3api list-buckets > /tmp/out 2> /tmp/error; do
+            [ "${SECONDS}" -lt 210 ] || fail "list-buckets on ${S3_ENDPOINT} did not succeed within 210 seconds: $(oneline /tmp/error)"
+            sleep 5
+          done
+          bucket="function-test-$(date +%s)-${RANDOM}"
           printf 'function test object %s\n' "${bucket}" > /tmp/object
           s3 create-bucket --bucket "${bucket}" || fail "create-bucket ${bucket} on ${S3_ENDPOINT} failed: $(oneline /tmp/error)"
           # After the bucket exists every failure removes what it made, then fails.

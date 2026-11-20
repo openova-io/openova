@@ -23,6 +23,12 @@ import (
 //     HelmRelease with spec.suspend true.
 //   - Every container of the platform namespaces has an image digest, and one
 //     image reference has one digest, in each region and across the regions.
+//     A container of a Pod that has finished (phase Succeeded or Failed) and
+//     whose status holds no digest is listed (evidence not_judged) and not
+//     judged: it runs nothing, and its status may hold no image at all, as a
+//     function-test Pod that failed and is kept until the next test run
+//     (helm.sh/hook-delete-policy before-hook-creation,hook-succeeded). A
+//     finished Pod's container that has a digest is judged like any other.
 //
 // The check also observes the artifacts of the record: one entry per
 // HelmRelease per region and one per image reference and digest per region.
@@ -147,18 +153,25 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 				complete = false
 				return err
 			}
-			count, noDigest := map[[2]string]int{}, []string{}
+			count, noDigest, notJudged := map[[2]string]int{}, []string{}, []string{}
 			containers := 0
 			for _, pod := range pods {
 				digests := map[string]string{}
 				for _, s := range containerStatuses(pod) {
 					digests[s.Str("name")] = imageDigest(s.Str("imageID"))
 				}
+				phase := pod.Str("status", "phase")
+				finished := phase == "Succeeded" || phase == "Failed"
 				for _, c := range append(pod.Objects("spec", "initContainers"), pod.Objects("spec", "containers")...) {
-					containers++
+					name := pod.Namespace() + "/" + pod.Name() + "/" + c.Str("name")
 					ref, digest := c.Str("image"), digests[c.Str("name")]
+					if digest == "" && finished {
+						notJudged = append(notJudged, name+" (Pod "+phase+")")
+						continue
+					}
+					containers++
 					if digest == "" {
-						noDigest = append(noDigest, pod.Namespace()+"/"+pod.Name()+"/"+c.Str("name"))
+						noDigest = append(noDigest, name)
 						continue
 					}
 					count[[2]string{ref, digest}]++
@@ -169,8 +182,9 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 			}
 			two := twoDigests(art.Images, region.ID)
 			sort.Strings(noDigest)
+			sort.Strings(notJudged)
 			ev["pods"], ev["containers"], ev["references"] = len(pods), containers, len(count)
-			ev["no_digest"], ev["two_digests"] = noDigest, two
+			ev["no_digest"], ev["two_digests"], ev["not_judged"] = noDigest, two, notJudged
 			switch {
 			case containers == 0:
 				complete = false

@@ -16,6 +16,13 @@ It renders only when autoUnseal.enabled is true: only then does the chart
 initialise and unseal the store itself. Question 2 is asked only when
 autoUnseal.kubernetesAuth.enabled is true.
 
+At install the test runs right after the chart's hooks. The role of question 2
+is not written by a hook: the openbao-config Deployment writes it on its first
+pass over the declared configuration (templates/_config.tpl, every
+config.intervalSeconds). So both questions are asked again every 5 seconds
+while the store is not yet ready or answers "invalid role name", until second
+240; any other answer to the login is judged at once.
+
 The address is autoUnseal.baoAddress, or the subchart's Service
 <fullname>.<namespace>.svc.cluster.local:8200. The image is the kubectl image
 the kit already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
@@ -107,7 +114,7 @@ spec:
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           oneline() { [ -f "$1" ] && tr '\n' ' ' < "$1" | cut -c1-200; }
           code=""
-          for attempt in 1 2 3 4 5 6; do
+          while [ "${SECONDS}" -lt 240 ]; do
             code="$(curl -sS --max-time 10 -o /tmp/health -w '%{http_code}' "${BAO_ADDR}/v1/sys/health?standbyok=true" 2>/tmp/error)" && [ "${code}" = "200" ] && break
             sleep 5
           done
@@ -117,7 +124,11 @@ spec:
           if [ "${CHECK_LOGIN}" = "yes" ]; then
             jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" || fail "the Pod has no service-account token"
             printf '{"role":"%s","jwt":"%s"}' "${AUTH_ROLE}" "${jwt}" > /tmp/login-request
-            code="$(curl -sS --max-time 10 -o /tmp/login -w '%{http_code}' -X POST --data @/tmp/login-request "${BAO_ADDR}/v1/auth/${AUTH_MOUNT}/login" 2>/tmp/error)" || fail "the login request to auth/${AUTH_MOUNT} failed: $(oneline /tmp/error)"
+            while :; do
+              code="$(curl -sS --max-time 10 -o /tmp/login -w '%{http_code}' -X POST --data @/tmp/login-request "${BAO_ADDR}/v1/auth/${AUTH_MOUNT}/login" 2>/tmp/error)" || fail "the login request to auth/${AUTH_MOUNT} failed: $(oneline /tmp/error)"
+              grep -q -F 'invalid role name' /tmp/login && [ "${SECONDS}" -lt 240 ] || break
+              sleep 5
+            done
             grep -q -E 'service account name not authorized|namespace not authorized' /tmp/login || fail "the login on auth/${AUTH_MOUNT} for the role ${AUTH_ROLE} answered '${code}': $(oneline /tmp/login)"
             echo "FUNCTION-TEST pass {{ .Chart.Name }} ${BAO_ADDR} is initialised and unsealed, and auth/${AUTH_MOUNT} judged a login for the role ${AUTH_ROLE}"
           else
