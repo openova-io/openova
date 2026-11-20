@@ -16755,7 +16755,7 @@ packages:
     expect: "0 1 1"
   acceptance:
   - id: A1
-    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"c6ff42ad5a59c6ca71e15414b7d8880aea81d81c0ea02007e0f97d41a7cf72e2  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
+    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"ab7c67d36b10408ffa1eaac72a7740304724ef4b97ecdb659cd5f1e977e53895  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
   - id: A2
     run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"7c55d5b7fb19e0f76b22a545a6782d3da316a55a2c3ed36ea057eda07f1067df  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
   - id: A3
@@ -16765,7 +16765,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 3
+  ticket_rev: 4
   dropped: false
   delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with exactly the container restarts the platform makes, and the job summary states PASS or FAIL per case.'
 - id: NET-125
