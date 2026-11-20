@@ -289,6 +289,29 @@ dragonfly:
     master:
       persistence:
         size: 8Gi
+    # A replica's LIVENESS is its own process answering. The subchart (bitnami
+    # redis 19.5.5 inside dragonfly 1.7.0) probes it with
+    # /health/ping_liveness_local_and_master.sh, which also pings the master: the
+    # kubelet then restarts a healthy replica for as long as its master cannot be
+    # reached (hw309 region b, 20 Nov 2026: 7 restarts, gate check FND-G04 red).
+    # 19.5.5 has no switch for that script, only replica.customLivenessProbe
+    # (charts/redis/values.yaml, replica section), so this is the subchart's own
+    # probe with the same timing and the local-only script the master runs.
+    # READINESS keeps the master (subchart default): a replica that cannot reach
+    # its master shows not Ready and is not restarted.
+    # Test: tests/redis-replica-liveness-is-local.sh.
+    replica:
+      customLivenessProbe:
+        initialDelaySeconds: 20
+        periodSeconds: 5
+        timeoutSeconds: 6
+        successThreshold: 1
+        failureThreshold: 5
+        exec:
+          command:
+            - sh
+            - -c
+            - /health/ping_liveness_local.sh 5
 
 # ─── Catalyst overlay values (reserved) ───────────────────────────────────
 # Reserved for Catalyst-side overlays added once bp-dragonfly is consumed in
