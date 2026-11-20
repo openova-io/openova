@@ -1096,7 +1096,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.10
+  version: 1.2.11
   card:
     title: Flux
     summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
@@ -1111,7 +1111,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-flux
-    version: 1.2.10
+    version: 1.2.11
   topology:
     supported: [singleton]
     defaults:
