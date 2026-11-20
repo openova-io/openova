@@ -10668,17 +10668,19 @@ packages:
   - id: A1
     run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/cutoverreconcile/ -count=1 -v -run '^(TestPassBoundsRepetitionsOfFailedStep|TestPassGivesBackARepetitionThatStartedNothing|TestPassCauseAndEffect|TestDecide)$' | grep -c '^--- PASS: ')\" = 4"
   - id: A2
-    run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/handler/ -count=1 -v -run '^(TestRunCutoverReconcilePass|TestRunCutoverReconcilePass_FailsClosedOnSealReadError|TestRunCutoverReconcilePass_FailedStepWaitsForItsPause|TestHandleCutoverStart_ClearsSpentRepetitionRecord)$' | grep -c '^--- PASS: ')\" = 4"
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/handler/ -count=1 -v -run '^(TestRunCutoverReconcilePass|TestRunCutoverReconcilePass_FailsClosedOnSealReadError|TestRunCutoverReconcilePass_FailedStepWaitsForItsPause|TestHandleCutoverStart_ClearsSpentRepetitionRecord|TestHandleCutoverStart_RecordClearFailureIsAnError)$' | grep -c '^--- PASS: ')\" = 5"
   - id: A3
-    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && test \"$(npx vitest run src/shared/types/cutover.test.ts src/widgets/sovereignty/CutoverProgressCard.test.tsx src/widgets/sovereignty/SovereigntyCard.test.tsx --reporter=verbose | grep -c '✓ .*(SOV-242)')\" = 3"
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && npx vitest run src/shared/types/cutover.test.ts src/widgets/sovereignty/CutoverProgressCard.test.tsx src/widgets/sovereignty/SovereigntyCard.test.tsx --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/widgets/sovereignty/CutoverProgressCard\\.test\\.tsx > .* > (shows the pending automatic repetition and offers no resume until the budget is spent|names the step when the budget is spent, and the resume calls the start route|ignores a record about another step: no repetition is scheduled yet, so it says so, not stopped|reads no repetition record without its count and limit, never 0 of 0|(secondary-kubeconfigs|registry-pivot) halted: names the step and Resume cutover calls the start route|secondary-kubeconfigs failed before any step row: names the stopped step and Resume cutover calls the start route)( [0-9.]+m?s)?$' \"$out\")\" = 7"
+  - id: A4
+    run: "f=products/catalyst/bootstrap/ui/src/shared/types/cutover.ts && test \"$(grep -c '^function parseAutoRetry(' \"$f\")\" = 1 && test \"$(awk '/^function parseAutoRetry\\(/,/^}$/' \"$f\" | grep -c -E '(\\?\\?|\\|\\|)[[:space:]]*[0-9]')\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The cutover reconciler of catalyst-api repeats a failed step at most three times, after 5, 10 and 20 minutes, then records the step as halted in the status ConfigMap; the console names the stopped step and offers Resume cutover, which calls the start route, is recorded as a retry call and clears the record.
+  delivers: The cutover reconciler of catalyst-api repeats a failed step at most three times, after 5, 10 and 20 minutes, then records the step as halted in the status ConfigMap; the console names the stopped step and offers Resume cutover, also when the step failed before any step row exists (secondary-kubeconfigs on a first run), which calls the start route, is recorded as a retry call and clears the record.
 - id: SOV-250
   title: registry-pivot only removes the origin endpoint
   area: SOV
@@ -13697,7 +13699,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: First boot writes one file of raw values and creates one Secret from it, flux-system/bootstrap-seed. The manifests of harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public are files under clusters/_template/bootstrap-secrets, and a Flux Kustomization renders them from the seed (postBuild.substituteFrom) before the kit. About 1,900 bytes leave the control-plane user data.
+  delivers: 'First boot writes one file of raw values and creates one Secret from it, flux-system/bootstrap-seed. The manifests of harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public are files under clusters/_template/bootstrap-secrets, and a Flux Kustomization renders them from the seed (postBuild.substituteFrom) before the kit; the four manifests leave the control-plane start-up data (1,378 bytes per surface, measured on the built change at 913dfa8f75; recorded, not a target). A Sovereign installed before this change, which holds the four Secrets and no seed, gets its seed built from those four Secrets by a path of the product before the Kustomization that renders them is applied: its kit keeps reconciling and none of the four Secrets loses or changes its value.'
 - id: SEC-154
   title: 'Flux renders bootstrap Secrets from one seed: pull login, object storage, cloud credentials'
   area: SEC
