@@ -2093,8 +2093,8 @@ checks:
   title: 'OpenBao seal: no unseal Secret, unsealed within 60 seconds'
   owner: SEC
   state: not-built
-  runs_in: [local, cloud]
-  destructive: false
+  runs_in: [cloud]
+  destructive: true
   needs: []
   proof: running
   asserts: No unseal or root Secret; seal type is not shamir; seal file as specified; unsealed within 60 seconds of a pod restart
@@ -2111,14 +2111,14 @@ checks:
   implementation: tests/acceptance/sovereign/internal/suite/check_sec_route.go
   delivered_by: SEC-010
 - id: SEC-G05
-  title: The audit device is listed and a test request appears in the log pipeline within 60 seconds
+  title: OpenBao declares the stdout audit device and logs a test request in openbao-0 within 60 seconds
   owner: SEC
   state: not-built
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
-  asserts: The audit device is listed and a test request appears in the log pipeline within 60 seconds
+  asserts: 'Per region: ConfigMap openbao-seal-config declares the file audit device stdout/ writing to standard output, and pod openbao-0 loads that ConfigMap as a configuration directory; a token-free read of secret/data/sec-g05-<run>, a path only the check reads, has its audit response in the container log of openbao-0 of the last 60 seconds.'
   delivered_by: SEC-162
 - id: SEC-G06
   title: Security check SEC-G06
