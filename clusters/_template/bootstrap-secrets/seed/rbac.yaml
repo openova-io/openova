@@ -1,0 +1,72 @@
+# The rights of the seed builder (SEC-153): read the four bootstrap Secrets by
+# name, read the seed by name, and create Secrets in flux-system (a create
+# cannot be limited to a name; the script creates only bootstrap-seed). It
+# updates, patches and deletes nothing.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bootstrap-seed-build
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bootstrap-seed-build
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["bootstrap-seed", "harbor-robot-token", "pdm-basicauth", "sovereign-tls-secrets"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bootstrap-seed-build
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bootstrap-seed-build
+subjects:
+  - kind: ServiceAccount
+    name: bootstrap-seed-build
+    namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bootstrap-seed-build
+  namespace: catalyst-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["catalyst-handover-jwt-public"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bootstrap-seed-build
+  namespace: catalyst-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bootstrap-seed-build
+subjects:
+  - kind: ServiceAccount
+    name: bootstrap-seed-build
+    namespace: flux-system

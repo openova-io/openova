@@ -1,0 +1,13 @@
+# catalyst-system/catalyst-handover-jwt-public: the hand-over public key (a
+# JWK, JSON) that catalyst-api mounts to check the hand-over token. First boot
+# creates the namespace catalyst-system before Flux starts, because the kit,
+# which declares it, waits for this Kustomization. The value is the seed's
+# HANDOVER_JWT_PUBLIC_KEY, the JWK base64-encoded.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalyst-handover-jwt-public
+  namespace: catalyst-system
+type: Opaque
+data:
+  public.jwk: "${HANDOVER_JWT_PUBLIC_KEY}"

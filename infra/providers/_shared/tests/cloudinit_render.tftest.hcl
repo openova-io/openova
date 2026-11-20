@@ -116,7 +116,8 @@ run "hetzner_render_is_valid" {
   # SOV-130 — the substituted values live in ConfigMap
   # flux-system/sovereign-variables, which the root Kustomization reads
   # with postBuild.substituteFrom. No Kustomization keeps an inline
-  # substitute map, and the DNS-01 API key is only in the Secret
+  # substitute map, and the DNS-01 API key is only in the seed Secret
+  # flux-system/bootstrap-seed (SEC-153), from which Flux renders
   # flux-system/sovereign-tls-secrets.
   assert {
     condition     = strcontains(output.flux_bootstrap_yaml, "\nkind: ConfigMap\nmetadata:\n  name: sovereign-variables\n  namespace: flux-system\ndata:\n")
@@ -134,32 +135,60 @@ run "hetzner_render_is_valid" {
   }
 
   assert {
-    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
-    error_message = "SOV-130: POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
+    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "\n      POWERDNS_API_KEY=${base64encode("render-test-pdns-key")}\n")
+    error_message = "SOV-130, SEC-153: POWERDNS_API_KEY must appear once, as a line of the seed file bootstrap-seed.env, never in the ConfigMap sovereign-variables."
+  }
+
+  # SEC-153 — first boot writes the raw values of four bootstrap Secrets once,
+  # into the seed file, creates the Secret flux-system/bootstrap-seed from it
+  # after the other bootstrap Secrets, and carries none of the four manifests.
+  # Flux renders them from clusters/_template/bootstrap-secrets with the seed:
+  # the same names, namespaces, types, keys, reflector annotations and values
+  # first boot wrote before. The kit waits for the Kustomization that does it.
+  assert {
+    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
+    error_message = "SEC-153: the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the five raw values, base64-encoded, one KEY=value line each."
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ")
-    error_message = "SOV-130: the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets)\\.yaml", output.boot_text)) == 0
+    error_message = "SEC-153: first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public; Flux renders them from Git."
+  }
+
+  assert {
+    condition = jsonencode(output.bootstrap_secrets.secrets) == jsonencode({
+      "catalyst-handover-jwt-public.yaml" = { apiVersion = "v1", kind = "Secret", metadata = { name = "catalyst-handover-jwt-public", namespace = "catalyst-system" }, type = "Opaque", data = { "public.jwk" = base64encode("RENDER_TEST_JWK") } }
+      "harbor-robot-token.yaml"           = { apiVersion = "v1", kind = "Secret", metadata = { name = "harbor-robot-token", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" } }, type = "Opaque", data = { token = base64encode("render-test-harbor-token") } }
+      "pdm-basicauth.yaml"                = { apiVersion = "v1", kind = "Secret", metadata = { name = "pdm-basicauth", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor" } }, type = "Opaque", data = { username = base64encode("render-test"), password = base64encode("render-test-pass") } }
+      "sovereign-tls-secrets.yaml"        = { apiVersion = "v1", kind = "Secret", metadata = { name = "sovereign-tls-secrets", namespace = "flux-system" }, type = "Opaque", stringData = { POWERDNS_API_KEY = base64encode("render-test-pdns-key") } }
+    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml"])
+    error_message = "SEC-153: rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those four files."
+  }
+
+  assert {
+    condition     = output.bootstrap_secrets.root["bootstrap-secrets.yaml"].spec.path == "./clusters/_template/bootstrap-secrets" && jsonencode(output.bootstrap_secrets.root["bootstrap-secrets.yaml"].spec.postBuild.substituteFrom) == jsonencode([{ kind = "Secret", name = "bootstrap-seed" }]) && jsonencode(output.bootstrap_secrets.root["bootstrap-kit.yaml"].spec.dependsOn) == jsonencode([{ name = "bootstrap-secrets" }]) && contains(output.bootstrap_secrets.root["kustomization.yaml"].resources, "bootstrap-secrets.yaml")
+    error_message = "SEC-153: the root must hold the Kustomization bootstrap-secrets (path ./clusters/_template/bootstrap-secrets, substituteFrom Secret bootstrap-seed), and bootstrap-kit must depend on it."
   }
 
   # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
-  # flux-bootstrap.yaml have mode 0600; the seven bootstrap Secret files are
-  # shredded once their apply succeeded, flux-bootstrap.yaml after its
-  # apply; the robot token is reflected into catalyst-system only; the
-  # template creates no OpenBao recovery seed (the bp-openbao chart does).
+  # flux-bootstrap.yaml have mode 0600; the three bootstrap Secret files and
+  # the seed file are shredded once their apply and the seed's create
+  # succeeded, flux-bootstrap.yaml after its apply; the robot token is
+  # reflected into catalyst-system only; the template creates no OpenBao
+  # recovery seed (the bp-openbao chart does). SEC-153: first boot creates the
+  # namespace catalyst-system, where the hand-over key lands, and no other.
   assert {
     condition     = strcontains(output.rendered_cloud_init, " --write-kubeconfig-mode=0600\" \\\n") && !strcontains(output.rendered_cloud_init, "--write-kubeconfig-mode=0644") && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/flux-bootstrap.yaml\n    permissions: '0600'\n")
     error_message = "SEC-040: the k3s server line must pass --write-kubeconfig-mode=0600, and /var/lib/catalyst/flux-bootstrap.yaml must have mode 0600."
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml\n    (exit $?)\n") && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
-    error_message = "SEC-040: the seven bootstrap Secret files must be shredded on the line of their apply once it succeeded, a failed apply must stop the script on the next line, (exit $?), and flux-bootstrap.yaml must be shredded on the line after its apply."
+    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040, SEC-153: first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the three bootstrap Secret files, shred those files and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
   }
 
   assert {
-    condition     = strcontains(output.boot_text, "\n  name: harbor-robot-token\n  namespace: flux-system\n  annotations:\n    reflector.v1.k8s.emberstack.com/reflection-allowed: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: \"catalyst-system\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: \"catalyst-system\"\n")
+    condition     = jsonencode(output.bootstrap_secrets.secrets["harbor-robot-token.yaml"].metadata.annotations) == jsonencode({ "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" })
     error_message = "SEC-040: the Secret flux-system/harbor-robot-token must be reflected into catalyst-system and into no other namespace."
   }
 
@@ -335,7 +364,8 @@ run "huawei_render_is_valid" {
   # SOV-130 (huawei branch) — the substituted values live in ConfigMap
   # flux-system/sovereign-variables, which the root Kustomization reads
   # with postBuild.substituteFrom. No Kustomization keeps an inline
-  # substitute map, and the DNS-01 API key is only in the Secret
+  # substitute map, and the DNS-01 API key is only in the seed Secret
+  # flux-system/bootstrap-seed (SEC-153), from which Flux renders
   # flux-system/sovereign-tls-secrets.
   assert {
     condition     = strcontains(output.flux_bootstrap_yaml, "\nkind: ConfigMap\nmetadata:\n  name: sovereign-variables\n  namespace: flux-system\ndata:\n")
@@ -353,32 +383,60 @@ run "huawei_render_is_valid" {
   }
 
   assert {
-    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
-    error_message = "SOV-130 (huawei branch): POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
+    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "\n      POWERDNS_API_KEY=${base64encode("render-test-pdns-key")}\n")
+    error_message = "SOV-130, SEC-153 (huawei branch): POWERDNS_API_KEY must appear once, as a line of the seed file bootstrap-seed.env, never in the ConfigMap sovereign-variables."
+  }
+
+  # SEC-153 — first boot writes the raw values of four bootstrap Secrets once,
+  # into the seed file, creates the Secret flux-system/bootstrap-seed from it
+  # after the other bootstrap Secrets, and carries none of the four manifests.
+  # Flux renders them from clusters/_template/bootstrap-secrets with the seed:
+  # the same names, namespaces, types, keys, reflector annotations and values
+  # first boot wrote before. The kit waits for the Kustomization that does it.
+  assert {
+    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
+    error_message = "SEC-153 (huawei branch): the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the five raw values, base64-encoded, one KEY=value line each."
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ")
-    error_message = "SOV-130 (huawei branch): the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets)\\.yaml", output.boot_text)) == 0
+    error_message = "SEC-153 (huawei branch): first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public; Flux renders them from Git."
+  }
+
+  assert {
+    condition = jsonencode(output.bootstrap_secrets.secrets) == jsonencode({
+      "catalyst-handover-jwt-public.yaml" = { apiVersion = "v1", kind = "Secret", metadata = { name = "catalyst-handover-jwt-public", namespace = "catalyst-system" }, type = "Opaque", data = { "public.jwk" = base64encode("RENDER_TEST_JWK") } }
+      "harbor-robot-token.yaml"           = { apiVersion = "v1", kind = "Secret", metadata = { name = "harbor-robot-token", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" } }, type = "Opaque", data = { token = base64encode("render-test-harbor-token") } }
+      "pdm-basicauth.yaml"                = { apiVersion = "v1", kind = "Secret", metadata = { name = "pdm-basicauth", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor" } }, type = "Opaque", data = { username = base64encode("render-test"), password = base64encode("render-test-pass") } }
+      "sovereign-tls-secrets.yaml"        = { apiVersion = "v1", kind = "Secret", metadata = { name = "sovereign-tls-secrets", namespace = "flux-system" }, type = "Opaque", stringData = { POWERDNS_API_KEY = base64encode("render-test-pdns-key") } }
+    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml"])
+    error_message = "SEC-153 (huawei branch): rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those four files."
+  }
+
+  assert {
+    condition     = output.bootstrap_secrets.root["bootstrap-secrets.yaml"].spec.path == "./clusters/_template/bootstrap-secrets" && jsonencode(output.bootstrap_secrets.root["bootstrap-secrets.yaml"].spec.postBuild.substituteFrom) == jsonencode([{ kind = "Secret", name = "bootstrap-seed" }]) && jsonencode(output.bootstrap_secrets.root["bootstrap-kit.yaml"].spec.dependsOn) == jsonencode([{ name = "bootstrap-secrets" }]) && contains(output.bootstrap_secrets.root["kustomization.yaml"].resources, "bootstrap-secrets.yaml")
+    error_message = "SEC-153 (huawei branch): the root must hold the Kustomization bootstrap-secrets (path ./clusters/_template/bootstrap-secrets, substituteFrom Secret bootstrap-seed), and bootstrap-kit must depend on it."
   }
 
   # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
-  # flux-bootstrap.yaml have mode 0600; the seven bootstrap Secret files are
-  # shredded once their apply succeeded, flux-bootstrap.yaml after its
-  # apply; the robot token is reflected into catalyst-system only; the
-  # template creates no OpenBao recovery seed (the bp-openbao chart does).
+  # flux-bootstrap.yaml have mode 0600; the three bootstrap Secret files and
+  # the seed file are shredded once their apply and the seed's create
+  # succeeded, flux-bootstrap.yaml after its apply; the robot token is
+  # reflected into catalyst-system only; the template creates no OpenBao
+  # recovery seed (the bp-openbao chart does). SEC-153: first boot creates the
+  # namespace catalyst-system, where the hand-over key lands, and no other.
   assert {
     condition     = strcontains(output.rendered_cloud_init, " --write-kubeconfig-mode=0600\" \\\n") && !strcontains(output.rendered_cloud_init, "--write-kubeconfig-mode=0644") && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/flux-bootstrap.yaml\n    permissions: '0600'\n")
     error_message = "SEC-040 (huawei branch): the k3s server line must pass --write-kubeconfig-mode=0600, and /var/lib/catalyst/flux-bootstrap.yaml must have mode 0600."
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml\n    (exit $?)\n") && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
-    error_message = "SEC-040 (huawei branch): the seven bootstrap Secret files must be shredded on the line of their apply once it succeeded, a failed apply must stop the script on the next line, (exit $?), and flux-bootstrap.yaml must be shredded on the line after its apply."
+    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040, SEC-153 (huawei branch): first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the three bootstrap Secret files, shred those files and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
   }
 
   assert {
-    condition     = strcontains(output.boot_text, "\n  name: harbor-robot-token\n  namespace: flux-system\n  annotations:\n    reflector.v1.k8s.emberstack.com/reflection-allowed: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: \"catalyst-system\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: \"catalyst-system\"\n")
+    condition     = jsonencode(output.bootstrap_secrets.secrets["harbor-robot-token.yaml"].metadata.annotations) == jsonencode({ "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" })
     error_message = "SEC-040 (huawei branch): the Secret flux-system/harbor-robot-token must be reflected into catalyst-system and into no other namespace."
   }
 

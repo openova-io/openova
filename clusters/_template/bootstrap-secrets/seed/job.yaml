@@ -1,0 +1,130 @@
+# The seed builder (SEC-153). build-seed.sh runs once: it exits 0 when
+# flux-system/bootstrap-seed exists or when it has built it from the four
+# bootstrap Secrets, each value as that Secret holds it; it exits 1, naming the
+# Secret and the key, when a Secret, a key or a value is missing or empty, and
+# then builds no seed and writes nothing. The Job's own retries (backoffLimit)
+# cover a failed API call; no loop polls. A Job that has failed holds the
+# Kustomizations bootstrap-secrets and bootstrap-kit, and the four Secrets stay
+# as they are; its Pod's log names what is missing. Once that Secret is
+# repaired, deleting the failed Job lets Flux create it again.
+#
+# The seed holds one key per value, the form first boot writes into
+# bootstrap-seed.env (infra/providers/_shared/cloudinit-control-plane.tftpl):
+# the base64 text that the manifests under clusters/_template/bootstrap-secrets
+# put under data (the stored value of the Secret's key), and for
+# sovereign-tls-secrets, whose manifest puts the value under stringData, the
+# value of the key itself (a base64 text too). The values pass through a file
+# in memory (emptyDir medium Memory) and kubectl create --from-env-file, never
+# through a command line.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bootstrap-seed-build
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+data:
+  build-seed.sh: |
+    set -eu
+    umask 077
+    env_file="$SEED_WORK/bootstrap-seed.env"
+    if [ -n "$(kubectl -n flux-system get secret bootstrap-seed --ignore-not-found -o name)" ]; then
+      echo "bootstrap-seed: flux-system/bootstrap-seed exists, nothing to build"
+      exit 0
+    fi
+    rm -f "$env_file"
+    missing=0
+    while read -r var ns name key form; do
+      path=$(printf '%s' "$key" | sed 's/\./\\./g')
+      if ! value=$(kubectl -n "$ns" get secret "$name" -o "jsonpath={.data.$path}" </dev/null); then
+        echo "bootstrap-seed: Secret $ns/$name key $key: cannot be read; no seed is built" >&2
+        missing=1
+        continue
+      fi
+      if [ "$form" = text ] && [ -n "$value" ]; then
+        value=$(printf '%s' "$value" | base64 -d) || value=""
+      fi
+      case "$value" in
+        "")
+          echo "bootstrap-seed: Secret $ns/$name key $key: no value; no seed is built" >&2
+          missing=1
+          continue ;;
+        *[!A-Za-z0-9+/=]*)
+          echo "bootstrap-seed: Secret $ns/$name key $key: not base64 text; no seed is built" >&2
+          missing=1
+          continue ;;
+      esac
+      printf '%s=%s\n' "$var" "$value" >>"$env_file"
+    done <<'EOF'
+    HARBOR_ROBOT_TOKEN flux-system harbor-robot-token token data
+    PDM_BASIC_AUTH_USER flux-system pdm-basicauth username data
+    PDM_BASIC_AUTH_PASS flux-system pdm-basicauth password data
+    POWERDNS_API_KEY flux-system sovereign-tls-secrets POWERDNS_API_KEY text
+    HANDOVER_JWT_PUBLIC_KEY catalyst-system catalyst-handover-jwt-public public.jwk data
+    EOF
+    if [ "$missing" != 0 ]; then
+      rm -f "$env_file"
+      exit 1
+    fi
+    kubectl -n flux-system create secret generic bootstrap-seed --from-env-file="$env_file" --field-manager=catalyst-bootstrap-seed
+    rm -f "$env_file"
+    echo "bootstrap-seed: flux-system/bootstrap-seed built from the four bootstrap Secrets"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-seed-build
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: bootstrap-seed
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/component: bootstrap-seed
+    spec:
+      serviceAccountName: bootstrap-seed-build
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: build
+          # The kubectl image of the kit's other Jobs (sovereign-tls), through
+          # the Harbor proxy of the Sovereign.
+          image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/seed/build-seed.sh"]
+          env:
+            - name: SEED_WORK
+              value: /work
+          volumeMounts:
+            - name: script
+              mountPath: /seed
+              readOnly: true
+            - name: work
+              mountPath: /work
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          terminationMessagePolicy: FallbackToLogsOnError
+      volumes:
+        - name: script
+          configMap:
+            name: bootstrap-seed-build
+        - name: work
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

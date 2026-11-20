@@ -1,0 +1,20 @@
+# The bootstrap Secrets that Flux renders from the seed Secret flux-system/bootstrap-seed (SEC-153).
+#
+# First boot writes the raw values once, base64-encoded, into one file and
+# creates the seed Secret from it (infra/providers/_shared/cloudinit-control-plane.tftpl,
+# bootstrap-seed.env). The Flux Kustomization bootstrap-secrets
+# (clusters/_template/root/base-primary/bootstrap-secrets.yaml) builds this
+# folder and substitutes each ${NAME} from the seed (postBuild.substituteFrom);
+# the kit depends on it, so these Secrets exist before their first consumer
+# starts. Every manifest here is a template of references: each entry under
+# data and stringData is exactly one ${NAME}, never a value (guard G1,
+# scripts/check-no-secret-values-in-git.sh). A value that may hold a character
+# Flux substitution or YAML would change is carried base64-encoded; data takes
+# it as it is, stringData keeps the base64 form as the value.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - harbor-robot-token.yaml
+  - pdm-basicauth.yaml
+  - sovereign-tls-secrets.yaml
+  - catalyst-handover-jwt-public.yaml

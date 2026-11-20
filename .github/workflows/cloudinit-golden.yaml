@@ -29,6 +29,8 @@ on:
       - 'infra/providers/_shared/**'
       - 'infra/providers/*/provider-substitutes.yaml.tftpl'
       - 'clusters/_template/infrastructure/providers/**'
+      - 'clusters/_template/bootstrap-secrets/**'
+      - 'clusters/_template/root/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'
   pull_request:
@@ -36,6 +38,8 @@ on:
       - 'infra/providers/_shared/**'
       - 'infra/providers/*/provider-substitutes.yaml.tftpl'
       - 'clusters/_template/infrastructure/providers/**'
+      - 'clusters/_template/bootstrap-secrets/**'
+      - 'clusters/_template/root/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'
   workflow_dispatch:
