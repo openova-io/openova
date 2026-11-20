@@ -50,7 +50,10 @@ func (r *runner) measureProvision(ctx context.Context, requested map[string]int)
 	// Its reads are retried as reach.go says.
 	r.reaching(func() {
 		r.step("D0", provisionStepID, "the installation under test: provider, creation, readiness, nodes, and whether it is fresh", func(ev Evidence) error {
-			return measureInstallation(ctx, []kube.Region{r.A, r.B}, requested, r.run.Candidate.ID, prior, inst, ev)
+			if r.cfg.Chain != "" {
+				ev["chain"] = r.cfg.Chain // the state the gate's wait read
+			}
+			return measureInstallation(ctx, []kube.Region{r.A, r.B}, requested, r.run.Candidate.ID, r.cfg.Chain, prior, inst, ev)
 		})
 	})
 }
@@ -71,8 +74,9 @@ func (n notRead) Error() string {
 func (n notRead) Unwrap() []error { return n }
 
 // measureInstallation fills inst from the regions, the first region first, and
-// returns an error that names every value it could not read.
-func measureInstallation(ctx context.Context, regions []kube.Region, requested map[string]int, candidateID string,
+// returns an error that names every value it could not read. chain is the state
+// of the hand-over chain the gate's wait read; a ready_at not read names it.
+func measureInstallation(ctx context.Context, regions []kube.Region, requested map[string]int, candidateID, chain string,
 	prior []*Step, inst *Installation, ev Evidence) error {
 	problems, sources := notRead{}, []string{}
 	var born time.Time
@@ -114,7 +118,7 @@ func measureInstallation(ctx context.Context, regions []kube.Region, requested m
 		inst.CreatedAt = born
 	}
 	if at, source, err := handoverEnded(ctx, regions[0]); err != nil {
-		problems = append(problems, fmt.Errorf("ready_at: %w", err))
+		problems = append(problems, fmt.Errorf("ready_at: %w%s", err, chainSays(chain)))
 	} else {
 		inst.ReadyAt, ev["ready_source"] = at, source
 	}

@@ -43,6 +43,18 @@
 #        run also carries that pull credential as the key pull, from which the update builds the
 #        credential of its delivery requests (the run makes no pull Secret in a region; the route does).
 #   gate-parent-job.sh cleanup --out <dir>   deletes the Job, the Secrets and the NetworkPolicy named in <dir>
+#   gate-parent-job.sh wait --out <dir>
+#        In hosted execution, on the job's machine: the wait of the job live for the hand-over chain and
+#        the creation time, the same function as in the Job (live_wait), with the region kubeconfigs
+#        GATE_KUBECONFIG_A and _B. Writes outputs (born, chain, chain_state), summary.md and errors
+#        into <dir> as run does. Exit 0 when it ran to its end (the outcome is the output chain).
+#   gate-parent-job.sh plan <chain> [<record>]
+#        What the job live does with a run whose wait ended with chain=<chain>: prints suite= (whether
+#        the suite runs), capability= (cutover-complete, or empty), commit= (whether the record is
+#        committed to docs/ledger/acceptance/) and result= (the run's result; with <record>, the
+#        result it carries when its chain is complete). Only a record of a complete chain is
+#        committed: the verdict counts a check's PASS in two records of one candidate and does not
+#        read the state of the install, so a PASS measured before the chain ended would count.
 #   gate-parent-job.sh recipe job <base>|probe   prints a generated Containerfile
 #   gate-parent-job.sh inner addresses|live|regions|update   in the Job, container gate
 #   gate-parent-job.sh probe                 in the Job, container probe (live only)
@@ -86,6 +98,7 @@ PLAYWRIGHT_VERSION=1.46.0
 SECRET_DIR=/run/gate-secret
 SHARED=/shared
 SCRATCH=/scratch
+CANDIDATE_ROOT=/opt/candidate # the commit under test in the Job image (recipe_job)
 DIGEST_RE='^[a-z0-9][a-z0-9.:_/-]*@sha256:[0-9a-f]{64}$'
 TRANSIENT_RE='connection (lost|refused|reset)|reset by peer|i/o timeout|TLS handshake timeout|unexpected EOF|EOF$|http2:|Unable to connect to the server|ServiceUnavailable|InternalError|Too Many Requests|context deadline exceeded|Client.Timeout|timed out|the server is currently unable|net/http'
 # The resources of the Job's containers, the one place they are set. A request is what the scheduler
@@ -917,12 +930,25 @@ sso_delete() { # the user of this run; a user it cannot delete is deleted by the
 }
 
 not_read() { # $1 the region rk gave up on (its GATE-ERROR line is printed): the run ends without the suite
+  CHAIN=unreachable CHAIN_STATE=unreachable
   out "chain=unreachable"
+  out "chain_state=unreachable"
   summ "Hand-over chain: not read; region $1 ($(region_addr "$1")) could not be read for ${GATE_UNREAD_MINUTES:-5} minutes: $RK_ERR. The suite was not run."
 }
 
-live_wait() { # the creation time, then the wait for the hand-over chain; 1 when the suite must not run
-  local r t rc born="" chain="" last="nothing was read" complete failed current deadline mins="${GATE_CHAIN_MINUTES:-180}"
+# live_wait: the creation time, then the wait for the hand-over chain. It sets CHAIN and CHAIN_STATE and
+# prints them as the outputs chain and chain_state. The wait ends on the engine's own facts in region A's
+# ConfigMap catalyst/self-sovereign-cutover-status (the repetition record of SOV-242,
+# products/catalyst/bootstrap/api/internal/cutoverreconcile): cutoverComplete true is complete;
+# autoRetryHalted true or a failedStep is failed at that step; an autoRetryStep is the engine repeating
+# that step (ended for judging); GATE_CHAIN_MINUTES (180) without one of them is not ended (an engine
+# older than SOV-242 fires the chain again every 2 minutes and clears failedStep at once). Returns 1
+# only when a region could not be read (unreachable): every other state runs the suite, and chain_plan
+# says what becomes of its record.
+CHAIN="" CHAIN_STATE=""
+live_wait() {
+  local r t rc born="" last="nothing was read" at="" complete failed current halted again count limit deadline mins="${GATE_CHAIN_MINUTES:-180}"
+  CHAIN="" CHAIN_STATE=""
   # When the environment was created: the earliest creation of kube-system in the two regions.
   for r in a b; do
     rk_until "$r" "the creation time of kube-system" get namespace kube-system -o jsonpath='{.metadata.creationTimestamp}'
@@ -934,16 +960,17 @@ live_wait() { # the creation time, then the wait for the hand-over chain; 1 when
   done
   out "born=$born"
   summ "Environment created at: ${born:-not read}"
-  # Wait until the hand-over chain has ended (completed, or failed at a step), at most GATE_CHAIN_MINUTES (180).
   # Every pass reads both regions and prints one line: a pass takes at most two readings and the pause.
   deadline=$(( $(date +%s) + mins * 60 ))
   while :; do
-    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}'
+    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}|{.data.autoRetryHalted}|{.data.autoRetryStep}|{.data.autoRetryCount}|{.data.autoRetryLimit}'
     case "$?" in
-      0) IFS='|' read -r complete failed current <<< "$RK_OUT"
-         if [ "$complete" = true ]; then chain="completed"; break; fi
-         if [ -n "$failed" ]; then chain="failed at step $failed"; break; fi
-         last="not ended, current step: ${current:-none}" ;;
+      0) IFS='|' read -r complete failed current halted again count limit <<< "$RK_OUT"
+         if [ "$complete" = true ]; then CHAIN=complete CHAIN_STATE=complete; break; fi
+         if [ "$halted" = true ] || [ -n "$failed" ]; then CHAIN=failed CHAIN_STATE="failed at step ${failed:-$again}"; break; fi
+         if [ -n "$again" ]; then CHAIN=repeating CHAIN_STATE="repeating step $again, attempt ${count:-?} of ${limit:-?}"; break; fi
+         at="${current:-none}"
+         last="not ended, current step: $at" ;;
       3) not_read a; return 1 ;;
       *) last="the status ConfigMap could not be read: $RK_ERR" ;;
     esac
@@ -951,29 +978,44 @@ live_wait() { # the creation time, then the wait for the hand-over chain; 1 when
     [ "$?" = 3 ] && { not_read b; return 1; }
     echo "gate: waiting for the hand-over chain, read in region a ($(region_addr a)): $last; region b ($(region_addr b)) $([ -z "${RK_DOWN[b]:-}" ] && echo answers || echo "not read for $(( $(date +%s) - RK_DOWN[b] )) seconds: $RK_ERR"); $(( (deadline - $(date +%s) + 59) / 60 )) minutes left"
     if [ "$(date +%s)" -ge "$deadline" ]; then
+      CHAIN=not-ended CHAIN_STATE="not ended at step ${at:-unknown, the status was not read}"
       summ "Hand-over chain: did not end within $mins minutes; last observed: $last"
-      out "chain=timeout"
-      echo "GATE-ERROR The hand-over chain did not end within $mins minutes; last observed: $last. The suite was not run."
-      return 1
+      break
     fi
     sleep "${GATE_WAIT_SECONDS:-15}"
   done
-  out "chain=$chain"
-  summ "Hand-over chain: $chain"
-  if [ "$chain" != completed ]; then
+  out "chain=$CHAIN"
+  out "chain_state=$CHAIN_STATE"
+  summ "Hand-over chain: $CHAIN_STATE"
+  if [ "$CHAIN" != complete ]; then
     rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.lastError}'
     summ "Hand-over error: ${RK_OUT:-$RK_ERR}"
   fi
   return 0
 }
 
+chain_plan() { # $1 the output chain of live_wait, $2 optional: the record the suite wrote. See plan in the header.
+  local suite=true cap="" commit=false result=NOT-MEASURED
+  case "${1:-}" in
+    complete)
+      cap=cutover-complete commit=true result=FAIL
+      if [ -n "${2:-}" ] && [ -f "$2" ]; then result="$(jq -r '.result // "FAIL"' "$2" 2>/dev/null)" || result=FAIL; fi ;;
+    failed | repeating | not-ended) ;; # judged, never counted: the record stays an artifact of the run
+    *) suite=false result=FAIL ;;      # unreachable, or no state: no suite, as before
+  esac
+  printf 'suite=%s\ncapability=%s\ncommit=%s\nresult=%s\n' "$suite" "$cap" "$commit" "${result:-FAIL}"
+}
+
 inner_live() {
-  local rc f
+  local rc f cap
   trap '[ -e "$SHARED/probe.go" ] || touch "$SHARED/probe.skip"' EXIT
   live_wait || return 0
-  # The suite, as scripts/acceptance-sovereign.sh runs it, from the files of the commit under test.
+  # The suite, as scripts/acceptance-sovereign.sh runs it, from the files of the commit under test. The
+  # capability cutover-complete is declared only when the chain completed (chain_plan).
+  cap="$(chain_plan "$CHAIN" | sed -n 's/^capability=//p')"
   export ACCEPT_KUBECONFIG_A="$KA" ACCEPT_KUBECONFIG_B="$KB" ACCEPT_MANIFEST=/opt/conformance/gates.json \
-    ACCEPT_RUN_IN=cloud ACCEPT_REPO_ROOT=/opt/candidate ACCEPT_CONSOLE="${ACCEPT_CONSOLE:-https://console.$ENV_LABEL.omani.works}"
+    ACCEPT_RUN_IN=cloud ACCEPT_REPO_ROOT="$CANDIDATE_ROOT" ACCEPT_CONSOLE="${ACCEPT_CONSOLE:-https://console.$ENV_LABEL.omani.works}" \
+    ACCEPT_CHAIN="$CHAIN_STATE" ACCEPT_CAPABILITIES="${ACCEPT_CAPABILITIES:-}${cap:+${ACCEPT_CAPABILITIES:+,}$cap}"
   mkdir -p "$SCRATCH/record"
   CATALYST_SESSION="$(cat "$SECRET_DIR/session" 2>/dev/null || true)"
   if [ -z "$CATALYST_SESSION" ] && [ "${ACCEPT_MINT:-0}" = 1 ]; then CATALYST_SESSION="$(mint "")"; fi
@@ -982,7 +1024,7 @@ inner_live() {
     echo "the session is empty: no owner session was given and none could be minted" | tee "$SCRATCH/acceptance.log"
     rc=3
   else
-    (cd /opt/candidate && sovereign-acceptance run --env "$ENV_LABEL" --record --record-dir "$SCRATCH/record") | tee "$SCRATCH/acceptance.log"
+    (cd "$CANDIDATE_ROOT" && sovereign-acceptance run --env "$ENV_LABEL" --record --record-dir "$SCRATCH/record") | tee "$SCRATCH/acceptance.log"
     rc=${PIPESTATUS[0]}
   fi
   unset CATALYST_SESSION
@@ -1004,6 +1046,28 @@ cmd_inner() {
   inner_setup
   "inner_$1"
   echo "GATE-DONE"
+}
+
+# ---------------------------------------------------------------- hosted execution: the same wait
+cmd_wait() {
+  if [ "$#" != 2 ] || [ "$1" != --out ] || [ -z "$2" ]; then usage; fi
+  local o="$2" e
+  if [ ! -r "${GATE_KUBECONFIG_A:-}" ] || [ ! -r "${GATE_KUBECONFIG_B:-}" ]; then die "GATE_KUBECONFIG_A and GATE_KUBECONFIG_B must name readable kubeconfigs"; fi
+  mkdir -p "$o/kube" "$o/scratch" || die "the folder $o cannot be written"
+  # live_wait reads the regions as in the Job: from k<region> of SECRET_DIR, its files in SCRATCH.
+  ln -sfn "$(realpath "$GATE_KUBECONFIG_A")" "$o/kube/ka"
+  ln -sfn "$(realpath "$GATE_KUBECONFIG_B")" "$o/kube/kb"
+  SECRET_DIR="$o/kube" SCRATCH="$o/scratch"
+  { inner_setup; live_wait; echo "GATE-DONE"; } 2>&1 | tee "$o/wait.log"
+  parse_log "$o/wait.log" "$o" || return 1
+  [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$o/summary.md" >> "$GITHUB_STEP_SUMMARY"
+  while IFS= read -r e; do [ -n "$e" ] && echo "::error::$e"; done < "$o/errors"
+  return 0
+}
+
+cmd_plan() {
+  if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then usage; fi
+  chain_plan "$@"
 }
 
 # ---------------------------------------------------------------- in the Job: container probe
@@ -1182,15 +1246,70 @@ STUB
   ok $? "wait: region a not read during the wait for the hand-over chain ends the wait at once, not after 180 minutes"
   live '' missing > "$T/w3.out"
   grep -q '^gate: waiting for the hand-over chain, read in region a (203.0.113.1): the status ConfigMap could not be read: Error from server (NotFound): .*; region b (203.0.113.24) answers; 0 minutes left$' "$T/w3.out" \
-    && grep -qx 'GATE-OUTPUT chain=timeout' "$T/w3.out" && ! grep -q 'unreachable' "$T/w3.out"
+    && grep -qx 'GATE-OUTPUT chain=not-ended' "$T/w3.out" && ! grep -q 'unreachable' "$T/w3.out"
   ok $? "wait: a region whose server answers with an error is read, not unreachable; the wait ends at its bound"
   live '' '||5' > "$T/w4.out"
   [ "$(grep -c '^gate: waiting for the hand-over chain, read in region a (203.0.113.1): not ended, current step: 5; region b (203.0.113.24) answers; ' "$T/w4.out")" = 1 ] \
-    && grep -q '^gate: region b (203.0.113.24) read for the first time at ' "$T/w4.out" && grep -qx 'GATE-OUTPUT chain=timeout' "$T/w4.out"
+    && grep -q '^gate: region b (203.0.113.24) read for the first time at ' "$T/w4.out" && grep -qx 'GATE-OUTPUT chain=not-ended' "$T/w4.out"
   ok $? "wait: every pass prints what it waits for, with both regions"
   live '' 'true||' > "$T/w5.out"
-  grep -qx 'GATE-OUTPUT chain=completed' "$T/w5.out" && grep -qx 'live_wait=0' "$T/w5.out"
+  grep -qx 'GATE-OUTPUT chain=complete' "$T/w5.out" && grep -qx 'live_wait=0' "$T/w5.out"
   ok $? "wait: a completed hand-over chain lets the suite run"
+
+  # The job live for each state of the chain, in the Job (inner_live) with a stand-in suite that writes a
+  # record of result PASS, then chain_plan with that record as the workflow applies it: whether the suite
+  # ran, whether the run declared cutover-complete, what it told the suite of the chain, whether the record
+  # is committed, and the run's result. Only a complete chain commits; every other state but unreachable
+  # runs the suite and keeps its record as an artifact, NOT-MEASURED.
+  cat > "$T/bin/sovereign-acceptance" <<'STUB'
+#!/usr/bin/env bash
+d=""; p=""; for x in "$@"; do [ "$p" = --record-dir ] && d="$x"; p="$x"; done
+printf 'capabilities=%s\nchain=%s\n' "${ACCEPT_CAPABILITIES:-}" "${ACCEPT_CHAIN:-}" > "$STUB_DIR/suite.env"
+echo "ACCEPTANCE run env=$ENV_LABEL result=PASS"
+printf '{"result": "PASS"}\n' > "$d/stub.json"
+STUB
+  chmod +x "$T/bin/sovereign-acceptance"
+  mkdir -p "$T/cand"; echo "stand-in session" > "$T/sec/session"
+  # state CASE STUB_DOWN STUB_CHAIN CHAIN_STATE SUITE_RAN(yes/no) CAPABILITIES_THE_SUITE_SAW COMMIT RESULT
+  state() {
+    local f="$T/st-$1.out" chain
+    rm -rf "$T/fl" "$T/suite.env"; reset_stub
+    ( export STUB_DOWN="$2" STUB_CHAIN="$3" GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0 ACCEPT_CAPABILITIES=multi-region ENV_LABEL=hw399 GATE_RUN=7
+      SECRET_DIR="$T/sec" SCRATCH="$T/fl" SHARED="$T/sh" CANDIDATE_ROOT="$T/cand" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+      inner_setup; inner_live ) > "$f" 2>&1
+    chain="$(sed -n 's/^GATE-OUTPUT chain=//p' "$f" | tail -n 1)"
+    chain_plan "$chain" "$T/fl/record/stub.json" | sed 's/^/plan:/' >> "$f"
+    if [ "$5" = yes ]; then
+      [ -f "$T/suite.env" ] && grep -qx "capabilities=$6" "$T/suite.env" && grep -qx "chain=$4" "$T/suite.env" || return 1
+    else
+      [ ! -e "$T/suite.env" ] || return 1
+    fi
+    grep -qx "GATE-OUTPUT chain_state=$4" "$f" && grep -qx "plan:suite=$([ "$5" = yes ] && echo true || echo false)" "$f" \
+      && grep -qx "plan:capability=$([ "$7" = true ] && echo cutover-complete)" "$f" \
+      && grep -qx "plan:commit=$7" "$f" && grep -qx "plan:result=$8" "$f"
+  }
+  state complete '' 'true||||||' complete yes multi-region,cutover-complete true PASS
+  ok $? "chain complete: the suite runs, the run declares cutover-complete, and its record is committed with its own result"
+  state failed '' '|03|03||||' "failed at step 03" yes multi-region false NOT-MEASURED
+  ok $? "chain failed (failedStep set): the suite runs without cutover-complete, the record is not committed, the run is NOT-MEASURED"
+  state halted '' '||03|true|03|3|3' "failed at step 03" yes multi-region false NOT-MEASURED
+  ok $? "chain failed (autoRetryHalted): the suite runs without cutover-complete, the record is not committed, the run is NOT-MEASURED"
+  state repeating '' '||03||03|2|3' "repeating step 03, attempt 2 of 3" yes multi-region false NOT-MEASURED \
+    && ! grep -q '^gate: waiting for the hand-over chain' "$T/st-repeating.out"
+  ok $? "chain repeating a step (autoRetryStep set): the wait ends at once, the suite runs, the record is not committed, NOT-MEASURED"
+  state deadline '' '||05||||' "not ended at step 05" yes multi-region false NOT-MEASURED
+  ok $? "chain not ended at the deadline: the suite runs, the record is not committed, the run is NOT-MEASURED"
+  state unreachable a '' unreachable no '' false FAIL
+  ok $? "chain unreachable: the suite does not run and nothing is committed, as before"
+  # The hosted path waits with the same function: the same status gives the same outputs.
+  ( export STUB_CHAIN='||03||03|2|3' GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+    export GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0
+    cmd_wait --out "$T/hosted" ) > "$T/hosted.out" 2>&1
+  o=$?
+  [ "$o" = 0 ] && grep -qx 'chain=repeating' "$T/hosted/outputs" && grep -qx 'chain_state=repeating step 03, attempt 2 of 3' "$T/hosted/outputs" \
+    && grep -qx 'born=2026-11-19T20:00:00Z' "$T/hosted/outputs" && grep -qx 'Hand-over chain: repeating step 03, attempt 2 of 3' "$T/hosted/summary.md" \
+    && [ "$(cmd_plan repeating | tr '\n' ' ')" = "suite=true capability= commit=false result=NOT-MEASURED " ]
+  ok $? "hosted: the wait on the job's machine is live_wait, and plan gives the same answer as in the Job"
   reset_stub
   ( export STUB_FAIL_TIMES=2 GATE_UNREAD_MINUTES=5; SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
     inner_setup; inner_addresses ) > "$T/w6.out" 2>&1
@@ -1484,6 +1603,8 @@ case "${1:-}" in
   image) shift; cmd_image "$@" ;;
   run) shift; cmd_run "$@" ;;
   cleanup) shift; cmd_cleanup "$@" ;;
+  wait) shift; cmd_wait "$@" ;;
+  plan) shift; cmd_plan "$@" ;;
   recipe) shift; cmd_recipe "$@" ;;
   inner) shift; cmd_inner "$@" ;;
   probe) shift; cmd_probe ;;

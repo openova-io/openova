@@ -114,6 +114,7 @@ func run(mode string, args []string) int {
 	fs.StringVar(&cfg.CandidateID, "candidate-id", env("ACCEPT_CANDIDATE_ID", ""), "candidate this run certifies (empty: the record certifies nothing)")
 	fs.StringVar(&cfg.RepoRoot, "repo-root", env("ACCEPT_REPO_ROOT", "."), "checkout of the commit under test; its HEAD is the record's candidate.commit")
 	fs.StringVar(&cfg.Capabilities, "capabilities", env("ACCEPT_CAPABILITIES", ""), "comma list of capability flags this run declares, e.g. multi-region")
+	fs.StringVar(&cfg.Chain, "chain", env("ACCEPT_CHAIN", ""), "the state of the hand-over chain as the gate's wait read it, e.g. 'repeating step 03, attempt 2 of 3' (step D0.11 and the checks skipped for cutover-complete name it)")
 	fs.StringVar(&cfg.NodesRequested, "nodes-requested", env("ACCEPT_NODES_REQUESTED", ""), "nodes the deployment request asked for, per region id: '<regionA>=6,<regionB>=6' (empty: check FND-G03 fails)")
 	fs.StringVar(&cfg.PreviousDeploymentID, "previous-deployment-id", env("ACCEPT_PREVIOUS_DEPLOYMENT_ID", ""), "the deployment whose wipe this fire follows; give it with --previous-wipe-orphans (check FND-G13)")
 	fs.StringVar(&cfg.PreviousWipeOrphans, "previous-wipe-orphans", env("ACCEPT_PREVIOUS_WIPE_ORPHANS", ""), "resources of that deployment that a listing of the cloud account still found after the wipe (check FND-G13 passes on 0)")

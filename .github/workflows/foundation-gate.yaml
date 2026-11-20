@@ -32,10 +32,18 @@ name: foundation-gate
 #   live       environment gate. Checks out this workflow's commit (the tools; the record is committed from here) and,
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
 #              started from (that record has an empty candidate.id and certifies nothing). Waits up
-#              to 180 minutes until the hand-over chain has ended (region A's ConfigMap
-#              catalyst/self-sovereign-cutover-status), runs the suite with --run-in cloud --record,
-#              commits the record only if acceptance-gate.py validate-record accepts it, then lets
-#              scripts/gate-run-outcome.py judge the run on this environment.
+#              to 180 minutes until the hand-over chain has ended for judging, on the engine's own
+#              facts in region A's ConfigMap catalyst/self-sovereign-cutover-status (complete, failed
+#              at a step, repeating a step, or not ended at the deadline; gate-parent-job.sh live_wait,
+#              the same function in both executions), runs the suite with --run-in cloud --record in
+#              every state but unreachable, and declares the capability cutover-complete only when the
+#              chain is complete (the checks whose subject the chain changes are skipped without it).
+#              Only the record of a complete chain is committed, and only if acceptance-gate.py
+#              validate-record accepts it; then scripts/gate-run-outcome.py judges the run on this
+#              environment. The record of any other state is an artifact of the run, its checks are in
+#              the summary, and the run's result is NOT-MEASURED with the chain's state: the verdict
+#              counts a check's PASS in two records of one candidate and does not read the state of
+#              the install, so a PASS measured before the chain ended would count as proof.
 #              Between the suite and the validation it runs gate check FND-G07: it creates the user
 #              gate-<run id>@<env>.omani.works in the realm sovereign of region A (kcadm.sh in the Pod
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
@@ -126,7 +134,7 @@ on:
         default: hosted
     outputs:
       result:
-        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record); FAIL when no valid record was written
+        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain had not completed (the record is not committed); FAIL when no valid record was written
         value: ${{ jobs.live.outputs.result }}
     secrets:
       ACCEPTANCE_KUBECONFIG_A:
@@ -382,7 +390,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      result: ${{ steps.run.outputs.not_measured == 'true' && 'NOT-MEASURED' || steps.record.outputs.result || 'FAIL' }}
+      result: ${{ steps.run.outputs.not_measured == 'true' && 'NOT-MEASURED' || steps.record.outputs.result || steps.run.outputs.plan_result || 'FAIL' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check out the commit under test
@@ -429,54 +437,19 @@ jobs:
           if [ -z "$KP" ]; then echo "::error::the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set"; exit 2; fi
           umask 077; mkdir -p "$RUNNER_TEMP/parent"
           printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/parent/parent.yaml"
-      - name: Wait until the hand-over chain has ended
-        if: steps.mode.outputs.execution == 'hosted'
-        env:
-          KA: ${{ runner.temp }}/kube/a.yaml
-        run: |
-          set -uo pipefail
-          # The chain has ended when cutoverComplete is true (completed) or failedStep is set (failed).
-          deadline=$(( $(date +%s) + 180 * 60 ))
-          last="nothing was read"
-          while :; do
-            if s="$(kubectl --kubeconfig "$KA" -n catalyst get configmap self-sovereign-cutover-status \
-                  -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}' 2>&1)"; then
-              IFS='|' read -r complete failed current <<<"$s"
-              if [ "$complete" = true ]; then chain="completed"; break; fi
-              if [ -n "$failed" ]; then chain="failed at step $failed"; break; fi
-              last="not ended, current step: ${current:-none}"
-            else
-              last="the status ConfigMap could not be read: $s"
-            fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "Hand-over chain: did not end within 180 minutes; last observed: $last" >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::The hand-over chain did not end within 180 minutes; last observed: $last. The suite was not run."
-              exit 1
-            fi
-            sleep 30
-          done
-          echo "Hand-over chain: $chain" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$chain" != completed ]; then
-            err="$(kubectl --kubeconfig "$KA" -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.lastError}' 2>&1 || true)"
-            echo "Hand-over error: $err" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: When the environment was created
+      - name: When the environment was created, and the wait until the hand-over chain has ended
         id: born
         if: steps.mode.outputs.execution == 'hosted'
+        env:
+          GATE_KUBECONFIG_A: ${{ runner.temp }}/kube/a.yaml
+          GATE_KUBECONFIG_B: ${{ runner.temp }}/kube/b.yaml
         run: |
           set -uo pipefail
-          # The earliest creation of kube-system in the two regions. Unread: the last step fails.
-          born=""
-          for r in a b; do
-            t="$(kubectl --kubeconfig "$RUNNER_TEMP/kube/$r.yaml" get namespace kube-system -o jsonpath='{.metadata.creationTimestamp}')"
-            if [[ ! "$t" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
-              echo "::warning::The creation time of region $r could not be read."
-              born=""; break
-            fi
-            if [ -z "$born" ] || [[ "$t" < "$born" ]]; then born="$t"; fi
-          done
-          echo "born=$born" >> "$GITHUB_OUTPUT"
-          echo "Environment created at: ${born:-not read}" >> "$GITHUB_STEP_SUMMARY"
+          # The function the Job on the parent runs (gate-parent-job.sh live_wait). Unreachable: no suite.
+          bash scripts/gate-parent-job.sh wait --out "$RUNNER_TEMP/hosted-wait" || exit 1
+          cat "$RUNNER_TEMP/hosted-wait/outputs" >> "$GITHUB_OUTPUT"
+          chain="$(sed -n 's/^chain=//p' "$RUNNER_TEMP/hosted-wait/outputs" | tail -n 1)"
+          if [ "$(bash scripts/gate-parent-job.sh plan "$chain" | sed -n 's/^suite=//p')" != true ]; then exit 1; fi
       - name: Export the manifest of the commit under test
         working-directory: candidate
         run: python3 scripts/acceptance-gate.py export > "$RUNNER_TEMP/gates.json"
@@ -506,6 +479,8 @@ jobs:
           CONTROL_PLANE: ${{ needs.addresses.outputs.list }}
           GH_TOKEN: ${{ github.token }}
           GATE_RUN: ${{ github.run_id }}
+          HOSTED_CHAIN: ${{ steps.born.outputs.chain }}
+          HOSTED_CHAIN_STATE: ${{ steps.born.outputs.chain_state }}
           GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
         run: |
           set +e
@@ -519,6 +494,13 @@ jobs:
           # The suite reads the commit it was built from from GITHUB_SHA: make it this checkout's commit.
           GITHUB_SHA="$(git rev-parse HEAD)"
           export GITHUB_SHA
+          # The state of the hand-over chain and what the run does with it (gate-parent-job.sh plan), as
+          # outputs of this step; false when the suite does not run (unreachable).
+          plan_outputs() { # $1 chain, $2 chain_state
+            plan="$(bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" plan "$1")"
+            { echo "chain=$1"; echo "chain_state=$2"; while IFS= read -r l; do echo "plan_$l"; done <<< "$plan"; } >> "$GITHUB_OUTPUT"
+            [ "$(sed -n 's/^suite=//p' <<< "$plan")" = true ]
+          }
           if [ "$EXECUTION" = parent ]; then
             # The Job on the parent waits for the hand-over chain, reads the creation time, runs the
             # suite and FND-G07, and prints the record, the log and the result of FND-G07.
@@ -541,7 +523,7 @@ jobs:
             rm -f "$RUNNER_TEMP/parent/session"
             if [ "$prc" != 0 ]; then echo "::error::The Job on the parent did not finish its work; its log is above."; exit 1; fi
             echo "born=$(sed -n 's/^born=//p' "$o/outputs")" >> "$GITHUB_OUTPUT"
-            if grep -Eqx 'chain=(timeout|unreachable)' "$o/outputs"; then exit 1; fi
+            plan_outputs "$(sed -n 's/^chain=//p' "$o/outputs" | tail -n 1)" "$(sed -n 's/^chain_state=//p' "$o/outputs" | tail -n 1)" || exit 1
             rc="$(sed -n 's/^suite_rc=//p' "$o/outputs" | tail -n 1)"
             if ! [[ "$rc" =~ ^[0-9]+$ ]]; then
               echo "::error::The Job on the parent printed no suite return code (suite_rc='$rc'); its log is above; no record is committed."; exit 1
@@ -557,6 +539,12 @@ jobs:
             rm -f "$RUNNER_TEMP/sso/result.json"
             [ -f "$o/files/sso/result.json" ] && cp "$o/files/sso/result.json" "$RUNNER_TEMP/sso/result.json"
           else
+            # The wait of the step before ended in a state that runs the suite. As in the Job, the run
+            # declares cutover-complete only when the chain completed, and tells the suite the state.
+            plan_outputs "$HOSTED_CHAIN" "$HOSTED_CHAIN_STATE" || exit 1
+            cap="$(sed -n 's/^capability=//p' <<< "$plan")"
+            if [ -n "$cap" ]; then ACCEPT_CAPABILITIES="$ACCEPT_CAPABILITIES,$cap"; fi
+            export ACCEPT_CAPABILITIES ACCEPT_CHAIN="$HOSTED_CHAIN_STATE"
             bash scripts/acceptance-sovereign.sh "$ENV_LABEL" --record | tee "$RUNNER_TEMP/acceptance.log"
             rc=${PIPESTATUS[0]}
           fi
@@ -756,6 +744,8 @@ jobs:
       - name: Validate the record
         id: record
         if: steps.run.outputs.not_measured != 'true'
+        env:
+          CHAIN: ${{ steps.run.outputs.chain }}
         run: |
           set -uo pipefail
           files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/)"
@@ -764,12 +754,15 @@ jobs:
           rec="docs/ledger/acceptance/$(basename "$files")"
           cp "candidate/$files" "$rec"
           echo "file=$rec" >> "$GITHUB_OUTPUT"
-          echo "result=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("result", "FAIL"))' "$rec")" >> "$GITHUB_OUTPUT"
+          # The run's result, and whether the record is committed: only the record of a complete chain is.
+          plan="$(bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec")"
+          echo "result=$(sed -n 's/^result=//p' <<< "$plan")" >> "$GITHUB_OUTPUT"
           if ! python3 scripts/acceptance-gate.py validate-record "$rec"; then
             echo "::error::The record is not valid. It is not committed; it is kept as an artifact of this run."
             exit 1
           fi
           echo "valid=true" >> "$GITHUB_OUTPUT"
+          echo "commit=$(sed -n 's/^commit=//p' <<< "$plan")" >> "$GITHUB_OUTPUT"
       - name: Upload record + log
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -780,12 +773,12 @@ jobs:
             ${{ runner.temp }}/acceptance.log
           if-no-files-found: warn
       - name: "Release writer: push with the release-writer key"
-        if: always() && steps.record.outputs.valid == 'true'
+        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
         uses: ./.github/actions/use-release-writer
         with:
           key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Commit the record (PASS or FAIL, a failure is evidence too)
-        if: always() && steps.record.outputs.valid == 'true'
+        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
         env:
           REC: ${{ steps.record.outputs.file }}
           RESULT: ${{ steps.record.outputs.result }}
@@ -802,7 +795,7 @@ jobs:
           done
           echo "::error::could not push the gate record"; exit 1
       - name: Judge the run on this environment
-        if: always() && steps.record.outputs.valid == 'true'
+        if: always() && steps.record.outputs.valid == 'true' && steps.record.outputs.commit == 'true'
         working-directory: candidate
         env:
           REC: ${{ steps.record.outputs.file }}
@@ -813,3 +806,16 @@ jobs:
           rc=${PIPESTATUS[0]}
           { echo '### Outcome on this environment'; echo; echo '```'; cat "$RUNNER_TEMP/outcome.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
+      - name: "NOT MEASURED: the hand-over chain had not completed"
+        if: always() && steps.run.outputs.plan_suite == 'true' && steps.run.outputs.plan_commit == 'false' && steps.run.outputs.not_measured != 'true'
+        env:
+          STATE: ${{ steps.run.outputs.chain_state }}
+        run: |
+          set -uo pipefail
+          # Its checks were judged (the table of the step "Run the suite" above), but the record of an install
+          # whose chain has not completed never counts: it is not committed, the step "Upload record + log"
+          # keeps it as an artifact of this run, and the job's result is NOT-MEASURED.
+          msg="The hand-over chain: $STATE. The record of an install whose hand-over chain has not completed never counts as evidence, so it is not committed to docs/ledger/acceptance/; it is an artifact of this run. Start another run when the chain is complete."
+          { echo '### NOT MEASURED'; echo; echo "Result: NOT-MEASURED (the hand-over chain: $STATE)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Gate run NOT MEASURED::$msg"
+          exit 4

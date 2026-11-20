@@ -199,7 +199,7 @@ func rebootRun(t *testing.T, w *rebootWorld, j1 string) (CheckResult, []*Step) {
 		wait: func(_ context.Context, d time.Duration) error { w.clock = w.clock.Add(d); return nil }}
 	r := &runner{out: io.Discard, run: &Run{Mode: "run", Steps: []*Step{{Journey: "J1", ID: "J1.1", Status: j1}}}}
 	m := &Manifest{Checks: []ManifestCheck{entry(rebootID, StateExpectedFail)}}
-	cc := &CheckContext{RunIn: RunInCloud, Regions: []kube.Region{{ID: "region-a"}, {ID: "region-b"}}}
+	cc := &CheckContext{RunIn: RunInCloud, Regions: []kube.Region{{ID: "region-a"}, {ID: "region-b"}}, Caps: map[string]bool{CutoverComplete: true}}
 	r.runChecks(context.Background(), m, []Check{c}, cc, true)
 	return r.run.Checks[0], r.run.Steps[1:]
 }
