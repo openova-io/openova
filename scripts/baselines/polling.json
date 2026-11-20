@@ -73,7 +73,6 @@
       "platform/gitea/chart/templates/sso-configure-deployment.yaml": 1,
       "platform/harbor/chart/templates/sso-configure-deployment.yaml": 1,
       "platform/openbao/chart/templates/sso-configure-deployment.yaml": 1,
-      "platform/openbao/chart/templates/unseal-reconciler.yaml": 1,
       "platform/postgres/chart/templates/failover-readiness.yaml": 1,
       "platform/postgres/chart/templates/replica-hub-sentinel.yaml": 1,
       "platform/powerdns/chart/templates/zone-bootstrap-job.yaml": 1,

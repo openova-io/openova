@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# bp-openbao — declarative config + generate-root + peer trust against REAL
+# bp-openbao — declarative config + peer trust against REAL
 # OpenBao servers (ADR-0015, Refs #7067).
 #
 # Runs the CHART'S OWN rendered artifacts — the openbao-config reconcile
-# script, the openbao-config-desired ConfigMap content, the auth-bootstrap
-# hook script and the openbao-config-admin policy — against real `bao server`
+# script, the openbao-config-desired ConfigMap content, and the
+# openbao-config-admin policy of the self-initialisation block (SEC-162,
+# initialize.hcl of ConfigMap openbao-seal-config) — against real `bao server`
 # processes (the binary of the image the chart runs; see the workflow):
 #
 #   L1  reconciler, two dev servers A and B (each rendered for its own region
@@ -15,14 +16,6 @@
 #   L2  round 2 is a no-op: the sys/policy listing, every policy body, every
 #       role read, the auth-mount table and the secrets-mount table are
 #       identical before and after; secret/ was enabled once per server;
-#   L3  generate-root on a non-dev server initialised with 5 shares /
-#       threshold 3: the chart's generate-root produces a root that
-#       authenticates; revoked, `bao token lookup <root>` fails; no attempt
-#       is left (sys/generate-root/attempt started=false);
-#   L4  the FULL rendered auth-bootstrap hook on that server, with the init
-#       root already revoked: it generates a root, writes openbao-config-admin
-#       (policy byte-identical to the render, role bound to openbao-config),
-#       and leaves NO root-policy token alive and no attempt started;
 #   L5  logged in as openbao-config-admin: secret/data/x denied, sys/seal
 #       denied, writing its own policy allowed, rewriting its own role
 #       denied, enabling a secrets mount other than secret/ denied, deleting
@@ -37,8 +30,9 @@
 #
 # The ONLY stand-ins: the reconciler and the B-side ESO log in through a
 # `jwt` mount (`login-jwt`) instead of Kubernetes TokenReview (there is no
-# apiserver here; the login request shape is identical), and the apiserver
-# the hook reads the openbao-unseal-keys Secret from is a static file server.
+# apiserver here; the login request shape is identical). The seal, the
+# self-initialisation itself and the audit device run in a real pod in the
+# workflow test-bp-openbao-fresh-prov.
 #
 # Usage: BAO_BIN=/path/to/bao tests/e2e/bp-openbao-config-live.sh
 # shellcheck disable=SC2015  # `[ … ] && pass … || fail …`: pass always returns 0
@@ -98,20 +92,21 @@ wait_up() {  # $1 port $2 what
 code() { "${CURL[@]}" -o /dev/null -w '%{http_code}' "$@"; }   # HTTP status only
 
 A="hw-me-east-215-a-rtz-prod"; B="hw-me-east-215-b-rtz-prod"
-read -r PA PB PS APIPORT < <(freeports 4)
+read -r PA PB < <(freeports 2)
 
 # ── render the chart once per region ──────────────────────────────────────
 helm dependency build "$CHART" >/dev/null 2>&1 || ls "$CHART"/charts/*.tgz >/dev/null 2>&1 || die "helm dependency build failed"
 REG="$(python3 -c 'import json,sys; print(json.dumps([{"cloudRegion": a} for a in sys.argv[1:]]))' "$A" "$B")"
 for r in A B; do
   self="$A"; [ "$r" = B ] && self="$B"
-  python3 -c 'import json,sys; print(json.dumps({"autoUnseal":{"enabled":True,"baoAddress":"http://x"},"peerTrust":{"selfRegion":sys.argv[1],"regions":sys.argv[2]}}))' "$self" "$REG" > "$TMP/v$r.json"
+  python3 -c 'import json,sys; print(json.dumps({"baoAddress":"http://x","peerTrust":{"selfRegion":sys.argv[1],"regions":sys.argv[2]}}))' "$self" "$REG" > "$TMP/v$r.json"
   helm template openbao "$CHART" --namespace openbao -f "$TMP/v$r.json" > "$TMP/render-$r.yaml"
 done
-helm template openbao "$CHART" --namespace openbao --set autoUnseal.enabled=true > "$TMP/render-single.yaml"
+printf 'seal "static" {\n  current_key_id = "k1"\n}\n' > "$TMP/stanza.hcl"
+helm template openbao "$CHART" --namespace openbao --set-file seal.stanza="$TMP/stanza.hcl" > "$TMP/render-single.yaml"
 
 # Extract the desired state (in-cluster Service URLs -> the local servers),
-# the reconcile script, the config-admin policy and the hook script.
+# the reconcile script and the config-admin policy of the self-initialisation.
 python3 - "$TMP" "$A" "$B" "$PA" "$PB" <<'PYEOF'
 import json, os, re, sys, yaml
 tmp, A, B, PA, PB = sys.argv[1:]
@@ -128,22 +123,14 @@ for r in ("A", "B"):
     if r == "A":
         open(f"{tmp}/reconcile.sh", "w").write(get(ds, "ConfigMap", "openbao-config-reconciler")["data"]["reconcile.sh"])
 ds = docs(f"{tmp}/render-single.yaml")
-job = get(ds, "Job", "openbao-auth-bootstrap")
-c = job["spec"]["template"]["spec"]["containers"][0]
-script = c["args"][0]
-m = re.search(r"bao policy write openbao-config-admin -\n(.*?)\n\s*EOF", script, re.S)
-open(f"{tmp}/config-admin.hcl", "w").write("\n".join(l.strip() for l in m.group(1).splitlines()) + "\n")
-# The hook reads the pod's SA mount; point it at the test's stand-in dir.
-open(f"{tmp}/hook.sh", "w").write(script.replace("/var/run/secrets/kubernetes.io/serviceaccount", f"{tmp}/sa"))
-env = {e["name"]: e["value"] for e in c["env"] if "value" in e}
-open(f"{tmp}/hook.env", "w").write("".join(f"export {k}={json.dumps(v)}\n" for k, v in env.items()))
+init = get(ds, "ConfigMap", "openbao-seal-config")["data"]["initialize.hcl"]
+m = re.search(r'policy = ("(?:[^"\\]|\\.)*")', init)
+open(f"{tmp}/config-admin.hcl", "w").write(json.loads(m.group(1)))
 PYEOF
 
 # ── JWT login stand-in (same request shape as Kubernetes auth) ────────────
 openssl genrsa -out "$TMP/jwt.key" 2048 2>/dev/null
 openssl rsa -in "$TMP/jwt.key" -pubout -out "$TMP/jwt.pub" 2>/dev/null
-mkdir -p "$TMP/sa"
-openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TMP/sa/ca.key" -out "$TMP/sa/ca.crt" -days 1 -subj /CN=test-ca 2>/dev/null
 mint() {  # $1 sub → RS256 JWT, aud=openbao-live, iss=live-test
   python3 - "$TMP/jwt.key" "$1" <<'PYEOF'
 import base64, json, subprocess, sys, time
@@ -156,7 +143,7 @@ sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key], input=f"{h}.{
 print(f"{h}.{p}.{b(sig)}")
 PYEOF
 }
-# setup_server <port>: what the auth-bootstrap hook leaves behind on a real
+# setup_server <port>: what the self-initialisation leaves behind on a real
 # Sovereign (kubernetes auth mount, kv, openbao-config-admin policy + role),
 # with the reconciler's role bound on the login-jwt stand-in mount.
 setup_server() {
@@ -330,91 +317,5 @@ fi
 SELF_JWT="$(BAO_TOKEN="$ESO_A" timeout 20 bao read -field=token identity/oidc/token/openbao-peer-push)"
 [ "$(code -X POST -d "{\"role\":\"openbao-peer-push\",\"jwt\":\"$SELF_JWT\"}" "$BAO_ADDR/v1/auth/jwt-peer-$B/login")" = 400 ] && pass "L6 a token minted by A itself is refused at jwt-peer-$B" || fail "L6 A's own token was accepted as B's"
 
-# ══ L3 / L4 — non-dev server, 5 shares / threshold 3 ══════════════════════
-mkdir -p "$TMP/raft"
-cat > "$TMP/server.hcl" <<EOF
-storage "file" { path = "$TMP/raft" }
-listener "tcp" {
-  address = "127.0.0.1:$PS"
-  tls_disable = 1
-}
-api_addr = "http://127.0.0.1:$PS"
-disable_mlock = true
-EOF
-bao server -config="$TMP/server.hcl" > "$TMP/server.log" 2>&1 & PIDS+=($!)
-wait_up "$PS" "non-dev server"
-export BAO_ADDR="http://127.0.0.1:$PS"; unset BAO_TOKEN
-timeout 30 bao operator init -key-shares=5 -key-threshold=3 -format=json > "$TMP/init.json"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); [print(k) for k in d["unseal_keys_b64"][:3]]' "$TMP/init.json" | while read -r k; do timeout 20 bao operator unseal "$k" >/dev/null; done
-INIT_ROOT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["root_token"])' "$TMP/init.json")"
-# The openbao-unseal-keys Secret exactly as the init Job writes it: data
-# fields base64 of (newline-joined keys) and of the threshold.
-mkdir -p "$TMP/api/api/v1/namespaces/openbao/secrets"
-python3 - "$TMP/init.json" "$TMP/api/api/v1/namespaces/openbao/secrets/openbao-unseal-keys" <<'PYEOF'
-import base64, json, sys
-d = json.load(open(sys.argv[1]))
-b = lambda s: base64.b64encode(s.encode()).decode()
-json.dump({"kind": "Secret", "data": {"unseal-keys-b64": b("\n".join(d["unseal_keys_b64"]) + "\n"), "unseal-threshold": b("3")}}, open(sys.argv[2], "w"))
-PYEOF
-( cd "$TMP/api" && exec python3 -m http.server "$APIPORT" --bind 127.0.0.1 ) > "$TMP/api.log" 2>&1 & PIDS+=($!)
-for _ in $(seq 40); do "${CURL[@]}" -o /dev/null "http://127.0.0.1:$APIPORT/" && break; sleep 0.25; done
-printf 'sa-token' > "$TMP/sa/token"
-attempt_started() { "${CURL[@]}" "$BAO_ADDR/v1/sys/generate-root/attempt" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["started"]).lower())'; }
-root_tokens_alive() {  # count live tokens carrying the root policy, using $1 as the inspector
-  BAO_TOKEN="$1" python3 - "$BAO_ADDR" "$1" <<'PYEOF'
-import json, sys, urllib.request
-addr, tok = sys.argv[1:]
-def call(path, method="GET", body=None):
-    req = urllib.request.Request(f"{addr}/v1/{path}", method=method, headers={"X-Vault-Token": tok},
-                                 data=json.dumps(body).encode() if body else None)
-    return json.load(urllib.request.urlopen(req, timeout=10))
-n = 0
-for acc in call("auth/token/accessors", "LIST")["data"]["keys"]:
-    d = call("auth/token/lookup-accessor", "POST", {"accessor": acc})["data"]
-    if "root" in (d.get("policies") or []): n += 1
-print(n)
-PYEOF
-}
-gen_root() {
-  NAMESPACE=openbao APISERVER="http://127.0.0.1:$APIPORT" SA_TOKEN_FILE="$TMP/sa/token" BAO_TOKEN="${1:-}" \
-    sh -c ". '$CHART/files/openbao-generate-root.sh'; bao_generate_root"
-}
-
-# L3 — the chart's generate-root, standalone
-GEN="$(gen_root "$INIT_ROOT")" || true  # a stale token in env must not matter
-if [ -n "$GEN" ] && BAO_TOKEN="$GEN" timeout 20 bao token lookup -format=json | python3 -c 'import json,sys; assert "root" in json.load(sys.stdin)["data"]["policies"]'; then
-  pass "L3 generate-root from 3 of 5 real shares yields a working root token"
-else fail "L3 generate-root produced no working root"; fi
-[ "$(attempt_started)" = false ] && pass "L3 no generate-root attempt left (started=false)" || fail "L3 a generate-root attempt was left started"
-BAO_TOKEN="$GEN" timeout 20 bao token revoke -self >/dev/null
-if BAO_TOKEN="$INIT_ROOT" timeout 20 bao token lookup "$GEN" >/dev/null 2>&1; then fail "L3 the generated root survived revocation"
-else pass "L3 revoked: bao token lookup <generated root> fails"; fi
-
-# L4 — the full rendered hook, init root already revoked (a later upgrade)
-BAO_TOKEN="$INIT_ROOT" timeout 20 bao token revoke -self >/dev/null
-if BAO_TOKEN="$INIT_ROOT" timeout 20 bao token lookup >/dev/null 2>&1; then die "init root still valid"; fi
-set +e
-# shellcheck source=/dev/null
-( . "$TMP/hook.env"; export BAO_ADDR="http://127.0.0.1:$PS" BAO_TOKEN="$INIT_ROOT" NAMESPACE=openbao \
-    APISERVER="http://127.0.0.1:$APIPORT" SA_TOKEN_FILE="$TMP/sa/token" XCR_ENABLED=false BOOTSTRAP_SEED_ENABLED=false
-  timeout 300 sh "$TMP/hook.sh" ) > "$TMP/hook.log" 2>&1
-HOOK_RC=$?
-set -e
-if [ "$HOOK_RC" = 0 ] && grep -q "short-lived root generated" "$TMP/hook.log"; then pass "L4 the rendered hook ran with the init root revoked and generated its own root"
-else fail "L4 hook rc=$HOOK_RC"; tail -25 "$TMP/hook.log"; fi
-INSPECT="$(gen_root "")"
-[ -n "$INSPECT" ] || die "could not generate an inspector root"
-BAO_TOKEN="$INSPECT" timeout 20 bao policy read openbao-config-admin > "$TMP/admin-live.hcl" 2>/dev/null || true
-if diff -q <(grep -v '^$' "$TMP/admin-live.hcl") <(grep -v '^$' "$TMP/config-admin.hcl") >/dev/null; then pass "L4 openbao-config-admin policy written byte-identical to the render"
-else fail "L4 openbao-config-admin policy differs from the render"; diff <(grep -v '^$' "$TMP/admin-live.hcl") <(grep -v '^$' "$TMP/config-admin.hcl") | head; fi
-BAO_TOKEN="$INSPECT" timeout 20 bao read -format=json auth/kubernetes/role/openbao-config-admin | python3 -c '
-import json,sys; d=json.load(sys.stdin)["data"]
-assert d["bound_service_account_names"]==["openbao-config"] and d["bound_service_account_namespaces"]==["openbao"], d
-assert d["token_policies"]==["openbao-config-admin"], d' && pass "L4 role openbao-config-admin bound to openbao/openbao-config only" || fail "L4 role openbao-config-admin wrong"
-ALIVE="$(root_tokens_alive "$INSPECT")"
-[ "$ALIVE" = 1 ] && pass "L4 no root-policy token left alive by the hook (only the test's inspector)" || fail "L4 $ALIVE root-policy tokens alive (want 1 = the inspector)"
-[ "$(attempt_started)" = false ] && pass "L4 no generate-root attempt left after the hook" || fail "L4 attempt left started"
-BAO_TOKEN="$INSPECT" timeout 20 bao token revoke -self >/dev/null
-
-if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao live config / generate-root / peer trust"; exit 1; fi
-echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, generate-root revoked, config-admin scoped, peer trust A<-B"
+if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao live config / peer trust"; exit 1; fi
+echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B"

@@ -49,8 +49,7 @@ REG1='[{"cloudRegion":"'"$A"'"}]'
 render() {  # $1 out, $2 self, $3 regions — passed exactly as Flux substitutes them (a string)
   python3 -c 'import json,sys; print(json.dumps({"peerTrust": {"selfRegion": sys.argv[1], "regions": sys.argv[2]}}))' "$2" "$3" > "$1.values.json"
   helm template openbao . --namespace openbao \
-    --set autoUnseal.enabled=true \
-    --set autoUnseal.baoAddress=http://openbao.openbao.svc.cluster.local:8200 \
+    --set baoAddress=http://openbao.openbao.svc.cluster.local:8200 \
     -f "$1.values.json" > "$1"
 }
 render "$TMP/a.yaml" "$A" "$REG2"

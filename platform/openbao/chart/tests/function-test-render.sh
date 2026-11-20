@@ -18,12 +18,14 @@ if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
   helm dependency build >/dev/null
 fi
 
-echo "[function-test] Case 1: the kit's shape (autoUnseal on, baoAddress set) carries the test"
-KIT=(--set autoUnseal.enabled=true --set autoUnseal.baoAddress=http://openbao.openbao.svc.cluster.local:8200)
+echo "[function-test] Case 1: the kit's shape (a seal stanza, baoAddress set) carries the test"
+printf 'seal "static" {\n  current_key_id = "k1"\n  current_key    = "file:///openbao/seal/openbao-seal-k1.key"\n}\n' > "$TMP/seal.hcl"
+SEAL=(--set-file seal.stanza="$TMP/seal.hcl")
+KIT=("${SEAL[@]}" --set baoAddress=http://openbao.openbao.svc.cluster.local:8200)
 helm template openbao . --namespace openbao "${KIT[@]}" > "$TMP/kit.yaml"
 python3 "$CHECK" --chart bp-openbao --release openbao < "$TMP/kit.yaml"
 helm template openbao . --namespace openbao "${KIT[@]}" --show-only "$TEST" > "$TMP/kit-test.yaml"
-grep -q -F 'value: "http://openbao.openbao.svc.cluster.local:8200"' "$TMP/kit-test.yaml" || fail "the test does not dial autoUnseal.baoAddress"
+grep -q -F 'value: "http://openbao.openbao.svc.cluster.local:8200"' "$TMP/kit-test.yaml" || fail "the test does not dial baoAddress"
 grep -q -F '/v1/sys/health?standbyok=true' "$TMP/kit-test.yaml" || fail "the test does not ask the health endpoint"
 grep -q -F '"initialized":true' "$TMP/kit-test.yaml" || fail "the test does not require an initialised store"
 grep -q -F '"sealed":false' "$TMP/kit-test.yaml" || fail "the test does not require an unsealed store"
@@ -34,18 +36,18 @@ if grep -q -F 'secretName:' "$TMP/kit-test.yaml"; then
 fi
 
 echo "[function-test] Case 2: no baoAddress: the test dials the subchart's own Service"
-helm template bao . --namespace vault --set autoUnseal.enabled=true > "$TMP/other.yaml"
+helm template bao . --namespace vault "${SEAL[@]}" > "$TMP/other.yaml"
 python3 "$CHECK" --chart bp-openbao --release bao < "$TMP/other.yaml"
-helm template bao . --namespace vault --set autoUnseal.enabled=true --show-only "$TEST" > "$TMP/other-test.yaml"
+helm template bao . --namespace vault "${SEAL[@]}" --show-only "$TEST" > "$TMP/other-test.yaml"
 grep -q -F 'value: "http://bao-openbao.vault.svc.cluster.local:8200"' "$TMP/other-test.yaml" || fail "the default address is not the subchart's Service"
 grep -q -E '^  name: bao-openbao$' "$TMP/other.yaml" || fail "the subchart renders no Service bao-openbao"
 
 echo "[function-test] Case 3: Kubernetes auth off: only the health question is asked"
-helm template openbao . --namespace openbao "${KIT[@]}" --set autoUnseal.kubernetesAuth.enabled=false \
+helm template openbao . --namespace openbao "${KIT[@]}" --set kubernetesAuth.enabled=false \
   --show-only "$TEST" > "$TMP/noauth-test.yaml"
 grep -A1 -F 'name: CHECK_LOGIN' "$TMP/noauth-test.yaml" | grep -q -F 'value: "no"' || fail "the login is asked while Kubernetes auth is off"
 
-echo "[function-test] Case 4: autoUnseal off (chart default) renders no test"
+echo "[function-test] Case 4: no seal stanza (chart default) renders no test"
 helm template openbao . --namespace openbao > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-openbao --release openbao --absent < "$TMP/default.yaml"
 
@@ -75,7 +77,7 @@ runs() {
 # stub <name>: a stand-in command from standard input. Each stand-in counts its calls in $COUNT.
 stub() { mkdir -p "$TMP/bin"; cat > "$TMP/bin/$1"; chmod +x "$TMP/bin/$1"; }
 printf '#!/bin/sh\nexit 0\n' | stub sleep
-helm template openbao . --namespace openbao --show-only "$TEST" --set autoUnseal.enabled=true > "$TMP/run.yaml"
+helm template openbao . --namespace openbao --show-only "$TEST" "${SEAL[@]}" > "$TMP/run.yaml"
 pod_script "$TMP/run.yaml" > "$TMP/run.sh"
 stub curl <<'EOF'
 #!/bin/bash
@@ -94,5 +96,8 @@ EOF
 mkdir -p "$TMP/etc"; printf 'a.b.c' > "$TMP/etc/token"
 runs pass "the test does not wait for the role the openbao-config Deployment writes" MISSING=3 SECONDS=0 BAO_ADDR=http://openbao:8200 AUTH_MOUNT=kubernetes AUTH_ROLE=external-secrets CHECK_LOGIN=yes
 runs fail "the test passes while the role is never written" MISSING=1000000 SECONDS=239 BAO_ADDR=http://openbao:8200 AUTH_MOUNT=kubernetes AUTH_ROLE=external-secrets CHECK_LOGIN=yes
+echo "[function-test] Case 5: self-initialisation off renders no test"
+helm template openbao . --namespace openbao "${KIT[@]}" --set selfInit.enabled=false > "$TMP/noinit.yaml"
+python3 "$CHECK" --chart bp-openbao --release openbao --absent < "$TMP/noinit.yaml"
 
 echo "function-test-render: all cases passed"

@@ -22,7 +22,7 @@ helm="${HELM_BIN:-helm}"
 
 render_file=$(mktemp)
 trap 'rm -f "$render_file"' EXIT
-"$helm" template openbao "$chart_dir" --set autoUnseal.enabled=true > "$render_file"
+"$helm" template openbao "$chart_dir" > "$render_file"
 
 python3 - "$render_file" <<'PYEOF'
 import json, re, sys, yaml

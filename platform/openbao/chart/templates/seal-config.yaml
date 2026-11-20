@@ -1,0 +1,81 @@
+{{- /*
+openbao-seal-config — the seal, the self-initialisation and the audit device
+of the OpenBao server (SEC-162).
+
+The server loads every .hcl file of this ConfigMap as an extra configuration
+directory (values.yaml openbao.server.extraArgs, extraVolumes):
+
+  seal.hcl        seal.stanza, the seal block of the Sovereign's seal profile
+                  (ConfigMap flux-system/sovereign-seal-profile, contract
+                  docs/contracts/c8-seal-provider.md). It names the key file
+                  under /openbao/seal, the node directory mounted read-only.
+  initialize.hcl  when selfInit.enabled: on the first start of an empty store
+                  OpenBao enables the Kubernetes auth mount, points it at the
+                  in-cluster API server, writes policy openbao-config-admin
+                  (openbao.configAdminPolicy) and binds role
+                  openbao-config-admin to the reconciler's service account
+                  openbao-config. It runs with a root token that OpenBao
+                  revokes at once, and it makes no recovery key. An
+                  initialised store skips it.
+  audit.hcl       when audit.enabled: the declared file audit device stdout/,
+                  read by the log pipeline from the server's standard output.
+
+Skip-render (#402, never `{{ fail }}`): with an empty seal.stanza nothing
+renders. The server pod then cannot mount this ConfigMap and does not start:
+it fails closed and never comes up with a Shamir seal.
+*/ -}}
+{{- $seal := .Values.seal | default dict }}
+{{- if $seal.stanza }}
+{{- $mount := (.Values.kubernetesAuth | default dict).mountPath | default "kubernetes" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-seal-config
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-seal-config
+data:
+  seal.hcl: |
+    {{- $seal.stanza | trim | nindent 4 }}
+{{- if (.Values.selfInit | default dict).enabled }}
+  initialize.hcl: |
+    initialize "platform" {
+      request "auth-kubernetes" {
+        operation = "update"
+        path      = {{ printf "sys/auth/%s" $mount | quote }}
+        data      = { type = "kubernetes" }
+      }
+      request "auth-kubernetes-config" {
+        operation = "update"
+        path      = {{ printf "auth/%s/config" $mount | quote }}
+        data      = { kubernetes_host = "https://kubernetes.default.svc" }
+      }
+      request "policy-config-admin" {
+        operation = "update"
+        path      = "sys/policies/acl/openbao-config-admin"
+        data      = { policy = {{ include "openbao.configAdminPolicy" . | toJson }} }
+      }
+      request "role-config-admin" {
+        operation = "update"
+        path      = {{ printf "auth/%s/role/openbao-config-admin" $mount | quote }}
+        data = {
+          bound_service_account_names      = ["openbao-config"]
+          bound_service_account_namespaces = [{{ .Release.Namespace | quote }}]
+          token_policies                   = ["openbao-config-admin"]
+          token_ttl                        = "15m"
+          token_max_ttl                    = "1h"
+        }
+      }
+    }
+{{- end }}
+{{- if (.Values.audit | default dict).enabled }}
+  audit.hcl: |
+    audit "file" "stdout" {
+      description = "Audit to standard output; collected by the log pipeline."
+      options {
+        file_path = "stdout"
+      }
+    }
+{{- end }}
+{{- end }}

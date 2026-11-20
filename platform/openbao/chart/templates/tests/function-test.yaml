@@ -4,32 +4,31 @@ Function test of bp-openbao (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
 It asks the store two questions on its in-cluster address:
   1. GET /v1/sys/health?standbyok=true must answer HTTP 200 with
      "initialized":true and "sealed":false.
-  2. A Kubernetes-auth login on the mount autoUnseal.kubernetesAuth.mountPath,
-     for the role autoUnseal.kubernetesAuth.role, with this Pod's own
+  2. A Kubernetes-auth login on the mount kubernetesAuth.mountPath,
+     for the role kubernetesAuth.role, with this Pod's own
      service-account token, must reach the role and be refused because the
      role is bound to another service account ("service account name not
      authorized" or "namespace not authorized"). That proves the auth method
      is mounted and the role that External Secrets logs in with exists. The
      test gets no token, and it writes nothing.
 
-It renders only when autoUnseal.enabled is true: only then does the chart
-initialise and unseal the store itself. Question 2 is asked only when
-autoUnseal.kubernetesAuth.enabled is true.
+It renders only when seal.stanza is set and selfInit.enabled is true: only
+then does the store unseal and initialise itself. Question 2 is asked only
+when kubernetesAuth.enabled is true.
 
-At install the test runs right after the chart's hooks. The role of question 2
-is not written by a hook: the openbao-config Deployment writes it on its first
+At install the test runs as soon as the release is installed. The role of question 2
+is not written at install: the openbao-config Deployment writes it on its first
 pass over the declared configuration (templates/_config.tpl, every
 config.intervalSeconds). So both questions are asked again every 5 seconds
 while the store is not yet ready or answers "invalid role name", until second
 240; any other answer to the login is judged at once.
 
-The address is autoUnseal.baoAddress, or the subchart's Service
+The address is baoAddress, or the subchart's Service
 <fullname>.<namespace>.svc.cluster.local:8200. The image is the kubectl image
 the kit already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
 */ -}}
-{{- $au := .Values.autoUnseal | default dict }}
-{{- if $au.enabled }}
-{{- $kAuth := $au.kubernetesAuth | default dict }}
+{{- $kAuth := .Values.kubernetesAuth | default dict }}
+{{- if and (.Values.seal | default dict).stanza (.Values.selfInit | default dict).enabled }}
 {{- $sub := .Values.openbao | default dict }}
 {{- $name := $sub.nameOverride | default "openbao" }}
 {{- $fullname := "" }}
@@ -40,7 +39,7 @@ the kit already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
 {{- else }}
 {{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
-{{- $addr := $au.baoAddress | default (printf "http://%s.%s.svc.cluster.local:8200" $fullname .Release.Namespace) }}
+{{- $addr := .Values.baoAddress | default (printf "http://%s.%s.svc.cluster.local:8200" $fullname .Release.Namespace) }}
 {{- $ft := .Values.functionTest | default dict }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
 apiVersion: v1

@@ -2,30 +2,29 @@
 # bp-openbao — declarative OpenBao configuration render gate (1.2.72, ADR-0015,
 # Refs #7067).
 #
-# Before 1.2.72 every ACL policy and auth role was written by the one-shot
-# auth-bootstrap hook, which revokes its root token — so no later chart
-# version ever changed them on a running Sovereign. Now they are desired state
-# (ConfigMap openbao-config-desired) applied by the openbao-config reconciler,
-# and the hook writes only the reconciler's own grant. This test asserts:
+# Every ACL policy and auth role is desired state (ConfigMap
+# openbao-config-desired) applied by the openbao-config reconciler. The store
+# writes only the reconciler's own grant itself, once, on its first start
+# (initialize.hcl of ConfigMap openbao-seal-config, SEC-162). This test
+# asserts:
 #
 #   C1  MIGRATION COMPLETE: every policy and role the 1.2.71 auth-bootstrap
 #       wrote (LEGACY below, per render flag) is in the desired state, with
 #       the same bound ServiceAccount / namespace / policies and the same
 #       policy paths + capabilities;
-#   C2  the hook writes NO policy and NO role except openbao-config-admin;
+#   C2  the self-initialisation writes NO policy and NO role except
+#       openbao-config-admin;
 #   C3  config-admin SCOPE: configuration surfaces only — no secret data (kv
 #       mount), no sys/raw, sys/seal, sys/unseal, sys/generate-root,
 #       sys/rekey, sys/storage, auth/token, sys/leases, no bare `*`, no delete,
 #       sys/mounts read-only, sys/mounts/secret create + update and no other
 #       sys/mounts/ path; it can rewrite its own policy, not its own role;
-#   C4  the hook re-asserts config-admin on EVERY run: with the init root, or
-#       a root generated from the unseal-key shares, revoked in the same run;
+#   C4  no Job renders, and the self-initialisation block is rendered;
 #   C5  policies are written before any role (ordering, #5829);
-#   C6  the reconciler logs in on the mount the role is bound on (XCR ⇒
-#       kubernetes-vcluster);
+#   C6  the reconciler logs in on the mount the role is bound on;
 #   C7  the first op writes sys/policies/acl/openbao-config-admin with the
-#       policy text the hook writes; the second is `secrets-mount
-#       sys/mounts/secret` with a kv version 2 payload.
+#       policy text the self-initialisation writes; the second is
+#       `secrets-mount sys/mounts/secret` with a kv version 2 payload.
 #
 # Vacuity: C3's checker must reject a policy granting secret/* and sys/seal,
 # and the self-locked policy that has no grant on sys/mounts/secret.
@@ -37,10 +36,10 @@ trap 'rm -rf "$TMP"' EXIT
 cd "$CHART_DIR"
 if ! ls charts/*.tgz >/dev/null 2>&1; then helm dependency build >/dev/null; fi
 
-R=(helm template openbao . --namespace openbao --set autoUnseal.enabled=true)
+printf 'seal "static" {\n  current_key_id = "k1"\n}\n' > "$TMP/seal.hcl"
+R=(helm template openbao . --namespace openbao --set-file seal.stanza="$TMP/seal.hcl")
 "${R[@]}" > "$TMP/default.yaml"
-"${R[@]}" --set autoUnseal.kubernetesAuth.catalystApi.enabled=false > "$TMP/nocapi.yaml"
-"${R[@]}" --set autoUnseal.kubernetesAuth.crossClusterTokenReview.enabled=true > "$TMP/xcr.yaml"
+"${R[@]}" --set kubernetesAuth.catalystApi.enabled=false > "$TMP/nocapi.yaml"
 
 cat > "$TMP/check.py" <<'PYEOF'
 import json, re, sys, yaml
@@ -80,8 +79,8 @@ ok(cm is not None, "desired-state ConfigMap missing")
 data = cm["data"] if cm else {}
 man = [l.split() for l in data.get("manifest", "").splitlines() if l.strip()]
 pl = lambda p: json.loads(data.get(p.replace("/", ".") + ".json", "null") or "null")
-job = get("Job", "openbao-auth-bootstrap")
-script = job["spec"]["template"]["spec"]["containers"][0]["args"][0] if job else ""
+seal = get("ConfigMap", "openbao-seal-config")
+init = seal["data"].get("initialize.hcl", "") if seal else ""
 
 # ── LEGACY: exactly what bp-openbao 1.2.71 auth-bootstrap wrote ───────────
 RW, R = ["create", "read", "update"], ["list", "read"]
@@ -110,9 +109,6 @@ LEGACY_ROLES = [  # (mount, role, sa, ns, policies, needs)
     ("kubernetes", "sso-configure", "openbao-sso-configure", "openbao", ["sso-configure-admin"], set()),
     ("kubernetes", "catalyst-api", "catalyst-api-cutover-driver", "catalyst-system", ["catalyst-api-write"], {"capi"}),
     ("kubernetes", "openbao-snapshot", "openbao-snapshot", "openbao", ["openbao-snapshot"], {"snap"}),
-    ("kubernetes-vcluster", "sso-bridge", "sso-bridge-reconciler", "sso-bridge", ["sso-bridge-write"], {"xcr"}),
-    ("kubernetes-vcluster", "sso-configure", "openbao-sso-configure", "openbao", ["sso-configure-admin"], {"xcr"}),
-    ("kubernetes-vcluster", "openbao-snapshot", "openbao-snapshot", "openbao", ["openbao-snapshot"], {"xcr", "snap"}),
 ]
 
 if mode == "render":
@@ -139,34 +135,31 @@ if mode == "render":
     for o in man:
         ok(pl(o[1]) is not None, f"op {o} has no payload in the ConfigMap")
     # C2
-    writes = re.findall(r"bao policy write (\S+)", script)
-    ok(writes == ["openbao-config-admin"], f"C2 the hook writes policies {writes}; only openbao-config-admin is allowed")
-    roles = re.findall(r"bao write auth/\S+/role/(\S+)", script)
-    ok(roles == ["openbao-config-admin"], f"C2 the hook writes roles {roles}; only openbao-config-admin is allowed")
+    writes = re.findall(r'path\s*=\s*"sys/policies/acl/([^"]+)"', init)
+    ok(writes == ["openbao-config-admin"], f"C2 the self-initialisation writes policies {writes}; only openbao-config-admin is allowed")
+    roles = re.findall(r'path\s*=\s*"auth/[^"]+/role/([^"]+)"', init)
+    ok(roles == ["openbao-config-admin"], f"C2 the self-initialisation writes roles {roles}; only openbao-config-admin is allowed")
     # C3
-    m = re.search(r"bao policy write openbao-config-admin -\n(.*?)\n\s*EOF", script, re.S)
+    m = re.search(r'policy = ("(?:[^"\\]|\\.)*")', init)
     ok(m is not None, "C3 config-admin policy block not found")
-    if m: errs.extend(check_scope(m.group(1)))
-    ok(re.search(r"role/openbao-config-admin \\\s*\n\s*bound_service_account_names=openbao-config \\", script) is not None, "C3 config-admin role must bind ONLY the openbao-config SA")
+    if m: errs.extend(check_scope(json.loads(m.group(1))))
+    ok(re.search(r'bound_service_account_names\s*=\s*\["openbao-config"\]\n\s*bound_service_account_namespaces\s*=\s*\["openbao"\]', init) is not None, "C3 config-admin role must bind ONLY the openbao-config SA")
     # C4
-    ok("bao_generate_root()" in script and "_gr_bao operator generate-root -init" in script, "C4 the hook must generate a root from the unseal keys when the init root is gone")
-    ok('if ! bao token lookup' in script and "exiting 0" not in script.split("bao policy write openbao-config-admin")[0].split("Privileged token for THIS run")[-1], "C4 a re-run must no longer exit before re-asserting config-admin")
-    i_admin, i_rev = script.find("bao policy write openbao-config-admin"), script.find("bao token revoke -self")
-    ok(0 <= i_admin < i_rev, "C4 the (generated) root must be revoked after the config-admin write")
+    ok(not [d for d in docs if d["kind"] in ("Job", "CronJob")], "C4 a Job renders; the store initialises itself and nothing else may")
+    ok('initialize "platform"' in init, "C4 the self-initialisation block is missing from ConfigMap openbao-seal-config")
     # C5
     kinds = [("policy" if o[1].startswith("sys/policies/") else "other") for o in man if o[0] != "secrets-mount"]
     ok("policy" not in kinds[kinds.index("other"):] if "other" in kinds else True, "C5 a policy op comes after a role/mount op")
     # C6
     dep = get("Deployment", "openbao-config")
     env = {e["name"]: e.get("value") for e in dep["spec"]["template"]["spec"]["containers"][0]["env"]} if dep else {}
-    want_mount = "kubernetes-vcluster" if "xcr" in flags else "kubernetes"
-    ok(env.get("BAO_K8S_AUTH_PATH") == want_mount and env.get("BAO_ROLE") == "openbao-config-admin", f"C6 reconciler login {env}")
-    ok(f"bao write auth/{want_mount}/role/openbao-config-admin" in script, f"C6 config-admin must be bound on auth/{want_mount}")
+    ok(env.get("BAO_K8S_AUTH_PATH") == "kubernetes" and env.get("BAO_ROLE") == "openbao-config-admin", f"C6 reconciler login {env}")
+    ok('path      = "auth/kubernetes/role/openbao-config-admin"' in init, "C6 config-admin must be bound on auth/kubernetes")
     # C7
     ok(man[:1] == [["write", "sys/policies/acl/openbao-config-admin"]], f"C7 the first op must write sys/policies/acl/openbao-config-admin, got {man[:1]}")
     own = pl("sys/policies/acl/openbao-config-admin")
     lines = lambda t: [l.strip() for l in t.splitlines() if l.strip()]
-    ok(bool(own and m) and lines(own["policy"]) == lines(m.group(1)), "C7 the policy text of the first op differs from the text the hook writes")
+    ok(bool(own and m) and lines(own["policy"]) == lines(json.loads(m.group(1))), "C7 the policy text of the first op differs from the text the self-initialisation writes")
     ok(man[1:2] == [["secrets-mount", "sys/mounts/secret"]], f"C7 the second op must be secrets-mount sys/mounts/secret, got {man[1:2]}")
     ok(pl("sys/mounts/secret") == {"type": "kv", "options": {"version": "2"}}, f"C7 the kv mount payload is {pl('sys/mounts/secret')}")
 else:
@@ -203,7 +196,6 @@ must() { if python3 "$TMP/check.py" "${@:2}"; then pass "$1"; else echo "  FAIL 
 
 must "C1-C7 default (catalyst-api role on)"        render "$TMP/default.yaml" "capi"
 must "C1-C7 catalyst-api role off"                 render "$TMP/nocapi.yaml" ""
-must "C1-C7 cross-cluster TokenReview (XCR) on"    render "$TMP/xcr.yaml" "capi,xcr"
 if python3 "$TMP/check.py" scope-mutant "$TMP/mutant.hcl"; then
   echo "  FAIL  C3 vacuity: a policy granting secret/* + sys/seal passed the scope check"; FAIL=1
 else
@@ -221,4 +213,4 @@ else
 fi
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao declarative config render"; exit 1; fi
-echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, hook writes only config-admin"
+echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, the self-initialisation writes only config-admin"
