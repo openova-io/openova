@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T23:45:03Z` |
+| Last refreshed | `2026-11-20T00:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7992](https://github.com/openova-io/openova/issues/7992) | SOV-750 Spike: an auto-scaling group worker pool on the reference cloud | Other |
-| [#7993](https://github.com/openova-io/openova/issues/7993) | SVC-190 Delete the Blueprint controller | Other |
 | [#8035](https://github.com/openova-io/openova/issues/8035) | ACC-010 Close the default-install exposure of the access gateway | Other |
 | [#8036](https://github.com/openova-io/openova/issues/8036) | CLD-064 Convert the adoption Composition to pipeline mode | Other |
 | [#8037](https://github.com/openova-io/openova/issues/8037) | MIG-030 Spike: a written volume boots on the reference cloud, through a unit Wor | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8415](https://github.com/openova-io/openova/issues/8415) | SVC-166 The umbrella chart's Blueprint file moves beside its chart | Other |
 | [#8418](https://github.com/openova-io/openova/issues/8418) | SOV-522 The release stage applies the provider pivot again where a candidate cha | Other |
 | [#8423](https://github.com/openova-io/openova/issues/8423) | AIP-131 Model checks AIP-G02 to AIP-G05 as expected-fail | Other |
+| [#8426](https://github.com/openova-io/openova/issues/8426) | CLD-133 Secondary-region suspend keys are set for every provider | Other |
+| [#8427](https://github.com/openova-io/openova/issues/8427) | NET-252 Lab test: HTTPS through the front listener, and cilium-envoy memory with | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
+| 2026-11-19T23:48 | [#8419](https://github.com/openova-io/openova/pull/8419) | fix(charts): a chart test reads its rendered text without a  |  |
 | 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:37 | [#8416](https://github.com/openova-io/openova/pull/8416) | #8414 | fix(api): the kubeconfig route serves the primary region fil |
 | 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T18:17 | [#8382](https://github.com/openova-io/openova/pull/8382) | #7087 | docs(ledger): plan update |
 | 2026-11-19T18:10 | [#8380](https://github.com/openova-io/openova/pull/8380) | #8374 | fix(guards): the Python guard counts code and configuration, |
 | 2026-11-19T18:19 | [#8375](https://github.com/openova-io/openova/pull/8375) | #8364 | docs(ledger): result of the lab test AIP-250, the agent work |
-| 2026-11-19T18:38 | [#8374](https://github.com/openova-io/openova/pull/8374) | #8363 | fix(openova-mcp): every tool answer is redacted, made inert  |
-| 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
 
 ---
 
