@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-valkey
 spec:
-  version: 1.1.7
+  version: 1.1.8
   card:
     title: Valkey
     summary: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
