@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T21:30:06Z` |
+| Last refreshed | `2026-11-20T21:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -318,6 +318,7 @@ flowchart LR
 | 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:00 | [#8531](https://github.com/openova-io/openova/pull/8531) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:53 | [#8530](https://github.com/openova-io/openova/pull/8530) | #7087 | docs(ledger): plan update |
+| 2026-11-20T21:34 | [#8529](https://github.com/openova-io/openova/pull/8529) | #8528 | fix(charts): six function tests wait for their subject in th |
 | 2026-11-20T18:34 | [#8527](https://github.com/openova-io/openova/pull/8527) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:27 | [#8526](https://github.com/openova-io/openova/pull/8526) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:43 | [#8525](https://github.com/openova-io/openova/pull/8525) | #8494 | fix(gate): the gate's candidate verification gets the origin |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
 | 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
-| 2026-11-20T12:39 | [#8507](https://github.com/openova-io/openova/pull/8507) | #7087 | docs(ledger): plan update |
 
 ---
 
