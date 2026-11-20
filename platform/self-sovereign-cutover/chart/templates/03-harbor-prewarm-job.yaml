@@ -1071,6 +1071,42 @@ data:
       esac
     }
 
+    XPKG_V2_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+    xpkg_v2_resolve_digest() {
+      {{- /*
+       $1 = repo-path (literal slashes, incl. project), $2 = tag.
+       Echoes the servable manifest/index digest (Docker-Content-Digest
+       from a v2 HEAD) when the HEAD is 200 + carries the header, else
+       nothing. This is the durable digest step-11 pivots spec.package
+       to. Empty tag → nothing (an in-ref digest is authoritative and
+       never needs resolving).
+      */}}
+      _xr_repo="$1"; _xr_tag="$2"
+      [ -n "${_xr_tag}" ] || return 0
+      curl -sSIk --max-time 30 \
+        -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+        -H "Accept: ${XPKG_V2_ACCEPT}" \
+        "${HARBOR_INTERNAL_URL}/v2/${_xr_repo}/manifests/${_xr_tag}" 2>/dev/null \
+        | tr -d '\r' | grep -i '^docker-content-digest:' | tail -1 | awk '{print $2}'
+    }
+    xpkg_v2_digest_present() {
+      {{- /*
+       $1 = repo-path (literal slashes, incl. project), $2 = sha256
+       digest. 0 iff the registry v2 API serves that digest (200) —
+       Harbor CORE serving the durably-cached index/manifest, the
+       multi-arch-aware durability signal that supersedes the
+       artifact-management-API probe for xpkg (#5232). Non-zero on ANY
+       miss → fail-closed (the caller warms / FATALs).
+      */}}
+      _xp_repo="$1"; _xp_dig="$2"
+      [ -n "${_xp_dig}" ] || return 1
+      _xp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
+        -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+        -H "Accept: ${XPKG_V2_ACCEPT}" \
+        "${HARBOR_INTERNAL_URL}/v2/${_xp_repo}/manifests/${_xp_dig}" 2>/dev/null)
+      [ "${_xp_code}" = "200" ]
+    }
+
     {{- /*
      #5030 #5443 — the digest the local Harbor DURABLY holds for $1 (the resolver PATH
      project/repo[:tag|@digest] or a HARBOR_HOST-prefixed lref), empty when absent. It asks the
@@ -1108,10 +1144,36 @@ data:
        an https harborInternalURL override still works.
       */}}
       _hd_repo_enc=$(printf '%s' "${_hd_repo}" | sed 's#/#%2F#g')
-      curl -sk --max-time 30 \
+      _hd_d=$(curl -sk --max-time 30 \
         -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
         "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_hd_proj}/repositories/${_hd_repo_enc}/artifacts/${_hd_ref}" 2>/dev/null \
-        | jq -r '.digest // empty' 2>/dev/null
+        | jq -r '.digest // empty' 2>/dev/null || true)
+      {{- /* #5232: a proxy-cache project lists a pulled-through index by its digest in the registry API only; read there with the same credential, the digest must be the one asked for. */}}
+      if [ -z "${_hd_d}" ] && prewarm_proxy_project "${_hd_proj}"; then
+        case "${_hd_ref}" in sha256:*) if [ "$(xpkg_v2_resolve_digest "${_hd_proj}/${_hd_repo}" "${_hd_ref}")" = "${_hd_ref}" ]; then _hd_d="${_hd_ref}"; fi ;; esac
+      fi
+      [ -z "${_hd_d}" ] || printf '%s\n' "${_hd_d}"
+    }
+
+    {{- /* The local projects that are proxy caches (PROXY_CACHE_PROJECTS, step 02's harbor.proxyProjects). */}}
+    prewarm_proxy_project() { for _pxp in ${PROXY_CACHE_PROJECTS:-}; do [ "$1" = "${_pxp}" ] && return 0; done; return 1; }
+    {{- /*
+     prewarm_read_through PATH LOG: fill a proxy-cache project with PATH by one full read through it
+     (all platforms) with the local credential, as Phase A4 warms a package; PREWARM_LEG_ERR names
+     the registry's answer when every attempt fails.
+    */}}
+    prewarm_read_through() {
+      _rt_dir="${cpdir}/.rt.$(rl_slug "$1")"; _rt_i=1; PREWARM_LEG_ERR=""
+      while [ "${_rt_i}" -le "${PREWARM_COPY_ATTEMPTS:-3}" ]; do
+        rm -rf "${_rt_dir}"
+        if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy --insecure-policy --multi-arch all --retry-times 5 \
+            --src-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" --src-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+            "docker://${HARBOR_HOST}/$1" "dir:${_rt_dir}" >>"$2" 2>&1; then rm -rf "${_rt_dir}"; return 0; fi
+        _rt_i=$((_rt_i+1)); [ "${_rt_i}" -gt "${PREWARM_COPY_ATTEMPTS:-3}" ] || sleep 5
+      done
+      rm -rf "${_rt_dir}"
+      PREWARM_LEG_ERR="read of ${HARBOR_HOST}/$1 as ${HARBOR_USERNAME} failed: $(grep 'level=fatal' "$2" | tail -1 | sed -e 's/^.*level=fatal msg=//' -e 's/^"//' -e 's/"$//' | awk '{print substr($0, length($0) > 300 ? length($0) - 299 : 1)}')"
+      return 1
     }
 
     dest_already_current() {
@@ -1254,16 +1316,32 @@ data:
         printf '%s (excluded)' "${up}" >"${cpdir}/${slug}.ok"
         return 0
       fi
-      {{- /* #7938: a ref on the local registry (a pivoted workload; a chart rendered with this Sovereign's values) maps to itself. Present: not copied. Absent: its upstream (03a offlinemirror_upstream_ref) is resolved BEFORE any copy; with none it fails by name and skopeo is never called. */}}
-      case "${up}" in "${LOCAL_REGISTRY_HOST:-__none__}"/*)
+      {{- /*
+       #7938: a ref on the local registry (a pivoted workload; a chart rendered with this Sovereign's
+       values) maps to itself. Present: not copied. Absent: its upstream (03a offlinemirror_upstream_ref)
+       is resolved BEFORE any copy; with none it fails by name and skopeo is never called. Local is
+       every name of it (offlinemirror_is_local_host): a delivery after step 11 reads Provider pods on
+       harbor.<fqdn>/proxy-xpkg, which an anonymous read answered 401 (20 Nov 2026).
+      */}}
+      if offlinemirror_is_local_host "${up%%/*}"; then
         _cu_miss=""; for _cu_p in ${dests}; do [ -n "$(harbor_durable_digest "${_cu_p}")" ] || _cu_miss=1; done
         if [ -z "${_cu_miss}" ]; then printf '%s (in the local registry)' "${up}" >"${cpdir}/${slug}.ok"; return 0; fi
         _cu=$(offlinemirror_upstream_ref "${up}" 2>/dev/null || true)
-        case "${_cu}" in
-          ""|"${LOCAL_REGISTRY_HOST}"/*) printf '%s points at the local registry, is not in it, and maps back to no upstream: not copied (#7938)' "${up}" >"${cpdir}/${slug}.fail"; echo "[harbor-prewarm] FAIL $(cat "${cpdir}/${slug}.fail")"; return 0 ;;
-          *) echo "[harbor-prewarm] ${up} points at the local registry and is not in it: copying it from its upstream ${_cu} (#7938)" >>"${cpdir}/${slug}.log"; up="${_cu}" ;;
-        esac ;;
-      esac
+        if [ -z "${_cu}" ] || offlinemirror_is_local_host "${_cu%%/*}"; then
+          printf '%s points at the local registry, is not in it, and maps back to no upstream: not copied (#7938)' "${up}" >"${cpdir}/${slug}.fail"; echo "[harbor-prewarm] FAIL $(cat "${cpdir}/${slug}.fail")"; return 0
+        fi
+        echo "[harbor-prewarm] ${up} points at the local registry and is not in it: copying it from its upstream ${_cu} (#7938)" >>"${cpdir}/${slug}.log"
+        {{- /* A proxy-cache project takes no push: a full read through it with the local credential fills it from that upstream; then it must be present at the same digest. */}}
+        if prewarm_proxy_project "${dests%%/*}"; then
+          if prewarm_read_through "${dests}" "${cpdir}/${slug}.log" && [ -n "$(harbor_durable_digest "${dests}")" ]; then
+            printf '%s (copied from %s through the proxy project)' "${up}" "${_cu}" >"${cpdir}/${slug}.ok"; echo "[harbor-prewarm] done ${up} (ok)"
+          else
+            printf '%s exit=1: %s' "${up}" "${PREWARM_LEG_ERR:-read through, and still not in the local registry}" >"${cpdir}/${slug}.fail"; echo "[harbor-prewarm] done ${up} (FAIL)"
+          fi
+          return 0
+        fi
+        up="${_cu}"
+      fi
       {{- /* SOURCE host → src-creds selection (bare official image = docker.io). */}}
       srchost="${up%%/*}"
       case "${srchost}" in *.*|*:*|localhost) : ;; *) srchost="docker.io" ;; esac
@@ -1317,7 +1395,7 @@ data:
             ;;
         esac
       fi
-      all_ok=1
+      all_ok=1; _cur_n=0
       last_rc=0
       for dpath in ${dests}; do
         lref="${HARBOR_HOST}/${dpath}"
@@ -1326,9 +1404,9 @@ data:
         if [ "${_dc_rc}" -eq 0 ] && [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ]; then
           echo "[harbor-prewarm] skip ${up} -> ${lref} (dest already current)"
           echo "  SKIP ${up} -> ${lref} (dest already serves identical manifest; copy skipped)" >>"${cpdir}/${slug}.log"
-          continue
+          _cur_n=$((_cur_n+1)); continue
         fi
-        if [ "${_dc_rc}" -eq 2 ]; then echo "  KEPT ${lref} at ${_dc_d}: the source reads ${_dc_s:-nothing}; a tag never moves (#7938)" >>"${cpdir}/${slug}.log"; continue; fi
+        if [ "${_dc_rc}" -eq 2 ]; then echo "  KEPT ${lref} at ${_dc_d}: the source reads ${_dc_s:-nothing}; a tag never moves (#7938)" >>"${cpdir}/${slug}.log"; _cur_n=$((_cur_n+1)); continue; fi
         {{- /*
          OUTER per-dest retry loop around prewarm_skopeo_copy (a dest reset can
          abort a whole copy, hw146): PREWARM_COPY_ATTEMPTS, or for a
@@ -1470,7 +1548,8 @@ data:
         [ "${rc}" -eq 0 ] || { all_ok=0; last_rc="${rc}"; }
       done
       if [ "${all_ok}" -eq 1 ]; then
-        printf '%s' "${up}" >"${cpdir}/${slug}.ok"
+        {{- /* Every dest already held it (current or kept): counted present in the summary, not copied. */}}
+        if [ "${_cur_n}" -gt 0 ] && [ "${_cur_n}" -eq "$(printf '%s\n' ${dests} | grep -c .)" ]; then printf '%s (already current)' "${up}" >"${cpdir}/${slug}.ok"; else printf '%s' "${up}" >"${cpdir}/${slug}.ok"; fi
         {{- /* #4994 — real-time per-image completion line (the worker runs async; hw240 looked hung for 68m). */}}
         echo "[harbor-prewarm] done ${up} (ok)"
       else
@@ -1677,13 +1756,14 @@ data:
 
     {{- /* Tally + surface each copy's captured log. */}}
     push_ok=0
-    push_fail=0
+    push_fail=0; n_present=0; n_excluded=0
     for f in "${cpdir}"/*.ok; do
       [ -e "${f}" ] || continue
       up=$(cat "${f}")
       slug=$(basename "${f}" .ok)
       sed 's/^/  /' "${cpdir}/${slug}.log" 2>/dev/null || true
       push_ok=$((push_ok+1))
+      case "${up}" in *' (in the local registry)'|*' (already current)') n_present=$((n_present+1)) ;; *' (excluded)') n_excluded=$((n_excluded+1)) ;; esac
       echo "[harbor-prewarm] OK ${up}"
     done
     for f in "${cpdir}"/*.fail; do
@@ -1694,7 +1774,7 @@ data:
       push_fail=$((push_fail+1))
       echo "[harbor-prewarm] FAIL ${detail}"
     done
-    echo "[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail}"
+    echo "[harbor-prewarm] Phase A complete: push_ok=${push_ok} push_fail=${push_fail} (copied=$((push_ok-n_present-n_excluded)) already-present=${n_present} excluded=${n_excluded} failed=${push_fail})"
     if [ "${push_fail}" -gt 0 ]; then
       echo "[harbor-prewarm] FATAL: ${push_fail} openova-io image(s) failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover"
       exit 1
@@ -2739,7 +2819,8 @@ data:
      and persists the map in the XPKG_DIGEST_CM ConfigMap for
      step-11's digest pivot.
 
-     The two helpers below use the registry v2 manifest API
+     The two helpers (defined before Phase A, where harbor_durable_digest
+     reads a proxy-cache project with them) use the registry v2 manifest API
      (${HARBOR_INTERNAL_URL}/v2/<repo>/manifests/<ref>, the SAME
      in-cluster Harbor Service Phase B dials) with LITERAL-slash repo
      paths (no %2F encode — the /v2 API takes the nested repo name
@@ -2748,41 +2829,6 @@ data:
      returns a manifest.v2 digest, equally servable) needs no
      special-casing.
     */}}
-    XPKG_V2_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
-    xpkg_v2_resolve_digest() {
-      {{- /*
-       $1 = repo-path (literal slashes, incl. project), $2 = tag.
-       Echoes the servable manifest/index digest (Docker-Content-Digest
-       from a v2 HEAD) when the HEAD is 200 + carries the header, else
-       nothing. This is the durable digest step-11 pivots spec.package
-       to. Empty tag → nothing (an in-ref digest is authoritative and
-       never needs resolving).
-      */}}
-      _xr_repo="$1"; _xr_tag="$2"
-      [ -n "${_xr_tag}" ] || return 0
-      curl -sSIk --max-time 30 \
-        -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-        -H "Accept: ${XPKG_V2_ACCEPT}" \
-        "${HARBOR_INTERNAL_URL}/v2/${_xr_repo}/manifests/${_xr_tag}" 2>/dev/null \
-        | tr -d '\r' | grep -i '^docker-content-digest:' | tail -1 | awk '{print $2}'
-    }
-    xpkg_v2_digest_present() {
-      {{- /*
-       $1 = repo-path (literal slashes, incl. project), $2 = sha256
-       digest. 0 iff the registry v2 API serves that digest (200) —
-       Harbor CORE serving the durably-cached index/manifest, the
-       multi-arch-aware durability signal that supersedes the
-       artifact-management-API probe for xpkg (#5232). Non-zero on ANY
-       miss → fail-closed (the caller warms / FATALs).
-      */}}
-      _xp_repo="$1"; _xp_dig="$2"
-      [ -n "${_xp_dig}" ] || return 1
-      _xp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
-        -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-        -H "Accept: ${XPKG_V2_ACCEPT}" \
-        "${HARBOR_INTERNAL_URL}/v2/${_xp_repo}/manifests/${_xp_dig}" 2>/dev/null)
-      [ "${_xp_code}" = "200" ]
-    }
 
     if [ "${XPKG_PREWARM_ENABLED:-true}" != "true" ]; then
       echo "[harbor-prewarm] Phase A4 SKIP — prewarm.xpkgPackages.enabled=false (Crossplane package warm disabled; post-severance provider re-pulls stay dependent on proxy-cache upstream reachability)"
@@ -3433,6 +3479,13 @@ data:
             value: {{ include "bp-self-sovereign-cutover.mirrorExcludedSubstringsInline" . | quote }}
           - name: LOCAL_REGISTRY_HOST
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+          {{- /* The other name of the local registry, the projects a pivot step writes that the map does not name, and the proxy-cache projects (_helpers.tpl). */}}
+          - name: LOCAL_REGISTRY_ALIASES
+            value: {{ include "bp-self-sovereign-cutover.localRegistryAliasesInline" . | quote }}
+          - name: PIVOT_PROJECT_MAP
+            value: {{ include "bp-self-sovereign-cutover.pivotProjectMapInline" . | quote }}
+          - name: PROXY_CACHE_PROJECTS
+            value: {{ include "bp-self-sovereign-cutover.proxyCacheProjectsInline" . | quote }}
           - name: MOTHERSHIP_HOST
             value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
           {{- /*
