@@ -232,8 +232,14 @@ spec:
             - -c
             - |
               set -u
+              : "${SYNC_STATE:?is not set: the probes read the supervisor state from that file}"
               peer="${PEER_FILER_HOST}:${PEER_FILER_GRPC_PORT}"
               child=""; stopping=""
+              # The probes read this file: a write that fails ends the
+              # container, never a state the probes cannot see.
+              state() {
+                echo "$1" > "$SYNC_STATE" || { echo "cannot write the state file $SYNC_STATE: ending the container" >&2; exit 1; }
+              }
               on_term() {
                 stopping=1
                 if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null; else exit 143; fi
@@ -241,20 +247,20 @@ spec:
               trap on_term TERM INT
               peer_up() { nc -z -w 5 "$PEER_FILER_HOST" "$PEER_FILER_GRPC_PORT" </dev/null >/dev/null 2>&1; }
               run_sync() {
-                echo running > "$SYNC_STATE"
+                state running
                 "$@" &
                 child=$!
                 wait "$child"; rc=$?
                 if [ -n "$stopping" ]; then wait "$child"; exit $?; fi
                 child=""
-                echo "exited $rc" > "$SYNC_STATE"
+                state "exited $rc"
               }
               # Lost peer: the sync's start-up exit (code 0) while the
               # peer's gRPC port refuses. Anything else is a fault.
               lost_peer() { [ "$rc" -eq 0 ] && ! peer_up; }
               run_sync "$@"
               while lost_peer; do
-                echo "waiting for $peer" > "$SYNC_STATE"
+                state "waiting for $peer"
                 echo "filer.sync ended (exit code 0) because the peer filer $peer refuses gRPC connections: waiting for it, not Ready"
                 since=$(date +%s); told=$since
                 until peer_up; do
@@ -301,14 +307,16 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 3
           # Alive while the supervisor has the sync down (no metrics then);
-          # a running sync must serve its metrics.
+          # a running sync must serve its metrics; a state file that cannot
+          # be read is dead, never alive.
           livenessProbe:
             exec:
               command:
                 - /bin/sh
                 - -c
                 - >-
-                  [ "$(cat "$SYNC_STATE")" != running ] ||
+                  s=$(cat "$SYNC_STATE") || exit 1;
+                  [ "$s" != running ] ||
                   wget -q -O /dev/null http://127.0.0.1:{{ $port }}/metrics
             initialDelaySeconds: 30
             periodSeconds: 30

@@ -14,10 +14,13 @@
 #      peer it waits for;
 #   2. the readiness probe is false while the supervisor waits and true
 #      while weed runs; the liveness probe passes while it waits and fails
-#      on a running sync whose metrics do not answer;
+#      on a running sync whose metrics do not answer and on a state file it
+#      cannot read;
 #   3. SIGTERM reaches weed (it saves its offset) and the command ends;
 #   4. any other exit ends the command with that code: weed exits 3; weed
-#      exits 0 while the peer accepts; weed exits 7 while the peer refuses.
+#      exits 0 while the peer accepts; weed exits 7 while the peer refuses;
+#   5. with SYNC_STATE unset, or a state file it cannot write, the command
+#      ends non-zero, says why and never starts weed.
 #
 # FILER_SYNC_TEST_SH picks the shell (default sh; `busybox sh` = the image's).
 # Usage: tests/filer-sync-survives-peer-roll.sh [chart_dir]
@@ -48,7 +51,9 @@ PEER_FILER_GRPC_PORT="$(q '.env[] | select(.name == "PEER_FILER_GRPC_PORT") | .v
 peer="$PEER_FILER_HOST:$PEER_FILER_GRPC_PORT"
 [ "$peer" = "${a_addr%:*}:${a_addr##*.}" ] || fail "the supervisor probes $peer but filer.sync dials $a_addr"
 [ "$peer" = "seaweedfs-filer-mesh-$B.seaweedfs:18888" ] || fail "region a probes $peer, want the gRPC port of the region b mesh Service"
-[ "$(q '.env[] | select(.name == "SYNC_STATE") | .value')" != "null" ] || fail "no SYNC_STATE for the probes"
+# yq prints nothing (not "null") for a missing entry: assert the value itself.
+state_path="$(q '.env[] | select(.name == "SYNC_STATE") | .value')"
+case "$state_path" in /?*) ;; *) fail "the sync container has no absolute SYNC_STATE path for the probes: '$state_path'";; esac
 SUPERVISOR="$(q '.command[2]')"   # run as kubelet does: sh -c SUPERVISOR $0 ARGS...
 ARG0="$(q '.command[3]')"
 READY_CMD="$(q '.readinessProbe.exec.command[2]')"
@@ -151,6 +156,9 @@ echo "waiting for $peer" > "$SYNC_STATE"; touch "$T/weed.up"
 if PATH="$TMP/bin:$PATH" $SH -c "$READY_CMD"; then fail "Ready while waiting for the peer, because the metrics answer"; fi
 echo running > "$SYNC_STATE"; rm -f "$T/weed.up"
 if PATH="$TMP/bin:$PATH" $SH -c "$LIVE_CMD"; then fail "a running sync whose metrics do not answer is alive"; fi
+rm -f "$SYNC_STATE"; touch "$T/weed.up"
+if PATH="$TMP/bin:$PATH" $SH -c "$LIVE_CMD" 2>/dev/null; then fail "alive although the state file cannot be read"; fi
+echo running > "$SYNC_STATE"
 
 # 3. SIGTERM reaches weed
 kill -TERM "$sup"
@@ -167,5 +175,15 @@ supervise 0 0 0; finish
 [ "$code" = 0 ] && [ "$(cat "$T/weed.count")" = 1 ] || fail "weed exited 0 while the peer accepts: code $code, $(cat "$T/weed.count") starts; want the container to end"
 supervise 0 0 7 5; finish
 [ "$code" = 7 ] && [ "$(cat "$T/weed.count")" = 1 ] || fail "weed exited 7 while the peer refuses: code $code, $(cat "$T/weed.count") starts; want 7 at once (a crash is not a lost peer)"
+
+# 5. no state for the probes: the command fails loudly before weed starts
+(unset SYNC_STATE; supervise 0 0 0; finish; echo "$code" > "$TMP/code")
+code="$(cat "$TMP/code")"
+[ "$code" != 0 ] && [ ! -e "$T/weed.count" ] || fail "SYNC_STATE unset: code $code, weed started: $([ -e "$T/weed.count" ] && echo yes || echo no); want non-zero before weed"
+grep -q "SYNC_STATE" "$TMP/err" || fail "SYNC_STATE unset is not logged: $(cat "$TMP/err")"
+(SYNC_STATE="$TMP/run/no-such-dir/state"; supervise 0 0 0; finish; echo "$code" > "$TMP/code")
+code="$(cat "$TMP/code")"
+[ "$code" != 0 ] && [ ! -e "$T/weed.count" ] || fail "state file not writable: code $code, weed started: $([ -e "$T/weed.count" ] && echo yes || echo no); want non-zero before weed"
+grep -q "cannot write the state file" "$TMP/err" || fail "a state file it cannot write is not logged: $(cat "$TMP/err")"
 
 echo "PASS: filer.sync survives a roll of the peer's filer without a container restart; other exits end it with their code"
