@@ -398,7 +398,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.4.2202",
+    "version": "1.4.2206",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2896,7 +2896,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "class": "ai-service",
     "lifecycle": "experimental",
-    "version": "1.4.168",
+    "version": "1.4.169",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2921,7 +2921,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2936,7 +2936,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],

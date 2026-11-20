@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T06:15:04Z` |
+| Last refreshed | `2026-11-20T07:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
-| [#8086](https://github.com/openova-io/openova/issues/8086) | CLD-132 Remaining provider tests become injected inputs | Other |
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 | [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
 | [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8452](https://github.com/openova-io/openova/issues/8452) | SOV-242 The cutover repeats a failed step a few times with a growing pause, then | Other |
 | [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
 | [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
+| [#8472](https://github.com/openova-io/openova/issues/8472) | PRD-206 cortex screens | Other |
+| [#8475](https://github.com/openova-io/openova/issues/8475) | SEC-153 Flux renders bootstrap Secrets from one seed: robot token, pool-domain l | Other |
 
 ---
 
@@ -307,11 +307,19 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:37 | [#8474](https://github.com/openova-io/openova/pull/8474) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:32 | [#8471](https://github.com/openova-io/openova/pull/8471) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:19 | [#8469](https://github.com/openova-io/openova/pull/8469) | #7087 | docs(ledger): plan update |
+| 2026-11-20T06:53 | [#8468](https://github.com/openova-io/openova/pull/8468) | #7087 | docs(ledger): plan update |
+| 2026-11-20T06:31 | [#8467](https://github.com/openova-io/openova/pull/8467) | #8466 | feat(cortex): assistants answer in the OpenAI shape with cit |
 | 2026-11-20T06:03 | [#8465](https://github.com/openova-io/openova/pull/8465) | #7087 | docs(ledger): plan update |
 | 2026-11-20T05:45 | [#8464](https://github.com/openova-io/openova/pull/8464) | #7087 | docs(ledger): plan update |
 | 2026-11-20T05:49 | [#8463](https://github.com/openova-io/openova/pull/8463) | #45980 | fix(keycloak): the regions' Keycloaks form one cluster again |
 | 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
 | 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
+| 2026-11-20T07:05 | [#8459](https://github.com/openova-io/openova/pull/8459) | #3176 | fix(org): a new Organization's applications are not blocked  |
 | 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
 | 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
@@ -319,6 +327,7 @@ flowchart LR
 | 2026-11-20T03:52 | [#8451](https://github.com/openova-io/openova/pull/8451) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:12 | [#8450](https://github.com/openova-io/openova/pull/8450) | #8445 | feat(catalyst-api): forward the console routes /api/v1/ops t |
 | 2026-11-20T03:46 | [#8448](https://github.com/openova-io/openova/pull/8448) | #7087 | docs(ledger): plan update |
+| 2026-11-20T06:41 | [#8447](https://github.com/openova-io/openova/pull/8447) | #8446 | feat(cortex): the documents parser posts an original to the  |
 | 2026-11-20T03:40 | [#8444](https://github.com/openova-io/openova/pull/8444) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
@@ -328,15 +337,6 @@ flowchart LR
 | 2026-11-20T01:49 | [#8435](https://github.com/openova-io/openova/pull/8435) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:04 | [#8434](https://github.com/openova-io/openova/pull/8434) | #8403 | fix(release): the kernel rule of a cut compares upstream ver |
 | 2026-11-20T01:41 | [#8432](https://github.com/openova-io/openova/pull/8432) | #7087 | docs(ledger): plan update |
-| 2026-11-20T03:11 | [#8431](https://github.com/openova-io/openova/pull/8431) | #7938 | fix(release): a delivery through the release route needs no  |
-| 2026-11-20T00:45 | [#8430](https://github.com/openova-io/openova/pull/8430) | #8426 | fix(cloud-init): the secondary-region suspend keys are compu |
-| 2026-11-20T00:15 | [#8429](https://github.com/openova-io/openova/pull/8429) | #8427 | docs(ledger): result of the lab test NET-252, HTTPS through  |
-| 2026-11-20T00:15 | [#8428](https://github.com/openova-io/openova/pull/8428) | #7087 | docs(ledger): plan update |
-| 2026-11-20T00:02 | [#8425](https://github.com/openova-io/openova/pull/8425) | #7087 | docs(ledger): plan update |
-| 2026-11-20T00:23 | [#8424](https://github.com/openova-io/openova/pull/8424) | #8423 | test(acceptance): the model checks AIP-G02 to AIP-G05 as exp |
-| 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
-| 2026-11-20T01:27 | [#8421](https://github.com/openova-io/openova/pull/8421) | #8415 | refactor(catalog): the umbrella Blueprint file moves beside  |
-| 2026-11-20T00:50 | [#8420](https://github.com/openova-io/openova/pull/8420) | #8418 | fix(release): the stage applies the provider pivot again whe |
 
 ---
 
