@@ -1,17 +1,20 @@
-# bootstrap-seed Kustomization (SEC-153) — the upgrade path of a Sovereign
-# installed before the seed Secret existed. Such a Sovereign holds the four
-# bootstrap Secrets harbor-robot-token, pdm-basicauth, sovereign-tls-secrets
-# (flux-system) and catalyst-handover-jwt-public (catalyst-system), which its
-# first boot wrote, and no flux-system/bootstrap-seed. This Kustomization runs
-# one Job (clusters/_template/bootstrap-secrets/seed) that builds the seed from
-# those four Secrets, with their values unchanged; on a Sovereign whose first
-# boot created the seed, the Job finds it and does nothing.
+# bootstrap-seed Kustomization (SEC-153, SEC-154) — the upgrade path of a
+# Sovereign installed before the seed Secret held all of its values. Such a
+# Sovereign holds the six bootstrap Secrets harbor-robot-token, pdm-basicauth,
+# sovereign-tls-secrets, ghcr-pull, object-storage (flux-system) and
+# catalyst-handover-jwt-public (catalyst-system), which its first boot wrote,
+# and no flux-system/bootstrap-seed, or one without the values of ghcr-pull
+# and object-storage. This Kustomization runs one Job
+# (clusters/_template/bootstrap-secrets/seed) that builds the seed from those
+# Secrets, or adds the values it lacks, with their values unchanged; on a
+# Sovereign whose first boot created the whole seed, the Job finds every value
+# and does nothing.
 #
 # The Kustomization bootstrap-secrets dependsOn this one, and wait: true makes
-# this one Ready only when the Job has completed, so the four Secrets are never
-# rendered before the seed exists. A missing Secret, key or value builds no
-# seed: the Job fails and names it, and bootstrap-secrets and the kit wait,
-# their Secrets untouched. It covers both ways a change
+# this one Ready only when the Job has completed, so the six Secrets are never
+# rendered before the seed holds their values. A missing Secret, key or value
+# builds no seed: the Job fails and names it, and bootstrap-secrets and the
+# kit wait, their Secrets untouched. It covers both ways a change
 # reaches a Sovereign: a branch it follows before its cutover, and a release
 # delivered into its own Gitea after it. No postBuild: Flux substitutes
 # nothing in the script. force: true lets a changed Job replace the old one.

@@ -139,20 +139,29 @@ run "hetzner_render_is_valid" {
     error_message = "SOV-130, SEC-153: POWERDNS_API_KEY must appear once, as a line of the seed file bootstrap-seed.env, never in the ConfigMap sovereign-variables."
   }
 
-  # SEC-153 — first boot writes the raw values of four bootstrap Secrets once,
-  # into the seed file, creates the Secret flux-system/bootstrap-seed from it
-  # after the other bootstrap Secrets, and carries none of the four manifests.
-  # Flux renders them from clusters/_template/bootstrap-secrets with the seed:
-  # the same names, namespaces, types, keys, reflector annotations and values
-  # first boot wrote before. The kit waits for the Kustomization that does it.
+  # SEC-153, SEC-154 — first boot writes the raw values of six bootstrap
+  # Secrets once, into the seed file, creates the Secret flux-system/bootstrap-seed
+  # from it after the apply of cloud-credentials, and carries none of the six
+  # manifests. Flux renders them from clusters/_template/bootstrap-secrets with
+  # the seed: the same names, namespaces, types, keys, reflector annotations and
+  # values first boot wrote before. The reflector annotations of ghcr-pull hold
+  # the per-Org pattern that guard G6 counts once, in that manifest; test (c) of
+  # tests/e2e/bootstrap-kit compares them with the Secret first boot wrote.
+  # cloud-credentials stays the packed file of first boot, as before, and none
+  # of its keys enters the seed. The kit waits for the Kustomization that does it.
   assert {
-    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
-    error_message = "SEC-153: the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the five raw values, base64-encoded, one KEY=value line each."
+    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK"), GHCR_PULL_DOCKERCONFIGJSON = base64encode(jsonencode({ auths = { "ghcr.io" = { username = "render-test", password = "render-test-token", auth = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q=" } } })), OBJECT_STORAGE_ENDPOINT = base64encode("https://s3.example.test"), OBJECT_STORAGE_REGION = base64encode("us-east-1"), OBJECT_STORAGE_BUCKET = base64encode("render-test-bucket"), OBJECT_STORAGE_ACCESS_KEY = base64encode("render-test-ak"), OBJECT_STORAGE_SECRET_KEY = base64encode("render-test-sk") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
+    error_message = "SEC-153, SEC-154: the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the raw values, base64-encoded, one KEY=value line each: the five of SEC-153, the whole .dockerconfigjson of ghcr-pull and the five object-storage values; nothing of cloud-credentials."
   }
 
   assert {
-    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets)\\.yaml", output.boot_text)) == 0
-    error_message = "SEC-153: first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public; Flux renders them from Git."
+    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public|ghcr-pull|object-storage)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets|ghcr-pull-secret|object-storage-secret)\\.yaml|dockerconfigjson", output.boot_text)) == 0
+    error_message = "SEC-153, SEC-154: first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets, catalyst-handover-jwt-public, ghcr-pull and object-storage, and no .dockerconfigjson; Flux renders them from Git."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/cloud-credentials-secret.yaml\n    permissions: '0600'\n    encoding: gz+b64\n") && strcontains(output.boot_text, "\napiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}\n") && length(regexall("(?m)^ *CLOUD_CREDENTIALS_", output.boot_text)) == 0
+    error_message = "SEC-154: first boot must write cloud-credentials as before, the packed file /var/lib/catalyst/cloud-credentials-secret.yaml (mode 0600, gz+b64) that decodes to the module's body, and put none of its keys into the seed file."
   }
 
   assert {
@@ -161,8 +170,10 @@ run "hetzner_render_is_valid" {
       "harbor-robot-token.yaml"           = { apiVersion = "v1", kind = "Secret", metadata = { name = "harbor-robot-token", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" } }, type = "Opaque", data = { token = base64encode("render-test-harbor-token") } }
       "pdm-basicauth.yaml"                = { apiVersion = "v1", kind = "Secret", metadata = { name = "pdm-basicauth", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor" } }, type = "Opaque", data = { username = base64encode("render-test"), password = base64encode("render-test-pass") } }
       "sovereign-tls-secrets.yaml"        = { apiVersion = "v1", kind = "Secret", metadata = { name = "sovereign-tls-secrets", namespace = "flux-system" }, type = "Opaque", stringData = { POWERDNS_API_KEY = base64encode("render-test-pdns-key") } }
-    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml"])
-    error_message = "SEC-153: rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those four files."
+      "ghcr-pull.yaml"                    = { apiVersion = "v1", kind = "Secret", metadata = { name = "ghcr-pull", namespace = "flux-system", annotations = output.bootstrap_secrets.secrets["ghcr-pull.yaml"].metadata.annotations }, type = "kubernetes.io/dockerconfigjson", data = { ".dockerconfigjson" = base64encode(jsonencode({ auths = { "ghcr.io" = { username = "render-test", password = "render-test-token", auth = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q=" } } })) } }
+      "object-storage.yaml"               = { apiVersion = "v1", kind = "Secret", metadata = { name = "object-storage", namespace = "flux-system" }, type = "Opaque", data = { endpoint = base64encode("https://s3.example.test"), region = base64encode("us-east-1"), bucket = base64encode("render-test-bucket"), "s3-endpoint" = base64encode("https://s3.example.test"), "s3-region" = base64encode("us-east-1"), "s3-bucket" = base64encode("render-test-bucket"), "s3-access-key" = base64encode("render-test-ak"), "s3-secret-key" = base64encode("render-test-sk"), "access-key" = base64encode("render-test-ak"), "secret-key" = base64encode("render-test-sk") } }
+    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml", "ghcr-pull.yaml", "object-storage.yaml"])
+    error_message = "SEC-153, SEC-154: rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those six files."
   }
 
   assert {
@@ -171,8 +182,8 @@ run "hetzner_render_is_valid" {
   }
 
   # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
-  # flux-bootstrap.yaml have mode 0600; the three bootstrap Secret files and
-  # the seed file are shredded once their apply and the seed's create
+  # flux-bootstrap.yaml have mode 0600; the cloud-credentials file and the
+  # seed file are shredded once its apply and the seed's create
   # succeeded, flux-bootstrap.yaml after its apply; the robot token is
   # reflected into catalyst-system only; the template creates no OpenBao
   # recovery seed (the bp-openbao chart does). SEC-153: first boot creates the
@@ -183,8 +194,8 @@ run "hetzner_render_is_valid" {
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
-    error_message = "SEC-040, SEC-153: first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the three bootstrap Secret files, shred those files and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
+    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040, SEC-153, SEC-154: first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the seal profile and the cloud-credentials file, shred that file and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
   }
 
   assert {
@@ -275,8 +286,8 @@ run "hetzner_render_is_valid" {
   }
 
   assert {
-    condition     = jsonencode(output.seal.profile) == jsonencode({ apiVersion = "v1", kind = "ConfigMap", metadata = { name = "sovereign-seal-profile", namespace = "flux-system" }, data = { kind = "static-node-file", stanza = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n" } }) && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ") && length(regexall("sovereign-seal-profile\\.yaml", output.rendered_cloud_init)) == 2
-    error_message = "SEC-152: /var/lib/catalyst/sovereign-seal-profile.yaml must be ConfigMap flux-system/sovereign-seal-profile with data.kind and data.stanza of the hook, applied by the server-side apply of the bootstrap Secrets and not shredded."
+    condition     = jsonencode(output.seal.profile) == jsonencode({ apiVersion = "v1", kind = "ConfigMap", metadata = { name = "sovereign-seal-profile", namespace = "flux-system" }, data = { kind = "static-node-file", stanza = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n" } }) && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f cloud-credentials-secret.yaml && ") && length(regexall("sovereign-seal-profile\\.yaml", output.rendered_cloud_init)) == 2
+    error_message = "SEC-152: /var/lib/catalyst/sovereign-seal-profile.yaml must be ConfigMap flux-system/sovereign-seal-profile with data.kind and data.stanza of the hook, applied by the server-side apply of the cloud-credentials Secret and not shredded."
   }
 
   # SOV-149: first boot pulls no image ahead of time (kubelet pulls on
@@ -387,20 +398,29 @@ run "huawei_render_is_valid" {
     error_message = "SOV-130, SEC-153 (huawei branch): POWERDNS_API_KEY must appear once, as a line of the seed file bootstrap-seed.env, never in the ConfigMap sovereign-variables."
   }
 
-  # SEC-153 — first boot writes the raw values of four bootstrap Secrets once,
-  # into the seed file, creates the Secret flux-system/bootstrap-seed from it
-  # after the other bootstrap Secrets, and carries none of the four manifests.
-  # Flux renders them from clusters/_template/bootstrap-secrets with the seed:
-  # the same names, namespaces, types, keys, reflector annotations and values
-  # first boot wrote before. The kit waits for the Kustomization that does it.
+  # SEC-153, SEC-154 — first boot writes the raw values of six bootstrap
+  # Secrets once, into the seed file, creates the Secret flux-system/bootstrap-seed
+  # from it after the apply of cloud-credentials, and carries none of the six
+  # manifests. Flux renders them from clusters/_template/bootstrap-secrets with
+  # the seed: the same names, namespaces, types, keys, reflector annotations and
+  # values first boot wrote before. The reflector annotations of ghcr-pull hold
+  # the per-Org pattern that guard G6 counts once, in that manifest; test (c) of
+  # tests/e2e/bootstrap-kit compares them with the Secret first boot wrote.
+  # cloud-credentials stays the packed file of first boot, as before, and none
+  # of its keys enters the seed. The kit waits for the Kustomization that does it.
   assert {
-    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
-    error_message = "SEC-153 (huawei branch): the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the five raw values, base64-encoded, one KEY=value line each."
+    condition     = jsonencode(output.bootstrap_secrets.seed) == jsonencode({ HARBOR_ROBOT_TOKEN = base64encode("render-test-harbor-token"), PDM_BASIC_AUTH_USER = base64encode("render-test"), PDM_BASIC_AUTH_PASS = base64encode("render-test-pass"), POWERDNS_API_KEY = base64encode("render-test-pdns-key"), HANDOVER_JWT_PUBLIC_KEY = base64encode("RENDER_TEST_JWK"), GHCR_PULL_DOCKERCONFIGJSON = base64encode(jsonencode({ auths = { "ghcr.io" = { username = "render-test", password = "render-test-token", auth = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q=" } } })), OBJECT_STORAGE_ENDPOINT = base64encode("https://s3.example.test"), OBJECT_STORAGE_REGION = base64encode("us-east-1"), OBJECT_STORAGE_BUCKET = base64encode("render-test-bucket"), OBJECT_STORAGE_ACCESS_KEY = base64encode("render-test-ak"), OBJECT_STORAGE_SECRET_KEY = base64encode("render-test-sk") }) && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/bootstrap-seed.env\n    permissions: '0600'\n    content: |\n")
+    error_message = "SEC-153, SEC-154 (huawei branch): the seed file /var/lib/catalyst/bootstrap-seed.env must have mode 0600 and hold the raw values, base64-encoded, one KEY=value line each: the five of SEC-153, the whole .dockerconfigjson of ghcr-pull and the five object-storage values; nothing of cloud-credentials."
   }
 
   assert {
-    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets)\\.yaml", output.boot_text)) == 0
-    error_message = "SEC-153 (huawei branch): first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets and catalyst-handover-jwt-public; Flux renders them from Git."
+    condition     = length(regexall("(?m)^ *name: (harbor-robot-token|pdm-basicauth|sovereign-tls-secrets|catalyst-handover-jwt-public|ghcr-pull|object-storage)$", output.boot_text)) == 0 && length(regexall("(harbor-robot-token-secret|pdm-basicauth-secret|handover-jwt-public-secret|sovereign-tls-secrets|ghcr-pull-secret|object-storage-secret)\\.yaml|dockerconfigjson", output.boot_text)) == 0
+    error_message = "SEC-153, SEC-154 (huawei branch): first boot must carry none of the manifests harbor-robot-token, pdm-basicauth, sovereign-tls-secrets, catalyst-handover-jwt-public, ghcr-pull and object-storage, and no .dockerconfigjson; Flux renders them from Git."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/cloud-credentials-secret.yaml\n    permissions: '0600'\n    encoding: gz+b64\n") && strcontains(output.boot_text, "\napiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}\n") && length(regexall("(?m)^ *CLOUD_CREDENTIALS_", output.boot_text)) == 0
+    error_message = "SEC-154 (huawei branch): first boot must write cloud-credentials as before, the packed file /var/lib/catalyst/cloud-credentials-secret.yaml (mode 0600, gz+b64) that decodes to the module's body, and put none of its keys into the seed file."
   }
 
   assert {
@@ -409,8 +429,10 @@ run "huawei_render_is_valid" {
       "harbor-robot-token.yaml"           = { apiVersion = "v1", kind = "Secret", metadata = { name = "harbor-robot-token", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "catalyst-system", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "catalyst-system" } }, type = "Opaque", data = { token = base64encode("render-test-harbor-token") } }
       "pdm-basicauth.yaml"                = { apiVersion = "v1", kind = "Secret", metadata = { name = "pdm-basicauth", namespace = "flux-system", annotations = { "reflector.v1.k8s.emberstack.com/reflection-allowed" = "true", "reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor", "reflector.v1.k8s.emberstack.com/reflection-auto-enabled" = "true", "reflector.v1.k8s.emberstack.com/reflection-auto-namespaces" = "org-services,catalyst,catalyst-system,gitea,harbor" } }, type = "Opaque", data = { username = base64encode("render-test"), password = base64encode("render-test-pass") } }
       "sovereign-tls-secrets.yaml"        = { apiVersion = "v1", kind = "Secret", metadata = { name = "sovereign-tls-secrets", namespace = "flux-system" }, type = "Opaque", stringData = { POWERDNS_API_KEY = base64encode("render-test-pdns-key") } }
-    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml"])
-    error_message = "SEC-153 (huawei branch): rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those four files."
+      "ghcr-pull.yaml"                    = { apiVersion = "v1", kind = "Secret", metadata = { name = "ghcr-pull", namespace = "flux-system", annotations = output.bootstrap_secrets.secrets["ghcr-pull.yaml"].metadata.annotations }, type = "kubernetes.io/dockerconfigjson", data = { ".dockerconfigjson" = base64encode(jsonencode({ auths = { "ghcr.io" = { username = "render-test", password = "render-test-token", auth = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q=" } } })) } }
+      "object-storage.yaml"               = { apiVersion = "v1", kind = "Secret", metadata = { name = "object-storage", namespace = "flux-system" }, type = "Opaque", data = { endpoint = base64encode("https://s3.example.test"), region = base64encode("us-east-1"), bucket = base64encode("render-test-bucket"), "s3-endpoint" = base64encode("https://s3.example.test"), "s3-region" = base64encode("us-east-1"), "s3-bucket" = base64encode("render-test-bucket"), "s3-access-key" = base64encode("render-test-ak"), "s3-secret-key" = base64encode("render-test-sk"), "access-key" = base64encode("render-test-ak"), "secret-key" = base64encode("render-test-sk") } }
+    }) && jsonencode(output.bootstrap_secrets.resources) == jsonencode(["harbor-robot-token.yaml", "pdm-basicauth.yaml", "sovereign-tls-secrets.yaml", "catalyst-handover-jwt-public.yaml", "ghcr-pull.yaml", "object-storage.yaml"])
+    error_message = "SEC-153, SEC-154 (huawei branch): rendered with the seed of this render, the manifests of clusters/_template/bootstrap-secrets must be the Secrets first boot wrote before (names, namespaces, types, keys, reflector annotations and values), and its kustomization.yaml must list exactly those six files."
   }
 
   assert {
@@ -419,8 +441,8 @@ run "huawei_render_is_valid" {
   }
 
   # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
-  # flux-bootstrap.yaml have mode 0600; the three bootstrap Secret files and
-  # the seed file are shredded once their apply and the seed's create
+  # flux-bootstrap.yaml have mode 0600; the cloud-credentials file and the
+  # seed file are shredded once its apply and the seed's create
   # succeeded, flux-bootstrap.yaml after its apply; the robot token is
   # reflected into catalyst-system only; the template creates no OpenBao
   # recovery seed (the bp-openbao chart does). SEC-153: first boot creates the
@@ -431,8 +453,8 @@ run "huawei_render_is_valid" {
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u ghcr-pull-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
-    error_message = "SEC-040, SEC-153 (huawei branch): first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the three bootstrap Secret files, shred those files and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
+    condition     = strcontains(output.rendered_cloud_init, "\n    kubectl create namespace catalyst-system --dry-run=client -o yaml | kubectl apply -f -\n    cd /var/lib/catalyst\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f cloud-credentials-secret.yaml && kubectl -n flux-system create secret generic bootstrap-seed --from-env-file=bootstrap-seed.env && shred -u cloud-credentials-secret.yaml bootstrap-seed.env\n    (exit $?)\n") && length(regexall("create namespace", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040, SEC-153, SEC-154 (huawei branch): first boot must create the namespace catalyst-system and no other, the seed Secret after the apply of the seal profile and the cloud-credentials file, shred that file and the seed file on that line once both succeeded, stop the script on the next line when one failed, (exit $?), and shred flux-bootstrap.yaml on the line after its apply."
   }
 
   assert {
@@ -524,7 +546,7 @@ run "huawei_render_is_valid" {
   }
 
   assert {
-    condition     = output.seal.key == "render-test-seal-key-32-bytes-ok" && output.seal.profile.data.kind == "static-node-file" && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f ghcr-pull-secret.yaml ")
+    condition     = output.seal.key == "render-test-seal-key-32-bytes-ok" && output.seal.profile.data.kind == "static-node-file" && strcontains(output.rendered_cloud_init, "\n    kubectl apply --server-side -f sovereign-seal-profile.yaml -f cloud-credentials-secret.yaml && ")
     error_message = "SEC-152 (huawei branch): the seal key file and the seal profile must be written and applied as in the hetzner branch."
   }
 

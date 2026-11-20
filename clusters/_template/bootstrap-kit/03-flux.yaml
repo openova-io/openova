@@ -251,9 +251,12 @@ spec:
           # `serviceAccount.annotations` — there is no imagePullSecrets value to
           # set — so the render pipeline is the only override point.
           #
-          # The `ghcr-pull` Secret already exists in flux-system: cloud-init
-          # applies /var/lib/catalyst/ghcr-pull-secret.yaml before Flux
-          # bootstraps, and bp-reflector (slot 05a) keeps it mirrored.
+          # The `ghcr-pull` Secret exists in flux-system before this patch is
+          # applied: the Flux Kustomization bootstrap-secrets renders it from
+          # clusters/_template/bootstrap-secrets/ghcr-pull.yaml and the seed
+          # Secret (SEC-154), and bootstrap-kit, which applies this file,
+          # dependsOn bootstrap-secrets. bp-reflector (slot 05a) keeps it
+          # mirrored.
           # ServiceAccount imagePullSecrets are injected at POD CREATION, so
           # this takes effect on the next controller pod — which is exactly the
           # re-pull path that failed (image GC, node reboot, controller

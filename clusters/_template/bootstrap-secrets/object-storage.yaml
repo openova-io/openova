@@ -1,0 +1,23 @@
+# flux-system/object-storage (SEC-154): the S3-compatible object storage of
+# the Sovereign. The registry (slot 19) and the backup (slot 34) charts read
+# it. Both the canonical s3-* keys and the bare aliases, so that every chart
+# variant resolves (Wave 5.101 #2447: bp-harbor and bp-velero want s3-bucket).
+# The values are the seed's five OBJECT_STORAGE_* values, base64-encoded;
+# each fills two keys.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: object-storage
+  namespace: flux-system
+type: Opaque
+data:
+  endpoint: "${OBJECT_STORAGE_ENDPOINT}"
+  region: "${OBJECT_STORAGE_REGION}"
+  bucket: "${OBJECT_STORAGE_BUCKET}"
+  s3-endpoint: "${OBJECT_STORAGE_ENDPOINT}"
+  s3-region: "${OBJECT_STORAGE_REGION}"
+  s3-bucket: "${OBJECT_STORAGE_BUCKET}"
+  s3-access-key: "${OBJECT_STORAGE_ACCESS_KEY}"
+  s3-secret-key: "${OBJECT_STORAGE_SECRET_KEY}"
+  access-key: "${OBJECT_STORAGE_ACCESS_KEY}"
+  secret-key: "${OBJECT_STORAGE_SECRET_KEY}"

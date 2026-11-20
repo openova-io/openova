@@ -291,11 +291,29 @@ var commaQuantifierRE = regexp.MustCompile(`\{\d+,\d*\}`)
 // This guard fails if ANY reflector reflection-*-namespaces annotation re-
 // introduces a `{m,n}` comma quantifier, and asserts the comma-free slug pattern
 // stays present so the fix can't silently regress back to the broken form.
+//
+// SEC-154: the manifest of ghcr-pull, and with it these lists, moved from the
+// first-boot template to clusters/_template/bootstrap-secrets/ghcr-pull.yaml,
+// which Flux renders from the seed Secret; the guard reads it besides the
+// first-boot documents.
 func TestCloudInit_ReflectorNamespacesNoCommaQuantifier(t *testing.T) {
-	tpl := readCloudInit(t)
+	p := filepath.Join(modulePath(t), "..", "..", "..", "clusters", "_template", "bootstrap-secrets", "ghcr-pull.yaml")
+	raw, err := os.ReadFile(filepath.Clean(p))
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	for _, f := range reflectorNamespacesFindings(readCloudInit(t) + string(raw)) {
+		t.Error(f)
+	}
+}
 
+// reflectorNamespacesFindings judges a text: one finding per operative reflector
+// reflection-*-namespaces annotation whose list carries a `{m,n}` quantifier,
+// and one when no such annotation holds the comma-free slug pattern.
+func reflectorNamespacesFindings(text string) []string {
+	var findings []string
 	sawSlugPattern := false
-	for i, line := range strings.Split(tpl, "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			continue // comment — explanatory references to the old broken form are fine
@@ -306,14 +324,27 @@ func TestCloudInit_ReflectorNamespacesNoCommaQuantifier(t *testing.T) {
 		}
 		value := m[1]
 		if loc := commaQuantifierRE.FindString(value); loc != "" {
-			t.Errorf("line %d: reflector reflection-*-namespaces carries a comma-bearing quantifier %q — #4423 regression. The reflector comma-splits this annotation, breaking the regex mid-pattern. Use a comma-free form (e.g. `[a-z][a-z0-9-]*`):\n  %s", i+1, loc, trimmed)
+			findings = append(findings, "reflector reflection-*-namespaces carries a comma-bearing quantifier "+loc+" — #4423 regression. The reflector comma-splits this annotation, breaking the regex mid-pattern. Use a comma-free form (e.g. `[a-z][a-z0-9-]*`):\n  "+trimmed)
 		}
 		if strings.Contains(value, "[a-z][a-z0-9-]*") {
 			sawSlugPattern = true
 		}
 	}
-
 	if !sawSlugPattern {
-		t.Errorf("expected the comma-free slug pattern `[a-z][a-z0-9-]*` in at least one reflector reflection-*-namespaces annotation so bare-slug per-Org namespaces (oc272x9q etc.) receive ghcr-pull — #4423 fix not in place")
+		findings = append(findings, "expected the comma-free slug pattern `[a-z][a-z0-9-]*` in at least one reflector reflection-*-namespaces annotation so bare-slug per-Org namespaces (oc272x9q etc.) receive ghcr-pull — #4423 fix not in place")
+	}
+	return findings
+}
+
+// TestCloudInit_ReflectorNamespacesCommaQuantifierIsAFinding (SEC-154): the
+// check of the guard above can fail. A list with a `{m,n}` quantifier is a
+// finding; the same list without it is none.
+func TestCloudInit_ReflectorNamespacesCommaQuantifierIsAFinding(t *testing.T) {
+	list := "    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: \"org-services,org-[a-z0-9]{2,30},[a-z][a-z0-9-]*\"\n"
+	if got := reflectorNamespacesFindings(list); len(got) != 1 || !strings.Contains(got[0], "{2,30}") {
+		t.Errorf("a list with {2,30}: findings %q, want one that names {2,30}", got)
+	}
+	if got := reflectorNamespacesFindings(strings.Replace(list, "org-[a-z0-9]{2,30}", "org-[a-z0-9]*", 1)); len(got) != 0 {
+		t.Errorf("the same list without the quantifier: findings %q, want none", got)
 	}
 }
