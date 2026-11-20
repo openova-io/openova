@@ -54,10 +54,12 @@ fn() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" {f=1} f {print} f && (/^\}$/ || $0 ~
 block() { awk -v a="$2" 'index($0, a" BEGIN") {f=1; next} index($0, a" END") {exit} f {print}' "$1"; }
 
 # ─────────────────────────────────────────────────────────── the copy worker
+awk '$0 == "  resolver.sh: |" {f = 1; next} f && /^ ? ?[^ ]/ {exit} f {sub(/^    /, ""); print}' "${TMP}/render.yaml" >"${TMP}/resolver.sh"
+for f in offlinemirror_skopeo_copy offlinemirror_copy; do fn "${TMP}/resolver.sh" "${f}" >>"${TMP}/copy.sh"; done
 for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy mothership_proxy_code copy_one; do
   fn "${S03}" "${f}" >>"${TMP}/copy.sh"
 done
-for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy copy_one; do
+for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy copy_one offlinemirror_skopeo_copy offlinemirror_copy; do
   grep -q "^${f}() {" "${TMP}/copy.sh" || fail "could not slice ${f} out of the rendered step-03 script"
 done
 

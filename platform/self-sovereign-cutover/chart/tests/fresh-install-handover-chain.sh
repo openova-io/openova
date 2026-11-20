@@ -170,8 +170,9 @@ fi
 # ──────────────────────────────────────────────────────────────────────── D10
 echo "[fresh-install] D10: a refused push to the local registry is not a failure of the parent's proxy"
 S03="${TMP}/single/harbor-prewarm.sh"
-{ fn "${S03}" rl_slug; fn "${S03}" prewarm_multiarch_flags; fn "${S03}" prewarm_skopeo_copy; fn "${S03}" mothership_proxy_code; fn "${S03}" copy_one; } >"${TMP}/copy.sh"
-for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy mothership_proxy_code copy_one; do
+awk '$0 == "  resolver.sh: |" {f = 1; next} f && /^ ? ?[^ ]/ {exit} f {sub(/^    /, ""); print}' "${TMP}/single.yaml" >"${TMP}/resolver.sh"
+{ fn "${S03}" rl_slug; fn "${S03}" prewarm_multiarch_flags; fn "${S03}" prewarm_skopeo_copy; fn "${S03}" mothership_proxy_code; fn "${S03}" copy_one; fn "${TMP}/resolver.sh" offlinemirror_skopeo_copy; fn "${TMP}/resolver.sh" offlinemirror_copy; } >"${TMP}/copy.sh"
+for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy mothership_proxy_code copy_one offlinemirror_skopeo_copy offlinemirror_copy; do
   grep -q "^${f}() {" "${TMP}/copy.sh" || { fail "could not slice ${f} out of the rendered step-03 script"; }
 done
 # run_copy <scenario>: runs the REAL copy_one for one image that comes from the

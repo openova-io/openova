@@ -190,19 +190,13 @@ data:
       [ -z "${_ks}" ] || echo "[secondary-harbor-prewarm] WARNING: tag moved upstream: ${1#docker://} is now ${_ks}; this registry keeps ${_kp}:${_kt} at ${_kd} and never moves a tag to another digest; publish the new content under a new tag (#7938)" >&2
       echo "kept at ${_kd}, the source reads ${_ks:-nothing}"
     }
+    {{- include "bp-self-sovereign-cutover.offlinemirrorCopy" . | nindent 4 }}
     copy_one() {
       _s="$1"; _d="$2"; _slug="$3"; _a=0
       if _k=$(kept_tag "${_s}" "${_d}" "${_slug}"); then printf '%s -> %s (%s)' "${_s}" "${_d}" "${_k}" >"${cpdir}/${_slug}.ok"; return 0; fi
       while : ; do
         _a=$((_a+1))
-        if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-          --insecure-policy --preserve-digests --multi-arch all \
-          --retry-times 3 \
-          --src-creds="${ghcr_user}:${ghcr_pat}" \
-          --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-          --src-tls-verify=true \
-          --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-          "${_s}" "${_d}" >"${cpdir}/${_slug}.log" 2>&1; then
+        if offlinemirror_copy "${_s#docker://}" "${ghcr_user}:${ghcr_pat}" "${_d#docker://}" --multi-arch all >"${cpdir}/${_slug}.log" 2>&1; then
           printf '%s -> %s' "${_s}" "${_d}" >"${cpdir}/${_slug}.ok"
           return 0
         fi

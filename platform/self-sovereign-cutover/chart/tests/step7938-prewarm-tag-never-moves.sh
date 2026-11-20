@@ -65,6 +65,7 @@ for f in rl_slug prewarm_multiarch_flags dest_already_current prewarm_skopeo_cop
   fn "${TMP}/s03.sh" "${f}" >>"${TMP}/copy.sh"
   grep -q "^${f}() {" "${TMP}/copy.sh" || fail "could not slice ${f} out of the rendered step-03 script"
 done
+for f in offlinemirror_skopeo_copy offlinemirror_copy; do fn "${TMP}/resolver.sh" "${f}" >>"${TMP}/sec-copy.sh"; done
 for f in raw_digest kept_tag copy_one; do
   fn "${TMP}/sec.sh" "${f}" >>"${TMP}/sec-copy.sh"
   grep -q "^${f}() {" "${TMP}/sec-copy.sh" || fail "could not slice ${f} out of the rendered follower prewarm script"
@@ -112,8 +113,10 @@ run() {
       esac
       echo "$* " >>"${STUB}/calls"
       f="${RAWS}/$(printf '%s' "${prev#docker://}" | tr -c 'A-Za-z0-9._-' '_').raw"
-      [ -s "${f}" ] || return 1
-      local d; d="sha256:$(sha256sum <"${f}" | awk '{print $1}')"
+      local d
+      # an entry of a list, copied by its digest before the list (offlinemirror_copy)
+      if [ ! -s "${f}" ]; then case "${prev}" in *@sha256:*) d="${prev##*@}" ;; *) return 1 ;; esac
+      else d="sha256:$(sha256sum <"${f}" | awk '{print $1}')"; fi
       case " $* " in *" --multi-arch system "*) d=$(jq -r '[.manifests[]? | select(.platform.architecture == "amd64") | .digest][0] // empty' <"${f}"); [ -n "${d}" ] || d="sha256:$(sha256sum <"${f}" | awk '{print $1}')" ;; esac
       { awk -F'\t' -v p="${last#docker://"${HARBOR_HOST}"/}" '$1!=p' "${REG}"; printf '%s\t%s\n' "${last#docker://"${HARBOR_HOST}"/}" "${d}"; } >"${REG}.new"
       mv "${REG}.new" "${REG}"
@@ -124,7 +127,9 @@ run() {
   ) >"${dir}/out" 2>&1
   echo $? >"${dir}/rc"
 }
-copies() { grep -c . "${TMP}/run-$1/calls"; }
+# copies <name>: the copies of an image to one of its local paths (the entries of a list,
+# copied by digest before it, are not counted).
+copies() { grep -vc '@sha256:[0-9a-f]* $' "${TMP}/run-$1/calls"; }
 digest_at() { awk -F'\t' -v p="$1" '$1==p {print $2}' "${REG}"; }
 
 echo "[step7938-tag] A: two consecutive runs — the first copies, the second copies nothing and every digest stays"
@@ -167,8 +172,8 @@ grep -q 'WARNING' "${TMP}/run-c1/out" && fail "an unreadable source was reported
 echo "[step7938-tag] D: every copy carries --preserve-digests"
 [ -s "${TMP}/run-a1/calls" ] && ! grep -v -- '--preserve-digests' "${TMP}/run-a1/calls" | grep -q . \
   && pass "all $(copies a1) copies of run 1 pass --preserve-digests" || fail "a copy without --preserve-digests: $(grep -v -- '--preserve-digests' "${TMP}/run-a1/calls" | head -1 | cut -c1-160)"
-grep -A3 'skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy' "${TMP}/s03.sh" | grep -c -- '--preserve-digests' | grep -qx 2 \
-  && pass "the chart copy (Phase A2) passes it too" || fail "the rendered chart copy does not pass --preserve-digests"
+grep -c 'if offlinemirror_copy "' "${TMP}/s03.sh" | grep -qx 2 && grep -q 'copy --insecure-policy --preserve-digests "\$@"' "${TMP}/resolver.sh" \
+  && pass "the chart copy (Phase A2) passes it too: both go through offlinemirror_copy" || fail "the rendered chart copy does not pass --preserve-digests"
 
 echo "[step7938-tag] E: the follower's copy into the shared registry follows the same rule"
 # sec <name> <src> <dst>: the REAL follower copy_one; the artifact API answers from ${REG}.
