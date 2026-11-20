@@ -73,9 +73,6 @@ spec:
   manifests:
     chart: ./chart
   depends:
-    - blueprint: bp-llm-gateway
-      version: ^1.0
-      alias: gateway
     - blueprint: bp-vllm
       version: ^1.0
       alias: vllm
