@@ -24868,7 +24868,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-010, FND-080]
-  after: [FND-078, FND-011]
+  after: [FND-078, AIP-153, FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
   - products/catalyst/bootstrap/api/internal/handler/compliance_runtime.go
@@ -29311,6 +29311,99 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: 'New package internal/fit of the tool server: Fit(text, max) keeps a text within max characters with its first and newest lines, Inert(text) breaks [[ with a zero-width space and prefixes with > a line that starts with System:, Assistant:, User: or Tool result, Redact replaces a compact JWT, a Bearer value of 16 or more characters and a private-key block, and Answer(v) redacts and then makes inert every string leaf of a tool answer and, above 24,000 characters, keeps each list''s first and newest entries with the entry [... N of M entries dropped ...], valid JSON with numbers at their exact digits; Registry.Answer returns that text and handleToolsCall in main.go answers tools/call with it; a README paragraph; appVersion 0.2.8 to 0.2.9, and that of the agent workspace image, which embeds the tool server, 0.9.8 to 0.9.9.'
+- id: AIP-152
+  title: The tool server reads its bearer from a file at every call
+  area: AIP
+  epic: null
+  type: fix
+  wave: W1a
+  size: XS
+  lane: CONTROL
+  depends_on: []
+  after: [FND-011, SVC-040, AIP-150, AIP-151]
+  touches:
+  - products/openova-mcp/cmd/openova-mcp/main.go
+  - products/openova-mcp/cmd/openova-mcp/bearer_file_test.go
+  - products/openova-mcp/chart/Chart.yaml
+  - products/openova-mcp/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: When OPENOVA_MCP_BEARER_FILE is set, the stdio tool server reads its fallback bearer from that file at every tools/list and every tools/call, so a bearer replaced in the file (by rename) is used from the next call on, with no restart; a missing or empty file means no fallback bearer, never one read earlier; without the variable the server behaves as on main.
+- id: AIP-153
+  title: The token route admits the workspace of each Organization for its own Organization
+  area: AIP
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CONTROL
+  depends_on: []
+  after: [FND-011, CLD-030, CLD-113, SOV-035, SOV-322, NET-011, NET-080, SVC-040, SVC-190, SVC-205, CTL-150, CTL-333, CTL-347, BSS-040, AIP-060, AIP-120, INF-135]
+  touches:
+  - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken.go
+  - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken_test.go
+  - products/catalyst/chart/values.yaml
+  - products/catalyst/chart/templates/api-deployment-kustomize.yaml
+  - docs/contracts/model-contract.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The issue route POST /api/v1/internal/agent-tokens admits the agent workspace of every Organization with no values commit per Organization. Its ServiceAccount, as the TokenReview of catalyst-api resolves it, may ask for tokens of its own Organization only, at tier viewer or developer, and is refused for any other Organization; an account of that name outside a namespace of an Organization, and every other account of an Organization's namespaces, stays refused. The shipped default of agentTokens.callers carries this entry beside the conformance entry, never a wildcard; entries that name a caller exactly keep working as on main.
+- id: AIP-154
+  title: An agent token acts for a person of tier admin, for create_application only
+  area: AIP
+  epic: null
+  type: fix
+  wave: W1a
+  size: M
+  lane: CONTROL
+  depends_on: []
+  after: [AIP-152, AIP-153, FND-011, SVC-040, AIP-060, AIP-120, AIP-150, AIP-151]
+  touches:
+  - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken.go
+  - products/catalyst/bootstrap/api/internal/agenttoken/restrict.go
+  - products/catalyst/bootstrap/api/internal/agenttoken/agenttoken_test.go
+  - products/openova-mcp/internal/identity/identity.go
+  - products/openova-mcp/internal/identity/identity_agent_test.go
+  - products/openova-mcp/internal/tools/agent_token_test.go
+  - products/openova-mcp/chart/Chart.yaml
+  - products/openova-mcp/README.md
+  - docs/contracts/model-contract.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: An agent token may carry an acting-person claim. catalyst-api issues it only when the request names a person who holds tier admin in the requested Organization at the time of issue, a tier catalyst-api reads itself and never takes from the request. agenttoken.MutationsAllowed gains the one entry POST /api/v1/org/applications for a token with the claim. The tool server takes the tier of such a token from the claim, so tools/list offers create_application and it runs. Every agent token without the claim stays capped at developer and refused every mutation, and the claim opens no other mutation.
 - id: AIP-155
   title: 'Agent workspace: the Organization''s own sign-in by mount and a short-lived tool identity, as the spike record says'
   area: AIP
@@ -29319,7 +29412,7 @@ packages:
   wave: W1a
   size: M
   lane: CHARTS
-  depends_on: [AIP-250, AIP-151]
+  depends_on: [AIP-250, AIP-151, AIP-152, AIP-153, AIP-154]
   after: [FND-011, SVC-040, SVC-159, SVC-163, SVC-170, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
@@ -29331,6 +29424,7 @@ packages:
   - products/agenity/blueprint.yaml
   - products/agenity/README.md
   - scripts/agent-plane-baseline.yaml
+  - products/agenity/chart/templates/serviceaccount.yaml
   resources: []
   flips: []
   implements: []
