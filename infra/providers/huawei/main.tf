@@ -1387,7 +1387,6 @@ locals {
       provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
         region                 = r.code
         default_storage_class  = var.default_storage_class
-        sovereign_region_role  = local.region_role_by_region[r.code]
         node_external_ip_value = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
         clustermesh_proxy_port = var.clustermesh_proxy_port
         pdns_api_host          = var.pdns_api_host

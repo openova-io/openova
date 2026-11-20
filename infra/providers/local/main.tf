@@ -86,8 +86,6 @@ locals {
     HCLOUD_CSI_ENABLED                 = "false"
     EVS_CSI_ENABLED                    = "false"
     HUAWEI_VPC_ROUTES_ENABLED          = "false"
-    SECONDARY_HR_SUSPEND               = r.role == "primary" ? "false" : "true"
-    SECONDARY_EDGE_SUSPEND             = r.role == "primary" ? "true" : "false"
     CILIUM_LB_IPAM_ENABLED             = "true"
     CILIUM_LB_IPAM_CIDRS               = "${local.external_ip[r.code]}/32"
     CILIUM_CLUSTERMESH_PROXY_ENABLED   = "true"
