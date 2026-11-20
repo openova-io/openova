@@ -14,6 +14,10 @@
 //     the Organizations, the agents and the highest tier it may ask for.
 //     An entry of the own-Organization form admits one ServiceAccount name
 //     in every namespace of an Organization, for that Organization only.
+//     A request may name an acting person: the token then carries the
+//     claim acting_person, written only when the person holds tier admin
+//     in the Organization at the time of issue, a tier read from the
+//     Organization object and never from the request.
 //   - GET /api/v1/auth/signers.jwks (HandleJWKS). The public key of the
 //     signer of this pod, with its key identifier. No authentication.
 //   - Restrict, the middleware of the session route group after the
@@ -36,14 +40,21 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/sacaller"
 )
@@ -76,6 +87,11 @@ const (
 	// AuditType is the audit-type of the event every issue writes.
 	AuditType = "agent-token.issue"
 
+	// ActingTier is the tier of the claim acting_person: a person of tier
+	// admin or owner in the Organization is the person of an agent token
+	// acting at tier admin.
+	ActingTier = "admin"
+
 	// The life of a token: DefaultTTL when the request names none, never
 	// below MinTTL or above MaxTTL.
 	DefaultTTL = 1800 * time.Second
@@ -102,6 +118,14 @@ var (
 	tierRank = map[string]int{"viewer": 1, "developer": 2}
 	// callerKeys are the keys of an entry of CallersEnv, all required.
 	callerKeys = []string{"agents", "caller", "maxTier", "organizations"}
+	// personEmail is the form of the email address of an acting person.
+	personEmail = regexp.MustCompile(`^[^@\s]{1,64}@[^@\s]{1,189}$`)
+	// actingRoles are the roles of an entry of spec.owners of an
+	// Organization that hold tier admin there.
+	actingRoles = map[string]bool{"admin": true, "owner": true}
+	// organizationResource is the cluster-scoped Organization object; its
+	// name is the slug, and spec.owners lists its people and their roles.
+	organizationResource = schema.GroupVersionResource{Group: "orgs.openova.io", Version: "v1", Resource: "organizations"}
 )
 
 // Caller is one entry of CallersEnv.
@@ -257,28 +281,35 @@ type RealmAccess struct {
 
 // Claims is the claim set of an agent token, exactly section 2.1 of
 // docs/contracts/model-contract.md: iss, sub, aud, exp, iat and jti from
-// RegisteredClaims (NotBefore stays unset), and the ten below.
+// RegisteredClaims (NotBefore stays unset), the ten below, and
+// acting_person only on a token issued for an acting person.
 type Claims struct {
 	jwt.RegisteredClaims
-	Typ           string      `json:"typ"`
-	Org           string      `json:"org"`
-	OrgID         string      `json:"org_id"`
-	Agent         string      `json:"agent"`
-	Tier          string      `json:"tier"`
-	RealmAccess   RealmAccess `json:"realm_access"`
-	Role          string      `json:"role"`
-	Email         string      `json:"email"`
-	EmailVerified bool        `json:"email_verified"`
-	Caller        string      `json:"caller"`
+	Typ           string             `json:"typ"`
+	Org           string             `json:"org"`
+	OrgID         string             `json:"org_id"`
+	Agent         string             `json:"agent"`
+	Tier          string             `json:"tier"`
+	RealmAccess   RealmAccess        `json:"realm_access"`
+	Role          string             `json:"role"`
+	Email         string             `json:"email"`
+	EmailVerified bool               `json:"email_verified"`
+	Caller        string             `json:"caller"`
+	ActingPerson  *auth.ActingPerson `json:"acting_person,omitempty"`
 }
 
 // Clients returns the cluster client that the TokenReview runs with.
 type Clients func() (kubernetes.Interface, error)
 
+// Organizations returns the client that reads Organization objects, where
+// the tier of an acting person is read.
+type Organizations func() (dynamic.Interface, error)
+
 // Tokens serves the issue route and the key set route.
 type Tokens struct {
 	signer  *handoverjwt.Signer
 	clients Clients
+	orgs    Organizations
 	audit   *audit.Bus
 	log     *slog.Logger
 	now     func() time.Time
@@ -287,12 +318,38 @@ type Tokens struct {
 // New returns the routes of agent tokens. signer is the session signer of
 // this pod; without it both routes answer 503 signer-unavailable. clients
 // gives the client the TokenReview runs with. bus receives the audit event
-// of every issue; nil writes none.
+// of every issue; nil writes none. Organization objects are read with a
+// client of the cluster this pod runs in.
 func New(signer *handoverjwt.Signer, clients Clients, bus *audit.Bus, log *slog.Logger) *Tokens {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Tokens{signer: signer, clients: clients, audit: bus, log: log, now: time.Now}
+	return &Tokens{signer: signer, clients: clients, orgs: inClusterOrganizations, audit: bus, log: log, now: time.Now}
+}
+
+var (
+	inClusterOrgsMu sync.Mutex
+	inClusterOrgs   dynamic.Interface
+)
+
+// inClusterOrganizations is the Organizations of the cluster this pod runs
+// in. It builds the client on first use and keeps it once it is built.
+func inClusterOrganizations() (dynamic.Interface, error) {
+	inClusterOrgsMu.Lock()
+	defer inClusterOrgsMu.Unlock()
+	if inClusterOrgs != nil {
+		return inClusterOrgs, nil
+	}
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	inClusterOrgs = dyn
+	return dyn, nil
 }
 
 // issuer is the claim iss: the session issuer of this Sovereign, the rule
@@ -315,6 +372,9 @@ type issueRequest struct {
 	Agent        string `json:"agent"`
 	Tier         string `json:"tier"`
 	TTLSeconds   *int   `json:"ttlSeconds"`
+	// ActingPerson is the email address of the person the agent acts for;
+	// optional. It names the person and never the person's tier.
+	ActingPerson string `json:"actingPerson"`
 }
 
 // HandleIssue serves POST /api/v1/internal/agent-tokens.
@@ -331,6 +391,10 @@ type issueRequest struct {
 //   - 403 caller-not-allowed: the Organization, the agent or the tier is
 //     outside the caller's entry; for the own-Organization form, any
 //     Organization but that of the caller's namespace.
+//   - 403 acting-person-not-admin: the request names an acting person who
+//     holds neither admin nor owner in spec.owners of the Organization,
+//     or the Organization does not exist.
+//   - 502 organization-read-failed: the Organization could not be read.
 //   - 200 {"token": "<jwt>", "expiresAt": "<RFC 3339 time>"}.
 func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 	value, set := os.LookupEnv(CallersEnv)
@@ -383,18 +447,36 @@ func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "caller-not-allowed", err.Error())
 		return
 	}
-	token, claims, err := t.mint(iss, user, req.Organization, req.Agent, req.Tier, ttl)
+	var acting *auth.ActingPerson
+	if req.ActingPerson != "" {
+		role, err := t.roleIn(r.Context(), req.Organization, req.ActingPerson)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "organization-read-failed", err.Error())
+			return
+		}
+		if !actingRoles[role] {
+			t.log.Info("agent token: refused an acting person", "caller", user, "organization", req.Organization, "role", role)
+			writeError(w, http.StatusForbidden, "acting-person-not-admin", fmt.Sprintf("the acting person holds %q in Organization %s, not admin or owner", role, req.Organization))
+			return
+		}
+		acting = &auth.ActingPerson{Email: req.ActingPerson, Tier: ActingTier}
+	}
+	token, claims, err := t.mint(iss, user, req.Organization, req.Agent, req.Tier, ttl, acting)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "signer-unavailable", err.Error())
 		return
 	}
 	if t.audit != nil {
+		detail := fmt.Sprintf("caller=%s organization=%s agent=%s tier=%s jti=%s", user, req.Organization, req.Agent, req.Tier, claims.ID)
+		if acting != nil {
+			detail += " acting_person=" + acting.Email
+		}
 		t.audit.Publish(r.Context(), audit.Event{
 			AuditType:  AuditType,
 			Actor:      user,
 			TargetUser: claims.Subject,
 			Tier:       req.Tier,
-			Detail:     fmt.Sprintf("caller=%s organization=%s agent=%s tier=%s jti=%s", user, req.Organization, req.Agent, req.Tier, claims.ID),
+			Detail:     detail,
 		})
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -452,6 +534,41 @@ func organizationOf(ctx context.Context, core kubernetes.Interface, ns string) (
 	return org, nil
 }
 
+// roleIn returns the role the person with email holds in the Organization
+// org at this moment: the role of their entry in spec.owners of the
+// Organization object named org, in lower case, or "" when the Organization
+// does not exist or does not list the person. An error means the
+// Organization could not be read.
+func (t *Tokens) roleIn(ctx context.Context, org, email string) (string, error) {
+	if t.orgs == nil {
+		return "", errors.New("no client reads Organization objects")
+	}
+	dyn, err := t.orgs()
+	if err != nil {
+		return "", fmt.Errorf("the client of Organization objects: %v", err)
+	}
+	obj, err := dyn.Resource(organizationResource).Get(ctx, org, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("the Organization %s could not be read: %v", org, err)
+	}
+	owners, _, err := unstructured.NestedSlice(obj.Object, "spec", "owners")
+	if err != nil {
+		return "", fmt.Errorf("spec.owners of Organization %s: %v", org, err)
+	}
+	for _, o := range owners {
+		entry, _ := o.(map[string]any)
+		e, _ := entry["email"].(string)
+		role, _ := entry["role"].(string)
+		if strings.EqualFold(strings.TrimSpace(e), email) {
+			return strings.ToLower(strings.TrimSpace(role)), nil
+		}
+	}
+	return "", nil
+}
+
 // readRequest decodes and checks the body of the issue route.
 func readRequest(w http.ResponseWriter, r *http.Request) (issueRequest, time.Duration, error) {
 	var req issueRequest
@@ -467,7 +584,10 @@ func readRequest(w http.ResponseWriter, r *http.Request) (issueRequest, time.Dur
 	if req.TTLSeconds != nil {
 		ttl = time.Duration(*req.TTLSeconds) * time.Second
 	}
+	req.ActingPerson = strings.ToLower(req.ActingPerson)
 	switch {
+	case req.ActingPerson != "" && !personEmail.MatchString(req.ActingPerson):
+		return req, 0, errors.New("actingPerson must be an email address")
 	case !orgSlug.MatchString(req.Organization):
 		return req, 0, errors.New("organization must be an Organization slug")
 	case !agentName.MatchString(req.Agent):
@@ -480,8 +600,9 @@ func readRequest(w http.ResponseWriter, r *http.Request) (issueRequest, time.Dur
 	return req, ttl, nil
 }
 
-// mint signs the token of section 2.1 of the contract.
-func (t *Tokens) mint(iss, caller, org, agent, tier string, ttl time.Duration) (string, Claims, error) {
+// mint signs the token of section 2.1 of the contract. acting is the claim
+// acting_person, nil for a token that acts for no person.
+func (t *Tokens) mint(iss, caller, org, agent, tier string, ttl time.Duration, acting *auth.ActingPerson) (string, Claims, error) {
 	jti, err := uuid.NewRandom()
 	if err != nil {
 		return "", Claims{}, fmt.Errorf("generate jti: %w", err)
@@ -506,6 +627,7 @@ func (t *Tokens) mint(iss, caller, org, agent, tier string, ttl time.Duration) (
 		Email:         agent + "@" + org + ".agents.invalid",
 		EmailVerified: false,
 		Caller:        caller,
+		ActingPerson:  acting,
 	}
 	token, err := t.signer.SignCustomClaimsWithKeyID(claims)
 	if err != nil {

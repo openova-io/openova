@@ -23,11 +23,19 @@ import (
 
 // The targets of the fake: per region the DNS Service and the DNS Pod of B,
 // the Services of ISO-3 and the API server (the same in both regions), and
-// two Ready nodes and one that is not Ready.
+// two Ready nodes and one that is not Ready. gitea/gitea-http is headless, as
+// the upstream gitea chart makes it: its two ready endpoints are its targets.
 var isoFakeBDNS = map[string][2]string{"region-a": {"10.43.1.10", "10.42.1.5"}, "region-b": {"10.53.1.10", "10.52.1.5"}}
 
-var isoFakeServices = map[string]string{"openbao/openbao": "10.43.0.20", "gitea/gitea-http": "10.43.0.21",
+var isoFakeServices = map[string]string{"openbao/openbao": "10.43.0.20", "gitea/gitea-http": "None",
 	"catalyst-system/catalyst-api": "10.43.0.22", "default/kubernetes": "10.43.0.1"}
+
+// isoFakeHostNamespaces are the namespaces of the host of every region, besides
+// the host namespaces of the Organizations.
+var isoFakeHostNamespaces = []string{"default", "kube-system", "catalyst-system", "openbao", "gitea", "keycloak"}
+
+// isoFakeUID is the UID of the namespace name in the cluster: a region, or a vCluster <slug>@<region>.
+func isoFakeUID(cluster, name string) string { return "uid-" + cluster + "-" + name }
 
 const isoFakeNodes = `{"items": [
  {"metadata": {"name": "node-1"}, "status": {"conditions": [{"type": "Ready", "status": "True"}], "addresses": [{"type": "Hostname", "address": "node-1"}, {"type": "InternalIP", "address": "10.0.0.1"}]}},
@@ -39,8 +47,8 @@ const isoFakeNodes = `{"items": [
 func isoAnswers() map[string]map[string]string {
 	control := dialControlHost + ":53"
 	a := map[string]string{control: DialConnected}
-	for _, d := range []string{"10.43.1.10:53", "10.42.1.5:1053", "10.53.1.10:53", "10.52.1.5:1053", "10.43.0.20:8200", "10.43.0.21:3000",
-		"10.43.0.22:8080", "10.43.0.1:443", "10.0.0.1:10250", "10.0.0.2:10250", "169.254.169.254:80", "1.1.1.1:443"} {
+	for _, d := range []string{"10.43.1.10:53", "10.42.1.5:1053", "10.53.1.10:53", "10.52.1.5:1053", "10.43.0.20:8200", "10.42.0.31:3000",
+		"10.42.0.32:3000", "10.43.0.22:8080", "10.43.0.1:443", "10.0.0.1:10250", "10.0.0.2:10250", "169.254.169.254:80", "1.1.1.1:443"} {
 		a[d] = DialTimedOut
 	}
 	a6 := map[string]string{}
@@ -65,11 +73,16 @@ type isoFake struct {
 	t          *testing.T
 	dial       *dialFake
 	answers    map[string]map[string]string
-	missing    string // a Secret <namespace>/<name> prefix that region-b never holds
-	listed     string // a namespace that every vCluster of A also lists
-	listB      bool   // every vCluster of A also lists the dial Pod of B
-	unsynced   bool   // the host namespaces hold no synced dial Pod
-	stays      string // a host namespace prefix that is never deleted
+	missing    string              // a Secret <namespace>/<name> prefix that region-b never holds
+	listed     string              // a namespace of the host that every vCluster of A also lists, with the host's UID
+	twin       string              // a namespace that every vCluster of A also lists with its own UID ("iso-b-": the host namespace of B)
+	bare       string              // a namespace that every vCluster of A also lists without a UID
+	hostOfA    bool                // the namespace of A's Applications in its vCluster carries the UID of A's host namespace
+	hostLacks  string              // a namespace that the host does not list
+	headless   map[string][]string // <namespace>/<service> of a headless Service -> its ready endpoint addresses
+	listB      bool                // every vCluster of A also lists the dial Pod of B
+	unsynced   bool                // the host namespaces hold no synced dial Pod
+	stays      string              // a host namespace prefix that is never deleted
 	forwardErr error
 	page       *wordpress.Page
 	forwards   int
@@ -83,7 +96,8 @@ type isoFake struct {
 
 func newISOFake(t *testing.T) *isoFake {
 	return &isoFake{t: t, dial: &dialFake{t: t}, answers: isoAnswers(), applied: map[string]bool{}, pods: map[string][]string{}, vcNS: map[string]string{},
-		page: &wordpress.Page{Status: 200, FinalURL: "https://wp.iso.test/wp-admin/install.php"}}
+		headless: map[string][]string{"gitea/gitea-http": {"10.42.0.31", "10.42.0.32"}},
+		page:     &wordpress.Page{Status: 200, FinalURL: "https://wp.iso.test/wp-admin/install.php"}}
 }
 
 func (f *isoFake) kubectl(r kube.Region, ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
@@ -115,10 +129,29 @@ func (f *isoFake) vcluster(r kube.Region, ctx context.Context, stdin io.Reader, 
 	case len(args) == 3 && args[0] == "create" && args[1] == "namespace":
 		f.vcNS[r.ID] = args[2]
 		return nil, nil
-	case line == "get namespaces -o jsonpath={.items[*].metadata.name}":
-		out := "default kube-node-lease kube-public kube-system " + f.vcNS[r.ID]
+	case line == "get namespaces -o "+isoNamespaceUIDs:
+		// As measured on a live install: the vCluster's own namespaces include
+		// one named like the host namespace of its Organization (the target of
+		// its Applications) and keycloak (the replicated host Service).
+		out := ""
+		for _, ns := range []string{"default", f.vcNS[r.ID], slug, "keycloak", "kube-node-lease", "kube-public", "kube-system"} {
+			uid := isoFakeUID(r.ID, ns)
+			if ns == slug && org == "A" && f.hostOfA {
+				uid = isoFakeUID(region, ns)
+			}
+			out += ns + "=" + uid + " "
+		}
+		if twin := f.twin; org == "A" && twin != "" {
+			if twin == "iso-b-" {
+				twin += strings.TrimPrefix(slug, "iso-a-")
+			}
+			out += twin + "=" + isoFakeUID(r.ID, twin) + " "
+		}
+		if org == "A" && f.bare != "" {
+			out += f.bare + " "
+		}
 		if org == "A" && f.listed != "" {
-			out += " " + f.listed
+			out += f.listed + "=" + isoFakeUID(region, f.listed)
 		}
 		return []byte(out), nil
 	case strings.HasPrefix(line, "get pods -A -o jsonpath="):
@@ -189,8 +222,35 @@ func (f *isoFake) host(r kube.Region, ctx context.Context, stdin io.Reader, args
 			f.t.Fatalf("unexpected Service %s/%s", args[1], args[4])
 		}
 		return []byte(ip), nil
-	case len(args) > 3 && args[2] == "get" && args[3] == "endpointslices":
-		return f.dial.kubectl(r, ctx, stdin, args...)
+	case len(args) > 5 && args[2] == "get" && args[3] == "endpointslices":
+		addrs, ok := f.headless[args[1]+"/"+strings.TrimPrefix(args[5], "kubernetes.io/service-name=")]
+		if !ok {
+			return f.dial.kubectl(r, ctx, stdin, args...)
+		}
+		// One endpoint that is not ready and one of another port, which are no target; then the ready ones.
+		eps := []string{`{"addresses": ["10.42.0.99"], "conditions": {"ready": false}}`}
+		for i, a := range addrs {
+			cond := `"ready": true`
+			if i == 0 {
+				cond = "" // not set: it counts as ready
+			}
+			eps = append(eps, `{"addresses": ["`+a+`"], "conditions": {`+cond+`}}`)
+		}
+		return []byte(`{"items": [{"endpoints": [` + strings.Join(eps, ", ") + `], "ports": [{"name": "http", "port": 3000, "protocol": "TCP"}]},
+ {"endpoints": [{"addresses": ["10.42.0.98"], "conditions": {"ready": true}}], "ports": [{"name": "ssh", "port": 2222, "protocol": "TCP"}]}]}`), nil
+	case line == "get namespaces -o "+isoNamespaceUIDs:
+		out := ""
+		for vc := range f.vcNS {
+			if slug, region, _ := strings.Cut(vc, "@"); region == r.ID {
+				out += slug + "=" + isoFakeUID(r.ID, slug) + " "
+			}
+		}
+		for _, ns := range isoFakeHostNamespaces {
+			if ns != f.hostLacks {
+				out += ns + "=" + isoFakeUID(r.ID, ns) + " "
+			}
+		}
+		return []byte(out), nil
 	case line == "get nodes -o json":
 		return []byte(isoFakeNodes), nil
 	case len(args) == 6 && args[0] == "get" && args[1] == "namespace" && line == "get namespace "+args[2]+" --ignore-not-found -o name":
@@ -335,18 +395,19 @@ func TestOrgIsolationCheck(t *testing.T) {
 	for name, c := range map[string]struct {
 		which, target, outcome, want string
 	}{
-		"isolated":                           {"", "", "", ""},
-		"the DNS Service of B is reachable":  {"A", "10.43.1.10:53", DialConnected, "want deny; the dial of 10.43.1.10:53 connected"},
-		"a Pod of B in the peer region":      {"A", "10.52.1.5:1053", DialConnected, "want deny; the dial of 10.52.1.5:1053 connected"},
-		"OpenBao refuses":                    {"A", "10.43.0.20:8200", DialRefused, "want deny; the dial of 10.43.0.20:8200 was refused"},
-		"the host API server is reachable":   {"A", "10.43.0.1:443", DialConnected, "want deny; the dial of 10.43.0.1:443 connected"},
-		"a kubelet is reachable":             {"A", "10.0.0.2:10250", DialConnected, "want deny; the dial of 10.0.0.2:10250 connected"},
-		"the metadata address is reachable":  {"A", "169.254.169.254:80", DialConnected, "want deny; the dial of 169.254.169.254:80 connected"},
-		"the internet before ISO-6":          {"A", "1.1.1.1:443", DialConnected, "want deny; the dial of 1.1.1.1:443 connected"},
-		"the allow-all policy widens":        {"A6", "10.42.1.5:1053", DialConnected, "want deny; the dial of 10.42.1.5:1053 connected"},
-		"the allow-all policy has no effect": {"A6", "1.1.1.1:443", DialTimedOut, "the policy did not take effect, or the Sovereign has no internet egress"},
-		"a target of B answers nobody":       {"B", "10.42.1.5:1053", DialTimedOut, "want allow; the dial of 10.42.1.5:1053 timed-out"},
-		"the Pod of A has no network":        {"A", dialControlHost + ":53", DialTimedOut, "it has no working network"},
+		"isolated":                                         {"", "", "", ""},
+		"the DNS Service of B is reachable":                {"A", "10.43.1.10:53", DialConnected, "want deny; the dial of 10.43.1.10:53 connected"},
+		"a Pod of B in the peer region":                    {"A", "10.52.1.5:1053", DialConnected, "want deny; the dial of 10.52.1.5:1053 connected"},
+		"OpenBao refuses":                                  {"A", "10.43.0.20:8200", DialRefused, "want deny; the dial of 10.43.0.20:8200 was refused"},
+		"one endpoint of the headless Git service answers": {"A", "10.42.0.32:3000", DialConnected, "want deny; the dial of 10.42.0.32:3000 connected"},
+		"the host API server is reachable":                 {"A", "10.43.0.1:443", DialConnected, "want deny; the dial of 10.43.0.1:443 connected"},
+		"a kubelet is reachable":                           {"A", "10.0.0.2:10250", DialConnected, "want deny; the dial of 10.0.0.2:10250 connected"},
+		"the metadata address is reachable":                {"A", "169.254.169.254:80", DialConnected, "want deny; the dial of 169.254.169.254:80 connected"},
+		"the internet before ISO-6":                        {"A", "1.1.1.1:443", DialConnected, "want deny; the dial of 1.1.1.1:443 connected"},
+		"the allow-all policy widens":                      {"A6", "10.42.1.5:1053", DialConnected, "want deny; the dial of 10.42.1.5:1053 connected"},
+		"the allow-all policy has no effect":               {"A6", "1.1.1.1:443", DialTimedOut, "the policy did not take effect, or the Sovereign has no internet egress"},
+		"a target of B answers nobody":                     {"B", "10.42.1.5:1053", DialTimedOut, "want allow; the dial of 10.42.1.5:1053 timed-out"},
+		"the Pod of A has no network":                      {"A", dialControlHost + ":53", DialTimedOut, "it has no working network"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newISOFake(t)
@@ -358,8 +419,8 @@ func TestOrgIsolationCheck(t *testing.T) {
 			if c.want != "" {
 				return
 			}
-			if len(r.run.Steps) != 70 {
-				t.Fatalf("want 70 steps (3 create, ISO-9 install, 4 kubeconfigs, 2 starts, 2 lists, 2 targets, 4 rows of B, 22 rows of A, 24 of ISO-6, 2 of ISO-9, 4 to delete), got %d", len(r.run.Steps))
+			if len(r.run.Steps) != 74 {
+				t.Fatalf("want 74 steps (3 create, ISO-9 install, 4 kubeconfigs, 2 starts, 2 lists, 2 targets, 4 rows of B, 24 rows of A, 26 of ISO-6, 2 of ISO-9, 4 to delete), got %d", len(r.run.Steps))
 			}
 			for i, req := range console.requests {
 				slug, _ := req["subdomain"].(string)
@@ -385,8 +446,27 @@ func TestOrgIsolationCheck(t *testing.T) {
 			if len(f.kubeconfig) != 4 || f.forwards != 4 {
 				t.Errorf("want four kubeconfigs and four forwards (A and B in two regions), got %v and %d", f.kubeconfig, f.forwards)
 			}
-			if n := strings.Count(strings.Join(f.dialed, ","), "B "); n != 4 || len(f.dialed) != 4+22+2+20 {
-				t.Errorf("want 4 dials of B and 44 of A, got %d of %d: %v", n, len(f.dialed), f.dialed)
+			if n := strings.Count(strings.Join(f.dialed, ","), "B "); n != 4 || len(f.dialed) != 4+24+2+22 {
+				t.Errorf("want 4 dials of B and 48 of A, got %d of %d: %v", n, len(f.dialed), f.dialed)
+			}
+			// The headless Git service: each ready endpoint on its port, in ISO-3 and ISO-6 of both
+			// regions; never the endpoint that is not ready nor the one of another port.
+			dialed := strings.Join(f.dialed, ",") + ","
+			if strings.Count(dialed, "A 10.42.0.31:3000,") != 4 || strings.Count(dialed, "A 10.42.0.32:3000,") != 4 || strings.Contains(dialed, "10.42.0.9") {
+				t.Errorf("want each ready endpoint of gitea/gitea-http dialed four times and no other: %v", f.dialed)
+			}
+			// ISO-1: the namespaces of the vCluster named like a host namespace are its own (another UID): recorded, not failed.
+			lists := 0
+			for _, s := range r.run.Steps {
+				if strings.HasPrefix(s.Name, "ISO-1: the kubeconfig of A") {
+					lists++
+					if got := mustJSON(t, s.Evidence["own_namespaces_named_like_host_namespaces"]); !strings.Contains(got, `"`+a+"=uid-"+a+"@") || !strings.Contains(got, `"keycloak=uid-`+a+"@") {
+						t.Errorf("ISO-1 records %s, want the namespaces %s and keycloak of the vCluster", got, a)
+					}
+				}
+			}
+			if lists != 2 {
+				t.Errorf("want two steps of ISO-1, got %d", lists)
 			}
 			if console.app["blueprint"] != isoBlueprint || console.app["org"] != a || console.app["environment"] != a+"-prod" || console.app["topology"] != "singleton" || !console.appDeleted {
 				t.Errorf("ISO-9: want %s installed in the Environment of A, singleton, and deleted: %v, deleted %v", isoBlueprint, console.app, console.appDeleted)
@@ -417,12 +497,21 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 		{"the forward fails", func(f *isoFake, _ *isoConsole) { f.forwardErr = errors.New("unable to forward") }, "unable to forward", 0},
 		{"the dial Pods are not synced", func(f *isoFake, _ *isoConsole) { f.unsynced = true }, "holds no Pod pol-dial-", 0},
 		{"A lists a host namespace", func(f *isoFake, _ *isoConsole) { f.listed = "catalyst-system" }, "lists the namespace catalyst-system of the host", 0},
+		{"A lists its host namespace by the host's UID", func(f *isoFake, _ *isoConsole) { f.hostOfA = true }, "the kubeconfig of A lists the namespace iso-a-", 0},
+		{"A lists the host namespace of B with its own UID", func(f *isoFake, _ *isoConsole) { f.twin = "iso-b-" }, "the kubeconfig of A lists the namespace iso-b-", 0},
+		{"A lists openbao with its own UID", func(f *isoFake, _ *isoConsole) { f.twin = "openbao" }, "lists the namespace openbao of the host by name (with the UID uid-iso-a-", 0},
+		{"A lists a namespace without a UID", func(f *isoFake, _ *isoConsole) { f.bare = "stray" },
+			"the kubeconfig of A lists the namespace stray without a UID, so the identity proves nothing", 0},
+		{"the host lists no namespace gitea", func(f *isoFake, _ *isoConsole) { f.hostLacks = "gitea" },
+			"the kubeconfig of region region-a lists no namespace gitea with a UID, so the identity of the namespaces of A proves nothing", 0},
+		{"the headless Git service has no ready endpoint", func(f *isoFake, _ *isoConsole) { f.headless["gitea/gitea-http"] = nil },
+			"the headless Service gitea/gitea-http of region region-a has no ready endpoint on TCP port 3000: nothing listens, so a timeout would prove nothing", 0},
 		{"A lists the Pod of B", func(f *isoFake, _ *isoConsole) { f.listB = true }, "the kubeconfig of A lists the Pod iso-", 0},
 		{"OpenBao has no endpoint", func(f *isoFake, _ *isoConsole) { f.dial.ready = map[string]int{"openbao/openbao": 0} }, "openbao/openbao of region region-a has no ready endpoint", 0},
 		{"the Application does not answer", func(f *isoFake, _ *isoConsole) {
 			f.page = &wordpress.Page{Status: 503, FinalURL: "https://wp.iso.test/"}
-		}, "last observed: HTTP 503", 70},
-		{"a namespace stays", func(f *isoFake, _ *isoConsole) { f.stays = "iso-b-" }, "left: iso-b-", 70},
+		}, "last observed: HTTP 503", 74},
+		{"a namespace stays", func(f *isoFake, _ *isoConsole) { f.stays = "iso-b-" }, "left: iso-b-", 74},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

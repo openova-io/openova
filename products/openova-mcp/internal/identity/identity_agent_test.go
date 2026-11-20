@@ -178,3 +178,43 @@ func TestIsAgentToken(t *testing.T) {
 		t.Fatal("IsAgentToken misread typ")
 	}
 }
+
+// An agent token with the claim acting_person of a person of tier admin takes
+// its tier from that claim, whatever its own tier claim says; it stays an
+// agent of its Organization.
+func TestAgentTokenActingForAnAdminHasTierAdmin(t *testing.T) {
+	k := mustKey(t)
+	r := NewRS256Resolver(&k.PublicKey, ContextOrganization).WithAgentIssuer(agentIssuer)
+	for _, tier := range []string{"viewer", "developer"} {
+		c := agentClaims("acme", "agenity", tier)
+		c["acting_person"] = map[string]any{"email": "ana@acme.example", "tier": "admin"}
+		id, err := r.Resolve(signAgent(t, k, KeyID(&k.PublicKey), c))
+		if err != nil {
+			t.Fatalf("tier %q acting for an admin: refused: %v", tier, err)
+		}
+		if id.Tier != TierAdmin || id.Context != ContextOrganization || id.OrgID != "acme" || id.Agent != "agenity" {
+			t.Fatalf("tier %q acting for an admin: tier=%s context=%s org=%q agent=%q, want admin in organization acme", tier, id.Tier, id.Context, id.OrgID, id.Agent)
+		}
+	}
+}
+
+// A claim acting_person without an email, with a tier other than admin, or of
+// another shape refuses the token: it never falls back to the capped tier.
+func TestAgentTokenWithAMalformedActingPersonIsRefused(t *testing.T) {
+	k := mustKey(t)
+	r := NewRS256Resolver(&k.PublicKey, "").WithAgentIssuer(agentIssuer)
+	for name, value := range map[string]any{
+		"tier owner":     map[string]any{"email": "ana@acme.example", "tier": "owner"},
+		"tier developer": map[string]any{"email": "ana@acme.example", "tier": "developer"},
+		"no tier":        map[string]any{"email": "ana@acme.example"},
+		"no email":       map[string]any{"tier": "admin"},
+		"blank email":    map[string]any{"email": " ", "tier": "admin"},
+		"a string":       "ana@acme.example",
+	} {
+		c := agentClaims("acme", "agenity", "developer")
+		c["acting_person"] = value
+		if id, err := r.Resolve(signAgent(t, k, KeyID(&k.PublicKey), c)); err == nil {
+			t.Errorf("%s: accepted with tier %s", name, id.Tier)
+		}
+	}
+}

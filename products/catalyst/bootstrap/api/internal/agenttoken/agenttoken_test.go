@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -21,7 +22,10 @@ import (
 	authnv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
@@ -338,11 +342,12 @@ func restricted(claims *auth.Claims, method, path string) (int, bool) {
 	return rec.Code, reached
 }
 
-// TestRestrict: an agent token reads and changes nothing; a token without
-// the audience is refused; sessions and requests without claims pass.
+// TestRestrict: an agent token without an acting person reads and changes
+// nothing; a token without the audience is refused; sessions and requests
+// without claims pass.
 func TestRestrict(t *testing.T) {
-	if len(MutationsAllowed) != 0 {
-		t.Fatalf("MutationsAllowed has %d entries; it is empty", len(MutationsAllowed))
+	if len(MutationsAllowed) != 1 || !MutationsAllowed[0].Acting {
+		t.Fatalf("MutationsAllowed = %+v; it has one entry, for a token that acts for a person", MutationsAllowed)
 	}
 	agent := &auth.Claims{Typ: "agent", Tier: "viewer", Org: "acme", Audience: []string{AudienceGateway, AudienceTools, AudienceAPI}}
 	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
@@ -364,8 +369,9 @@ func TestRestrict(t *testing.T) {
 			t.Errorf("claims %+v: %d reached=%v, want a pass", c, code, reached)
 		}
 	}
-	MutationsAllowed = []Mutation{{http.MethodPost, regexp.MustCompile(`^/api/v1/org/applications$`), "developer"}}
-	defer func() { MutationsAllowed = []Mutation{} }()
+	shipped := MutationsAllowed
+	MutationsAllowed = []Mutation{{Method: http.MethodPost, Path: regexp.MustCompile(`^/api/v1/org/applications$`), MinTier: "developer"}}
+	defer func() { MutationsAllowed = shipped }()
 	if code, _ := restricted(agent, http.MethodPost, "/api/v1/org/applications"); code != 403 {
 		t.Errorf("a viewer on a developer entry: %d", code)
 	}
@@ -623,5 +629,219 @@ func TestShippedCallersDefault(t *testing.T) {
 	}
 	if !strings.Contains(shippedDefault, chartDefault[1:len(chartDefault)-1]) || strings.Contains(shippedDefault, `"*"`) {
 		t.Errorf("the shipped default drops the conformance entry or holds a wildcard")
+	}
+}
+
+// organization is the Organization object slug whose spec.owners holds the
+// pairs email, role of people.
+func organization(slug string, people ...string) *unstructured.Unstructured {
+	owners := []any{}
+	for i := 0; i+1 < len(people); i += 2 {
+		owners = append(owners, map[string]any{"email": people[i], "role": people[i+1]})
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "orgs.openova.io/v1", "kind": "Organization",
+		"metadata": map[string]any{"name": slug},
+		"spec":     map[string]any{"slug": slug, "owners": owners},
+	}}
+}
+
+// rosterCluster is a cluster that holds the Organization objects.
+func rosterCluster(objects ...k8sruntime.Object) *fakedynamic.FakeDynamicClient {
+	return fakedynamic.NewSimpleDynamicClient(k8sruntime.NewScheme(), objects...)
+}
+
+func organizationsOf(dyn dynamic.Interface) Organizations {
+	return func() (dynamic.Interface, error) { return dyn, nil }
+}
+
+// newActingFixture is newFixture whose Organization objects are those of dyn.
+func newActingFixture(t *testing.T, dyn dynamic.Interface) fixture {
+	t.Helper()
+	f := newFixture(t, testCaller)
+	f.tokens.orgs = organizationsOf(dyn)
+	return f
+}
+
+func actingBody(person string) string {
+	return `{"organization": "acme", "agent": "correlator", "tier": "developer", "actingPerson": "` + person + `"}`
+}
+
+// The people of the Organization acme, and an admin of another Organization.
+func acmeRoster() *fakedynamic.FakeDynamicClient {
+	return rosterCluster(
+		organization("acme", "ana@acme.example", "admin", "olu@acme.example", "Owner", "dev@acme.example", "developer", "vic@acme.example", "viewer"),
+		organization("globex", "gil@globex.example", "admin"),
+	)
+}
+
+// TestActingPersonOfTierAdminGetsTheClaim: a request that names a person of
+// role admin or owner in the Organization gets a token with the claim
+// acting_person of that person at tier admin; the token's own tier is the
+// one asked for, and the audit event names the person.
+func TestActingPersonOfTierAdminGetsTheClaim(t *testing.T) {
+	f := newActingFixture(t, acmeRoster())
+	for _, person := range []string{"Ana@Acme.example", "olu@acme.example"} {
+		code, out := issue(t, f.tokens, "projected", actingBody(person))
+		if code != http.StatusOK {
+			t.Fatalf("%s: issue = %d %v", person, code, out)
+		}
+		claims := segment(t, out["token"], 1)
+		if got := keysOf(claims); got != "acting_person agent aud caller email email_verified exp iat iss jti org org_id realm_access role sub tier typ" {
+			t.Fatalf("%s: claim keys %q", person, got)
+		}
+		if b, _ := json.Marshal(claims["acting_person"]); string(b) != `{"email":"`+strings.ToLower(person)+`","tier":"admin"}` {
+			t.Errorf("%s: acting_person = %s", person, b)
+		}
+		if claims["tier"] != "developer" || claims["email"] != "correlator@acme.agents.invalid" {
+			t.Errorf("%s: tier %v, email %v", person, claims["tier"], claims["email"])
+		}
+	}
+	events := f.bus.List("", func(t string) bool { return t == AuditType }, 0)
+	if len(events) != 2 || !strings.Contains(events[0].Detail+events[1].Detail, "acting_person=ana@acme.example") {
+		t.Fatalf("audit events %+v", events)
+	}
+}
+
+// TestActingPersonBelowAdminIsRefused: a person of role developer or
+// viewer, a person the Organization does not list, an admin of another
+// Organization, and any person of an Organization that does not exist get
+// 403 acting-person-not-admin, no token and no audit event.
+func TestActingPersonBelowAdminIsRefused(t *testing.T) {
+	f := newActingFixture(t, acmeRoster())
+	for _, person := range []string{"dev@acme.example", "vic@acme.example", "nobody@acme.example", "gil@globex.example"} {
+		if code, out := issue(t, f.tokens, "projected", actingBody(person)); code != http.StatusForbidden || out["error"] != "acting-person-not-admin" || out["token"] != "" {
+			t.Errorf("%s: %d %v, want 403 acting-person-not-admin", person, code, out)
+		}
+	}
+	f.tokens.orgs = organizationsOf(rosterCluster(organization("globex", "ana@acme.example", "admin")))
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusForbidden || out["error"] != "acting-person-not-admin" {
+		t.Errorf("no Organization acme: %d %v, want 403 acting-person-not-admin", code, out)
+	}
+	if events := f.bus.List("", func(t string) bool { return t == AuditType }, 0); len(events) != 0 {
+		t.Fatalf("a refusal wrote audit events %+v", events)
+	}
+}
+
+// TestActingPersonTierIsReadAtIssue: the tier is read from the Organization
+// at every issue, so a person who loses admin gets no claim from then on;
+// the request names the person and can carry no tier for the person.
+func TestActingPersonTierIsReadAtIssue(t *testing.T) {
+	dyn := acmeRoster()
+	f := newActingFixture(t, dyn)
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusOK {
+		t.Fatalf("admin: %d %v", code, out)
+	}
+	demoted := organization("acme", "ana@acme.example", "developer")
+	if _, err := dyn.Resource(organizationResource).Update(context.Background(), demoted, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusForbidden || out["error"] != "acting-person-not-admin" {
+		t.Fatalf("after the role changed to developer: %d %v, want 403 acting-person-not-admin", code, out)
+	}
+	for _, body := range []string{
+		`{"organization": "acme", "agent": "correlator", "tier": "developer", "actingPerson": "ana@acme.example", "actingTier": "admin"}`,
+		`{"organization": "acme", "agent": "correlator", "tier": "developer", "actingPerson": {"email": "ana@acme.example", "tier": "admin"}}`,
+		`{"organization": "acme", "agent": "correlator", "tier": "admin", "actingPerson": "ana@acme.example"}`,
+		actingBody("ana"),
+		actingBody(" ana@acme.example"),
+	} {
+		if code, out := issue(t, f.tokens, "projected", body); code != http.StatusUnprocessableEntity || out["error"] != "invalid-request" {
+			t.Errorf("%s: %d %v, want 422 invalid-request", body, code, out)
+		}
+	}
+}
+
+// TestActingPersonOrganizationUnreadable: when the Organization cannot be
+// read the answer is 502 organization-read-failed, never a token.
+func TestActingPersonOrganizationUnreadable(t *testing.T) {
+	dyn := acmeRoster()
+	dyn.PrependReactor("get", "organizations", func(clienttesting.Action) (bool, k8sruntime.Object, error) {
+		return true, nil, errors.New("connection refused")
+	})
+	f := newActingFixture(t, dyn)
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusBadGateway || out["error"] != "organization-read-failed" || out["token"] != "" {
+		t.Errorf("read error: %d %v, want 502 organization-read-failed", code, out)
+	}
+	f.tokens.orgs = func() (dynamic.Interface, error) { return nil, errors.New("not in a cluster") }
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusBadGateway || out["error"] != "organization-read-failed" {
+		t.Errorf("no client: %d %v, want 502 organization-read-failed", code, out)
+	}
+	f.tokens.orgs = nil
+	if code, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example")); code != http.StatusBadGateway || out["error"] != "organization-read-failed" {
+		t.Errorf("no Organizations: %d %v, want 502 organization-read-failed", code, out)
+	}
+	if code, _ := issue(t, f.tokens, "projected", `{"organization": "acme", "agent": "correlator", "tier": "developer"}`); code != http.StatusOK {
+		t.Errorf("a request without an acting person reads no Organization: %d", code)
+	}
+}
+
+// TestActingPersonOpensCreateApplicationOnly: the one entry of
+// MutationsAllowed admits POST /api/v1/org/applications for a token that
+// acts for a person of tier admin, at any tier of its own, and nothing else;
+// a token without the claim, or with a claim of another tier or no email,
+// changes nothing.
+func TestActingPersonOpensCreateApplicationOnly(t *testing.T) {
+	aud := []string{AudienceGateway, AudienceTools, AudienceAPI}
+	for _, tier := range []string{"viewer", "developer"} {
+		acting := &auth.Claims{Typ: "agent", Tier: tier, Org: "acme", Audience: aud, ActingPerson: &auth.ActingPerson{Email: "ana@acme.example", Tier: "admin"}}
+		if code, reached := restricted(acting, http.MethodPost, "/api/v1/org/applications"); code != 200 || !reached {
+			t.Errorf("tier %s acting for an admin: POST %d reached=%v, want a pass", tier, code, reached)
+		}
+		for _, c := range []struct{ method, path string }{
+			{http.MethodPost, "/api/v1/org/applications/blog"},
+			{http.MethodPut, "/api/v1/org/applications"},
+			{http.MethodPatch, "/api/v1/org/applications"},
+			{http.MethodDelete, "/api/v1/org/applications"},
+			{http.MethodDelete, "/api/v1/org/applications/blog"},
+			{http.MethodPost, "/api/v1/org/environments"},
+			{http.MethodPost, "/api/v1/sovereigns/29b7e14918178f7e/applications"},
+		} {
+			if code, reached := restricted(acting, c.method, c.path); code != 403 || reached {
+				t.Errorf("tier %s acting for an admin: %s %s %d reached=%v, want 403", tier, c.method, c.path, code, reached)
+			}
+		}
+	}
+	for _, person := range []*auth.ActingPerson{nil, {Email: "ana@acme.example", Tier: "owner"}, {Email: "ana@acme.example", Tier: "developer"}, {Email: " ", Tier: "admin"}} {
+		claims := &auth.Claims{Typ: "agent", Tier: "developer", Org: "acme", Audience: aud, ActingPerson: person}
+		if code, reached := restricted(claims, http.MethodPost, "/api/v1/org/applications"); code != 403 || reached {
+			t.Errorf("acting_person %+v: POST %d reached=%v, want 403", person, code, reached)
+		}
+	}
+}
+
+// TestActingPersonThroughTheSessionChain: a token issued for an acting
+// person passes the session check, the Organization scope guard and
+// Restrict for POST /api/v1/org/applications; the claim survives the
+// session check, and no other mutation opens.
+func TestActingPersonThroughTheSessionChain(t *testing.T) {
+	f := newActingFixture(t, acmeRoster())
+	_, out := issue(t, f.tokens, "projected", actingBody("ana@acme.example"))
+	pub, _ := f.signer.PublicRSAKey()
+	cfg := &auth.Config{LocalPublicKey: pub, LocalKeyID: f.signer.KeyID()}
+	var seen *auth.Claims
+	chain := auth.RequireSession(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))((&handler.Handler{}).OrgScopeGuard(Restrict(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = auth.ClaimsFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))))
+	for _, c := range []struct {
+		method, path string
+		status       int
+		code         string
+	}{
+		{http.MethodPost, "/api/v1/org/applications", 200, ""},
+		{http.MethodDelete, "/api/v1/org/applications/blog", 403, "forbidden"},
+		{http.MethodPost, "/api/v1/sovereigns/29b7e14918178f7e/applications", 403, "org-scoped-forbidden"},
+	} {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.Header.Set("Authorization", "Bearer "+out["token"])
+		rec := httptest.NewRecorder()
+		chain.ServeHTTP(rec, req)
+		if rec.Code != c.status || !strings.Contains(rec.Body.String(), c.code) {
+			t.Errorf("%s %s: %d %s, want %d %s", c.method, c.path, rec.Code, rec.Body, c.status, c.code)
+		}
+	}
+	if seen == nil || seen.ActingPerson == nil || seen.ActingPerson.Email != "ana@acme.example" || !ActsForAdmin(seen) {
+		t.Fatalf("the claims after the session check: %+v", seen)
 	}
 }
