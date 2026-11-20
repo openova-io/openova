@@ -138,17 +138,20 @@ func sliceShellFn(t *testing.T, chartScript, name string) string {
 func TestRegistryPivotOfflineMirrorPerHostRewrite(t *testing.T) {
 	chart := pivotChartScript(t)
 
-	writeHosts := sliceShellFn(t, chart, "write_offline_mirror_hosts")
+	writeHosts := sliceShellFn(t, chart, "pivot_owns") + sliceShellFn(t, chart, "put_hosts_toml") +
+		sliceShellFn(t, chart, "write_offline_mirror_hosts")
 
 	const localHost = "registry.t99.omani.works"
 	certsD := t.TempDir()
 
-	// Seed a legacy dfdaemon catch-all — the function MUST retire it.
+	// Seed a legacy dfdaemon catch-all, first line the mark the #4639 pivot
+	// wrote — the function MUST retire it (and only it: SOV-132, a k3s-written
+	// _default is kept; tests/registry-pivot-keeps-k3s-files.sh).
 	if err := os.MkdirAll(filepath.Join(certsD, "_default"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(certsD, "_default", "hosts.toml"),
-		[]byte("# legacy dfdaemon catch-all\n"), 0o644); err != nil {
+		[]byte("# managed by bp-self-sovereign-cutover registry-pivot (#4639) — DO NOT EDIT\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
