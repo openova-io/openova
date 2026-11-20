@@ -12,7 +12,7 @@ description: |
   updates on their own and never reboot themselves; kured reboots them, one
   node at a time, inside its reboot span.
 type: application
-version: 0.1.2
+version: 0.1.3
 appVersion: "1.23.0"
 keywords: [catalyst, blueprint, kured, reboot, unattended-upgrades, node-patching]
 maintainers:
