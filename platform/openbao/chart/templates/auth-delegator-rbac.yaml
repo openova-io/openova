@@ -1,0 +1,31 @@
+{{- /*
+OpenBao token reviewer — bp-openbao (SEC-162; was the last document of
+auto-unseal-rbac.yaml).
+
+OpenBao's Kubernetes auth method validates incoming ServiceAccount JWTs by
+calling tokenreviews.authentication.k8s.io. The OpenBao server pod needs
+system:auth-delegator at cluster scope for that. The self-initialisation
+configures the mount with kubernetes_host only, so the server reviews
+tokens with its own service-account token and CA.
+
+Subject: the upstream openbao chart's ServiceAccount, named
+`<release>-openbao` per upstream convention (releaseName=openbao →
+`openbao` SA). Rendered when kubernetesAuth.enabled.
+*/}}
+{{- if (.Values.kubernetesAuth | default dict).enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-openbao-auth-delegator" .Release.Name | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-token-reviewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}

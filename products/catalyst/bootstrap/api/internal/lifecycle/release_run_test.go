@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/yaml"
 )
 
 // kubectlStub stands for kubectl in release-run.sh (a shell function named
@@ -35,8 +37,16 @@ import (
 // present, is what a read of a Job's Pods answers. A status patch that matches
 // a line of STUB_DIR/patch-fail fails and is not kept; the first that matches
 // a line of STUB_DIR/patch-kill kills the process that sends it (its Pod
-// killed before the write) and is not kept.
+// killed before the write) and is not kept, and so does one of patch-evict,
+// whose kill is an eviction (STUB_DIR/evicted, the Pod's DisruptionTarget). A
+// read whose "pod=<STUB_POD> <arguments>" matches a line of STUB_DIR/read-fail
+// fails, and the first that matches one of read-fail-once. A Job's Pods,
+// pods-<job>.json (podsStub), are what a read of them answers, a Pod's log
+// what its logs answer, and logs job/<job> answers the oldest, as kubectl
+// does; a Job's end is its condition. The first follower Job whose name
+// matches STUB_DIR/evict-follower loses its first Pod to an eviction.
 const kubectlStub = `#!/bin/sh
+. "${STUB_DIR}/pods.sh"
 echo "kubectl $*" >>"${STUB_DIR}/calls"
 obj=""
 case " $* " in
@@ -48,6 +58,12 @@ esac
 { printf '%s\037' "$@"; printf '\035%s\036' "${obj}"; } >>"${STUB_DIR}/calls.rec"
 region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
+for f in read-fail read-fail-once; do
+  case " $* " in *" get "*) ;; *) break ;; esac
+  if [ -s "${STUB_DIR}/$f" ] && printf 'pod=%s %s\n' "${STUB_POD:-}" "$*" | grep -qEf "${STUB_DIR}/$f"; then
+    [ "$f" = read-fail ] || rm -f "${STUB_DIR}/$f"; echo "Error from server (InternalError): the test fails this read" >&2; exit 1
+  fi
+done
 case " $* " in
   *" --dry-run=server "*)
     n="${region}.$(jq -r '.kind + "." + (.metadata.name // .metadata.generateName)' "${STUB_DIR}/applied")"
@@ -59,7 +75,8 @@ case " $* " in
   *" auth whoami "*)
     if [ "${region}" = primary ]; then echo "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner"; else echo "system:serviceaccount:kube-system:handover-peer"; fi
     exit 0 ;;
-  *" get pods "*) cat "${STUB_DIR}/pods.json" 2>/dev/null || echo '{"items": []}'; exit 0 ;;
+  *" get pods "*) j=$(printf '%s\n' "$*" | sed -n 's/.*job-name=\([^ ]*\).*/\1/p')
+    grep -q "\"${j}-" "${STUB_DIR}/pods.json" 2>/dev/null && cat "${STUB_DIR}/pods.json" || cat "${STUB_DIR}/pods-${j}.json" 2>/dev/null || echo '{"items": []}'; exit 0 ;;
 esac
 case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
@@ -77,9 +94,12 @@ case " $* " in
   *" delete secret "*) rm -f "${STUB_DIR}/secrets/${region}/$2/$5.json" ;;
   *" patch configmap "*)
     p=""; while [ $# -gt 0 ]; do [ "$1" = "-p" ] && p="$2"; shift; done
-    if [ -s "${STUB_DIR}/patch-kill" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-kill"; then
-      rm -f "${STUB_DIR}/patch-kill"; echo "kubectl stub: the Pod is killed before it writes ${p}" >&2; kill -9 "${PPID}"; exit 137
-    fi
+    for k in kill evict; do
+      if [ -s "${STUB_DIR}/patch-$k" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-$k"; then
+        rm -f "${STUB_DIR}/patch-$k"; [ "$k" = kill ] || : >"${STUB_DIR}/evicted"
+        echo "kubectl stub: the Pod is ${k}ed before it writes ${p}" >&2; kill -9 "${PPID}"; exit 137
+      fi
+    done
     if [ -s "${STUB_DIR}/patch-fail" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-fail"; then
       echo "Error from server (InternalError): the test fails this patch" >&2; exit 1
     fi
@@ -102,6 +122,7 @@ case " $* " in
     fi
     if [ "${region}" = primary ] && jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
       name=$(jq -r .metadata.name "${STUB_DIR}/applied")
+      case " $* " in *" create "*) [ ! -e "${STUB_DIR}/job-${name}.rc" ] || { echo "Error from server (AlreadyExists): jobs.batch \"${name}\" already exists" >&2; exit 1; } ;; esac
       cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.json"
       sh "${STUB_DIR}/kubelet" "${STUB_DIR}/job-${name}.json"
       exit 0
@@ -118,18 +139,27 @@ case " $* " in
     env_file="${STUB_DIR}/job-${name}.env"
     jq -r --arg r "${STUB_RELEASE}" '.spec.template.spec.containers[0].env[] | select(.value != null)
       | "\(.name)=\(.value | if startswith("/release/") then $r + "/" + .[9:] else . end | @sh)"' "${STUB_DIR}/follower-job.json" >"${env_file}"
-    rc=0
-    ( set -a; . "${env_file}"; GITEA_PAT="${STUB_PAT}"; WORK=$(mktemp -d); export GITEA_PAT WORK; sh "${STUB_RELEASE}/release-region.sh" ) \
-      >"${STUB_DIR}/job-${name}.log" 2>&1 || rc=$?
+    rc=0; a=1; rm -f "${STUB_DIR}/pods-${name}.json"
+    if [ -s "${STUB_DIR}/evict-follower" ] && printf '%s\n' "${name}" | grep -qEf "${STUB_DIR}/evict-follower"; then
+      rm -f "${STUB_DIR}/evict-follower"; echo "kubelet: the Pod is evicted before it starts" >"${STUB_DIR}/podlog-${name}-1"
+      pod_add "${name}" 1 Failed true; rc=137; ! retries "${STUB_DIR}/follower-job.json" || { rc=0; a=2; }
+    fi
+    if [ "${rc}" = 0 ]; then
+      ( set -a; . "${env_file}"; GITEA_PAT="${STUB_PAT}"; WORK=$(mktemp -d); export GITEA_PAT WORK; sh "${STUB_RELEASE}/release-region.sh" ) \
+        >"${STUB_DIR}/podlog-${name}-${a}" 2>&1 || rc=$?
+      pod_add "${name}" "${a}" "$([ "${rc}" = 0 ] && echo Succeeded || echo Failed)" false
+    fi
     echo "${rc}" >"${STUB_DIR}/job-${name}.rc" ;;
   *" get job "*)
     rc=$(cat "${STUB_DIR}/job-$5.rc" 2>/dev/null || echo running)
     case "$*" in
+      *conditions*) [ "${rc}" = 0 ] && echo Complete; [ "${rc}" != 0 ] && [ "${rc}" != running ] && echo Failed ;;
       *succeeded*) [ "${rc}" = 0 ] && echo 1 ;;
       *failed*) [ "${rc}" != 0 ] && [ "${rc}" != running ] && echo 1 ;;
+      *" -o json "*) cat "${STUB_DIR}/job-$5.json" 2>/dev/null ;;
     esac
     exit 0 ;;
-  *" logs "*) n="${4#job/}"; cat "${STUB_DIR}/job-${n}.log" ;;
+  *" logs "*) n="${4#*/}"; case "$4" in pod/*) cat "${STUB_DIR}/podlog-${n}" ;; *) cat "${STUB_DIR}/podlog-${n}-1" ;; esac ;;
   *) echo "kubectl stub: unexpected call: $*" >&2; exit 9 ;;
 esac
 `
@@ -141,17 +171,21 @@ esac
 // init container and container in order, with only its own environment (a
 // secretKeyRef read from the stub's Secrets of its namespace) and every
 // mountPath in its command, arguments and values mapped to its volume's
-// directory. The first container that fails ends the Pod; job-<name>.rc and
-// job-<name>.log are what get job and logs answer. STUB_KILL=<container> kills
-// the Pod before that container starts (a drained node, a lost node): the Job
-// replaces no Pod (backoffLimit 0), so it fails, and no container of it
-// recorded why.
+// directory. The first container that fails ends the Pod (<name>-<attempt>,
+// with fresh emptyDirs and STUB_POD=<attempt>); job-<name>.rc is how the Job
+// ended. STUB_KILL=<container> kills the Pod before that container starts (a
+// lost node): no eviction, so the Job fails, and no container of it recorded
+// why. A Pod an eviction took (STUB_DIR/evicted) the Job replaces once when its
+// spec says so (retries), as the Job controller does.
 const kubeletStub = `#!/bin/sh
 set -u
+. "${STUB_DIR}/pods.sh"
 j="$1"; name=$(jq -r .metadata.name "$j"); ns=$(jq -r .metadata.namespace "$j")
-root="${STUB_DIR}/pod-${name}"; mkdir -p "$root/vol"
-log="${STUB_DIR}/job-${name}.log"; : >"$log"
-end() { echo "$1" >"${STUB_DIR}/job-${name}.rc"; exit 0; }
+: >"${STUB_DIR}/job-${name}.log"; rm -f "${STUB_DIR}/pods-${name}.json"
+a=0
+pod() {
+root="${STUB_DIR}/pod-${name}-${a}"; mkdir -p "$root/vol"
+log="${STUB_DIR}/podlog-${name}-${a}"; : >"$log"
 jq -c '.spec.template.spec.volumes[]' "$j" >"$root/vols"
 while IFS= read -r v; do
   vn=$(printf '%s' "$v" | jq -r .name); d="$root/vol/$vn"; mkdir -p "$d"
@@ -159,7 +193,7 @@ while IFS= read -r v; do
   sec=$(printf '%s' "$v" | jq -r '.secret.secretName // empty')
   if [ -n "$cm" ]; then
     f="${STUB_DIR}/cm/${cm}.json"
-    [ -f "$f" ] || { echo "kubelet: ConfigMap ${cm} of volume ${vn} does not exist" >>"$log"; end 1; }
+    [ -f "$f" ] || { echo "kubelet: ConfigMap ${cm} of volume ${vn} does not exist" >>"$log"; return 1; }
     if [ "$(printf '%s' "$v" | jq '.configMap.items // [] | length')" -gt 0 ]; then
       printf '%s' "$v" | jq -r '.configMap.items[] | .key + " " + .path' >"$root/items"
     else
@@ -182,16 +216,36 @@ while IFS= read -r c; do
   printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' ((.command // []) + (.args // []))[] | remap' >"$root/argv"
   if [ -n "${STUB_KILL:-}" ] && [ "$(printf '%s' "$c" | jq -r .name)" = "${STUB_KILL}" ]; then
     echo "kubelet: the Pod is killed before container ${STUB_KILL} starts" >>"$log"
-    end 137
+    return 137
   fi
   echo "kubelet: container $(printf '%s' "$c" | jq -r .name)" >>"$log"
   rc=0
-  env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" \
+  env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" STUB_POD="$a" \
     FOLLOWER_POLL_SECONDS=1 FOLLOWER_WAIT_SECONDS=60 sh -c '_kr="$1"; . "$_kr/env.sh"; set --; while IFS= read -r a; do set -- "$@" "$a"; done <"$_kr/argv"; "$@"' kubelet "$root" \
     >>"$log" 2>&1 </dev/null || rc=$?
-  [ "$rc" -eq 0 ] || end "$rc"
+  [ "$rc" -eq 0 ] || return "$rc"
 done <"$root/ctrs"
-end 0
+}
+while a=$((a + 1)); do
+  rc=0; pod || rc=$?
+  cat "$log" >>"${STUB_DIR}/job-${name}.log"
+  ev=false; [ "$rc" = 0 ] || [ ! -e "${STUB_DIR}/evicted" ] || { rm -f "${STUB_DIR}/evicted"; ev=true; }
+  pod_add "$name" "$a" "$([ "$rc" = 0 ] && echo Succeeded || echo Failed)" "$ev"
+  if [ "$ev" = true ] && [ "$a" = 1 ] && retries "$j"; then echo "kubelet: the Job replaces the evicted Pod" >>"${STUB_DIR}/job-${name}.log"; continue; fi
+  echo "$rc" >"${STUB_DIR}/job-${name}.rc"; exit 0
+done
+`
+
+// podsStub: pod_add <job> <attempt> <phase> <disrupted> adds Pod
+// <job>-<attempt> to STUB_DIR/pods-<job>.json, each attempt a second younger;
+// retries <job.json> says whether the Job replaces a Pod a disruption took: a
+// backoffLimit of 1 or more, and a first pod failure rule that counts it.
+const podsStub = `pod_add() {
+  f="${STUB_DIR}/pods-$1.json"; [ -s "$f" ] || echo '{"items": []}' >"$f"
+  jq --arg n "$1-$2" --arg t "2026-01-01T00:00:0$2Z" --arg p "$3" --argjson d "$4" '.items += [{metadata: {name: $n, creationTimestamp: $t},
+    status: {phase: $p, conditions: (if $d then [{type: "DisruptionTarget", status: "True"}] else [] end)}}]' "$f" >"$f.new" && mv "$f.new" "$f"
+}
+retries() { jq -e '(.spec.backoffLimit // 6) >= 1 and (.spec.podFailurePolicy.rules[0] | .action == "Count" and any(.onPodConditions[]?; .type == "DisruptionTarget"))' "$1" >/dev/null; }
 `
 
 // follower is a second region: its own Gitea, whose main is the installed
@@ -414,6 +468,7 @@ func newRunFixtureFrom(t *testing.T, f *fixture, req releaseRequest, conflict bo
 	}
 	f.write(r.stub, "kubectl", kubectlStub)
 	f.write(r.stub, "kubelet", kubeletStub)
+	f.write(r.stub, "pods.sh", podsStub)
 	f.write(r.stub, "bin/kubectl", "#!/bin/sh\nexec sh \"${STUB_DIR}/kubectl\" \"$@\"\n")
 	if err := os.Chmod(r.stub+"/bin/kubectl", 0o700); err != nil { //nolint:gosec // a fake program must be executable
 		t.Fatal(err)
@@ -929,4 +984,119 @@ func TestReleaseStageReappliesTheProviderPivotOfStep11(t *testing.T) {
 			t.Fatalf("%v: the report does not name the Provider as taken from the candidate, or main moved\n%s", sh, out)
 		}
 	}
+}
+
+// retriesOneEviction: the Job the scripts made (STUB_DIR/<file>) replaces a Pod
+// exactly as the route's bootstrap Job does (retryOneEviction).
+func (r *runFixture) retriesOneEviction(file string) {
+	r.t.Helper()
+	var want, got batchv1.Job
+	retryOneEviction(&want.Spec)
+	b, err := os.ReadFile(filepath.Clean(r.stub + "/" + file))
+	if err == nil {
+		err = yaml.Unmarshal(b, &got)
+	}
+	w, _ := json.Marshal([]any{want.Spec.BackoffLimit, want.Spec.PodReplacementPolicy, want.Spec.PodFailurePolicy})
+	g, _ := json.Marshal([]any{got.Spec.BackoffLimit, got.Spec.PodReplacementPolicy, got.Spec.PodFailurePolicy})
+	if err != nil || string(g) != string(w) || want.Spec.PodFailurePolicy.Rules[0].OnPodConditions[0].Type != corev1.DisruptionTarget {
+		r.t.Errorf("%s (%v) replaces a Pod as %s, the bootstrap as %s", file, err, g, w)
+	}
+}
+
+// A delivery Job whose Pod an eviction takes resumes in its second Pod from the
+// state it reads with certainty: it prewarms again only when no Pod recorded
+// that it did (prewarmedBy, written before the credential goes, or the prewarm
+// stops), and keeps the region an earlier promote reached. A read that fails is
+// read again; when none answers the Pod stops, and the state names what moved.
+func TestReleaseDeliveryJobResumesAfterAnEviction(t *testing.T) {
+	const moved = "Promoted: region-b."
+	for _, c := range []struct{ name, evict, fail, read, phase, want string }{
+		{"evicted before it records its prewarm", `"prewarmedBy"`, "", "", "delivered", ""},
+		{"evicted after it promoted the follower", `"promoteRegion":"primary"`, "", "", "delivered", "resumed: the promote an earlier Pod began, which reached region-b"},
+		{"its first read of the state fails", `"promoteRegion":"primary"`, "", "read-fail-once", "delivered", "reached region-b"},
+		{"no read of the state answers", `"promoteRegion":"primary"`, "", "read-fail", "failed", moved},
+		{"its record of the prewarm cannot be written", "", `"prewarmedBy"`, "", "failed", "it cannot record its end (prewarmedBy)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			staged := r.followerRef("release/" + req.Candidate)
+			for file, line := range map[string]string{"patch-evict": c.evict, "patch-fail": c.fail, c.read: "^pod=2 .*get configmap sovereign-release "} {
+				if file != "" && line != "" { // an empty line of a pattern file matches every call
+					r.write(r.stub, file, line+"\n")
+				}
+			}
+			out, code := r.run("deliver", req)
+			logs, st := r.jobLog(req), r.status()
+			if (c.evict != "") != strings.Contains(logs, "kubelet: the Job replaces the evicted Pod") || st["phase"] != c.phase || (code == 0) != (c.phase == "delivered") {
+				t.Fatalf("exit %d, phase %q, message %q, resume %q\n%s\n%s", code, st["phase"], st["message"], st["resume"], out, logs)
+			}
+			if !strings.Contains(st["resume"]+st["message"], c.want) || strings.Contains(st["message"], "no region was promoted") {
+				t.Errorf("the state does not say %q: message %q, resume %q", c.want, st["message"], st["resume"])
+			}
+			r.noCredentialLeft(c.name)
+			r.retriesOneEviction("job-sovereign-release-delivery.json")
+			b, p := r.followerRef("main"), r.remote("main")
+			switch {
+			case c.phase == "delivered" && (p != r.remote("release/"+req.Candidate) || b != staged || st["region-b.promotedFrom"] != r.followerMain || st["region-b.promotedTo"] != staged):
+				t.Errorf("after the resume: primary %s, region-b %s (staged %s), region-b promoted %q -> %q", p, b, staged, st["region-b.promotedFrom"], st["region-b.promotedTo"])
+			case c.want == moved && (p != r.main || b != staged || !strings.Contains(st["message"], "promote never reached it: primary") || !strings.Contains(st["resume"], "stopped: it cannot read the state")):
+				t.Errorf("primary moved %v, region-b promoted %v; message %q; resume %q", p != r.main, b == staged, st["message"], st["resume"])
+			case c.fail != "" && (p != r.main || b != r.followerMain || st["failedStep"] != "prewarm"):
+				t.Errorf("a prewarm that cannot record its end moved a main or names step %q", st["failedStep"])
+			}
+		})
+	}
+}
+
+// A follower Job whose first Pod an eviction takes runs a second, and its result
+// is that Pod's log: kubectl logs job/<job> would read the evicted one.
+func TestReleaseFollowerJobResultIsItsCurrentPods(t *testing.T) {
+	for _, job := range []string{"sovereign-release-stage-region-b", "sovereign-release-promote-region-b"} {
+		t.Run(job, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			r.write(r.stub, "evict-follower", "^"+job+"$\n")
+			out, code := r.run("stage", req)
+			if code == 0 {
+				more, c := r.run("deliver", req)
+				out, code = out+more, c
+			}
+			if st := r.status(); code != 0 || st["phase"] != "delivered" || !strings.Contains(st["region-b.promote"], "phase=promoted") {
+				t.Fatalf("exit %d, phase %q, region-b %q / %q\n%s\n%s", code, st["phase"], st["region-b.stage"], st["region-b.promote"], out, r.jobLog(req))
+			}
+			r.retriesOneEviction("job-" + job + ".yaml")
+		})
+	}
+}
+
+// A bootstrap Job whose Pod an eviction takes: the next Pod (its own STATE)
+// stages again while no delivery Job exists; once one does, it stages nothing
+// and deliver waits for that Job; when it cannot read whether one exists, it
+// stops, and nothing is staged again.
+func TestReleaseBootstrapResumesAfterAnEviction(t *testing.T) {
+	r, req := credentialFixture(t, false, false)
+	r.write(r.stub, "patch-kill", `"region-b\.stage"`+"\n")
+	if out, code := r.run("stage", req); code == 0 {
+		t.Fatalf("the stage was not interrupted\n%s", out)
+	}
+	for i, want := range []string{"", "resumed: Job sovereign-release-delivery exists", "stopped: it cannot read whether Job sovereign-release-delivery exists"} {
+		r.state = r.dir + "/state-" + string(rune('a'+i))
+		if i == 2 {
+			r.write(r.stub, "read-fail", "^pod= .*get job sovereign-release-delivery \n")
+		}
+		staged := r.remote("release/" + req.Candidate)
+		out, code := r.run("stage", req)
+		if code == 0 {
+			more, c := r.run("deliver", req)
+			out, code = out+more, c
+		}
+		st := r.status()
+		if (code == 0) != (i < 2) || st["phase"] != "delivered" || !strings.Contains(st["resume"], want) || (i > 0 && r.remote("release/"+req.Candidate) != staged) {
+			t.Fatalf("Pod %d: exit %d, phase %q, resume %q, staged again %v\n%s", i+2, code, st["phase"], st["resume"], r.remote("release/"+req.Candidate) != staged, out)
+		}
+	}
+	r.noCredentialLeft("after the bootstrap resumed")
+	r.retriesOneEviction("job-sovereign-release-stage-region-b.yaml")
 }

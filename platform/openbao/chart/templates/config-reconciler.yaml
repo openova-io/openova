@@ -9,18 +9,16 @@ The Deployment applies it every `config.intervalSeconds`, idempotently
 runs that exact script against a fake OpenBao).
 
 Login: k8s-auth role `openbao-config-admin` bound to this ServiceAccount,
-policy openbao.configAdminPolicy — written by the auth-bootstrap hook, on the
-first install with the init root token and on every later install/upgrade
-with a short-lived root generated from the unseal-key shares and revoked at
-the end of the hook. No root token is kept anywhere.
+policy openbao.configAdminPolicy — written by the self-initialisation of the
+store (templates/seal-config.yaml, initialize.hcl) on its first start, with a
+root token OpenBao revokes at once. The first op of the desired state writes
+that policy again, so a later chart version changes it. No root token exists.
 
-Rendered with the auth-bootstrap Job (autoUnseal.enabled +
-kubernetesAuth.enabled): it is the other half of the same contract.
+Rendered when kubernetesAuth.enabled.
 */ -}}
-{{- $au := .Values.autoUnseal | default dict -}}
-{{- $kAuth := $au.kubernetesAuth | default dict -}}
-{{- if and $au.enabled $kAuth.enabled }}
-{{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
+{{- $kAuth := .Values.kubernetesAuth | default dict -}}
+{{- if $kAuth.enabled }}
+{{- $baoAddr := .Values.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
 {{- $c := .Values.config | default dict -}}
 {{- $ops := include "openbao.configOps" . | fromJsonArray }}
 ---

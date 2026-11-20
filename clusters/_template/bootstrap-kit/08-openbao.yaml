@@ -63,6 +63,12 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # SEC-162: the upstream chart's server test mounts the server's volumes,
+    # the seal directory among them, on any node. Only the chart's own
+    # function test runs (bp-openbao templates/tests/function-test.yaml).
+    filters:
+      - name: openbao-server-test
+        exclude: true
   interval: 15m
   releaseName: openbao
   targetNamespace: openbao
@@ -184,7 +190,7 @@ spec:
       #   trusting it into /ui/vault/secrets, instead of trusting a
       #   client-side-only tokenExpirationEpoch that can't see a server-side
       #   revoke — closes the "no login form but 403 on mounts" gap.
-      version: 1.2.81
+      version: 1.2.82
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
@@ -215,12 +221,18 @@ spec:
   #   the HTTPRoute template (platform/openbao/chart/templates/httproute.yaml).
   #   The HTTPRoute attaches to cilium-gateway/kube-system installed by
   #   01-cilium.yaml.
-  # - autoUnseal.enabled (issue #316): activates the post-install init
-  #   Job + Kubernetes-auth bootstrap Job in the chart. Cloud-init
-  #   (infra/hetzner/cloudinit-control-plane.tftpl) writes the seed
-  #   Secret `openbao-recovery-seed` in the openbao namespace BEFORE
-  #   Flux applies this HelmRelease, so the init Job has the seed it
-  #   needs on first reconcile.
+  # - seal.stanza (SEC-162): the seal block of ConfigMap
+  #   flux-system/sovereign-seal-profile, which cloud-init applies before
+  #   Flux reconciles this HelmRelease (contract
+  #   docs/contracts/c8-seal-provider.md). The server reads its key from the
+  #   node file the stanza names and initialises itself; there is no init
+  #   Job and no unseal-key Secret. Without the ConfigMap this release does
+  #   not install, and without a stanza the server does not start.
+  valuesFrom:
+    - kind: ConfigMap
+      name: sovereign-seal-profile
+      valuesKey: stanza
+      targetPath: seal.stanza
   values:
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for openbao (the
@@ -242,76 +254,18 @@ spec:
     # zero-touch on every fresh Sovereign.
     sso:
       sovereignFqdn: ${SOVEREIGN_FQDN}
-    autoUnseal:
-      enabled: true
-      # Issue #517 (cont): the chart's init-job.yaml + auth-bootstrap-job.yaml
-      # default baoAddress to `http://<release>-openbao:8200`, but with
-      # spec.releaseName=openbao the upstream openbao chart's `fullname`
-      # template returns just `openbao` (not `openbao-openbao`) because
-      # Release.Name CONTAINS chart name. The rendered Service is
-      # `openbao` in the openbao namespace. Override the default so the
-      # post-install Jobs can actually reach the server.
-      baoAddress: http://openbao.openbao.svc.cluster.local:8200
-      # Wave 5.55 (#2295, 2026-05-24 post-hw01 manual unblock): bump the
-      # init-Job activeDeadlineSeconds from 600s (10m) to 1200s (20m).
-      # On hw01 (Huawei HCS slower storage) the openbao-0 StatefulSet
-      # Pod took ~7m to reach Ready (vs ~3m on Hetzner). With the
-      # 10m default the Job ran out before init could complete; the
-      # founder had to `bao operator init` manually then suspend/resume
-      # the HR. 1200s gives the StatefulSet up to 12 minutes for
-      # cold-start while leaving 8 minutes for bao status wait + init +
-      # unseal + Secret writes. Stays under the parent HR's 15m timeout
-      # so failed runs still surface as HR errors, not silent kit
-      # timeouts.
-      activeDeadlineSeconds: 1200
-      # ── #3825 (Refs #3642) cross-cluster TokenReview ───────────────────
-      # openbao runs in vc-mgmt (placement.yaml slot-08 vcluster: mgmt) but
-      # the ESO ServiceAccount whose JWT it validates is issued by the HOST
-      # apiserver. Without this the auth-bootstrap Job points k8s-auth at the
-      # VC-MGMT apiserver, which cannot review the host token → ESO 403s →
-      # ALL *-oidc ExternalSecrets stay unsynced → the per-app SSO walk stays
-      # broken. Enabled here because THIS slot places openbao in a vCluster;
-      # the auth-bootstrap Job then configures auth/kubernetes/config to
-      # TokenReview against the HOST apiserver using the host SA token + host
-      # CA mirrored from the HOST openbao ns (placement slot-08 hostDocuments
-      # `openbao-host-token-reviewer`) via bp-mgmt-vcluster
-      # sync.fromHost.secrets `openbao/*`. The chart default is `false`
-      # (host-side openbao / Catalyst-Zero) so single-region stays unchanged.
-      # If a future overlay returns openbao to host placement, flip this off
-      # in lockstep with placement.yaml (vcluster: host) — then
-      # kubernetes.default.svc IS the host apiserver and the in-cluster path
-      # is correct again.
-      kubernetesAuth:
-        crossClusterTokenReview:
-          # #4291 DE-VCLUSTER — openbao returned to HOST placement (placement.yaml
-          # vcluster: host), so kubernetes.default.svc IS the host apiserver and
-          # the in-cluster TokenReview path is correct again. Flipped OFF in
-          # lockstep per the #3825 note above. The host token-reviewer SA/CRB/
-          # Secret/export-Job (the #3825/#3838/#3842 machinery) are no longer
-          # rendered (placement hostBridge removed) so the static Secret no longer
-          # exists — leaving this true would point auth-bootstrap at a missing
-          # Secret. The chart default `false` is the host-native posture.
-          enabled: false
-          # #3838: mount the Opaque COPY of the host token-reviewer
-          # (`openbao-host-token-reviewer-static`, minted by the placement.yaml
-          # `openbao-host-token-reviewer-export` Job), NOT the raw
-          # `kubernetes.io/service-account-token` Secret. The SA-token-typed
-          # Secret cannot be fromHost-mirrored into vc-mgmt without spinning an
-          # infinite vCluster token-controller re-stamp loop that starves the
-          # keycloak DB-secret sync (the 30m keycloak install-loop, ~49/64-HR
-          # spine stall). The Opaque copy carries the same `token`/`ca.crt`
-          # keys, so the auth-bootstrap Job behaviour is unchanged.
-          tokenReviewerSecret:
-            name: openbao-host-token-reviewer-static
-            tokenKey: token
-            caKey: ca.crt
+    # Issue #517: with spec.releaseName=openbao the upstream openbao chart's
+    # `fullname` is just `openbao` (Release.Name contains the chart name), so
+    # the Service is `openbao` in the openbao namespace. The chart's own
+    # clients (configuration reconciler, sign-on reconciler, function test)
+    # dial this address.
+    baoAddress: http://openbao.openbao.svc.cluster.local:8200
     # Issue #517 (Phase-8a single-node): openbao upstream chart's
     # 3-replica StatefulSet uses required pod-anti-affinity by hostname.
     # On single-node Phase-8a Sovereigns this leaves 2/3 pods Pending
-    # forever, the openbao-init Job's wait-for-Ready loop times out, and
-    # the entire HR fails post-install. Drop to 1 replica until the
-    # workerCount > 0 path is wired — the autoUnseal flow does not
-    # require a quorum to bootstrap (Raft is still enabled, just one
+    # forever and the HR never settles. Drop to 1 replica until the
+    # workerCount > 0 path is wired: one member opens itself from the
+    # node's seal file and self-initialises (Raft is still enabled, just one
     # voter).
     #
     # CRITICAL — schema nesting (issue #517 root cause): platform/openbao/
@@ -327,8 +281,8 @@ spec:
     # (its openbao.pdb.maxUnavailable helper), which refuses every eviction
     # of the one Pod, so no drain of its worker can ever finish (hw307: the
     # Pod sat on a worker no kured restart could take, in both regions).
-    # Evicted, the Pod comes back on its PVC and the unseal reconciler
-    # unseals it. A Sovereign that runs 3 replicas sets disruptionBudget
+    # Evicted, the Pod comes back on its PVC and unseals itself from the
+    # seal file. A Sovereign that runs 3 replicas sets disruptionBudget
     # back to enabled; the chart default (3 replicas) keeps it.
     openbao:
       server:

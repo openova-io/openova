@@ -500,6 +500,23 @@ pullRobot:
   name: local-pull
   regionKey: ""
 
+# ─── Proxy-cache integrity check (SOV-162) ────────────────────────────────
+# templates/proxy-cache-integrity.yaml: on schedule a CronJob reads, for each
+# tagged image index of each pull-through project (a project with a
+# registry_id), every child manifest and its config blob through harbor-core.
+# A child or config that answers 404 gets the cached index deleted, so the
+# next pull fetches it whole; each deletion is a Kubernetes Event (reason
+# ProxyCacheArtifactHealed) and counts in harbor_proxy_cache_integrity_healed_total,
+# served by a small Deployment on metricsPort, path /metrics.txt.
+# A hosted project is never read or changed; a failed read deletes nothing.
+proxyCacheIntegrity:
+  enabled: true
+  image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
+  # Serves the metrics file (busybox httpd).
+  metricsImage: "harbor.openova.io/proxy-dockerhub/library/busybox:1.36"
+  schedule: "17 * * * *"
+  metricsPort: 9090
+
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays added in a follow-up PR once
 # bp-harbor is consumed in clusters/_template/:

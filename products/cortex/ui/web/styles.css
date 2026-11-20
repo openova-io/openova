@@ -1,0 +1,22 @@
+/* Written by hand and tracked, beside the compiled scripts of npm run build. */
+body { margin: 0; font: 15px/1.45 system-ui, sans-serif; color: #1d2430; background: #f6f7f9; }
+.shell { max-width: 72rem; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
+header h1 { font-size: 1.4rem; margin: 0.5rem 0 1rem; }
+nav { display: flex; gap: 0.25rem; border-bottom: 1px solid #d4d8df; }
+nav button { border: 0; background: none; padding: 0.5rem 0.9rem; cursor: pointer; font: inherit; color: #4a5263; }
+nav button[aria-current="page"] { color: #1d2430; border-bottom: 2px solid #2858c8; font-weight: 600; }
+[role="status"] { min-height: 1.4em; color: #4a5263; }
+table { border-collapse: collapse; width: 100%; margin: 0.5rem 0 1.5rem; background: #fff; }
+th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e3e6eb; vertical-align: top; }
+th { font-size: 0.85rem; color: #4a5263; }
+form { display: grid; gap: 0.6rem; max-width: 36rem; margin: 0.5rem 0 1.5rem; }
+label { display: grid; gap: 0.2rem; }
+label small { color: #6b7385; }
+input, select, textarea { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid #c5cad3; border-radius: 4px; }
+textarea { min-height: 4rem; }
+input[type="checkbox"] { justify-self: start; }
+button { font: inherit; padding: 0.35rem 0.8rem; border: 1px solid #2858c8; border-radius: 4px; background: #2858c8; color: #fff; cursor: pointer; justify-self: start; }
+td button { background: #fff; color: #2858c8; }
+button:disabled { opacity: 0.5; cursor: default; }
+.conflict { border: 1px solid #c88a28; background: #fff8ec; padding: 0.5rem 1rem; margin: 1rem 0; }
+article { background: #fff; padding: 0.5rem 1rem; border: 1px solid #e3e6eb; }

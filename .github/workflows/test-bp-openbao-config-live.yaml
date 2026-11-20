@@ -1,16 +1,17 @@
 name: Test — bp-openbao declarative config against real OpenBao
 
 # ADR-0015 (Refs #7067). bp-openbao 1.2.72 moved every policy/role/mount into
-# a declarative reconciler and lets the auth-bootstrap hook generate a root
-# from the unseal-key shares. Render tests prove the shape; this job proves
-# the behaviour against REAL OpenBao servers (the `bao` binary of the image
-# the chart runs, quay.io/openbao/openbao:2.3.1): reconciler convergence and
-# a no-op second round, generate-root produced + revoked with no attempt
-# left, openbao-config-admin scope, and peer trust A <- B with a token minted
-# by B's identity OIDC role. See tests/e2e/bp-openbao-config-live.sh.
+# a declarative reconciler; since SEC-162 the store writes the reconciler's
+# own grant itself on its first start (self-initialisation). Render tests
+# prove the shape; this job proves the behaviour against REAL OpenBao servers
+# (the `bao` binary of the image the chart runs,
+# quay.io/openbao/openbao:2.7.2): reconciler convergence and a no-op second
+# round with the policy text of the self-initialisation,
+# openbao-config-admin scope, and peer trust A <- B with a token minted by
+# B's identity OIDC role. See tests/e2e/bp-openbao-config-live.sh.
 #
-# No cluster: plain processes on the runner (dev servers + one non-dev
-# server initialised 5 shares / threshold 3). No Service, no nodePort.
+# No cluster: plain dev-server processes on the runner. No Service, no
+# nodePort.
 
 on:
   push:
@@ -33,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      OPENBAO_VERSION: "2.3.1"
+      OPENBAO_VERSION: "2.7.2"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,7 +55,7 @@ jobs:
             echo "image pull attempt $i failed; retrying"; sleep $((i*5))
           done
           if [ -z "$got" ]; then
-            url="https://github.com/openbao/openbao/releases/download/v${OPENBAO_VERSION}/bao_${OPENBAO_VERSION}_Linux_x86_64.tar.gz"
+            url="https://github.com/openbao/openbao/releases/download/v${OPENBAO_VERSION}/openbao_${OPENBAO_VERSION}_linux_amd64.tar.gz"
             timeout 300 curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors --connect-timeout 15 -o "$RUNNER_TEMP/bao.tgz" "$url"
             tar -xzf "$RUNNER_TEMP/bao.tgz" -C "$RUNNER_TEMP/bao" bao && got=release
           fi

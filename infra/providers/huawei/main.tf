@@ -1616,9 +1616,22 @@ resource "huaweicloud_kps_keypair" "main" {
 # bucket-purge symmetry stays intact — the Go-side purge talks vanilla
 # S3 protocol against the same OBS endpoint regardless of which
 # Terraform resource minted the bucket.
+#
+# force_destroy: the only `tofu destroy` of this module is the wipe, and a
+# wipe is the destruction of the Sovereign's data (the engine's OBS purge in
+# bootstrap/api internal/providers/huawei removes this same bucket right after
+# the destroy). Without it OBS refuses DeleteBucket with BucketNotEmpty, so
+# every wipe of a Sovereign that wrote one object reported
+# tofuDestroyed=false and a real destroy failure hid behind that line
+# (deployment 0d7b0dd5f63d11aa, 2026-11-19/20). On BucketNotEmpty the
+# provider deletes the listed objects page by page and retries DeleteBucket
+# (the bucket is not versioned); the engine purge stays as the backstop for
+# what that cannot empty (incomplete multipart uploads) and for buckets of
+# earlier deployments.
 resource "huaweicloud_obs_bucket" "main" {
-  bucket = var.obs_bucket_name
-  acl    = "private"
+  bucket        = var.obs_bucket_name
+  acl           = "private"
+  force_destroy = true
 
   # tags disabled per Wave 5.4 — HCS tag-API divergence
 }

@@ -195,83 +195,32 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 ## Bootstrap Procedure
 
 1. Catalyst bootstrap (Phase 0 of Sovereign provisioning) deploys OpenBao as **independent Raft cluster per region** (no stretched cluster — see [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
-2. **Unseal flow (chart v1.2.0+):** The chart creates the Secret `openbao-recovery-seed` in the `openbao` namespace with a random recovery seed when it is absent (`chart/templates/recovery-seed-bootstrap.yaml`); cloud-init no longer writes it (SEC-040). The bp-openbao Helm chart's post-install init Job (hook weight 5) runs `bao operator init` with one key share and a threshold of one, on the Shamir seal; the `-recovery-shares` form never worked with this seal. The Job keeps the one unseal key in the Secret `openbao-unseal-keys` and writes the first root token into the Secret `openbao-root-token`, both in the `openbao` namespace (`chart/templates/init-job.yaml`). The auth-bootstrap Job of step 3 revokes that root token at the end of its run and then tries to delete the Secret `openbao-root-token`; when the delete fails it logs a warning and the Secret stays (`chart/templates/auth-bootstrap-job.yaml`). After a pod restart the unseal reconciler unseals OpenBao with the key from `openbao-unseal-keys`, without sovereign-admin intervention. Set `autoUnseal.enabled=true` (default off; cluster overlay flips it on per-Sovereign).
-3. **Kubernetes auth bootstrap (issue #316):** A second post-install Job (hook weight 10) enables the Kubernetes auth method and mounts kv-v2 at `secret/`. Since 1.2.72 it writes only one policy and one role, `openbao-config-admin` (see below). Configure under `autoUnseal.kubernetesAuth.*`.
-3a. **Declarative configuration (1.2.72, ADR-0015, Refs #7067):** every ACL policy, auth role, auth mount and identity object the chart needs is desired state in ConfigMap `openbao-config-desired` (`chart/templates/_config.tpl`). The `openbao-config` Deployment applies it every 60 s, idempotently (`chart/files/openbao-config-reconcile.sh`). It logs in as k8s-auth role `openbao-config-admin`, whose policy covers configuration surfaces only: no secret data, no `sys/raw`, no seal, no delete. It can rewrite its own policy, which is the first operation of the desired state, but not its own role, and the only secrets mount it may enable is `secret/`. In every payload it replaces the text `AUTH_ACCESSOR_KUBERNETES` by the accessor of its login mount. A chart bump is therefore the whole change; there is no manual root step.
-    - **How the role is kept current:** the auth-bootstrap hook re-writes `openbao-config-admin` on every install/upgrade. The first time it uses the init root token. Later it generates a short-lived root from the `openbao-unseal-keys` shares (`chart/files/openbao-generate-root.sh`) and revokes it in the same run. Whoever can read that Secret can already unseal, so this adds no exposure. No root token is kept.
-    - **One-time upgrade, only if `openbao-unseal-keys` is absent** (an init older than chart 1.2.4): the hook logs a WARN and exits 0. Write the `openbao-config-admin` policy and role once with an admin token. Either sign in through SSO at `bao.<fqdn>` (sovereign-admins get full rights) or use `bao operator generate-root` with your own key shares. The policy text is `openbao.configAdminPolicy` in `_config.tpl`; the role binds SA `openbao-config` in ns `openbao`.
+2. **Seal (SEC-162, OpenBao 2.7.2, upstream chart 0.30.7):** cloud-init writes a 32-byte key file `/var/lib/catalyst/seal/openbao-seal-<id>.key` (mode 400, owner `100:1000`) on every control-plane node and applies ConfigMap `flux-system/sovereign-seal-profile`, whose key `stanza` is the seal block (contract [`docs/contracts/c8-seal-provider.md`](../../docs/contracts/c8-seal-provider.md)). Bootstrap-kit slot 08 passes that stanza to `seal.stanza` through `valuesFrom`. The chart renders it into ConfigMap `openbao-seal-config` (`chart/templates/seal-config.yaml`); the server loads that ConfigMap as an extra configuration directory and mounts the node directory read-only at `/openbao/seal`. The server runs on control-plane nodes only and unseals itself on every start, with no step by anyone. No Secret holds a key, and there is no init Job and no unseal loop. Without a stanza no `openbao-seal-config` renders and the server pod does not start: it fails closed and never comes up with a Shamir seal.
+3. **Self-initialisation:** on the first start of an empty store the `initialize` block of `openbao-seal-config` (`selfInit.enabled`, default on) enables the Kubernetes auth mount (`kubernetesAuth.mountPath`), points it at the in-cluster API server, writes policy `openbao-config-admin` and binds role `openbao-config-admin` to the service account `openbao-config` of the release namespace (token TTL 15m, max 1h). OpenBao runs it with a root token that it revokes at once, and it makes no recovery key. An initialised store never runs it again. The server's service account holds `system:auth-delegator` (`chart/templates/auth-delegator-rbac.yaml`) for the token reviews.
+3a. **Declarative configuration (1.2.72, ADR-0015, Refs #7067):** every ACL policy, auth role, auth mount and identity object the chart needs is desired state in ConfigMap `openbao-config-desired` (`chart/templates/_config.tpl`). The `openbao-config` Deployment applies it every 60 s, idempotently (`chart/files/openbao-config-reconcile.sh`). It logs in as k8s-auth role `openbao-config-admin`, whose policy covers configuration surfaces only: no secret data, no `sys/raw`, no seal, no delete. It can rewrite its own policy, which is the first operation of the desired state, but not its own role, and the only secrets mount it may enable is `secret/`. In every payload it replaces the text `AUTH_ACCESSOR_KUBERNETES` by the accessor of its login mount. A chart bump is therefore the whole change; there is no root token and no manual root step. Configure under `kubernetesAuth.*`.
+3b. **Audit:** the server configuration declares the file audit device `stdout/` writing to standard output (`audit.enabled`, default on). OpenBao 2.7 refuses an audit device enabled through the API.
 4. Between regions peer push is configured (see the architecture section above). OpenBao does not replicate.
 5. ESO configured with local-region ClusterSecretStores; every region reads from its local OpenBao replica via ESO Kubernetes auth (TokenReview), never cross-region.
 6. Initial secrets created via K8s + PushSecrets, never plaintext in Git.
 
 **No SOPS:** Credentials entered interactively during bootstrap, never stored in Git. See [`docs/SECURITY.md`](../../docs/SECURITY.md).
 
-### Auto-unseal alternatives (out of scope for solo Sovereign)
+**Existing Sovereigns:** a store initialised with the Shamir seal of chart 1.2.x is not opened by this chart; its migration is a procedure of its own (SEC-170). A test Sovereign is provisioned again instead.
 
-| Option | When applicable |
-|--------|-----------------|
-| **A. Shamir + cloud-init seed** | **Default for solo Sovereign — implemented in chart v1.2.0.** No managed-KMS dependency; the one unseal key is kept in the Secret `openbao-unseal-keys` (see step 2 of the bootstrap procedure). |
-| B. Transit-seal via peer OpenBao | Multi-region tier-1 corporate cluster (one Sovereign unseals another). Out of scope for omantel/single-region. |
-| C. Cloud-KMS auto-unseal (AWS KMS, GCP KMS, Azure Key Vault) | When the Sovereign runs on a hyperscaler that provides managed-KMS. On a substrate without managed-KMS, Option A is the only viable path. |
-| D. Sovereign-admin-supplied recovery shards (air-gap) | Documented in [`docs/SECURITY.md`](../../docs/SECURITY.md). Used when no automated boot-time secret pipeline is acceptable. |
+### Seal kinds
+
+Contract C8 ranks two kinds; a provider pack implements exactly one, and the chart takes whichever stanza the pack's seal profile carries.
+
+| Kind | Where the key rests |
+|------|---------------------|
+| `cloud-key-service` | In the cloud's key service; the node holds only a credential for one key (SEC-155, where the cloud provides a usable service). |
+| `static-node-file` | 32 bytes in a file on a dedicated volume of each control-plane node, and in the Sovereign's encrypted infrastructure state. Every other case, including the local provider pack. |
 
 ---
 
-## Bootstrap KV-seed (#3888, Refs #3847)
+## Bootstrap KV-seed (removed)
 
-### Why it exists
-
-The founder mandate is *"keep every item possible in Flux"* — thin the control-plane
-cloud-init. [#3890](https://github.com/openova-io/openova/issues/3890) evicted
-`powerdns-api-credentials` from cloud-init into a Flux-reconciled Secret, but ~5
-other inline Secrets STAYED because they are consumed by HelmReleases that
-reconcile **at or before** the `openbao(08) → ESO(15) → ClusterSecretStore(15a)`
-pipeline becomes functional, **and there was no way to land a per-deployment cred
-into openbao KV at provision time** — the `auth-bootstrap` Job revokes the init
-root token at the end of slot-08 install, after which no token can write to
-`secret/*`. So an `ExternalSecret` had nothing to read FROM.
-
-### The mechanism
-
-`autoUnseal.bootstrapSeed` (default **OFF**) closes that gap. When enabled AND the
-control-plane cloud-init writes a one-shot Secret (`openbao-bootstrap-seed`) into
-the `openbao` namespace, the `auth-bootstrap` Job — which still holds the **valid
-root token** — reads every `data` key from that Secret and writes it into KV at
-`<kvMountPath>/<kvPrefix>/<key>` **BEFORE** revoking the root token. An
-`ExternalSecret` referencing the `vault-region1` ClusterSecretStore can then
-materialise the cred in any consumer namespace. The seed Secret is **single-use**:
-its keys are deleted from K8s after a successful KV write so no plaintext cred
-lingers in etcd (same posture as `openbao-recovery-seed`). Writes are idempotent
-(`bao kv put` overwrites), so Job retries + chart upgrades are safe. Default-OFF
-plus an `optional: true` seed mount means the prod-posture render is behaviourally
-byte-identical to the pre-#3888 chart (only 3 inert env vars + an env-gated script
-block are added). See `autoUnseal.bootstrapSeed.*` in `chart/values.yaml`.
-
-**Seed Secret shape:** each `data` key is a KV path with `__` standing in for `/`
-(k8s Secret keys cannot contain `/`); the value body is `field=value` lines. e.g.
-a key `harbor-robot__token` with body `token=<robot-token>` lands at
-`secret/bootstrap/harbor-robot` field `token`, readable by an ExternalSecret
-`remoteRef.key: bootstrap/harbor-robot`, `property: token`.
-
-### Eviction status of the #3890 STAY secrets
-
-**#3888 ships the mechanism but evicts NO secret** — each of the 5 STAY secrets
-still has an ordering or cycle blocker that cannot be closed without a change that
-itself requires a fresh-prov walk to validate (out of #3888's no-prov scope). The
-next eviction becomes a pure data change (one cloud-init `__`-key + one
-ExternalSecret CR) once its blocker is cleared:
-
-| Secret | Earliest consumer | Mechanism | Blocker (why not yet evictable) |
-|--------|-------------------|-----------|---------------------------------|
-| `object-storage` | openbao **slot 08** (its own HR), keycloak 09, gitea 10 | Flux `valuesFrom` | **Hard cycle** — openbao consumes it before openbao/ESO exist. Unbreakable via ESO. |
-| `cloud-credentials` | cluster-autoscaler 50, hcloud-ccm 55, Crossplane | Flux `valuesFrom` | Not a flat cred — carries live IaC data (`hcloud-cloud-init: base64(worker-cloud-init)`, network/firewall/ssh-key names). Recomputed per-apply by Terraform; cannot be a static KV value. |
-| `harbor-robot-token` | catalyst-api **slot 13** | Pod `secretKeyRef` (**required**) | Hard-required at Pod start (issue #557 `Validate()`), slot 13 < 15a, NOT in catalyst-api's reloader watch list → a late ESO delivery wedges the Pod (`CreateContainerConfigError`). Needs reloader wiring + a prov to prove. |
-| `pdm-basicauth` | catalyst-api slot 13 | Pod `secretKeyRef` (optional) | Optional at start but NOT in the reloader watch list → late arrival is never picked up. Needs a reloader-annotation change to the bp-catalyst-platform umbrella + a prov. |
-| `handover-jwt-public` | catalyst-api slot 13 | optional volume mount | Reloader annotation lists volume-name `handover-jwt-public`, but the actual Secret is `catalyst-handover-jwt-public` — the names mismatch, so a late ESO delivery does NOT roll the Pod. Needs the reloader name corrected in the umbrella chart + a prov. |
-
-`ghcr-pull` is a genuine bootstrap chicken-and-egg (the image-pull cred) and
-is **never** evictable to ESO. `openbao-recovery-seed` is not written by
-cloud-init any more: the chart creates it when it is absent (SEC-040).
+The prov-time KV seed (#3888) wrote cloud-init data into `secret/` with the init root token of the old auth-bootstrap Job. SEC-162 removed that Job with the root token it used; no Secret is seeded into OpenBao at provision time. The secrets that #3890 kept in cloud-init stay there until each gets a delivery of its own.
 
 ---
 

@@ -9,12 +9,11 @@ it continuously. Before 1.2.72 these writes lived in the one-shot
 auth-bootstrap hook, which revokes its root token — so no later chart version
 could ever change them on a running Sovereign. Now a chart bump IS the change.
 
-What stays in auth-bootstrap (needs root, happens once, or cannot be done by
-the reconciler without locking itself out): the kubernetes auth mount + its
-TokenReview config (the reconciler logs in through it), the kv mount (also
-the secrets-mount op below), the prov-time KV seed (data, never config), and
-the `openbao-config-admin` policy + role themselves (openbao.configAdminPolicy
-below; the policy is also the first op, so a later chart version changes it).
+What the store writes itself, once, on its first start (the initialize block
+of templates/seal-config.yaml): the kubernetes auth mount and its config (the
+reconciler logs in through it), and the openbao-config-admin policy and role
+(openbao.configAdminPolicy below; the policy is also the first op, so a later
+chart version changes it). The kv mount is the secrets-mount op below.
 
 Ops, applied in order (policies before the roles that name them, #5829):
   write <api-path>          POST the payload (idempotent on every path used)
@@ -130,7 +129,7 @@ path "{{ .kv }}/metadata/{{ .apps }}/*" {
 
 {{- /*
 openbao.configAdminPolicy — the reconciler's own grant, written by the
-auth-bootstrap hook (the only privileged writer left). Configuration surfaces
+self-initialisation (the only privileged writer). Configuration surfaces
 only: policies, auth mounts + their roles/config, identity OIDC. No secret
 data, no sys/raw, no seal, no token creation, no delete. It may rewrite its
 own policy (the first op of the desired state) but not its own role (the
@@ -140,7 +139,7 @@ writer by composition — that is what a declarative config owner is; the
 narrowing keeps it off data and seal, and its only input is this chart.
 */ -}}
 {{- define "openbao.configAdminPolicy" -}}
-{{- $kv := ((.Values.autoUnseal | default dict).kubernetesAuth | default dict).kvMountPath | default "secret" -}}
+{{- $kv := (.Values.kubernetesAuth | default dict).kvMountPath | default "secret" -}}
 path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "list"] }
 path "sys/policy/*" { capabilities = ["create", "read", "update", "list"] }
 path "sys/auth" { capabilities = ["read"] }
@@ -155,8 +154,8 @@ path "identity/oidc/*" { capabilities = ["create", "read", "update", "list"] }
 
 {{- /* The k8s-auth mount the in-namespace reconcilers log in through. */ -}}
 {{- define "openbao.configLoginMount" -}}
-{{- $kAuth := (.Values.autoUnseal | default dict).kubernetesAuth | default dict -}}
-{{- if (($kAuth.crossClusterTokenReview | default dict).enabled | default false) -}}kubernetes-vcluster{{- else -}}{{ $kAuth.mountPath | default "kubernetes" }}{{- end -}}
+{{- $kAuth := .Values.kubernetesAuth | default dict -}}
+{{- $kAuth.mountPath | default "kubernetes" -}}
 {{- end -}}
 
 {{- /*
@@ -164,8 +163,7 @@ openbao.configOps — the ordered desired state as JSON
 [{kind, path, probe, payload}].
 */ -}}
 {{- define "openbao.configOps" -}}
-{{- $au := .Values.autoUnseal | default dict -}}
-{{- $kAuth := $au.kubernetesAuth | default dict -}}
+{{- $kAuth := .Values.kubernetesAuth | default dict -}}
 {{- $mount := $kAuth.mountPath | default "kubernetes" -}}
 {{- $kv := $kAuth.kvMountPath | default "secret" -}}
 {{- $ttl := $kAuth.tokenTTL | default "1h" -}}
@@ -173,7 +171,6 @@ openbao.configOps — the ordered desired state as JSON
 {{- $esoRole := $kAuth.role | default "external-secrets" -}}
 {{- $esoSA := $kAuth.serviceAccountName | default "external-secrets" -}}
 {{- $esoNs := $kAuth.serviceAccountNamespace | default "external-secrets-system" -}}
-{{- $xcr := (($kAuth.crossClusterTokenReview | default dict).enabled | default false) -}}
 {{- $capi := $kAuth.catalystApi | default dict -}}
 {{- $cfg := .Values.peerTrust | default dict -}}
 {{- $aud := $cfg.audience | default "openbao-peer-push" -}}
@@ -186,16 +183,16 @@ openbao.configOps — the ordered desired state as JSON
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
 
-{{- /* role: name, sa, saNs, policies, ttl, maxTTL, alsoVcluster */ -}}
+{{- /* role: name, sa, saNs, policies, ttl, maxTTL */ -}}
 {{- $roles := list
-  (dict "name" $esoRole "sa" $esoSA "ns" $esoNs "policies" (list "external-secrets-read" "external-secrets-push") "ttl" $ttl "max" $maxTTL "vc" false)
-  (dict "name" "sso-bridge" "sa" "sso-bridge-reconciler" "ns" "sso-bridge" "policies" (list "sso-bridge-write") "ttl" $ttl "max" $maxTTL "vc" true)
-  (dict "name" "sso-configure" "sa" "openbao-sso-configure" "ns" $ns "policies" (list "sso-configure-admin") "ttl" $ttl "max" $maxTTL "vc" true) -}}
+  (dict "name" $esoRole "sa" $esoSA "ns" $esoNs "policies" (list "external-secrets-read" "external-secrets-push") "ttl" $ttl "max" $maxTTL)
+  (dict "name" "sso-bridge" "sa" "sso-bridge-reconciler" "ns" "sso-bridge" "policies" (list "sso-bridge-write") "ttl" $ttl "max" $maxTTL)
+  (dict "name" "sso-configure" "sa" "openbao-sso-configure" "ns" $ns "policies" (list "sso-configure-admin") "ttl" $ttl "max" $maxTTL) -}}
 {{- if $capi.enabled -}}
-{{- $roles = append $roles (dict "name" ($capi.role | default "catalyst-api") "sa" ($capi.serviceAccountName | default "catalyst-api-cutover-driver") "ns" ($capi.serviceAccountNamespace | default "catalyst-system") "policies" (list "catalyst-api-write") "ttl" $ttl "max" $maxTTL "vc" false) -}}
+{{- $roles = append $roles (dict "name" ($capi.role | default "catalyst-api") "sa" ($capi.serviceAccountName | default "catalyst-api-cutover-driver") "ns" ($capi.serviceAccountNamespace | default "catalyst-system") "policies" (list "catalyst-api-write") "ttl" $ttl "max" $maxTTL) -}}
 {{- end -}}
 {{- if $pt.peers -}}
-{{- $roles = append $roles (dict "name" "openbao-peer-token" "sa" $esoSA "ns" $esoNs "policies" (list "openbao-peer-token") "ttl" "15m" "max" "1h" "vc" false) -}}
+{{- $roles = append $roles (dict "name" "openbao-peer-token" "sa" $esoSA "ns" $esoNs "policies" (list "openbao-peer-token") "ttl" "15m" "max" "1h") -}}
 {{- end -}}
 
 {{- $ops := list
@@ -207,9 +204,6 @@ openbao.configOps — the ordered desired state as JSON
 {{- range $roles -}}
 {{- $body := dict "bound_service_account_names" (list .sa) "bound_service_account_namespaces" (list .ns) "policies" .policies "ttl" .ttl "max_ttl" .max -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/%s/role/%s" $mount .name) "payload" $body) -}}
-{{- if and $xcr .vc -}}
-{{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/kubernetes-vcluster/role/%s" .name) "payload" $body) -}}
-{{- end -}}
 {{- end -}}
 {{- if $pt.peers -}}
 {{- $self := $pt.self -}}

@@ -1436,7 +1436,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.57
+  version: 1.2.58
   card:
     title: Harbor
     summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
@@ -1456,7 +1456,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: 1.2.57
+    version: 1.2.58
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -2517,7 +2517,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.81
+  version: 1.2.82
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
@@ -2537,7 +2537,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: 1.2.81
+    version: 1.2.82
   topology:
     supported: [active-passive, singleton]
     defaults:

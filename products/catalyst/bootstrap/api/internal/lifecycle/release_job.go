@@ -372,8 +372,9 @@ func (in *releaseInputs) followerJobManifest(req releaseRequest) (string, error)
 	j.Labels["app.kubernetes.io/component"] = releaseComponent
 	j.Labels[releaseCandidateLabel] = req.Candidate
 	j.Labels["catalyst.openova.io/secondary-region"] = "__REGION__"
-	backoff, deadline, ttl := int32(0), int64(releaseGitSeconds), int32(releaseTTLSeconds)
-	j.Spec.BackoffLimit, j.Spec.ActiveDeadlineSeconds, j.Spec.TTLSecondsAfterFinished = &backoff, &deadline, &ttl
+	deadline, ttl := int64(releaseGitSeconds), int32(releaseTTLSeconds)
+	j.Spec.ActiveDeadlineSeconds, j.Spec.TTLSecondsAfterFinished = &deadline, &ttl
+	retryOneEviction(&j.Spec)
 	if j.Spec.Template.Labels == nil {
 		j.Spec.Template.Labels = map[string]string{}
 	}
@@ -476,15 +477,32 @@ func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labe
 		pod.InitContainers = []corev1.Container{in.runContainer("stage", "stage", ns, name, req)}
 		pod.Containers = []corev1.Container{in.runContainer("deliver", "deliver", ns, name, req)}
 	}
-	backoff, ttl := int32(0), int32(releaseTTLSeconds)
+	ttl := int32(releaseTTLSeconds)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels, Annotations: annotations},
 		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoff,
 			ActiveDeadlineSeconds:   &deadline,
 			TTLSecondsAfterFinished: &ttl,
 			Template:                corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: pod},
 		},
 	}
+	retryOneEviction(&job.Spec)
 	return job, scripts, nil
+}
+
+// retryOneEviction lets a Job of a delivery replace ONE Pod that a disruption
+// took (an eviction, say by a drained node; SOV-523) and no other: any exit of
+// the release scripts fails the Job, as they record their cause; and no Pod
+// starts before the one it replaces is gone. The new Pod resumes from what the
+// state records (release-run.sh, "An eviction"), which sets the same on the
+// Jobs it makes (RELEASE_RETRY).
+func retryOneEviction(spec *batchv1.JobSpec) {
+	one, gone := int32(1), batchv1.Failed
+	spec.BackoffLimit, spec.PodReplacementPolicy = &one, &gone
+	spec.PodFailurePolicy = &batchv1.PodFailurePolicy{Rules: []batchv1.PodFailurePolicyRule{
+		{Action: batchv1.PodFailurePolicyActionCount, OnPodConditions: []batchv1.PodFailurePolicyOnPodConditionsPattern{
+			{Type: corev1.DisruptionTarget, Status: corev1.ConditionTrue}}},
+		{Action: batchv1.PodFailurePolicyActionFailJob, OnExitCodes: &batchv1.PodFailurePolicyOnExitCodesRequirement{
+			Operator: batchv1.PodFailurePolicyOnExitCodesOpNotIn, Values: []int32{0}}},
+	}}
 }

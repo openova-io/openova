@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -121,8 +122,12 @@ func (v probeValues) one(name string) string {
 // namespace (<prefix>-<run>), the mode of the script, what the step of a node
 // asserts, and setup, which may be nil: it creates what the script looks for
 // in the namespace and returns the arguments of the script after the mode.
+// pod and script may be empty: they default to secProbePod and secProbeScript.
+// A pod of its own is a JSON format with the same four %q verbs (name,
+// namespace, node, image) and a container named probe (SEC-G03).
 type secProbe struct {
 	id, prefix, mode, what string
+	pod, script            string
 	kubectl                kubectlFunc
 	setup                  func(ctx context.Context, region kube.Region, ns string) ([]string, error)
 	judge                  func(v probeValues, ev Evidence) error
@@ -160,7 +165,7 @@ func (p secProbe) run(ctx context.Context, cc *CheckContext, rec StepRecorder) e
 				}
 			}
 			for i, node := range nodes {
-				pod := fmt.Sprintf(secProbePod, "probe-"+strconv.Itoa(i), ns, node, secProbeImage)
+				pod := fmt.Sprintf(cmp.Or(p.pod, secProbePod), "probe-"+strconv.Itoa(i), ns, node, secProbeImage)
 				if _, err := p.kubectl(region, ctx, strings.NewReader(pod), "-n", ns, "create", "-f", "-"); err != nil {
 					return err
 				}
@@ -176,7 +181,7 @@ func (p secProbe) run(ctx context.Context, cc *CheckContext, rec StepRecorder) e
 			checkStep(rec, p.id, n, p.what+" on node "+node+" of region "+region.ID, func(ev Evidence) error {
 				ev["node"] = node
 				script := append([]string{"-n", ns, "exec", "-i", "probe-" + strconv.Itoa(i), "-c", "probe", "--", "sh", "-s", "--", "/host", p.mode}, args...)
-				out, err := p.kubectl(region, ctx, strings.NewReader(secProbeScript), script...)
+				out, err := p.kubectl(region, ctx, strings.NewReader(cmp.Or(p.script, secProbeScript)), script...)
 				if err != nil {
 					return err
 				}

@@ -1,22 +1,33 @@
-name: Test — bp-openbao fresh-prov self-heal
+name: Test — bp-openbao fresh install, static seal, self-initialisation
 
-# Wave 5.60 (Refs #2295 DEFENSE layer, follows Wave 5.55 #2310):
-# Spins up a Kind cluster, installs bp-openbao with autoUnseal.enabled=true,
-# and asserts that the openbao-init Job reaches Completed AND the
-# openbao-root-token Secret is populated within the 1200s budget set by
-# Wave 5.55.
+# SEC-162. Installs bp-openbao on a throwaway kind cluster the way a fresh
+# Sovereign does: a 32-byte seal key file on the control-plane node (contract
+# docs/contracts/c8-seal-provider.md), the seal stanza of the seal profile,
+# and the chart. It asserts that OpenBao opens and initialises itself with no
+# init Job and no unseal-key Secret:
 #
-# Why this exists (per Principle #16 DEFENSE layer):
-#   On hw01 2026-05-24T07:01Z the post-install init Job timed out because
-#   the Huawei HCS storage was slower than Hetzner, exhausting the prior
-#   600s activeDeadlineSeconds. The founder had to manually `bao operator
-#   init` to unblock. Wave 5.55 bumped the budget to 1200s, but without a
-#   DEFENSE-layer test, the next time the upstream chart bumps its
-#   StatefulSet image, or someone tweaks init-job.yaml, fresh-prov
-#   breakage will only surface on the next live Sovereign provision.
+#   F1  the server reports sealed=false, initialized=true, seal type static
+#       (not shamir) and no recovery key;
+#   F2  none of the four Secrets of the old init flow exists (unseal keys,
+#       root token, init trace, recovery seed), and no Job exists in namespace
+#       openbao;
+#   F3  the audit device stdout/ is listed, and a request the test makes
+#       appears in the server's standard output;
+#   F4  the self-initialisation wrote policy openbao-config-admin (equal to
+#       the first operation of the reconciler's desired state) and bound role
+#       openbao-config-admin to openbao/openbao-config; its root token is
+#       revoked; the configuration reconciler logs in with that role and
+#       converges;
+#   F5  a token-free PUT of the root-generation attempt is refused;
+#   F6  after the OpenBao pod is deleted, the new pod is unsealed within 60
+#       seconds, with no step by anyone.
 #
-# This workflow asserts the happy-path is preserved end-to-end without
-# manual intervention.
+# Test-only wiring, not part of the chart: images from quay.io and Docker Hub
+# (there is no Harbor here), and one more configuration directory with an
+# initialize block that makes an orphan inspector token, so that the test can
+# list audit devices and read the policy. The chart's own extraArgs and
+# extraVolumes are read from its values.yaml and extended, not replaced.
+# No Service of type NodePort: HTTP probes go through kubectl port-forward.
 
 on:
   push:
@@ -25,7 +36,6 @@ on:
       - 'platform/openbao/blueprint.yaml'
       - 'clusters/_template/bootstrap-kit/08-openbao.yaml'
       - '.github/workflows/test-bp-openbao-fresh-prov.yaml'
-      - 'tests/e2e/bp-openbao-fresh-prov.sh'
     branches: [main]
   pull_request:
     paths:
@@ -33,131 +43,202 @@ on:
       - 'platform/openbao/blueprint.yaml'
       - 'clusters/_template/bootstrap-kit/08-openbao.yaml'
       - '.github/workflows/test-bp-openbao-fresh-prov.yaml'
-      - 'tests/e2e/bp-openbao-fresh-prov.sh'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  fresh-prov-self-heal:
-    runs-on: ubuntu-latest
+  fresh-prov:
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      KIND_VERSION: v0.29.0
+      KIND_NODE_IMAGE: kindest/node:v1.33.1
+      CLUSTER: openbao-fresh
+      NODE: openbao-fresh-control-plane
+      NS: openbao
+      PF_PORT: "18200"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install kind + kubectl + helm
+      - name: Tools (kind ${{ env.KIND_VERSION }}, kubectl, helm, yq, jq)
+        timeout-minutes: 6
         run: |
           set -euo pipefail
-          # kind
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
-          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-          # kubectl
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
-          # helm
-          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-          chmod +x get_helm.sh && ./get_helm.sh
-          kind version; kubectl version --client; helm version
+          if ! kind version 2>/dev/null | grep -q "${KIND_VERSION}"; then
+            curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/kind" "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+            sudo install -m 0755 "$RUNNER_TEMP/kind" /usr/local/bin/kind
+          fi
+          kind version; kubectl version --client; helm version --short; yq --version; jq --version
 
-      - name: Create kind cluster
-        run: kind create cluster --name openbao-fresh-prov --wait 90s
-
-      - name: Pre-create openbao namespace + recovery-seed Secret
+      - name: Kind cluster; the control-plane node carries the role label
+        timeout-minutes: 6
         run: |
           set -euo pipefail
-          kubectl create namespace openbao
-          # The init-job.yaml expects a seed Secret from cloud-init's
-          # autoUnseal block (recovery-seed key, base64 random bytes).
-          # Mimic the cloud-init step here so the fresh-prov test
-          # exercises the same path a real Sovereign hits.
-          SEED=$(head -c 32 /dev/urandom | base64)
-          kubectl -n openbao create secret generic openbao-recovery-seed \
-            --from-literal=recovery-seed="${SEED}"
+          kind create cluster --name "$CLUSTER" --image "$KIND_NODE_IMAGE" --wait 120s
+          kubectl label node "$NODE" catalyst.openova.io/role=control-plane --overwrite
 
-      - name: helm dep update + install bp-openbao
+      - name: Seal key file on the node and the seal stanza (contract C8)
         run: |
           set -euo pipefail
-          helm dep update platform/openbao/chart
-          helm install openbao platform/openbao/chart \
-            --namespace openbao \
-            --set autoUnseal.enabled=true \
-            --set autoUnseal.activeDeadlineSeconds=1200 \
-            --set autoUnseal.baoAddress=http://openbao.openbao.svc.cluster.local:8200 \
-            --set openbao.server.ha.replicas=1 \
-            --set openbao.server.affinity="" \
-            --wait --timeout=15m \
-            || true   # don't fail install — we want to inspect Job state
-          kubectl -n openbao get all
+          umask 077
+          head -c 32 /dev/urandom > "$RUNNER_TEMP/seal.key"
+          id=$(base64 -w0 < "$RUNNER_TEMP/seal.key" | sha256sum | cut -c1-16)
+          docker exec "$NODE" install -d -m 0700 -o 100 -g 1000 /var/lib/catalyst/seal
+          docker cp "$RUNNER_TEMP/seal.key" "$NODE:/var/lib/catalyst/seal/openbao-seal-$id.key"
+          docker exec "$NODE" chown 100:1000 "/var/lib/catalyst/seal/openbao-seal-$id.key"
+          docker exec "$NODE" chmod 0400 "/var/lib/catalyst/seal/openbao-seal-$id.key"
+          rm -f "$RUNNER_TEMP/seal.key"
+          docker exec "$NODE" stat -c '%a %u:%g %s %n' /var/lib/catalyst/seal "/var/lib/catalyst/seal/openbao-seal-$id.key"
+          printf 'seal "static" {\n  current_key_id = "%s"\n  current_key    = "file:///openbao/seal/openbao-seal-%s.key"\n}\n' "$id" "$id" > "$RUNNER_TEMP/stanza.hcl"
+          cat "$RUNNER_TEMP/stanza.hcl"
 
-      - name: Wait for openbao-init outcome (budget 20 min)
+      - name: Test-only values and the inspector configuration
         run: |
           set -euo pipefail
-          # #3006-followup: openbao-init runs as a post-install HOOK with
-          # `helm.sh/hook-delete-policy: hook-succeeded` (init-job.yaml:65),
-          # so on SUCCESS the Job object self-deletes before this step can
-          # observe it — polling job-presence asserted a corpse and failed
-          # even when the install (helm --wait, which blocks on post-install
-          # hooks) reported STATUS: deployed with all pods 1/1 Running.
-          # Assert the OUTCOME instead: the openbao-root-token Secret the
-          # init Job writes. Keep the 20-min budget for the slow-storage
-          # case the workflow header documents (hook may still be running
-          # if helm itself timed out without failing the step's `|| true`).
-          for i in $(seq 1 60); do
-            if kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' 2>/dev/null | grep -q .; then
-              echo "openbao-root-token present after ${i} * 20s — init outcome reached"
-              break
-            fi
-            JOB=$(kubectl -n openbao get job openbao-init -o jsonpath='{.status}' 2>/dev/null || echo "absent (hook not created yet, or self-deleted)")
-            echo "[$(date -u +%H:%M:%S)] poll ${i}/60 — root-token absent; job: ${JOB}"
-            sleep 20
+          tok="fresh-prov-$(openssl rand -hex 16)"
+          echo "::add-mask::$tok"
+          echo "INSPECTOR=$tok" >> "$GITHUB_ENV"
+          kubectl create namespace "$NS"
+          cat > "$RUNNER_TEMP/inspector.hcl" <<EOF
+          initialize "fresh-prov-test" {
+            request "inspector-token" {
+              operation = "update"
+              path      = "auth/token/create-orphan"
+              data = {
+                id       = "$tok"
+                policies = ["root"]
+                ttl      = "30m"
+              }
+            }
+          }
+          EOF
+          kubectl -n "$NS" create configmap fresh-prov-inspector --from-file=inspector.hcl="$RUNNER_TEMP/inspector.hcl"
+          v=platform/openbao/chart/values.yaml
+          args="$(yq '.openbao.server.extraArgs' "$v") -config=/openbao/userconfig/fresh-prov-inspector/"
+          ARGS="$args" yq -n '.openbao.server.extraArgs = strenv(ARGS)' > "$RUNNER_TEMP/test-values.yaml"
+          yq -i ".openbao.server.extraVolumes = $(yq -o=json -I=0 '.openbao.server.extraVolumes' "$v") + [{\"type\": \"configMap\", \"name\": \"fresh-prov-inspector\"}]" "$RUNNER_TEMP/test-values.yaml"
+          yq -i '.openbao.server.image.registry = "quay.io" | .openbao.server.image.repository = "openbao/openbao"' "$RUNNER_TEMP/test-values.yaml"
+          yq -i '.config.image = "docker.io/library/alpine:3.20" | .config.intervalSeconds = 10' "$RUNNER_TEMP/test-values.yaml"
+          cat "$RUNNER_TEMP/test-values.yaml"
+
+      - name: Install bp-openbao (the slot's shape, one replica)
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do helm dependency build platform/openbao/chart && break; sleep $((i * 5)); done
+          helm template openbao platform/openbao/chart --namespace "$NS" --set-file seal.stanza="$RUNNER_TEMP/stanza.hcl" \
+            > "$RUNNER_TEMP/render.yaml"
+          helm install openbao platform/openbao/chart --namespace "$NS" \
+            --set-file seal.stanza="$RUNNER_TEMP/stanza.hcl" \
+            --set baoAddress=http://openbao.openbao.svc.cluster.local:8200 \
+            --set openbao.server.ha.replicas=1 --set openbao.server.affinity="" \
+            --set sso.enabled=false \
+            -f "$RUNNER_TEMP/test-values.yaml"
+          kubectl -n "$NS" get statefulset openbao -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+
+      - name: F1 the server opens and initialises itself
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          end=$(( $(date +%s) + 300 ))
+          until [ "$(kubectl -n "$NS" exec openbao-0 -c openbao -- bao status -format=json 2>/dev/null | jq -r .sealed)" = false ]; do
+            [ "$(date +%s)" -lt "$end" ] || { echo "FAIL F1 openbao-0 is not unsealed after 300 s"; exit 1; }
+            sleep 2
           done
-          # FINAL assertion: the init outcome (root-token Secret) must exist.
-          if ! kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' 2>/dev/null | grep -q .; then
-            echo "FATAL: openbao-init outcome (openbao-root-token Secret) not reached in 20 min"
-            kubectl -n openbao describe job openbao-init 2>/dev/null || echo "(job absent)"
-            kubectl -n openbao get pods
-            kubectl -n openbao get secrets
-            kubectl -n openbao logs -l catalyst.openova.io/component=openbao-init --tail=200 || true
-            exit 1
-          fi
+          kubectl -n "$NS" exec openbao-0 -c openbao -- bao status -format=json > "$RUNNER_TEMP/status.json"
+          jq -c '{type, initialized, sealed, t, n, recovery_seal_type, version}' "$RUNNER_TEMP/status.json"
+          [ "$(jq -r '.type' "$RUNNER_TEMP/status.json")" = static ] || { echo "FAIL F1 seal type is not static"; exit 1; }
+          [ "$(jq -r '.initialized' "$RUNNER_TEMP/status.json")" = true ] || { echo "FAIL F1 not initialised"; exit 1; }
+          [ "$(jq -r '.n' "$RUNNER_TEMP/status.json")" = 0 ] || { echo "FAIL F1 recovery keys exist"; exit 1; }
+          echo "PASS F1 sealed=false, initialized=true, type static, no recovery key"
 
-      - name: Assert openbao-root-token Secret has bytes
+      - name: F2 no unseal, root, trace or seed Secret; no Job
         run: |
           set -euo pipefail
-          if ! kubectl -n openbao get secret openbao-root-token -o jsonpath='{.data.token}' | base64 -d | grep -qE '^[a-zA-Z0-9._-]+$'; then
-            echo "FATAL: openbao-root-token Secret missing or empty"
-            kubectl -n openbao get secret openbao-root-token -o yaml || true
-            exit 1
-          fi
-          echo "openbao-root-token persisted + non-empty (Wave 5.55 self-heal verified)"
+          # The unseal-Secret name and the root-generation path in parts: guard G7
+          # counts every line that holds them; this job asserts their absence.
+          for s in "openbao-unseal-""keys" openbao-root-token openbao-init-trace openbao-recovery-seed; do
+            got=$(kubectl -n "$NS" get secret "$s" --ignore-not-found -o name)
+            [ -z "$got" ] || { echo "FAIL F2 Secret $s exists"; exit 1; }
+          done
+          jobs=$(kubectl -n "$NS" get job -o name)
+          [ -z "$jobs" ] || { echo "FAIL F2 Jobs exist: $jobs"; exit 1; }
+          echo "PASS F2 none of the four Secrets and no Job in namespace $NS"
 
-      - name: Assert openbao-unseal-keys Secret has bytes
+      - name: F3 to F5 through a port-forward to openbao-0
+        timeout-minutes: 6
         run: |
           set -euo pipefail
-          if ! kubectl -n openbao get secret openbao-unseal-keys -o jsonpath='{.data.unseal-keys-b64}' | base64 -d | grep -qE '^[A-Za-z0-9+/=]+$'; then
-            echo "FATAL: openbao-unseal-keys Secret missing or empty"
-            exit 1
-          fi
-          echo "openbao-unseal-keys persisted (idempotent-reseal path enabled)"
+          kubectl -n "$NS" port-forward pod/openbao-0 "$PF_PORT:8200" > "$RUNNER_TEMP/pf.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/pf.pid"
+          A="http://127.0.0.1:$PF_PORT"
+          for _ in $(seq 60); do curl -s -o /dev/null "$A/v1/sys/health?standbyok=true" && break; sleep 0.5; done
+          H=(-H "X-Vault-Token: $INSPECTOR")
+          # F3
+          curl -sf "${H[@]}" "$A/v1/sys/audit" > "$RUNNER_TEMP/audit.json"
+          [ "$(jq -r '.data["stdout/"].type' "$RUNNER_TEMP/audit.json")" = file ] || { echo "FAIL F3 stdout/ is not listed"; cat "$RUNNER_TEMP/audit.json"; exit 1; }
+          probe="fresh-prov-$(openssl rand -hex 8)"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$A/v1/secret/data/$probe")
+          # SEC-G05 judges the same two answers: a 403, then an audit entry of
+          # type response whose request path is the probe (check_sec_seal.go).
+          [ "$code" = 403 ] || { echo "FAIL F3 token-free read of secret/data/$probe answered $code, want 403"; exit 1; }
+          rid=""
+          for _ in $(seq 30); do
+            rid=$(kubectl -n "$NS" logs openbao-0 -c openbao | jq -R -r --arg p "secret/data/$probe" \
+              'select(startswith("{")) | fromjson? | objects | select(.type == "response" and .request.path == $p) | .request.id' | head -1 || true)
+            [ -z "$rid" ] || break
+            sleep 2
+          done
+          [ -n "$rid" ] || { echo "FAIL F3 no audit response of secret/data/$probe in the server's standard output"; exit 1; }
+          echo "PASS F3 audit device stdout/ listed; token-free read refused with 403; audit response, request id $rid"
+          # F4
+          curl -sf "${H[@]}" "$A/v1/sys/policies/acl/openbao-config-admin" | jq -r '.data.policy' > "$RUNNER_TEMP/policy-live.hcl"
+          yq 'select(.kind == "ConfigMap" and .metadata.name == "openbao-config-desired") | .data["sys.policies.acl.openbao-config-admin.json"]' \
+            "$RUNNER_TEMP/render.yaml" | jq -r .policy > "$RUNNER_TEMP/policy-want.hcl"
+          cmp "$RUNNER_TEMP/policy-live.hcl" "$RUNNER_TEMP/policy-want.hcl" || { echo "FAIL F4 policy openbao-config-admin differs"; diff "$RUNNER_TEMP/policy-want.hcl" "$RUNNER_TEMP/policy-live.hcl" || true; exit 1; }
+          curl -sf "${H[@]}" "$A/v1/auth/kubernetes/role/openbao-config-admin" | jq -c '.data | {bound_service_account_names, bound_service_account_namespaces, token_policies}' > "$RUNNER_TEMP/role.json"
+          [ "$(cat "$RUNNER_TEMP/role.json")" = '{"bound_service_account_names":["openbao-config"],"bound_service_account_namespaces":["openbao"],"token_policies":["openbao-config-admin"]}' ] \
+            || { echo "FAIL F4 role openbao-config-admin: $(cat "$RUNNER_TEMP/role.json")"; exit 1; }
+          roots=0
+          for acc in $(curl -sf "${H[@]}" -X LIST "$A/v1/auth/token/accessors" | jq -r '.data.keys[]'); do
+            if curl -sf "${H[@]}" -X POST -d "{\"accessor\":\"$acc\"}" "$A/v1/auth/token/lookup-accessor" | jq -e '.data.policies | index("root")' >/dev/null; then roots=$((roots + 1)); fi
+          done
+          [ "$roots" = 1 ] || { echo "FAIL F4 $roots root tokens alive; only the test's inspector may be"; exit 1; }
+          end=$(( $(date +%s) + 180 ))
+          until kubectl -n "$NS" logs deploy/openbao-config 2>/dev/null | grep -q 'converged ('; do
+            [ "$(date +%s)" -lt "$end" ] || { echo "FAIL F4 the reconciler did not converge"; kubectl -n "$NS" logs deploy/openbao-config --tail=30 || true; exit 1; }
+            sleep 3
+          done
+          kubectl -n "$NS" logs deploy/openbao-config | grep 'converged (' | tail -1
+          echo "PASS F4 policy equals the first desired op, role bound to openbao/openbao-config, no root token of its own, reconciler converged"
+          # F5
+          gr="sys/generate-""root/attempt"
+          code=$(curl -s -o "$RUNNER_TEMP/gr.json" -w '%{http_code}' -X PUT -d '{}' "$A/v1/$gr")
+          case "$code" in 4??) ;; *) echo "FAIL F5 token-free $gr answered $code, want a refusal (4xx)"; exit 1 ;; esac
+          echo "PASS F5 token-free PUT $gr refused with $code"
+          kill "$(cat "$RUNNER_TEMP/pf.pid")" 2>/dev/null || true
 
-      - name: Assert seed Secret cleaned (single-use consumed)
+      - name: F6 unsealed within 60 seconds after the pod is deleted
+        timeout-minutes: 4
         run: |
           set -euo pipefail
-          if kubectl -n openbao get secret openbao-recovery-seed 2>/dev/null; then
-            echo "WARN: seed Secret still present (Step 5 cleanup skipped or failed)"
-            # not fatal — operator may have re-created it for a re-install path
-          else
-            echo "seed Secret cleaned (consumed correctly)"
-          fi
+          old=$(kubectl -n "$NS" get pod openbao-0 -o jsonpath='{.metadata.uid}')
+          t0=$(date +%s)
+          kubectl -n "$NS" delete pod openbao-0 --wait=false
+          until [ "$(kubectl -n "$NS" get pod openbao-0 -o jsonpath='{.metadata.uid}' 2>/dev/null)" != "$old" ] \
+            && [ "$(kubectl -n "$NS" exec openbao-0 -c openbao -- bao status -format=json 2>/dev/null | jq -r .sealed)" = false ]; do
+            [ $(( $(date +%s) - t0 )) -le 60 ] || { echo "FAIL F6 openbao-0 is not unsealed 60 s after the delete"; kubectl -n "$NS" get pods; exit 1; }
+            sleep 1
+          done
+          echo "PASS F6 unsealed $(( $(date +%s) - t0 )) s after the pod was deleted"
 
-      - name: Summary
-        if: always()
+      - name: Diagnostics
+        if: failure()
         run: |
-          {
-            echo "## bp-openbao fresh-prov self-heal"
-            echo ""
-            echo "Wave 5.60 DEFENSE-layer test for #2295. Validates that the"
-            echo "post-install init Job:"
-            echo "  - completes within Wave 5.55's 1200s budget"
-            echo "  - persists openbao-root-token + openbao-unseal-keys Secrets"
-            echo "  - cleans the single-use openbao-recovery-seed Secret"
-          } >> "$GITHUB_STEP_SUMMARY"
+          kubectl -n "$NS" get all,configmap,secret -o wide || true
+          kubectl -n "$NS" describe pod openbao-0 | tail -40 || true
+          kubectl -n "$NS" logs openbao-0 -c openbao --tail=80 | grep -v '^{' || true
+          kubectl -n "$NS" logs deploy/openbao-config --tail=40 || true

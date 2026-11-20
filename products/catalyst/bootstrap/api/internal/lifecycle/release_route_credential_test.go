@@ -191,8 +191,8 @@ func pullSecretOf(t *testing.T, cs kubernetes.Interface) *corev1.Secret {
 }
 
 // The pull Secret goes with the bootstrap Job when nothing else removed it (the
-// Job's own Pod killed, so its scripts ran no end): the Job replaces no Pod
-// (backoffLimit 0), so it fails; its ttlSecondsAfterFinished, three days,
+// Job's own Pod killed, so its scripts ran no end): the Job replaces no Pod but
+// one an eviction took (retryOneEviction), so it fails; its ttlSecondsAfterFinished, three days,
 // deletes it; and the Secret, owned by that Job by name and UID, is then
 // deleted by the garbage collector.
 func TestReleasePullSecretGoesWithItsJob(t *testing.T) {
@@ -205,8 +205,8 @@ func TestReleasePullSecretGoesWithItsJob(t *testing.T) {
 		t.Fatalf("code %d: %s", w.Code, w.Body)
 	}
 	job := onlyJob(t, cs)
-	if job.Spec.BackoffLimit == nil || *job.Spec.BackoffLimit != 0 {
-		t.Fatalf("the bootstrap Job replaces a killed Pod: backoffLimit %v", job.Spec.BackoffLimit)
+	if job.Spec.BackoffLimit == nil || *job.Spec.BackoffLimit != 1 || job.Spec.PodFailurePolicy == nil {
+		t.Fatalf("the bootstrap Job replaces a killed Pod, or no evicted one: backoffLimit %v", job.Spec.BackoffLimit)
 	}
 	if releaseTTLSeconds != 3*24*3600 || job.Spec.TTLSecondsAfterFinished == nil || *job.Spec.TTLSecondsAfterFinished != releaseTTLSeconds {
 		t.Fatalf("the bootstrap Job's ttlSecondsAfterFinished is %v, want %d (three days)", job.Spec.TTLSecondsAfterFinished, 3*24*3600)

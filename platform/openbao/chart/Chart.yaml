@@ -284,7 +284,7 @@ name: bp-openbao
 #   8200. Inputs: peerTrust.selfRegion/regions (region registry); nothing for
 #   a single region. tests: config-desired-render, config-reconcile-
 #   idempotence, peer-trust-render (+ eso-push / snapshot updated).
-version: 1.2.81
+version: 1.2.82
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid
@@ -464,12 +464,12 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to openbao/openbao 0.16.0
+# bundles it into the OCI artifact. Pinned to openbao/openbao 0.30.7 (app 2.7.2)
 # (matches platform/openbao/blueprint.yaml + values.yaml
 # `catalystBlueprint.upstream.version`). Per
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
 dependencies:
   - name: openbao
-    version: "0.16.0"
+    version: "0.30.7"
     repository: "https://openbao.github.io/openbao-helm"
