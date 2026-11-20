@@ -26,7 +26,7 @@ Rules (LIST: the workflows that may use the access):
   P4  the job outside of foundation-gate.yaml has an environment or names a secret (secrets: of a
       call, or an expression that reads the context secrets, toJSON(secrets) included): its dial
       of NET-G02 must come from a hosted machine that holds nothing of the gate.
-  P5  ACCESS holds anything but the Role acceptance-gate/gate-jobs with exactly the rights of ROLE and gate-egress.
+  P5  ACCESS holds anything but gate-egress and the objects of ROLES with exactly their rights (a RoleBinding: subjects and Role).
   P6  a NetworkPolicy differs from POLICIES: gate-egress is default deny with DNS only; the one the Job script
       creates for a run allows TCP 6443 and 443 to each address as /32, for the Pods of the run's Job only
       (another range, port, peer or selector fails).
@@ -58,8 +58,9 @@ OUTSIDE = (".github/workflows/foundation-gate.yaml", "outside")
 HERE = os.path.dirname(os.path.abspath(__file__))
 HARMLESS = ("--self-test", "execution", "recipe", "preflight", "targets", "policy")
 ACCESS = "scripts/gate-parent-access.yaml"
-ROLE = {(g, r, v) for g, r, vs in (("batch", "jobs", "create get list watch delete"), ("", "pods", "create get list watch delete"), ("", "pods/log", "get"),
-                                   ("", "secrets", "create delete"), ("networking.k8s.io", "networkpolicies", "create get delete")) for v in vs.split()}
+ROLES = {k: {(g, r, n, v) for g, r, n, vs in rights for v in vs.split()} for k, rights in (("Role acceptance-gate/gate-jobs", (("batch", "jobs", "*", "create get list watch delete"), ("", "pods", "*", "create get list watch delete"),
+    ("", "pods/log", "*", "get"), ("", "secrets", "*", "create delete"), ("networking.k8s.io", "networkpolicies", "*", "create get delete"))), ("Role catalyst/acceptance-gate-cld-g12", (("apps", "deployments", "catalyst-api", "get"),
+    ("", "pods", "*", "get list"), ("", "pods/exec", "*", "create"))), ("RoleBinding catalyst/acceptance-gate-cld-g12", (("acceptance-gate", "ServiceAccount", "gate", "Role:acceptance-gate-cld-g12"),)))}
 DNS = {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
        "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}
 RUN, GATE_EGRESS = ("gate-1-1-live-abcdef", "198.51.100.9", "203.0.113.7"), "NetworkPolicy acceptance-gate/gate-egress"
@@ -77,11 +78,10 @@ def access(root):
     except (OSError, yaml.YAMLError) as e:
         raise Unreadable("%s: %s" % (ACCESS, e))
     got = {"%s %s/%s" % (d.get("kind"), (d.get("metadata") or {}).get("namespace"), (d.get("metadata") or {}).get("name")): d for d in docs}
-    role = got.pop("Role acceptance-gate/gate-jobs", {})
-    found = ["P5 %s: holds %s, which the access does not need" % (ACCESS, k) for k in sorted(set(got) - {GATE_EGRESS})]
-    grants = {(g, r, v) for x in role.get("rules") or [] for g in x.get("apiGroups") or ["?"] for r in x.get("resources") or ["?"] for v in x.get("verbs") or []}
-    if grants != ROLE:
-        found.append("P5 %s: the Role acceptance-gate/gate-jobs grants %s and lacks %s" % (ACCESS, sorted(grants - ROLE), sorted(ROLE - grants)))
+    grants = {k: {(g, r, n, v) for x in o.get("rules") or [] for g in x.get("apiGroups") or ["?"] for r in x.get("resources") or ["?"] for n in x.get("resourceNames") or ["*"] for v in x.get("verbs") or []}
+              | {(s.get("namespace"), s.get("kind"), s.get("name"), "%s:%s" % ((o.get("roleRef") or {}).get("kind"), (o.get("roleRef") or {}).get("name"))) for s in o.get("subjects") or []} for k, o in [(k, got.pop(k, {})) for k in ROLES]}
+    found = ["P5 %s: the %s grants %s and lacks %s" % (ACCESS, k, sorted(grants[k] - v, key=str), sorted(v - grants[k], key=str)) for k, v in ROLES.items() if grants[k] != v]
+    found += ["P5 %s: holds %s, which the access does not need" % (ACCESS, k) for k in sorted(set(got) - {GATE_EGRESS})]
     out = subprocess.run(["bash", os.path.join(root, "scripts", SCRIPT), "policy", RUN[0], ",".join(RUN[1:])], capture_output=True, text=True).stdout
     got[SCRIPT + " policy"] = json.loads(out) if out.strip() else {"spec": "nothing printed"}
     for k, (spec, text) in sorted(POLICIES.items()):
