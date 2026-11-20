@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T12:15:05Z` |
+| Last refreshed | `2026-11-20T12:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,12 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T12:28 | [#8506](https://github.com/openova-io/openova/pull/8506) | #5468 | fix(cutover): the registry prewarm copies an image whose man |
+| 2026-11-20T12:24 | [#8505](https://github.com/openova-io/openova/pull/8505) | #8500 | fix(openova-mcp): the stdio tool server reads its bearer fro |
 | 2026-11-20T11:50 | [#8504](https://github.com/openova-io/openova/pull/8504) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:10 | [#8503](https://github.com/openova-io/openova/pull/8503) | #8501 | fix(catalyst-api): the token route admits the agent workspac |
 | 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:43 | [#8496](https://github.com/openova-io/openova/pull/8496) | #4639 | fix(cutover): the dormant registry pivot does not delete the |
 | 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
+| 2026-11-20T12:27 | [#8494](https://github.com/openova-io/openova/pull/8494) | fix(install): the image path of a fresh install is checked w |  |
 | 2026-11-20T11:25 | [#8493](https://github.com/openova-io/openova/pull/8493) | #8490 | fix(release): a delivery resumes after one eviction of any o |
 | 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:15 | [#8491](https://github.com/openova-io/openova/pull/8491) | #8487 | fix(harbor): the registry finds and heals a cached image ind |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T07:27 | [#8470](https://github.com/openova-io/openova/pull/8470) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:19 | [#8469](https://github.com/openova-io/openova/pull/8469) | #7087 | docs(ledger): plan update |
 | 2026-11-20T06:53 | [#8468](https://github.com/openova-io/openova/pull/8468) | #7087 | docs(ledger): plan update |
-| 2026-11-20T06:31 | [#8467](https://github.com/openova-io/openova/pull/8467) | #8466 | feat(cortex): assistants answer in the OpenAI shape with cit |
-| 2026-11-20T06:03 | [#8465](https://github.com/openova-io/openova/pull/8465) | #7087 | docs(ledger): plan update |
-| 2026-11-20T05:45 | [#8464](https://github.com/openova-io/openova/pull/8464) | #7087 | docs(ledger): plan update |
 
 ---
 
