@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-162, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-170, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-162, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-137, SOV-138, SOV-170, SOV-136, SOV-139, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -9258,7 +9258,7 @@ packages:
   area: SOV
   epic: SOV-100
   type: refactor
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-130, SOV-060, CLD-086, CLD-087, SOV-131, SOV-134, SOV-135]
@@ -9403,7 +9403,7 @@ packages:
   area: SOV
   epic: SOV-100
   type: fix
-  wave: W1a
+  wave: W0
   size: S
   lane: CONTROL
   depends_on: [SOV-110, SOV-131, SOV-160]
@@ -9444,6 +9444,120 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The variables document that a parent writes for a new Sovereign lists harbor.openova.io and xpkg.upbound.io as registry names served at the root, no longer lists public.ecr.aws, carries an origin address for every listed name, and is accepted by the renderer of the node registry file.
+- id: SOV-136
+  title: 'Nodes share the images they hold: the k3s embedded registry mirror is on from first boot'
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W0
+  size: S
+  lane: SUBSTRATE
+  depends_on: [SOV-132]
+  after: [CLD-023, CLD-131, CLD-132, CLD-133, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-154, SEC-040, SEC-152, SEC-153, SEC-154, NET-020, NET-110, SVC-040, AIP-201, INF-060]
+  touches:
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  - products/catalyst/bootstrap/api/internal/provisioner/cloudinit_embedded_registry_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Every node of a Sovereign serves the images of its containerd store to the other nodes of its region (k3s embedded registry mirror, Spegel, authenticated by the cluster CA and a preshared key): for every name of registries.yaml containerd asks the peers first, then the region''s registry; an image that no node holds still comes from the registry. A Pod that a drain moves to a node without its image no longer depends on the registry while any node of the region holds that image.'
+- id: SOV-137
+  title: The registry pivot keeps the nodes' shared mirror first and starts with the outside blocked
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W0
+  size: S
+  lane: CONTROL
+  depends_on: [SOV-132]
+  after: [FND-011, FND-095, SOV-020, SOV-241, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
+  touches:
+  - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
+  - platform/self-sovereign-cutover/chart/values.yaml
+  - products/catalyst/bootstrap/api/internal/handler/cutover_registry_pivot_mirror_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'After the cutover every node still asks its peers first: cutover step 04 writes each pivoted name with the node''s embedded-mirror block first and the region''s registry second, never the origin; and the pivot''s Pod starts on a rebooted node with the outside blocked, because its image carries its tools.'
+- id: SOV-138
+  title: 'No single Pod on the registry''s pull path: Harbor''s front, core and registry and the cluster DNS run two copies across nodes with a disruption budget'
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W0
+  size: M
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SOV-160, SOV-161, SOV-162, SOV-336, SVC-040, SVC-041, INF-040]
+  touches:
+  - platform/harbor/chart/values.yaml
+  - platform/harbor/chart/templates/pull-path-disruption-budgets.yaml
+  - platform/harbor/chart/tests/pull-path-availability.sh
+  - platform/harbor/README.md
+  - platform/kured/chart/templates/coredns-availability.yaml
+  - platform/kured/chart/tests/coredns-availability.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A drain of any one node never removes the last copy of the registry''s front, core or registry, or of the cluster DNS that they and their callers resolve through: two copies on two nodes, and a disruption budget that makes a drain wait while one copy is not Ready. Cost on the reference install, by the requests read on hw309: per region 64 MiB (nginx), 256 MiB (core), 320 MiB (registry and registryctl) and 70 MiB (CoreDNS), 710 MiB and 400 millicores; 1,420 MiB for two regions.'
+- id: SOV-139
+  title: A cloud-free harness drains the registry's node with the outside blocked and requires every workload back
+  area: SOV
+  epic: SOV-100
+  type: test
+  wave: W0
+  size: M
+  lane: RAILS
+  depends_on: [SOV-136, SOV-137]
+  after: []
+  touches:
+  - scripts/check-registry-drain.sh
+  - .github/workflows/registry-drain.yaml
+  - tests/registry-drain/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A proof without a cloud that can fail: with the outside blocked, the drain and reboot of the node that runs the registry, and the restart of every node, end with every workload running again, on the kit''s own server flags and pivot functions; the same drain without the shared mirror stays stuck, which proves the harness sees the defect.'
 - id: SOV-140
   title: 'Substrate window, part 2: revocable bootstrap access, peer tokens, node artifacts from the registry'
   area: SOV
@@ -10607,7 +10721,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-132, SOV-135, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -10726,7 +10840,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240, SOV-131, SOV-132, SOV-134]
-  after: [SOV-161, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, SOV-020, SOV-175, SOV-242, SEC-010, SEC-080, SEC-095, SEC-162, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-130, SVC-136, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [SOV-161, SOV-137, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, SOV-020, SOV-175, SOV-242, SEC-010, SEC-080, SEC-095, SEC-162, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-130, SVC-136, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11341,7 +11455,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-342]
-  after: [FND-011, FND-095, CLD-067, SOV-020, SOV-241, SOV-521, SOV-522, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
+  after: [SOV-137, FND-011, FND-095, CLD-067, SOV-020, SOV-241, SOV-521, SOV-522, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
   - platform/self-sovereign-cutover/chart/templates/11-crossplane-provider-pivot-job.yaml
@@ -11379,7 +11493,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-343]
-  after: [FND-011, FND-096, FND-097, FND-104, FND-106, FND-173, CLD-076, SOV-010, SOV-521, SOV-523, NET-055, NET-110, NET-221, SVC-040, SVC-041, SVC-162, AIP-041, MIG-010]
+  after: [FND-011, FND-096, FND-097, FND-104, FND-173, CLD-076, SOV-010, SOV-521, SOV-523, NET-055, NET-110, NET-221, SVC-040, SVC-041, SVC-162, AIP-041, MIG-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/templates/rbac.yaml
@@ -11556,7 +11670,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [CLD-105, CLD-115, CLD-133, SOV-132, SOV-181, SOV-323, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, NET-213, SVC-040, SVC-162, SVC-164, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120, AIP-227]
+  after: [CLD-105, CLD-115, CLD-133, SOV-181, SOV-323, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, NET-213, SVC-040, SVC-162, SVC-164, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120, AIP-227]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -12813,7 +12927,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [INF-052]
-  after: [INF-054, FND-011, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-151, SOV-180, SOV-322, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  after: [INF-054, INF-056, FND-011, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-151, SOV-180, SOV-322, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
   touches:
   - platform/keycloak/chart/values.yaml
   - clusters/_template/bootstrap-kit/09-keycloak.yaml
@@ -15196,7 +15310,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-132, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -18269,7 +18383,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-132, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -31212,7 +31326,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [INF-050, INF-052, INF-053]
-  after: [FND-011, FND-014, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-110, SOV-131, SOV-135, SOV-151, SOV-323, SOV-335, SOV-338, SEC-010, SEC-080, SEC-095, SEC-120, SEC-150, SEC-162, NET-011, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  after: [INF-056, FND-011, FND-014, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-110, SOV-131, SOV-135, SOV-151, SOV-323, SOV-335, SOV-338, SEC-010, SEC-080, SEC-095, SEC-120, SEC-150, SEC-162, NET-011, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
   touches:
   - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
   - platform/kured/chart/values.yaml
@@ -31273,6 +31387,35 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The exclusion list of the local reduced kit names the release bp-kured of slot 04b, so the generator keeps that slot out of the kit and fails when a release the kit keeps comes to depend on it; the regenerated kit is unchanged.
+- id: INF-056
+  title: Check INF-G01 restarts the node of the registry's front and requires every moved Pod back and no container waiting on an image
+  area: INF
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [INF-052]
+  after: [FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, CTL-151, CMP-010, BSS-060, INF-133]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
+  - docs/ledger/gates.yaml
+  - tests/acceptance/sovereign/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Check INF-G01 restarts, in each region, the worker that runs the registry''s front, and passes only when every controller whose Pod the drain moved is Ready again and no container of the region waits on an image: the event that broke hw309 is the event the check makes.'
 - id: INF-060
   title: Remove the reboot settings from cloud-init
   area: INF
