@@ -2842,7 +2842,7 @@ packages:
   - id: A4
     run: "test -z \"$(git grep -n -E 'git (push|merge)|skopeo|crane ' -- scripts/standing-update.sh scripts/standing-update)\" && test \"$(git grep -c 'api/v1/sovereign/release' -- scripts/standing-update.sh | cut -d: -f2)\" -ge 1"
   - id: A5
-    run: "python3 scripts/check-gate-parent-access.py && d=\"$(mktemp -d)\" && mkdir -p \"$d/.github\" && cp -r .github/workflows \"$d/.github/\" && awk '/^  [a-z0-9-]+:$/ {j = $1} !(j == \"update:\" && $0 == \"    environment: gate\")' .github/workflows/foundation-gate-standing.yaml > \"$d/.github/workflows/foundation-gate-standing.yaml\" && rc=0 && { python3 scripts/check-gate-parent-access.py --root \"$d\" > \"$d/out\" || rc=$?; } && test \"$rc\" = 1 && grep -q 'FAIL P3 .github/workflows/foundation-gate-standing.yaml: job update uses the access without environment gate' \"$d/out\""
+    run: "python3 scripts/check-gate-parent-access.py && d=\"$(mktemp -d)\" && mkdir -p \"$d/.github\" \"$d/scripts\" && cp -r .github/workflows \"$d/.github/\" && cp scripts/gate-parent-access.yaml scripts/gate-parent-job.sh \"$d/scripts/\" && awk '/^  [a-z0-9-]+:$/ {j = $1} !(j == \"update:\" && $0 == \"    environment: gate\")' .github/workflows/foundation-gate-standing.yaml > \"$d/.github/workflows/foundation-gate-standing.yaml\" && rc=0 && { python3 scripts/check-gate-parent-access.py --root \"$d\" > \"$d/out\" || rc=$?; } && test \"$rc\" = 1 && grep -q 'FAIL P3 .github/workflows/foundation-gate-standing.yaml: job update uses the access without environment gate' \"$d/out\""
   - id: A6
     run: "w=.github/workflows/foundation-gate-standing.yaml; test \"$(grep -c -x '    needs: \\[candidate, update\\]' \"$w\")\" = 1 && test \"$(grep -c -x '        run: bash scripts/standing-update.sh --self-test' \"$w\")\" = 1 && test \"$(grep -c -x \"      - 'scripts/standing-update/\\*\\*'\" \"$w\")\" = 1 && python3 scripts/check-pr-jobs.py folded && python3 scripts/check-pr-jobs.py count"
   rollback: revert
@@ -2850,7 +2850,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 4
+  ticket_rev: 5
   dropped: false
   delivers: The job update of foundation-gate-standing.yaml runs scripts/standing-update.sh in a Job on the parent (scripts/gate-parent-job.sh run --mode update), which delivers the candidate to the standing environment through the release route PUT /api/v1/sovereign/release one region per request, region b first, after it has recorded the state of each region, read back the OpenBao snapshot of each region and had a dry run answered dry-run, sends nothing when both regions already run the candidate and the route reports it delivered, stops by name on every refusal of the route, waits for each region to apply the candidate, converge and compare clean before the next, and sends a rollback request for each region it promoted, primary first, when a region does not; then the workflow runs its verify-and-gate jobs as before.
 - id: FND-077
