@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T08:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-20T08:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T08:09 | [#8479](https://github.com/openova-io/openova/pull/8479) | #7087 | docs(ledger): plan update |
+| 2026-11-20T08:00 | [#8478](https://github.com/openova-io/openova/pull/8478) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:44 | [#8476](https://github.com/openova-io/openova/pull/8476) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:37 | [#8474](https://github.com/openova-io/openova/pull/8474) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:32 | [#8471](https://github.com/openova-io/openova/pull/8471) | #7087 | docs(ledger): plan update |
@@ -330,13 +332,11 @@ flowchart LR
 | 2026-11-20T06:41 | [#8447](https://github.com/openova-io/openova/pull/8447) | #8446 | feat(cortex): the documents parser posts an original to the  |
 | 2026-11-20T03:40 | [#8444](https://github.com/openova-io/openova/pull/8444) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
+| 2026-11-20T08:14 | [#8442](https://github.com/openova-io/openova/pull/8442) | #8441 | chore(platform): delete the hollow gateway charts bp-llm-gat |
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:02 | [#8438](https://github.com/openova-io/openova/pull/8438) | #8433 | refactor(cloud-init): every node boots with a local-first re |
 | 2026-11-20T02:16 | [#8437](https://github.com/openova-io/openova/pull/8437) | #8436 | feat(chart): switch stage blueprints of the intent lock to d |
-| 2026-11-20T01:49 | [#8435](https://github.com/openova-io/openova/pull/8435) | #7087 | docs(ledger): plan update |
-| 2026-11-20T02:04 | [#8434](https://github.com/openova-io/openova/pull/8434) | #8403 | fix(release): the kernel rule of a cut compares upstream ver |
-| 2026-11-20T01:41 | [#8432](https://github.com/openova-io/openova/pull/8432) | #7087 | docs(ledger): plan update |
 
 ---
 
