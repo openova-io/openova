@@ -67,6 +67,12 @@ Reuses `hashicorp/aws` against the HCS OBS S3-protocol endpoint
 pattern the Hetzner module uses against Hetzner Object Storage — keeps
 bucket purge code uniform across providers.
 
+The bucket (`huaweicloud_obs_bucket.main`) sets `force_destroy = true`: the
+only `tofu destroy` of this module is the wipe, which destroys the Sovereign's
+data, so the destroy removes the bucket with its objects instead of failing
+with `BucketNotEmpty`. The engine's OBS purge (bootstrap/api
+`internal/providers/huawei`) runs after the destroy as the backstop.
+
 ## Tests
 
 `tests/multi_region.tftest.hcl` exercises the Tier-B canonical two-region
