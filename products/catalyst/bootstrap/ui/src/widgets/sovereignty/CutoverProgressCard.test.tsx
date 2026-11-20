@@ -14,13 +14,16 @@
  *   6. A stream-level error renders above the rows.
  */
 
-import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { CutoverProgressCard } from './CutoverProgressCard'
+import { SovereigntyCard } from './SovereigntyCard'
 import {
+  applyCutoverStepUpdate,
   buildInitialCutoverStatus,
   CUTOVER_STEPS,
   parseCutoverStatus,
+  parseCutoverStatusConfigMap,
   type CutoverStatus,
 } from '@/shared/types/cutover'
 
@@ -234,5 +237,83 @@ describe('CutoverProgressCard — the rows are the steps of the status response'
     expect(rowIds(container)).toEqual(['cutover-step-gitea-mirror', 'cutover-step-future-step'])
     expect(screen.getByText('future-step')).toBeTruthy()
     expect(screen.getByTestId('cutover-progress-pct').textContent).toBe('9%')
+  })
+})
+
+describe('CutoverProgressCard — a failed step is repeated a bounded number of times (SOV-242)', () => {
+  const failed = (raw: Record<string, string>) =>
+    parseCutoverStatus({ failedStep: 'egress-block-test', steps: [{ name: 'egress-block-test', result: 'failed' }], raw })
+
+  it('shows the pending automatic repetition and offers no resume until the budget is spent', () => {
+    const { rerender } = render(<CutoverProgressCard status={failed({ autoRetryStep: 'egress-block-test', autoRetryCount: '1', autoRetryLimit: '3' })} onResume={() => undefined} />)
+    expect(screen.getByTestId('cutover-auto-retry').textContent).toMatch(/repetition 2 of 3/)
+    expect(screen.queryByTestId('cutover-resume-button')).toBeNull()
+    // The 3rd repetition runs: its step-started frame follows the seed that cleared failedStep.
+    const third = failed({ autoRetryStep: 'egress-block-test', autoRetryCount: '3', autoRetryLimit: '3' })
+    rerender(<CutoverProgressCard status={applyCutoverStepUpdate(third, { step: 'egress-block-test', status: 'running' })} onResume={() => undefined} />)
+    expect(screen.queryByTestId('cutover-stopped') ?? screen.queryByTestId('cutover-auto-retry')).toBeNull()
+    // The 3rd repetition failed; the next pass has not marked the record halted yet.
+    rerender(<CutoverProgressCard status={third} onResume={() => undefined} />)
+    expect(screen.queryByTestId('cutover-auto-retry')).toBeNull()
+    expect(screen.getByTestId('cutover-stopped').textContent).toMatch(/after 3 automatic repetitions/)
+    expect(screen.getByTestId('cutover-resume-button')).toBeTruthy()
+  })
+
+  it('names the step when the budget is spent, and the resume calls the start route', () => {
+    let resumed = 0
+    // The flat status ConfigMap frame of the event stream.
+    const status = parseCutoverStatusConfigMap({
+      failedStep: 'egress-block-test', 'step.egress-block-test.result': 'failed',
+      autoRetryStep: 'egress-block-test', autoRetryCount: '3', autoRetryLimit: '3', autoRetryHalted: 'true',
+    })
+    render(<CutoverProgressCard status={status!} onResume={() => (resumed += 1)} />)
+    expect(screen.getByTestId('cutover-stopped').textContent).toMatch(/Egress-block self-test.*after 3 automatic repetitions/)
+    fireEvent.click(screen.getByTestId('cutover-resume-button'))
+    expect(resumed).toBe(1)
+  })
+
+  it('ignores a record about another step: no repetition is scheduled yet, so it says so, not stopped', () => {
+    const status = failed({ autoRetryStep: 'harbor-prewarm', autoRetryCount: '3', autoRetryHalted: 'true' })
+    expect(status.autoRetry).toBeUndefined()
+    render(<CutoverProgressCard status={status} onResume={() => undefined} />)
+    expect(screen.getByTestId('cutover-auto-retry').textContent).toMatch(/No automatic repetition is scheduled yet/)
+    expect(screen.queryByTestId('cutover-stopped')).toBeNull()
+    // A dormant reconciler never opens a record: Resume stays offered.
+    expect(screen.getByTestId('cutover-resume-button')).toBeTruthy()
+  })
+
+  it('reads no repetition record without its count and limit, never 0 of 0', () => {
+    const status = failed({ autoRetryStep: 'egress-block-test', autoRetryCount: '3', autoRetryHalted: 'true' })
+    expect(status.autoRetry).toBeUndefined()
+    render(<CutoverProgressCard status={status} onResume={() => undefined} />)
+    expect(screen.queryByText(/after 0 automatic repetitions/)).toBeNull()
+  })
+})
+
+describe('SovereigntyCard — the stop and Resume cutover follow failedStep and the halt record, not a failed row', () => {
+  // The engine fails these two without a failed row: secondary-kubeconfigs writes no step keys, and the
+  // gate after the chain leaves step.registry-pivot.result at success. The done row hides the Start button.
+  it.each([
+    ['secondary-kubeconfigs', 'secondary-kubeconfigs', {}],
+    ['registry-pivot', 'Pivot containerd registries', { 'step.registry-pivot.result': 'success' }],
+  ])('%s halted: names the step and Resume cutover calls the start route', (step, label, rows) => {
+    const startCutover = vi.fn().mockResolvedValue(undefined)
+    const status = parseCutoverStatusConfigMap({ ...rows, 'step.gitea-mirror.result': 'success', failedStep: step,
+      autoRetryStep: step, autoRetryCount: '3', autoRetryLimit: '3', autoRetryHalted: 'true' })!
+    render(<SovereigntyCard override={{ status, streamStatus: 'streaming', streamError: null, startCutover, retry: vi.fn(), starting: false, startError: 'refused' }} />)
+    expect(screen.getByTestId('cutover-stopped').textContent).toMatch(new RegExp(`“${label}”.*after 3 automatic repetitions.*refused`))
+    fireEvent.click(screen.getByTestId('cutover-resume-button'))
+    expect(startCutover).toHaveBeenCalledTimes(1)
+  })
+
+  it('secondary-kubeconfigs failed before any step row: names the stopped step and Resume cutover calls the start route', () => {
+    const startCutover = vi.fn().mockResolvedValue(undefined)
+    const status = parseCutoverStatusConfigMap({ failedStep: 'secondary-kubeconfigs',
+      autoRetryStep: 'secondary-kubeconfigs', autoRetryCount: '3', autoRetryLimit: '3', autoRetryHalted: 'true' })!
+    expect(status.steps.every((s) => s.status === 'pending')).toBe(true)
+    render(<SovereigntyCard override={{ status, streamStatus: 'streaming', streamError: null, startCutover, retry: vi.fn(), starting: false, startError: null }} />)
+    expect(screen.getByTestId('cutover-stopped').textContent).toMatch(/“secondary-kubeconfigs”.*after 3 automatic repetitions/)
+    fireEvent.click(screen.getByTestId('cutover-resume-button'))
+    expect(startCutover).toHaveBeenCalledTimes(1)
   })
 })

@@ -66,6 +66,8 @@ export interface SovereigntyCardProps {
  */
 function isInFlight(res: UseCutoverEventsResult): boolean {
   if (res.status.state === 'sovereign') return false
+  // SOV-242: the engine can fail a step before any step row exists (secondary-kubeconfigs on a first run).
+  if (res.status.failedStep !== undefined) return true
   return res.status.steps.some(
     (s) => s.status === 'running' || s.status === 'done' || s.status === 'failed',
   )
@@ -216,7 +218,8 @@ export function SovereigntyCard({ override }: SovereigntyCardProps) {
       {/* In-flight or terminal — render the full 8-step progress card. */}
       {(inFlight || cutoverComplete) ? (
         <div className="mt-5">
-          <CutoverProgressCard status={status} streamError={streamError} />
+          <CutoverProgressCard status={status} streamError={streamError} resuming={starting} resumeError={startError}
+            onResume={() => void startCutover().catch(() => undefined)} />
         </div>
       ) : null}
 

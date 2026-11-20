@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cutoverreconcile"
 )
 
 // #4635 — LEVEL-TRIGGERED sovereignty-cutover reconciler.
@@ -20,8 +22,8 @@ import (
 //
 // This reconciler closes the gap: it continuously, idempotently ensures the
 // cutover engine is running whenever the cause (the handover seal) exists
-// and the effect (the durable cutover-complete seal) does not — with NO
-// give-up deadline. It is the level-triggered half that makes
+// and the effect (the durable cutover-complete seal) does not; a FAILED step
+// is repeated only within a bounded budget (SOV-242). It is the level-triggered half that makes
 // cutoverComplete a function of state, not of a one-shot event landing at
 // exactly the right moment.
 //
@@ -65,7 +67,7 @@ func (h *Handler) StartCutoverReconciler(ctx context.Context) {
 	}
 
 	interval := durationEnv("CATALYST_CUTOVER_RECONCILE_INTERVAL", defaultCutoverReconcileInterval)
-	h.log.Info("[CUTOVER-RECONCILE] starting (level-triggered, no give-up)",
+	h.log.Info("[CUTOVER-RECONCILE] starting (level-triggered; a failed step is repeated within a bounded budget)",
 		"intervalSec", int(interval.Seconds()),
 		"warmupSec", int(cutoverReconcileWarmup.Seconds()),
 	)
@@ -91,51 +93,27 @@ func (h *Handler) StartCutoverReconciler(ctx context.Context) {
 }
 
 // runCutoverReconcilePass performs one idempotent reconcile pass. Exposed
-// for tests. The decision is pure state, never timing:
-//
-//	seal exists (handover done) && cutover-complete seal absent
-//	    => ensure the engine is running (idempotent fire).
-//
-// Any read error fails closed (logs + returns) so a transient OpenBao blip
-// never half-fires a cutover; the next tick retries — there is no give-up.
+// for tests. The decision (fire iff handover sealed, cutover-complete seal
+// absent, and no failed step waiting or halted) lives in package
+// cutoverreconcile; this wires the engine's operations into it.
 func (h *Handler) runCutoverReconcilePass(ctx context.Context) {
-	// Cause: the Sovereign must have received the Phase-0 archive (handover
-	// sealed). Pre-handover there is nothing to reconcile.
-	sealed, err := h.sovereignHandoverComplete(ctx)
-	if err != nil {
-		h.log.Info("[CUTOVER-RECONCILE] handover-seal check failed; will retry next tick", "err", err.Error())
-		return
-	}
-	if !sealed {
-		return
-	}
-
-	// Effect: if the durable, revert-immune cutover-complete fact (#3667) is
-	// already sealed, sovereignty is done — nothing to do.
-	complete, err := h.sovereignCutoverComplete(ctx)
-	if err != nil {
-		h.log.Info("[CUTOVER-RECONCILE] cutover-complete check failed; will retry next tick", "err", err.Error())
-		return
-	}
-	if complete {
-		return
-	}
-
-	// Sealed-but-uncut: ensure the engine is running. cutoverDepsFor errors
-	// on a Sovereign without the cutover chart installed — benign, skip.
-	deps, derr := h.cutoverDepsFor()
-	if derr != nil {
-		return
-	}
-	res, ferr := h.fireCutoverEngine(ctx, deps, "reconcile")
-	if ferr != nil {
-		h.log.Error("[CUTOVER-RECONCILE] engine fire failed; will retry next tick", "err", ferr)
-		return
-	}
-	// Only the spawn-started outcome means this pass actually (re)launched
-	// the engine; already-running / already-complete are expected steady-state
-	// no-ops and are not worth a log line every tick.
-	if res.outcome == cutoverSpawnStarted {
-		h.log.Info("[CUTOVER-RECONCILE] sealed-but-uncut → cutover engine (re)started", "outcome", res.outcome)
-	}
+	var deps *cutoverDeps
+	cutoverreconcile.Pass(ctx, cutoverreconcile.Ops{
+		HandoverSealed: h.sovereignHandoverComplete,
+		CutoverSealed:  h.sovereignCutoverComplete,
+		Read: func(ctx context.Context) (status map[string]string, err error) {
+			if deps, err = h.cutoverDepsFor(); err != nil {
+				return nil, cutoverreconcile.ErrNoChart // a Sovereign without the cutover chart — benign, skip
+			}
+			return readCutoverStatus(ctx, deps)
+		},
+		Record: func(ctx context.Context, m map[string]string) error { return patchCutoverStatus(ctx, deps, m) },
+		Fire: func(ctx context.Context) (bool, error) {
+			res, err := h.fireCutoverEngine(ctx, deps, "reconcile")
+			return err == nil && res.outcome == cutoverSpawnStarted, err
+		},
+		Publish: func(snap string) {
+			h.publishCutoverEvent(h.cutoverBusFor(), cutoverEvent{Phase: cutoverPhaseSnapshot, Level: "info", Message: snap})
+		},
+	}, time.Now(), cutoverreconcile.DefaultPolicy, h.log)
 }
