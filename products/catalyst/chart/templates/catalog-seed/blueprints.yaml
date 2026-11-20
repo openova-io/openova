@@ -1436,7 +1436,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.56
+  version: 1.2.57
   card:
     title: Harbor
     summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
@@ -1456,7 +1456,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: 1.2.56
+    version: 1.2.57
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
