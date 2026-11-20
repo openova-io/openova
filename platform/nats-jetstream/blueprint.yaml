@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-nats-jetstream
 spec:
-  version: 1.3.7
+  version: 1.3.8
   card:
     title: NATS JetStream
     summary: Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts.
