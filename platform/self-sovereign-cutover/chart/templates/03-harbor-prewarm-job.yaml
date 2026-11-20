@@ -111,145 +111,64 @@ data:
 
     {{- /*
      ─── Phase A0: settled-roll pre-flight (#4982 #5391, Refs #3379) ───
-     harbor-prewarm mirrors the RUNNING / declared-template image tags
-     (Phase A below). If any HelmRelease or Deployment/StatefulSet on the
-     HOST cluster is MID-ROLL — a bootstrap-kit pin bumped but not yet
-     reconciled, or an in-flight helm upgrade — then running != desired:
-     the cutover would later roll those workloads (registry-pivot step-04
-     / catalyst-api env-patch step-07) to the DESIRED chart-pinned tags
-     that were NEVER mirrored here, and step-06's readiness sample +
-     step-08's pre-hold completeness HEAD 404 on the un-mirrored desired
-     tag (live hw239, dep f5fa3f08d8c3234f: umbrella HR bp-catalyst-platform
-     running 1.4.1086 but pin 1.4.1088; catalyst-api/ui running :3412183
-     but desired :00b6cfe — harbor-prewarm mirrored the running side of
-     the drift). Once step-05 pivots Flux to the local Gitea the
-     GitRepository freezes at the cutover-start sha, so the workloads can
-     NEVER roll to the desired tag during the cutover — a running !=
-     mirrored deadlock the deny-egress hold then trips on. REFUSE to build
-     the mirror on an unsettled env (still PRE-PIVOT: steps 01/02 only
-     mirrored git + created Harbor projects, both idempotent — nothing
-     destructive has run), naming every offender so the operator waits for
-     the roll to settle and re-triggers. The "settled-roll pre-flight"
-     STONE principle. The complementary durable fix — mirror the DESIRED
-     chart-pinned tags, not just running — is the #4982 follow-up (needs
-     rendering the desired chart version off each HelmRelease spec); this
-     gate prevents the whole class today with no render dependency. Runs
-     BEFORE the ~5-min skopeo static-binary download so it fails fast.
+     Phase A mirrors the RUNNING / declared-template image tags. A HOST-cluster
+     HelmRelease or Deployment/StatefulSet that is MID-ROLL (pin bumped, not yet
+     reconciled) has running != desired: steps 04/07 later roll it to a DESIRED
+     tag never mirrored here, and step-06's readiness sample + step-08's
+     completeness HEAD 404 on it (hw239: umbrella running 1.4.1086, pin
+     1.4.1088). Once step-05 freezes Flux at the cutover-start sha the roll can
+     never finish, and the deny-egress hold deadlocks on it. Still PRE-PIVOT
+     (steps 01/02 are idempotent), the gate REFUSES an unsettled env, naming
+     every offender; the operator waits and re-triggers. It runs before the
+     skopeo download, so it fails fast.
 
-     #5391 NAMED OPERATOR OVERRIDE — the recovery seam. Once Flux marks an
-     HR Stalled=True (RetriesExceeded) it has stopped retrying PERMANENTLY:
-     the hw290/hw291 quota-wedged customer releases (#5393) could never
-     reach Ready, so this gate held the ENTIRE Sovereign's cutover closed
-     forever with no operator remedy. A sovereign-admin may now exclude a
-     SPECIFIC genuinely-stuck release:
-
+     #5391 NAMED OPERATOR OVERRIDE: an HR at Stalled=True has stopped retrying
+     for good (hw290/hw291, #5393) and held the whole cutover closed. A
+     sovereign-admin may exclude ONE genuinely-stuck release:
        kubectl annotate helmrelease <name> -n <ns> \
          catalyst.openova.io/cutover-settled-roll-override="<reason>"
-
-     The DEFAULT is unchanged — every non-suspended HR must be Ready. An
-     override is explicit, per-release, and validated FAIL-CLOSED before
-     any exclusion happens:
-       - empty/whitespace reason                  → gate FATALs (unnamed why)
-       - annotated release is HEALTHY             → gate FATALs (stale/over-broad)
-       - annotated release mid-roll (neither Stalled=True nor
-         Ready.reason=DependencyNotReady)         → gate FATALs (it will settle
-                                                    on its own; overriding would
-                                                    paper over a live roll)
-     Honored overrides are recorded DURABLY in the cutover status
-     ConfigMap (settledRollOverrides / settledRollOverridesAt) — surfaced
-     as a first-class field on GET /sovereign/cutover/status and in the
-     admin console — and an override that cannot be recorded is REFUSED
-     (no unaudited carve-outs). The exclusion narrows only the settle
-     CHECK: the excluded release's running images + charts are still
-     mirrored by the Phase A / A2 enumerations, which are gate-independent.
+     Validated FAIL-CLOSED: an empty reason, a HEALTHY release, or one still
+     mid-roll (neither Stalled=True nor Ready.reason=DependencyNotReady) FATALs.
+     Honored overrides are recorded in the cutover status ConfigMap
+     (settledRollOverrides / settledRollOverridesAt; GET /sovereign/cutover/status
+     and the console show them); one that cannot be recorded is REFUSED. The
+     exclusion narrows only the settle CHECK: Phase A / A2 still mirror the
+     excluded release's images and charts.
     */}}
     # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
     SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
     {{- /*
-     #6273 — the OWNERSHIP partition. An Organization's application release
-     must not fail-close the Sovereign's cutover; a PLATFORM namespace
-     offender still does, unchanged.
-
-     This label is a FIXED contract with the org-controller, exactly like
-     the override annotation key above. `openova.io/organization=<slug>` is
-     stamped on the host Namespace of EVERY Organization at EVERY tier by
-     core/controllers/organization/internal/gitops/manifests.go
-     (namespaceTemplate), it is pinned as an invariant by that package's
-     org_namespace_invariant_4292_test.go ("EVERY Organization, at EVERY
-     tier, owns EXACTLY ONE host namespace, named after its slug and
-     carrying openova.io/organization=<slug>"), and production already
-     reads the estate through this exact selector —
-     core/services/provisioning/handlers/kubeconfig_reconciler.go lists
-     `/api/v1/namespaces?labelSelector=openova.io/organization`.
-
-     So the predicate is DERIVED, not invented: no new namespace list is
-     introduced here, and there is nothing to keep in sync. It is also
-     POSITIVE and therefore fail-closed by construction — a namespace
-     WITHOUT the label is platform and stays FATAL. Measured on live hw296
-     (dep e689e3b34a75fdec, 2026-08-13): 55 namespaces, exactly 4 carry the
-     label (hw296-omani-works, walkone, walktwo, walkthree), and every one
-     of the 7 current Phase A0 offenders sits in `walkthree`.
+     #6273 — the OWNERSHIP partition: an Organization's application release must
+     not fail-close the Sovereign's cutover; a PLATFORM namespace offender still
+     does. The label is a FIXED contract with the org-controller, like the
+     override key above: core/controllers/organization/internal/gitops/
+     manifests.go stamps openova.io/organization=<slug> on every Organization's
+     host Namespace at every tier (pinned by org_namespace_invariant_4292_test.go),
+     and kubeconfig_reconciler.go already lists namespaces by it. The predicate
+     is POSITIVE, so fail-closed: an unlabelled namespace is platform and stays
+     FATAL (hw296, 2026-08-13: 4 of 55 namespaces labelled; all 7 offenders in one).
     */}}
     ORG_NAMESPACE_LABEL="openova.io/organization"
     {{- /*
-     #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE
-     and consumed by BOTH the override-validation and the offender-tagging
-     below. It used to be re-hand-rolled at each call site as the bare
-     `Stalled=True` test, and the two sites then disagreed with reality in the
-     same direction.
-
-     WHY a second terminal shape exists. `Stalled=True/RetriesExceeded` is how
-     Flux gives up on an UPGRADE. It is NOT how Flux behaves when the pinned
-     chart version does not exist in the registry: source-controller cannot
-     build an artifact, helm-controller parks the release on
-     `Ready=False reason=SourceNotReady` and waits for a source that will
-     never appear, and NO Stalled condition is ever set. Measured live on
-     hw296 (dep e689e3b34a75fdec, 2026-08-13): bp-guacamole pinned 0.2.40
-     while ghcr.io/openova-io/bp-guacamole tops out at 0.2.39 — its publish
-     job aborted on the #6247 conflict markers before `Helm push` — so the HR
-     read exactly
-
-       Ready=False SourceNotReady "HelmChart 'flux-system/flux-system-bp-guacamole'
-       is not ready: chart pull error: failed to download chart for remote
-       reference: failed to get 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40':
-       ghcr.io/openova-io/bp-guacamole:0.2.40: not found"
-
-     with conditions Reconciling/Ready/Released and no Stalled at all.
-
-     Under the old classifier that single hollow pin produced TWO wrong
-     operator-facing outcomes, and the second one is the serious one:
-
-       1. the gate printed "genuinely mid-roll — wait for them to settle,
-          then re-trigger" for a release that cannot settle by waiting, and
-       2. the #5391 named-override recovery seam REFUSED the annotation on it
-          ("it will settle on its own"), so the only remaining remedy was the
-          whole-gate kill switch this chart calls a last resort.
-
-     A gate that tells the operator to wait forever and then rejects the
-     escape hatch is a dead end, which is the exact failure #5391 was written
-     to remove. So "the source artifact is absent" joins Stalled as terminal.
-
-     Deliberately NARROW: an absent artifact is a 404-class answer
-     (`not found` / `no chart version found`), and it is only trusted under a
-     SOURCE-side Ready reason. A transient pull failure — `context deadline
-     exceeded`, `connection refused`, a 5xx — matches none of those strings
-     and stays classified mid-roll, so waiting is still the advice whenever
-     waiting can actually work.
-
-     "404-class" is NOT the same as "the words not found appear", and the
-     difference was measured, not reasoned about. Sampling hw296 while it was
-     reconciling turned up bp-sso-bridge and bp-trivy sitting on
-
+     #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE for
+     both the override validation and the offender tagging below (two
+     hand-rolled `Stalled=True` tests used to disagree with reality).
+     Stalled=True/RetriesExceeded is how Flux gives up on an UPGRADE. A pinned
+     chart version that does not exist sets NO Stalled: helm-controller parks the
+     release on Ready=False reason=SourceNotReady for ever. hw296 (2026-08-13):
+     bp-guacamole pinned 0.2.40, ghcr tops out at 0.2.39, and the HR read
+       Ready=False SourceNotReady "... chart pull error: failed to download chart
+       ... 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ...: not found"
+     The old classifier told the operator to wait, then REFUSED the #5391
+     override on it ("it will settle on its own"): a dead end. So an absent
+     source artifact joins Stalled as terminal. Deliberately NARROW: only a
+     404-class answer under a SOURCE-side Ready reason; a transient failure
+     (deadline exceeded, connection refused, 5xx) stays mid-roll. The token must
+     come with a REMOTE-RESOLUTION context (`chart pull error`, or the
+     self-contained `no chart version found`), because hw296 also showed
        ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
-
-     — Flux's own artifact store still rebuilding after a source-controller
-     restart. Those charts exist, that state clears in ~30s by itself, and a
-     bare `not found` test would have branded both as hollow pins and told
-     the operator to publish a version that is already published. So the
-     404-class token must arrive together with a REMOTE-RESOLUTION context:
-     `chart pull error` (Flux's wording when the registry download itself
-     failed) or `no chart version found` (a classic HelmRepository index
-     miss, self-contained). Both live shapes are pinned as Case 77 fixtures.
+     while Flux's own artifact store rebuilt: those charts exist and it clears
+     by itself. Both live shapes are Case 77 fixtures.
     */}}
     SRP_TERMINAL_JQ='
       def _cond($t): (.status.conditions // []) | map(select(.type == $t)) | (.[0] // {});
@@ -271,38 +190,16 @@ data:
           );
       def _terminal: _stalled or _source_absent;
       {{- /*
-       #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED, for exactly the
-       circularity #6198 already recognised one paragraph down for this
-       chart's own WORKLOADS. The gate's premise is "running != desired":
-       an offender would be mirrored at its RUNNING tag and then rolled by
-       step-04/step-07 to a DESIRED tag that was never mirrored. That
-       premise cannot apply to the release that is RUNNING THIS GATE. The
-       script executing right now was rendered from the INSTALLED revision,
-       so it is self-consistent by construction, and the cutover never rolls
-       itself to a new tag mid-run.
-
-       Left in scope it is not merely noisy, it is a dead end with no
-       in-chart remedy: the only way to deliver a fix for the deadlock is a
-       new version of the very chart that cannot install. Measured live on
-       hw296 (dep e689e3b34a75fdec), fourth cutover attempt, step 3 of 11,
-       progressPercent 18:
-
-         mid-roll: HelmRelease/flux-system/bp-self-sovereign-cutover
-           (chart pull error: failed to get
-            'oci://ghcr.io/openova-io/bp-self-sovereign-cutover:0.1.183':
-            not found)
-
-       — 67 HelmReleases on that cluster, exactly ONE not Ready (this one),
-       zero pending Deployments/StatefulSets. The env was settled; the gate
-       was blocking on its own hollow pin, shipped when #6254's chart build
-       failed on Case 40 while the umbrella that seeds the pin published in
-       the same run.
-
-       Deliberately narrow, and matched by the Case 94 CONTROL: it keys on
-       the chart this HR installs (`.spec.chart.spec.chart`) and on the
-       bootstrap-kit slot-06a release name, both of which equal .Chart.Name.
-       Every OTHER HelmRelease — including a foreign one that is byte-
-       identically stuck — stays gated and stays named.
+       #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED (as #6198 excludes its
+       WORKLOADS below). "running != desired" cannot apply to the release running
+       this gate: the script was rendered from the INSTALLED revision and the
+       cutover never rolls itself mid-run. Left in scope it is a dead end, since
+       the only fix is a new version of the chart that cannot install (hw296,
+       fourth attempt, step 3 of 11: 67 HRs, ONE not Ready, this one, on its own
+       hollow pin bp-self-sovereign-cutover:0.1.183). Narrow, with the Case 94
+       CONTROL: it keys on .spec.chart.spec.chart and the slot-06a release name,
+       both .Chart.Name; any OTHER HelmRelease, even identically stuck, stays
+       gated and named.
       */}}
       def _is_own_release($own):
         ((.spec.chart.spec.chart // "") == $own) or ((.metadata.name // "") == $own);
@@ -1043,6 +940,7 @@ data:
     : "${PROXY_PROBE_TIMEOUT_SECONDS:=8}"
     : "${PROXY_PROBE_ATTEMPTS:=3}"
     cpdir="/tmp/prewarm-copies"
+    PREWARM_RT_DIR="${cpdir}"
     rm -rf "${cpdir}"; mkdir -p "${cpdir}"
     echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
 
@@ -1148,9 +1046,9 @@ data:
         -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
         "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_hd_proj}/repositories/${_hd_repo_enc}/artifacts/${_hd_ref}" 2>/dev/null \
         | jq -r '.digest // empty' 2>/dev/null || true)
-      {{- /* #5232: a proxy-cache project lists a pulled-through index by its digest in the registry API only; read there with the same credential, the digest must be the one asked for. */}}
-      if [ -z "${_hd_d}" ] && prewarm_proxy_project "${_hd_proj}"; then
-        case "${_hd_ref}" in sha256:*) if [ "$(xpkg_v2_resolve_digest "${_hd_proj}/${_hd_repo}" "${_hd_ref}")" = "${_hd_ref}" ]; then _hd_d="${_hd_ref}"; fi ;; esac
+      {{- /* #5232: a proxy-cache project lists a pulled-through index by its digest in the registry API only, and that API also answers from the upstream: it counts only after this run read the ref through (prewarm_read_through), then by a digest GET as Phase A4 verifies. */}}
+      if [ -z "${_hd_d}" ] && prewarm_proxy_project "${_hd_proj}" && [ -e "${PREWARM_RT_DIR:-${cpdir}}/.rt-ok.$(rl_slug "${_hd_proj}/${_hd_repo}@${_hd_ref}")" ]; then
+        case "${_hd_ref}" in sha256:*) if xpkg_v2_digest_present "${_hd_proj}/${_hd_repo}" "${_hd_ref}"; then _hd_d="${_hd_ref}"; fi ;; esac
       fi
       [ -z "${_hd_d}" ] || printf '%s\n' "${_hd_d}"
     }
@@ -1159,8 +1057,8 @@ data:
     prewarm_proxy_project() { for _pxp in ${PROXY_CACHE_PROJECTS:-}; do [ "$1" = "${_pxp}" ] && return 0; done; return 1; }
     {{- /*
      prewarm_read_through PATH LOG: fill a proxy-cache project with PATH by one full read through it
-     (all platforms) with the local credential, as Phase A4 warms a package; PREWARM_LEG_ERR names
-     the registry's answer when every attempt fails.
+     (all platforms) with the local credential, as Phase A4 warms a package, and mark PATH read in
+     PREWARM_RT_DIR; PREWARM_LEG_ERR names the registry's answer when every attempt fails.
     */}}
     prewarm_read_through() {
       _rt_dir="${cpdir}/.rt.$(rl_slug "$1")"; _rt_i=1; PREWARM_LEG_ERR=""
@@ -1168,7 +1066,7 @@ data:
         rm -rf "${_rt_dir}"
         if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy --insecure-policy --multi-arch all --retry-times 5 \
             --src-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" --src-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-            "docker://${HARBOR_HOST}/$1" "dir:${_rt_dir}" >>"$2" 2>&1; then rm -rf "${_rt_dir}"; return 0; fi
+            "docker://${HARBOR_HOST}/$1" "dir:${_rt_dir}" >>"$2" 2>&1; then rm -rf "${_rt_dir}"; : >"${PREWARM_RT_DIR:-${cpdir}}/.rt-ok.$(rl_slug "$1")"; return 0; fi
         _rt_i=$((_rt_i+1)); [ "${_rt_i}" -gt "${PREWARM_COPY_ATTEMPTS:-3}" ] || sleep 5
       done
       rm -rf "${_rt_dir}"
@@ -1331,7 +1229,7 @@ data:
           printf '%s points at the local registry, is not in it, and maps back to no upstream: not copied (#7938)' "${up}" >"${cpdir}/${slug}.fail"; echo "[harbor-prewarm] FAIL $(cat "${cpdir}/${slug}.fail")"; return 0
         fi
         echo "[harbor-prewarm] ${up} points at the local registry and is not in it: copying it from its upstream ${_cu} (#7938)" >>"${cpdir}/${slug}.log"
-        {{- /* A proxy-cache project takes no push: a full read through it with the local credential fills it from that upstream; then it must be present at the same digest. */}}
+        {{- /* A proxy-cache project takes no push and is never present before this run reads it (harbor_durable_digest): a full read through it with the local credential fills it from that upstream; then it must be present at the same digest. */}}
         if prewarm_proxy_project "${dests%%/*}"; then
           if prewarm_read_through "${dests}" "${cpdir}/${slug}.log" && [ -n "$(harbor_durable_digest "${dests}")" ]; then
             printf '%s (copied from %s through the proxy project)' "${up}" "${_cu}" >"${cpdir}/${slug}.ok"; echo "[harbor-prewarm] done ${up} (ok)"
@@ -2765,69 +2663,36 @@ data:
     # ─── Phase A4 (#5204): warm Crossplane xpkg provider packages ──────
     {{- /*
 
-     #5204 (Refs #5209 #3379). Step-11 (crossplane-provider-pivot)
-     rewrites every Provider's spec.package to the local Harbor
-     `proxy-xpkg` project and #5209 wired the package-pull AUTH — but
-     NOTHING ever placed the xpkg OCI artifact ITSELF in the local
-     Harbor. `proxy-xpkg` is the ONE local project that stays a Harbor
-     PROXY-CACHE (0.1.114; Harbor REJECTS pushes into a proxy-cache
-     project, so the Phase A skopeo-push route cannot serve it), and
-     xpkg.upbound.io is deliberately in offlineMirror.excludedHosts
-     (the Crossplane package manager bypasses containerd, so the
-     generic mirror legs are inert for it). On a COLD cache every
-     post-severance package re-pull / provider upgrade / inactive-
-     revision reconcile needs the proxy leg to reach xpkg.upbound.io —
-     an upstream tether Principle #11 forbids: the fully-severed
-     Sovereign cannot resolve its own provider package descriptor
-     from the local registry (live hw270 dep b2f0a9b0585f6781,
-     provider-opentofu Installed=False).
+     #5204 (Refs #5209 #3379). Step-11 rewrites every Provider's spec.package to
+     the local `proxy-xpkg` project, but nothing placed the xpkg artifact ITSELF
+     there. proxy-xpkg is the ONE local project that stays a Harbor PROXY-CACHE
+     (Harbor rejects a push into it, so Phase A cannot serve it), and
+     xpkg.upbound.io is in offlineMirror.excludedHosts (the Crossplane package
+     manager bypasses containerd). On a COLD cache a severed Sovereign could not
+     resolve its own provider package (hw270, provider-opentofu Installed=False).
 
-     FIX: enumerate every providers.pkg.crossplane.io spec.package
-     (the SAME set step-11 pivots) and perform ONE FULL authenticated
-     pull THROUGH the local proxy-xpkg endpoint per package
-     (`skopeo copy docker://${HARBOR_HOST}/proxy-xpkg/<path> dir:…`
-     with --multi-arch all). The pull-through forces Harbor to fetch
-     the manifest (list) + EVERY blob from upstream and cache them
-     DURABLY in the project, so the exact ref step-11 pivots to
-     serves locally with no upstream leg (Harbor serves cached
-     proxy-cache content when the upstream is unreachable). A
-     bounded durable-presence poll via the Harbor ARTIFACT API
-     (#5030 discipline — Harbor CORE DB, never pull-through;
-     proxy-cache records artifacts ASYNC, hence the poll) confirms
-     each package landed; FATAL naming the offender otherwise — the
-     same fail-loud sovereignty contract as Phase A/A2. Step-11's
-     verify-before-pivot gate re-asserts this durable presence
-     immediately before each spec.package rewrite.
+     FIX: for every providers.pkg.crossplane.io spec.package (the set step-11
+     pivots), ONE FULL authenticated pull THROUGH the local proxy-xpkg
+     (`skopeo copy docker://${HARBOR_HOST}/proxy-xpkg/<path> dir:…`, --multi-arch
+     all) makes Harbor cache the manifest (list) and EVERY blob DURABLY; Harbor
+     serves cached proxy content when the upstream is unreachable. A bounded
+     durable-presence poll confirms each package, else FATAL naming it.
+     Step-11's verify-before-pivot re-asserts it before each rewrite.
 
-     #5232 (Refs #5226) — the durable verify + the step-11 pivot are
-     DIGEST-addressed end-to-end. Live hw274 (dep d51a69f885872a81):
-     Harbor proxy-cache NEVER records TAGS for pulled-through xpkg
-     artifacts (manual tag-create 401s on proxy projects; a fresh
-     tag manifest GET serves the OCI index but still records no tag
-     — deterministic, not async lag), so the 0.1.142 tag-based
-     artifact probe could never pass and a tag-based step-11 pivot
-     ref would genuinely 404 post-severance. The artifact IS cached
-     and queryable BY DIGEST — but ONLY via the registry v2 API, not
-     the artifact-management API (#5232 round 2, live hw274: for a
-     MULTI-ARCH package the artifact API records only the per-arch
-     CHILD manifests, never the top-level OCI index by its own digest
-     → GET artifacts/sha256:<index> 404s there even though every blob
-     is durable). Phase A4 therefore resolves each package's
-     tag->digest from a registry v2 HEAD (the Docker-Content-Digest
-     response header — the exact digest containerd/Crossplane resolve
-     at pull time), verifies durability with a v2 digest GET (200),
-     and persists the map in the XPKG_DIGEST_CM ConfigMap for
-     step-11's digest pivot.
+     #5232 (Refs #5226) — DIGEST-addressed end-to-end. Harbor proxy-cache NEVER
+     records TAGS for pulled-through xpkg artifacts (hw274: tag-create 401s; a
+     tag manifest GET records none), and for a MULTI-ARCH package the artifact
+     API records only the per-arch CHILD manifests, never the index by its own
+     digest. So Phase A4 resolves tag->digest from a registry v2 HEAD
+     (Docker-Content-Digest, the digest containerd/Crossplane resolve), verifies
+     with a v2 digest GET (200), and persists the map in the XPKG_DIGEST_CM
+     ConfigMap for step-11's digest pivot.
 
-     The two helpers (defined before Phase A, where harbor_durable_digest
-     reads a proxy-cache project with them) use the registry v2 manifest API
-     (${HARBOR_INTERNAL_URL}/v2/<repo>/manifests/<ref>, the SAME
-     in-cluster Harbor Service Phase B dials) with LITERAL-slash repo
-     paths (no %2F encode — the /v2 API takes the nested repo name
-     verbatim). The Accept header covers OCI index + docker manifest
-     list + single manifest so a single-arch package (whose HEAD
-     returns a manifest.v2 digest, equally servable) needs no
-     special-casing.
+     The two helpers (defined before Phase A, where harbor_durable_digest uses
+     the GET) call ${HARBOR_INTERNAL_URL}/v2/<repo>/manifests/<ref>, the Service
+     Phase B dials, with LITERAL-slash repo paths; the Accept header covers OCI
+     index, docker manifest list and single manifest, so a single-arch package
+     needs no special case.
     */}}
 
     if [ "${XPKG_PREWARM_ENABLED:-true}" != "true" ]; then

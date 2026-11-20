@@ -16,7 +16,11 @@
 # of curl (Harbor's artifact and registry APIs) and skopeo that answer 401 to a
 # read of the local registry without the local credential, as Harbor did.
 #   A the measured ref, held by the proxy-cache project (listed by digest in the
-#     registry API only, #5232): present, no read, no 401.
+#     registry API only, #5232): read through with the local credential, no 401.
+#     That registry API also answers from the upstream, so it is no evidence on
+#     its own: a ref it answers that cannot be read is a failure by name, never
+#     present, and harbor_durable_digest (the run guard's probe) counts a
+#     proxy-cache ref only after this run read it through.
 #   B pivoted refs that are missing: copied from the upstream the pivot's own
 #     map names, with the same digest; proxy-xpkg by a read through it.
 #   C a local-looking host no pivot writes fails naming it; a local ref whose
@@ -59,7 +63,7 @@ key "${TMP}/s03acm.yaml" resolver.sh >"${TMP}/resolver.sh"
 envof() { awk -v n="$1" '$0 ~ "^ *- name: " n "$" {getline; if ($0 ~ /^ *value: /) {sub(/^ *value: /, ""); gsub(/"/, ""); print}; exit}' "${TMP}/s03pod.yaml"; }
 fn() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" {f=1} f {print} f && (/^\}$/ || $0 ~ "^"n"\\(\\) \\{.*\\}$") {exit}' "$1"; }
 grep '^XPKG_V2_ACCEPT=' "${TMP}/s03.sh" >"${TMP}/copy.sh"
-for f in rl_slug prewarm_multiarch_flags harbor_durable_digest xpkg_v2_resolve_digest prewarm_proxy_project prewarm_read_through dest_already_current prewarm_skopeo_copy mothership_proxy_code copy_one; do
+for f in rl_slug prewarm_multiarch_flags harbor_durable_digest xpkg_v2_resolve_digest xpkg_v2_digest_present prewarm_proxy_project prewarm_read_through dest_already_current prewarm_skopeo_copy mothership_proxy_code copy_one; do
   fn "${TMP}/s03.sh" "${f}" >>"${TMP}/copy.sh"
   grep -q "^${f}() {" "${TMP}/copy.sh" || fail "could not slice ${f} out of the rendered step-03 script"
 done
@@ -102,7 +106,9 @@ env_and_stubs() {
         else printf '{"errors":[{"code":"NOT_FOUND"}]}'; fi ;;
       "${HARBOR_INTERNAL_URL}"/v2/*)
         rest="${url#"${HARBOR_INTERNAL_URL}"/v2/}"; repo="${rest%/manifests/*}"; ref="${rest##*/manifests/}"
-        if grep -qxF "${repo}@${ref}" "${STUB_DIR}/v2"; then printf 'HTTP/1.1 200 OK\r\nDocker-Content-Digest: %s\r\n\r\n' "${ref}"; else printf 'HTTP/1.1 404 Not Found\r\n\r\n'; fi ;;
+        # A HEAD prints the headers; a GET (-o /dev/null -w '%{http_code}') prints the code.
+        if grep -qxF "${repo}@${ref}" "${STUB_DIR}/v2"; then if [ "${head}" = 1 ]; then printf 'HTTP/1.1 200 OK\r\nDocker-Content-Digest: %s\r\n\r\n' "${ref}"; else printf 200; fi
+        elif [ "${head}" = 1 ]; then printf 'HTTP/1.1 404 Not Found\r\n\r\n'; else printf 404; fi ;;
     esac
   }
   skopeo() {
@@ -139,16 +145,31 @@ wave() {
 sentinel() { cat "${TMP}/wave-$1/cp/"*."$2" 2>/dev/null; }
 anon_local_reads() { grep -E "^\|(${LOCAL}|${ALIAS})/" "${TMP}/wave-$1/calls"; }
 
-echo "[pivoted-refs] A: the measured ref, held by the proxy-cache project, is present: no read, no 401"
+echo "[pivoted-refs] A: the measured ref, held by the proxy-cache project, is read through with the local credential: no 401"
 printf '%s\n' "proxy-xpkg/${PROV}" >"${TMP}/v2-a1"
 wave a1 "${ALIAS}/proxy-xpkg/${PROV}"
-if [ -z "$(anon_local_reads a1)" ] && sentinel a1 ok | grep -qF "${ALIAS}/proxy-xpkg/${PROV} (in the local registry)"; then
-  pass "it counts present, read by digest with the local credential, and nothing reads ${ALIAS} anonymously"
+if [ -z "$(anon_local_reads a1)" ] && sentinel a1 ok | grep -qF "${ALIAS}/proxy-xpkg/${PROV} (copied from xpkg.upbound.io/${PROV} through the proxy project)"; then
+  pass "it is read through with the local credential, then present by digest, and nothing reads ${ALIAS} anonymously"
 else
-  fail "the measured ref was not found present: sentinel '$(sentinel a1 ok)$(sentinel a1 fail)'; $(grep -h 'unauthorized' "${TMP}/wave-a1/cp/"*.log 2>/dev/null | tail -1 | cut -c1-240)"
+  fail "the measured ref was not read through to present: sentinel '$(sentinel a1 ok)$(sentinel a1 fail)'; $(grep -h 'unauthorized' "${TMP}/wave-a1/cp/"*.log 2>/dev/null | tail -1 | cut -c1-240)"
 fi
-[ ! -s "${TMP}/wave-a1/calls" ] && pass "skopeo is not called for a ref the local registry holds" || fail "skopeo was called: $(head -2 "${TMP}/wave-a1/calls" | cut -d'|' -f1-2 | tr '\n' ' ')"
+[ "$(cut -d'|' -f1-2 "${TMP}/wave-a1/calls" | sed 's/ -> dir:.*//')" = "harbor-writer|${LOCAL}/proxy-xpkg/${PROV}" ] && pass "skopeo reads it once, through the local registry, as harbor-writer" || fail "skopeo calls: $(cut -d'|' -f1-2 "${TMP}/wave-a1/calls" | tr '\n' ' ')"
 grep -q "^ 0 \|^ 1 " "${TMP}/wave-a1/curl" && fail "Harbor was asked without the local credential" || pass "every Harbor read used the local credential"
+# A2: the proxy's registry API answers the ref (as it does from a reachable
+# upstream) but the content cannot be read: a failure by name, never present.
+printf '%s\n' "proxy-xpkg/${PROV}" >"${TMP}/v2-a2"; printf '%s\n' "${LOCAL}/proxy-xpkg/${PROV}" >"${TMP}/gone-a2"
+wave a2 "${ALIAS}/proxy-xpkg/${PROV}"
+[ -z "$(sentinel a2 ok)" ] && sentinel a2 fail | grep -qF "${ALIAS}/proxy-xpkg/${PROV} exit=1: read of ${LOCAL}/proxy-xpkg/${PROV} as harbor-writer failed: " \
+  && pass "a ref the proxy answers but cannot serve fails by name, not '(in the local registry)'" \
+  || fail "a ref the proxy answers but cannot serve: sentinel '$(sentinel a2 ok)$(sentinel a2 fail)'"
+# A3: the run guard's probe counts a proxy-cache ref only after this run read it through.
+mkdir -p "${TMP}/a3"; printf '%s\n' "proxy-xpkg/${PROV}" >"${TMP}/a3/v2"
+( set -eu; env_and_stubs "${TMP}/a3"
+  printf 'before=%s;' "$(harbor_durable_digest "proxy-xpkg/${PROV}")"
+  prewarm_read_through "proxy-xpkg/${PROV}" "${TMP}/a3/log"
+  printf 'after=%s;' "$(harbor_durable_digest "${LOCAL}/proxy-xpkg/${PROV}")" ) >"${TMP}/a3/out" 2>&1
+[ "$(cat "${TMP}/a3/out")" = "before=;after=${DIG};" ] && pass "harbor_durable_digest: absent before the read through although the registry API answers, present after" \
+  || fail "harbor_durable_digest around a read through: $(cut -c1-240 "${TMP}/a3/out")"
 
 echo "[pivoted-refs] B: a pivoted ref that is missing is copied from the upstream the pivot names, with the same digest"
 wave b1 "${ALIAS}/proxy-xpkg/${PROV}"
