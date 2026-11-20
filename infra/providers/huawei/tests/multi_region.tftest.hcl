@@ -242,6 +242,14 @@ run "tier_b_two_regions_poc" {
     error_message = "OBS bucket name must match the operator-supplied obs_bucket_name."
   }
 
+  # The wipe's `tofu destroy` must remove the bucket while it still holds the
+  # Sovereign's objects: without force_destroy OBS answers BucketNotEmpty and
+  # every wipe reported tofuDestroyed=false (deployment 0d7b0dd5f63d11aa).
+  assert {
+    condition     = huaweicloud_obs_bucket.main.force_destroy == true
+    error_message = "huaweicloud_obs_bucket.main must set force_destroy = true so the wipe's tofu destroy removes a bucket that holds objects."
+  }
+
   # #5244 — gateway ELB members span ALL regions' nodes (2 CP + 4 workers =
   # 6), not just the primary's. Primary-region-only membership black-holed
   # the gateway EIP for the whole region-a outage on hw275 G12: the health
