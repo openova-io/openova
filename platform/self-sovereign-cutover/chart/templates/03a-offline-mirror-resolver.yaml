@@ -24,8 +24,21 @@ data:
   resolver.sh: |
     {{- /*
      POSIX sh. Requires env: HOST_PROJECT_MAP EXCLUDED_HOSTS
-     EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST. No side effects — pure functions.
+     EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST; optional LOCAL_REGISTRY_ALIASES
+     and PIVOT_PROJECT_MAP (_helpers.tpl). No side effects — pure functions.
     */}}
+
+    {{- /*
+     offlinemirror_is_local_host HOST -> 0 when HOST is a name of the local
+     registry: LOCAL_REGISTRY_HOST (registry.<fqdn>, steps 04/06/07) or one of
+     LOCAL_REGISTRY_ALIASES (harbor.<fqdn>, steps 07/10/11).
+    */}}
+    offlinemirror_is_local_host() {
+      [ -n "$1" ] || return 1
+      [ "$1" = "${LOCAL_REGISTRY_HOST:-}" ] && return 0
+      for _om_lh in ${LOCAL_REGISTRY_ALIASES:-}; do [ "$1" = "${_om_lh}" ] && return 0; done
+      return 1
+    }
 
     {{- /*
      offlinemirror_normalize_ref REF -> REF with a tag-and-digest collapsed to
@@ -94,7 +107,7 @@ data:
         case "${_u}" in *"${_es}"*) return 0 ;; esac
       done
       {{- /* Already on the local registry (openova-io host-drop pivoted refs, etc.). */}}
-      if [ "${_host}" = "${LOCAL_REGISTRY_HOST}" ]; then
+      if offlinemirror_is_local_host "${_host}"; then
         printf '%s\n' "${_rest}"
         return 0
       fi
@@ -155,21 +168,27 @@ data:
     offlinemirror_upstream_ref() {
       _ur=$(offlinemirror_normalize_ref "$1")
       case "${_ur}" in
-        "${LOCAL_REGISTRY_HOST}"/*) _ur_path="${_ur#*/}" ;;
         */*)
           _ur_h="${_ur%%/*}"
-          case "${_ur_h}" in
-            *.*|*:*|localhost) printf '%s\n' "${_ur}"; return 0 ;;
-            *) _ur_path="${_ur}" ;;
-          esac ;;
+          if offlinemirror_is_local_host "${_ur_h}"; then _ur_path="${_ur#*/}"
+          else
+            case "${_ur_h}" in
+              *.*|*:*|localhost) printf '%s\n' "${_ur}"; return 0 ;;
+              *) _ur_path="${_ur}" ;;
+            esac
+          fi ;;
         *) _ur_path="${_ur}" ;;
       esac
       case "${_ur_path}" in
         */*) _ur_proj="${_ur_path%%/*}"; _ur_rest="${_ur_path#*/}" ;;
         *) return 1 ;;
       esac
-      {{- /* (1) project -> host: the exact inverse of the coverage-map lookup above. */}}
-      for _ur_pair in ${HOST_PROJECT_MAP}; do
+      {{- /*
+       (1) project -> host: the exact inverse of the coverage-map lookup above,
+       then of the projects a pivot step writes that the map does not name
+       (PIVOT_PROJECT_MAP: harbor.<fqdn>/proxy-xpkg/<path> -> xpkg.upbound.io/<path>).
+      */}}
+      for _ur_pair in ${HOST_PROJECT_MAP} ${PIVOT_PROJECT_MAP:-}; do
         _ur_ph="${_ur_pair%%:*}"
         case "${_ur_pair}" in *:*) _ur_pp="${_ur_pair#*:}" ;; *) _ur_pp="" ;; esac
         if [ -n "${_ur_pp}" ] && [ "${_ur_pp}" = "${_ur_proj}" ]; then
