@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T11:00:03Z` |
+| Last refreshed | `2026-11-20T11:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:37 | [#8489](https://github.com/openova-io/openova/pull/8489) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T07:05 | [#8459](https://github.com/openova-io/openova/pull/8459) | #3176 | fix(org): a new Organization's applications are not blocked  |
 | 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
 | 2026-11-20T09:23 | [#8457](https://github.com/openova-io/openova/pull/8457) | #8452 | fix(cutover): repeat a failed step at most three times with  |
-| 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 
 ---
 
