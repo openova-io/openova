@@ -67,14 +67,14 @@ has_deployment() { grep -q "^kind: Deployment" <<<"$(uncomment <<<"$1")"; }
 
 assert_ann() { # haystack key value label
   local got
-  got="$(uncomment <<<"$1" | awk -v k="$2" '$1 == k":" {v=$2; gsub(/"/,"",v); print v; exit}')"
+  got="$(awk -v k="$2" '$1 == k":" {v=$2; gsub(/"/,"",v); print v; exit}' <<<"$(uncomment <<<"$1")")"
   if [ "$got" != "$3" ]; then
     echo "FAIL: $4 — $2 is '${got:-<absent>}' (expected '$3')" >&2; exit 1
   fi
 }
 
 assert_no_ann() { # haystack label
-  if uncomment <<<"$1" | grep -q "service.cilium.io/"; then
+  if grep -q "service.cilium.io/" <<<"$(uncomment <<<"$1")"; then
     echo "FAIL: $2 — ClusterMesh annotations rendered where they must not be" >&2; exit 1
   fi
 }

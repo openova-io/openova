@@ -52,7 +52,7 @@ if [ -z "${RELOAD_LINE}" ]; then
   echo "FAIL: catalyst-api Pod template carries NO secret.reloader.stakater.com/reload annotation — the boot-race self-heal for optional valueFrom secrets is gone (#5277 / #3122)" >&2
   exit 1
 fi
-if ! printf '%s' "${RELOAD_LINE}" | grep -q "${PIN_SECRET}"; then
+if ! grep -q "${PIN_SECRET}" <<<"${RELOAD_LINE}"; then
   echo "FAIL: secret.reloader watch omits ${PIN_SECRET} — catalyst-api that booted before the pin-broker Secret was reflected will NEVER roll, so /oidc/* stays unwired and Keycloak's cold catalyst-pin broker 404s (hw278 SSO)" >&2
   echo "  rendered: ${RELOAD_LINE}" >&2
   exit 1
@@ -61,7 +61,7 @@ echo "  PASS (${RELOAD_LINE##*reload: })"
 
 echo "[oidc-broker-reloader] Case 2: the existing boot-race watches are NOT regressed by the additive fix"
 for SECRET in handover-jwt-public provisioning-github-token; do
-  if ! printf '%s' "${RELOAD_LINE}" | grep -q "${SECRET}"; then
+  if ! grep -q "${SECRET}" <<<"${RELOAD_LINE}"; then
     echo "FAIL: secret.reloader watch dropped ${SECRET} — a pre-existing boot-race self-heal (SOVEREIGN_FQDN / gitops-token) regressed" >&2
     echo "  rendered: ${RELOAD_LINE}" >&2
     exit 1

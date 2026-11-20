@@ -388,7 +388,7 @@ if [ -n "${CHECK_GHCR}" ]; then
     fi
 
     # Is this (chart, version) declared in the known-gap register?
-    registered_ver="$(printf '%s\n' "$register" | awk -F'|' -v c="$src_chart" '$1 == c {print $2; exit}')"
+    registered_ver="$(awk -F'|' -v c="$src_chart" '$1 == c {print $2; exit}' <<<"$register")"
 
     if [ -n "$registered_ver" ]; then
       # ── Invariant 3: the register self-retires the moment the chart ships.
@@ -430,7 +430,7 @@ if [ -n "${CHECK_GHCR}" ]; then
 
   # ── Invariant 4: no dead register rows.
   for rc in $register_charts; do
-    if ! printf '%s' "$seen_charts" | grep -qx -- "$rc"; then
+    if ! grep -qx -- "$rc" <<<"$seen_charts"; then
       echo "  FAIL register: '${rc}' is declared in scripts/expected-unpublished-catalog-seed-pins.yaml"
       echo "       but no catalog-seed entry delivers that chart — delete the dead row."
       ghcr_fail=$((ghcr_fail + 1))

@@ -1,0 +1,11 @@
+{
+  "allow": [
+    {
+      "count": 6,
+      "owner": "the story in progress on platform/harbor/chart/tests (21 November 2026)",
+      "path": "platform/harbor/chart/tests/admin-secret.sh",
+      "reason": "printf of a rendered Secret or Job into grep -q; repair with a here-string (grep -q x <<<\"$doc\") when the owning story lands, then drop this entry",
+      "rule": "grep-q"
+    }
+  ]
+}

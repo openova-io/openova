@@ -77,8 +77,8 @@ if command -v helm >/dev/null 2>&1; then
     fail=1
   fi
   # The adapter needs its ClusterRole when enabled, or it 403s instead of syncing.
-  if ! helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
-         --set adapter.enabled=true 2>/dev/null | grep -q '^kind: ClusterRole$'; then
+  if ! grep -q '^kind: ClusterRole$' <<<"$(helm template cb "$CHART" --set config.sovereignFqdn=t99.omani.works \
+         --set adapter.enabled=true 2>/dev/null)"; then
     echo "FAIL: adapter enabled but no ClusterRole rendered — it cannot read Organizations."
     fail=1
   else

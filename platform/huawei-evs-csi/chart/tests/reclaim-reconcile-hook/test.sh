@@ -37,8 +37,7 @@ helm template t "${CHART_DIR}" --set enabled=true --set defaultStorageClass=true
 
 # A1. The reconcile Job renders as a pre-install,pre-upgrade hook.
 if grep -q 'name: t-reclaim-reconcile' "${TMP}/render.yaml" \
-   && awk '/name: t-reclaim-reconcile$/{f=1} f' "${TMP}/render.yaml" \
-        | grep -q '"helm.sh/hook": pre-install,pre-upgrade'; then
+   && grep -q '"helm.sh/hook": pre-install,pre-upgrade' <<<"$(awk '/name: t-reclaim-reconcile$/{f=1} f' "${TMP}/render.yaml")"; then
   ok "reconcile hook renders as pre-install,pre-upgrade"
 else
   bad "reconcile hook missing or not a pre-install,pre-upgrade hook"
@@ -54,8 +53,7 @@ fi
 
 # A3. The rendered StorageClass itself is Delete (the value the hook drives toward).
 # Scope to the StorageClass document only (stop at the next doc separator).
-if awk '/^kind: StorageClass$/{f=1} f&&/^---$/{exit} f' "${TMP}/render.yaml" \
-     | grep -q 'reclaimPolicy: "Delete"'; then
+if grep -q 'reclaimPolicy: "Delete"' <<<"$(awk '/^kind: StorageClass$/{f=1} f&&/^---$/{exit} f' "${TMP}/render.yaml")"; then
   ok "evs-ssd StorageClass renders reclaimPolicy Delete"
 else
   bad "evs-ssd StorageClass reclaimPolicy is not Delete"

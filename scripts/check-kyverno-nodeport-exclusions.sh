@@ -71,10 +71,10 @@ PY
 
 # Does $1 contain a NAME-based solver exclusion in LIVE policy text?
 has_name_bypass() {
-  strip_comments "$1" | grep -qE "\"?${SOLVER_NAME_RE}\"?"
+  grep -qE "\"?${SOLVER_NAME_RE}\"?" <<<"$(strip_comments "$1")"
 }
 has_label_carveout() {
-  strip_comments "$1" | grep -qE "${LABEL_RE}"
+  grep -qE "${LABEL_RE}" <<<"$(strip_comments "$1")"
 }
 
 # ─── Phase 0 — self-test ────────────────────────────────────────────────

@@ -40,7 +40,7 @@ cluster_name="$(yq ea "$cluster | .metadata.name" "$TMP/r.yaml")"
 # The pdns container's gpgsql backend reads its host from <cluster>-app; the
 # CNPG operator writes <cluster>-rw there. The gate must ask that same host.
 main_secrets="$(yq ea "$pod | .containers[0].env[].valueFrom.secretKeyRef.name" "$TMP/r.yaml" | sort -u)"
-printf '%s\n' "$main_secrets" | grep -qx "$cluster_name-app" || fail "the pdns container does not read $cluster_name-app"
+grep -qx "$cluster_name-app" <<<"$main_secrets" || fail "the pdns container does not read $cluster_name-app"
 host="$(yq ea "$gate | .env[] | select(.name == \"PGHOST\") | .value" "$TMP/r.yaml")"
 [ "$host" = "$cluster_name-rw" ] || fail "the gate waits for $host, want the Cluster's read-write Service $cluster_name-rw"
 [ "$(yq ea "$gate | .env[] | select(.name == \"PGPORT\") | .value" "$TMP/r.yaml")" = "5432" ] || fail "PGPORT is not 5432"

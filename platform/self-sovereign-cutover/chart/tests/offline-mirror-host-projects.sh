@@ -269,7 +269,7 @@ mutate_and_expect_fail() {
     echo "SELF-TEST FAIL[${label}]: the guard PASSED a chart it must reject — it does not actually defend the map (#5442)" >&2
     return 1
   fi
-  if ! printf '%s' "${out}" | grep -qF "${want_msg}"; then
+  if ! grep -qF "${want_msg}" <<<"${out}"; then
     echo "SELF-TEST FAIL[${label}]: the guard failed, but not for the expected reason. Wanted a message containing:" >&2
     echo "    ${want_msg}" >&2
     echo "  got:" >&2
@@ -311,7 +311,7 @@ if [ "${empty_rc}" -eq 0 ]; then
   echo "SELF-TEST FAIL[empty-render]: the guard PASSED an EMPTY render — it is a trivially-green grep, not a guard (#5442)" >&2
   exit 1
 fi
-if ! printf '%s' "${empty_out}" | grep -qF "FAIL[vacuity]"; then
+if ! grep -qF "FAIL[vacuity]" <<<"${empty_out}"; then
   echo "SELF-TEST FAIL[empty-render]: an empty render was rejected, but not by the vacuity gate:" >&2
   printf '%s\n' "${empty_out}" | sed 's/^/    /' >&2
   exit 1

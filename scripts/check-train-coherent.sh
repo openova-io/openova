@@ -259,8 +259,11 @@ tc_site1() { # <root> <chart_dir>
 # A live question needs a live baseline. Comparing a fresh fact against a stale
 # one is its own bug class, independent of either value being correct.
 tc_version_at_ref() { # <ref> <chart_dir>
-  git show "$1:$2/chart/Chart.yaml" 2>/dev/null \
-    | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }'
+  # The text is read whole before awk stops at its first match: the umbrella's
+  # Chart.yaml is 360 KB, so `git show | awk '...exit'` cut git off (exit 141).
+  local text
+  text="$(git show "$1:$2/chart/Chart.yaml" 2>/dev/null)" || return
+  awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' <<<"$text"
 }
 
 tc_chart_name() { # <root> <chart_dir>
@@ -651,7 +654,7 @@ tc_judge_origin() { # <rc> <stdout>
     esac
   done <<< "$2"
   case "$rc" in
-    0) if printf '%s\n' "$2" | grep -qE '^ORIGIN-HAS PASS '; then
+    0) if grep -qE '^ORIGIN-HAS PASS ' <<<"$2"; then
          [ $((nfail+nread)) -gt 0 ] || ok "5 $(printf '%s\n' "$2" | grep -E '^ORIGIN-HAS PASS ')"
        else
          unread "5 origin-has exited 0 without its ORIGIN-HAS PASS line: nothing is concluded"
@@ -1106,9 +1109,8 @@ for d in "${TRAIN_DIRS[@]}"; do
   # oldest first; one version per revision that touched the file
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
-    git show "$sha:$f" 2>/dev/null \
-      | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' \
-      >> "$TMP/series" || true
+    awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' \
+      <<<"$(git show "$sha:$f" 2>/dev/null)" >> "$TMP/series" || true
   done < <(git rev-list --max-count="$HISTORY_DEPTH" "$REF" -- "$f" 2>/dev/null | tac)
   [ -s "$TMP/series" ] || continue
   mono_checked=$((mono_checked+1))
@@ -1257,8 +1259,8 @@ else
       # is this version on main?
       on_main=no
       if git rev-list --max-count=1 origin/main -- "$d/chart/Chart.yaml" >/dev/null 2>&1; then
-        mv_on_main="$(git show origin/main:"$d/chart/Chart.yaml" 2>/dev/null \
-          | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }')"
+        mv_text="$(git show origin/main:"$d/chart/Chart.yaml" 2>/dev/null)"
+        mv_on_main="$(awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' <<<"$mv_text")"
         [ "$mv_on_main" = "$ver" ] && on_main=yes
       fi
       # ORDER MATTERS HERE, and the first cut had it backwards.

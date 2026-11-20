@@ -125,8 +125,8 @@ YAML
 
   local out; out="$(scan "$tmp")"
 
-  _want()  { echo "$out" | grep -q "^$1$" || { echo "  SELF-TEST FAIL: expected to FLAG $1"; rc=1; }; }
-  _clean() { echo "$out" | grep -q "^$1$" && { echo "  SELF-TEST FAIL: wrongly flagged $1"; rc=1; }; return 0; }
+  _want()  { grep -q "^$1$" <<<"$out" || { echo "  SELF-TEST FAIL: expected to FLAG $1"; rc=1; }; }
+  _clean() { grep -q "^$1$" <<<"$out" && { echo "  SELF-TEST FAIL: wrongly flagged $1"; rc=1; }; return 0; }
 
   _want  "platform/bad/chart/templates/s.yaml"
   _want  "platform/reflectoronly/chart/templates/s.yaml"   # reflector ≠ mitigation

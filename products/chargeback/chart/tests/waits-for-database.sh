@@ -46,7 +46,7 @@ want_image="$(yq '.cnpg.cluster.imageName' "$chart_dir/values.yaml")"
 [ "$image" = "$want_image" ] || fail "wait-for-database image $image, want cnpg.cluster.imageName $want_image"
 [ "$(yq ea "$gate | .volumeMounts[] | select(.name == \"dsn\") | .readOnly" "$TMP/def.yaml")" = "true" ] || fail "wait-for-database does not mount the DSN read-only"
 [ "$(yq ea "$gate | (.resources.requests | to_json) == (.resources.limits | to_json)" "$TMP/def.yaml")" = "true" ] || fail "wait-for-database requests != limits"
-yq ea "$gate | .command[2]" "$TMP/def.yaml" | grep -q '^budget=900$' || fail "budget is not cnpg.databaseGate.timeoutSeconds (900)"
+grep -q '^budget=900$' <<<"$(yq ea "$gate | .command[2]" "$TMP/def.yaml")" || fail "budget is not cnpg.databaseGate.timeoutSeconds (900)"
 
 render "$TMP/pivot.yaml" --set global.imageRegistry=harbor.local.example
 pimage="$(yq ea "$gate | .image" "$TMP/pivot.yaml")"

@@ -37,7 +37,7 @@ if grep -q -E '^kind: (ClusterRole|ClusterRoleBinding)$' "$TMP/default-test.yaml
   fail "the test grants a right outside its namespace"
 fi
 # The ServiceAccount mount path of the kube-access-lib set-up names no Secret.
-if sed 's#/var/run/secrets/kubernetes.io/serviceaccount##g' "$TMP/default-test.yaml" | grep -q -i 'secret'; then
+if grep -q -i 'secret' <<<"$(sed 's#/var/run/secrets/kubernetes.io/serviceaccount##g' "$TMP/default-test.yaml")"; then
   fail "the test names a Secret"
 fi
 grep -q -E '^ *reloadStrategy: "?annotations"?$' values.yaml || fail "the chart no longer sets reloadStrategy annotations, which the test reads"

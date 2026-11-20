@@ -431,7 +431,7 @@ jobs:
       - name: 'pipe-cannot-break | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/pipe-cannot-break
-      - name: 'pipe-cannot-break | No chart test pipes a shell variable into awk with exit, head or sed with q under pipefail'
+      - name: 'pipe-cannot-break | No chart test pipes a shell variable into awk with exit, head, sed with q or grep -q, -m or -l under pipefail'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/pipe-cannot-break
       # cronjob-jobs renders the kit (helm, and the yq and jq of the runner), so it sets up the

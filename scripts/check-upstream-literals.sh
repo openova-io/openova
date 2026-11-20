@@ -280,7 +280,7 @@ self_test() {
     [ "$got" = "$want" ] || ok=0
     case "$needle" in
       *$'\n'*) [ "$out" = "$needle" ] || ok=0 ;;
-      *)       printf '%s\n' "$out" | grep -q -F -- "$needle" || ok=0 ;;
+      *)       grep -q -F -- "$needle" <<<"$out" || ok=0 ;;
     esac
     case "$name" in *"leaves the baseline as it was"*) cmp -s "$t/$BASELINE" "$t/baseline.before" || ok=0 ;; esac
     rm -rf "$t"

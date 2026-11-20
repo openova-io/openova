@@ -65,7 +65,7 @@ print("\n".join(
     for d in docs if d.get("kind") == "CronJob"))
 PY
 )"
-if printf '%s' "${cron_names}" | grep -q -- '-admin-enroll$'; then
+if grep -q -- '-admin-enroll$' <<<"${cron_names}"; then
   pass "the -admin-enroll CronJob renders by default"
 else
   fail "no -admin-enroll CronJob in the default render — SSO users never gain permissions (#5598); CronJobs found: [${cron_names//$'\n'/, }]"
@@ -115,7 +115,7 @@ print(repr(out))
 PY
 )"
 for leg in seed.sh promote.sh; do
-  if printf '%s' "${scripts}" | grep -q "'${leg}'" && \
+  if grep -q "'${leg}'" <<<"${scripts}" && \
      python3 - "${TMP}/all.yaml" "${leg}" <<'PY'
 import sys, yaml
 leg = sys.argv[2]

@@ -64,7 +64,7 @@ for policy in sso-operator-admin sso-operator-read; do
   [ -n "${block}" ] \
     || fail "could not isolate the ${policy} write block — the awk extraction is broken, not the chart"
 
-  printf '%s\n' "${block}" | grep -q 'continue' \
+  grep -q 'continue' <<<"${block}" \
     || fail "the ${policy} ACL-policy write does not gate the tick.
 A failed write now lets the loop proceed to auth/oidc/role/operator, whose
 token_policies names a policy that does not exist. OpenBao accepts that role;

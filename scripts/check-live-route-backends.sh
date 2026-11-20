@@ -379,7 +379,7 @@ if [ "$SELF_TEST_ONLY" = "1" ]; then
       echo "$out"
       fail_count=$((fail_count + 1)); return
     fi
-    if ! printf '%s' "$out" | grep -q "^${token}"; then
+    if ! grep -q "^${token}" <<<"$out"; then
       echo "SELF-TEST FAIL: fixture '$name' exited $rc but never printed '${token}' —"
       echo "                the exit code came from a crash, not from a verdict."
       echo "$out"

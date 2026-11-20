@@ -121,7 +121,7 @@ expect_row() { # chart version hard
   fi
 }
 absent_chart() {
-  if cut -f1 "$TMP/set.tsv" | grep -qx "$1"; then
+  if grep -qx "$1" <<<"$(cut -f1 "$TMP/set.tsv")"; then
     bad "${1} must NOT be in the mirror set ($2)"
   fi
 }

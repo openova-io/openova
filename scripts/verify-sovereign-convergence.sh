@@ -135,7 +135,7 @@ else
   fi
   NE_OUT="$(bash "$NODE_ENC_GUARD" "${NE_ARGS[@]}" 2>&1)"
   NE_RC=$?
-  NE_TALLY="$(printf '%s\n' "$NE_OUT" | grep -m1 '^agents=' || true)"
+  NE_TALLY="$(grep -m1 '^agents=' <<<"$NE_OUT" || true)"
   if [ "$NE_RC" -eq 0 ]; then
     pass "every cilium agent matches the declared node-encryption posture (${NE_TALLY:-tally unavailable})"
   else

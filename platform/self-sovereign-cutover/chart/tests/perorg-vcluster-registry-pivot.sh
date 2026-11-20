@@ -365,7 +365,7 @@ else
 fi
 for sl in walkone walktwo; do
   body="$(origin_show "${sl}" vcluster/vcluster.yaml)"
-  if printf '%s' "${body}" | grep -q "${MOTHERSHIP}"; then
+  if grep -q "${MOTHERSHIP}" <<<"${body}"; then
     bad "D1 ${sl}: vcluster.yaml in the BARE origin still names ${MOTHERSHIP}"
   elif [ "$(printf '%s' "${body}" | grep -c "${TARGET_HOST}")" != "3" ]; then
     bad "D1 ${sl}: expected 3 ${TARGET_HOST} references in the pushed vcluster.yaml, got $(printf '%s' "${body}" | grep -c "${TARGET_HOST}")"

@@ -71,8 +71,9 @@ pass() { echo "PASS: $*"; }
 
 extract_field() {
   # $1 = git ref/sha, $2 = field (version|appVersion)
-  git -C "${REPO_ROOT}" show "$1:products/catalyst/chart/Chart.yaml" 2>/dev/null \
-    | awk -v f="^${2}:" '$0 ~ f {print $2; exit}' | tr -d '"'
+  local text
+  text="$(git -C "${REPO_ROOT}" show "$1:products/catalyst/chart/Chart.yaml" 2>/dev/null)" || return
+  awk -v f="^${2}:" '$0 ~ f {print $2; exit}' <<<"$text" | tr -d '"'
 }
 
 echo "=========================================================="

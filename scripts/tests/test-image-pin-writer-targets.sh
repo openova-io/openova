@@ -186,7 +186,7 @@ expect red "${FX}" "console|nested|console-build.yaml" \
 # variable rather than piped: under `set -o pipefail` a pipeline inherits the
 # guard's non-zero exit and would report a false negative here.
 h1_out="$(run_guard "${FX}" "console|nested|console-build.yaml")"
-if printf '%s' "${h1_out}" | grep -q 'silent no-op'; then
+if grep -q 'silent no-op' <<<"${h1_out}"; then
   pass "H1 failure message names the silent no-op"
 else
   fail "H1 — failure message does not identify the no-op write"

@@ -1234,8 +1234,7 @@ if ! grep -qE '^      owner: "harbor"' <<<"${seed_out}"; then
 fi
 
 # The initdb block must carry a `secret:` naming the owner's role Secret.
-initdb_secret=$(printf '%s' "${seed_out}" \
-  | awk '/^  bootstrap:/,/^  managed:/' | awk '/^      secret:/{f=1;next} f&&/name:/{print $2;exit}')
+initdb_secret=$(awk '/^      secret:/{f=1;next} f&&/name:/{print $2;exit}' <<<"$(awk '/^  bootstrap:/,/^  managed:/' <<<"${seed_out}")")
 role_secret=$(awk '/^    roles:/{f=1} f&&/- name: "harbor"/{g=1} g&&/name:/&&!/- name:/{print $2;exit}' <<<"${seed_out}")
 
 if [ -z "${initdb_secret}" ]; then
@@ -1261,7 +1260,7 @@ if [ -z "${empty_out}" ]; then
   echo "FAIL (#5504): the no-bindings render produced nothing — cannot assert the fallback." >&2
   exit 2
 fi
-if printf '%s' "${empty_out}" | awk '/^  bootstrap:/,/^  managed:/' | grep -qE '^      secret:'; then
+if grep -qE '^      secret:' <<<"$(awk '/^  bootstrap:/,/^  managed:/' <<<"${empty_out}")"; then
   echo "FAIL (#5504): initdb emitted a 'secret:' with no bindings declared — it would name a" >&2
   echo "  Secret nothing creates. The block must be guarded on the first binding existing." >&2
   exit 1
