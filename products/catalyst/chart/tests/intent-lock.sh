@@ -4,11 +4,13 @@
 # Render cases (helm and python3 with PyYAML, no cluster):
 #   1. Defaults: one ValidatingAdmissionPolicy catalyst-intent-lock with
 #      failurePolicy Fail; one binding catalyst-intent-lock-<stage> for each
-#      of the nine stages; every binding ["Audit", "Warn"], none Deny; every
+#      of the nine stages; the binding of a stage that values.yaml sets to
+#      deny carries Deny alone, every other binding ["Audit", "Warn"]; every
 #      binding rule is a rule of the policy; the audit annotation's false
-#      branch is '' and not null.
-#   2. intentLock.stages.applications=deny: exactly one binding carries Deny,
-#      catalyst-intent-lock-applications, and it carries Deny alone.
+#      branch is '' and not null. Which stages are at deny is held by guard
+#      G6 (scripts/check-lock-stages.py and its baseline), not here.
+#   2. intentLock.stages.applications=deny: the binding of applications
+#      carries Deny alone as well, and no other binding gains it.
 #   3. The render fails for an action other than audit or deny, and for a
 #      stage that has no entry in intentLock.resources.
 #
@@ -35,9 +37,13 @@ cd "$CHART_DIR"
 STAGES="access applications blueprints environments flux machine-ops organizations policy topology"
 render() { helm template lock . --show-only templates/intent-lock/policy.yaml --show-only templates/intent-lock/bindings.yaml "$@"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# DENY: the stages that values.yaml sets to deny, read from intentLock.stages.
+DENY="$(awk '/^[^ #]/ {lock = ($0 == "intentLock:")} lock && /^  [^ #]/ {stages = ($0 == "  stages:")} lock && stages && /^    [a-z][a-z0-9-]*: deny$/ {sub(/:.*/, ""); printf "%s%s", sep, $1; sep = " "}' values.yaml)"
+# denies FILE: the number of bindings in FILE that carry Deny.
+denies() { grep -c '"Deny"' "$1" || true; }
 
-# judge FILE DENY_STAGE: prints one line per finding; DENY_STAGE is "" or the
-# one stage whose binding must carry Deny.
+# judge FILE DENY_STAGES: prints one line per finding; DENY_STAGES is the
+# space-separated list of the stages whose binding must carry Deny.
 judge() {
   python3 - "$1" "$2" "$STAGES" <<'PY'
 import sys, yaml
@@ -67,7 +73,7 @@ if names != ["catalyst-intent-lock-" + s for s in stages]:
     bad.append("want the bindings of %s, got %s" % (stages, names))
 for b in binds:
     stage = b["metadata"]["name"][len("catalyst-intent-lock-"):]
-    want = ["Deny"] if stage == deny else ["Audit", "Warn"]
+    want = ["Deny"] if stage in deny.split() else ["Audit", "Warn"]
     if b["spec"]["validationActions"] != want or b["spec"]["policyName"] != "catalyst-intent-lock":
         bad.append("%s: validationActions %s, want %s" % (b["metadata"]["name"], b["spec"]["validationActions"], want))
 print("\n".join(bad))
@@ -76,17 +82,18 @@ PY
 
 echo "[intent-lock] case 1: defaults"
 render > "$TMP/default.yaml"
-out="$(judge "$TMP/default.yaml" "")"
+out="$(judge "$TMP/default.yaml" "$DENY")"
 [ -z "$out" ] || fail "$out"
-[ "$(grep -c 'Deny' "$TMP/default.yaml" || true)" = 0 ] || fail "the default render holds Deny"
-echo "  PASS (one policy, nine bindings, none Deny)"
+[ "$(denies "$TMP/default.yaml")" = "$(wc -w <<<"$DENY")" ] || fail "want one binding with Deny for each stage at deny in values.yaml: ${DENY:-none}"
+echo "  PASS (one policy, nine bindings, Deny exactly for: ${DENY:-none})"
 
 echo "[intent-lock] case 2: intentLock.stages.applications=deny"
+case " $DENY " in *" applications "*) fail "values.yaml sets applications to deny; cases 2 and 5 need it at audit" ;; esac
 render --set intentLock.stages.applications=deny > "$TMP/deny.yaml"
-out="$(judge "$TMP/deny.yaml" applications)"
+out="$(judge "$TMP/deny.yaml" "$DENY applications")"
 [ -z "$out" ] || fail "$out"
-[ "$(grep -c '"Deny"' "$TMP/deny.yaml")" = 1 ] || fail "want exactly one binding with Deny"
-echo "  PASS (exactly one binding with Deny: catalyst-intent-lock-applications)"
+[ "$(denies "$TMP/deny.yaml")" = "$(( $(wc -w <<<"$DENY") + 1 ))" ] || fail "want Deny for applications and for: ${DENY:-none}"
+echo "  PASS (Deny for applications and for: ${DENY:-none})"
 
 echo "[intent-lock] case 3: the render refuses wrong stage data"
 if render --set intentLock.stages.applications=enforce > /dev/null 2>&1; then fail "an action other than audit or deny rendered"; fi

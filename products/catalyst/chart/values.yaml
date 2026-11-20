@@ -2878,7 +2878,7 @@ intentLock:
     access: audit
     environments: audit
     policy: audit
-    blueprints: audit
+    blueprints: deny
     topology: audit
     flux: audit
     machine-ops: audit
