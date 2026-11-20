@@ -28,10 +28,11 @@
 # up         Writes the module inputs from the contract fixture of 1 or 2 regions (one
 #            control-plane machine per region; one worker machine in the primary region, none
 #            elsewhere) and the machine image of image above (built there when it is not yet
-#            on this host), runs tofu init and apply, then on each control-plane machine: puts
-#            the pull credential of GHCR_USER and GHCR_TOKEN into the Secret flux-system/ghcr-pull
-#            and pins the GitRepository flux-system/openova to <branch> at <commit>, as soon as
-#            the template has applied its Flux objects; waits for the template's marker
+#            on this host), runs tofu init and apply, then on each control-plane machine: pins
+#            the GitRepository flux-system/openova to <branch> at <commit> as soon as the
+#            template has applied its Flux objects, and puts the pull credential of GHCR_USER
+#            and GHCR_TOKEN into the Secret flux-system/ghcr-pull once Flux has rendered it
+#            (within PULL_SECRET_LIMIT seconds, see pin_flux); waits for the template's marker
 #            cloud-init-complete; waits until every HelmRelease of the kit core is Ready (CORE
 #            below in every region, and the console release CONSOLE_RELEASE in the primary
 #            region) and the Deployment catalyst-system/catalyst-api of the primary region is
@@ -123,6 +124,7 @@ IMAGE_ATTEMPT_LIMIT=300
 # measured took more than 50, see cmd_down).
 VOLUME_LIMIT=300
 MARKER_LIMIT=900
+PULL_SECRET_LIMIT=600
 CORE_LIMIT=2400
 DISCOVERY_LIMIT=600
 CLAIM_LIMIT=300
@@ -531,16 +533,31 @@ tofu_run() {
   TF_DATA_DIR="$DIR/tofu-data" tofu -chdir="$MODULE" "$sub" -no-color "$@"
 }
 
-# pin_flux <machine> <branch> <commit>: the pull credential and the commit, once the template
-# has applied the Flux objects. Returns 1 while they are not there yet.
+# pin_flux <region> <machine> <branch> <commit>: the commit and the pull credential. Returns 1
+# while the template has not applied the Flux objects yet. Then it pins the GitRepository, as
+# before, and waits for the Secret flux-system/ghcr-pull: first boot no longer writes it, the
+# Kustomization bootstrap-secrets renders it from the seed (SEC-154), once
+# (kustomize.toolkit.fluxcd.io/ssa: IfNotPresent), so the credential patched here stays. A Secret
+# that is not there PULL_SECRET_LIMIT seconds after the Flux objects, or a patch that fails,
+# stops the run naming it; the log line is printed only after both patches succeeded.
 pin_flux() {
-  local m=$1 branch=$2 commit=$3 auth cfg
+  local code=$1 m=$2 branch=$3 commit=$4 auth cfg t
   kin "$m" -n flux-system get kustomization bootstrap-kit > /dev/null 2>&1 || return 1
+  printf '{"spec":{"ref":{"branch":"%s","commit":"%s"}}}' "$branch" "$commit" \
+    | kin "$m" -n flux-system patch gitrepository openova --type merge --patch-file /dev/stdin > /dev/null \
+    || die "$code: the patch of the GitRepository flux-system/openova failed"
+  t=$(date +%s)
+  until kin "$m" -n flux-system get secret ghcr-pull > /dev/null 2>&1; do
+    [ $(( $(date +%s) - t )) -lt "$PULL_SECRET_LIMIT" ] \
+      || die "$code: the Secret flux-system/ghcr-pull does not exist ${PULL_SECRET_LIMIT}s after the Flux objects (the Kustomization bootstrap-secrets renders it from the seed)"
+    sleep 2
+  done
   auth=$(printf '%s:%s' "$GHCR_USER" "$GHCR_TOKEN" | base64 -w0)
   cfg=$(printf '{"auths":{"ghcr.io":{"username":"%s","password":"%s","auth":"%s"}}}' "$GHCR_USER" "$GHCR_TOKEN" "$auth" | base64 -w0)
-  printf '{"data":{".dockerconfigjson":"%s"}}' "$cfg" | kin "$m" -n flux-system patch secret ghcr-pull --type merge --patch-file /dev/stdin > /dev/null
-  printf '{"spec":{"ref":{"branch":"%s","commit":"%s"}}}' "$branch" "$commit" \
-    | kin "$m" -n flux-system patch gitrepository openova --type merge --patch-file /dev/stdin > /dev/null
+  printf '{"data":{".dockerconfigjson":"%s"}}' "$cfg" \
+    | kin "$m" -n flux-system patch secret ghcr-pull --type merge --patch-file /dev/stdin > /dev/null \
+    || die "$code: the patch of the Secret flux-system/ghcr-pull failed"
+  log "$code: pull credential set, GitRepository at $commit"
 }
 
 # report_state <module inputs> <region code>...: prints the state of every named region for
@@ -757,7 +774,7 @@ cmd_up() {
         die "$code: the boot template failed"
       fi
       if [ -z "${pinned[$code]:-}" ]; then
-        if pin_flux "$m" "$branch" "$commit"; then pinned[$code]=1; log "$code: pull credential set, GitRepository at $commit"; fi
+        if pin_flux "$code" "$m" "$branch" "$commit"; then pinned[$code]=1; fi
       fi
       if [ -z "${done_[$code]:-}" ] && docker exec "$m" test -f /var/lib/catalyst/cloud-init-complete 2> /dev/null; then
         done_[$code]=1
@@ -1426,6 +1443,61 @@ SH
   mkdir -p "$t/one"
   write_env "$t/one/env" http://127.0.0.1:18080 0123456789abcdef "$t/one/session" region-a
   expect 1 "discovery: one region is a failure" env LOCAL_PACK_DIR="$t/one" bash "${BASH_SOURCE[0]}" discovery
+
+  # pin_flux, against a stand-in docker on PATH: the Flux objects are there; the Secret
+  # flux-system/ghcr-pull is absent for the number of looks in $t/pin/host/absent, then there
+  # (SEC-154: Flux renders it from the seed after first boot); a patch fails when
+  # $t/pin/host/fail-<kind> exists. The calls and pin_flux's log go to one journal, in order.
+  mkdir -p "$t/pin/bin"
+  cat > "$t/pin/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+case "$*" in
+  *" get kustomization bootstrap-kit") exit 0 ;;
+  *" get secret ghcr-pull")
+    n=$(( $(cat "$h/gets") + 1 )); echo "$n" > "$h/gets"
+    if [ "$n" -gt "$(cat "$h/absent")" ]; then echo "get secret ghcr-pull: there" >> "$h/journal"; exit 0; fi
+    echo "get secret ghcr-pull: absent" >> "$h/journal"; exit 1 ;;
+  *" patch secret ghcr-pull "*) echo "patch secret ghcr-pull $(cat)" >> "$h/journal"; [ ! -f "$h/fail-secret" ] ;;
+  *" patch gitrepository openova "*) echo "patch gitrepository openova $(cat)" >> "$h/journal"; [ ! -f "$h/fail-gitrepository" ] ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/pin/bin/docker"
+  local pin_c=0123456789abcdef0123456789abcdef01234567
+  pin_case() { rm -rf "$t/pin/host"; mkdir -p "$t/pin/host"; echo 0 > "$t/pin/host/gets"; : > "$t/pin/host/journal"
+    echo "$1" > "$t/pin/host/absent"; shift; for f in "$@"; do : > "$t/pin/host/$f"; done; }
+  pin_run() { (PATH="$t/pin/bin:$PATH" GHCR_USER=u GHCR_TOKEN=p PULL_SECRET_LIMIT="${1:-600}" pin_flux region-a m1 wp/X "$pin_c") \
+      >> "$t/pin/host/journal" 2> "$t/pin/err"; }
+  # pin_at <text>: the number of the last journal line that holds the text, 0 for none.
+  pin_at() { grep -n -F -- "$1" "$t/pin/host/journal" | tail -n 1 | cut -d: -f1 | grep . || echo 0; }
+  # The Secret is absent twice: pin_flux waits, then patches it with the credential, after the
+  # GitRepository, and logs once, after both patches.
+  pin_late() { pin_case 2; pin_run || return 1
+    local j="$t/pin/host/journal"
+    [ "$(grep -c -x 'get secret ghcr-pull: absent' "$j")" = 2 ] && [ "$(grep -c -F 'patch secret ghcr-pull' "$j")" = 1 ] || return 1
+    grep -q -x -F "patch gitrepository openova {\"spec\":{\"ref\":{\"branch\":\"wp/X\",\"commit\":\"$pin_c\"}}}" "$j" || return 1
+    [ "$(pin_at 'patch secret ghcr-pull')" -gt "$(pin_at 'get secret ghcr-pull: there')" ] || return 1
+    [ "$(grep -c -F 'pull credential set' "$j")" = 1 ] && grep -q -F "region-a: pull credential set, GitRepository at $pin_c" "$j" || return 1
+    [ "$(pin_at 'pull credential set')" -gt "$(pin_at 'patch secret ghcr-pull')" ] \
+      && [ "$(pin_at 'pull credential set')" -gt "$(pin_at 'patch gitrepository openova')" ] || return 1
+    [ "$(sed -n 's/^patch secret ghcr-pull {"data":{".dockerconfigjson":"\([A-Za-z0-9+\/=]*\)"}}$/\1/p' "$j" | base64 -d)" \
+      = '{"auths":{"ghcr.io":{"username":"u","password":"p","auth":"dTpw"}}}' ]; }
+  # The Secret never appears: within PULL_SECRET_LIMIT the run stops naming the region and the
+  # Secret; nothing is patched into it and nothing is logged as set.
+  pin_never() { pin_case 1000000; ! pin_run 2 || return 1
+    grep -q -F 'region-a: the Secret flux-system/ghcr-pull does not exist 2s after' "$t/pin/err" \
+      && ! grep -q -e 'patch secret' -e 'pull credential set' "$t/pin/host/journal"; }
+  # Either patch fails: the run stops naming the object and logs no "pull credential set".
+  pin_failed() { pin_case 0 fail-secret; ! pin_run || return 1
+    grep -q -F 'region-a: the patch of the Secret flux-system/ghcr-pull failed' "$t/pin/err" \
+      && ! grep -q 'pull credential set' "$t/pin/host/journal" || return 1
+    pin_case 0 fail-gitrepository; ! pin_run || return 1
+    grep -q -F 'region-a: the patch of the GitRepository flux-system/openova failed' "$t/pin/err" \
+      && ! grep -q -e 'patch secret' -e 'pull credential set' "$t/pin/host/journal"; }
+  expect 0 "pin_flux: the pull Secret appears late and is patched" pin_late
+  expect 0 "pin_flux: the pull Secret never appears and the failure names flux-system/ghcr-pull" pin_never
+  expect 0 "pin_flux: a failed patch fails and prints no pull credential set" pin_failed
 
   echo "self-test: $n cases, $fail failed"
   [ "$fail" = 0 ]

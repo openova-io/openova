@@ -1,7 +1,8 @@
-# The rights of the seed builder (SEC-153): read the four bootstrap Secrets by
-# name, read the seed by name, and create Secrets in flux-system (a create
-# cannot be limited to a name; the script creates only bootstrap-seed). It
-# updates, patches and deletes nothing.
+# The rights of the seed builder (SEC-153, SEC-154): read the bootstrap Secrets
+# and the seed by name, create Secrets in flux-system (a create cannot be
+# limited to a name; the script creates only bootstrap-seed), and patch the
+# seed by name to add the values it lacks. It updates, deletes and patches
+# nothing else.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -20,11 +21,15 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["bootstrap-seed", "harbor-robot-token", "pdm-basicauth", "sovereign-tls-secrets"]
+    resourceNames: ["bootstrap-seed", "harbor-robot-token", "pdm-basicauth", "sovereign-tls-secrets", "ghcr-pull", "object-storage"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["bootstrap-seed"]
+    verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

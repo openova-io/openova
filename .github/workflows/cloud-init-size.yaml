@@ -64,6 +64,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # SEC-154: the comparison step renders the base of the pull request,
+          # the first parent of its merge commit.
+          fetch-depth: 2
 
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -108,6 +112,35 @@ jobs:
             echo "::error title=cloud-init-size::no provider pack was checked"
             exit 1
           fi
+
+      # SEC-154: every surface of the pull request against its base (the first
+      # parent of the merge commit), both measured by their own size script. A
+      # record, not a gate on growth: a surface that grows prints a warning, and
+      # a story whose acceptance asks for smaller start-up data is judged on
+      # these lines. It fails when a tree cannot be measured or the two trees
+      # do not render the same surfaces.
+      - name: Compare every surface with the base of the pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          set -eu
+          git worktree add --detach -q "$RUNNER_TEMP/base" HEAD^1
+          for t in base head; do
+            d=.; [ "$t" = base ] && d="$RUNNER_TEMP/base"
+            rc=0
+            ( cd "$d" && NO_COLOR=1 bash scripts/cloudinit-size-check.sh both ) > "$RUNNER_TEMP/$t.log" 2>&1 || rc=$?
+            if [ "$rc" -gt 1 ]; then cat "$RUNNER_TEMP/$t.log"; echo "::error title=cloud-init-size::the $t tree cannot be measured (exit $rc)"; exit 1; fi
+            sed -n -E 's/^ +(PASS|WARN|FAIL) (.+) \(worst case\): ([0-9]+) bytes, limit ([0-9]+).*$/\2|\3|\4/p' "$RUNNER_TEMP/$t.log" | LC_ALL=C sort > "$RUNNER_TEMP/$t.txt"
+          done
+          if [ ! -s "$RUNNER_TEMP/base.txt" ] || [ "$(cut -d'|' -f1 "$RUNNER_TEMP/base.txt")" != "$(cut -d'|' -f1 "$RUNNER_TEMP/head.txt")" ]; then
+            cat "$RUNNER_TEMP/base.log" "$RUNNER_TEMP/head.log"
+            echo "::error title=cloud-init-size::the base and the head do not render the same surfaces"
+            exit 1
+          fi
+          printf '%-50s %7s %7s %7s\n' surface base head change
+          LC_ALL=C join -t'|' "$RUNNER_TEMP/base.txt" "$RUNNER_TEMP/head.txt" | while IFS='|' read -r s b _ h _; do
+            printf '%-50s %7d %7d %+7d\n' "$s" "$b" "$h" "$((h - b))"
+            if [ "$h" -gt "$b" ]; then echo "::warning title=cloud-init-size::$s grows by $((h - b)) bytes against the base ($b to $h)"; fi
+          done
 
       - name: Self-test the gate (pad the template oversized, prove it FAILS, then restore)
         if: always()

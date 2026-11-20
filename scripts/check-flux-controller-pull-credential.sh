@@ -119,6 +119,56 @@ for doc in yaml.safe_load_all(src):
 PY
 }
 
+# ─── The source of the named Secret (SEC-154) ─────────────────────────────
+#
+# secret_source <root> <secret> prints the source of the Secret <secret> in
+# flux-system and returns 0, or prints why it has none and returns 1. Two
+# sources count, and only these:
+#   - first boot: a line "name: <secret>" in the shared first-boot template,
+#     which applies the manifest before Flux starts;
+#   - a template: a document of kind Secret named <secret> in namespace
+#     flux-system, in a file that clusters/_template/bootstrap-secrets/
+#     kustomization.yaml lists, which the Flux Kustomization bootstrap-secrets
+#     renders (its path ./clusters/_template/bootstrap-secrets), and ONLY while
+#     the Kustomization bootstrap-kit, which applies 03-flux.yaml, waits for
+#     bootstrap-secrets (dependsOn). Without that order the controllers could
+#     start with a patch that names a Secret not yet rendered.
+secret_source() {
+  local root="$1" secret="$2" dir f ns flux="" other=""
+  if grep -q "name: ${secret}\$" "$root/infra/providers/_shared/cloudinit-control-plane.tftpl" 2>/dev/null; then
+    printf "secret '%s' is created by the shared cloud-init bootstrap\n" "$secret"; return 0
+  fi
+  dir="$root/clusters/_template/bootstrap-secrets"
+  for f in $(sed -n -E 's/^  - ([A-Za-z0-9._-]+\.yaml)$/\1/p' "$dir/kustomization.yaml" 2>/dev/null); do
+    for ns in $(awk -v want="$secret" '
+        function done_() { if (k == "Secret" && n == want) print (s == "" ? "none" : s); k = n = s = ""; m = 0 }
+        /^---/ { done_(); next }
+        /^kind: / { k = $2 }
+        /^metadata:/ { m = 1; next }
+        /^[^ #]/ { m = 0 }
+        m && /^  name: / { n = $2 }
+        m && /^  namespace: / { s = $2 }
+        END { done_() }' "$dir/$f" 2>/dev/null); do
+      if [ "$ns" = flux-system ]; then flux="clusters/_template/bootstrap-secrets/$f"; else other="clusters/_template/bootstrap-secrets/$f (namespace $ns)"; fi
+    done
+  done
+  if [ -z "$flux" ]; then
+    if [ -n "$other" ]; then
+      printf "the patch names imagePullSecret '%s', and the template %s does not create it in flux-system\n" "$secret" "$other"
+    else
+      printf "the patch names imagePullSecret '%s', which neither the shared cloud-init bootstrap nor a template of clusters/_template/bootstrap-secrets creates in flux-system\n" "$secret"
+    fi
+    return 1
+  fi
+  if ! grep -q -x -F '  path: ./clusters/_template/bootstrap-secrets' "$root/clusters/_template/root/base-primary/bootstrap-secrets.yaml" 2>/dev/null; then
+    printf "the template %s creates '%s', but the Kustomization bootstrap-secrets (clusters/_template/root/base-primary/bootstrap-secrets.yaml) does not render ./clusters/_template/bootstrap-secrets\n" "$flux" "$secret"; return 1
+  fi
+  if ! awk '/^  dependsOn:/ { d = 1; next } d && /^    - name: bootstrap-secrets$/ { w = 1 } d && /^  [^ -]/ { d = 0 } END { exit !w }' "$root/clusters/_template/root/base-primary/bootstrap-kit.yaml" 2>/dev/null; then
+    printf "the template %s creates '%s', but the Kustomization bootstrap-kit (clusters/_template/root/base-primary/bootstrap-kit.yaml), which applies 03-flux.yaml, does not dependsOn bootstrap-secrets\n" "$flux" "$secret"; return 1
+  fi
+  printf "secret '%s' is rendered from the template %s by bootstrap-secrets, which bootstrap-kit waits for\n" "$secret" "$flux"
+}
+
 # ─── Self-test: the negative control ──────────────────────────────────────
 #
 # Every assertion below is exercised against a fixture that VIOLATES it, so a
@@ -206,6 +256,64 @@ if [ "${1:-}" = "--self-test" ]; then
     note "  BROKEN — the shipped selector shape does not satisfy its own checks"; st_fail=1
   fi
 
+  # SEC-154: the source of the named Secret. mkroot <root> <template namespace,
+  # or "" for no template> <kit waits: yes|no> <first boot: yes|no> writes the
+  # five files secret_source reads.
+  mkroot() {
+    mkdir -p "$1/infra/providers/_shared" "$1/clusters/_template/bootstrap-secrets" "$1/clusters/_template/root/base-primary"
+    if [ "$4" = yes ]; then printf 'write_files:\n  - content: |\n      metadata:\n        name: ghcr-pull\n' > "$1/infra/providers/_shared/cloudinit-control-plane.tftpl"; else printf 'write_files: []\n' > "$1/infra/providers/_shared/cloudinit-control-plane.tftpl"; fi
+    printf 'resources:\n  - harbor-robot-token.yaml\n' > "$1/clusters/_template/bootstrap-secrets/kustomization.yaml"
+    printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: harbor-robot-token\n  namespace: flux-system\n' > "$1/clusters/_template/bootstrap-secrets/harbor-robot-token.yaml"
+    if [ -n "$2" ]; then
+      printf '  - ghcr-pull.yaml\n' >> "$1/clusters/_template/bootstrap-secrets/kustomization.yaml"
+      printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: ghcr-pull\n  namespace: %s\ntype: kubernetes.io/dockerconfigjson\n' "$2" > "$1/clusters/_template/bootstrap-secrets/ghcr-pull.yaml"
+    fi
+    printf 'kind: Kustomization\nmetadata:\n  name: bootstrap-secrets\nspec:\n  path: ./clusters/_template/bootstrap-secrets\n' > "$1/clusters/_template/root/base-primary/bootstrap-secrets.yaml"
+    printf 'kind: Kustomization\nmetadata:\n  name: bootstrap-kit\nspec:\n  path: ./clusters/_template/bootstrap-kit\n' > "$1/clusters/_template/root/base-primary/bootstrap-kit.yaml"
+    if [ "$3" = yes ]; then printf '  dependsOn:\n    - name: bootstrap-secrets\n' >> "$1/clusters/_template/root/base-primary/bootstrap-kit.yaml"; fi
+    printf '  wait: true\n' >> "$1/clusters/_template/root/base-primary/bootstrap-kit.yaml"
+  }
+
+  note "== self-test 6: the template source with the wait of the kit MUST pass =="
+  mkroot "$tmp/r6" flux-system yes no
+  if secret_source "$tmp/r6" ghcr-pull > "$tmp/r6.out"; then
+    note "  ok — the template source with the wait of the kit passes"
+  else
+    note "  BROKEN — the template source with the wait of the kit was refused: $(cat "$tmp/r6.out")"; st_fail=1
+  fi
+
+  note "== self-test 7: NO source MUST be rejected, naming the Secret =="
+  mkroot "$tmp/r7" "" yes no
+  if ! secret_source "$tmp/r7" ghcr-pull > "$tmp/r7.out" && grep -q -F "'ghcr-pull'" "$tmp/r7.out"; then
+    note "  ok — no source fails and names the Secret ghcr-pull"
+  else
+    note "  BROKEN — a Secret with no source was accepted, or not named: $(cat "$tmp/r7.out")"; st_fail=1
+  fi
+
+  note "== self-test 8: a template in ANOTHER namespace MUST be rejected =="
+  mkroot "$tmp/r8" catalyst-system yes no
+  if ! secret_source "$tmp/r8" ghcr-pull > "$tmp/r8.out" && grep -q -F '(namespace catalyst-system)' "$tmp/r8.out"; then
+    note "  ok — a template in another namespace fails"
+  else
+    note "  BROKEN — a template outside flux-system was accepted: $(cat "$tmp/r8.out")"; st_fail=1
+  fi
+
+  note "== self-test 9: a template WITHOUT the wait of the kit MUST be rejected =="
+  mkroot "$tmp/r9" flux-system no no
+  if ! secret_source "$tmp/r9" ghcr-pull > "$tmp/r9.out" && grep -q -F 'does not dependsOn bootstrap-secrets' "$tmp/r9.out"; then
+    note "  ok — a template without the wait of the kit fails"
+  else
+    note "  BROKEN — a template the kit does not wait for was accepted: $(cat "$tmp/r9.out")"; st_fail=1
+  fi
+
+  note "== self-test 10: the first-boot source MUST pass =="
+  mkroot "$tmp/r10" "" no yes
+  if secret_source "$tmp/r10" ghcr-pull > "$tmp/r10.out"; then
+    note "  ok — the first-boot source passes"
+  else
+    note "  BROKEN — the first-boot source was refused: $(cat "$tmp/r10.out")"; st_fail=1
+  fi
+
   if [ "$st_fail" -eq 0 ]; then
     note ""; note "SELF-TEST PASS — every assertion below can fail."
     exit 0
@@ -266,13 +374,13 @@ esac
 
 # 4. The Secret is one the bootstrap actually creates in flux-system. A patch
 #    naming a Secret nothing produces is inert AND makes kubelet log
-#    FailedToRetrieveImagePullSecret on every controller pod.
-if grep -rq "name: ${secret}\$" "${REPO_ROOT}/infra/providers/_shared/cloudinit-control-plane.tftpl"; then
+#    FailedToRetrieveImagePullSecret on every controller pod. Its two sources
+#    are those of secret_source (SEC-154).
+if src="$(secret_source "$REPO_ROOT" "$secret")"; then
   note ""
-  note "  secret '${secret}' is created by the shared cloud-init bootstrap"
+  note "  $src"
 else
-  bad "the patch names imagePullSecret '${secret}', which the shared cloud-init"
-  bad "        bootstrap does not create in flux-system — the patch would be inert."
+  bad "$src — the patch would be inert."
 fi
 
 note ""
