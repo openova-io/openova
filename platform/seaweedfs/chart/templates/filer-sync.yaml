@@ -33,21 +33,34 @@ answers through the mesh — so the Deployment's native `Available` condition
 reads "replication streaming" vs not, and the gauge's age (time() -
 offset/1e9) reads lag.
 
-Peer away. Once streaming, filer.sync retries a lost peer by itself (4.22
-weed/command/filer_sync.go, the subscribe loop). It EXITS, with code 0, only
-at start, when it cannot read the peer filer's signature over gRPC
-(`get filer 'a' signature ... connection refused`), and every exit was a
-restart counted on the Pod (hw307 region a, 19 Nov 2026: 7 restarts while
-region b installed; 20 Nov 2026: 4 while region b's release re-created its
-filer). Both waits therefore probe the port the sync dials, the peer's gRPC
-port (filer.grpcPort):
-  - `wait-for-peer-filer` holds the first start, logs each attempt and gives
-    up loudly after crossRegion.filerSync.peerWaitSeconds;
-  - the container's command supervises the sync: an exit with code 0 while
-    the peer's gRPC port refuses is a lost peer: it logs the reason, is not
-    Ready, logs each minute which peer it waits for, and starts the sync
-    again once the port accepts. Any other exit ends the container with its
-    code, so it restarts and is counted.
+Exit codes, from upstream SeaweedFS 4.22 weed/command/filer_sync.go: at
+start the sync reads the signature of filer A (the peer), then of filer B
+(the local filer), over gRPC; when either read fails it logs
+`get filer 'a'|'b' signature ...` and returns true (lines 193-203), and
+weed.go exit() then exits with status 0. Once streaming, the subscribe loop
+retries a lost filer by itself and never returns (lines 234-265, `select {}`
+at 312). So the CLASS of an exit is decided by what upstream does, not by a
+second probe: an exit with status 0 that the supervisor did not cause by
+forwarding a signal is a failed start, whichever filer refused, even if that
+filer accepts again a moment later. Each one was a restart counted on the Pod
+(hw307 region a, 19 Nov 2026: 7 while region b installed; 20 Nov 2026: 4 while
+region b's release re-created its filer).
+  - `wait-for-peer-filer` holds the first start on the peer's gRPC port (the
+    port `-a=` dials), logs each attempt and gives up loudly after
+    crossRegion.filerSync.peerWaitSeconds;
+  - the container's command supervises the sync. On a failed start it logs
+    one line, is not Ready, polls the gRPC port of BOTH filers (the peer's
+    mesh Service and the local filer, both filer.grpcPort, the ports `-a=` and
+    `-b=` dial) every 5 s with no time limit, logs each minute which one
+    refuses, and starts the sync again once both accept. The poll replaces
+    the kubelet's restart back-off: no event tells this Pod that a port in
+    another cluster accepts. Any non-zero exit ends the container with that
+    code, so it restarts and is counted. A permanent exit 0 for another
+    reason would show as a Pod that is not Ready, one failed-start line per
+    attempt (at most one each 5 s; a line each minute while a filer refuses)
+    and no restart count.
+The supervisor's state file lives on an emptyDir (one file per container),
+so a read-only root filesystem does not turn its loud stop into a crash loop.
 */ -}}
 {{- if include "bp-seaweedfs.filerSyncActive" . }}
 {{- $self := include "bp-seaweedfs.topologySelf" . -}}
@@ -62,8 +75,10 @@ port (filer.grpcPort):
 {{- $masterPort := $master.port | default 9333 | int -}}
 {{- $full := include "bp-seaweedfs.subFullname" . -}}
 {{- $ns := .Release.Namespace -}}
-{{- $localFiler := printf "%s-filer-client.%s:%d.%d" $full $ns $httpPort $grpcPort -}}
-{{- $localFilerHttp := printf "%s-filer-client.%s:%d" $full $ns $httpPort -}}
+{{- $localFilerHost := printf "%s-filer-client.%s" $full $ns -}}
+{{- $localFiler := printf "%s:%d.%d" $localFilerHost $httpPort $grpcPort -}}
+{{- $localFilerHttp := printf "%s:%d" $localFilerHost $httpPort -}}
+{{- $stateDir := "/run/filer-sync" -}}
 {{- $localMaster := printf "%s-master.%s:%d" $full $ns $masterPort -}}
 {{- $folder := $fs.bucketsFolder | default "/buckets" | trimSuffix "/" -}}
 {{- $buckets := $fs.buckets | default list -}}
@@ -209,7 +224,8 @@ spec:
       containers:
         {{- range $i, $bucket := $buckets }}
         {{- $port := add $portBase $i | int }}
-        - name: {{ printf "sync-%s" $bucket | trunc 63 | trimSuffix "-" }}
+        {{- $cname := printf "sync-%s" $bucket | trunc 63 | trimSuffix "-" }}
+        - name: {{ $cname }}
           image: {{ $image }}
           imagePullPolicy: {{ $pullPolicy }}
           securityContext:
@@ -221,10 +237,15 @@ spec:
               value: {{ $peerFilerHost | quote }}
             - name: PEER_FILER_GRPC_PORT
               value: {{ $grpcPort | quote }}
+            - name: LOCAL_FILER_HOST
+              value: {{ $localFilerHost | quote }}
+            - name: LOCAL_FILER_GRPC_PORT
+              value: {{ $grpcPort | quote }}
             # What the supervisor says: `running`, `exited <code>` or
-            # `waiting for <peer>`; both probes read it.
+            # `waiting for <peer> and <local>`; both probes read it. On the
+            # emptyDir below, one file per container.
             - name: SYNC_STATE
-              value: /tmp/filer-sync.state
+              value: {{ printf "%s/%s.state" $stateDir $cname | quote }}
           # Supervisor (busybox ash of the image): runs the sync (args) and
           # forwards SIGTERM so it saves its offset. See the header.
           command:
@@ -234,6 +255,7 @@ spec:
               set -u
               : "${SYNC_STATE:?is not set: the probes read the supervisor state from that file}"
               peer="${PEER_FILER_HOST}:${PEER_FILER_GRPC_PORT}"
+              local_filer="${LOCAL_FILER_HOST}:${LOCAL_FILER_GRPC_PORT}"
               child=""; stopping=""
               # The probes read this file: a write that fails ends the
               # container, never a state the probes cannot see.
@@ -245,7 +267,14 @@ spec:
                 if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null; else exit 143; fi
               }
               trap on_term TERM INT
-              peer_up() { nc -z -w 5 "$PEER_FILER_HOST" "$PEER_FILER_GRPC_PORT" </dev/null >/dev/null 2>&1; }
+              accepts() { nc -z -w 5 "$1" "$2" </dev/null >/dev/null 2>&1; }
+              # True when both filers accept gRPC; else $down names who refuses.
+              filers_accept() {
+                down=""
+                accepts "$PEER_FILER_HOST" "$PEER_FILER_GRPC_PORT" || down="the peer filer $peer"
+                accepts "$LOCAL_FILER_HOST" "$LOCAL_FILER_GRPC_PORT" || down="${down:+$down and }the local filer $local_filer"
+                [ -z "$down" ]
+              }
               run_sync() {
                 state running
                 "$@" &
@@ -255,26 +284,25 @@ spec:
                 child=""
                 state "exited $rc"
               }
-              # Lost peer: the sync's start-up exit (code 0) while the
-              # peer's gRPC port refuses. Anything else is a fault.
-              lost_peer() { [ "$rc" -eq 0 ] && ! peer_up; }
               run_sync "$@"
-              while lost_peer; do
-                state "waiting for $peer"
-                echo "filer.sync ended (exit code 0) because the peer filer $peer refuses gRPC connections: waiting for it, not Ready"
+              # Exit 0 not caused by our SIGTERM = a failed start (header).
+              while [ "$rc" -eq 0 ]; do
+                state "waiting for $peer and $local_filer"
+                echo "filer.sync ended with exit code 0 at start (a filer's signature could not be read): waiting until the peer filer $peer and the local filer $local_filer accept gRPC connections, not Ready"
                 since=$(date +%s); told=$since
-                until peer_up; do
+                while :; do
+                  sleep 5 & wait $!
+                  filers_accept && break
                   now=$(date +%s)
                   if [ $((now - told)) -ge 60 ]; then
-                    echo "still waiting for the peer filer $peer (gRPC) after $((now - since))s"
+                    echo "still waiting after $((now - since))s: $down refuses gRPC connections"
                     told=$now
                   fi
-                  sleep 5 & wait $!
                 done
-                echo "the peer filer $peer accepts gRPC connections after $(( $(date +%s) - since ))s: starting filer.sync again"
+                echo "both filers accept gRPC connections after $(( $(date +%s) - since ))s: starting filer.sync again"
                 run_sync "$@"
               done
-              echo "filer.sync ended with exit code $rc, not a lost peer: ending the container with that code" >&2
+              echo "filer.sync ended with exit code $rc: ending the container with that code" >&2
               exit "$rc"
             - filer-sync
           args:
@@ -322,9 +350,16 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
+          volumeMounts:
+            - name: filer-sync-state
+              mountPath: {{ $stateDir }}
           resources:
             {{- toYaml $fs.resources | nindent 12 }}
         {{- end }}
+      volumes:
+        # The supervisor's state files (SYNC_STATE), off the root filesystem.
+        - name: filer-sync-state
+          emptyDir: {}
 {{- end }}
 ---
 # Metrics Service for every filer.sync process in this region (one port per

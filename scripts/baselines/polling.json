@@ -16,7 +16,8 @@
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/postgres/chart/templates/dr-promoter.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/postgres/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
-    {"count": 1, "metric": "go_sleep", "owner": "SOV", "path": "tools/guards/cmd/image-path/main.go", "reason": "pre-flight tool, not the platform: a bounded re-read (10 minutes) of a blob the origin fills by itself after its manifest is asked for; a registry offers no watch"}
+    {"count": 1, "metric": "go_sleep", "owner": "SOV", "path": "tools/guards/cmd/image-path/main.go", "reason": "pre-flight tool, not the platform: a bounded re-read (10 minutes) of a blob the origin fills by itself after its manifest is asked for; a registry offers no watch"},
+    {"count": 1, "metric": "shell_loop", "owner": "FND", "path": "platform/seaweedfs/chart/templates/filer-sync.yaml", "reason": "after a failed filer.sync start (exit 0) the supervisor polls the gRPC port of the peer region's filer and of the local filer every 5 s, with no time limit, until both accept; no event exists for a port in another cluster; it replaces the kubelet's restart back-off"}
   ],
   "counts": {
     "go_sleep": {
