@@ -311,6 +311,9 @@ spec:
               value: {{ eq (toString .Values.daytwoReconciler.images.enabled) "true" | quote }}
             - name: CATALOG_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.catalog.enabled) "true" | quote }}
+            - name: TOFU_LEG_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.tofuProviders.enabled) "true" | quote }}
+            {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 12 }}
             {{- /* ── warm-mode source (operator-supplied; only read when mode=warm) ── */}}
             - name: WARM_UPSTREAM_OCI_PREFIX
               value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
@@ -382,6 +385,7 @@ spec:
               : "${CHART_LEG_ENABLED:=true}"
               : "${IMAGE_LEG_ENABLED:=true}"
               : "${CATALOG_LEG_ENABLED:=true}"
+              : "${TOFU_LEG_ENABLED:=true}"
               : "${GITEA_USERNAME:=gitea_admin}"
               : "${UPSTREAM_REPO_URL:=}"
               : "${IMAGE_SCAN_MAX:=400}"
@@ -989,6 +993,61 @@ spec:
               }
 
               {{- /*
+               ── SOV-343 OPENTOFU PROVIDER LEG ──────────────────────────────────
+               The packages TOFU_NAMESPACE/TOFU_LIST_CM lists, which the provider
+               pod installs from this registry once step 11 moved its CLI
+               configuration here. A version the registry does not serve at its
+               tag is copied by the listed digest from the origin, behind the SAME
+               delivery gate (daytwo_delivery_allowed) and through the SAME copy
+               (offlinemirror_copy) as the image leg; otherwise it is named in the
+               manifest. A tag at another digest is never moved (#7938). No list
+               ConfigMap (a Sovereign installed before the mirror): nothing listed.
+              */}}
+              {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 14 }}
+              TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0; TOFU_STATUS="skipped"
+              MISSING_TOFU_FILE="${WORK}/missing-tofu.tsv"
+              reconcile_tofu_once() {
+                : > "${MISSING_TOFU_FILE}"
+                TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0
+                _to_rc=0; tofu_list_read "${WORK}/tofu.list" || _to_rc=$?
+                if [ "${_to_rc}" -eq 2 ]; then
+                  echo "[daytwo] tofu leg: no ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: no OpenTofu provider package is listed"
+                  TOFU_STATUS="ok"; return 0
+                fi
+                if [ "${_to_rc}" -ne 0 ]; then
+                  echo "[daytwo] tofu leg: cannot read ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM} — a broken read, NOT an all-clear; skipping this cycle"
+                  TOFU_STATUS="unreadable"; return 1
+                fi
+                while IFS= read -r _to_l; do
+                  if ! tofu_list_line "${_to_l}"; then
+                    printf 'TOFU\tmalformed\t%s\n' "${_to_l}" >> "${MISSING_TOFU_FILE}"; TOFU_MISS=$((TOFU_MISS+1)); continue
+                  fi
+                  TOFU_LISTED=$((TOFU_LISTED+1))
+                  _to_lp="${TOFU_LOCAL_PATH}/${_tl_repo}:${_tl_ver}"; _to_src="${TOFU_ORIGIN_PREFIX}/${_tl_repo}@${_tl_dig}"
+                  _to_have=$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")
+                  if [ "${_to_have}" = "${_tl_dig}" ]; then TOFU_PRESENT=$((TOFU_PRESENT+1)); continue; fi
+                  if [ -z "${_to_have}" ] && daytwo_delivery_allowed "${_to_src}" "${TOFU_ORIGIN_PREFIX}/${_tl_repo}:${_tl_ver}" "${_to_lp}"; then
+                    if daytwo_ensure_skopeo && daytwo_load_creds \
+                        && offlinemirror_copy "${_to_src}" "$(daytwo_src_creds_for "${TOFU_ORIGIN_PREFIX%%/*}")" "${HARBOR_HOST}/${_to_lp}" --multi-arch all >"${WORK}/tofu-warm.log" 2>&1 \
+                        && [ "$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")" = "${_tl_dig}" ]; then
+                      TOFU_WARMED=$((TOFU_WARMED+1)); REQ_DELIVERED=$((REQ_DELIVERED+1))
+                      [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "TOFU\tdelivered\t${REQ_ID}\t${REQ_BY}\t${_to_src}\t${HARBOR_HOST}/${_to_lp}"
+                      echo "[daytwo] tofu leg: copied ${_to_src} -> ${HARBOR_HOST}/${_to_lp}"
+                      continue
+                    fi
+                    sed 's/^/    /' "${WORK}/tofu-warm.log" 2>/dev/null
+                    REQ_FAILED=$((REQ_FAILED+1))
+                    [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "TOFU\tfailed\t${REQ_ID}\t${REQ_BY}\t${_to_src}\t${HARBOR_HOST}/${_to_lp}"
+                  fi
+                  printf 'TOFU\t%s\t%s\t%s\n' "${_to_src}" "${HARBOR_HOST}/${_to_lp}" "${_to_have:-absent}" >> "${MISSING_TOFU_FILE}"
+                  TOFU_MISS=$((TOFU_MISS+1))
+                  echo "[daytwo] MISSING OpenTofu provider package ${HARBOR_HOST}/${_to_lp} at ${_tl_dig} (the registry serves ${_to_have:-nothing}) — a Workspace's tofu init fails on it"
+                done < "${WORK}/tofu.list"
+                TOFU_STATUS="ok"
+                echo "[daytwo] tofu leg: listed=${TOFU_LISTED} present=${TOFU_PRESENT} copied=${TOFU_WARMED} missing=${TOFU_MISS}"
+              }
+
+              {{- /*
                ── #5640 leg 0: the CATALOG (git) pin ────────────────────────
                THE HEAD OF THE CHAIN. The chart leg below enumerates its pin set
                from the LOCAL GITEA MIRROR (`bootstrapkit_pins` over
@@ -1256,18 +1315,21 @@ spec:
               */}}
               publish_manifest() {
                 _mf="${WORK}/manifest.txt"
-                _total=$((CHART_MISS + IMAGE_MISS))
+                _total=$((CHART_MISS + IMAGE_MISS + TOFU_MISS))
                 {
                   echo "# self-sovereign-cutover Day-2 local-Harbor manifest (#5265 charts + #5640 images)"
                   echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=${RECONCILE_MODE}"
                   echo "# chartLeg=${CHART_STATUS} pins=${CHART_PINS} present=${CHART_PRESENT} warmed=${CHART_WARMED} missing=${CHART_MISS}"
                   echo "# imageLeg=${IMAGE_STATUS} refs=${IMAGE_REFS} present=${IMAGE_PRESENT} warmed=${IMAGE_WARMED} missing=${IMAGE_MISS}"
+                  echo "# tofuLeg=${TOFU_STATUS} listed=${TOFU_LISTED} present=${TOFU_PRESENT} copied=${TOFU_WARMED} missing=${TOFU_MISS}"
                   echo "# CHART lines side-load as:"
                   echo "#   helm pull ${WARM_UPSTREAM_OCI_PREFIX}/<chart> --version <version>  &&  helm push <tgz> oci://${HARBOR_HOST}/openova-io"
                   echo "# IMAGE lines side-load as:"
                   echo "#   skopeo copy docker://<upstream-ref> docker://${LOCAL_REGISTRY_HOST}/<local-path>"
+                  echo "# TOFU lines (source by digest, destination by tag) side-load each manifest of the index by digest, then the index"
                   if [ -s "${MISSING_CHARTS_FILE}" ]; then sort -u "${MISSING_CHARTS_FILE}"; fi
                   if [ -s "${MISSING_IMAGES_FILE}" ]; then sort -u "${MISSING_IMAGES_FILE}"; fi
+                  if [ -s "${MISSING_TOFU_FILE}" ]; then sort -u "${MISSING_TOFU_FILE}"; fi
                   if [ "${_total}" -eq 0 ] && [ "${CHART_STATUS}" != "pins-empty" ] && [ "${IMAGE_STATUS}" != "enumeration-empty" ]; then
                     echo "ALL_PINS_PRESENT"
                   fi
@@ -1397,8 +1459,14 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ] && [ "${IMAGE_STATUS}" != "ok" ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}image-leg-${IMAGE_STATUS}"
                 fi
+                if [ "${TOFU_LEG_ENABLED}" = "true" ] && [ "${TOFU_STATUS}" != "ok" ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}tofu-leg-${TOFU_STATUS}"
+                fi
                 if [ "$((CHART_MISS + IMAGE_MISS))" -gt 0 ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}unpullable-pins=$((CHART_MISS + IMAGE_MISS))"
+                fi
+                if [ "${TOFU_MISS}" -gt 0 ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}unservable-tofu-providers=${TOFU_MISS}"
                 fi
                 {{- /*
                  #5759 — UNLIKE CATALOG_STATUS above, source-host drift IS a
@@ -1423,8 +1491,9 @@ spec:
 
               reconcile_once() {
                 _rc=0
-                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"; CATALOG_STATUS="disabled"
-                : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"
+                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"; CATALOG_STATUS="disabled"; TOFU_STATUS="disabled"
+                : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"; : > "${MISSING_TOFU_FILE}"
+                TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0
                 CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
                 IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
                 CATALOG_SYNCED=0
@@ -1454,6 +1523,9 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ]; then
                   reconcile_images_once || _rc=1
                 fi
+                if [ "${TOFU_LEG_ENABLED}" = "true" ]; then
+                  reconcile_tofu_once || _rc=1
+                fi
                 {{- /*
                  #5759 — runs every cycle regardless of which legs are
                  enabled: it watches the CLUSTER's Flux sources, not this
@@ -1465,7 +1537,7 @@ spec:
                 daytwo_audit_flush
                 publish_manifest
                 publish_health
-                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} | sourceHostLint(${DRIFT_STATUS}) drift=${DRIFT_COUNT} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} | tofu(${TOFU_STATUS}) missing=${TOFU_MISS} | sourceHostLint(${DRIFT_STATUS}) drift=${DRIFT_COUNT} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
                 return "${_rc}"
               }
 

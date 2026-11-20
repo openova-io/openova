@@ -218,6 +218,8 @@ data:
             value: {{ .Values.status.configMapName | quote }}
           - name: LIVE_SETTLE_SECONDS
             value: {{ .Values.crossplaneProviderPivot.liveSettleSeconds | quote }}
+          {{- /* SOV-343 — the OpenTofu CLI configuration pivot (tofuProviders). */}}
+          {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -622,6 +624,105 @@ data:
             fi
 
             {{- /*
+             ---- Phase 0.6 (SOV-343): the OpenTofu provider packages ----
+
+             The provider pod installs the providers of every cloud Workspace
+             from the OCI mirror its CLI configuration names (SOV-342), the
+             origin until now; step 03 Phase A5 copied each listed package by
+             digest into this Sovereign's registry. Before anything is
+             rewritten, each listed version must be served there at the listed
+             digest. Phase 2 then moves the mirror address of TOFU_CLI_FILE in
+             the clone to registry_host, the host step 06 merges into the pull
+             Secret the provider pod mounts (provider-pivot.sh, which the release
+             stage applies again); the live object is never edited here.
+             Success needs the Kustomization that applies the ConfigMap to have
+             applied that commit, and the live ConfigMap and the file in every
+             running pod that mounts it to name the local address, inside
+             LIVE_SETTLE_SECONDS (counted from the start of the Provider wait).
+             No list ConfigMap (a Sovereign installed before the mirror): not
+             pivoted, one line.
+            */}}
+            {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 12 }}
+            # tofu-cli-pivot BEGIN
+            tofu_pivot=""
+            tofu_verify_local() {
+              _tv_rc=0; tofu_list_read /tmp/tofu-providers.list || _tv_rc=$?
+              if [ "${_tv_rc}" -eq 2 ]; then
+                echo "[crossplane-provider-pivot] no ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: no OpenTofu provider mirror, the CLI configuration is not pivoted"
+                return 0
+              fi
+              if [ "${_tv_rc}" -ne 0 ]; then
+                echo "[crossplane-provider-pivot] FATAL: cannot read ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}; nothing was rewritten" >&2
+                return 1
+              fi
+              _tv_miss=""; _tv_n=0
+              while IFS= read -r _tv_l; do
+                if ! tofu_list_line "${_tv_l}"; then _tv_miss="${_tv_miss} [the list line '${_tv_l}']"; continue; fi
+                _tv_n=$((_tv_n+1)); _tv_d=$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")
+                [ "${_tv_d}" = "${_tl_dig}" ] \
+                  || _tv_miss="${_tv_miss} ${TOFU_LOCAL_PATH}/${_tl_repo}:${_tl_ver} (serves ${_tv_d:-nothing}, the list names ${_tl_dig})"
+              done </tmp/tofu-providers.list
+              [ "${_tv_n}" -gt 0 ] || _tv_miss="${_tv_miss} [the list names no package]"
+              if [ -n "${_tv_miss}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: not served by the local registry at the listed digest:${_tv_miss}; nothing was rewritten (step 03 Phase A5 copies them: re-trigger the cutover)" >&2
+                return 1
+              fi
+              tofu_pivot=1
+              echo "[crossplane-provider-pivot] ${_tv_n} OpenTofu provider package(s) served by ${registry_host} at their listed digests"
+            }
+            tofu_pivot_clone() {
+              [ -n "${tofu_pivot}" ] || return 0
+              if [ ! -f "${TOFU_CLI_FILE}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: ${TOFU_NAMESPACE}/${TOFU_LIST_CM} lists packages but the clone has no ${TOFU_CLI_FILE}" >&2
+                return 1
+              fi
+              _tp_was=$(cksum <"${TOFU_CLI_FILE}")
+              tofu_cli_pivot_file "${TOFU_CLI_FILE}" "${registry_host}"
+              if ! tofu_cli_local "${TOFU_CLI_FILE}" "${registry_host}"; then
+                echo "[crossplane-provider-pivot] FATAL: ${TOFU_CLI_FILE} names a mirror outside ${registry_host}/${TOFU_LOCAL_PATH} after the rewrite" >&2
+                return 1
+              fi
+              [ "$(cksum <"${TOFU_CLI_FILE}")" != "${_tp_was}" ] || return 0
+              edited=$((edited+1))
+              echo "[crossplane-provider-pivot] rewrote ${TOFU_CLI_FILE}: OpenTofu mirror ${TOFU_ORIGIN_PREFIX} -> ${registry_host}/${TOFU_LOCAL_PATH}"
+            }
+            tofu_settled() {
+              _ts_why=""
+              _ts_ks=$(kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_CLI_CM}" -o 'jsonpath={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/namespace}{"/"}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}' 2>/dev/null || true)
+              if [ "${_ts_ks:-/}" != "/" ] && ! lp_applied "${_ts_ks%%/*}" "${_ts_ks#*/}"; then
+                _ts_why=" kustomization=${_ts_ks}[applied=${_lp_rev:-nothing}]"
+              fi
+              kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_CLI_CM}" -o 'jsonpath={.data.\.tofurc}' >/tmp/tofu-live.tofurc 2>/dev/null || : >/tmp/tofu-live.tofurc
+              tofu_cli_local /tmp/tofu-live.tofurc "${registry_host}" || _ts_why="${_ts_why} configmap=${TOFU_NAMESPACE}/${TOFU_CLI_CM}"
+              kubectl -n "${TOFU_NAMESPACE}" get pods -o json 2>/dev/null | jq -r --arg cm "${TOFU_CLI_CM}" '.items[]
+                | select(.status.phase == "Running" and .metadata.deletionTimestamp == null) | . as $p
+                | [.spec.volumes[]? | select(.configMap.name == $cm) | .name] as $v | .spec.containers[] | . as $c
+                | .volumeMounts[]? | select(.name as $n | any($v[]; . == $n)) | "\($p.metadata.name) \($c.name) \(.mountPath)"' >/tmp/tofu-pods.txt 2>/dev/null || : >/tmp/tofu-pods.txt
+              [ -s /tmp/tofu-pods.txt ] || _ts_why="${_ts_why} pod=[none running mounts ${TOFU_CLI_CM}]"
+              while read -r _ts_p _ts_c _ts_m; do
+                kubectl -n "${TOFU_NAMESPACE}" exec "${_ts_p}" -c "${_ts_c}" -- cat "${_ts_m}/.tofurc" </dev/null >/tmp/tofu-pod.tofurc 2>/dev/null || : >/tmp/tofu-pod.tofurc
+                tofu_cli_local /tmp/tofu-pod.tofurc "${registry_host}" || _ts_why="${_ts_why} pod=${_ts_p}:${_ts_m}/.tofurc"
+              done </tmp/tofu-pods.txt
+              [ -z "${_ts_why}" ]
+            }
+            tofu_wait_live() {
+              [ -n "${tofu_pivot}" ] || return 0
+              _lp_sha=$(git rev-parse HEAD)
+              for _tw_i in $(seq 1 $((LIVE_SETTLE_SECONDS / 10 + 1))); do
+                if tofu_settled; then
+                  echo "[crossplane-provider-pivot] the live OpenTofu CLI configuration and every pod that mounts it name ${registry_host}/${TOFU_LOCAL_PATH} (commit ${_lp_sha})"
+                  return 0
+                fi
+                [ "$(date +%s)" -lt "$((settle_from + LIVE_SETTLE_SECONDS))" ] || break
+                sleep 10
+              done
+              echo "[crossplane-provider-pivot] FATAL: the OpenTofu CLI configuration is not settled on ${registry_host}/${TOFU_LOCAL_PATH} after ${LIVE_SETTLE_SECONDS}s:${_ts_why} — not reporting success" >&2
+              return 1
+            }
+            # tofu-cli-pivot END
+            tofu_verify_local
+
+            {{- /*
              ---- Phase 2: push YAML edit to local Gitea ----
 
              bootstrap-kit Kustomization reconciles provider-*.yaml from
@@ -711,6 +812,7 @@ data:
               */}}
               for file in ${matches}; do provider_pivot_file "${file}"; done
             fi
+            tofu_pivot_clone
 
             echo "[crossplane-provider-pivot] sed edited ${edited} files"
             git add clusters
@@ -773,7 +875,9 @@ data:
               echo "[crossplane-provider-pivot] every live Provider reads a pivoted package and its Kustomization has applied commit ${_lp_sha} (#7900)"
             }
             # live-provider-pivot END
+            settle_from=$(date +%s)
             wait_live_provider_pivot
+            tofu_wait_live
 
             echo "[crossplane-provider-pivot] step complete"
         resources:
@@ -848,4 +952,22 @@ data:
         fi
       done
       [ "${_f_changed}" -eq 0 ] || edited=$((edited+1))
+    }
+    {{- /* SOV-343 — the address of the OpenTofu CLI configuration (SOV-342). The defaults are the
+     values tofuProviders (step 11 sets them; the release stage, which has no such settings, takes the
+     defaults). tofu_cli_pivot_file FILE HOST: every repository_template of FILE that names the origin
+     mirror names HOST/TOFU_LOCAL_PATH instead. tofu_cli_local FILE HOST: 0 when FILE names at least
+     one repository_template and each starts with HOST/TOFU_LOCAL_PATH/. */}}
+    : "${TOFU_CLI_FILE:=clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml}"
+    : "${TOFU_ORIGIN_PREFIX:=ghcr.io/openova-io/tofu-providers}" "${TOFU_LOCAL_PATH:=openova-io/tofu-providers}"
+    tofu_cli_pivot_file() {
+      _tc_o=$(printf '%s' "${TOFU_ORIGIN_PREFIX}" | sed 's/[.]/\\./g')
+      sed -i -E "s,^([[:space:]]*repository_template[[:space:]]*=[[:space:]]*\")${_tc_o}/,\1$2/${TOFU_LOCAL_PATH}/," "$1"
+    }
+    tofu_cli_local() {
+      _tc_t=$(sed -n -E 's/^[[:space:]]*repository_template[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/p' "$1")
+      [ -n "${_tc_t}" ] || return 1
+      for _tc_v in ${_tc_t}; do
+        case "${_tc_v}" in "$2/${TOFU_LOCAL_PATH}/"*) ;; *) return 1 ;; esac
+      done
     }

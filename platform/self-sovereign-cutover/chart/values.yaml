@@ -2649,6 +2649,11 @@ daytwoReconciler:
     # per-Org workloads cannot make one cycle unbounded. Raise on a large
     # Sovereign; the cycle is idempotent so the remainder is picked up next pass.
     maxRefsPerCycle: 400
+  # SOV-343 leg — the listed OpenTofu provider packages (tofuProviders): one
+  # the local registry lacks is copied by digest from the origin when the
+  # delivery gate of the image leg is open, else named in the manifest.
+  tofuProviders:
+    enabled: true
   warm:
     # Upstream OCI prefix missing charts are pulled from in warm mode. Default
     # is the public openova-io catalog; an operator who mirrors the catalog to
@@ -3213,7 +3218,8 @@ crossplaneProviderPivot:
   # which starts at once, read that and two of its pods failed the pre-hold
   # lint. A healthy Sovereign settles in seconds (the step asks Flux to fetch
   # at once); the budget covers one Kustomization interval. Must stay below
-  # stepTimeouts.crossplaneProviderPivotSeconds.
+  # stepTimeouts.crossplaneProviderPivotSeconds. SOV-343: the same budget
+  # covers the wait for the OpenTofu CLI configuration (tofuProviders, at the end).
   liveSettleSeconds: 420
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
@@ -3633,3 +3639,24 @@ rebootHold:
   valuesKey: values.yaml
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
   releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'
+
+# SOV-343 — the OpenTofu provider packages of the cloud Workspaces. The kit
+# lists them (SOV-342, clusters/_template/infrastructure/providers/base): the
+# ConfigMap <namespace>/<listConfigMapName>, key providers, one line per package
+# "<source> <version> sha256:<digest of its OCI index>", and the CLI
+# configuration <namespace>/<cliConfigMapName> (key .tofurc, from cliConfigFile),
+# whose only installation method is the OCI mirror originPrefix. Step 03 copies
+# each listed package by digest from originPrefix/<namespace>/<type> to
+# <the Sovereign's registry>/localPath/<namespace>/<type>:<version>; step 11
+# moves the mirror address of cliConfigFile in the local Git server to that
+# registry, the host step 06 merges into the pull Secret the provider pod
+# mounts; the day-two reconciler copies a listed package the registry lacks.
+# provider-pivot.sh (step 11) carries the same three last values as defaults
+# for the release stage, which re-applies its rewrite.
+tofuProviders:
+  namespace: "crossplane-system"
+  listConfigMapName: "opentofu-providers"
+  cliConfigMapName: "opentofu-cli-config"
+  originPrefix: "ghcr.io/openova-io/tofu-providers"
+  localPath: "openova-io/tofu-providers"
+  cliConfigFile: "clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml"

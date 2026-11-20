@@ -28,6 +28,10 @@
 #     cutover chart of before): conflict, named, as before.
 #   D the candidate's line has a tag and no digest: refused, named. The stage
 #     reads no digest map; the digest is the one the candidate's line carries.
+#   E (SOV-343) the region's OpenTofu CLI configuration names its registry (step
+#     11's mirror address, provider-pivot.sh); the candidate changes the line next to
+#     it: staged, the file is the candidate's with the address rewritten again. The
+#     defaults provider-pivot.sh gives the stage are step 11's settings.
 # On origin/main before this change the render has no provider-pivot.sh, and
 # with that release-region.sh (RELEASE_REGION_SH) case A ends in a conflict.
 set -uo pipefail
@@ -40,6 +44,8 @@ FQDN="hw300.omani.works"
 KIT="clusters/_template/bootstrap-kit"
 P1="clusters/_template/infrastructure/providers/base/provider-opentofu.yaml"
 P2="clusters/_template/infrastructure/hetzner/provider-hcloud.yaml"
+CLI="clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml"
+REPO_ROOT="$(cd "${CHART_DIR}/../../.." && pwd)"
 S11=cutover-step-11-crossplane-provider-pivot
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
@@ -93,6 +99,7 @@ fixture() {
   git init -q "${c}/work"
   ( cd "${c}/work" && git checkout -q -b main && mkdir -p "${KIT}" "$(dirname "${P1}")" "$(dirname "${P2}")"
     slot >"${KIT}/10-bp-foo.yaml"; provider provider-opentofu "${OLD}" >"${P1}"; provider provider-hcloud "${MP}/crossplane-contrib/provider-hcloud:v0.4.0" >"${P2}"
+    if command -v "case_installed_$1" >/dev/null 2>&1; then "case_installed_$1"; fi
     git add -A && git commit -q -m "installed release" && git push -q "${c}/upstream.git" HEAD:refs/heads/main )
   git clone -q "${c}/upstream.git" "${c}/region"
   ( cd "${c}/region"
@@ -161,6 +168,37 @@ fixture D; stage PROVIDER_PIVOT="${TMP}/provider-pivot.sh" ${STEP11_ENV}
 [ "${rc}" -eq 2 ] && [ "${phase}" = refused ] && grep -q "reason ${P1}: package harbor.${FQDN}/proxy-xpkg/upbound/provider-opentofu:v1.2.0 has no digest" "${c}/stage.log" \
   && pass "the stage refused (exit 2) and names the file and the package" || { fail "the stage ended exit ${rc}, phase '${phase}', want exit 2 refused naming ${P1}"; sed 's/^/      | /' "${c}/stage.log"; }
 [ -z "$(remote "release/${id}")" ] && [ "$(remote main)" = "${region_main}" ] && pass "nothing was pushed and main did not move" || fail "a refusal moved a ref"
+
+echo "── Case E: a candidate that changes the OpenTofu CLI configuration of a pivoted region (SOV-343) ──"
+# tofu FILE: step 11's mirror address rewrite of FILE to this region's registry, the
+# host of the kit's local chart prefix (the one the stage reads, region_pivot).
+tofu() { env ${STEP11_ENV} sh -c '. "$0"; tofu_cli_pivot_file "$1" "$2"' "${TMP}/provider-pivot.sh" "$1" "harbor.${FQDN}"; }
+case_installed_E() { mkdir -p "$(dirname "${CLI}")"; cp "${REPO_ROOT}/${CLI}" "${CLI}"; }
+case_region_E() { tofu "${CLI}" && git commit -q -am "cutover: pivot the OpenTofu CLI configuration"; }
+case_candidate_E() { sed -i 's#^\( *include *= \["registry.opentofu.org/\*/\*"\)\]$#\1, "registry.terraform.io/*/*"]#' "${CLI}"; }
+fixture E; stage PROVIDER_PIVOT="${TMP}/provider-pivot.sh" ${STEP11_ENV}
+e_ok=1
+git -C "${c}/cand" show "${cand}:${CLI}" >"${c}/expect.yaml" && tofu "${c}/expect.yaml"
+[ "${rc}" -eq 0 ] && [ "${phase}" = staged ] && [ -n "${staged}" ] || e_ok=0
+if [ "${e_ok}" = 1 ]; then
+  git -C "${c}/run/repo" show "${staged}:${CLI}" >"${c}/got.yaml"
+  cmp -s "${c}/expect.yaml" "${c}/got.yaml" && grep -qF '"registry.terraform.io/*/*"]' "${c}/got.yaml" \
+    && grep -qF "repository_template = \"harbor.${FQDN}/openova-io/tofu-providers/" "${c}/got.yaml" \
+    && grep -q "^release-report region=primary resolved ${CLI}: the content of rc/${id}, this region's registry rewrite (tofu) applied again" "${c}/stage.log" \
+    || e_ok=0
+fi
+if [ "${e_ok}" = 1 ]; then
+  pass "the CLI configuration a candidate changes keeps the local address: the candidate's file with step 11's mirror address, byte for byte"
+else
+  fail "case E: exit ${rc}, phase '${phase}', want the candidate's CLI file on harbor.${FQDN}"; sed 's/^/      | /' "${c}/stage.log"
+  [ ! -f "${c}/got.yaml" ] || diff "${c}/expect.yaml" "${c}/got.yaml" | sed 's/^/      | /'
+fi
+# dflt NAME: the default provider-pivot.sh gives NAME (the release stage has no step 11 env).
+dflt() { sed -n "s/.*\"\${$1:=\([^}]*\)}\".*/\1/p" "${TMP}/provider-pivot.sh"; }
+if [ -n "$(dflt TOFU_CLI_FILE)" ] && [ "$(dflt TOFU_CLI_FILE)" = "$(s11env TOFU_CLI_FILE)" ] \
+    && [ "$(dflt TOFU_ORIGIN_PREFIX)" = "$(s11env TOFU_ORIGIN_PREFIX)" ] && [ "$(dflt TOFU_LOCAL_PATH)" = "$(s11env TOFU_LOCAL_PATH)" ]; then
+  pass "the defaults provider-pivot.sh gives the stage are step 11's settings (TOFU_CLI_FILE, TOFU_ORIGIN_PREFIX, TOFU_LOCAL_PATH)"
+else fail "provider-pivot.sh defaults '$(dflt TOFU_CLI_FILE)' '$(dflt TOFU_ORIGIN_PREFIX)' '$(dflt TOFU_LOCAL_PATH)' are not step 11's settings"; fi
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "[step7938-provider] ${FAILURES} check(s) FAILED"; exit 1; fi

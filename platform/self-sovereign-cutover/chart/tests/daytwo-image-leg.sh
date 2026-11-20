@@ -359,7 +359,7 @@ echo "  PASS (unrecognised mode made zero external egress)"
 # only ever observed failing may simply be broken. Both directions, same run.
 echo "[daytwo-image-leg] S9: readiness is NOT-READY on a missing pin and READY only when the cycle measured everything present"
 STUB_REQUEST_JSON=""; STUB_CONSUMED_ID=""
-RUN_EXTRA_ENV='export CHART_LEG_ENABLED=false'   # isolate the image leg's verdict
+RUN_EXTRA_ENV='export CHART_LEG_ENABLED=false TOFU_LEG_ENABLED=false'   # isolate the image leg's verdict
 
 run_leg "$TMP/declared.json" 'MATCHES_NOTHING_XyZ'
 health=$(sed -n '/^---HEALTH---$/,$p' "$TMP/out.txt" | sed -n '2p')
