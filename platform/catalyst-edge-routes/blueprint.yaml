@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-catalyst-edge-routes
 spec:
-  version: 0.2.4
+  version: 0.2.5
   card:
     title: Catalyst control-plane edge (region-b)
     summary: |

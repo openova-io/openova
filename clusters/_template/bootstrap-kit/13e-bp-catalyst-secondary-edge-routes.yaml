@@ -83,7 +83,7 @@ spec:
       chart: bp-catalyst-edge-routes
       # 0.1.0 (#5289): initial region-b edge. Lockstep with
       # platform/catalyst-edge-routes/chart/Chart.yaml.
-      version: 0.2.4
+      version: 0.2.5
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-edge-routes
