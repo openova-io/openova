@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T06:00:04Z` |
+| Last refreshed | `2026-11-20T06:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T06:03 | [#8465](https://github.com/openova-io/openova/pull/8465) | #7087 | docs(ledger): plan update |
 | 2026-11-20T05:45 | [#8464](https://github.com/openova-io/openova/pull/8464) | #7087 | docs(ledger): plan update |
 | 2026-11-20T05:49 | [#8463](https://github.com/openova-io/openova/pull/8463) | #45980 | fix(keycloak): the regions' Keycloaks form one cluster again |
+| 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
 | 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
 | 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
 | 2026-11-20T01:27 | [#8421](https://github.com/openova-io/openova/pull/8421) | #8415 | refactor(catalog): the umbrella Blueprint file moves beside  |
 | 2026-11-20T00:50 | [#8420](https://github.com/openova-io/openova/pull/8420) | #8418 | fix(release): the stage applies the provider pivot again whe |
-| 2026-11-19T23:48 | [#8419](https://github.com/openova-io/openova/pull/8419) | fix(charts): a chart test reads its rendered text without a  |  |
-| 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
 
 ---
 
