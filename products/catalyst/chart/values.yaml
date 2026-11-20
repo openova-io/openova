@@ -1275,12 +1275,18 @@ services:
 # section 2.2), as a JSON list in one string. Each entry has exactly the
 # keys caller (the TokenReview user name of the workload), organizations
 # (["*"] or a list of slugs), maxTier (viewer or developer) and agents
-# (["*"] or a list of agent names). The default is the one entry the gate
-# checks need on a fresh Sovereign; a workload may ask for a token only
-# after a values commit adds its entry. A value that does not parse makes
-# the route answer 503 agent-tokens-misconfigured.
+# (["*"] or a list of agent names). An entry of the own-Organization form,
+# caller system:serviceaccount:{organization}:<name> with organizations
+# ["{organization}"], admits the ServiceAccount <name> of every namespace
+# of an Organization (label openova.io/organization), for that Organization
+# only. The default has two entries: the one the gate checks need on a
+# fresh Sovereign, and the agent workspace (bp-agenity, ServiceAccount
+# agenity, agent agenity) of each Organization, with no values commit per
+# Organization; neither names an Organization wildcard. Any other workload
+# may ask for a token only after a values commit adds its entry. A value
+# that does not parse makes the route answer 503 agent-tokens-misconfigured.
 agentTokens:
-  callers: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
+  callers: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}, {"caller": "system:serviceaccount:{organization}:agenity", "organizations": ["{organization}"], "maxTier": "developer", "agents": ["agenity"]}]'
 
 # ─── provisioner: who reaches a new Sovereign's API port (NET-011) ────────
 # A new Sovereign opens its Kubernetes API port 6443 to its own addresses
