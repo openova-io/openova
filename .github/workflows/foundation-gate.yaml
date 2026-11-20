@@ -32,18 +32,18 @@ name: foundation-gate
 #   live       environment gate. Checks out this workflow's commit (the tools; the record is committed from here) and,
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
 #              started from (that record has an empty candidate.id and certifies nothing). Waits up
-#              to 180 minutes until the hand-over chain has ended for judging, on the engine's own
-#              facts in region A's ConfigMap catalyst/self-sovereign-cutover-status (complete, failed
-#              at a step, repeating a step, or not ended at the deadline; gate-parent-job.sh live_wait,
-#              the same function in both executions), runs the suite with --run-in cloud --record in
-#              every state but unreachable, and declares the capability cutover-complete only when the
-#              chain is complete (the checks whose subject the chain changes are skipped without it).
-#              Only the record of a complete chain is committed, and only if acceptance-gate.py
-#              validate-record accepts it; then scripts/gate-run-outcome.py judges the run on this
-#              environment. The record of any other state is an artifact of the run, its checks are in
-#              the summary, and the run's result is NOT-MEASURED with the chain's state: the verdict
-#              counts a check's PASS in two records of one candidate and does not read the state of
-#              the install, so a PASS measured before the chain ended would count as proof.
+#              to 180 minutes until the hand-over chain has ended, on the engine's own facts in region
+#              A's ConfigMap catalyst/self-sovereign-cutover-status (complete, or failed at a step with
+#              the engine's repetitions spent, else not ended at the deadline; gate-parent-job.sh
+#              live_wait, the same function in both executions), runs the suite with --run-in cloud
+#              --record in every state but unreachable, and tells it the chain's state (ACCEPT_CHAIN;
+#              the checks whose subject the chain changes are skipped unless it is complete). The
+#              record of a chain that has ended is committed (PASS or FAIL), and only if
+#              acceptance-gate.py validate-record accepts it; then scripts/gate-run-outcome.py judges
+#              the run on this environment. The record of a chain not ended is an artifact of the run,
+#              its checks are in the summary, and the run's result is NOT-MEASURED with the chain's
+#              state: the verdict counts a check's PASS in two records of one candidate and does not
+#              read the state of the install, so a PASS measured while the chain runs would count.
 #              Between the suite and the validation it runs gate check FND-G07: it creates the user
 #              gate-<run id>@<env>.omani.works in the realm sovereign of region A (kcadm.sh in the Pod
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
@@ -134,7 +134,7 @@ on:
         default: hosted
     outputs:
       result:
-        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain had not completed (the record is not committed); FAIL when no valid record was written
+        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain had not ended (the record is not committed); FAIL when no valid record was written
         value: ${{ jobs.live.outputs.result }}
     secrets:
       ACCEPTANCE_KUBECONFIG_A:
@@ -540,11 +540,9 @@ jobs:
             [ -f "$o/files/sso/result.json" ] && cp "$o/files/sso/result.json" "$RUNNER_TEMP/sso/result.json"
           else
             # The wait of the step before ended in a state that runs the suite. As in the Job, the run
-            # declares cutover-complete only when the chain completed, and tells the suite the state.
+            # tells the suite the chain's state, and the capabilities stay as given (inner_live says why).
             plan_outputs "$HOSTED_CHAIN" "$HOSTED_CHAIN_STATE" || exit 1
-            cap="$(sed -n 's/^capability=//p' <<< "$plan")"
-            if [ -n "$cap" ]; then ACCEPT_CAPABILITIES="$ACCEPT_CAPABILITIES,$cap"; fi
-            export ACCEPT_CAPABILITIES ACCEPT_CHAIN="$HOSTED_CHAIN_STATE"
+            export ACCEPT_CHAIN="$HOSTED_CHAIN_STATE"
             bash scripts/acceptance-sovereign.sh "$ENV_LABEL" --record | tee "$RUNNER_TEMP/acceptance.log"
             rc=${PIPESTATUS[0]}
           fi
@@ -754,7 +752,7 @@ jobs:
           rec="docs/ledger/acceptance/$(basename "$files")"
           cp "candidate/$files" "$rec"
           echo "file=$rec" >> "$GITHUB_OUTPUT"
-          # The run's result, and whether the record is committed: only the record of a complete chain is.
+          # The run's result, and whether the record is committed: only the record of a chain that has ended is.
           plan="$(bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec")"
           echo "result=$(sed -n 's/^result=//p' <<< "$plan")" >> "$GITHUB_OUTPUT"
           if ! python3 scripts/acceptance-gate.py validate-record "$rec"; then
@@ -806,16 +804,16 @@ jobs:
           rc=${PIPESTATUS[0]}
           { echo '### Outcome on this environment'; echo; echo '```'; cat "$RUNNER_TEMP/outcome.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
-      - name: "NOT MEASURED: the hand-over chain had not completed"
+      - name: "NOT MEASURED: the hand-over chain had not ended"
         if: always() && steps.run.outputs.plan_suite == 'true' && steps.run.outputs.plan_commit == 'false' && steps.run.outputs.not_measured != 'true'
         env:
           STATE: ${{ steps.run.outputs.chain_state }}
         run: |
           set -uo pipefail
           # Its checks were judged (the table of the step "Run the suite" above), but the record of an install
-          # whose chain has not completed never counts: it is not committed, the step "Upload record + log"
+          # whose chain has not ended never counts: it is not committed, the step "Upload record + log"
           # keeps it as an artifact of this run, and the job's result is NOT-MEASURED.
-          msg="The hand-over chain: $STATE. The record of an install whose hand-over chain has not completed never counts as evidence, so it is not committed to docs/ledger/acceptance/; it is an artifact of this run. Start another run when the chain is complete."
+          msg="The hand-over chain: $STATE. The record of an install whose hand-over chain has not ended never counts as evidence, so it is not committed to docs/ledger/acceptance/; it is an artifact of this run. Start another run when the chain has ended."
           { echo '### NOT MEASURED'; echo; echo "Result: NOT-MEASURED (the hand-over chain: $STATE)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
           echo "::error title=Gate run NOT MEASURED::$msg"
           exit 4

@@ -278,8 +278,8 @@ func (c checkRecorder) Skip(id, name, reason string) {
 
 // runChecks records one result for every selected check, in manifest order.
 // A check whose needs the run did not declare is skipped and not run; so is a
-// check whose subject the hand-over chain changes when a run in the cloud does
-// not declare cutover-complete (cutover.go). When discovery failed no check is run: each
+// check whose subject the hand-over chain changes in a run in the cloud whose
+// chain the gate read as not complete (cutover.go). When discovery failed no check is run: each
 // is recorded SKIP with that reason.
 func (r *runner) runChecks(ctx context.Context, m *Manifest, checks []Check, cc *CheckContext, discovered bool) {
 	cc.Prior = append([]*Step(nil), r.run.Steps...)
@@ -289,7 +289,7 @@ func (r *runner) runChecks(ctx context.Context, m *Manifest, checks []Check, cc 
 		rec := checkRecorder{r: r, id: e.ID}
 		first := len(r.run.Steps)
 		missing := []string{}
-		for _, n := range checkNeeds(e, cc.RunIn) {
+		for _, n := range checkNeeds(e, cc.RunIn, cc.Chain) {
 			if !cc.Caps[n] {
 				missing = append(missing, n)
 			}

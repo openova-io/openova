@@ -50,11 +50,12 @@
 #        into <dir> as run does. Exit 0 when it ran to its end (the outcome is the output chain).
 #   gate-parent-job.sh plan <chain> [<record>]
 #        What the job live does with a run whose wait ended with chain=<chain>: prints suite= (whether
-#        the suite runs), capability= (cutover-complete, or empty), commit= (whether the record is
-#        committed to docs/ledger/acceptance/) and result= (the run's result; with <record>, the
-#        result it carries when its chain is complete). Only a record of a complete chain is
-#        committed: the verdict counts a check's PASS in two records of one candidate and does not
-#        read the state of the install, so a PASS measured before the chain ended would count.
+#        the suite runs), commit= (whether the record is committed to docs/ledger/acceptance/) and
+#        result= (the run's result; with <record>, the result it carries when its chain has ended).
+#        Only a record of a chain that has ended (complete, or failed with the engine's repetitions
+#        spent) is committed, a FAIL as evidence too: the verdict counts a check's PASS in two records
+#        of one candidate and does not read the state of the install, so a PASS measured while the
+#        chain still runs would count.
 #   gate-parent-job.sh recipe job <base>|probe   prints a generated Containerfile
 #   gate-parent-job.sh inner addresses|live|regions|update   in the Job, container gate
 #   gate-parent-job.sh probe                 in the Job, container probe (live only)
@@ -938,16 +939,19 @@ not_read() { # $1 the region rk gave up on (its GATE-ERROR line is printed): the
 
 # live_wait: the creation time, then the wait for the hand-over chain. It sets CHAIN and CHAIN_STATE and
 # prints them as the outputs chain and chain_state. The wait ends on the engine's own facts in region A's
-# ConfigMap catalyst/self-sovereign-cutover-status (the repetition record of SOV-242,
-# products/catalyst/bootstrap/api/internal/cutoverreconcile): cutoverComplete true is complete;
-# autoRetryHalted true or a failedStep is failed at that step; an autoRetryStep is the engine repeating
-# that step (ended for judging); GATE_CHAIN_MINUTES (180) without one of them is not ended (an engine
-# older than SOV-242 fires the chain again every 2 minutes and clears failedStep at once). Returns 1
-# only when a region could not be read (unreachable): every other state runs the suite, and chain_plan
-# says what becomes of its record.
+# ConfigMap catalyst/self-sovereign-cutover-status: cutoverComplete true is complete; autoRetryHalted
+# true with autoRetryStep equal to failedStep is failed at that step (the repetition record of SOV-242,
+# products/catalyst/bootstrap/api/internal/cutoverreconcile, read as the console reads it in
+# ui/src/shared/types/cutover.ts parseAutoRetry: on Halt failedStep stays set). Nothing else ends it: a
+# failedStep without the halt is the pause before an automatic repetition (an engine older than SOV-242
+# fires the chain again every 2 minutes), and a repetition record left over after the repeated step
+# passed (an engine run's seed clears failedStep, not autoRetry*) names a step that is done. With SOV-242
+# every failure halts after at most 3 repetitions (5+10+20 minutes), within GATE_CHAIN_MINUTES (180);
+# at that bound the chain is not ended. Returns 1 only when a region could not be read (unreachable):
+# every other state runs the suite, and chain_plan says what becomes of its record.
 CHAIN="" CHAIN_STATE=""
 live_wait() {
-  local r t rc born="" last="nothing was read" at="" complete failed current halted again count limit deadline mins="${GATE_CHAIN_MINUTES:-180}"
+  local r t rc born="" last="nothing was read" at="" complete failed current halted again deadline mins="${GATE_CHAIN_MINUTES:-180}"
   CHAIN="" CHAIN_STATE=""
   # When the environment was created: the earliest creation of kube-system in the two regions.
   for r in a b; do
@@ -963,13 +967,12 @@ live_wait() {
   # Every pass reads both regions and prints one line: a pass takes at most two readings and the pause.
   deadline=$(( $(date +%s) + mins * 60 ))
   while :; do
-    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}|{.data.autoRetryHalted}|{.data.autoRetryStep}|{.data.autoRetryCount}|{.data.autoRetryLimit}'
+    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}|{.data.autoRetryHalted}|{.data.autoRetryStep}'
     case "$?" in
-      0) IFS='|' read -r complete failed current halted again count limit <<< "$RK_OUT"
+      0) IFS='|' read -r complete failed current halted again <<< "$RK_OUT"
          if [ "$complete" = true ]; then CHAIN=complete CHAIN_STATE=complete; break; fi
-         if [ "$halted" = true ] || [ -n "$failed" ]; then CHAIN=failed CHAIN_STATE="failed at step ${failed:-$again}"; break; fi
-         if [ -n "$again" ]; then CHAIN=repeating CHAIN_STATE="repeating step $again, attempt ${count:-?} of ${limit:-?}"; break; fi
-         at="${current:-none}"
+         if [ "$halted" = true ] && [ -n "$failed" ] && [ "$again" = "$failed" ]; then CHAIN=failed CHAIN_STATE="failed at step $failed"; break; fi
+         at="${current:-none}${failed:+, step $failed failed and is not halted: the engine repeats it}"
          last="not ended, current step: $at" ;;
       3) not_read a; return 1 ;;
       *) last="the status ConfigMap could not be read: $RK_ERR" ;;
@@ -995,27 +998,29 @@ live_wait() {
 }
 
 chain_plan() { # $1 the output chain of live_wait, $2 optional: the record the suite wrote. See plan in the header.
-  local suite=true cap="" commit=false result=NOT-MEASURED
+  local suite=true commit=false result=NOT-MEASURED
   case "${1:-}" in
-    complete)
-      cap=cutover-complete commit=true result=FAIL
+    complete | failed) # ended: committed with its own result, a failure is evidence too
+      commit=true result=FAIL
       if [ -n "${2:-}" ] && [ -f "$2" ]; then result="$(jq -r '.result // "FAIL"' "$2" 2>/dev/null)" || result=FAIL; fi ;;
-    failed | repeating | not-ended) ;; # judged, never counted: the record stays an artifact of the run
-    *) suite=false result=FAIL ;;      # unreachable, or no state: no suite, as before
+    not-ended) ;;                 # judged, never counted: the record stays an artifact of the run
+    *) suite=false result=FAIL ;; # unreachable, or no state: no suite, as before
   esac
-  printf 'suite=%s\ncapability=%s\ncommit=%s\nresult=%s\n' "$suite" "$cap" "$commit" "${result:-FAIL}"
+  printf 'suite=%s\ncommit=%s\nresult=%s\n' "$suite" "$commit" "${result:-FAIL}"
 }
 
 inner_live() {
-  local rc f cap
+  local rc f
   trap '[ -e "$SHARED/probe.go" ] || touch "$SHARED/probe.skip"' EXIT
   live_wait || return 0
-  # The suite, as scripts/acceptance-sovereign.sh runs it, from the files of the commit under test. The
-  # capability cutover-complete is declared only when the chain completed (chain_plan).
-  cap="$(chain_plan "$CHAIN" | sed -n 's/^capability=//p')"
+  # The suite, as scripts/acceptance-sovereign.sh runs it, from the files of the commit under test. It is
+  # told the chain's state (ACCEPT_CHAIN) and derives the flag cutover-complete from it; the capabilities
+  # stay as given, since a suite built before that copies them into the record unchanged and
+  # acceptance-gate.py validate-record refuses a flag outside its closed list (a suite that old ignores
+  # ACCEPT_CHAIN).
   export ACCEPT_KUBECONFIG_A="$KA" ACCEPT_KUBECONFIG_B="$KB" ACCEPT_MANIFEST=/opt/conformance/gates.json \
     ACCEPT_RUN_IN=cloud ACCEPT_REPO_ROOT="$CANDIDATE_ROOT" ACCEPT_CONSOLE="${ACCEPT_CONSOLE:-https://console.$ENV_LABEL.omani.works}" \
-    ACCEPT_CHAIN="$CHAIN_STATE" ACCEPT_CAPABILITIES="${ACCEPT_CAPABILITIES:-}${cap:+${ACCEPT_CAPABILITIES:+,}$cap}"
+    ACCEPT_CHAIN="$CHAIN_STATE"
   mkdir -p "$SCRATCH/record"
   CATALYST_SESSION="$(cat "$SECRET_DIR/session" 2>/dev/null || true)"
   if [ -z "$CATALYST_SESSION" ] && [ "${ACCEPT_MINT:-0}" = 1 ]; then CATALYST_SESSION="$(mint "")"; fi
@@ -1119,7 +1124,8 @@ self_test() {
   # set) in the state STUB_PROBE, a JSON object; STUB_HANG: following the log never ends the Job;
   # STUB_UNSCHEDULED: the Pod is Pending, not scheduled, with that message and no container status.
   # The regions (kubeconfigs $T/sec/ka and kb): `config view` prints the server of the file; STUB_DOWN
-  # (a or b) cannot be reached; STUB_CHAIN is the status ConfigMap (down: not reached, missing: NotFound).
+  # (a or b) cannot be reached; STUB_CHAIN is the status ConfigMap (down: not reached, missing: NotFound,
+  # seq: one line of chain.seq per reading, then its last line).
   # A stand-in getent answers the names of the file dns ("<name> <address>...").
   mkdir -p "$T/bin"
   cat > "$T/bin/kubectl" <<'STUB'
@@ -1145,6 +1151,8 @@ case "$a" in
     case "${STUB_CHAIN:-true||}" in
       down) echo 'Unable to connect to the server: dial tcp 203.0.113.1:6443: i/o timeout' >&2; exit 1 ;;
       missing) echo 'Error from server (NotFound): configmaps "self-sovereign-cutover-status" not found' >&2; exit 1 ;;
+      seq) i=$(( $(cat "$S/chain.n" 2>/dev/null || echo 0) + 1 )); echo "$i" > "$S/chain.n"
+           l="$(sed -n "${i}p" "$S/chain.seq")"; printf '%s' "${l:-$(tail -n 1 "$S/chain.seq")}" ;;
       *) printf '%s' "${STUB_CHAIN:-true||}" ;;
     esac ;;
   *" get nodes "*) echo '{"items": []}' ;;
@@ -1258,9 +1266,12 @@ STUB
 
   # The job live for each state of the chain, in the Job (inner_live) with a stand-in suite that writes a
   # record of result PASS, then chain_plan with that record as the workflow applies it: whether the suite
-  # ran, whether the run declared cutover-complete, what it told the suite of the chain, whether the record
-  # is committed, and the run's result. Only a complete chain commits; every other state but unreachable
-  # runs the suite and keeps its record as an artifact, NOT-MEASURED.
+  # ran, the capabilities it was given (never cutover-complete: a suite built before it would write the
+  # flag into its record, which validate-record refuses), what it told the suite of the chain, whether
+  # the record is committed, and the run's result. A chain that has ended (complete, or halted) commits
+  # with the record's own result; a chain not ended at the deadline runs the suite and keeps its record
+  # as an artifact, NOT-MEASURED. The status is the engine's (cutoverreconcile.Decide): step names, and
+  # on a halt failedStep stays set.
   cat > "$T/bin/sovereign-acceptance" <<'STUB'
 #!/usr/bin/env bash
 d=""; p=""; for x in "$@"; do [ "$p" = --record-dir ] && d="$x"; p="$x"; done
@@ -1270,11 +1281,12 @@ printf '{"result": "PASS"}\n' > "$d/stub.json"
 STUB
   chmod +x "$T/bin/sovereign-acceptance"
   mkdir -p "$T/cand"; echo "stand-in session" > "$T/sec/session"
-  # state CASE STUB_DOWN STUB_CHAIN CHAIN_STATE SUITE_RAN(yes/no) CAPABILITIES_THE_SUITE_SAW COMMIT RESULT
+  # state CASE STUB_DOWN STUB_CHAIN CHAIN_STATE SUITE_RAN(yes/no) CAPABILITIES_THE_SUITE_SAW COMMIT RESULT [MINUTES]
+  # The status is cutoverComplete|failedStep|currentStep|autoRetryHalted|autoRetryStep.
   state() {
     local f="$T/st-$1.out" chain
-    rm -rf "$T/fl" "$T/suite.env"; reset_stub
-    ( export STUB_DOWN="$2" STUB_CHAIN="$3" GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0 ACCEPT_CAPABILITIES=multi-region ENV_LABEL=hw399 GATE_RUN=7
+    rm -rf "$T/fl" "$T/suite.env" "$T/chain.n"; reset_stub
+    ( export STUB_DOWN="$2" STUB_CHAIN="$3" GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES="${9:-0}" ACCEPT_CAPABILITIES=multi-region ENV_LABEL=hw399 GATE_RUN=7
       SECRET_DIR="$T/sec" SCRATCH="$T/fl" SHARED="$T/sh" CANDIDATE_ROOT="$T/cand" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
       inner_setup; inner_live ) > "$f" 2>&1
     chain="$(sed -n 's/^GATE-OUTPUT chain=//p' "$f" | tail -n 1)"
@@ -1285,30 +1297,40 @@ STUB
       [ ! -e "$T/suite.env" ] || return 1
     fi
     grep -qx "GATE-OUTPUT chain_state=$4" "$f" && grep -qx "plan:suite=$([ "$5" = yes ] && echo true || echo false)" "$f" \
-      && grep -qx "plan:capability=$([ "$7" = true ] && echo cutover-complete)" "$f" \
-      && grep -qx "plan:commit=$7" "$f" && grep -qx "plan:result=$8" "$f"
+      && ! grep -q '^plan:capability' "$f" && grep -qx "plan:commit=$7" "$f" && grep -qx "plan:result=$8" "$f"
   }
-  state complete '' 'true||||||' complete yes multi-region,cutover-complete true PASS
-  ok $? "chain complete: the suite runs, the run declares cutover-complete, and its record is committed with its own result"
-  state failed '' '|03|03||||' "failed at step 03" yes multi-region false NOT-MEASURED
-  ok $? "chain failed (failedStep set): the suite runs without cutover-complete, the record is not committed, the run is NOT-MEASURED"
-  state halted '' '||03|true|03|3|3' "failed at step 03" yes multi-region false NOT-MEASURED
-  ok $? "chain failed (autoRetryHalted): the suite runs without cutover-complete, the record is not committed, the run is NOT-MEASURED"
-  state repeating '' '||03||03|2|3' "repeating step 03, attempt 2 of 3" yes multi-region false NOT-MEASURED \
-    && ! grep -q '^gate: waiting for the hand-over chain' "$T/st-repeating.out"
-  ok $? "chain repeating a step (autoRetryStep set): the wait ends at once, the suite runs, the record is not committed, NOT-MEASURED"
-  state deadline '' '||05||||' "not ended at step 05" yes multi-region false NOT-MEASURED
+  state complete '' 'true||gitea-token-mint||' complete yes multi-region true PASS
+  ok $? "chain complete: the suite runs, told the chain is complete, its capabilities as given, and its record is committed with its own result"
+  state halted '' '|harbor-prewarm|harbor-prewarm|true|harbor-prewarm' "failed at step harbor-prewarm" yes multi-region true PASS
+  ok $? "chain halted (autoRetryHalted, failedStep stays set): the chain has ended, the suite runs, its record is committed with its own result"
+  # Harbor-prewarm fails, the engine pauses, repeats it, the repetition passes and the record stays while
+  # the chain runs on, then the chain completes: the wait ends only on complete.
+  printf '%s\n' '||harbor-prewarm||' '|harbor-prewarm|harbor-prewarm||' '|harbor-prewarm|harbor-prewarm||harbor-prewarm' \
+    '||harbor-prewarm||harbor-prewarm' '||registry-pivot||harbor-prewarm' '||gitea-token-mint||harbor-prewarm' \
+    'true||gitea-token-mint||harbor-prewarm' > "$T/chain.seq"
+  state recovered '' seq complete yes multi-region true PASS 5 \
+    && [ "$(grep -c '^gate: waiting for the hand-over chain, read in region a ' "$T/st-recovered.out")" = 6 ] \
+    && grep -q 'not ended, current step: harbor-prewarm, step harbor-prewarm failed and is not halted: the engine repeats it;' "$T/st-recovered.out" \
+    && grep -q 'not ended, current step: registry-pivot;' "$T/st-recovered.out"
+  ok $? "chain recovered by a repetition: neither the pause before it nor the record left after it ends the wait; complete does"
+  state pause '' '|harbor-prewarm|harbor-prewarm||harbor-prewarm' \
+    "not ended at step harbor-prewarm, step harbor-prewarm failed and is not halted: the engine repeats it" yes multi-region false NOT-MEASURED
+  ok $? "chain in the pause before a repetition at the deadline: not ended, the suite runs, the record is not committed, NOT-MEASURED"
+  state leftover '' '||registry-pivot||harbor-prewarm' "not ended at step registry-pivot" yes multi-region false NOT-MEASURED
+  ok $? "a repetition record left after the repeated step passed is not an end: not ended at the deadline, NOT-MEASURED"
+  state deadline '' '||registry-pivot||' "not ended at step registry-pivot" yes multi-region false NOT-MEASURED
   ok $? "chain not ended at the deadline: the suite runs, the record is not committed, the run is NOT-MEASURED"
   state unreachable a '' unreachable no '' false FAIL
   ok $? "chain unreachable: the suite does not run and nothing is committed, as before"
   # The hosted path waits with the same function: the same status gives the same outputs.
-  ( export STUB_CHAIN='||03||03|2|3' GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+  ( export STUB_CHAIN='|harbor-prewarm|harbor-prewarm|true|harbor-prewarm' GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
     export GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0
     cmd_wait --out "$T/hosted" ) > "$T/hosted.out" 2>&1
   o=$?
-  [ "$o" = 0 ] && grep -qx 'chain=repeating' "$T/hosted/outputs" && grep -qx 'chain_state=repeating step 03, attempt 2 of 3' "$T/hosted/outputs" \
-    && grep -qx 'born=2026-11-19T20:00:00Z' "$T/hosted/outputs" && grep -qx 'Hand-over chain: repeating step 03, attempt 2 of 3' "$T/hosted/summary.md" \
-    && [ "$(cmd_plan repeating | tr '\n' ' ')" = "suite=true capability= commit=false result=NOT-MEASURED " ]
+  [ "$o" = 0 ] && grep -qx 'chain=failed' "$T/hosted/outputs" && grep -qx 'chain_state=failed at step harbor-prewarm' "$T/hosted/outputs" \
+    && grep -qx 'born=2026-11-19T20:00:00Z' "$T/hosted/outputs" && grep -qx 'Hand-over chain: failed at step harbor-prewarm' "$T/hosted/summary.md" \
+    && [ "$(cmd_plan failed | tr '\n' ' ')" = "suite=true commit=true result=FAIL " ] \
+    && [ "$(cmd_plan not-ended | tr '\n' ' ')" = "suite=true commit=false result=NOT-MEASURED " ]
   ok $? "hosted: the wait on the job's machine is live_wait, and plan gives the same answer as in the Job"
   reset_stub
   ( export STUB_FAIL_TIMES=2 GATE_UNREAD_MINUTES=5; SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5

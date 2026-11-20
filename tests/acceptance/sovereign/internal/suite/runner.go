@@ -111,13 +111,12 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	capabilities, caps := splitCapabilities(cfg.Capabilities)
 	r := &runner{
 		cfg: cfg, out: out,
 		api: api.New(cfg.Console, cfg.Session),
 		run: &Run{Schema: SchemaVersion, RunID: NewRunID(now), Env: cfg.Env, Console: cfg.Console, Mode: mode,
 			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA(),
-			RunIn: cfg.RunIn, Capabilities: capabilities, Checks: []CheckResult{},
+			RunIn: cfg.RunIn, Capabilities: splitList(cfg.Capabilities), Checks: []CheckResult{},
 			Candidate: Candidate{ID: cfg.CandidateID, Commit: headCommit(cfg.RepoRoot)},
 			Producer:  producerFromEnv(os.Getenv)},
 		A: kube.Region{Kubeconfig: cfg.KubeconfigA},
@@ -176,7 +175,7 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
 			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep, NodesRequested: nodesRequested,
 				PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans, Preflight: preflight, APIPortOutside: apiPortOutside,
-				PeerPortsOutside: peerPortsOutside}, Caps: caps, Chain: cfg.Chain}
+				PeerPortsOutside: peerPortsOutside}, Caps: runCaps(r.run.Capabilities, cfg.Chain), Chain: cfg.Chain}
 		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
 	r.runAtEnd(ctx)

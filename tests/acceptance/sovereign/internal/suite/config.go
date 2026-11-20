@@ -38,10 +38,10 @@ type Config struct {
 	// The record carries them as provision.preflight; check FND-G13 reads them.
 	Preflight string
 	// Chain is the state of the hand-over chain as the gate's wait read it
-	// (scripts/gate-parent-job.sh live_wait): complete, failed at step X,
-	// repeating step X, attempt n of m, or not ended at step X. Step D0.11
-	// names it when ready_at cannot be read, and a check skipped for the
-	// capability cutover-complete names it in its reason (cutover.go).
+	// (scripts/gate-parent-job.sh live_wait): complete, failed at step X, or
+	// not ended at step X; empty when no gate read it. Step D0.11 names it when
+	// ready_at cannot be read; the flag cutover-complete is set only when it is
+	// complete, and a check skipped for that flag names it (cutover.go).
 	Chain string
 
 	// A run in self (runner.go, executeSelf): the digest of the image that the
