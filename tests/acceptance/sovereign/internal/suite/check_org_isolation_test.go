@@ -75,6 +75,8 @@ type isoFake struct {
 	answers    map[string]map[string]string
 	missing    string              // a Secret <namespace>/<name> prefix that region-b never holds
 	listed     string              // a namespace of the host that every vCluster of A also lists, with the host's UID
+	twin       string              // a namespace that every vCluster of A also lists with its own UID ("iso-b-": the host namespace of B)
+	bare       string              // a namespace that every vCluster of A also lists without a UID
 	hostOfA    bool                // the namespace of A's Applications in its vCluster carries the UID of A's host namespace
 	hostLacks  string              // a namespace that the host does not list
 	headless   map[string][]string // <namespace>/<service> of a headless Service -> its ready endpoint addresses
@@ -138,6 +140,15 @@ func (f *isoFake) vcluster(r kube.Region, ctx context.Context, stdin io.Reader, 
 				uid = isoFakeUID(region, ns)
 			}
 			out += ns + "=" + uid + " "
+		}
+		if twin := f.twin; org == "A" && twin != "" {
+			if twin == "iso-b-" {
+				twin += strings.TrimPrefix(slug, "iso-a-")
+			}
+			out += twin + "=" + isoFakeUID(r.ID, twin) + " "
+		}
+		if org == "A" && f.bare != "" {
+			out += f.bare + " "
 		}
 		if org == "A" && f.listed != "" {
 			out += f.listed + "=" + isoFakeUID(region, f.listed)
@@ -487,6 +498,10 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 		{"the dial Pods are not synced", func(f *isoFake, _ *isoConsole) { f.unsynced = true }, "holds no Pod pol-dial-", 0},
 		{"A lists a host namespace", func(f *isoFake, _ *isoConsole) { f.listed = "catalyst-system" }, "lists the namespace catalyst-system of the host", 0},
 		{"A lists its host namespace by the host's UID", func(f *isoFake, _ *isoConsole) { f.hostOfA = true }, "the kubeconfig of A lists the namespace iso-a-", 0},
+		{"A lists the host namespace of B with its own UID", func(f *isoFake, _ *isoConsole) { f.twin = "iso-b-" }, "the kubeconfig of A lists the namespace iso-b-", 0},
+		{"A lists openbao with its own UID", func(f *isoFake, _ *isoConsole) { f.twin = "openbao" }, "lists the namespace openbao of the host by name (with the UID uid-iso-a-", 0},
+		{"A lists a namespace without a UID", func(f *isoFake, _ *isoConsole) { f.bare = "stray" },
+			"the kubeconfig of A lists the namespace stray without a UID, so the identity proves nothing", 0},
 		{"the host lists no namespace gitea", func(f *isoFake, _ *isoConsole) { f.hostLacks = "gitea" },
 			"the kubeconfig of region region-a lists no namespace gitea with a UID, so the identity of the namespaces of A proves nothing", 0},
 		{"the headless Git service has no ready endpoint", func(f *isoFake, _ *isoConsole) { f.headless["gitea/gitea-http"] = nil },

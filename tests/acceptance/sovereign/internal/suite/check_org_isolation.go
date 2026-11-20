@@ -69,7 +69,8 @@ import (
 //	      which reaches the vCluster of A; that kubeconfig lists its own
 //	      namespace and dial Pod, no namespace of the host (by its UID: no
 //	      namespace that the kubeconfig of r lists, which holds catalyst-system,
-//	      openbao, gitea and the host namespaces of A and B) and no dial Pod of B.
+//	      openbao, gitea and the host namespaces of A and B; and by name: none
+//	      of these but A's own) and no dial Pod of B.
 //	ISO-2 the Pod of A times out on the DNS Service of B in r, on a DNS Pod of
 //	      B in r and on a DNS Pod of B in p (the selector of the fence across
 //	      the mesh). Before that the Pod of B in r connects to the DNS Service
@@ -455,10 +456,15 @@ func (j *isoJourney) startPods(ctx context.Context) bool {
 // (appsNamespaceTemplate, core/controllers/organization/internal/gitops/
 // manifests.go), and the vCluster holds a namespace keycloak for the host
 // Service keycloak/keycloak it replicates. So the kubeconfig of A lists
-// iso-a-<tag> as the vCluster's own object, and a name proves nothing about
+// iso-a-<tag> as the vCluster's own object, and its name proves nothing about
 // the host. A host namespace seen through the kubeconfig of A carries the UID
-// that the kubeconfig of the region reads for it; a namespace of the same name
-// with another UID is the vCluster's own and is recorded, not failed.
+// that the kubeconfig of the region reads for it, so every namespace A lists
+// must carry a UID and none may carry a host's. The collision covers only
+// those two names: the host namespace of B, catalyst-system, openbao and gitea
+// still fail by name whatever their UID (B's Kustomization applied through the
+// kubeconfig of A, or a mapping from the host, would create them). Any other
+// namespace named like a host namespace with another UID is the vCluster's own
+// and is recorded, not failed.
 //
 // The Pods of B are judged by name, and that name cannot collide: the dial Pod
 // of B is <ns>/pol-dial-<tag>b-1, a name that carries the run of B, nothing in
@@ -501,10 +507,17 @@ func (j *isoJourney) listOwn(ctx context.Context) {
 					host[hostUIDs[ns]] = ns
 				}
 			}
+			named := append([]string{j.b.namespace}, isoHostNamespaces...) // never the vCluster's own name
 			twins := []string{}
 			for _, ns := range namespaces {
+				if uids[ns] == "" {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s without a UID, so the identity proves nothing", ns)
+				}
 				if name, ok := host[uids[ns]]; ok {
 					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host (it lists %s with the host's UID %s)", name, ns, uids[ns])
+				}
+				if contains(named, ns) {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host by name (with the UID %s)", ns, uids[ns])
 				}
 				if hostUIDs[ns] != "" {
 					twins = append(twins, ns+"="+uids[ns]+" (host "+hostUIDs[ns]+")")
