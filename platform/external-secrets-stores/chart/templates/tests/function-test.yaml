@@ -3,33 +3,35 @@ Function test of bp-external-secrets-stores (docs/RUNBOOKS.md section 4.5). `hel
 
 External Secrets marks a ClusterSecretStore Ready only after it has validated
 the store against its OpenBao. The test reads, through the Kubernetes API, the
-condition Ready of every ClusterSecretStore this release renders:
-clusterSecretStore.name (vault-region1) when clusterSecretStore.enabled is
-true, and peerStores.namePrefix<peer> for every peer region that the helper
-bp-external-secrets-stores.peers returns. It passes when each one reports
-Ready=True within 180 seconds. It reads nothing else and writes nothing.
+condition Ready of the store of its own region, clusterSecretStore.name
+(vault-region1), which this release renders when clusterSecretStore.enabled is
+true. It never judges a peer store (peerStores, one per other region): that
+store writes into the other region's OpenBao, which an install of this region
+does not deliver. It reads nothing else and writes nothing.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), and OpenBao and External Secrets start beside it on a
+fresh install: the test reads the condition again every 10 seconds until 60
+seconds before its bound T, and fails naming the store when it is not Ready by
+then. T is functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the
+kit states the install timeout of its release there (docs/RUNBOOKS.md section
+4.5); without it T is 300.
 
 A ClusterSecretStore has no namespace, so a ClusterRole and a
-ClusterRoleBinding of this file (verb get on clustersecretstores of
+ClusterRoleBinding of this file (verb get on that one clustersecretstore of
 external-secrets.io) give the test Pod that right. Their names carry the
 namespace, so two releases never share them.
 
-It renders nothing when the chart renders no store. The image is the kubectl
-image this chart already uses for its webhook gate; functionTest.image
-overrides it.
+It renders nothing when the chart renders no store of its own region. The
+image is the kubectl image this chart already uses for its webhook gate;
+functionTest.image overrides it.
 */ -}}
 {{- $css := .Values.clusterSecretStore | default dict }}
-{{- $ps := .Values.peerStores | default dict }}
-{{- $pt := include "bp-external-secrets-stores.peers" . | fromJson }}
-{{- $stores := list }}
 {{- if $css.enabled }}
-{{- $stores = append $stores ($css.name | default "vault-region1") }}
-{{- end }}
-{{- range $pt.peers }}
-{{- $stores = append $stores (printf "%s%s" ($ps.namePrefix | default "vault-") .) }}
-{{- end }}
-{{- if $stores }}
+{{- $store := $css.name | default "vault-region1" }}
 {{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $gate := .Values.webhookGate | default dict }}
 {{- $image := $ft.image | default ($gate.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4") }}
 {{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -60,6 +62,7 @@ metadata:
 rules:
   - apiGroups: ["external-secrets.io"]
     resources: ["clustersecretstores"]
+    resourceNames: [{{ $store | quote }}]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -96,7 +99,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -122,8 +125,8 @@ spec:
       env:
         - name: HOME
           value: /tmp
-        - name: STORES
-          value: {{ join " " $stores | quote }}
+        - name: STORE
+          value: {{ $store | quote }}
       volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -133,20 +136,17 @@ spec:
           set -u
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
-          deadline=$(( $(date +%s) + 180 ))
-          for store in ${STORES}; do
-            while :; do
-              if ready="$(kubectl --request-timeout=15s get clustersecretstore "${store}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/tmp/error)"; then
-                [ "${ready}" = "True" ] && break
-                reason="Ready is '${ready}': $(kubectl --request-timeout=15s get clustersecretstore "${store}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null | cut -c1-160)"
-              else
-                reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
-              fi
-              [ "$(date +%s)" -lt "${deadline}" ] || fail "the ClusterSecretStore ${store} is not Ready within 180 seconds: ${reason}"
-              sleep 10
-            done
+          while :; do
+            if ready="$(kubectl --request-timeout=15s get clustersecretstore "${STORE}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/tmp/error)"; then
+              [ "${ready}" = "True" ] && break
+              reason="Ready is '${ready}': $(kubectl --request-timeout=15s get clustersecretstore "${STORE}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null | cut -c1-160)"
+            else
+              reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            fi
+            [ "${SECONDS}" -lt {{ $wait }} ] || fail "the ClusterSecretStore ${STORE} of this region is not Ready within {{ $wait }} seconds: ${reason}"
+            sleep 10
           done
-          echo "FUNCTION-TEST pass {{ .Chart.Name }} every ClusterSecretStore of this release (${STORES}) is Ready"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the ClusterSecretStore ${STORE} of this region is Ready"
   volumes:
     - name: tmp
       emptyDir: {}

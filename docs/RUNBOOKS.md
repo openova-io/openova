@@ -1254,7 +1254,7 @@ spec:
   activeDeadlineSeconds: 300
 ```
 
-**Rules.** The test proves the chart's function, not its presence: it performs at least one write-then-read or request-then-response against the thing the chart installs. It exits 0 on pass and non-zero on fail. It prints one last line of the form `FUNCTION-TEST <pass|fail> <blueprint name> <one-line reason>`. It needs no network access outside the cluster. It uses an image the chart already ships or one already mirrored for the kit. It must render nothing when the chart's own master gate renders no resources. It must finish within 300 seconds. It reads a credential only from a file mounted for the test Pod or from the chart's own existing Secret; it never creates a Secret.
+**Rules.** The test proves the chart's function, not its presence: it performs at least one write-then-read or request-then-response against the thing the chart installs. It exits 0 on pass and non-zero on fail. It prints one last line of the form `FUNCTION-TEST <pass|fail> <blueprint name> <one-line reason>`. It needs no network access outside the cluster. It uses an image the chart already ships or one already mirrored for the kit. It must render nothing when the chart's own master gate renders no resources. It must finish within its bound T: 300 seconds, unless the kit states another (below). It reads a credential only from a file mounted for the test Pod or from the chart's own existing Secret; it never creates a Secret.
 
 **How this repository applies it.**
 
@@ -1263,6 +1263,14 @@ spec:
 - Each such chart has a render test `chart/tests/function-test-render.sh`. It pipes `helm template` into `python3 scripts/check-function-test.py --chart <chart name> --release <release>`, and adds `--absent` for each gate under which the test must render nothing. The checker's rules are listed in its header; `--self-test` shows that each can fail. CI runs the render test with the chart's other `chart/tests/*.sh`.
 - `python3 scripts/check-service-model.py` counts the charts that carry such a file (`G6.function-test-charts`). The pull request that adds one raises that count in `scripts/service-model-baseline.yaml` by one.
 - `helm test <release>` runs the tests. Flux runs them only for a HelmRelease that sets `spec.test.enable: true`.
+
+**The bound of a test in the kit.** Flux runs a release's tests once after each install or upgrade, and with `spec.test.ignoreFailures` a failed test counts as run: it runs again only at the next upgrade. On a fresh install the releases arrive over about an hour, most without waiting for their workloads (`install.disableWait`), so a test that judges its subject before the subject is up fails and stays failed. So:
+
+- A function test proves the function its own release delivers, in its own region. It never judges an object of another region: `bp-external-secrets-stores` reads the store of its own region, never a peer store.
+- It waits for its subject itself, then judges as before, and fails naming a subject that never comes up. Its one bound T is the install timeout of its release in the kit (`spec.install.timeout`). A release whose test needs what another release delivers, and that cannot depend on it without moving behind it, has an install timeout no shorter than that release's: `bp-plane-isolation` judges `bp-keycloak`'s Service, so its install timeout is 30m, as `bp-keycloak`'s.
+- The kit states T once, as `spec.values.functionTest.timeoutSeconds` of the HelmRelease. The chart makes it the test Pod's `activeDeadlineSeconds` and ends its wait 60 seconds before it; the HelmRelease sets `spec.test.timeout` to the install timeout, so that Flux waits as long. Without the value the chart default of 300 seconds holds (the wait ends at second 240), under Flux's default test timeout of 5 minutes.
+- No `dependsOn` and no end of `install.disableWait` replaces the wait.
+- `tests/e2e/bootstrap-kit/function_test_bound_test.go` holds every HelmRelease of the kit that enables its test to this: T is the install timeout (B1), so is the test timeout (B2), a release that judges what another delivers has an install timeout no shorter (B3), T is a whole number of seconds (B4), and the chart renders the test Pod with `activeDeadlineSeconds` T (B5). The releases it still reports are named in its list `owed`, which only shrinks.
 
 What each test asserts:
 

@@ -14,6 +14,9 @@ TEST=templates/tests/function-test.yaml
 python3 "$CHECK" --self-test > "$TMP/self-test.txt" || { cat "$TMP/self-test.txt" >&2; fail "check-function-test.py --self-test failed"; }
 
 cd "$CHART_DIR"
+if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
+  helm dependency build >/dev/null
+fi
 
 # routes <render>: the names of the HTTPRoutes outside the test file, in render order.
 routes() {
@@ -80,5 +83,57 @@ echo "[function-test] Case 4: no HTTPRoute (chart default) renders no test"
 helm template catalyst-secondary-edge . --namespace catalyst-system > "$TMP/default.yaml"
 sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 python3 "$CHECK" --chart bp-catalyst-edge-routes --release catalyst-secondary-edge --absent < "$TMP/default.yaml"
+
+echo "[function-test] Case 5: functionTest.timeoutSeconds is the bound T: the Pod ends at T and the wait 60 seconds before it"
+helm template catalyst-secondary-edge . --namespace catalyst-system -f "$TMP/kit.values.yaml" --show-only "$TEST" > "$TMP/kit-test.yaml"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/kit-test.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template catalyst-secondary-edge . --namespace catalyst-system -f "$TMP/kit.values.yaml" --set functionTest.timeoutSeconds=900 --show-only "$TEST" > "$TMP/bound.yaml"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+
+echo "[function-test] Against stand-ins: the rendered script waits for routes that are accepted late and fails one that never is"
+# pod_script <render>: the script of the test Pod as Kubernetes hands it to the shell. It is the block under args, with
+# every $$ turned into $ (Kubernetes expands $(VAR) and $$ in args before the shell reads them), and the Pod's paths moved
+# under $TMP. It runs against stand-in commands in $TMP/bin. The stand-in sleep returns at once, so the time a test
+# spends is the shell's SECONDS, which bash takes from the environment.
+pod_script() {
+  awk '/^      args:$/{a=1; next} a && /^        - [|]$/{b=1; next} b && /^$/{print; next} b && /^          /{print substr($0, 11); next} b{exit}' "$1" \
+    | sed -e 's/[$][$]/$/g' -e "s#/tmp/#$TMP/run/#g" -e "s#/var/run/secrets/kubernetes.io/serviceaccount#$TMP/etc#g"
+}
+# runs <pass|fail> <what> <VAR=value>...: runs the script with the stand-ins and the variables given; it must end that way.
+runs() {
+  local want=$1 what=$2 rc=0 last
+  shift 2
+  rm -rf "$TMP/run" "$TMP/count"
+  mkdir -p "$TMP/run" "$TMP/etc"
+  env PATH="$TMP/bin:$PATH" COUNT="$TMP/count" "$@" bash "$TMP/run.sh" > "$TMP/run.out" 2>&1 || rc=$?
+  last="$(tail -n 1 "$TMP/run.out")"
+  case "$want:$rc:$last" in
+    pass:0:"FUNCTION-TEST pass "* | fail:[1-9]*:"FUNCTION-TEST fail "*) ;;
+    *) fail "$what: exit code $rc, last line: $last" ;;
+  esac
+}
+# stub <name>: a stand-in command from standard input. Each stand-in counts its calls in $COUNT.
+stub() { mkdir -p "$TMP/bin"; cat > "$TMP/bin/$1"; chmod +x "$TMP/bin/$1"; }
+printf '#!/bin/sh\nexit 0\n' | stub sleep
+stub kubectl <<'EOF'
+#!/bin/sh
+# The kubeconfig lines succeed. A route has no parent status for the first $NOT_ACCEPTED reads (its Gateway is not up),
+# then its two parents report $PARENTS.
+case "$1" in config) exit 0 ;; esac
+case "$*" in *"].message}"*) echo "waiting for the Gateway"; exit 0 ;; esac
+n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
+if [ "$n" -le "$NOT_ACCEPTED" ]; then printf ''; else printf '%s' "$PARENTS"; fi
+EOF
+mkdir -p "$TMP/etc"; printf 'a.b.c' > "$TMP/etc/token"; printf 'catalyst-system' > "$TMP/etc/namespace"
+R='ROUTES=catalyst-ui catalyst-api'
+pod_script "$TMP/kit-test.yaml" > "$TMP/run.sh"
+runs pass "the test does not wait for routes accepted after 3 reads" NOT_ACCEPTED=3 SECONDS=0 'PARENTS=True True' TEST_NAMESPACE=catalyst-system "$R"
+runs fail "the test passes while a route is never accepted" NOT_ACCEPTED=1000000 SECONDS=239 'PARENTS=True True' TEST_NAMESPACE=catalyst-system "$R"
+grep -q -F 'the HTTPRoute catalyst-ui is not Accepted within 240 seconds' "$TMP/run.out" || fail "without functionTest.timeoutSeconds the wait does not end at second 240 of 300"
+pod_script "$TMP/bound.yaml" > "$TMP/run.sh"
+runs pass "under T 900 the test does not wait for routes accepted after second 600" NOT_ACCEPTED=3 SECONDS=600 'PARENTS=True True' TEST_NAMESPACE=catalyst-system "$R"
+runs fail "under T 900 the test passes while a route is never accepted" NOT_ACCEPTED=1000000 SECONDS=839 'PARENTS=True True' TEST_NAMESPACE=catalyst-system "$R"
+grep -q -F 'the HTTPRoute catalyst-ui is not Accepted within 840 seconds' "$TMP/run.out" || fail "under T 900 the failure does not name the route and the wait of 840 seconds"
+runs fail "the test passes a route that one of its parents does not accept" NOT_ACCEPTED=0 SECONDS=839 'PARENTS=True False' TEST_NAMESPACE=catalyst-system "$R"
 
 echo "function-test-render: all cases passed"

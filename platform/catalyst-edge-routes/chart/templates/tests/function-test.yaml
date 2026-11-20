@@ -9,9 +9,17 @@ catalyst-ui and catalyst-api (templates/httproute.yaml: ingress.gateway.enabled,
 and both the console and the api host set), catalyst-catalog (also
 services.catalog.enabled), marketplace (templates/marketplace.yaml:
 ingress.gateway.enabled, ingress.marketplace.enabled and the marketplace host)
-and openova-mcp (templates/service-mcp.yaml: the mcp host). It passes when,
-within 180 seconds, every parent of every such route reports the condition
-Accepted True. It reads nothing else and writes nothing.
+and openova-mcp (templates/service-mcp.yaml: the mcp host). It passes when
+every parent of every such route reports the condition Accepted True. It reads
+nothing else and writes nothing.
+
+A route's parent, the console Gateway of this region, comes from another part
+of the install than this release, so on a fresh install the test runs before
+its routes are accepted: it reads them again every 10 seconds until 60 seconds
+before its bound T, and fails naming the route that is not Accepted by then.
+T is functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the kit
+states the install timeout of its release there (docs/RUNBOOKS.md section
+4.5); without it T is 300.
 
 A ServiceAccount, Role (get httproutes of gateway.networking.k8s.io) and
 RoleBinding of this file give the test Pod that right. It renders nothing when
@@ -38,6 +46,8 @@ pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
 {{- end }}
 {{- if $routes }}
 {{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
 apiVersion: v1
 kind: ServiceAccount
@@ -104,7 +114,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -143,7 +153,6 @@ spec:
           set -u
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
-          deadline=$(( $(date +%s) + 180 ))
           for route in ${ROUTES}; do
             while :; do
               if accepted="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get httproute "${route}" -o jsonpath='{.status.parents[*].conditions[?(@.type=="Accepted")].status}' 2>/tmp/error)"; then
@@ -154,7 +163,7 @@ spec:
               else
                 reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
               fi
-              [ "$(date +%s)" -lt "${deadline}" ] || fail "the HTTPRoute ${route} is not Accepted within 180 seconds: ${reason}"
+              [ "${SECONDS}" -lt {{ $wait }} ] || fail "the HTTPRoute ${route} is not Accepted within {{ $wait }} seconds: ${reason}"
               sleep 10
             done
           done

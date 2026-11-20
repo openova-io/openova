@@ -89,6 +89,11 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test waits for the API group acme.powerdns.openova.io
+    # itself until 60 seconds before its bound T, the install timeout below,
+    # stated once as values.functionTest.timeoutSeconds (docs/RUNBOOKS.md
+    # section 4.5).
+    timeout: 15m
   interval: 15m
   releaseName: cert-manager-powerdns-webhook
   # Co-located with cert-manager so the webhook's serving Certificate
@@ -121,6 +126,8 @@ spec:
     remediation:
       retries: 3
   values:
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)
     # ─── PowerDNS API endpoint ──────────────────────────────────────────
     # The chart's default value (https://pdns.openova.io — contabo's
     # central PowerDNS, authoritative for omani.works) is correct for
