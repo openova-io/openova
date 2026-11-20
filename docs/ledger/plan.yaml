@@ -7673,7 +7673,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, FND-157, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-010, SEC-030, SEC-040, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-110, NET-150, NET-153, NET-172, NET-190, NET-212, NET-255, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-056, INF-060, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, FND-157, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-010, SEC-030, SEC-040, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-110, NET-150, NET-153, NET-172, NET-190, NET-212, NET-255, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-139, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-056, INF-060, INF-133, INF-140, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -9885,7 +9885,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SEC-020, SEC-030, SEC-040, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, AIP-201, INF-050, INF-060, ACC-010]
+  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SEC-020, SEC-030, SEC-040, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, AIP-201, INF-050, INF-060, ACC-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10747,7 +10747,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -14524,7 +14524,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-140, SEC-190]
-  after: [FND-011, SOV-143, SOV-151, SOV-175, SOV-322, SOV-323, SEC-095, SEC-096, SEC-104, SEC-153, SEC-154, NET-040, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-346, INF-050]
+  after: [FND-011, SOV-143, SOV-151, SOV-175, SOV-322, SOV-323, SEC-095, SEC-096, SEC-104, SEC-153, SEC-154, NET-040, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-346, INF-050]
   touches:
   - platform/secrets-store-csi/**
   - clusters/_template/bootstrap-kit/15b-bp-secrets-store-csi.yaml
@@ -14815,7 +14815,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-060, SVC-136, BSS-040]
+  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041, SVC-060, SVC-136, SVC-139, BSS-040]
   touches:
   - platform/valkey/chart/**
   - scripts/secret-guard-baselines/*
@@ -15200,7 +15200,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-120, SEC-190]
-  after: [FND-011, SOV-151, SEC-080, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041]
+  after: [FND-011, SOV-151, SEC-080, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -15594,7 +15594,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211]
-  after: [FND-011, SOV-151, SEC-080, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-220, CTL-041]
+  after: [FND-011, SOV-151, SEC-080, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
@@ -18420,7 +18420,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-137, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-190, SVC-130, SVC-137, SVC-139, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -18996,7 +18996,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/
   resources: []
@@ -19076,7 +19076,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-154, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-100, SEC-104, SEC-154, SEC-162, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
@@ -20083,7 +20083,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SVC-137]
-  after: [FND-011, SOV-151, SEC-100, SEC-162, SVC-040, SVC-041, SVC-220, CTL-041]
+  after: [FND-011]
   touches:
   - platform/openbao/chart/templates/tests/function-test.yaml
   - platform/openbao/chart/tests/function-test-render.sh
@@ -20099,16 +20099,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "cat platform/openbao/chart/templates/tests/function-test.yaml platform/reloader/chart/templates/tests/function-test.yaml platform/valkey/chart/templates/tests/function-test.yaml | grep -c -x -F '  activeDeadlineSeconds: 300'"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "for c in openbao reloader valkey; do grep -q -F -- '--set functionTest.timeoutSeconds=900' \"platform/$c/chart/tests/function-test-render.sh\" && bash \"platform/$c/chart/tests/function-test-render.sh\" \"platform/$c/chart\" > /dev/null || { echo \"the render test of $c holds no bound case or fails\"; exit 1; }; done"
+  - id: A2
+    run: "cd tests/e2e/bootstrap-kit; out=\"$(mktemp)\"; NO_COLOR=1 go test -count=1 -v -run '^TestFunctionTestBound_' . > \"$out\" 2>&1 || { tail -40 \"$out\"; exit 1; }; test \"$(grep -c -E '^--- PASS: TestFunctionTestBound_(KitHoldsTheBound|ChartsReadTheBound|EachRuleCanFail) ' \"$out\")\" = 3; ! grep -q -E 'bp-(openbao|reloader|valkey)[^a-z-]' \"$out\" || { echo \"the guard's output names bp-openbao, bp-reloader or bp-valkey\"; exit 1; }; ! grep -q -E '\"bp-(openbao|reloader|valkey)\": +true,' function_test_bound_test.go || { echo \"owed still holds bp-openbao, bp-reloader or bp-valkey\"; exit 1; }"
+  - id: A3
+    run: "for s in 08-openbao 28-reloader 17-valkey; do grep -q -x '900 15m 15m' <<< \"$(yq 'select(.kind == \"HelmRelease\") | [.spec.values.functionTest.timeoutSeconds, .spec.test.timeout, .spec.install.timeout] | join(\" \")' \"clusters/_template/bootstrap-kit/$s.yaml\")\" || { echo \"the slot $s does not state functionTest.timeoutSeconds 900 with spec.test.timeout and spec.install.timeout 15m\"; exit 1; }; done"
+  - id: A4
+    run: "d=\"$(mktemp -d)\"; bash platform/valkey/chart/tests/function-test-render.sh platform/valkey/chart > \"$d/valkey.out\" 2>&1 || { tail -20 \"$d/valkey.out\"; exit 1; }; grep -q -x \"\\[function-test\\] Case 5: TERM at the Pod's deadline, while the script still waits, ends with the fail line naming the PING\" \"$d/valkey.out\"; bash platform/reloader/chart/tests/function-test-render.sh platform/reloader/chart > \"$d/reloader.out\" 2>&1 || { tail -20 \"$d/reloader.out\"; exit 1; }; grep -q -x '\\[function-test\\] Against stand-ins: the ConfigMap changes only after Reloader is ready, a Reloader that never comes up or never rolls fails' \"$d/reloader.out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The function tests of bp-openbao, bp-reloader and bp-valkey wait for their subject in their own region within the bound T of their release (frame rule 104), by the mechanism of SVC-137, then judge as before and fail naming a subject that never comes up: OpenBao''s health and the role external-secrets that the release''s own Deployment openbao-config writes; a ready reloader-reloader before the scratch ConfigMap changes (a change Reloader does not see is never acted on), then the 60 seconds of judgement, all by T - 60; PONG from valkey-primary, and a TERM at the Pod''s deadline prints the fail line naming the PING instead of a kill without output. The kit states T once per release as spec.values.functionTest.timeoutSeconds 900, equal to spec.install.timeout 15m, with spec.test.timeout 15m; the chart default stays 300. The three leave the list owed of tests/e2e/bootstrap-kit/function_test_bound_test.go, whose B5 render gives every valuesFrom target of a release a stand-in value.'
+  delivers: The function tests of bp-openbao, bp-reloader and bp-valkey wait for their subject in their own region within the bound T of their release, by the mechanism of SVC-137, then judge as before and fail naming a subject that never comes up (OpenBao's health and the role external-secrets that the release's own Deployment openbao-config writes; a ready reloader-reloader before the scratch ConfigMap changes, then 60 seconds of judgement, all by T - 60; PONG from valkey-primary, and a TERM at the Pod's deadline prints the fail line naming the PING instead of a kill without output); the kit states T once per release as spec.values.functionTest.timeoutSeconds 900, equal to spec.install.timeout 15m, with spec.test.timeout 15m, the chart default stays 300, and the three leave the list owed of tests/e2e/bootstrap-kit/function_test_bound_test.go, whose B5 render gives every valuesFrom target of a release a stand-in value.
 - id: SVC-140
   title: Applications get the test stanza (after the topology freeze)
   area: SVC
@@ -30104,7 +30114,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [AIP-182]
-  after: [SOV-151, SOV-175, SOV-322, SEC-104, NET-040, SVC-130, SVC-220, CTL-041, CTL-346, INF-050]
+  after: [SOV-151, SOV-175, SOV-322, SEC-104, NET-040, SVC-130, SVC-139, SVC-220, CTL-041, CTL-346, INF-050]
   touches:
   - clusters/_template/bootstrap-kit/80-newapi.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
