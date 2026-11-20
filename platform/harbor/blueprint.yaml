@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-harbor
 spec:
-  version: 1.2.59
+  version: 1.2.60
   card:
     title: Harbor
     summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
