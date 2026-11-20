@@ -32,7 +32,10 @@ import (
 // dry run stores nothing: the object is kept as STUB_DIR/dry/<region>.<kind>.
 // <name>.json for the test, and refused, as the API server would, when that
 // name matches a line (an ERE) of STUB_DIR/refuse. STUB_DIR/pods.json, when
-// present, is what a read of a Job's Pods answers.
+// present, is what a read of a Job's Pods answers. A status patch that matches
+// a line of STUB_DIR/patch-fail fails and is not kept; the first that matches
+// a line of STUB_DIR/patch-kill kills the process that sends it (its Pod
+// killed before the write) and is not kept.
 const kubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"${STUB_DIR}/calls"
 obj=""
@@ -73,7 +76,14 @@ case " $* " in
     case " $* " in *" -o name "*) echo "secret/$5" ;; *) cat "${f}" ;; esac ;;
   *" delete secret "*) rm -f "${STUB_DIR}/secrets/${region}/$2/$5.json" ;;
   *" patch configmap "*)
-    while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
+    p=""; while [ $# -gt 0 ]; do [ "$1" = "-p" ] && p="$2"; shift; done
+    if [ -s "${STUB_DIR}/patch-kill" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-kill"; then
+      rm -f "${STUB_DIR}/patch-kill"; echo "kubectl stub: the Pod is killed before it writes ${p}" >&2; kill -9 "${PPID}"; exit 137
+    fi
+    if [ -s "${STUB_DIR}/patch-fail" ] && printf '%s\n' "$p" | grep -qEf "${STUB_DIR}/patch-fail"; then
+      echo "Error from server (InternalError): the test fails this patch" >&2; exit 1
+    fi
+    printf '%s\n' "$p" >>"${STUB_DIR}/status" ;;
   *" create configmap "*)
     n=""; p=""; for a in "$@"; do [ "$p" = "-n" ] && n="$a"; p="$a"; done
     printf 'kind: ConfigMap\nmetadata:\n  namespace: %s\n' "$n" ;;
@@ -629,6 +639,55 @@ func TestReleaseRunWholePromoteIsFollowersFirstAndRecordsEachRegion(t *testing.T
 		if st[region+".promotedFrom"] != want[0] || st[region+".promotedTo"] != want[1] || st[region+".phase"] != "promoted" {
 			t.Fatalf("%s: promotedFrom %q promotedTo %q phase %q, want %s %s promoted", region, st[region+".promotedFrom"], st[region+".promotedTo"], st[region+".phase"], want[0], want[1])
 		}
+	}
+}
+
+// promote records phase promoting before it checks or pushes any region, and
+// each region it reaches (promoteRegion) before it pushes it. A write of either
+// that fails stops it there: no region it did not record is pushed.
+func TestReleaseRunPromoteStopsWhereItCannotRecordWhatItReaches(t *testing.T) {
+	for _, c := range []struct {
+		name, fail string
+		region     string // the region whose promoteRegion write fails; "" for phase promoting
+		bMoves     bool
+	}{
+		{"phase promoting", `"phase":"promoting"`, "", false},
+		{"that it reached the follower", `"promoteRegion":"region-b"`, "region-b", false},
+		{"that it reached the primary", `"promoteRegion":"primary"`, "primary", true},
+	} {
+		t.Run("cannot record "+c.name, func(t *testing.T) {
+			f := newFixture(t)
+			id, _ := f.candidate(1, f.laterRelease)
+			req := releaseRequest{Candidate: id}
+			r := newRunFixtureFrom(t, f, req, false)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			bStaged := r.followerRef("release/" + id)
+			f.write(r.stub, "patch-fail", c.fail+"\n")
+			out, code := r.run("promote", req)
+			st := r.status()
+			wantB := r.followerMain
+			if c.bMoves {
+				wantB = bStaged
+			}
+			if code == 0 || r.remote("main") != f.main || r.followerRef("main") != wantB {
+				t.Fatalf("promote: exit %d, primary main moved %v, region-b main %s want %s\n%s", code, r.remote("main") != f.main, r.followerRef("main"), wantB, out)
+			}
+			if c.region == "" {
+				if st["phase"] != "staged" || st["primary.check"] != "" || st["region-b.check"] != "" || !strings.Contains(out, "cannot record phase promoting") {
+					t.Fatalf("a promote that cannot record phase promoting checks no region: phase %q, primary.check %q, region-b.check %q\n%s", st["phase"], st["primary.check"], st["region-b.check"], out)
+				}
+				return
+			}
+			if st["phase"] != "failed" || st["failedStep"] != "promote" ||
+				!strings.HasPrefix(st["message"], "promote could not record that it reached region "+c.region+", so neither it nor a region after it was pushed") {
+				t.Fatalf("phase %q, failedStep %q, message %q\n%s", st["phase"], st["failedStep"], st["message"], out)
+			}
+			if c.bMoves && st["region-b.promotedTo"] != bStaged {
+				t.Fatalf("region-b.promotedTo %q, want %s", st["region-b.promotedTo"], bStaged)
+			}
+		})
 	}
 }
 

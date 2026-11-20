@@ -265,18 +265,23 @@ func TestReleaseDeliveryJobKilledIsAFailedDeliveryAndLeavesNoCredential(t *testi
 
 // A delivery killed during its promote: the state names, region by region in
 // the order promote pushes them, what moved, what may have moved and what
-// promote never reached, and never says that nothing moved. The candidate's
-// compose stands for that delivery here: it leaves the state a promote leaves
-// when its Pod is killed, and exits.
+// promote never reached (after promoteRegion), and never says that nothing
+// moved. The candidate's compose stands for that delivery here: it leaves the
+// state a promote leaves when its Pod is killed, and exits. A state without
+// promoteRegion (an older candidate's promote) names every region with no
+// answer as one that may have moved.
 func TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved(t *testing.T) {
-	const maybe = "May have moved, its promote was the one running and its main is not read here:"
+	const maybe = "May have moved, promote reached it and no answer of it is recorded, and its main is not read here:"
 	for _, c := range []struct {
 		name     string
-		follower bool // whether the follower's promote answered before the Pod was killed
+		follower bool   // whether the follower's promote answered before the Pod was killed
+		reach    string // promoteRegion; "-" leaves it out
 		want     []string
 	}{
-		{"after it promoted the follower", true, []string{"Promoted: region-b.", maybe + " primary.", "promote never reached it: none"}},
-		{"while it promoted the follower", false, []string{"Promoted: none.", maybe + " region-b.", "promote never reached it: primary"}},
+		{"after it promoted the follower", true, "primary", []string{"Promoted: region-b.", maybe + " primary.", "promote never reached it: none"}},
+		{"while it promoted the follower", false, "region-b", []string{"Promoted: none.", maybe + " region-b.", "promote never reached it: primary"}},
+		{"during its check", false, "", []string{"Promoted: none.", maybe + " none.", "promote never reached it: region-b primary"}},
+		{"of a candidate that records no region it reached", false, "-", []string{"Promoted: none.", maybe + " region-b primary.", "promote never reached it: none"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r, req := credentialFixture(t, false, false)
@@ -284,6 +289,9 @@ func TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved(t *testing.T) {
 				t.Fatalf("stage: exit %d\n%s", code, out)
 			}
 			data := map[string]string{"phase": "promoting", "deliveryJob": "sovereign-release-delivery"}
+			if c.reach != "-" {
+				data["promoteRegion"] = c.reach
+			}
 			if c.follower {
 				b, err := os.ReadFile(filepath.Clean(r.state + "/region-b.staged"))
 				if err != nil || len(b) == 0 {
@@ -315,6 +323,38 @@ func TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A delivery whose follower is pushed while neither write of its answer reaches
+// the state, then whose primary is pushed, and whose Pod is killed before the
+// primary's answer is written: both mains moved. The state names both as
+// regions that may have moved and none as one promote never reached; a region
+// with no answer is not a region promote did not push.
+func TestReleaseDeliveryKilledAfterAFailedWriteNamesNoMovedRegionAsUnreached(t *testing.T) {
+	r, req := credentialFixture(t, false, false)
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	r.write(r.stub, "patch-fail", `"region-b\.promote`+"\n")
+	r.write(r.stub, "patch-kill", `"primary\.promote"`+"\n")
+	out, code := r.run("deliver", req)
+	logs := r.jobLog(req)
+	if !strings.Contains(logs, "the Pod is killed before it writes") {
+		t.Fatalf("the Pod was not killed before the primary's answer:\n%s\n%s", out, logs)
+	}
+	if r.remote("main") == r.main || r.followerRef("main") == r.followerMain {
+		t.Fatalf("both regions are to be pushed here: primary main moved %v, region-b main moved %v\n%s", r.remote("main") != r.main, r.followerRef("main") != r.followerMain, logs)
+	}
+	st := r.status()
+	if code == 0 || st["phase"] != "failed" || st["failedStep"] != "promote" || strings.Contains(st["message"], "no region was promoted") {
+		t.Fatalf("a delivery killed in its promote: exit %d, phase %q, failedStep %q, message %q\n%s", code, st["phase"], st["failedStep"], st["message"], logs)
+	}
+	for _, w := range []string{"Promoted: none.", "no answer of it is recorded, and its main is not read here: region-b primary.", "promote never reached it: none"} {
+		if !strings.Contains(st["message"], w) {
+			t.Errorf("the state does not say %q: %s", w, st["message"])
+		}
+	}
+	r.noCredentialLeft("after the delivery Pod was killed in its promote")
 }
 
 func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *testing.T) {

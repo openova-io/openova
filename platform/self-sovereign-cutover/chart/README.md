@@ -241,8 +241,11 @@ what moved. "No region was promoted" is said only when the state is still at
 `staged`, which is certain because promote records `promoting` before it
 checks or pushes any region, or stops. A delivery killed during its promote
 names each region in the order promote pushes them (the followers, then the
-primary): promoted, unchanged, the one whose promote was running (may have
-moved; its `main` is not read), and those it never reached.
+primary): promoted, unchanged, those promote reached with no answer recorded
+(may have moved: a write of an answer can fail and promote goes on; their
+`main` is not read), and those it never reached. That last is certain because
+promote records each region it reaches (`promoteRegion`) before it pushes it,
+or stops.
 
 **What a chart version must carry for the bootstrap** (contract `1`):
 

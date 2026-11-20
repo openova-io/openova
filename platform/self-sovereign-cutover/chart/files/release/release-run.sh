@@ -316,13 +316,18 @@ delivery_env() {
 # said only when the state shows promote never began: promote records phase
 # promoting before it checks or pushes any region, or stops. When it began, the
 # regions are named in the order promote pushes them, one at a time (the
-# followers, then the primary): promoted (<region>.promotedTo is the commit this
-# stage staged, or its promote answered promoted), unchanged (its main held that
-# commit at stage), returned (its promote answered another phase), then the
-# first with no answer, which may have moved (its push may have run, or its Job
-# in that region run on, after the Pod stopped; its main is not read here), and
-# those after it, which promote never reached. A read of the state that fails
-# is read again; one that never answers records nothing over it.
+# followers, then the primary): unchanged (its main held the commit this stage
+# staged); not reached (after promoteRegion, the last region promote recorded
+# it reached before it pushed it, or stopped: a region promote reached has no
+# answer when a write of one failed, as promote goes on, so the absence of an
+# answer never says a region was not reached); promoted (<region>.promotedTo is
+# that commit, or its promote answered promoted); returned (its promote
+# answered another phase); else it may have moved (its push may have run, or
+# its Job in that region run on, with no answer recorded; its main is not read
+# here). A state with no promoteRegion (the promote of a candidate that does
+# not record it) names every region with no answer as one that may have moved.
+# A read of the state that fails is read again; one that never answers records
+# nothing over it.
 _du=""
 _du_get() { printf '%s' "${_du}" | jq -r --arg k "$1" '.data[$k] // ""'; }
 delivery_unrecorded() {
@@ -345,19 +350,26 @@ delivery_unrecorded() {
         --arg updatedAt "$(now)" ;;
     promoting)
       _dmoved=""; _dsame=""; _dret=""; _dmaybe=""; _dnot=""
+      _dreach=$(_du_get promoteRegion); _dpast=""
+      if [ "$(printf '%s' "${_du}" | jq -r '(.data // {}) | has("promoteRegion")')" = true ]; then
+        [ -n "${_dreach}" ] || _dpast=y
+      else
+        _dreach=""
+      fi
       for _dr in $(promote_order); do
         _dto=$(state_get "${_dr}" staged)
         _dpp=$(_du_get "${_dr}.promote" | sed -n 's/.* phase=\([^ ]*\).*/\1/p')
         if [ -n "${_dto}" ] && [ "$(state_get "${_dr}" main)" = "${_dto}" ]; then _dsame="${_dsame} ${_dr}"
+        elif [ -n "${_dpast}" ]; then _dnot="${_dnot} ${_dr}"
         elif [ -n "${_dto}" ] && [ "$(_du_get "${_dr}.promotedTo")" = "${_dto}" ]; then _dmoved="${_dmoved} ${_dr}"
         elif [ "${_dpp}" = promoted ]; then _dmoved="${_dmoved} ${_dr}"
         elif [ -n "${_dpp}" ]; then _dret="${_dret} ${_dr} (${_dpp})"
-        elif [ -z "${_dmaybe}" ]; then _dmaybe=" ${_dr}"
-        else _dnot="${_dnot} ${_dr}"
+        else _dmaybe="${_dmaybe} ${_dr}"
         fi
+        [ "${_dr}" != "${_dreach}" ] || _dpast=y
       done
       status_put --arg phase failed --arg failedStep promote \
-        --arg message "$1; the delivery ended during its promote, and its containers recorded no cause (a killed Pod, or a deadline that passed). Promoted:${_dmoved:- none}. Unchanged, its main held the staged commit:${_dsame:- none}. Its promote answered another phase (<region>.promote names why):${_dret:- none}. May have moved, its promote was the one running and its main is not read here:${_dmaybe:- none}. Not promoted, promote never reached it:${_dnot:- none}" \
+        --arg message "$1; the delivery ended during its promote, and its containers recorded no cause (a killed Pod, or a deadline that passed). Promoted:${_dmoved:- none}. Unchanged, its main held the staged commit:${_dsame:- none}. Its promote answered another phase (<region>.promote names why):${_dret:- none}. May have moved, promote reached it and no answer of it is recorded, and its main is not read here:${_dmaybe:- none}. Not promoted, promote never reached it:${_dnot:- none}" \
         --arg updatedAt "$(now)" ;;
   esac
 }
@@ -859,6 +871,19 @@ promote_region() {
   status_put --arg "${_pr}.promotedFrom" "${_from}" --arg "${_pr}.promotedTo" "${_to}" --arg "${_pr}.phase" promoted --arg updatedAt "$(now)"
 }
 
+# promote_reach <region>: record, before promote pushes <region>, that it
+# reached it (promoteRegion), or fail: a region promote could not record it
+# reached is not pushed, nor is any after it. So the regions after
+# promoteRegion did not move, whichever answers of the regions before it were
+# written (delivery_unrecorded); promote records "" with phase promoting.
+promote_reach() {
+  status_must --arg promoteRegion "$1" --arg updatedAt "$(now)" && return 0
+  say "FAILED: cannot record in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM} that promote reached region $1, so neither it nor a region after it is pushed"
+  status_put --arg phase failed --arg failedStep promote \
+    --arg message "promote could not record that it reached region $1, so neither it nor a region after it was pushed; <region>.promote names how each region before it ended" --arg updatedAt "$(now)"
+  return 1
+}
+
 # verdict <phase>: the worst phase any region recorded for <phase>.
 verdict() {
   _worst=""
@@ -1024,8 +1049,8 @@ case "${1:-}" in
   promote)
     # Recorded before any region is checked or pushed, or nothing is: a state
     # still at staged then says with certainty that no region moved
-    # (delivery_unrecorded).
-    if ! status_must --arg phase promoting --arg updatedAt "$(now)"; then
+    # (delivery_unrecorded). promoteRegion "": no region is reached yet.
+    if ! status_must --arg phase promoting --arg promoteRegion "" --arg updatedAt "$(now)"; then
       say "FAILED: cannot record phase promoting in ${RELEASE_NAMESPACE}/${RELEASE_STATUS_CM}; no region was promoted"
       exit 1
     fi
@@ -1056,9 +1081,14 @@ case "${1:-}" in
     fi
     for kc in $(followers); do
       _r=$(basename "${kc}" .yaml)
-      if selected "${_r}"; then promote_region "${_r}" run_follower "${kc}" || _rc=1; fi
+      selected "${_r}" || continue
+      promote_reach "${_r}" || exit 1
+      promote_region "${_r}" run_follower "${kc}" || _rc=1
     done
-    if [ "${_rc}" -eq 0 ] && selected primary; then promote_region primary run_primary || _rc=1; fi
+    if [ "${_rc}" -eq 0 ] && selected primary; then
+      promote_reach primary || exit 1
+      promote_region primary run_primary || _rc=1
+    fi
     if [ "${_rc}" -ne 0 ]; then
       if [ -n "${RELEASE_REGION}" ]; then
         _v=$(verdict promote); _v="${_v:-failed}"
