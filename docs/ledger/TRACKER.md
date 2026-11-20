@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T18:45:04Z` |
+| Last refreshed | `2026-11-20T19:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
-| [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
-| [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
 | [#8140](https://github.com/openova-io/openova/issues/8140) | CLD-094 Standing check CLD-G12: the plan of a provisioned deployment shows no ch | Other |
 | [#8141](https://github.com/openova-io/openova/issues/8141) | SVC-150 One generator, part 1: embedded and console catalogue | Other |
 | [#8145](https://github.com/openova-io/openova/issues/8145) | INF-133 Check INF-G02: node host scans, as a suite file | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
 | [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
 | [#8528](https://github.com/openova-io/openova/issues/8528) | SVC-137 The function tests wait for their subject in their own region within the | Other |
+| [#8532](https://github.com/openova-io/openova/issues/8532) | SOV-136 Nodes share the images they hold: the k3s embedded registry mirror is on | Other |
+| [#8533](https://github.com/openova-io/openova/issues/8533) | SOV-137 The registry pivot keeps the nodes' shared mirror first and starts with  | Other |
+| [#8534](https://github.com/openova-io/openova/issues/8534) | SOV-342 The provider pod installs OpenTofu providers only from an OCI mirror of  | Other |
 
 ---
 
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T18:53 | [#8530](https://github.com/openova-io/openova/pull/8530) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:34 | [#8527](https://github.com/openova-io/openova/pull/8527) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:27 | [#8526](https://github.com/openova-io/openova/pull/8526) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:43 | [#8525](https://github.com/openova-io/openova/pull/8525) | #8494 | fix(gate): the gate's candidate verification gets the origin |
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
+| 2026-11-20T18:50 | [#8523](https://github.com/openova-io/openova/pull/8523) | #5488 | fix(cutover): the first step does not fail because the deplo |
 | 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T11:10 | [#8495](https://github.com/openova-io/openova/pull/8495) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:27 | [#8494](https://github.com/openova-io/openova/pull/8494) | fix(install): the image path of a fresh install is checked w |  |
 | 2026-11-20T11:25 | [#8493](https://github.com/openova-io/openova/pull/8493) | #8490 | fix(release): a delivery resumes after one eviction of any o |
-| 2026-11-20T10:53 | [#8492](https://github.com/openova-io/openova/pull/8492) | #7087 | docs(ledger): plan update |
-| 2026-11-20T11:15 | [#8491](https://github.com/openova-io/openova/pull/8491) | #8487 | fix(harbor): the registry finds and heals a cached image ind |
 
 ---
 
