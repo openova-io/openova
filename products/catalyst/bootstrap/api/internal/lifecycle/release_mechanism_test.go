@@ -15,10 +15,10 @@ import (
 func TestReleaseDeliveryRunsTheCandidatesMechanism(t *testing.T) {
 	f := newFixture(t)
 	id, cand := f.candidate(1, f.candidateCutoverRelease(step03Marker(candidateCutover)))
-	req := releaseRequest{Candidate: id, PullSecret: releasePull}
+	req := releaseRequest{Candidate: id, Credential: &testCredential}
 	r := newRunFixtureFrom(t, f, req, false)
 	r.env = []string{"PULL_SECRET=" + releasePull}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	// The installed step 03, as the cluster holds it: it fails whenever it runs.
 	f.write(r.stub+"/cm", "cutover-step-03-harbor-prewarm.json", `{"apiVersion": "v1", "kind": "ConfigMap",
   "metadata": {"name": "cutover-step-03-harbor-prewarm", "namespace": "catalyst"},

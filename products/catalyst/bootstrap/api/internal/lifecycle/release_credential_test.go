@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // The pull credential of a delivery (#7938). The first delivery to a two-region
@@ -21,10 +22,69 @@ import (
 // holds the credential once the prewarm has ended, whatever its outcome.
 
 const (
-	releasePull  = "release-pull"
+	releasePull  = releasePullSecret
 	harborNS     = "harbor"
 	followerGHCR = "cutover-secondary-ghcr"
 )
+
+// testCredential is the credential of the tests' requests. Its password is
+// searched for in every log line and object a delivery leaves.
+var testCredential = registryCredential{Registry: "ghcr.io", Username: "openova-bot", Password: "pw-7c1d0e-not-a-real-credential"}
+
+// putPullSecret puts in the primary region the pull Secret the route makes
+// from the request's credential (release_credential.go pullSecretFor).
+func (r *runFixture) putPullSecret() {
+	r.t.Helper()
+	s, err := pullSecretFor(testNS, "sovereign-release", "test", testCredential)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	s.TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"}
+	doc, err := json.Marshal(s)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.write(filepath.Dir(r.secretPath("primary", testNS, releasePull)), releasePull+".json", string(doc))
+}
+
+// credentialNowhereElse fails when the request's password, or the auth or
+// docker configuration it is part of, is in a line the delivery printed (out,
+// the Jobs' logs), the state, a kubectl argument, or any object of any region
+// but a Secret.
+func (r *runFixture) credentialNowhereElse(out string) {
+	r.t.Helper()
+	s, _ := pullSecretFor(testNS, "sovereign-release", "test", testCredential)
+	needles := []string{testCredential.Password, base64.StdEncoding.EncodeToString([]byte(testCredential.Username + ":" + testCredential.Password)),
+		base64.StdEncoding.EncodeToString(s.Data[corev1.DockerConfigJsonKey])}
+	look := func(where, text string) {
+		for _, n := range needles {
+			if strings.Contains(text, n) {
+				r.t.Errorf("the credential is in %s", where)
+			}
+		}
+	}
+	look("the output of the release scripts", out)
+	err := filepath.Walk(r.stub, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(filepath.Clean(p))
+		if err != nil {
+			return err
+		}
+		var obj struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(b, &obj) == nil && obj.Kind == "Secret" {
+			return nil // a Secret: the route's, or a region's copy of it
+		}
+		look(strings.TrimPrefix(p, r.stub+"/"), string(b))
+		return nil
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+}
 
 // followerCredentialBlock is the part of cutover step 03's follower leg that
 // reads the upstream credential in a follower region and copies it into that
@@ -115,13 +175,13 @@ exit 1
 		"  echo \"[harbor-prewarm] #6764 secondary region ${region}: the credential is in ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET}\"\n" + fail +
 		"done\ntouch \"${STUB_DIR}/step03-ran-" + candidateCutover + "\"\n"
 	id, _ := f.candidate(1, f.candidateCutoverRelease(fake))
-	req := releaseRequest{Candidate: id, PullSecret: releasePull}
+	req := releaseRequest{Candidate: id, Credential: &testCredential}
 	r := newRunFixtureFrom(t, f, req, conflict)
 	// The bootstrap's containers name the credential as the route composes them.
 	for _, e := range credentialEnv(req) {
 		r.env = append(r.env, e.Name+"="+e.Value)
 	}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	if !conflict {
 		r.putSecret("region-b", harborNS, followerGHCR, "an-older-credential")
 	}
@@ -166,6 +226,135 @@ func TestReleaseDeliveryGivesEachFollowerThePullCredentialAndLeavesNone(t *testi
 		t.Fatalf("the delivery: phase %q failedStep %q\n%s", st["phase"], st["failedStep"], logs)
 	}
 	r.noCredentialLeft("after the delivery")
+	r.credentialNowhereElse(out + logs)
+}
+
+// A delivery Job whose Pod is killed (a drained node, a lost node) fails: no
+// Job of a delivery replaces a Pod. Its containers then record nothing; the
+// state says the delivery failed, in which step, and that no region was
+// promoted, which it can say because promote had not begun. The bootstrap's
+// deliver removes the credential in every region, step 03's copy in the
+// follower included, under the names of the delivery Job it composed.
+func TestReleaseDeliveryJobKilledIsAFailedDeliveryAndLeavesNoCredential(t *testing.T) {
+	for _, before := range []string{"prewarm", "promote"} {
+		t.Run("killed before its "+before, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			r.env = append(r.env, "STUB_KILL="+before)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			out, code := r.run("deliver", req)
+			logs := r.jobLog(req)
+			if !strings.Contains(logs, "the Pod is killed before container "+before) {
+				t.Fatalf("the Pod was not killed:\n%s", logs)
+			}
+			st := r.status()
+			if code == 0 || st["phase"] != "failed" || st["failedStep"] != "prewarm" ||
+				!strings.HasPrefix(st["message"], "the delivery Job sovereign-release-delivery failed; the delivery ended before its promote began") ||
+				!strings.Contains(st["message"], "no region was promoted") {
+				t.Fatalf("a killed delivery Job: exit %d, phase %q, failedStep %q, message %q\n%s\n%s", code, st["phase"], st["failedStep"], st["message"], out, logs)
+			}
+			if r.remote("main") != r.main || r.followerRef("main") != r.followerMain {
+				t.Fatal("a killed delivery Job moved a main")
+			}
+			r.noCredentialLeft("after the delivery Job was killed before its " + before)
+			r.credentialNowhereElse(out + logs)
+		})
+	}
+}
+
+// A delivery killed during its promote: the state names, region by region in
+// the order promote pushes them, what moved, what may have moved and what
+// promote never reached (after promoteRegion), and never says that nothing
+// moved. The candidate's compose stands for that delivery here: it leaves the
+// state a promote leaves when its Pod is killed, and exits. A state without
+// promoteRegion (an older candidate's promote) names every region with no
+// answer as one that may have moved.
+func TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved(t *testing.T) {
+	const maybe = "May have moved, promote reached it and no answer of it is recorded, and its main is not read here:"
+	for _, c := range []struct {
+		name     string
+		follower bool   // whether the follower's promote answered before the Pod was killed
+		reach    string // promoteRegion; "-" leaves it out
+		want     []string
+	}{
+		{"after it promoted the follower", true, "primary", []string{"Promoted: region-b.", maybe + " primary.", "promote never reached it: none"}},
+		{"while it promoted the follower", false, "region-b", []string{"Promoted: none.", maybe + " region-b.", "promote never reached it: primary"}},
+		{"during its check", false, "", []string{"Promoted: none.", maybe + " none.", "promote never reached it: region-b primary"}},
+		{"of a candidate that records no region it reached", false, "-", []string{"Promoted: none.", maybe + " region-b primary.", "promote never reached it: none"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, req := credentialFixture(t, false, false)
+			if out, code := r.run("stage", req); code != 0 {
+				t.Fatalf("stage: exit %d\n%s", code, out)
+			}
+			data := map[string]string{"phase": "promoting", "deliveryJob": "sovereign-release-delivery"}
+			if c.reach != "-" {
+				data["promoteRegion"] = c.reach
+			}
+			if c.follower {
+				b, err := os.ReadFile(filepath.Clean(r.state + "/region-b.staged"))
+				if err != nil || len(b) == 0 {
+					t.Fatalf("the stage recorded no staged commit of region-b: %v", err)
+				}
+				data["region-b.promote"] = "region=region-b phase=promoted main=" + string(b) + " staged=" + string(b)
+				data["region-b.promotedTo"] = string(b)
+			}
+			p, err := json.Marshal(map[string]any{"data": data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.write(r.state+"/mechanism", "release-run.sh", "#!/bin/sh\nkubectl -n catalyst patch configmap sovereign-release --type merge -p '"+string(p)+"'\nexit 1\n")
+			out, code := r.run("deliver", req)
+			st := r.status()
+			if code == 0 || st["phase"] != "failed" || st["failedStep"] != "promote" || strings.Contains(st["message"], "no region was promoted") ||
+				!strings.HasPrefix(st["message"], "the candidate's release-run.sh compose exited 1; the delivery ended during its promote") {
+				t.Fatalf("a delivery killed in its promote: exit %d, phase %q, failedStep %q, message %q\n%s", code, st["phase"], st["failedStep"], st["message"], out)
+			}
+			for _, w := range c.want {
+				if !strings.Contains(st["message"], w) {
+					t.Errorf("the state does not say %q: %s", w, st["message"])
+				}
+			}
+			for _, s := range [][2]string{{"primary", testNS}, {"region-b", testNS}} {
+				if r.secretData(s[0], s[1], releasePull) != nil {
+					t.Errorf("region %s still holds %s/%s", s[0], s[1], releasePull)
+				}
+			}
+		})
+	}
+}
+
+// A delivery whose follower is pushed while neither write of its answer reaches
+// the state, then whose primary is pushed, and whose Pod is killed before the
+// primary's answer is written: both mains moved. The state names both as
+// regions that may have moved and none as one promote never reached; a region
+// with no answer is not a region promote did not push.
+func TestReleaseDeliveryKilledAfterAFailedWriteNamesNoMovedRegionAsUnreached(t *testing.T) {
+	r, req := credentialFixture(t, false, false)
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	r.write(r.stub, "patch-fail", `"region-b\.promote`+"\n")
+	r.write(r.stub, "patch-kill", `"primary\.promote"`+"\n")
+	out, code := r.run("deliver", req)
+	logs := r.jobLog(req)
+	if !strings.Contains(logs, "the Pod is killed before it writes") {
+		t.Fatalf("the Pod was not killed before the primary's answer:\n%s\n%s", out, logs)
+	}
+	if r.remote("main") == r.main || r.followerRef("main") == r.followerMain {
+		t.Fatalf("both regions are to be pushed here: primary main moved %v, region-b main moved %v\n%s", r.remote("main") != r.main, r.followerRef("main") != r.followerMain, logs)
+	}
+	st := r.status()
+	if code == 0 || st["phase"] != "failed" || st["failedStep"] != "promote" || strings.Contains(st["message"], "no region was promoted") {
+		t.Fatalf("a delivery killed in its promote: exit %d, phase %q, failedStep %q, message %q\n%s", code, st["phase"], st["failedStep"], st["message"], logs)
+	}
+	for _, w := range []string{"Promoted: none.", "no answer of it is recorded, and its main is not read here: region-b primary.", "promote never reached it: none"} {
+		if !strings.Contains(st["message"], w) {
+			t.Errorf("the state does not say %q: %s", w, st["message"])
+		}
+	}
+	r.noCredentialLeft("after the delivery Pod was killed in its promote")
 }
 
 func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *testing.T) {
@@ -200,12 +389,12 @@ func TestReleaseStageFailureLeavesNoCredential(t *testing.T) {
 func TestReleaseDryRunTouchesNoCredential(t *testing.T) {
 	f := newFixture(t)
 	id, _ := f.candidate(1, f.laterRelease)
-	req := releaseRequest{Candidate: id, DryRun: true, PullSecret: releasePull}
+	req := releaseRequest{Candidate: id, DryRun: true, Credential: &testCredential}
 	r := newRunFixtureFrom(t, f, req, false)
 	if env := credentialEnv(req); len(env) != 0 {
 		t.Fatalf("a dry run names the credential: %v", env)
 	}
-	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.putPullSecret()
 	if out, code := r.run("stage", req); code != 0 {
 		t.Fatalf("dry run: exit %d\n%s", code, out)
 	}
