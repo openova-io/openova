@@ -1151,17 +1151,10 @@ data:
       if [ "$(offlinemirror_normalize_ref "${_pc_src}")" = "$(offlinemirror_normalize_ref "${_pc_lref}")" ]; then PREWARM_LEG_ERR="not attempted: the source ${_pc_src} is its own destination (#7938)"; echo "[harbor-prewarm] ${PREWARM_LEG_ERR}" >>"${_pc_log}"; return 1; fi
       {{- /* #5468 multi-arch mode first (unquoted: the flag string word-splits), matched on the SOURCE ref. */}}
       set -- $(prewarm_multiarch_flags "${_pc_src}")
-      if [ -n "${_pc_creds}" ]; then set -- "$@" --src-creds="${_pc_creds}"; fi
       {{- /* #5525 leg 2 — log offset BEFORE this leg, so the sniffs below read only this leg's output. */}}
       _pc_off=$(wc -c < "${_pc_log}" 2>/dev/null || echo 0)
-      if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-        --insecure-policy --preserve-digests \
-        --retry-times 5 \
-        "$@" \
-        --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-        --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-        --src-tls-verify=true \
-        "docker://${_pc_src}" "docker://${_pc_lref}" >>"${_pc_log}" 2>&1; then
+      {{- /* A list as its entries, then its own bytes (offlinemirror_copy, _helpers.tpl). */}}
+      if offlinemirror_copy "${_pc_src}" "${_pc_creds}" "${_pc_lref}" "$@" >>"${_pc_log}" 2>&1; then
         return 0
       else
         _pc_rc=$?
@@ -2175,14 +2168,7 @@ data:
       cmax="${PREWARM_COPY_ATTEMPTS:-4}"
       while : ; do
         cattempt=$((cattempt+1))
-        if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-          --insecure-policy --preserve-digests \
-          --retry-times 3 \
-          --src-creds="${ghcr_user}:${ghcr_pat}" \
-          --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-          --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
-          --src-tls-verify=true \
-          "${csrc}" "${cdst}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
+        if offlinemirror_copy "${csrc#docker://}" "${ghcr_user}:${ghcr_pat}" "${cdst#docker://}" >"${chart_cpdir}/${cslug}.log" 2>&1; then
           printf '%s:%s' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
           echo "[harbor-prewarm] done chart ${cchart}:${cver} (ok)"
           return 0

@@ -73,7 +73,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
   if [ -d "${MAIN_CHART}" ]; then
     helm template ssc "${MAIN_CHART}" --set sovereign.fqdn="${FQDN}" --set mirrorResync.enabled=true \
       >"${TMP}/main.yaml" 2>/dev/null
-    # Normalise TWENTY axes that are EXPECTED to differ from origin/main and are NOT
+    # Normalise TWENTY-ONE axes that are EXPECTED to differ from origin/main and are NOT
     # the secondary-leg leak this byte-check guards:
     #   1. the chart-version baked into helm.sh/chart labels (the 0.1.19x bump);
     #   2. the #6490 git-auth MECHANISM on the ALWAYS-rendered primary resync push
@@ -225,6 +225,15 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      lacks pivot_owns, the step-04 document is left out of BOTH trees, as
     #      axes 5, 8 and 10 do; tests/registry-pivot-keeps-k3s-files.sh executes
     #      the change. The axis switches itself off once origin/main holds it.
+    #  21. every write into the local registry goes through one copy (offlinemirror_copy in
+    #      _helpers.tpl: a list as its entries, then its own bytes), in EVERY topology: step
+    #      03, the 03a resolver, step 08, the day-two warm and the follower prewarm script
+    #      change; not the follower gitea leg. While origin/main lacks offlinemirror_copy,
+    #      those documents are left out of BOTH trees, as axes 5, 8 and 10 do;
+    #      tests/list-copy-keeps-digests.sh executes the change. The axis switches itself off
+    #      once origin/main holds the change.
+    dropcpy=0
+    grep -q 'offlinemirror_copy() {' "${TMP}/main.yaml" || dropcpy=1
     drop04o=0
     grep -q 'pivot_owns() {' "${TMP}/main.yaml" || drop04o=1
     droppiv=0
@@ -250,9 +259,9 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     drop03s=0
     grep -q 'prewarm_node_sandbox_images() {' "${TMP}/main.yaml" || drop03s=1
     norm() {
-      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" -v drop7938t="${drop7938t}" -v drop08k="${drop08k}" -v drop522="${drop522}" -v droppiv="${droppiv}" -v drop04o="${drop04o}" '
-        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1 || drop7938t==1 || drop08k==1 || drop522==1 || droppiv==1 || drop04o==1) && /^---$/ {next}
-        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/) || (drop7938t==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop08k==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop522==1 && $0 ~ /\/templates\/11-crossplane-provider-pivot-job\.yaml$/) || (droppiv==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver)\.yaml$/) || (drop04o==1 && $0 ~ /\/templates\/04-registry-pivot-daemonset\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" -v drop7938t="${drop7938t}" -v drop08k="${drop08k}" -v drop522="${drop522}" -v droppiv="${droppiv}" -v drop04o="${drop04o}" -v dropcpy="${dropcpy}" '
+        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1 || drop7938t==1 || drop08k==1 || drop522==1 || droppiv==1 || drop04o==1 || dropcpy==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/) || (drop7938t==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop08k==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop522==1 && $0 ~ /\/templates\/11-crossplane-provider-pivot-job\.yaml$/) || (droppiv==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver)\.yaml$/) || (drop04o==1 && $0 ~ /\/templates\/04-registry-pivot-daemonset\.yaml$/) || (dropcpy==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver|08-egress-block-test-job|12-daytwo-harbor-pin-reconciler|secondary-harbor-prewarm-script-configmap)\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}
@@ -296,9 +305,9 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
-      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the twenty axes normalised above, each verified by its own test)"
+      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the twenty-one axes normalised above, each verified by its own test)"
     else
-      fail "single-region render DIFFERS from origin/main beyond the twenty normalised axes — see diff:"
+      fail "single-region render DIFFERS from origin/main beyond the twenty-one normalised axes — see diff:"
       diff "${TMP}/main.norm" "${TMP}/off.norm" | head -40
     fi
   else

@@ -690,26 +690,14 @@ data:
               _wi_attempt=1
               while [ "${_wi_attempt}" -le "${_wi_attempts}" ]; do
                 echo "[egress-block-test] self-heal: warming ${_wi_up} -> ${_wi_lref} (attempt ${_wi_attempt}/${_wi_attempts})"
-                if [ -n "${_wi_sc}" ]; then set -- --src-creds="${_wi_sc}"; else set --; fi
-                if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
-                  --insecure-policy --multi-arch all --retry-times 5 "$@" \
-                  --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                  --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
-                  --src-tls-verify=true \
-                  "docker://${_wi_up}" "docker://${_wi_lref}" >/work/selfheal-warm.log 2>&1; then
+                if offlinemirror_copy "${_wi_up}" "${_wi_sc}" "${_wi_lref}" --multi-arch all >/work/selfheal-warm.log 2>&1; then
                   echo "[egress-block-test] self-heal: warmed OK ${_wi_up} -> ${_wi_lref}"
                   return 0
                 fi
                 sed 's/^/    /' /work/selfheal-warm.log
                 if [ -n "${_wi_fb_up}" ]; then
                   echo "[egress-block-test] self-heal: proxy source failed; direct-source fallback ${_wi_fb_up} -> ${_wi_lref}"
-                  if [ -n "${_wi_fb_sc}" ]; then set -- --src-creds="${_wi_fb_sc}"; else set --; fi
-                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
-                    --insecure-policy --multi-arch all --retry-times 5 "$@" \
-                    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                    --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
-                    --src-tls-verify=true \
-                    "docker://${_wi_fb_up}" "docker://${_wi_lref}" >/work/selfheal-warm.log 2>&1; then
+                  if offlinemirror_copy "${_wi_fb_up}" "${_wi_fb_sc}" "${_wi_lref}" --multi-arch all >/work/selfheal-warm.log 2>&1; then
                     echo "[egress-block-test] self-heal: warmed OK ${_wi_fb_up} -> ${_wi_lref} (direct-source fallback)"
                     return 0
                   fi

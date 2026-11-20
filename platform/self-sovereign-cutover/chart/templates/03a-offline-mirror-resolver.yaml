@@ -25,8 +25,10 @@ data:
     {{- /*
      POSIX sh. Requires env: HOST_PROJECT_MAP EXCLUDED_HOSTS
      EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST; optional LOCAL_REGISTRY_ALIASES
-     and PIVOT_PROJECT_MAP (_helpers.tpl). No side effects — pure functions.
+     and PIVOT_PROJECT_MAP (_helpers.tpl). Pure functions, except the copy every
+     writer into the local registry shares (offlinemirror_copy, _helpers.tpl).
     */}}
+    {{- include "bp-self-sovereign-cutover.offlinemirrorCopy" . | nindent 4 }}
 
     {{- /*
      offlinemirror_is_local_host HOST -> 0 when HOST is a name of the local

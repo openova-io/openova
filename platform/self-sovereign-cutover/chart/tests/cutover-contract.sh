@@ -1238,10 +1238,12 @@ if grep -q -- '--dest-tls-verify=true' "$TMP/render.yaml"; then
   echo "FAIL: Step-03 still hardcodes --dest-tls-verify=true on a skopeo copy to the in-cluster Harbor — x509 unknown-authority fails every push on an LE-STAGING-cert Sovereign (#4529)" >&2
   exit 1
 fi
-# Both copy loops (Phase A images + Phase A2 charts) MUST drive dest-TLS from the env var.
-dest_var_copies=$(grep -c -- '--dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}"' "$TMP/render.yaml" || true)
-if [ "${dest_var_copies}" -lt 2 ]; then
-  echo "FAIL: Step-03 has < 2 skopeo copies driving --dest-tls-verify from PREWARM_DEST_TLS_VERIFY (found ${dest_var_copies}); a Phase A or A2 copy still public-CA-verifies the in-cluster dest (#4529)" >&2
+# Both copy loops (Phase A images + Phase A2 charts) MUST drive dest-TLS from the env var: they copy
+# through offlinemirror_copy, rendered in the resolver and in the follower script.
+dest_var_copies=$(grep -c -- '--dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}"' "$TMP/render.yaml" || true)
+via_copy=$(grep -c 'if offlinemirror_copy "' "$TMP/render.yaml" || true)
+if [ "${dest_var_copies}" -lt 1 ] || [ "${via_copy}" -lt 2 ]; then
+  echo "FAIL: the copy function does not drive --dest-tls-verify from PREWARM_DEST_TLS_VERIFY (found ${dest_var_copies}) or fewer than 2 copies go through it (${via_copy}); a Phase A or A2 copy still public-CA-verifies the in-cluster dest (#4529)" >&2
   exit 1
 fi
 # The env var MUST be projected from .Values.prewarm.destTLSVerify and DEFAULT false.
@@ -1253,10 +1255,11 @@ if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml" | grep_q 'value
   echo "FAIL: PREWARM_DEST_TLS_VERIFY does not default to \"false\" — the in-cluster Harbor copy would still public-CA-verify on a fresh prov (#4529)" >&2
   exit 1
 fi
-# The SOURCE (external ghcr.io) verification MUST stay TRUE — never weakened.
+# The SOURCE (external ghcr.io) verification MUST stay TRUE — never weakened. Every copy goes
+# through offlinemirror_copy, which passes it once.
 src_verify_copies=$(grep -c -- '--src-tls-verify=true' "$TMP/render.yaml" || true)
-if [ "${src_verify_copies}" -lt 2 ]; then
-  echo "FAIL: Step-03 weakened --src-tls-verify — the external ghcr.io SOURCE must stay public-CA-verified (found ${src_verify_copies}; expected >=2) (#4529)" >&2
+if [ "${src_verify_copies}" -lt 1 ]; then
+  echo "FAIL: Step-03 weakened --src-tls-verify — the external ghcr.io SOURCE must stay public-CA-verified (found ${src_verify_copies}; expected >=1) (#4529)" >&2
   exit 1
 fi
 # Operator overlay MUST be able to re-enable dest verification (true) when the
@@ -4226,12 +4229,12 @@ if ! grep -q '/v2/${_mp_repo}/manifests/${_mp_ref}' "$DT_F"; then
   c75_fail=1
 fi
 # (e) The copy is step-03's skopeo invocation, with BOTH documented fallbacks.
-if ! grep -q 'skopeo --command-timeout' "$DT_W"; then
-  echo "FAIL: Day-2 image warm does not use the bounded skopeo copy step-03/step-08 use (#5640 Refs #3944)" >&2
+if ! grep -q 'offlinemirror_copy "' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not use the bounded skopeo copy step-03/step-08 use (offlinemirror_copy) (#5640 Refs #3944)" >&2
   c75_fail=1
 fi
-if ! grep -qF -- '--insecure-policy --multi-arch all --retry-times 5' "$DT_W"; then
-  echo "FAIL: Day-2 image warm does not carry the step-03 skopeo flag set (--insecure-policy --multi-arch all --retry-times 5) — it forked the copy mechanism (#5640 Refs #4975 #5468)" >&2
+if ! grep -qF -- '"${_wi_lref}" --multi-arch all' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not copy --multi-arch all through the step-03 copy (offlinemirror_copy) — it forked the copy mechanism (#5640 Refs #4975 #5468)" >&2
   c75_fail=1
 fi
 if ! grep -qF '#5095/#5525' "$DT_W"; then

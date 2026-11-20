@@ -346,3 +346,44 @@ empty string, which that loop iterates zero times — i.e. no exception at all.
 {{- define "bp-self-sovereign-cutover.singlePlatformSubstringsInline" -}}
 {{- .Values.prewarm.singlePlatform.imageSubstrings | default (list) | join " " -}}
 {{- end -}}
+
+{{- /*
+offlinemirrorCopy — the ONE way every step writes an image or chart into the local registry
+(step 03 Phase A and A2, which the release route runs as its prewarm; the follower prewarm;
+step 08's self-heal; the day-two pin reconciler): the source's manifest bytes land unchanged
+or the copy fails (--preserve-digests on every call). A list copied --multi-arch all (an OCI
+index or a Docker list, whatever its entries: Docker or OCI manifests, attestations, zstd
+layers) is copied as each entry by digest, then the list's own bytes by --multi-arch
+index-only, which skopeo-copy(1) v1.15.2 documents as needing the entries present. Copied
+whole, skopeo 1.15.2 rewrites the list: it adds io.github.containers.compression.zstd to the
+entry of each zstd child and so, preserving digests, refuses ("Manifest list must be converted
+... Instructed to preserve digests", containers/image v5.30.2 copy/multiple.go:316), measured
+on docker.io/stalwartlabs/stalwart@sha256:dcf575db... (20 Nov 2026). A single manifest, an
+unreadable source or a single-platform copy is one call.
+*/}}
+{{- define "bp-self-sovereign-cutover.offlinemirrorCopy" -}}
+offlinemirror_skopeo_copy() {
+  _os_s="$1"; _os_c="$2"; _os_d="$3"; shift 3
+  [ -z "${_os_c}" ] || set -- "$@" --src-creds="${_os_c}"
+  skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy --insecure-policy --preserve-digests "$@" --retry-times 5 \
+    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
+    --src-tls-verify=true "docker://${_os_s}" "docker://${_os_d}"
+}
+offlinemirror_copy() {
+  _oc_s="$1"; _oc_c="$2"; _oc_d="$3"; shift 3; _oc_k=""
+  if [ "$*" = "--multi-arch all" ]; then
+    set -- --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" inspect --raw --tls-verify=true
+    [ -z "${_oc_c}" ] || set -- "$@" --creds="${_oc_c}"
+    _oc_k=$(skopeo "$@" "docker://${_oc_s}" 2>/dev/null) || _oc_k=""
+    _oc_k=$(printf '%s' "${_oc_k}" | jq -r '.manifests[]?.digest' 2>/dev/null) || _oc_k=""
+    set -- --multi-arch all
+  fi
+  [ -n "${_oc_k}" ] || { offlinemirror_skopeo_copy "${_oc_s}" "${_oc_c}" "${_oc_d}" "$@"; return $?; }
+  _oc_sr="${_oc_s%%@*}"; case "${_oc_sr##*/}" in *:*) _oc_sr="${_oc_sr%:*}" ;; esac
+  _oc_dr="${_oc_d%%@*}"; case "${_oc_dr##*/}" in *:*) _oc_dr="${_oc_dr%:*}" ;; esac
+  for _oc_i in ${_oc_k}; do
+    offlinemirror_skopeo_copy "${_oc_sr}@${_oc_i}" "${_oc_c}" "${_oc_dr}@${_oc_i}" --multi-arch all || return $?
+  done
+  offlinemirror_skopeo_copy "${_oc_s}" "${_oc_c}" "${_oc_d}" --multi-arch index-only
+}
+{{- end -}}
