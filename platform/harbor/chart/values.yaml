@@ -234,10 +234,38 @@ harbor:
   # the same bytes. The exporter (metrics off) and internal database
   # (external CNPG) stay at upstream defaults — they never render pods
   # here.
+  #
+  # SOV-138: no single Pod on the registry's pull path. After the
+  # sovereignty cutover every node pulls only from this registry, through
+  # the front (nginx), the core and the registry. Each of the three runs two
+  # copies, at most one more on any node than on another
+  # (kubernetes.io/hostname, DoNotSchedule; the upstream chart adds the
+  # component's labelSelector). nodeTaintsPolicy Honor leaves out a node
+  # the Pod cannot run on, the cordoned node of a drain among them, so on a
+  # region of two schedulable nodes the replacement still finds a place.
+  # templates/pull-path-disruption-budgets.yaml gives each component a
+  # PodDisruptionBudget of minAvailable 1: the drain of one node never
+  # removes the last copy, and a drain waits while the other copy is not
+  # Ready. Measured on a fresh two-region install: kured drained the one
+  # node that ran the single front and held its image; its replacement
+  # could pull only through the front it was replacing, and 14 of the 21
+  # Pods moved off that node waited on it. Cost, by the requests below: 64
+  # MiB (nginx), 256 MiB (core) and 320 MiB (registry and registryctl) more
+  # per region. Two registry copies need storage they can share: the kit's
+  # slot 19 sets `persistence.imageChartStorage.type: s3`, where the
+  # registry mounts no volume. A render that keeps `type: filesystem` on a
+  # ReadWriteOnce claim sets `registry.replicas: 1`; at one copy the chart
+  # renders no budget for it.
   nginx:
     image:
       repository: harbor.openova.io/proxy-dockerhub/goharbor/nginx-photon
       tag: "v2.14.3"
+    replicas: 2
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        nodeTaintsPolicy: Honor
+        whenUnsatisfiable: DoNotSchedule
     # #4343 — the harbor-nginx Deployment MUST declare resources.requests. The
     # upstream goharbor subchart only renders `resources:` when
     # `.Values.nginx.resources` is set; left unset, harbor-nginx ships with NO
@@ -273,7 +301,13 @@ harbor:
     image:
       repository: harbor.openova.io/proxy-dockerhub/goharbor/harbor-core
       tag: "v2.14.3"
-    replicas: 1
+    # SOV-138: two copies on two nodes, see nginx above.
+    replicas: 2
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        nodeTaintsPolicy: Honor
+        whenUnsatisfiable: DoNotSchedule
     resources:
       requests:
         memory: 256Mi
@@ -337,7 +371,14 @@ harbor:
         limits:
           memory: 256Mi
           cpu: 500m
-    replicas: 1
+    # SOV-138: two copies on two nodes, see nginx above; they share the
+    # object store of slot 19 (type s3) and mount no volume.
+    replicas: 2
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        nodeTaintsPolicy: Honor
+        whenUnsatisfiable: DoNotSchedule
     middleware:
       enabled: false
 
