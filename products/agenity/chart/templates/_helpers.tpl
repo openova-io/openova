@@ -108,61 +108,160 @@ agenity-gate
 {{- end -}}
 
 {{- /*
-agenity.mcpBearerSecretName / agenity.mcpBearerSecretKey (#4624) — the effective
-Secret the StatefulSet projects OPENOVA_MCP_BEARER from. SELF-WIRING so the
-projection ALWAYS follows the materialised bearer Secret, never a hand-coupled
-field a door might forget:
-  1. an explicit openovaMCP.bearerSecret.name wins (the org-gitops emitter
-     orgTenantBPAgenity + the install-door stamp both set it to the materialised
-     `agenity-mcp-bearer` Secret — unchanged behaviour);
-  2. else, when the per-Org mcpBearer ExternalSecret is enabled, derive from the
-     Secret that ExternalSecret materialises (openovaMCP.mcpBearer.secretName /
-     .bearerKey) — so a door that flips `mcpBearer.externalSecret.enabled` on
-     WITHOUT also hand-setting bearerSecret.name still projects the bearer (the
-     materialised Secret is the single source of truth);
-  3. else empty (no projection — the pre-#4624 fail-closed default).
-Without (2) the materialised agenity-mcp-bearer Secret sat unread → no
-OPENOVA_MCP_BEARER → MCP tools/list empty → create_application unavailable.
+agenity.catalystApiUrl — the catalyst-api base URL the tool server forwards to
+and the tool-identity sidecar asks for its bearer at: openovaMCP.catalystApiUrl
+when set, else https://console.<sovereignFqdn>. The console host routes /api/
+to catalyst-api, both on a Sovereign host and on an Organization host.
 */ -}}
-{{- define "agenity.mcpBearerSecretName" -}}
-{{- if .Values.openovaMCP.bearerSecret.name -}}
-{{- .Values.openovaMCP.bearerSecret.name -}}
-{{- else if .Values.openovaMCP.mcpBearer.externalSecret.enabled -}}
-{{- .Values.openovaMCP.mcpBearer.secretName -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "agenity.mcpBearerSecretKey" -}}
-{{- if .Values.openovaMCP.bearerSecret.name -}}
-{{- .Values.openovaMCP.bearerSecret.key -}}
+{{- define "agenity.catalystApiUrl" -}}
+{{- if .Values.openovaMCP.catalystApiUrl -}}
+{{- .Values.openovaMCP.catalystApiUrl -}}
 {{- else -}}
-{{- .Values.openovaMCP.mcpBearer.bearerKey -}}
+{{- printf "https://console.%s" (.Values.sovereignFqdn | default "openova.io") -}}
 {{- end -}}
 {{- end -}}
 
 {{- /*
-agenity.mcpPubkeySecretName / agenity.mcpPubkeySecretKey (#4624) — the effective
-Secret the StatefulSet projects OPENOVA_MCP_RS256_PUBKEY_PEM from. When the
-per-Org mcpBearer ExternalSecret is enabled AND rs256PubkeySecret still points at
-the chart-default host Secret (`catalyst-handover-jwt`, which holds a JWK in the
-host catalyst-system ns and is ABSENT in the per-Org ns — the exact JWK-vs-PEM
-cross-namespace mismatch the seed producer documents), self-wire to the PKIX PEM
-that the producer seeds ALONGSIDE the bearer in the same materialised
-`agenity-mcp-bearer` Secret (mcpBearer.secretName / .pubkeyKey). An explicit
-rs256PubkeySecret override (name != the chart default) always wins.
+agenity.toolsDir — the in-memory folder the tool-identity sidecar writes the
+tool bearer (bearer) and catalyst-api's signer key set (signers.jwks) into, by
+rename. The workspace container mounts it read-only.
 */ -}}
-{{- define "agenity.mcpPubkeySecretName" -}}
-{{- if and .Values.openovaMCP.mcpBearer.externalSecret.enabled (eq .Values.openovaMCP.rs256PubkeySecret.name "catalyst-handover-jwt") -}}
-{{- .Values.openovaMCP.mcpBearer.secretName -}}
-{{- else -}}
-{{- .Values.openovaMCP.rs256PubkeySecret.name -}}
+{{- define "agenity.toolsDir" -}}/var/run/agenity-tools{{- end -}}
+
+{{- /*
+agenity.organization — the Organization the tool identity is asked for: the
+value toolIdentity.organization, else the namespace of the release. An
+Organization's namespace is named after its slug and carries the label
+openova.io/organization; catalyst-api admits the workspace's account only for
+the Organization of that label.
+*/ -}}
+{{- define "agenity.organization" -}}
+{{- .Values.toolIdentity.organization | default .Release.Namespace -}}
+{{- end -}}
+
+{{- /*
+agenity.actingPerson — the person the workspace's agent acts for: the value
+toolIdentity.actingPerson when set, else the owner of the Organization, read
+from spec.owners of the Organization object (orgs.openova.io/v1, named by the
+slug), the same object catalyst-api reads the person's role from at every issue.
+The one-year bearer this replaces was minted for that owner too. Empty when
+neither gives a person: the token then carries no acting person, its tier stays
+developer and create_application is not offered.
+*/ -}}
+{{- define "agenity.actingPerson" -}}
+{{- if .Values.toolIdentity.actingPerson -}}
+{{- .Values.toolIdentity.actingPerson | lower | trim -}}
+{{- else if .Capabilities.APIVersions.Has "orgs.openova.io/v1/Organization" -}}
+{{- include "agenity.ownerOf" (lookup "orgs.openova.io/v1" "Organization" "" (include "agenity.organization" .)) -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "agenity.mcpPubkeySecretKey" -}}
-{{- if and .Values.openovaMCP.mcpBearer.externalSecret.enabled (eq .Values.openovaMCP.rs256PubkeySecret.name "catalyst-handover-jwt") -}}
-{{- .Values.openovaMCP.mcpBearer.pubkeyKey -}}
-{{- else -}}
-{{- .Values.openovaMCP.rs256PubkeySecret.key -}}
+{{- /*
+agenity.ownerOf — given an Organization object, the email of the first entry
+of spec.owners with role owner, else the first with role admin, in lower case;
+empty for no object or no such entry.
+*/ -}}
+{{- define "agenity.ownerOf" -}}
+{{- $owners := list -}}
+{{- if . -}}{{- $owners = dig "spec" "owners" (list) . -}}{{- end -}}
+{{- $pick := "" -}}
+{{- range $role := list "owner" "admin" -}}
+{{- range $owners -}}
+{{- if and (not $pick) (kindIs "map" .) (eq (lower (toString (.role | default ""))) $role) -}}
+{{- $pick = toString (.email | default "") -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $pick | lower | trim -}}
+{{- end -}}
+
+{{- /*
+agenity.toolIdentityRequest — the body the sidecar sends to
+POST /api/v1/internal/agent-tokens (docs/contracts/model-contract.md section
+2.2): the Organization, the agent and tier the default entry of
+agentTokens.callers admits for the account agenity, the life, and the acting
+person when there is one.
+*/ -}}
+{{- define "agenity.toolIdentityRequest" -}}
+{{- $life := int .Values.toolIdentity.ttlSeconds -}}
+{{- if or (lt $life 60) (gt $life 3600) -}}
+{{- fail (printf "toolIdentity.ttlSeconds is %d: a tool identity lives 60 to 3600 seconds" $life) -}}
+{{- end -}}
+{{- $body := dict "organization" (include "agenity.organization" .) "agent" .Values.toolIdentity.agent "tier" .Values.toolIdentity.tier "ttlSeconds" $life -}}
+{{- $person := include "agenity.actingPerson" . -}}
+{{- if $person -}}{{- $_ := set $body "actingPerson" $person -}}{{- end -}}
+{{- $body | toJson -}}
+{{- end -}}
+
+{{- /*
+agenity.toolIdentityEnv — the environment of both tool-identity containers.
+*/ -}}
+{{- define "agenity.toolIdentityEnv" -}}
+- name: AGENITY_API_URL
+  value: {{ include "agenity.catalystApiUrl" . | quote }}
+- name: AGENITY_TOOL_REQUEST
+  value: {{ include "agenity.toolIdentityRequest" . | quote }}
+- name: AGENITY_TOOL_LIFE
+  value: {{ int .Values.toolIdentity.ttlSeconds | quote }}
+- name: AGENITY_TOOLS_DIR
+  value: {{ include "agenity.toolsDir" . | quote }}
+- name: AGENITY_ACCOUNT_FILE
+  value: /var/run/secrets/agenity/token
+{{- end -}}
+
+{{- /*
+agenity.toolIdentityPass — the function `pass` of both tool-identity
+containers. A pass reads catalyst-api's public signer key set (the tool server
+verifies the bearer with it), then asks the token route for a bearer with the
+projected token of the account, and replaces each file by rename, so a reader
+sees the old file or the new one. A failed pass keeps the files it has and
+returns 1. The bearer and the account token are never printed. The init
+container runs one pass; the sidecar (statefulset.yaml) runs one every third of
+the bearer's life, or 30 seconds after a failed pass.
+*/ -}}
+{{- define "agenity.toolIdentityPass" -}}
+set -u
+umask 077
+d="$AGENITY_TOOLS_DIR"
+renew=$((AGENITY_TOOL_LIFE / 3))
+pass() {
+  if curl -fsS --connect-timeout 5 --max-time 15 -o "$d/.signers.jwks" "$AGENITY_API_URL/api/v1/auth/signers.jwks"; then
+    mv -f "$d/.signers.jwks" "$d/signers.jwks"
+  else
+    echo "[tool-identity] the signer key set could not be read; the tool server keeps the set it has"
+  fi
+  code=$(curl -sS --connect-timeout 5 --max-time 15 -o "$d/.answer" -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer $(cat "$AGENITY_ACCOUNT_FILE")" -H 'Content-Type: application/json' \
+    --data "$AGENITY_TOOL_REQUEST" "$AGENITY_API_URL/api/v1/internal/agent-tokens") || code=000
+  bearer=""
+  if [ "$code" = 200 ]; then
+    bearer=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$d/.answer")
+  fi
+  if [ -n "$bearer" ]; then
+    printf '%s' "$bearer" > "$d/.bearer"
+    mv -f "$d/.bearer" "$d/bearer"
+    echo "[tool-identity] renewed the tool bearer, valid until $(sed -n 's/.*"expiresAt":"\([^"]*\)".*/\1/p' "$d/.answer"); next pass in ${renew}s"
+    rm -f "$d/.answer"
+    return 0
+  fi
+  echo "[tool-identity] the token route answered HTTP $code: $(head -c 300 "$d/.answer" 2>/dev/null)"
+  rm -f "$d/.answer"
+  return 1
+}
+{{- end -}}
+
+{{- /*
+agenity.mcpServer — the openova tool-server entry of CHEPHERD_EXTRA_MCP_JSON
+and of the onboarding file, as JSON. The launcher reads the signer key set the
+sidecar wrote into OPENOVA_MCP_RS256_PUBKEY_SET when the tool server starts;
+the bearer reaches the tool server through the bearer-file setting of the
+workspace container's environment, read at every call. Only knobs that are no
+credential are written here.
+*/ -}}
+{{- define "agenity.mcpServer" -}}
+{{- $env := dict "OPENOVA_MCP_CATALYST_API_URL" (include "agenity.catalystApiUrl" .) "OPENOVA_MCP_CONTEXT" .Values.openovaMCP.context "OPENOVA_MCP_VERIFY" .Values.openovaMCP.verify -}}
+{{- $tenantHost := include "agenity.mcpTenantHost" . -}}
+{{- if $tenantHost -}}{{- $_ := set $env "OPENOVA_MCP_TENANT_HOST" $tenantHost -}}{{- end -}}
+{{- $launch := printf "f=%s/signers.jwks; if [ -s \"$f\" ]; then OPENOVA_MCP_RS256_PUBKEY_SET=$(cat \"$f\"); export OPENOVA_MCP_RS256_PUBKEY_SET; fi; exec %s" (include "agenity.toolsDir" .) .Values.openovaMCP.binaryPath -}}
+{{- dict "command" "/bin/sh" "args" (list "-c" $launch) "env" $env | toJson -}}
 {{- end -}}

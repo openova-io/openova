@@ -10,8 +10,10 @@
 # daemon's own contract and are passed through unchanged.
 #
 # Inviolable Principle #4: no hardcoded secrets/config in code — every knob
-# flows through values → env → the runtime daemon; the Anthropic token
-# comes from a Secret (ExternalSecret/openbao), NEVER a literal here.
+# flows through values → env → the runtime daemon. The chart carries no
+# credential at all: the Organization signs in to Claude inside the workspace
+# with its own plan (the home is on the persistent volume), and the tool server
+# gets a short-lived tool identity from catalyst-api (toolIdentity below).
 
 # Sovereign primary FQDN (e.g. omantel.biz). Used to derive the public
 # console URL the openova MCP forwards calls to when openovaMCP.catalystApiUrl
@@ -26,8 +28,8 @@ image:
 
 # ── Private-registry pull secret (#4111) ──────────────────────────────────
 # The agenity image (`ghcr.io/openova-io/agenity`) is a PRIVATE
-# ghcr.io/openova-io/* package, so both the seed-claude-creds init container
-# and the chepherd main container must pull it WITH credentials. The Sovereign
+# ghcr.io/openova-io/* package, so the init containers and every container of
+# the Pod must pull it WITH credentials. The Sovereign
 # emberstack-reflector reflects a `ghcr-pull` dockerconfigjson Secret into
 # every per-Org `org-*` / pool namespace, but a reflected Secret is INERT
 # unless the Pod spec references it — without this default the StatefulSet
@@ -63,176 +65,31 @@ agent:
   # spawned agent talks to catalyst-api over the PUBLIC console URL, so it
   # needs no in-cluster apiserver access.
   forceLocalSpawner: true
-
-# ── Anthropic API token (the "token already configured" requirement) ──────
-# The solo agent authenticates to Anthropic with this token. It is sourced
-# from a Kubernetes Secret — sk-ant-... is NEVER written into the chart.
-# Two delivery modes:
-#   externalSecret.enabled=true (default, production): an ExternalSecret
-#     pulls the key from openbao (path `anthropic/<org>`) into the Secret.
-#   externalSecret.enabled=false: the operator pre-creates a Secret named
-#     `secretName` with key `anthropicApiKey` out-of-band (e.g. sealed-secret).
-anthropic:
-  secretName: agenity-anthropic-token
-  secretKey: anthropicApiKey
-  # ── claude-code OAuth credentials (#4111) ───────────────────────────────
-  # The spawned claude-code agent authenticates via a FULL credentials.json
-  # ({claudeAiOauth:{accessToken,refreshToken,expiresAt,scopes}}), NOT a bare
-  # ANTHROPIC_API_KEY — an OAuth token (sk-ant-oat01-…) in ANTHROPIC_API_KEY
-  # is rejected by claude-code, and the chepherd spawn path strips
-  # ANTHROPIC_API_KEY anyway. chepherd resolves claude-code creds from
-  # ~/.claude/.credentials.json on the chepherd host (BareExec) or the vault
-  # claude-oauth provider. When credentialsKey is present in the Secret, the
-  # chart's init container seeds ~/.claude/.credentials.json from it so the
-  # solo agent can call Claude. Empty = key-only mode (only works for a real
-  # sk-ant-api03 API key, which the OAuth journey does not use).
-  credentialsKey: credentialsJson
-  # #6163 FREEZE 2 — the seed init container WAITS for the credential instead
-  # of reading the mount once and asserting whatever it saw.
-  #
-  # The old branch printed "no credentials.json key in Secret — key-only mode"
-  # and exited 0 on a miss, forever. Measured on hw293: a workspace held that
-  # line for EIGHT HOURS after the Sovereign's OpenBao path was seeded, with the
-  # Pod reporting Running the whole time — which is what let UAT row R19 ("the
-  # init container validates the token and exits 0") read green over a workspace
-  # that could not talk to Anthropic at all.
-  #
-  # The wait is what makes a late credential land with NO restart: kubelet
-  # re-projects a mounted Secret on its own sync period, so a value seeded after
-  # pod start appears in /creds while this loop is still running.
-  #
-  # "key-only mode" was never a true description of that branch either. This
-  # init container renders ONLY under `anthropic.credentialsKey`, i.e. only when
-  # OAuth mode was requested; a genuinely key-only install sets credentialsKey
-  # to "" and gets no init container at all. So the miss could only ever mean
-  # "the credential you asked for did not arrive", and it named a supported
-  # operating mode instead.
-  credentialWait:
-    # Total seconds to wait for the credential to appear. Spans the ExternalSecret
-    # refreshInterval by default so a seed landing on the next ESO sync is caught.
-    timeoutSeconds: 300
-    intervalSeconds: 5
-    # What to do when the credential never arrives.
-    #   fail     — exit non-zero. The Pod shows Init:Error / CrashLoopBackOff in
-    #              `kubectl get pod`, which is the honest signal: the workspace
-    #              cannot do the thing it exists to do.
-    #   continue — start anyway, having said so loudly. Restores the pre-#6163
-    #              shape for anyone who wants a shell over an honest error.
-    onTimeout: fail
-  # #6163 FREEZE 3 — an EXPIRED credential is as unusable as an absent one, so
-  # it gets the same verdict.
-  #
-  # FREEZE 2 made the ABSENT branch fail-loud on exactly this reasoning: a Pod
-  # that cannot do the thing it exists to do must not read Running. But the
-  # branch one line over — credential PRESENT and already EXPIRED — still
-  # printed a warning and exited 0. The init container had already parsed the
-  # expiry (it prints "EXPIRED ~Nh ago"), then threw the verdict away.
-  #
-  # That is the SAME false-green FREEZE 2 was cut to kill, and it is the one
-  # R19 actually reads: R19's clause is "the init container validates the token
-  # and exits 0", and an expired token satisfies it literally — Pod Running,
-  # init exit 0, row green — while every spawned agent fails "401 Invalid
-  # authentication credentials" and G8/G9/222 sit red behind a green R19. The
-  # live precedent is in the template comment: on omantel.biz a token expired
-  # ~45h prior left the dashboard serving and every spawn 401ing, with no
-  # signal other than "runtime offline · 0 workers".
-  #
-  # The seeded blob is a claudeAiOauth pair whose accessToken lives HOURS, and
-  # headless claude-code does not reliably refresh it from the refreshToken —
-  # see the template comment. Until #6317 nothing else did either, which made
-  # expiry the EXPECTED steady state of a credential nobody rotated rather than
-  # a rare edge.
-  #
-  # #6317 changed the odds but NOT the need for this verdict. catalyst-api now
-  # renews the credential 2h before expiry and the resync sidecar below carries
-  # a renewal into a running Pod, so a healthy Sovereign should never present an
-  # expired blob here. When one arrives anyway the renewal chain is broken —
-  # a spent refresh token, a blob without one, an unreachable OAuth endpoint —
-  # and that is exactly when this branch must still fail loudly instead of
-  # starting a workspace whose every spawn 401s.
-  #
-  #   fail     — exit non-zero, same as the absent branch. Init:Error surfaces
-  #              in `kubectl get pod` instead of a Running Pod that 401s.
-  #   continue — start anyway, having said so loudly. Restores the pre-FREEZE-3
-  #              diagnostic-only posture for anyone who wants the dashboard to
-  #              serve over an honest error.
-  onExpiredCredential: fail
-  # ── #6317 — keep a RUNNING Pod's credential current ──────────────────────
-  # The init container copies the credential once, at pod start, into the
-  # shared emptyDir; the main container mounts that emptyDir and not the
-  # Secret, so a running workspace has no live view of /creds. With a ~5h
-  # accessToken and a long-running StatefulSet, the file every agent spawn
-  # reads goes stale on a timer — and no amount of renewing upstream reaches
-  # it. This sidecar copies a NEWER credential forward with no pod restart, so
-  # in-flight agent sessions survive the rotation.
-  #
-  # Disable only where the workspace is expected to be short-lived enough that
-  # its start-time copy outlives it.
-  credentialResync:
-    enabled: true
-    # 2m. Small next to the 2h renewal margin catalyst-api works with, and the
-    # check is a single cheap stat+parse, so a tighter interval buys nothing.
-    intervalSeconds: 120
-    resources:
-      requests:
-        cpu: 5m
-        memory: 16Mi
-      limits:
-        cpu: 50m
-        memory: 64Mi
-  externalSecret:
-    enabled: true
-    # #6317 — 15m, not 1h. The accessToken this Secret carries lives ~5h and
-    # catalyst-api now renews it 2h before expiry, so the ESO sync is what
-    # decides whether the renewal ARRIVES in time. At 1h the R19 walk had to
-    # add a force-sync annotation to see a correct credential land inside the
-    # walk, and its own stamp names the cost: "without it the credential is
-    # correct but up to an hour late — worth a shorter interval on a credential
-    # whose accessToken lives ~5h." An hour of the 2h renewal margin spent
-    # waiting for a poll leaves no room for the kubelet re-projection and the
-    # in-Pod re-sync below it.
-    refreshInterval: 15m
-    # ClusterSecretStore that fronts the Org's openbao (region1 default).
-    secretStoreRef: vault-region1
-    secretStoreKind: ClusterSecretStore
-    # openbao path + property holding the sk-ant-... token.
-    #
-    # #4277 — the PRODUCER (catalyst-api seedAnthropicToken) writes this
-    # path at Org-create. It lives under the `catalyst/` prefix because
-    # that is the ONLY KV sub-tree a Sovereign can WRITE: the catalyst-api
-    # holds the `catalyst-api-write` OpenBao policy (secret/{data,metadata}/
-    # catalyst/*), whereas the `external-secrets` role `vault-region1`
-    # reads with is read-only. A bare `anthropic/token` path has no writer
-    # on a Sovereign, so the ExternalSecret stayed SecretSyncedError on
-    # every fresh Org. The path is cluster-shared — one seed serves every
-    # Org's agenity install.
-    remoteKey: catalyst/anthropic/token
-    remoteProperty: apiKey
-    # openbao property holding the full claude-code credentials.json blob.
-    remoteCredentialsProperty: credentialsJson
+  # Claude Code's tool search. On a plan sign-in it offers the model a search
+  # tool instead of each tool server's tools, so the agent reaches the openova
+  # tools only through a search step (AIP-250, T3). false (default) sets
+  # ENABLE_TOOL_SEARCH=false: the openova tools are offered up front. true
+  # leaves Claude Code's own default.
+  toolSearch: false
 
 # ── openova MCP integration ───────────────────────────────────────────────
 # The chepherd image bundles the `openova-mcp` binary at /usr/local/bin.
 # chepherd injects this MCP-server stanza into EVERY spawned agent's
 # .mcp.json via the CHEPHERD_EXTRA_MCP_JSON seam (chepherd #4010), so the
-# solo agent's app-creation tools == the User's UI rights, RBAC-scoped to
-# the User's Org.
+# solo agent's app-creation tools are scoped to the User's Org.
 #
-# RBAC parity: the openova MCP holds NO privileged token; it forwards the
-# caller's session bearer to the live catalyst-api, whose own authz is the
-# final word. The bearer is presented per-call by the agent (the chat UI
-# supplies the User's session token), so create_application is gated to
-# tier-admin-or-higher and pinned to the User's own Org.
+# The openova MCP holds NO long-lived token. Its bearer is the tool identity
+# (toolIdentity below): an agent token of at most one hour for this
+# Organization, which catalyst-api judges on every call, the final word.
 openovaMCP:
   enabled: true
   binaryPath: /usr/local/bin/openova-mcp
-  # catalyst-api base URL the MCP forwards calls to. The agenity Application
-  # runs INSIDE the Org's vCluster, which cannot resolve the host
-  # catalyst-api.catalyst-system.svc name (#4111) — the host Service is not
-  # mirrored into the vCluster DNS. Use the Sovereign's public console FQDN
-  # (the Cilium Gateway routes /api/v1/* to catalyst-api and terminates
-  # session auth). Empty = the chart derives https://console.<sovereign-fqdn>
-  # from the Sovereign FQDN. Override for a host-namespace (non-vCluster)
+  # catalyst-api base URL the MCP forwards calls to and the tool-identity
+  # sidecar asks for its bearer at. The agenity Application cannot rely on
+  # the host catalyst-api.catalyst-system.svc name (#4111). Use the public
+  # console FQDN (the Cilium Gateway routes /api/ to catalyst-api, on a
+  # Sovereign host and on an Organization host alike). Empty = the chart
+  # derives https://console.<sovereignFqdn>. Override for a host-namespace
   # install where the in-cluster Service name resolves.
   catalystApiUrl: ""
   # tenantHost — the Organization console host (console.<slug>.<pool>) the
@@ -251,96 +108,50 @@ openovaMCP:
   # is resolvable.
   tenantHost: ""
   # Pins the MCP to the Organization context so even a wider token cannot
-  # widen the surface beyond the User's Org (defense in depth).
+  # widen the surface beyond the User's Org (defense in depth). An agent
+  # token is accepted only by a tool server in organization context.
   context: organization
-  # Bearer verification mode for the MCP (rs256 against the Sovereign
-  # handover signer pubkey). The pubkey MUST match the key catalyst-api
-  # SIGNS sessions with (#4114: catalyst-api publishes its runtime signer
-  # pubkey to the catalyst-handover-jwt-public Secret, the source of truth).
-  #
-  # 🛑 The secretKeyRef driven by rs256PubkeySecret is rendered optional:true
-  # in the StatefulSet (#4228): the source Secret lives in the host
-  # catalyst-system namespace, not the per-Org namespace this Application
-  # installs into, so a non-optional ref would block the pod from starting
-  # (dashboard AND chat) in an Org install. Absent → the env var is simply
-  # unset and the openova-mcp falls back to reading it from its inherited
-  # process env (bearer_fallback=true). To pin a real per-Org pubkey, reflect
-  # catalyst-handover-jwt-public into the Org ns and override name/key here —
-  # never Helm-seed a placeholder value (reflector empty-seed trap).
+  # Bearer verification mode for the MCP: rs256 against catalyst-api's own
+  # signer key set, GET /api/v1/auth/signers.jwks, which the tool-identity
+  # sidecar reads at every pass. The tool server's launcher hands that set
+  # to the tool server as OPENOVA_MCP_RS256_PUBKEY_SET when it starts. No
+  # Secret carries it.
   verify: rs256
-  rs256PubkeySecret:
-    name: catalyst-handover-jwt
-    key: handover-jwt-public.pem
-  # ── Per-call bearer injection (#4111 / #4116 / #4110) ────────────────────
-  # The openova MCP needs the User's session bearer per tools/call (via
-  # _auth.token or the OPENOVA_MCP_BEARER env). The production seam is the
-  # chat UI forwarding the signed-in User's session token into each call;
-  # that chepherd-side injection is tracked separately. As an interim, an
-  # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER.
-  #
-  # 🛑 For an ORG-deployed agenity (the customer's own Organization, e.g. the
-  # demo Org on omantel.biz) the bearer MUST be ORG-SCOPED, NOT sovereign-admin:
-  #   - tier: "org-admin"  (auth.OrgScopedTier — the top-of-OWN-Org marker)
-  #   - org_id / org: "<org-slug>"  (e.g. "demo")
-  #   - role: "openova-user"; typ: "session"; iss: <CATALYST_PIN_ISSUER>
-  #   - RS256-signed by the Sovereign's handover signer
-  #     (/var/lib/catalyst/handover-jwt-private.pem — the SAME key whose pubkey
-  #      is in catalyst-handover-jwt/handover-jwt-public.pem, what the MCP
-  #      verifies against in rs256 mode).
-  # This shape resolves in the openova-mcp to (context=organization, tier=admin,
-  # org_id=<org>) — so create_application (MinTier=Admin) is allowed and routes
-  # to the own-org POST /api/v1/org/applications path (OrgScopeGuard-allowlisted,
-  # #4116), and the #4110 confinement holds (no Sovereign signal in the token).
-  # A sovereign-admin bearer (tier=owner / role=sovereign-admin) is WRONG here:
-  # the MCP would resolve context=sovereign and create_application falls through
-  # to POST /api/v1/sovereigns/{id}/applications, which the #4110 OrgScopeGuard
-  # 403s because the MCP also host-scopes the session (X-Tenant-Host) → the
-  # "org-scoped-forbidden" wedge this seam exists to avoid.
-  #
-  # MUST pair with openovaMCP.context=organization (the default below). Empty =
-  # rely on per-call _auth.token from the UI seam.
-  bearerSecret:
-    name: ""
-    key: bearer
 
-  # ── Per-Org MCP bearer + verify-pubkey ExternalSecret (#4276 hop 7/7b) ───
-  # The PRODUCER side of the OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM
-  # wiring. The catalyst-api org-pipeline (seedMCPBearer, #4276) mints an
-  # Org-scoped Catalyst session JWT (tier=org-admin, org_id=<slug>,
-  # role=openova-user, typ=session, RS256-signed by the Sovereign handover
-  # signer) AND the matching RS256 verify PUBKEY (PKIX PEM), and writes BOTH
-  # to the per-Org OpenBao path `secret/catalyst/agenity/<slug>/mcp-bearer`
-  # (properties `bearer` + `pubkeyPem`). With externalSecret.enabled, this
-  # chart pulls them into the per-Org K8s Secret `secretName`, and the
-  # org-gitops emitter (organization_gitops.go) points
-  # openovaMCP.bearerSecret + openovaMCP.rs256PubkeySecret at it so the
-  # StatefulSet projects OPENOVA_MCP_BEARER and OPENOVA_MCP_RS256_PUBKEY_PEM.
-  #
-  # Why bearer + pubkey travel together: the pubkey that VERIFIES the bearer
-  # is the public half of the SAME handover signer that MINTED it. Seeding
-  # them through one path/ExternalSecret sidesteps the JWK-vs-PEM
-  # cross-namespace mismatch (the only published mirror,
-  # catalyst-handover-jwt-public in catalyst-system, holds a JWK, while the
-  # MCP wants PKIX PEM and lives in the per-Org ns, #4228).
-  #
-  # Disabled by default (no producer outside a Sovereign Org-pipeline). When
-  # enabled, the org-gitops emitter sets remoteKey to the per-Org path.
-  mcpBearer:
-    secretName: agenity-mcp-bearer
-    externalSecret:
-      enabled: false
-      refreshInterval: 1h
-      secretStoreRef: vault-region1
-      secretStoreKind: ClusterSecretStore
-      # Per-Org OpenBao KV-v2 key — set by the org-gitops emitter to
-      # `catalyst/agenity/<slug>/mcp-bearer`.
-      remoteKey: ""
-      # KV-v2 property names the producer writes (seedMCPBearer).
-      remoteBearerProperty: bearer
-      remotePubkeyProperty: pubkeyPem
-    # K8s Secret keys the StatefulSet's bearerSecret/rs256PubkeySecret read.
-    bearerKey: bearer
-    pubkeyKey: pubkeyPem
+# ── The tool identity (AIP-152, AIP-153, AIP-154, AIP-155) ────────────────
+# The workspace's tool server forwards an agent token to catalyst-api: one
+# Organization, one agent, a life of at most one hour. A sidecar asks for it
+# at POST /api/v1/internal/agent-tokens with the projected token of the
+# account below, every third of its life, and replaces the bearer file by
+# rename; the tool server reads that file at every call (AIP-152). Nothing
+# long-lived is stored, seeded or copied.
+toolIdentity:
+  # The account the workspace runs as. The default entry of
+  # agentTokens.callers in bp-catalyst-platform admits the account agenity in
+  # the namespace of each Organization, for that Organization only.
+  serviceAccount: agenity
+  # The agent and tier asked for: those that default entry admits.
+  agent: agenity
+  tier: developer
+  # The bearer's life in seconds, 60 to 3600; renewed every third of it.
+  ttlSeconds: 3600
+  # The Organization asked for. Empty = the release namespace, which is named
+  # after the Organization's slug.
+  organization: ""
+  # The person the agent acts for, an email address. Empty = the owner of
+  # the Organization, read from spec.owners of the Organization object when
+  # the chart is installed. catalyst-api writes the acting person into the
+  # token only while that person holds admin or owner in the Organization,
+  # and only such a token may call create_application.
+  actingPerson: ""
+  # requests == limits: the per-Org plan LimitRange admits no other ratio.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 10m
+      memory: 32Mi
 
 # ── Daemon HTTP auth (browser chat-box trust mode) ────────────────────────
 # The chepherd daemon's default auth mode is "local": it mints a bootstrap
@@ -357,8 +168,8 @@ openovaMCP:
 # chepherd's auth.New() return an error, the daemon logs "server is
 # unauthenticated", rs.AuthToken stays empty, and authMiddleware becomes a
 # no-op — the browser chat box works with zero 401s. The openova-mcp →
-# catalyst-api create_application path is UNAFFECTED (it uses the separate
-# RS256 OPENOVA_MCP_BEARER / _auth.token seam, not this daemon token).
+# catalyst-api path is UNAFFECTED (it carries the separate tool identity,
+# toolIdentity above, not this daemon token).
 daemon:
   # "none" → daemon runs unauthenticated so the in-browser chat box works.
   # Set to "local" to restore the per-request Bearer (chat box then 401s in
@@ -562,24 +373,30 @@ networkPolicy:
     # reserved `ingress` entity (the Cilium Gateway Envoy) to service.port.
     # Disable only on a non-Cilium overlay that fronts agenity differently.
     allowGatewayEntity: true
-  # ── External-HTTPS egress (#4604) ────────────────────────────────────────
-  # The solo agent (claude-code) calls api.anthropic.com and the openova-mcp
-  # child forwards create_application to the public Sovereign console — both
-  # off-cluster :443 hops to an external EIP no K8s selector can name. On a
-  # Cilium Sovereign that needs a CiliumNetworkPolicy `toEntities:[world]:443`
-  # egress carve-out (templates/cilium-egress-networkpolicy.yaml). DEFAULT-ON
-  # for the agentic app: without it a fresh Org / re-prov silently loses
-  # Anthropic + catalyst-api reachability (the nstar2 North-Star walk only
-  # worked after a hand-applied stopgap CNP — this makes it chart-durable).
+  # ── External-HTTPS egress (#4604, AIP-250) ───────────────────────────────
+  # Off-cluster :443 hops to addresses no K8s selector can name: Claude Code
+  # calls api.anthropic.com (the model, the profile at every start) and
+  # refreshes the Organization's sign-in at platform.claude.com; the openova
+  # MCP child and the tool-identity sidecar reach catalyst-api at the public
+  # console host. The person's browser alone reaches claude.com, to sign in.
+  # On a Cilium Sovereign that needs a CiliumNetworkPolicy
+  # `toEntities:[world]:443` egress carve-out
+  # (templates/cilium-egress-networkpolicy.yaml). DEFAULT-ON for the agentic
+  # app: without it a fresh Org / re-prov silently loses the model and
+  # catalyst-api (the nstar2 North-Star walk only worked after a hand-applied
+  # stopgap CNP — this makes it chart-durable).
   egress:
     # allowExternalHttps → emit the egress CNP (world:443 + DNS preserved).
-    # Disable only on an air-gapped Sovereign that mirrors Anthropic + the
-    # console behind an in-cluster proxy the agent reaches without world egress.
+    # Disable only on an air-gapped Sovereign that reaches the model and the
+    # console through an in-cluster proxy without world egress.
     allowExternalHttps: true
-    # External HTTPS port for both the Anthropic + console hops (443).
+    # External HTTPS port of the model, sign-in and console hops (443).
     httpsPort: 443
 
 # ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
+# The state claim also holds the workspace home (folder claude-home: the
+# Organization's sign-in and the onboarding file), so a restart keeps the
+# sign-in. With enabled=false both are emptyDirs and a restart loses it.
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
 # NEVER local-path (#3971): leaving storageClass empty resolves to the
 # per-provider CSI default the platform installs.

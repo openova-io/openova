@@ -1,12 +1,18 @@
 {{- /*
-#4604 (Pillar-4 North Star): the agenity solo agent (claude-code) MUST reach
-api.anthropic.com over external HTTPS to answer chat AND the openova-mcp child
-MUST reach the public Sovereign console (https://console.<fqdn>) to drive
-create_application — BOTH are off-cluster :443 hops to an external EIP that no
-Pod/namespace/ipBlock K8s selector can name. On a Cilium Sovereign the canonical
-expression is a CiliumNetworkPolicy `toEntities: [world]` egress carve-out
-(mirrors openclaw #4401 + the cilium-ingress-networkpolicy.yaml `fromEntities`
-idiom in this same chart).
+#4604 (Pillar-4 North Star), AIP-250: the agenity workspace reaches three
+off-cluster :443 hosts, none of which a Pod/namespace/ipBlock K8s selector can
+name:
+  - api.anthropic.com: the model calls, and the profile read at every start of
+    Claude Code on the Organization's own sign-in;
+  - platform.claude.com: where Claude Code refreshes that sign-in;
+  - the public console https://console.<fqdn>: the openova-mcp child forwards
+    its tool calls there, and the tool-identity sidecar asks the token route
+    there for its bearer and reads the signer key set.
+The person's browser alone reaches claude.com, to sign in; the Pod does
+not need it.
+On a Cilium Sovereign the canonical expression is a CiliumNetworkPolicy
+`toEntities: [world]` egress carve-out (mirrors openclaw #4401 + the
+cilium-ingress-networkpolicy.yaml `fromEntities` idiom in this same chart).
 
 WHY THIS IS DURABLE (not a live-patch): the North-Star walk on nstar2 (dep
 91dc05917e44d1c1) only made the chat reachable after a HAND-APPLIED CNP
@@ -45,9 +51,9 @@ spec:
     matchLabels:
       {{- include "agenity.selectorLabels" . | nindent 6 }}
   egress:
-    # ── External HTTPS — api.anthropic.com (the solo agent's model calls) +
-    # the public Sovereign console https://console.<fqdn> the openova-mcp
-    # child forwards create_application to (#4604). No Pod/ipBlock selector
+    # ── External HTTPS — api.anthropic.com (model calls, profile),
+    # platform.claude.com (the sign-in's refresh) and the public console
+    # https://console.<fqdn> (tool calls, the tool identity). No Pod/ipBlock selector
     # can name an external EIP, so `toEntities: [world]` :443 is the canonical
     # carve-out. `cluster`/`host`/`remote-node` keep in-cluster legs alive
     # under the new default-deny egress posture this rule introduces.
