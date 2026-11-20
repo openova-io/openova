@@ -935,9 +935,10 @@ jobs:
       #
       # Idempotent reset-and-rewrite: parallel matrix jobs (multiple
       # changed Blueprints in the same push) could race on the same
-      # branch. Retry up to 3 times with `git fetch + reset --hard
-      # origin/main + re-sed` so concurrent runs produce strictly
-      # ordered commits instead of clobbering each other.
+      # branch. The commit step retries with `git fetch + reset --hard
+      # origin/main + re-sed` until its commit lands (a bound far above the
+      # charts of one run), so concurrent runs produce strictly ordered
+      # commits instead of clobbering each other.
       - name: "Auto-bump bootstrap-kit pin for ${{ steps.chart.outputs.name }}"
         if: steps.chart.outputs.skip != 'true'
         id: bump_pin
@@ -1250,6 +1251,7 @@ jobs:
         # to commit.
         if: steps.chart.outputs.skip != 'true' && (steps.bump_chart.outputs.bumped == 'true' || steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
         env:
+          CHART_PATH: ${{ matrix.path }}
           CHART_BUMPED: ${{ steps.bump_chart.outputs.bumped }}
           CHART_FILE: ${{ steps.bump_chart.outputs.chart_yaml }}
           CHART_PREV_VERSION: ${{ steps.bump_chart.outputs.prev_version }}
@@ -1264,6 +1266,27 @@ jobs:
           SEED_BUMPED: ${{ steps.sync_seed.outputs.bumped }}
         run: |
           set -euo pipefail
+          # Whatever ends this step with an error leaves every site of the chart
+          # behind on main: the error and the summary name the chart and the
+          # release to start. A dispatched run of that chart pushes the same
+          # files again and writes every site; it refuses other files (FND-029).
+          lockstep_lost() {
+            local rc=$?
+            if [ "$rc" -eq 0 ]; then
+              return 0
+            fi
+            local path="${CHART_PATH:-}"
+            local again="gh workflow run blueprint-release.yaml --ref main -f blueprint=${path#*/} -f tree=${path%%/*}"
+            echo "::error title=Lockstep not written: ${CHART_NAME} ${CHART_VERSION}::${CHART_NAME} ${CHART_VERSION} is in the registry, but main carries none of its sites (${LOST_WHY:-the step ended with exit ${rc}}). Start its release again: ${again}"
+            {
+              echo "### ✗ ${CHART_NAME} ${CHART_VERSION}: in the registry, NOT written to main"
+              echo ""
+              echo "- **Why:** ${LOST_WHY:-the step ended with exit ${rc}}"
+              echo "- **Start its release again:** \`${again}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$rc"
+          }
+          trap lockstep_lost EXIT
           git config user.name "hatiyildiz"
           git config user.email "hatiyildiz@users.noreply.github.com"
 
@@ -1282,6 +1305,18 @@ jobs:
           # whatever state is currently on origin/main, and re-commit.
           # The operation is convergent: every retry produces the same
           # final state (pin=CHART_VERSION, blueprint=CHART_VERSION).
+          # A lost push loses a chart (20 Nov 2026, run 44821486879): the six
+          # jobs of one run pushed within seconds of each other, five landed,
+          # and bp-cert-manager-powerdns-webhook 1.1.3 was refused three times,
+          # so it was in the registry while main kept 1.1.2 with its new files.
+          # So the loop below pushes until the commit lands, up to
+          # LOCKSTEP_PUSH_ATTEMPTS (default 50) times: a push is refused only
+          # when another commit landed first, and one run rarely has more than
+          # ten charts. It pauses up to LOCKSTEP_PUSH_PAUSE_MAX seconds (default
+          # 5, at random) before each new try, so the jobs stop pushing in step,
+          # and logs every refused try. When the step fails for any reason, the
+          # trap names the chart in the error and in the summary with the
+          # release to start (cmd/release-push in tools/guards runs this step).
           # FND-018: a site that holds a HIGHER version on origin/main was
           # moved by a newer run of this chart. It is left alone, with a note in
           # the log and the summary; an older run never moves a site back.
@@ -1428,9 +1463,12 @@ jobs:
           subject="${msg%%$'\n'*}"
           git commit -m "${subject} [skip ci]${msg#"$subject"}"
 
-          for i in 1 2 3; do
+          attempts="${LOCKSTEP_PUSH_ATTEMPTS:-50}"
+          pause_max="${LOCKSTEP_PUSH_PAUSE_MAX:-5}"
+          i=1
+          while :; do
             if git push origin HEAD:main; then
-              echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED}, seed=${SEED_BUMPED})"
+              echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED}, seed=${SEED_BUMPED}) at push attempt ${i} of ${attempts}"
               # FND-027: say whether the commit that landed moved the funnel pin.
               # Written once, after the one push that succeeded, also on a retry.
               if git diff --quiet HEAD~1 HEAD -- "$SEED_FUNNEL"; then
@@ -1440,8 +1478,18 @@ jobs:
               fi
               exit 0
             fi
-            echo "push attempt $i failed — re-fetching origin/main and re-applying lockstep"
-            git fetch origin main
+            if [ "$i" -ge "$attempts" ]; then
+              break
+            fi
+            pause=0
+            if [ "$pause_max" -gt 0 ]; then
+              pause=$(( RANDOM % pause_max + 1 ))
+            fi
+            echo "push attempt $i of ${attempts} for ${CHART_NAME}=${CHART_VERSION} was refused — in ${pause}s re-fetching origin/main and re-applying lockstep"
+            sleep "$pause"
+            if ! git fetch origin main; then
+              echo "::warning title=Lockstep push::could not fetch origin/main before push attempt $((i + 1)) for ${CHART_NAME}; the next push is tried on the main fetched last."
+            fi
             git reset --hard origin/main
 
             did_chart=0
@@ -1492,8 +1540,9 @@ jobs:
             if [ "$did_bp" -eq 1 ]; then parts="${parts:+${parts}+}blueprint.yaml"; fi
             if [ "$did_seed" -eq 1 ]; then parts="${parts:+${parts}+}catalog-seed"; fi
             git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i) [skip ci]"
+            i=$((i + 1))
           done
-          echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
+          LOST_WHY="main refused its lockstep commit ${attempts} times"
           exit 1
 
       # FND-027: the funnel pin DefaultHRAppChartVersions is compiled into the
