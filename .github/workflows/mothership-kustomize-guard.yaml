@@ -23,16 +23,47 @@ on:
 permissions:
   contents: read
 
+# The kustomize this check builds with: a pinned release, taken from its release download
+# address and checked against the sha256 below. Not upstream's install_kustomize.sh: that
+# script asks api.github.com for the newest release without signing in, so the check
+# failed whenever the shared runners were rate-limited, and it built with whatever release
+# was newest that day. v5.4.3 is the kustomize of the Flux in the kit: platform/flux/chart
+# pins Flux v2.4.0, whose kustomize-controller v1.4.0 builds with sigs.k8s.io/kustomize/api
+# v0.17.3, the api of kustomize v5.4.3 (scripts/tests/test_ring_switch.sh and
+# infra-local-tofu.yaml use the same release). Bump the version and the sha256 together,
+# with the Flux pin; the sha256 is the linux_amd64 line of the release's checksums.txt.
+env:
+  KUSTOMIZE_VERSION: v5.4.3
+  KUSTOMIZE_SHA256: 3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7
+
 jobs:
   guard:
     name: mothership raw-kustomize build must succeed
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install kustomize
+      - name: Install kustomize (pinned release, sha256 checked, no GitHub API)
         run: |
-          curl -sfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          sudo mv kustomize /usr/local/bin/kustomize
-          kustomize version
+          set -euo pipefail
+          url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tgz="$RUNNER_TEMP/kustomize.tar.gz"
+          got=""
+          for try in 1 2 3; do
+            if curl -fsSL --connect-timeout 20 --max-time 120 -o "$tgz" "$url"; then got=yes; break; fi
+            echo "download $try of 3 failed: $url"
+            if [ "$try" -lt 3 ]; then sleep 10; fi
+          done
+          if [ -z "$got" ]; then
+            echo "::error::cannot download kustomize ${KUSTOMIZE_VERSION} from $url after 3 tries"
+            exit 1
+          fi
+          if ! echo "${KUSTOMIZE_SHA256}  $tgz" | sha256sum -c -; then
+            echo "::error::kustomize ${KUSTOMIZE_VERSION} from $url does not match the sha256 written in this workflow"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/bin" kustomize
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/kustomize" version
       - name: Guard — no bare Helm {{ }} in mothership-consumed templates (#5290/#5292)
         run: bash scripts/check-mothership-kustomize-plain-yaml.sh

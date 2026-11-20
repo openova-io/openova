@@ -10,6 +10,14 @@ subchart already ships, which carries the nats command-line tool.
 It dials the Service of the nats subchart, <fullname>:<port>, with <fullname>
 computed the way the subchart computes it. The chart has no master gate, so the
 test always renders.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the servers are up:
+it adds the stream again every 5 seconds until second 240 of its 300 (adding a
+stream again with the same configuration is answered as a success). The names
+hold the time and a random number. The script never writes two dollar signs in
+a row: Kubernetes turns them into one in a container's args before the shell
+reads them.
 */ -}}
 {{- $sub := .Values.nats | default dict }}
 {{- $name := $sub.nameOverride | default "nats" }}
@@ -59,11 +67,15 @@ spec:
           set -u
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           oneline() { printf '%s' "$1" | tr '\n' ' ' | cut -c1-200; }
-          id="$(date +%s)_$$"
+          start="$(date +%s)"
+          id="${start}_$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"
           stream="FUNCTION_TEST_${id}"
           subject="function-test.${id}"
           body="function test message ${id}"
-          out="$(nats --server "${NATS_URL}" stream add "${stream}" --subjects "${subject}" --storage file --replicas 1 --defaults 2>&1)" || fail "stream add on ${NATS_URL} failed: $(oneline "${out}")"
+          until out="$(nats --server "${NATS_URL}" stream add "${stream}" --subjects "${subject}" --storage file --replicas 1 --defaults 2>&1)"; do
+            [ "$(( $(date +%s) - start ))" -lt 240 ] || fail "stream add on ${NATS_URL} failed for 240 seconds: $(oneline "${out}")"
+            sleep 5
+          done
           # From here every failure deletes the scratch stream, then fails.
           undo() { nats --server "${NATS_URL}" stream rm "${stream}" -f >/dev/null 2>&1; fail "$1"; }
           # A request to a stream subject is answered by JetStream with its acknowledgement: {"stream":"<name>","seq":<n>}.

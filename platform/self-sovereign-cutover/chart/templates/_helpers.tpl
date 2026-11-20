@@ -125,14 +125,44 @@ one declaration — this is the retirement of the three hand-maintained lists.
    planes, sso-bridge) are local, but step-08 counted them UNMAPPED and the
    sovereignty proof failed on hw307 (2026-11-06). Treat harbor.<fqdn> as a
    host-swap/path-preserve alias of the local registry. */ -}}
-{{- $fq := .Values.sovereign.fqdn | default "" -}}
-{{- if and $fq (ne $fq "example.local") -}}
-{{- $alias := printf "harbor.%s" $fq -}}
-{{- if not (has $alias $hosts) -}}
+{{- $alias := include "bp-self-sovereign-cutover.localRegistryAliasesInline" . -}}
+{{- if and $alias (not (has $alias $hosts)) -}}
 {{- $pairs = append $pairs (printf "%s:" $alias) -}}
 {{- end -}}
-{{- end -}}
 {{- join " " $pairs -}}
+{{- end -}}
+
+{{/*
+The other name of the local registry: harbor.<fqdn>, onto which steps 07
+(LOCAL_IMAGE_HOST), 10 and 11 pivot references. The coverage map above and the
+resolver (LOCAL_REGISTRY_ALIASES) read this one declaration.
+*/}}
+{{- define "bp-self-sovereign-cutover.localRegistryAliasesInline" -}}
+{{- $fq := .Values.sovereign.fqdn | default "" -}}
+{{- if and $fq (ne $fq "example.local") -}}{{- printf "harbor.%s" $fq -}}{{- end -}}
+{{- end -}}
+
+{{/*
+The local projects a cutover step pivots references into that the coverage map
+does not name, as `host:project`: step 11 rewrites <upstreamHost>/<path> to
+harbor.<fqdn>/<registryPath>/<path> (.Values.crossplaneProviderPivot, which
+step 11 reads). offlinemirror_upstream_ref inverts it (PIVOT_PROJECT_MAP).
+*/}}
+{{- define "bp-self-sovereign-cutover.pivotProjectMapInline" -}}
+{{- with .Values.crossplaneProviderPivot -}}
+{{- if and .upstreamHost .registryPath -}}{{- printf "%s:%s" .upstreamHost .registryPath -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The local projects that are Harbor proxy caches (.Values.harbor.proxyProjects,
+which step 02 creates): Harbor refuses a push into them, so step 03 fills one by
+a read through it with the local credential (PROXY_CACHE_PROJECTS).
+*/}}
+{{- define "bp-self-sovereign-cutover.proxyCacheProjectsInline" -}}
+{{- $n := list -}}
+{{- range .Values.harbor.proxyProjects -}}{{- $n = append $n .name -}}{{- end -}}
+{{- join " " $n -}}
 {{- end -}}
 
 {{/*

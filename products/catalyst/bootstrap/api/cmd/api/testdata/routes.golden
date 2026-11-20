@@ -49,6 +49,10 @@ GET /api/v1/fleet/treemap handler.(*Handler).HandleFleetTreemap-fm 2
 GET /api/v1/flows/{deploymentId}/snapshot handler.(*Handler).HandleFlowSnapshot-fm 2
 GET /api/v1/flows/{deploymentId}/stream handler.(*Handler).HandleFlowStream-fm 2
 GET /api/v1/handover/public-key handler.(*Handler).GetHandoverPublicKey-fm 2
+GET /api/v1/ops/incidents *opsproxy.Proxy 2
+GET /api/v1/ops/incidents/{id} *opsproxy.Proxy 2
+GET /api/v1/ops/judgements *opsproxy.Proxy 2
+GET /api/v1/ops/stream *opsproxy.Proxy 2
 GET /api/v1/org/applications handler.(*Handler).HandleOrgApplications-fm 2
 GET /api/v1/org/billing/revenue handler.(*Handler).HandleGetOrgBillingRevenue-fm 2
 GET /api/v1/org/billing/vouchers/list handler.(*Handler).HandleListOrgBillingVouchers-fm 2
@@ -175,6 +179,7 @@ POST /api/v1/internal/organizations/{id}/overage-resume handler.(*Handler).Handl
 POST /api/v1/internal/organizations/{id}/overage-stop handler.(*Handler).HandleInternalOverageStopOrganization-fm 1
 POST /api/v1/internal/organizations/{id}/resume handler.(*Handler).HandleInternalResumeOrganization-fm 1
 POST /api/v1/internal/organizations/{id}/suspend handler.(*Handler).HandleInternalSuspendOrganization-fm 1
+POST /api/v1/ops/incidents/{id}/actions *opsproxy.Proxy 2
 POST /api/v1/org/applications handler.(*Handler).HandleOrgApplicationInstall-fm 2
 POST /api/v1/org/billing/purchase handler.(*Handler).HandleOrgBillingPurchase-fm 2
 POST /api/v1/org/billing/vouchers/issue handler.(*Handler).HandleIssueOrgBillingVoucher-fm 2

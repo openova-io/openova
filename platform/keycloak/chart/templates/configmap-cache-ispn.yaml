@@ -1,0 +1,155 @@
+{{- /*
+The cache configuration of Keycloak: the default cache-ispn.xml of Keycloak
+26.3.3 (the image values.yaml pins) plus ONE change, the JGroups stack the two
+regions' Keycloaks form their single Infinispan cluster with.
+
+WHY (fresh two-region install, 20 November 2026, FND-G07 FAIL): Keycloak
+26.3.3's default stack `jdbc-ping` discovers members through its own protocol
+KEYCLOAK_JDBC_PING2, which takes its database connections from Keycloak's
+pool. When the pool cannot connect it throws a RuntimeException ("Failed to
+obtain JDBC connection"), not the SQLException JGroups' JDBC_PING2 catches.
+A node drain moved region a's Keycloak (the coordinator) and the shared
+PostgreSQL in the same minute; region b took over as coordinator and the
+write of the new view to the database threw out of the view installation.
+The view never reached the protocols below the discovery layer nor the
+cache layer above, and MERGE3, which stops its timers before passing a view
+down and restarts them after, never restarted them: region b stopped looking
+for other members for good. Region a's new Pod then found the dead
+coordinator's row, failed ten JOINs and formed a cluster of one, and its own
+first view change deleted region b's row from the table. Neither side could
+find the other again until a person restarted a Pod. Upstream fixed it in
+keycloak/keycloak#45980 (commit 6b234ae471, February 2026): the protocol now
+throws an SQLException. No bitnamilegacy image carries that version.
+
+THE STACK BELOW is the same `tcp` stack Keycloak builds `jdbc-ping` on, with
+MPING replaced by JGroups' own JDBC_PING2 (org.jgroups.protocols, JGroups
+5.3.16 in this image) instead of KEYCLOAK_JDBC_PING2. It opens its own
+connections with the driver, so a database that is away raises an
+SQLException that JDBC_PING2 logs and survives: the view still installs
+everywhere, MERGE3 keeps running, and the two partitions find each other's
+rows again (each coordinator rewrites a row a peer deleted on its next
+discovery, write_data_on_find) and merge. The table, the cluster name and
+the clean-up of rows not in the view are Keycloak's. The connection URL adds
+bounded timeouts so a database that vanishes mid-query cannot hang the view
+thread. Same settings Keycloak 26.3.3 itself uses for its own table:
+initialize_sql empty, remove_all_data_on_view_change, write_data_on_find, no
+shutdown hook. TCP's per-destination bundler is what Keycloak sets with
+virtual threads, which this image enables.
+
+When the Keycloak image moves off 26.3.3, re-base this file on the new
+image's conf/cache-ispn.xml and check whether the release carries #45980;
+tests/cache-stack-regions-rejoin.sh fails on a different tag to force that.
+*/ -}}
+{{- define "bp-keycloak.cacheIspnXml" -}}
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keycloak 26.3.3 conf/cache-ispn.xml with the jgroups stack below. -->
+<infinispan
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="urn:infinispan:config:15.0 http://www.infinispan.org/schemas/infinispan-config-15.0.xsd"
+        xmlns="urn:infinispan:config:15.0">
+
+    <jgroups>
+        <stack name="jdbc-ping-rejoin" extends="tcp">
+            <TCP bundler_type="per-destination"/>
+            <JDBC_PING2 stack.combine="REPLACE" stack.position="MPING"
+                        connection_driver="org.postgresql.Driver"
+                        connection_url="${env.KC_DB_URL}&amp;connectTimeout=5&amp;socketTimeout=10"
+                        connection_username="${env.KC_DB_USERNAME}"
+                        connection_password="${env.KC_DB_PASSWORD}"
+                        initialize_sql=""
+                        insert_single_sql="INSERT INTO JGROUPS_PING values (?, ?, ?, ?, ?)"
+                        delete_single_sql="DELETE FROM JGROUPS_PING WHERE address=?"
+                        clear_sql="DELETE FROM JGROUPS_PING WHERE cluster_name=?"
+                        select_all_pingdata_sql="SELECT address, name, ip, coord FROM JGROUPS_PING WHERE cluster_name=?"
+                        remove_all_data_on_view_change="true"
+                        write_data_on_find="true"
+                        register_shutdown_hook="false"/>
+        </stack>
+    </jgroups>
+
+    <cache-container name="keycloak">
+        <transport lock-timeout="60000" stack="jdbc-ping-rejoin"/>
+        <local-cache name="realms" simple-cache="true">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <memory max-count="10000"/>
+        </local-cache>
+        <local-cache name="users" simple-cache="true">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <memory max-count="10000"/>
+        </local-cache>
+        <distributed-cache name="sessions" owners="1">
+            <expiration lifespan="-1"/>
+            <memory max-count="10000"/>
+        </distributed-cache>
+        <distributed-cache name="authenticationSessions" owners="2">
+            <expiration lifespan="-1"/>
+        </distributed-cache>
+        <distributed-cache name="offlineSessions" owners="1">
+            <expiration lifespan="-1"/>
+            <memory max-count="10000"/>
+        </distributed-cache>
+        <distributed-cache name="clientSessions" owners="1">
+            <expiration lifespan="-1"/>
+            <memory max-count="10000"/>
+        </distributed-cache>
+        <distributed-cache name="offlineClientSessions" owners="1">
+            <expiration lifespan="-1"/>
+            <memory max-count="10000"/>
+        </distributed-cache>
+        <distributed-cache name="loginFailures" owners="2">
+            <expiration lifespan="-1"/>
+        </distributed-cache>
+        <local-cache name="authorization" simple-cache="true">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <memory max-count="10000"/>
+        </local-cache>
+        <replicated-cache name="work">
+            <expiration lifespan="-1"/>
+        </replicated-cache>
+        <local-cache name="keys" simple-cache="true">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <expiration max-idle="3600000"/>
+            <memory max-count="1000"/>
+        </local-cache>
+        <local-cache name="crl" simple-cache="true">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <expiration lifespan="-1"/>
+            <memory max-count="1000"/>
+        </local-cache>
+        <distributed-cache name="actionTokens" owners="2">
+            <encoding>
+                <key media-type="application/x-java-object"/>
+                <value media-type="application/x-java-object"/>
+            </encoding>
+            <expiration max-idle="-1" lifespan="-1" interval="300000"/>
+            <memory max-count="-1"/>
+        </distributed-cache>
+    </cache-container>
+</infinispan>
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-cache-ispn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-keycloak
+    catalyst.openova.io/component: keycloak-cache-ispn
+data:
+  cache-ispn.xml: |
+{{ include "bp-keycloak.cacheIspnXml" . | indent 4 }}

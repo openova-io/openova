@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T04:00:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-20T06:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8080](https://github.com/openova-io/openova/issues/8080) | CLD-102 Delete the dead Provision method of the provider port | Other |
-| [#8083](https://github.com/openova-io/openova/issues/8083) | AIP-150 The tool server accepts agent tokens | Other |
 | [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
 | [#8086](https://github.com/openova-io/openova/issues/8086) | CLD-132 Remaining provider tests become injected inputs | Other |
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8446](https://github.com/openova-io/openova/issues/8446) | PRD-211 Document conversion parser | Other |
 | [#8449](https://github.com/openova-io/openova/issues/8449) | SVC-136 The foundation function tests pass on a fresh installation | Other |
 | [#8452](https://github.com/openova-io/openova/issues/8452) | SOV-242 The cutover repeats a failed step a few times with a growing pause, then | Other |
+| [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
+| [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
 
 ---
 
@@ -307,12 +307,23 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T06:03 | [#8465](https://github.com/openova-io/openova/pull/8465) | #7087 | docs(ledger): plan update |
+| 2026-11-20T05:45 | [#8464](https://github.com/openova-io/openova/pull/8464) | #7087 | docs(ledger): plan update |
+| 2026-11-20T05:49 | [#8463](https://github.com/openova-io/openova/pull/8463) | #45980 | fix(keycloak): the regions' Keycloaks form one cluster again |
+| 2026-11-20T06:12 | [#8462](https://github.com/openova-io/openova/pull/8462) | #5640 | fix(release): a delivery's prewarm can read an image that th |
+| 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
+| 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:18 | [#8453](https://github.com/openova-io/openova/pull/8453) | #8449 | fix(charts): the foundation function tests wait for their se |
 | 2026-11-20T03:52 | [#8451](https://github.com/openova-io/openova/pull/8451) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:12 | [#8450](https://github.com/openova-io/openova/pull/8450) | #8445 | feat(catalyst-api): forward the console routes /api/v1/ops t |
 | 2026-11-20T03:46 | [#8448](https://github.com/openova-io/openova/pull/8448) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:40 | [#8444](https://github.com/openova-io/openova/pull/8444) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
+| 2026-11-20T04:02 | [#8438](https://github.com/openova-io/openova/pull/8438) | #8433 | refactor(cloud-init): every node boots with a local-first re |
 | 2026-11-20T02:16 | [#8437](https://github.com/openova-io/openova/pull/8437) | #8436 | feat(chart): switch stage blueprints of the intent lock to d |
 | 2026-11-20T01:49 | [#8435](https://github.com/openova-io/openova/pull/8435) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:04 | [#8434](https://github.com/openova-io/openova/pull/8434) | #8403 | fix(release): the kernel rule of a cut compares upstream ver |
@@ -326,17 +337,6 @@ flowchart LR
 | 2026-11-19T23:51 | [#8422](https://github.com/openova-io/openova/pull/8422) | #7087 | docs(ledger): plan update |
 | 2026-11-20T01:27 | [#8421](https://github.com/openova-io/openova/pull/8421) | #8415 | refactor(catalog): the umbrella Blueprint file moves beside  |
 | 2026-11-20T00:50 | [#8420](https://github.com/openova-io/openova/pull/8420) | #8418 | fix(release): the stage applies the provider pivot again whe |
-| 2026-11-19T23:48 | [#8419](https://github.com/openova-io/openova/pull/8419) | fix(charts): a chart test reads its rendered text without a  |  |
-| 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
-| 2026-11-19T23:37 | [#8416](https://github.com/openova-io/openova/pull/8416) | #8414 | fix(api): the kubeconfig route serves the primary region fil |
-| 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
-| 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
-| 2026-11-19T23:22 | [#8411](https://github.com/openova-io/openova/pull/8411) | #8410 | test(acceptance): a client of the model contract for the gat |
-| 2026-11-19T22:45 | [#8409](https://github.com/openova-io/openova/pull/8409) | #7087 | docs(ledger): plan update |
-| 2026-11-19T22:54 | [#8408](https://github.com/openova-io/openova/pull/8408) | fix(gate): the parent execution reaches the install it is as |  |
-| 2026-11-19T22:53 | [#8407](https://github.com/openova-io/openova/pull/8407) | #4347 | fix(install): a workload waits for what it needs and does no |
-| 2026-11-19T22:24 | [#8406](https://github.com/openova-io/openova/pull/8406) | #7087 | docs(ledger): plan update |
-| 2026-11-19T23:28 | [#8405](https://github.com/openova-io/openova/pull/8405) | #8402 | refactor(cloud-init): first boot pulls no image ahead of tim |
 
 ---
 
