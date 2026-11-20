@@ -33,6 +33,14 @@ spec:
   #   mgmt-A=Active, mgmt-B=Passive. Stateless API; config from CRDs +
   #   values. DB persistence lives in bp-cnpg-pair (out-of-scope here).
   #   Switchover: bp-continuum DNS flip.
+  # Placement tier is '' (host) in every variant: #4325 removed the mgmt
+  # plane vCluster and NET-221 its chart, so no Sovereign has the host
+  # namespace `mgmt`. The funnel installs bp-newapi into every new
+  # Organization (ADR-0015 D5), and that release belongs in the
+  # Organization's own namespace (the platform stack of
+  # core/controllers/organization/internal/gitops/manifests.go). A `mgmt`
+  # tier addressed the HelmRelease to `mgmt` and failed the Organization's
+  # whole region-apps Kustomization. The mgmt-A/-B IDs only pin regions.
   topology:
     supported:
       - active-passive
@@ -51,14 +59,14 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
