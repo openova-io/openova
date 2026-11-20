@@ -12,6 +12,8 @@
 //     a TokenReview (internal/sacaller), and its user name must be the
 //     caller of one entry of CATALYST_AGENT_TOKEN_CALLERS. The entry names
 //     the Organizations, the agents and the highest tier it may ask for.
+//     An entry of the own-Organization form admits one ServiceAccount name
+//     in every namespace of an Organization, for that Organization only.
 //   - GET /api/v1/auth/signers.jwks (HandleJWKS). The public key of the
 //     signer of this pod, with its key identifier. No authentication.
 //   - Restrict, the middleware of the session route group after the
@@ -24,6 +26,7 @@
 package agenttoken
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +40,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
@@ -48,6 +52,18 @@ const (
 	// CallersEnv names the workloads that may ask for a token: a JSON list
 	// of Caller. The chart sets it from the value agentTokens.callers.
 	CallersEnv = "CATALYST_AGENT_TOKEN_CALLERS"
+
+	// OwnOrganization stands for the Organization of the namespace the
+	// caller runs in. An entry whose caller is
+	// system:serviceaccount:{organization}:<name> and whose organizations
+	// are exactly ["{organization}"] admits the ServiceAccount <name> of
+	// every namespace of an Organization, for that Organization only.
+	OwnOrganization = "{organization}"
+
+	// OrganizationLabel marks a namespace of an Organization; its value is
+	// the slug. The organization controller writes it on the namespace of
+	// each Organization.
+	OrganizationLabel = "openova.io/organization"
 
 	// Type is the claim typ of an agent token.
 	Type = "agent"
@@ -72,6 +88,8 @@ const (
 	maxBody = 1 << 16
 	// wildcard in an entry's organizations or agents admits every value.
 	wildcard = "*"
+	// accountPrefix starts the TokenReview user name of a ServiceAccount.
+	accountPrefix = "system:serviceaccount:"
 )
 
 var (
@@ -89,21 +107,27 @@ var (
 // Caller is one entry of CallersEnv.
 type Caller struct {
 	// Caller is the TokenReview user name of the workload,
-	// system:serviceaccount:<namespace>:<name>.
+	// system:serviceaccount:<namespace>:<name>, or of the own-Organization
+	// form system:serviceaccount:{organization}:<name>.
 	Caller string `json:"caller"`
-	// Organizations it may ask for: slugs, or ["*"].
+	// Organizations it may ask for: slugs, or ["*"]; ["{organization}"]
+	// for the own-Organization form.
 	Organizations []string `json:"organizations"`
 	// MaxTier is the highest tier it may ask for: viewer or developer.
 	MaxTier string `json:"maxTier"`
 	// Agents it may ask for: names, or ["*"].
 	Agents []string `json:"agents"`
+	// account is the ServiceAccount name of an entry of the
+	// own-Organization form, and "" for an entry that names its caller.
+	account string
 }
 
 // ParseCallers reads the value of CallersEnv. Every entry has exactly the
 // four keys of Caller, a caller that no other entry names, at least one
 // Organization and one agent, each "*" or of the right form, and a maxTier
-// of viewer or developer. Anything else is an error, and the issue route
-// then refuses every request.
+// of viewer or developer. OwnOrganization appears only in an entry of the
+// own-Organization form (ownAccount). Anything else is an error, and the
+// issue route then refuses every request.
 func ParseCallers(value string) ([]Caller, error) {
 	var raw []map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(value), &raw); err != nil {
@@ -127,6 +151,7 @@ func ParseCallers(value string) ([]Caller, error) {
 		if err := json.Unmarshal(data, &c); err != nil {
 			return nil, fmt.Errorf("%s entry %d: %v", CallersEnv, i, err)
 		}
+		account, ownErr := ownAccount(c)
 		switch {
 		case strings.TrimSpace(c.Caller) == "" || c.Caller != strings.TrimSpace(c.Caller):
 			return nil, fmt.Errorf("%s entry %d: caller is empty or has blanks", CallersEnv, i)
@@ -134,15 +159,41 @@ func ParseCallers(value string) ([]Caller, error) {
 			return nil, fmt.Errorf("%s entry %d: caller %s is named twice", CallersEnv, i, c.Caller)
 		case tierRank[c.MaxTier] == 0:
 			return nil, fmt.Errorf("%s entry %d: maxTier %q is not viewer or developer", CallersEnv, i, c.MaxTier)
-		case !validList(c.Organizations, orgSlug):
+		case ownErr != nil:
+			return nil, fmt.Errorf("%s entry %d: %v", CallersEnv, i, ownErr)
+		case account == "" && !validList(c.Organizations, orgSlug):
 			return nil, fmt.Errorf("%s entry %d: organizations must be [\"*\"] or a list of slugs", CallersEnv, i)
 		case !validList(c.Agents, agentName):
 			return nil, fmt.Errorf("%s entry %d: agents must be [\"*\"] or a list of agent names", CallersEnv, i)
 		}
 		seen[c.Caller] = true
+		c.account = account
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// ownAccount returns the ServiceAccount name of an entry of the
+// own-Organization form, "" for an entry that names its caller exactly, and
+// an error when the entry uses OwnOrganization in any other way: anywhere
+// but the whole namespace of its caller, or with organizations other than
+// exactly [OwnOrganization].
+func ownAccount(c Caller) (string, error) {
+	used := strings.Contains(c.Caller, OwnOrganization)
+	for _, o := range c.Organizations {
+		used = used || o == OwnOrganization
+	}
+	if !used {
+		return "", nil
+	}
+	name := strings.TrimPrefix(c.Caller, accountPrefix+OwnOrganization+":")
+	switch {
+	case name == c.Caller || !orgSlug.MatchString(name):
+		return "", fmt.Errorf("an entry with %s has the caller %s%s:<ServiceAccount name>", OwnOrganization, accountPrefix, OwnOrganization)
+	case len(c.Organizations) != 1 || c.Organizations[0] != OwnOrganization:
+		return "", fmt.Errorf("an entry with the caller %s has the organizations [%q] and no other", c.Caller, OwnOrganization)
+	}
+	return name, nil
 }
 
 func sameKeys(have, want []string) bool {
@@ -183,10 +234,13 @@ func listed(list []string, v string) bool {
 }
 
 // permits returns nil when the entry may ask for this token, and otherwise
-// says why not.
-func (c Caller) permits(org, agent, tier string) error {
+// says why not. own is the Organization of the caller's namespace, read for
+// an entry of the own-Organization form.
+func (c Caller) permits(own, org, agent, tier string) error {
 	switch {
-	case !listed(c.Organizations, org):
+	case c.account != "" && org != own:
+		return fmt.Errorf("the entry of %s admits only the Organization of the caller's namespace, %s, not %s", c.Caller, own, org)
+	case c.account == "" && !listed(c.Organizations, org):
 		return fmt.Errorf("the entry of %s does not name Organization %s", c.Caller, org)
 	case !listed(c.Agents, agent):
 		return fmt.Errorf("the entry of %s does not name agent %s", c.Caller, agent)
@@ -270,10 +324,13 @@ type issueRequest struct {
 //   - 503 signer-unavailable: this pod has no signer, or signing failed.
 //   - 401 missing-bearer: no `Authorization: Bearer` header.
 //   - 502 token-review-failed: the TokenReview did not accept the token.
-//   - 403 unauthorized-sa: the caller is in no entry.
+//   - 403 unauthorized-sa: the caller is in no entry, or its entry is of
+//     the own-Organization form and its namespace is not a namespace of an
+//     Organization.
 //   - 422 invalid-request: the body is not the request of the contract.
 //   - 403 caller-not-allowed: the Organization, the agent or the tier is
-//     outside the caller's entry.
+//     outside the caller's entry; for the own-Organization form, any
+//     Organization but that of the caller's namespace.
 //   - 200 {"token": "<jwt>", "expiresAt": "<RFC 3339 time>"}.
 func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 	value, set := os.LookupEnv(CallersEnv)
@@ -310,15 +367,10 @@ func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "token-review-failed", err.Error())
 		return
 	}
-	var entry *Caller
-	for i := range callers {
-		if callers[i].Caller == user {
-			entry = &callers[i]
-		}
-	}
+	entry, own, why := entryOf(r.Context(), core, callers, user)
 	if entry == nil {
-		t.log.Info("agent token: refused a caller", "caller", user)
-		writeError(w, http.StatusForbidden, "unauthorized-sa", fmt.Sprintf("token resolved to %q, which no entry of %s names", user, CallersEnv))
+		t.log.Info("agent token: refused a caller", "caller", user, "why", why)
+		writeError(w, http.StatusForbidden, "unauthorized-sa", fmt.Sprintf("token resolved to %q, which no entry of %s names%s", user, CallersEnv, why))
 		return
 	}
 	req, ttl, err := readRequest(w, r)
@@ -326,7 +378,7 @@ func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid-request", err.Error())
 		return
 	}
-	if err := entry.permits(req.Organization, req.Agent, req.Tier); err != nil {
+	if err := entry.permits(own, req.Organization, req.Agent, req.Tier); err != nil {
 		t.log.Info("agent token: refused a request", "caller", user, "why", err.Error())
 		writeError(w, http.StatusForbidden, "caller-not-allowed", err.Error())
 		return
@@ -350,6 +402,54 @@ func (t *Tokens) HandleIssue(w http.ResponseWriter, r *http.Request) {
 		"token":     token,
 		"expiresAt": claims.ExpiresAt.UTC().Format(time.RFC3339),
 	})
+}
+
+// entryOf returns the entry that admits user and, for an entry of the
+// own-Organization form, the Organization of the caller's namespace. An
+// entry that names user exactly comes first. Otherwise user must be
+// system:serviceaccount:<namespace>:<name>, an entry of the own-Organization
+// form must name <name>, and <namespace> must be a namespace of an
+// Organization. why says, for the refusal message, why that last test
+// failed.
+func entryOf(ctx context.Context, core kubernetes.Interface, callers []Caller, user string) (entry *Caller, own, why string) {
+	for i := range callers {
+		if callers[i].account == "" && callers[i].Caller == user {
+			return &callers[i], "", ""
+		}
+	}
+	rest, isAccount := strings.CutPrefix(user, accountPrefix)
+	ns, name, ok := strings.Cut(rest, ":")
+	if !isAccount || !ok {
+		return nil, "", ""
+	}
+	for i := range callers {
+		if callers[i].account != "" && callers[i].account == name {
+			entry = &callers[i]
+		}
+	}
+	if entry == nil {
+		return nil, "", ""
+	}
+	own, err := organizationOf(ctx, core, ns)
+	if err != nil {
+		return nil, "", "; " + err.Error()
+	}
+	return entry, own, ""
+}
+
+// organizationOf returns the Organization whose namespace ns is: the slug
+// that OrganizationLabel carries on the Namespace ns. core is the client the
+// TokenReview ran with, so it is never nil here.
+func organizationOf(ctx context.Context, core kubernetes.Interface, ns string) (string, error) {
+	obj, err := core.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("namespace %s could not be read: %v", ns, err)
+	}
+	org := obj.Labels[OrganizationLabel]
+	if !orgSlug.MatchString(org) {
+		return "", fmt.Errorf("namespace %s is not a namespace of an Organization: its label %s is %q", ns, OrganizationLabel, org)
+	}
+	return org, nil
 }
 
 // readRequest decodes and checks the body of the issue route.

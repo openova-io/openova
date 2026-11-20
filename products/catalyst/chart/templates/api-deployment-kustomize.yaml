@@ -876,9 +876,10 @@ spec:
             # POST /api/v1/internal/agent-tokens for an agent token, a JSON
             # list (docs/contracts/model-contract.md section 2.2). A literal:
             # this file is applied as raw Kustomize, so it repeats the
-            # default of agentTokens.callers in values.yaml.
+            # default of agentTokens.callers in values.yaml: the conformance
+            # entry and the agent workspace of each Organization.
             - name: CATALYST_AGENT_TOKEN_CALLERS
-              value: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
+              value: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}, {"caller": "system:serviceaccount:{organization}:agenity", "organizations": ["{organization}"], "maxTier": "developer", "agents": ["agenity"]}]'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When
