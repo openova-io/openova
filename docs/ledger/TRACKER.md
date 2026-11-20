@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T09:15:04Z` |
+| Last refreshed | `2026-11-20T09:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 | [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
 | [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
 | [#8106](https://github.com/openova-io/openova/issues/8106) | CLD-108 Generated provider registry | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
 | [#8472](https://github.com/openova-io/openova/issues/8472) | PRD-206 cortex screens | Other |
 | [#8475](https://github.com/openova-io/openova/issues/8475) | SEC-153 Flux renders bootstrap Secrets from one seed: robot token, pool-domain l | Other |
+| [#8483](https://github.com/openova-io/openova/issues/8483) | NET-213 The console states the region separation | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
+| 2026-11-20T09:21 | [#8481](https://github.com/openova-io/openova/pull/8481) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:17 | [#8480](https://github.com/openova-io/openova/pull/8480) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:09 | [#8479](https://github.com/openova-io/openova/pull/8479) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:00 | [#8478](https://github.com/openova-io/openova/pull/8478) | #7087 | docs(ledger): plan update |
@@ -324,6 +326,7 @@ flowchart LR
 | 2026-11-20T05:20 | [#8461](https://github.com/openova-io/openova/pull/8461) | #7087 | docs(ledger): plan update |
 | 2026-11-20T07:05 | [#8459](https://github.com/openova-io/openova/pull/8459) | #3176 | fix(org): a new Organization's applications are not blocked  |
 | 2026-11-20T04:57 | [#8458](https://github.com/openova-io/openova/pull/8458) | fix(ci): the mothership kustomize check installs its tool fr |  |
+| 2026-11-20T09:23 | [#8457](https://github.com/openova-io/openova/pull/8457) | #8452 | fix(cutover): repeat a failed step at most three times with  |
 | 2026-11-20T04:26 | [#8455](https://github.com/openova-io/openova/pull/8455) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:13 | [#8454](https://github.com/openova-io/openova/pull/8454) | #7087 | docs(ledger): plan update |
 | 2026-11-20T04:18 | [#8453](https://github.com/openova-io/openova/pull/8453) | #8449 | fix(charts): the foundation function tests wait for their se |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T03:40 | [#8444](https://github.com/openova-io/openova/pull/8444) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
 | 2026-11-20T08:14 | [#8442](https://github.com/openova-io/openova/pull/8442) | #8441 | chore(platform): delete the hollow gateway charts bp-llm-gat |
-| 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
-| 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
-| 2026-11-20T04:02 | [#8438](https://github.com/openova-io/openova/pull/8438) | #8433 | refactor(cloud-init): every node boots with a local-first re |
 
 ---
 
