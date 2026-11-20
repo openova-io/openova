@@ -112,6 +112,12 @@ kyverno="$(resolve_kyverno)"
 echo "kyverno CLI: $kyverno ($("$kyverno" version 2>/dev/null | awk '/^Version/{print $2}'))"
 
 # ── policy set: every ClusterPolicy at its canonical action ─────────────────
+# The policy chart declares platform/kube-access-lib as a file:// dependency
+# (#8403); a fresh clone has not built it, so resolve it from the local bytes.
+if ! ls "$policies_chart"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$policies_chart" >/dev/null 2>&1 \
+    || fail "could not resolve the kube-access-lib dependency of $policies_chart"
+fi
 "$helm" template kp "$policies_chart" --set compliancePolicies.bootstrapMode=false > "$work/policies-all.yaml" 2>"$work/policies.err" \
   || fail "rendering $policies_chart failed: $(head -3 "$work/policies.err")"
 # ClusterPolicy documents ONLY — the CLI loads zero policies from a file that
