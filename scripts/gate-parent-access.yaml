@@ -1,6 +1,6 @@
-# The access of the gate to the parent (FND-079, docs/ledger/plan/spikes/FND-079.md): the two objects
-# that the parent execution's per-run NetworkPolicy changes. The rest of the access (namespace,
-# ServiceAccount, RoleBinding, quota, the Role in catalyst) is unchanged and stays as recorded.
+# The access of the gate to the parent (FND-079, docs/ledger/plan/spikes/FND-079.md): the objects of
+# it that this file holds. The rest of the access (namespace, ServiceAccount, the RoleBinding
+# gate-jobs, quota) is not in this file and stays as recorded.
 #
 #   Role gate-jobs       gains create, get and delete on networkpolicies of its own namespace:
 #                        scripts/gate-parent-job.sh creates one NetworkPolicy per run, named as the
@@ -10,9 +10,18 @@
 #   NetworkPolicy gate-egress   the namespace's standing policy: default deny, DNS only. The range
 #                        5.37.79.0/24 it allowed before is gone: an install's addresses come from the
 #                        cloud's pool and are known only when it exists.
+#   Role and RoleBinding catalyst/acceptance-gate-cld-g12   what gate check CLD-G12
+#                        (scripts/check-zero-change-plan.sh) needs to run kubectl exec in the parent's
+#                        engine Pod (deploy/catalyst-api of the namespace catalyst): get on the
+#                        Deployment catalyst-api, get and list on pods, create on pods/exec, in that
+#                        namespace only, for the ServiceAccount acceptance-gate/gate. FND-079 recorded
+#                        them; the parent did not hold them ("cannot get resource deployments in the
+#                        namespace catalyst", gate runs of November 2026). No Secret, no other
+#                        namespace, nothing cluster-wide.
 #
-# Applied on the parent with its admin kubeconfig (both objects exist, so replace them whole):
-#   kubectl replace -f scripts/gate-parent-access.yaml
+# Applied on the parent with its admin kubeconfig (creates the objects that are missing and sets the
+# others to this file):
+#   kubectl apply --server-side --force-conflicts -f scripts/gate-parent-access.yaml
 # scripts/check-gate-parent-access.py keeps this file narrow (rules P5 and P6).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -40,3 +49,24 @@ spec:
   egress:
   - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
     ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: acceptance-gate-cld-g12
+  namespace: catalyst
+  labels: {openova.io/work-package: FND-079}
+rules:
+- {apiGroups: [apps], resources: [deployments], resourceNames: [catalyst-api], verbs: [get]}
+- {apiGroups: [""], resources: [pods], verbs: [get, list]}
+- {apiGroups: [""], resources: [pods/exec], verbs: [create]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: acceptance-gate-cld-g12
+  namespace: catalyst
+  labels: {openova.io/work-package: FND-079}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: acceptance-gate-cld-g12}
+subjects:
+- {kind: ServiceAccount, name: gate, namespace: acceptance-gate}

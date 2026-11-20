@@ -20,7 +20,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.5.37
+  version: 0.5.38
   consoleUI:
     sidebarEntry: true
     sidebarLabel: Agenity
@@ -50,7 +50,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.37
+    version: 0.5.38
   topology:
     supported: [singleton]
     defaults:
@@ -2654,7 +2654,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.12
+  version: 0.1.13
   card:
     title: OpenOva MCP
     summary: The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console.
@@ -2676,7 +2676,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.12
+    version: 0.1.13
   topology:
     supported: [singleton]
     defaults:

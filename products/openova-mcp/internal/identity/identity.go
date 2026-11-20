@@ -411,10 +411,20 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 }
 
 // tokenClaims is the claim set Resolve parses: the shared contract plus the
-// claim `agent`, which only an agent token carries.
+// claims `agent` and `acting_person`, which only an agent token carries.
 type tokenClaims struct {
 	sharedauth.Claims
-	Agent string `json:"agent,omitempty"`
+	Agent        string        `json:"agent,omitempty"`
+	ActingPerson *actingPerson `json:"acting_person,omitempty"`
+}
+
+// actingPerson is the claim `acting_person` of an agent token: the person of
+// tier admin in the token's Organization for whom the agent acts. catalyst-api
+// writes it only after it read that tier itself
+// (docs/contracts/model-contract.md section 2.1).
+type actingPerson struct {
+	Email string `json:"email"`
+	Tier  string `json:"tier"`
 }
 
 // AudienceTools is the audience every platform tool server requires of an
@@ -456,7 +466,9 @@ func KeyID(pub *rsa.PublicKey) string {
 
 // fromAgentClaims accepts an agent token only when every rule below holds.
 // The tier is the claim `tier` alone, capped at developer: role, groups and
-// capabilities are not read, so an agent never sees create_application.
+// capabilities are not read. A token with the claim `acting_person` takes its
+// tier from that claim, which must name an email and the tier admin, so only
+// an agent acting for a person of tier admin sees create_application.
 func (r *Resolver) fromAgentClaims(claims *tokenClaims, verifiedBy *rsa.PublicKey, kid string) (*Identity, error) {
 	if r.mode != VerifyRS256PublicKey || verifiedBy == nil {
 		return nil, errors.New("identity: agent token refused: only an RS256 resolver with a key set accepts agent tokens")
@@ -488,6 +500,12 @@ func (r *Resolver) fromAgentClaims(claims *tokenClaims, verifiedBy *rsa.PublicKe
 	}
 	if tier > TierDeveloper {
 		tier = TierDeveloper
+	}
+	if p := claims.ActingPerson; p != nil {
+		if p.Tier != TierAdmin.String() || strings.TrimSpace(p.Email) == "" {
+			return nil, fmt.Errorf("identity: agent token refused: acting_person must name an email and the tier %s", TierAdmin)
+		}
+		tier = TierAdmin
 	}
 	id, err := r.scope(&claims.Claims, tier)
 	if err != nil {

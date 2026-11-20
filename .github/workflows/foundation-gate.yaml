@@ -65,9 +65,10 @@ name: foundation-gate
 # session; when empty the run mints one from the Sovereign's own signer), and, of the environment
 # gate only, ACCEPTANCE_PARENT_KUBECONFIG (base64 of the kubeconfig of the parent's ServiceAccount
 # acceptance-gate/gate: Jobs, Pods and their logs, creating and deleting Secrets and the run's
-# NetworkPolicy, in the namespace acceptance-gate only; scripts/gate-parent-access.yaml). CLD-G12 uses the same kubeconfig; the access has no right in the
-# namespace catalyst, so CLD-G12 records that the parent could not be reached until it reads the
-# plan through an API route of the engine (when the secret is empty CLD-G12 is recorded FAIL).
+# NetworkPolicy, in the namespace acceptance-gate; and for CLD-G12, which uses the same kubeconfig,
+# get on the Deployment catalyst-api, get and list on Pods and create on pods/exec in the namespace
+# catalyst; nothing else; scripts/gate-parent-access.yaml). When the secret is empty CLD-G12 is
+# recorded FAIL.
 # scripts/check-gate-parent-access.py keeps the access to this workflow and
 # foundation-gate-standing.yaml.
 
