@@ -218,11 +218,14 @@ func TestOptionalKindStartsWhenDefinitionArrives(t *testing.T) {
 	f, dyn, logs, ch := optFactory(t, optWidget("w0"))
 	ctx := context.Background()
 
-	// Hold the definition's dispatch between starting the widget informer
-	// and fanning out its own event until w0's ADDED event is in the
-	// channel. Nothing reads the channel meanwhile (the test waits on
-	// reordered first), and no definition event can be in it yet, so a
-	// non-empty channel holds exactly that ADDED event.
+	// Hold the definition's dispatch, inside its log of optStartedLine,
+	// until an event is in the channel. Nothing reads the channel
+	// meanwhile (the test waits on reordered first). If dispatch starts
+	// the widget informer before it fans out the definition's event
+	// (factory.go dispatch), that first event is w0's ADDED event; if it
+	// fanned out the definition's event first, that event would be first.
+	// The test reads the first event itself and requires w0, so it checks
+	// the order instead of assuming it.
 	reordered := make(chan struct{})
 	var once sync.Once
 	logs.setHold(func() {
@@ -250,12 +253,23 @@ func TestOptionalKindStartsWhenDefinitionArrives(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("the widget's ADDED event for w0 did not reach the subscriber while the definition's dispatch was held")
 	}
+	select {
+	case ev := <-ch.ch:
+		if ev.Kind != "widget" || ev.Type != EventAdded || ev.Object == nil || ev.Object.GetName() != "w0" {
+			name := ""
+			if ev.Object != nil {
+				name = ev.Object.GetName()
+			}
+			t.Fatalf("first event to the subscriber is %s %s %q, want widget ADDED \"w0\": the definition's event went out before its kind's informer started", ev.Kind, ev.Type, name)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no event in the subscriber channel after the hold saw one")
+	}
 	optWaitEvent(t, ch, "customresourcedefinition", EventAdded, "widgets.example.openova.io")
 	if !optHas(f, "widget") {
 		t.Fatalf("widget has no informer after its definition's ADDED event")
 	}
 	optWaitList(t, f, 1)
-	optWaitEvent(t, ch, "widget", EventAdded, "w0")
 	optWaitSynced(t, f)
 
 	if _, err := dyn.Resource(optWidgetGVR).Namespace("ns-a").Create(ctx, optWidget("w1"), metav1.CreateOptions{}); err != nil {
