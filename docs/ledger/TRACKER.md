@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T22:00:02Z` |
+| Last refreshed | `2026-11-20T22:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
 | [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
 | [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
 | [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8536](https://github.com/openova-io/openova/issues/8536) | INF-056 Check INF-G01 restarts the node of the registry's front and requires eve | Other |
 | [#8538](https://github.com/openova-io/openova/issues/8538) | SOV-138 No single Pod on the registry's pull path: Harbor's front, core and regi | Other |
 | [#8547](https://github.com/openova-io/openova/issues/8547) | The harbor chart's admin-secret test cannot fail on a broken pipe: six printf |  | Other |
+| [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
 | 2026-11-20T20:52 | [#8548](https://github.com/openova-io/openova/pull/8548) | #7087 | docs(ledger): plan update |
 | 2026-11-20T20:52 | [#8546](https://github.com/openova-io/openova/pull/8546) | #8538 | fix(charts): the registry front, core and registry and the c |
 | 2026-11-20T20:57 | [#8545](https://github.com/openova-io/openova/pull/8545) | #8534 | fix(crossplane): the provider pod installs OpenTofu provider |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T15:35 | [#8512](https://github.com/openova-io/openova/pull/8512) | #8407 | fix(seaweedfs): the cross-region filer sync survives a roll  |
 | 2026-11-20T13:38 | [#8511](https://github.com/openova-io/openova/pull/8511) | #7087 | docs(ledger): plan update |
 | 2026-11-20T13:32 | [#8510](https://github.com/openova-io/openova/pull/8510) | #8509 | fix(agent-tokens): an agent token acts for a person of tier  |
-| 2026-11-20T12:59 | [#8508](https://github.com/openova-io/openova/pull/8508) | #7087 | docs(ledger): plan update |
 
 ---
 
