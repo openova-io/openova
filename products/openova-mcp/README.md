@@ -104,8 +104,12 @@ An agent token (`typ: agent`, minted by catalyst-api) is accepted only when it
 was verified RS256 by a key of the set whose RFC 7638 thumbprint is its header
 `kid`, `aud` contains `platform-tools`, `iss` equals `OPENOVA_MCP_AGENT_ISSUER`
 when set, and `exp`, `org_id`, `agent` and a `tier` on the ladder are present.
-Its tier is the `tier` claim capped at developer, so an agent never sees
-`create_application`. It never takes the `/whoami` fallback; agents use an
+Its tier is the `tier` claim capped at developer. A token that carries the
+claim `acting_person` (`{"email": "<person>", "tier": "admin"}`, written by
+catalyst-api only for a person who holds tier admin in that Organization when
+the token is issued) takes its tier, admin, from that claim, so only an agent
+acting for such a person sees `create_application`; any other value of the
+claim refuses the token. It never takes the `/whoami` fallback; agents use an
 instance in organization mode.
 
 ## Tool answers are fitted and inert
