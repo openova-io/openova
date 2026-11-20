@@ -766,8 +766,15 @@ func TestCompliance_ResourceFindings(t *testing.T) {
 		{"policy": "require-run-as-nonroot", "rule": "nonroot", "result": "pass",
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
 	}))
+	// Wait for the state the assertions below read: BOTH reports
+	// ingested. The watch goroutine handles events one at a time in
+	// publish order, so pr-pass being in means the ClusterPolicy, the
+	// Deployment and pr-fail are in too. Found alone turns true as soon
+	// as pr-fail is stored, while pr-pass may still be queued: the test
+	// then read one finding now and then (CI 2026-11-20, "expected 2
+	// findings, got 1").
 	waitFor(t, 1*time.Second, func() bool {
-		return h.ComplianceHandler().resourceComplianceFor("acme", "Deployment", "ns1", "web").Found
+		return len(h.ComplianceHandler().resourceComplianceFor("acme", "Deployment", "ns1", "web").Findings) == 2
 	})
 
 	r := chi.NewRouter()

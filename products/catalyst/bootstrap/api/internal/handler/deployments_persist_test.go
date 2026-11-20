@@ -137,27 +137,30 @@ func TestPersistence_CreateDeploymentWritesRowImmediately(t *testing.T) {
 	waitForGoroutine(t, h, resp.ID)
 }
 
-// waitForGoroutine polls the deployment until isDone() is true, then
-// returns. Used by tests that POST a deployment to drive
-// runProvisioning's full lifecycle (which fails fast in CI without
-// tofu creds / PATH) so test cleanup doesn't race the goroutine's
-// final persist.
+// waitForGoroutine waits until the deployment's runProvisioning
+// goroutine closes dep.done. Used by tests that POST a deployment to
+// drive runProvisioning's full lifecycle (which fails fast in CI without
+// tofu creds / PATH) so test cleanup doesn't race the goroutine's final
+// persist. runProvisioning writes its terminal record BEFORE it closes
+// done, so once done is closed nothing writes to the store directory.
+// The former 50 ms grace after done was a guess at how long that write
+// takes; CI exceeded it (2026-11-20: "TempDir RemoveAll cleanup: ...
+// directory not empty"). The 10 s bound only ends a hung run.
 func waitForGoroutine(t *testing.T, h *Handler, id string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		val, ok := h.deployments.Load(id)
-		if !ok {
-			t.Fatalf("deployment %s missing from sync.Map", id)
-		}
-		if val.(*Deployment).isDone() {
-			// Brief grace for the post-close persistDeployment.
-			time.Sleep(50 * time.Millisecond)
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		t.Fatalf("deployment %s missing from sync.Map", id)
 	}
-	t.Fatalf("deployment %s did not finish within 10s — runProvisioning hung?", id)
+	dep := val.(*Deployment)
+	dep.mu.Lock()
+	done := dep.done
+	dep.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("deployment %s did not finish within 10s — runProvisioning hung?", id)
+	}
 }
 
 // TestPersistence_RestoreOnStartupRehydratesDeployments covers

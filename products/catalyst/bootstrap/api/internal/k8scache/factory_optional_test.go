@@ -35,15 +35,32 @@ var (
 const optStartedLine = "k8scache: optional kind started after its definition arrived"
 
 // optLogBuffer is a goroutine-safe sink for the factory's log lines.
+// When hold is set, the write of optStartedLine first calls it, on the
+// goroutine that dispatches the definition's event: after the optional
+// kind's informer has started and before the definition's own event is
+// fanned out.
 type optLogBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	hold func()
 }
 
 func (b *optLogBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
+	hold := b.hold
+	b.mu.Unlock()
+	if hold != nil && bytes.Contains(p, []byte(optStartedLine)) {
+		hold()
+	}
+	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.Write(p)
+}
+
+func (b *optLogBuffer) setHold(hold func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.hold = hold
 }
 
 func (b *optLogBuffer) count(s string) int {
@@ -81,10 +98,23 @@ func optWidget(name string) *unstructured.Unstructured {
 	}}
 }
 
+// optEvents is a subscriber's channel plus the events a wait read but
+// did not match. Events of different kinds come from different
+// informers, each on its own goroutine, so their order on the channel is
+// not fixed: dispatch starts the widget informer BEFORE it fans out the
+// definition's ADDED event (so a subscriber that sees that event sees
+// the informer built), and the new informer can list w0 and fan out its
+// ADDED event first. A wait that dropped what it did not match lost w0
+// that way, and the next wait for w0 timed out (CI 2026-11-19 and -20).
+type optEvents struct {
+	ch   <-chan Event
+	kept []Event
+}
+
 // optFactory starts a factory with one cluster "alpha" whose discovery
 // serves nothing, so the optional kind "widget" is skipped at AddCluster.
 // The registry holds the customresourcedefinition kind and "widget".
-func optFactory(t *testing.T, objs ...runtime.Object) (*Factory, *dynamicfake.FakeDynamicClient, *optLogBuffer, <-chan Event) {
+func optFactory(t *testing.T, objs ...runtime.Object) (*Factory, *dynamicfake.FakeDynamicClient, *optLogBuffer, *optEvents) {
 	t.Helper()
 	r := NewRegistry()
 	_ = r.Add(Kind{Name: "customresourcedefinition", GVR: optCRDGVR, Namespaced: false})
@@ -111,23 +141,35 @@ func optFactory(t *testing.T, objs ...runtime.Object) (*Factory, *dynamicfake.Fa
 	if err := f.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	return f, dyn, logs, ch
+	return f, dyn, logs, &optEvents{ch: ch}
 }
 
-// optWaitEvent reads ch until an event of kind, type and object name
-// arrives, or fails after 5 seconds.
-func optWaitEvent(t *testing.T, ch <-chan Event, kind string, typ EventType, name string) {
+// optWaitEvent returns once an event of kind, type and object name has
+// arrived: one a former wait already read and kept, or the next matching
+// one read from the channel. Every other event read is kept for a later
+// wait. Fails after 5 seconds.
+func optWaitEvent(t *testing.T, evs *optEvents, kind string, typ EventType, name string) {
 	t.Helper()
+	match := func(ev Event) bool {
+		return ev.Kind == kind && ev.Type == typ && ev.Object != nil && ev.Object.GetName() == name
+	}
+	for i, ev := range evs.kept {
+		if match(ev) {
+			evs.kept = append(evs.kept[:i], evs.kept[i+1:]...)
+			return
+		}
+	}
 	timeout := time.After(5 * time.Second)
 	for {
 		select {
-		case ev, ok := <-ch:
+		case ev, ok := <-evs.ch:
 			if !ok {
 				t.Fatalf("subscriber channel closed while waiting for %s %s %s", kind, typ, name)
 			}
-			if ev.Kind == kind && ev.Type == typ && ev.Object != nil && ev.Object.GetName() == name {
+			if match(ev) {
 				return
 			}
+			evs.kept = append(evs.kept, ev)
 		case <-timeout:
 			t.Fatalf("no %s event for %s %q within 5s", typ, kind, name)
 		}
@@ -169,9 +211,29 @@ func optWaitSynced(t *testing.T, f *Factory) {
 // AddCluster has no informer; after its definition's ADDED event, List
 // serves it, existing objects are listed, and an object created afterwards
 // reaches a subscriber as an ADDED event.
+//
+// The test forces the order CI met by chance: the widget's ADDED event
+// for w0 reaches the subscriber BEFORE the definition's ADDED event.
 func TestOptionalKindStartsWhenDefinitionArrives(t *testing.T) {
 	f, dyn, logs, ch := optFactory(t, optWidget("w0"))
 	ctx := context.Background()
+
+	// Hold the definition's dispatch between starting the widget informer
+	// and fanning out its own event until w0's ADDED event is in the
+	// channel. Nothing reads the channel meanwhile (the test waits on
+	// reordered first), and no definition event can be in it yet, so a
+	// non-empty channel holds exactly that ADDED event.
+	reordered := make(chan struct{})
+	var once sync.Once
+	logs.setHold(func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for len(ch.ch) == 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if len(ch.ch) > 0 {
+			once.Do(func() { close(reordered) })
+		}
+	})
 
 	if optHas(f, "widget") {
 		t.Fatalf("widget has an informer before its definition arrived; the #5352 skip is broken")
@@ -182,6 +244,11 @@ func TestOptionalKindStartsWhenDefinitionArrives(t *testing.T) {
 
 	if _, err := dyn.Resource(optCRDGVR).Create(ctx, optWidgetCRD(true, "1"), metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create definition: %v", err)
+	}
+	select {
+	case <-reordered:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the widget's ADDED event for w0 did not reach the subscriber while the definition's dispatch was held")
 	}
 	optWaitEvent(t, ch, "customresourcedefinition", EventAdded, "widgets.example.openova.io")
 	if !optHas(f, "widget") {
