@@ -835,9 +835,13 @@ data:
     install_coredns_registry_pin
 
     echo "[harbor-prewarm] public-dest readiness probe: https://${HARBOR_HOST}/v2/ (want 401/200; registry.<fqdn> resolves via the in-cluster CoreDNS gateway-ClusterIP pin once CoreDNS reloads, #5007)"
+    {{- /* A curl without an HTTP answer is ONE not-ready probe: a bare `_pr_code=$(curl …)` under
+     `set -eu` ended two pods with exit 6 while CoreDNS reloaded the pin (20 Nov 2026). */}}
+    {{- include "bp-self-sovereign-cutover.curlNoAnswer" . | nindent 4 }}
     _pr_ok=0
     for _pr_i in $(seq 1 40); do
-      _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+      _pr_rc=0
+      _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null) || _pr_rc=$?
       {{- /*
        #7900 — the public path answers 401 too, so the code alone passed before
        CoreDNS served the pin, and the first pushes left through the public
@@ -846,16 +850,18 @@ data:
        pod resolves the pinned address.
       */}}
       [ -z "${_cip:-}" ] || case " $(getent ahostsv4 "${HARBOR_HOST}" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')" in *" ${_cip} "*) : ;; *) _pr_code="pin-not-served" ;; esac
+      _pr_why="HTTP ${_pr_code:-none}"
+      [ "${_pr_rc}" = 0 ] || { _pr_code=none; _pr_why=$(curl_no_answer "${_pr_rc}"); }
       if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then
         _pr_ok=1
         echo "[harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"
         break
       fi
-      echo "[harbor-prewarm] public dest not ready (HTTP ${_pr_code:-none}, probe ${_pr_i}/40) — pre-pivot DNS/gateway may still be settling (#5037 hw246 flake); retry in 15s"
+      echo "[harbor-prewarm] public dest not ready (${_pr_why}, probe ${_pr_i}/40) — pre-pivot DNS/gateway may still be settling (#5037 hw246 flake); retry in 15s"
       sleep 15
     done
     if [ "${_pr_ok}" != "1" ]; then
-      echo "[harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min) — cannot push. With the #5007 coredns-custom pin, registry.<fqdn> resolves to the in-cluster gateway ClusterIP once CoreDNS reloads; a persistent failure means either CoreDNS did not pick up the override (check kube-system/coredns-custom + the coredns Pod logs) OR the gateway is not serving the registry (Harbor down / HTTPRoute not Programmed / wildcard TLS not issued) — NOT a public-DNS flake. (If the pin is disabled via LOCAL_REGISTRY_PIN_ENABLED=false, also check the Sovereign DNS zone for registry.<fqdn>.)"
+      echo "[harbor-prewarm] FATAL: https://${HARBOR_HOST}/v2/ never became ready after 40 probes (10 min; last probe: ${_pr_why}) — cannot push. With the #5007 coredns-custom pin, registry.<fqdn> resolves to the in-cluster gateway ClusterIP once CoreDNS reloads; a persistent failure means either CoreDNS did not pick up the override (check kube-system/coredns-custom + the coredns Pod logs) OR the gateway is not serving the registry (Harbor down / HTTPRoute not Programmed / wildcard TLS not issued) — NOT a public-DNS flake. (If the pin is disabled via LOCAL_REGISTRY_PIN_ENABLED=false, also check the Sovereign DNS zone for registry.<fqdn>.)"
       exit 1
     fi
 
