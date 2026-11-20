@@ -1,4 +1,4 @@
-infra/providers/_shared/cloudinit-control-plane.tftpl:1
+clusters/_template/bootstrap-secrets/ghcr-pull.yaml:1
 platform/gitea/chart/templates/sso-oauth-source-externalsecret.yaml:1
 platform/grafana/chart/templates/sso-oauth-source-externalsecret.yaml:1
 platform/harbor/chart/templates/sso-oauth-source-externalsecret.yaml:1

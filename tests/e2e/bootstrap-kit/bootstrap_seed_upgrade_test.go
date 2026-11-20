@@ -1,26 +1,31 @@
 package bootstrapkit
 
-// SEC-153: the upgrade path of a Sovereign installed before the seed Secret
-// flux-system/bootstrap-seed existed.
+// SEC-153, SEC-154: the upgrade path of a Sovereign installed before the seed
+// Secret flux-system/bootstrap-seed existed, or before a Secret joined it.
 //
-// Such a Sovereign holds the four bootstrap Secrets its first boot wrote
-// (harbor-robot-token, pdm-basicauth and sovereign-tls-secrets in flux-system,
-// catalyst-handover-jwt-public in catalyst-system) and no seed. When a tree
-// with SEC-153 reaches it (the branch it follows before its cutover, or a
+// Such a Sovereign holds the bootstrap Secrets its first boot wrote
+// (harbor-robot-token, pdm-basicauth, sovereign-tls-secrets, ghcr-pull and
+// object-storage in flux-system, catalyst-handover-jwt-public in
+// catalyst-system) and no seed, or (installed between SEC-153 and SEC-154) a
+// seed without the values of ghcr-pull and object-storage. When a tree with
+// these changes reaches it (the branch it follows before its cutover, or a
 // release delivered into its Gitea after it), the root Kustomization applies
 // three children in this order: bootstrap-seed, whose Job runs build-seed.sh
-// (clusters/_template/bootstrap-secrets/seed/job.yaml) and builds the seed from
-// the four Secrets; bootstrap-secrets, which renders the four manifests under
-// clusters/_template/bootstrap-secrets from the seed; and bootstrap-kit.
+// (clusters/_template/bootstrap-secrets/seed/job.yaml) and builds the seed
+// from the Secrets or adds what it lacks; bootstrap-secrets, which renders the
+// manifests under clusters/_template/bootstrap-secrets from the seed; and
+// bootstrap-kit. cloud-credentials stays as first boot wrote it: the builder
+// does not read it and nothing renders it from the seed.
 //
 // The tests run that script against a kubectl stub that keeps Secrets as files,
-// render the four manifests the way Flux substitutes them (a Secret source is
+// render the manifests the way Flux substitutes them (a Secret source is
 // read decoded; ${NAME} is the value, the empty text when unset), and replay
 // Flux's order over the root Kustomizations of every region folder:
 //
 //	TestBootstrapSeedUpgradeKeepsTheKitReconciling              (a)
 //	TestBootstrapSeedUpgradeNeverWritesAnEmptyOrUnresolvedValue (b)
 //	TestBootstrapSeedUpgradeKeepsTheOldValues                   (c)
+//	TestBootstrapSeedUpgradeAddsWhatTheSeedLacks                (d)
 //
 // Each also proves on a broken copy that its check can fail.
 
@@ -58,7 +63,7 @@ const (
 // STUB_DIR/calls. It answers what the script asks and nothing else.
 const seedKubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"$STUB_DIR/calls"
-ns=default out="" envfile="" ignore="" manager="" words=""
+ns=default out="" envfile="" ignore="" manager="" ptype="" pfile="" words=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -n) ns=$2; shift ;;
@@ -66,6 +71,8 @@ while [ $# -gt 0 ]; do
     --ignore-not-found) ignore=1 ;;
     --from-env-file=*) envfile=${1#*=} ;;
     --field-manager=*) manager=${1#*=} ;;
+    --type=*) ptype=${1#*=} ;;
+    --patch-file=*) pfile=${1#*=} ;;
     -*) echo "kubectl stub: unexpected flag $1" >&2; exit 9 ;;
     *) words="$words $1" ;;
   esac
@@ -85,6 +92,8 @@ case "$1 $2" in
       "jsonpath={.data."*"}")
         k=$(printf '%s' "${out#"jsonpath={.data."}" | sed 's/}$//; s/\\\././g')
         if [ -f "$s/$k" ]; then cat "$s/$k"; fi ;;
+      "go-template="*'{{$k}}{{"\n"}}'*)
+        ls -A "$s" ;;
       *) echo "kubectl stub: unexpected output $out" >&2; exit 9 ;;
     esac ;;
   "create secret")
@@ -103,6 +112,19 @@ case "$1 $2" in
       printf '%s' "${line#*=}" | base64 | tr -d '\n' >"$s/${line%%=*}"
     done <"$envfile"
     echo "secret/$4 created" ;;
+  "patch secret")
+    if [ "$ptype" != merge ] || [ -z "$pfile" ] || [ "$manager" != catalyst-bootstrap-seed ] || [ ! -d "$s" ]; then
+      echo "kubectl stub: unexpected patch $*" >&2
+      exit 9
+    fi
+    body=$(sed 's/^{"stringData":{//; s/}}$//' "$pfile")
+    printf '%s\n' "$body" | tr ',' '\n' | while IFS= read -r kv; do
+      [ -n "$kv" ] || continue
+      k=$(printf '%s' "$kv" | sed 's/^"\([^"]*\)":".*$/\1/')
+      v=$(printf '%s' "$kv" | sed 's/^"[^"]*":"\(.*\)"$/\1/')
+      printf '%s' "$v" | base64 | tr -d '\n' >"$s/$k"
+    done
+    echo "secret/$3 patched" ;;
   *) echo "kubectl stub: unexpected call $*" >&2; exit 9 ;;
 esac
 `
@@ -140,13 +162,26 @@ func oldBootstrapSecrets() []liveSecret {
 			data: map[string]string{"POWERDNS_API_KEY": base64.StdEncoding.EncodeToString([]byte("dns-api-key-for-tests"))}},
 		{ns: "catalyst-system", name: "catalyst-handover-jwt-public", typ: "Opaque",
 			data: map[string]string{"public.jwk": `{"kty":"RSA","e":"AQAB","n":"made-up_for-tests"}`}},
+		// SEC-154: the two Secrets as the first boot before SEC-154 wrote
+		// them (the template at 2e1c2d0d7c).
+		{ns: "flux-system", name: "ghcr-pull", typ: "kubernetes.io/dockerconfigjson", annotations: map[string]string{
+			reflectorKey + "reflection-allowed":            "true",
+			reflectorKey + "reflection-allowed-namespaces": "org-services,catalyst,catalyst-system,gitea,harbor,flux-system,org-.*,[a-z][a-z0-9-]*",
+			reflectorKey + "reflection-auto-enabled":       "true",
+			reflectorKey + "reflection-auto-namespaces":    "org-services,catalyst,catalyst-system,gitea,harbor,org-.*,[a-z][a-z0-9-]*",
+		}, data: map[string]string{".dockerconfigjson": `{"auths":{"ghcr.io":{"auth":"dXNlcjp0byRrZW57eH0=","password":"to$ken{x}","username":"user"}}}`}},
+		{ns: "flux-system", name: "object-storage", typ: "Opaque", data: map[string]string{
+			"endpoint": "https://s3.example.test:443/a b", "region": "region ${x}", "bucket": "bucket-1",
+			"s3-endpoint": "https://s3.example.test:443/a b", "s3-region": "region ${x}", "s3-bucket": "bucket-1",
+			"s3-access-key": "ak$1", "s3-secret-key": "sk {x}: \"y\"", "access-key": "ak$1", "secret-key": "sk {x}: \"y\"",
+		}},
 	}
 }
 
 // seedFixture is one region: the stub's Secrets, its calls and the work
 // folder (the Job's emptyDir).
 type seedFixture struct {
-	dir, script string
+	dir, script, entries string
 }
 
 func newSeedFixture(t *testing.T, root string) *seedFixture {
@@ -161,7 +196,9 @@ func newSeedFixture(t *testing.T, root string) *seedFixture {
 		t.Fatal(err)
 	}
 	f.script = filepath.Join(f.dir, "build-seed.sh")
-	if err := os.WriteFile(f.script, []byte(seedBuilderScript(t, root)), 0o600); err != nil {
+	script, entries := seedBuilderScript(t, root)
+	f.entries = entries
+	if err := os.WriteFile(f.script, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -251,7 +288,7 @@ func (f *seedFixture) build(t *testing.T) (int, string) {
 	t.Helper()
 	cmd := exec.Command("sh", f.script) //nolint:gosec // the script of this repository, copied into the test's temporary folder
 	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(f.dir, "bin")+":"+os.Getenv("PATH"),
-		"STUB_DIR="+f.dir, "SEED_WORK="+filepath.Join(f.dir, "work"))
+		"STUB_DIR="+f.dir, "SEED_WORK="+filepath.Join(f.dir, "work"), "SEED_ENTRIES="+f.entries)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
@@ -301,8 +338,9 @@ func dig(v any, path ...string) any {
 func list(v any) []any { l, _ := v.([]any); return l }
 
 // seedBuilderScript is build-seed.sh of the ConfigMap that the Job mounts at
-// /seed; it also checks that the Job runs that script and nothing else.
-func seedBuilderScript(t *testing.T, root string) string {
+// /seed, and the value of SEED_ENTRIES in the Job's environment (SEC-154); it
+// also checks that the Job runs that script and nothing else.
+func seedBuilderScript(t *testing.T, root string) (string, string) {
 	t.Helper()
 	var script, configMap string
 	var job map[string]any
@@ -327,7 +365,16 @@ func seedBuilderScript(t *testing.T, root string) string {
 	if !mounted || len(containers) != 1 || fmt.Sprint(dig(containers[0], "command")) != "[/bin/sh /seed/build-seed.sh]" || dig(containers[0], "args") != nil {
 		t.Fatalf("%s: the Job does not run build-seed.sh of ConfigMap %s", seedJobFile, configMap)
 	}
-	return script
+	entries := ""
+	for _, e := range list(dig(containers[0], "env")) {
+		if dig(e, "name") == "SEED_ENTRIES" {
+			entries, _ = dig(e, "value").(string)
+		}
+	}
+	if entries == "" {
+		t.Fatalf("%s: the Job's container has no SEED_ENTRIES", seedJobFile)
+	}
+	return script, entries
 }
 
 // fluxKustomization is what Flux's order reads of a root child.
@@ -454,11 +501,13 @@ func renderBootstrapSecrets(t *testing.T, root string, vars map[string]string) [
 				continue
 			}
 			var rs renderedSecret
+			unresolved := map[string]bool{}
 			for _, field := range []string{"data", "stringData"} {
 				for k, v := range asMap(before[field]) {
 					for _, m := range fluxReference.FindAllStringSubmatch(fmt.Sprint(v), -1) {
 						if _, ok := vars[m[1]]; !ok {
 							rs.problems = append(rs.problems, fmt.Sprintf("%s document %d %s.%s: ${%s} is not a key of the seed", r, i, field, k, m[1]))
+							unresolved[field+"."+k] = true
 						}
 					}
 				}
@@ -477,7 +526,7 @@ func renderBootstrapSecrets(t *testing.T, root string, vars map[string]string) [
 			for field, encoded := range map[string]bool{"data": true, "stringData": false} {
 				for k, v := range asMap(after[field]) {
 					s, _ := v.(string)
-					if s == "" || strings.Contains(s, "${") {
+					if s == "" || unresolved[field+"."+k] || strings.Contains(s, "${") {
 						rs.problems = append(rs.problems, fmt.Sprintf("%s %s.%s renders %q", rs.id(), field, k, s))
 					}
 					if encoded {
@@ -726,6 +775,9 @@ func TestBootstrapSeedUpgradeNeverWritesAnEmptyOrUnresolvedValue(t *testing.T) {
 		{"an empty value", "flux-system/pdm-basicauth", "username", change("flux-system/pdm-basicauth", "username", &empty)},
 		{"an empty value under stringData", "flux-system/sovereign-tls-secrets", "POWERDNS_API_KEY", change("flux-system/sovereign-tls-secrets", "POWERDNS_API_KEY", &empty)},
 		{"a stringData value that is not base64 text", "flux-system/sovereign-tls-secrets", "POWERDNS_API_KEY", change("flux-system/sovereign-tls-secrets", "POWERDNS_API_KEY", &notBase64)},
+		{"a missing Secret ghcr-pull", "flux-system/ghcr-pull", ".dockerconfigjson", change("flux-system/ghcr-pull", "", nil)},
+		{"a missing key of object-storage", "flux-system/object-storage", "s3-secret-key", change("flux-system/object-storage", "s3-secret-key", nil)},
+		{"an empty value of object-storage", "flux-system/object-storage", "s3-bucket", change("flux-system/object-storage", "s3-bucket", &empty)},
 	} {
 		f := newSeedFixture(t, root)
 		f.putAll(t, c.edit(oldBootstrapSecrets()))
@@ -909,8 +961,8 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 
 	before, calls := f.snapshot(t), f.calls(t)
 	rc, out := f.build(t)
-	if rc != 0 || !strings.Contains(out, "exists, nothing to build") {
-		t.Errorf("a second run exits %d and says %q; want 0 and nothing to build", rc, out)
+	if rc != 0 || !strings.Contains(out, "holds every value, nothing to add") {
+		t.Errorf("a second run exits %d and says %q; want 0 and nothing to add", rc, out)
 	}
 	if after := f.snapshot(t); !reflect.DeepEqual(before, after) {
 		t.Error("a second run changed the Secrets")
@@ -934,6 +986,126 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 		edit(&changed[0])
 		if len(compareWithOld(changed, rendered)) == 0 {
 			t.Errorf("%s changed is not found", what)
+		}
+	}
+}
+
+// sec153Seed is the seed of a Sovereign installed between SEC-153 and
+// SEC-154: the five values of SEC-153, as first boot wrote them.
+func sec153Seed(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for k, v := range builtSeed(t, root) {
+		switch k {
+		case "HARBOR_ROBOT_TOKEN", "PDM_BASIC_AUTH_USER", "PDM_BASIC_AUTH_PASS", "POWERDNS_API_KEY", "HANDOVER_JWT_PUBLIC_KEY":
+			out[k] = v
+		}
+	}
+	if len(out) != 5 {
+		t.Fatalf("the built seed lacks a key of SEC-153: %v", sortedKeys(out))
+	}
+	return out
+}
+
+// (d) On a region whose seed lacks the values of ghcr-pull and object-storage
+// (installed between SEC-153 and SEC-154), the builder adds
+// them from those Secrets with one patch, never changes a value the seed holds,
+// renders every Secret as it was, keeps the kit reconciling, and on a missing
+// Secret writes nothing; a second run adds nothing.
+func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
+	root := repoRoot(t)
+	partial := sec153Seed(t, root)
+
+	f := newSeedFixture(t, root)
+	f.putAll(t, oldBootstrapSecrets())
+	f.put(t, seedNamespace, seedSecret, partial)
+	rc, out := f.build(t)
+	if rc != 0 || !strings.Contains(out, "added to flux-system/bootstrap-seed") {
+		t.Fatalf("build-seed.sh on a seed of SEC-153 exits %d and says %q; want 0 and the values added", rc, out)
+	}
+	if calls := f.calls(t); strings.Contains(calls, " create ") || strings.Count(calls, " patch secret bootstrap-seed ") != 1 {
+		t.Errorf("want one patch of the seed and no create, calls:\n%s", calls)
+	}
+	seed, _ := f.get(t, seedNamespace, seedSecret)
+	if want := builtSeed(t, root); !reflect.DeepEqual(seed, want) {
+		t.Errorf("the completed seed %v differs from the seed built from the Secrets %v", sortedKeys(seed), sortedKeys(want))
+	}
+	for _, d := range compareWithOld(oldBootstrapSecrets(), renderBootstrapSecrets(t, root, seed)) {
+		t.Errorf("rendered from the completed seed: %s", d)
+	}
+	if work, _ := os.ReadDir(filepath.Join(f.dir, "work")); len(work) != 0 {
+		t.Errorf("the seed's values stay in the work folder: %d files", len(work))
+	}
+	before, calls := f.snapshot(t), f.calls(t)
+	if rc, out := f.build(t); rc != 0 || !strings.Contains(out, "holds every value, nothing to add") {
+		t.Errorf("a second run exits %d and says %q; want 0 and nothing to add", rc, out)
+	}
+	if after := f.snapshot(t); !reflect.DeepEqual(before, after) || strings.Contains(strings.TrimPrefix(f.calls(t), calls), " patch ") {
+		t.Error("a second run changed the seed")
+	}
+
+	// A value the seed holds stays as first boot wrote it, also when the live
+	// Secret has another one.
+	held := map[string]string{}
+	for k, v := range partial {
+		held[k] = v
+	}
+	held["HARBOR_ROBOT_TOKEN"] = base64.StdEncoding.EncodeToString([]byte("the value first boot wrote"))
+	keep := func(script string) bool {
+		g := newSeedFixture(t, root)
+		if script != "" {
+			if err := os.WriteFile(g.script, []byte(script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		g.putAll(t, oldBootstrapSecrets())
+		g.put(t, seedNamespace, seedSecret, held)
+		if rc, out := g.build(t); rc != 0 {
+			t.Fatalf("build-seed.sh exits %d: %s", rc, out)
+		}
+		got, _ := g.get(t, seedNamespace, seedSecret)
+		return got["HARBOR_ROBOT_TOKEN"] == held["HARBOR_ROBOT_TOKEN"]
+	}
+	if !keep("") {
+		t.Error("the builder changed HARBOR_ROBOT_TOKEN, a value the seed holds")
+	}
+	// The check can fail: a builder that does not skip the values the seed
+	// holds patches them with the live values.
+	script, _ := seedBuilderScript(t, root)
+	broken := strings.Replace(script, `if grep -qx "$var" "$have"; then`, `if false; then`, 1)
+	if broken == script {
+		t.Fatal("the builder has no skip of a value the seed holds to break")
+	}
+	if keep(broken) {
+		t.Error("a builder that patches the values the seed holds is not found: the check cannot fail")
+	}
+
+	// A missing Secret writes nothing: the seed stays as it was.
+	g := newSeedFixture(t, root)
+	var without []liveSecret
+	for _, s := range oldBootstrapSecrets() {
+		if s.name != "ghcr-pull" {
+			without = append(without, s)
+		}
+	}
+	g.putAll(t, without)
+	g.put(t, seedNamespace, seedSecret, partial)
+	snap := g.snapshot(t)
+	if rc, out := g.build(t); rc != 1 || !strings.Contains(out, "Secret flux-system/ghcr-pull key .dockerconfigjson: ") {
+		t.Errorf("without ghcr-pull build-seed.sh exits %d and says %q; want 1, naming the Secret and its key", rc, out)
+	}
+	if after := g.snapshot(t); !reflect.DeepEqual(snap, after) || strings.Contains(g.calls(t), " patch ") {
+		t.Error("without ghcr-pull the seed or a Secret changed")
+	}
+
+	// Flux's order on every region folder: the seed is completed before
+	// bootstrap-secrets renders, and the kit finds every Secret.
+	for _, dir := range rootFolders(t, root) {
+		h := newSeedFixture(t, root)
+		h.putAll(t, oldBootstrapSecrets())
+		h.put(t, seedNamespace, seedSecret, partial)
+		for _, p := range reconcileRegion(t, root, rootKustomizations(t, root, dir), h) {
+			t.Errorf("%s, installed with a seed of SEC-153: %s", dir, p)
 		}
 	}
 }

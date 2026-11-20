@@ -106,9 +106,11 @@ func TestRunOnATree(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"clusters/a/template.yaml": template,
-		"clusters/a/literal.yaml":  secret("data:\n  token: c2VjcmV0\n"),
-		"clusters/a/config.yaml":   "apiVersion: v1\nkind: ConfigMap\n",
-		"platform/x/secret.yaml":   template, // outside clusters/: not G1's
+		// SEC-154: the Kustomization that renders clusters/a, its names from a Secret.
+		"clusters/root/a.yaml":    flux("a", "./clusters/a", seedOnly),
+		"clusters/a/literal.yaml": secret("data:\n  token: c2VjcmV0\n"),
+		"clusters/a/config.yaml":  "apiVersion: v1\nkind: ConfigMap\n",
+		"platform/x/secret.yaml":  template, // outside clusters/: not G1's
 	}
 	for p, c := range files {
 		write(t, root, p, c)

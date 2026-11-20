@@ -11,6 +11,15 @@ spec:
   failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
   concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
   jobTemplate:
+    {{- /* The Job the controller creates carries only these labels, never the
+      Flux labels of the release, and ns syft-grype is matched by the
+      ClusterPolicy flux-managed (Enforce after the hand-over): the label it
+      names admits it. The policy matches Jobs, not Pods. */}}
+    metadata:
+      labels:
+        {{- include "bp-syft-grype.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/managed-by: flux
+        catalyst.openova.io/blueprint: bp-syft-grype
     spec:
       backoffLimit: 1
       template:

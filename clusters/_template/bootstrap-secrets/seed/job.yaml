@@ -1,21 +1,38 @@
-# The seed builder (SEC-153). build-seed.sh runs once: it exits 0 when
-# flux-system/bootstrap-seed exists or when it has built it from the four
-# bootstrap Secrets, each value as that Secret holds it; it exits 1, naming the
-# Secret and the key, when a Secret, a key or a value is missing or empty, and
-# then builds no seed and writes nothing. The Job's own retries (backoffLimit)
-# cover a failed API call; no loop polls. A Job that has failed holds the
-# Kustomizations bootstrap-secrets and bootstrap-kit, and the four Secrets stay
-# as they are; its Pod's log names what is missing. Once that Secret is
-# repaired, deleting the failed Job lets Flux create it again.
+# The seed builder (SEC-153, SEC-154). build-seed.sh runs once per change of
+# the Job's template. It reads which keys flux-system/bootstrap-seed holds (none
+# when it does not exist) and, for every value the seed lacks, reads the
+# bootstrap Secret that holds it, as that Secret holds it: each entry of
+# SEED_ENTRIES (the Job's environment) is a seed key, the namespace, name and
+# key of the Secret, and the form (below). It reads no other Secret.
+# Then it creates the seed (a Sovereign installed before SEC-153) or adds the
+# lacking keys to it (a Sovereign installed before a Secret joined it, as
+# ghcr-pull and object-storage did with SEC-154). It never
+# changes or removes a key the seed holds, so a value first boot wrote stays.
+# It exits 0 when the seed holds every value or when it has written them; it
+# exits 1, naming the Secret and the key, when a Secret, a key or a value of
+# SEED_ENTRIES is missing or empty, or a value is not base64 text, and then
+# writes nothing. The Job's own retries (backoffLimit) cover a failed API call;
+# no loop polls. A Job that has failed holds the Kustomizations
+# bootstrap-secrets and bootstrap-kit, and the bootstrap Secrets stay as they
+# are: never is a live Secret rendered from a seed that lacks its value. Its
+# Pod's log names what is missing. Once that Secret is repaired, deleting the
+# failed Job lets Flux create it again.
+#
+# Why SEED_ENTRIES is in the Job and not in the script: the Job's template is
+# immutable, so a change of it makes Flux (force: true on bootstrap-seed)
+# replace the Job, and the new one runs on every installed Sovereign. A Secret
+# that joins the seed therefore joins this list. A change of the script alone
+# does not run it again.
 #
 # The seed holds one key per value, the form first boot writes into
 # bootstrap-seed.env (infra/providers/_shared/cloudinit-control-plane.tftpl):
 # the base64 text that the manifests under clusters/_template/bootstrap-secrets
-# put under data (the stored value of the Secret's key), and for
+# put under data (the stored value of the Secret's key, form data), and for
 # sovereign-tls-secrets, whose manifest puts the value under stringData, the
-# value of the key itself (a base64 text too). The values pass through a file
-# in memory (emptyDir medium Memory) and kubectl create --from-env-file, never
-# through a command line.
+# value of the key itself (a base64 text too, form text). The values pass
+# through files in memory (emptyDir medium Memory), into kubectl create
+# --from-env-file or a merge patch read from a file (stringData, so the seed
+# stores each value as that text), never through a command line.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -28,16 +45,24 @@ data:
     set -eu
     umask 077
     env_file="$SEED_WORK/bootstrap-seed.env"
-    if [ -n "$(kubectl -n flux-system get secret bootstrap-seed --ignore-not-found -o name)" ]; then
-      echo "bootstrap-seed: flux-system/bootstrap-seed exists, nothing to build"
-      exit 0
+    have="$SEED_WORK/seed-keys"
+    patch="$SEED_WORK/seed-patch.json"
+    clean() { rm -f "$env_file" "$have" "$patch"; }
+    clean
+    seed=$(kubectl -n flux-system get secret bootstrap-seed --ignore-not-found -o name </dev/null)
+    : >"$have"
+    if [ -n "$seed" ]; then
+      kubectl -n flux-system get secret bootstrap-seed -o 'go-template={{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' </dev/null >"$have"
     fi
-    rm -f "$env_file"
     missing=0
     while read -r var ns name key form; do
+      [ -n "$var" ] || continue
+      if grep -qx "$var" "$have"; then
+        continue
+      fi
       path=$(printf '%s' "$key" | sed 's/\./\\./g')
       if ! value=$(kubectl -n "$ns" get secret "$name" -o "jsonpath={.data.$path}" </dev/null); then
-        echo "bootstrap-seed: Secret $ns/$name key $key: cannot be read; no seed is built" >&2
+        echo "bootstrap-seed: Secret $ns/$name key $key: cannot be read; nothing is written" >&2
         missing=1
         continue
       fi
@@ -46,29 +71,45 @@ data:
       fi
       case "$value" in
         "")
-          echo "bootstrap-seed: Secret $ns/$name key $key: no value; no seed is built" >&2
+          echo "bootstrap-seed: Secret $ns/$name key $key: no value; nothing is written" >&2
           missing=1
           continue ;;
         *[!A-Za-z0-9+/=]*)
-          echo "bootstrap-seed: Secret $ns/$name key $key: not base64 text; no seed is built" >&2
+          echo "bootstrap-seed: Secret $ns/$name key $key: not base64 text; nothing is written" >&2
           missing=1
           continue ;;
       esac
       printf '%s=%s\n' "$var" "$value" >>"$env_file"
-    done <<'EOF'
-    HARBOR_ROBOT_TOKEN flux-system harbor-robot-token token data
-    PDM_BASIC_AUTH_USER flux-system pdm-basicauth username data
-    PDM_BASIC_AUTH_PASS flux-system pdm-basicauth password data
-    POWERDNS_API_KEY flux-system sovereign-tls-secrets POWERDNS_API_KEY text
-    HANDOVER_JWT_PUBLIC_KEY catalyst-system catalyst-handover-jwt-public public.jwk data
+    done <<EOF
+    $SEED_ENTRIES
     EOF
     if [ "$missing" != 0 ]; then
-      rm -f "$env_file"
+      clean
       exit 1
     fi
-    kubectl -n flux-system create secret generic bootstrap-seed --from-env-file="$env_file" --field-manager=catalyst-bootstrap-seed
-    rm -f "$env_file"
-    echo "bootstrap-seed: flux-system/bootstrap-seed built from the four bootstrap Secrets"
+    if [ ! -s "$env_file" ]; then
+      clean
+      echo "bootstrap-seed: flux-system/bootstrap-seed holds every value, nothing to add"
+      exit 0
+    fi
+    added=$(sed 's/=.*//' "$env_file" | tr '\n' ' ')
+    if [ -z "$seed" ]; then
+      kubectl -n flux-system create secret generic bootstrap-seed --from-env-file="$env_file" --field-manager=catalyst-bootstrap-seed
+      echo "bootstrap-seed: flux-system/bootstrap-seed built from the bootstrap Secrets: $added"
+    else
+      sep=""
+      {
+        printf '{"stringData":{'
+        while IFS= read -r line; do
+          printf '%s"%s":"%s"' "$sep" "$(printf '%s' "$line" | cut -d= -f1)" "$(printf '%s' "$line" | cut -d= -f2-)"
+          sep=","
+        done <"$env_file"
+        printf '}}\n'
+      } >"$patch"
+      kubectl -n flux-system patch secret bootstrap-seed --type=merge --patch-file="$patch" --field-manager=catalyst-bootstrap-seed
+      echo "bootstrap-seed: added to flux-system/bootstrap-seed from the bootstrap Secrets: $added"
+    fi
+    clean
 ---
 apiVersion: batch/v1
 kind: Job
@@ -102,6 +143,21 @@ spec:
           env:
             - name: SEED_WORK
               value: /work
+            # One line per seed value: the seed key, the namespace, name and
+            # key of the bootstrap Secret that holds it, and its form.
+            - name: SEED_ENTRIES
+              value: |
+                HARBOR_ROBOT_TOKEN flux-system harbor-robot-token token data
+                PDM_BASIC_AUTH_USER flux-system pdm-basicauth username data
+                PDM_BASIC_AUTH_PASS flux-system pdm-basicauth password data
+                POWERDNS_API_KEY flux-system sovereign-tls-secrets POWERDNS_API_KEY text
+                HANDOVER_JWT_PUBLIC_KEY catalyst-system catalyst-handover-jwt-public public.jwk data
+                GHCR_PULL_DOCKERCONFIGJSON flux-system ghcr-pull .dockerconfigjson data
+                OBJECT_STORAGE_ENDPOINT flux-system object-storage s3-endpoint data
+                OBJECT_STORAGE_REGION flux-system object-storage s3-region data
+                OBJECT_STORAGE_BUCKET flux-system object-storage s3-bucket data
+                OBJECT_STORAGE_ACCESS_KEY flux-system object-storage s3-access-key data
+                OBJECT_STORAGE_SECRET_KEY flux-system object-storage s3-secret-key data
           volumeMounts:
             - name: script
               mountPath: /seed

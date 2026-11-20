@@ -19,9 +19,15 @@
 //	judged.
 //
 // A file is named only when it has at least one Secret, every Secret in it is
-// such a template, and every line `kind: Secret` of the file (the line G1
+// such a template, every line `kind: Secret` of the file (the line G1
 // counts, SECRET_KIND of scripts/secret-guards.py) is the kind of one of those
-// templates. Every other file stays a finding of G1, under its allow-list.
+// templates, and (SEC-154, sources.go) every NAME its entries reference comes
+// only from a postBuild.substituteFrom entry of kind Secret of each Flux
+// Kustomization that renders its folder, and (SEC-154, laterwriters.go, the
+// list of Secrets with a later writer) a Secret in it carries the annotation
+// kustomize.toolkit.fluxcd.io/ssa: IfNotPresent exactly when a component
+// written in a file of the tree writes it after first boot. Every other file
+// stays a finding of G1, under its allow-list.
 //
 // The manifest is read as written, by a strict reader of the one form a
 // template needs: each field of the manifest starts a line of its own at the
@@ -52,6 +58,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -102,6 +109,9 @@ func run(args []string, out, errw io.Writer) int {
 	}
 	tree := os.DirFS(*root)
 	read := 0
+	var order []string
+	templates := map[string][]string{} // a template file -> the names it references
+	var ks []fluxKustomization
 	for _, p := range strings.Split(listed, "\x00") {
 		if !strings.HasPrefix(p, "clusters/") {
 			continue
@@ -116,18 +126,46 @@ func run(args []string, out, errw io.Writer) int {
 		}
 		read++
 		text := string(b)
-		if bytes.IndexByte(b, 0) >= 0 || !hasSecretKindLine(text) {
-			continue // a binary file, or no line G1 counts
+		if bytes.IndexByte(b, 0) >= 0 {
+			continue // a binary file
 		}
-		if why := judgeFile(text); why != "" {
+		if strings.Contains(text, "kustomize.toolkit.fluxcd.io/") {
+			ks = append(ks, fluxKustomizations(p, text)...)
+		}
+		if !hasSecretKindLine(text) {
+			continue // no line G1 counts
+		}
+		why, names := judgeTemplates(text)
+		if why == "" {
+			why = laterWriterFinding(tree, text) // SEC-154, laterwriters.go
+		}
+		if why != "" {
 			say(errw, "secret-templates: %s is not a template of references: %s\n", p, why)
 			continue
 		}
-		say(out, "%s\n", p)
+		order = append(order, p)
+		templates[p] = names
 	}
 	if read == 0 {
 		say(errw, "secret-templates: no file under clusters/ was read: nothing was measured\n")
 		return 2
+	}
+	var repoFiles []string
+	if len(templates) > 0 {
+		all, err := git(*root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+		if err != nil {
+			say(errw, "secret-templates: cannot list the files: %v\n", err)
+			return 2
+		}
+		repoFiles = strings.Split(all, "\x00")
+	}
+	findings := sourceFindings(tree, repoFiles, templates, ks)
+	for _, p := range order {
+		if why := findings[p]; why != "" {
+			say(errw, "secret-templates: %s is not a template of references: %s\n", p, why)
+			continue
+		}
+		say(out, "%s\n", p)
 	}
 	return 0
 }
@@ -161,8 +199,16 @@ func hasSecretKindLine(text string) bool {
 // in it is a template and every line `kind: Secret` is the kind of one of
 // them; otherwise the first reason it is not.
 func judgeFile(text string) string {
+	why, _ := judgeTemplates(text)
+	return why
+}
+
+// judgeTemplates is judgeFile, and it also returns the names the templates
+// reference under data and stringData, sorted, each once.
+func judgeTemplates(text string) (string, []string) {
 	lines := strings.Split(text, "\n")
 	kinds := map[int]bool{} // the lines `kind: Secret` of the templates
+	names := map[string]bool{}
 	secrets, start := 0, 0
 	for i := 0; i <= len(lines); i++ {
 		if i < len(lines) && !separator.MatchString(lines[i]) {
@@ -172,8 +218,8 @@ func judgeFile(text string) string {
 		kind, at := kindOf(doc)
 		if kind == "Secret" {
 			secrets++
-			if why := judge(doc, start); why != "" {
-				return fmt.Sprintf("the Secret of line %d: %s", start+at+1, why)
+			if why := judge(doc, start, names); why != "" {
+				return fmt.Sprintf("the Secret of line %d: %s", start+at+1, why), nil
 			}
 			kinds[start+at] = true
 		}
@@ -181,13 +227,18 @@ func judgeFile(text string) string {
 	}
 	for i, l := range lines {
 		if secretKindLine.MatchString(l) && !kinds[i] {
-			return fmt.Sprintf("line %d names the kind Secret outside the kind field of a template", i+1)
+			return fmt.Sprintf("line %d names the kind Secret outside the kind field of a template", i+1), nil
 		}
 	}
 	if secrets == 0 {
-		return "it holds no Secret"
+		return "it holds no Secret", nil
 	}
-	return ""
+	out := make([]string, 0, len(names))
+	for n := range names {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return "", out
 }
 
 // kindOf returns the value of the first field kind of a document, unquoted,
@@ -210,8 +261,9 @@ func unquote(v string) string {
 }
 
 // judge returns "" when one Secret document is a template, otherwise why it
-// is not. first is the index of the document's first line in the file.
-func judge(doc []string, first int) string {
+// is not. first is the index of the document's first line in the file. It adds
+// the name each entry references to names.
+func judge(doc []string, first int, names map[string]bool) string {
 	seen := map[string]bool{}
 	keys := map[string]bool{}
 	block, indent, entries := "", 0, 0
@@ -276,6 +328,8 @@ func judge(doc []string, first int) string {
 		case !reference.MatchString(unquote(value)):
 			return fmt.Sprintf("%s.%s (line %d) is not exactly one reference ${NAME} (NAME of capitals, digits and underscores; no literal, no text around it, no default)", block, key, n)
 		}
+		ref := unquote(value)
+		names[ref[2:len(ref)-1]] = true
 		entries++
 	}
 	if entries == 0 {

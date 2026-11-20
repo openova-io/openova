@@ -31,6 +31,7 @@ on:
       - 'clusters/_template/infrastructure/providers/**'
       - 'clusters/_template/bootstrap-secrets/**'
       - 'clusters/_template/root/**'
+      - 'clusters/_template/providers/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'
   pull_request:
@@ -40,6 +41,7 @@ on:
       - 'clusters/_template/infrastructure/providers/**'
       - 'clusters/_template/bootstrap-secrets/**'
       - 'clusters/_template/root/**'
+      - 'clusters/_template/providers/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'
   workflow_dispatch:

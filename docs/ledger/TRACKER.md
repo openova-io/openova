@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T17:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-20T18:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
+| 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
 | 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
@@ -322,6 +324,7 @@ flowchart LR
 | 2026-11-20T12:24 | [#8505](https://github.com/openova-io/openova/pull/8505) | #8500 | fix(openova-mcp): the stdio tool server reads its bearer fro |
 | 2026-11-20T11:50 | [#8504](https://github.com/openova-io/openova/pull/8504) | #7087 | docs(ledger): plan update |
 | 2026-11-20T12:10 | [#8503](https://github.com/openova-io/openova/pull/8503) | #8501 | fix(catalyst-api): the token route admits the agent workspac |
+| 2026-11-20T17:46 | [#8502](https://github.com/openova-io/openova/pull/8502) | #4423 | refactor(bootstrap): Flux renders the pull login and the obj |
 | 2026-11-20T11:39 | [#8499](https://github.com/openova-io/openova/pull/8499) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:27 | [#8497](https://github.com/openova-io/openova/pull/8497) | #7087 | docs(ledger): plan update |
 | 2026-11-20T11:43 | [#8496](https://github.com/openova-io/openova/pull/8496) | #4639 | fix(cutover): the dormant registry pivot does not delete the |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T10:54 | [#8488](https://github.com/openova-io/openova/pull/8488) | fix(wipe): the destroy does not fail on a bucket that still  |  |
 | 2026-11-20T10:31 | [#8486](https://github.com/openova-io/openova/pull/8486) | #7087 | docs(ledger): plan update |
 | 2026-11-20T10:03 | [#8485](https://github.com/openova-io/openova/pull/8485) | #7087 | docs(ledger): plan update |
-| 2026-11-20T10:08 | [#8484](https://github.com/openova-io/openova/pull/8484) | #8483 | fix(console): the wizard and the overview page state the reg |
-| 2026-11-20T09:27 | [#8482](https://github.com/openova-io/openova/pull/8482) | #7087 | docs(ledger): plan update |
-| 2026-11-20T09:21 | [#8481](https://github.com/openova-io/openova/pull/8481) | #7087 | docs(ledger): plan update |
 
 ---
 

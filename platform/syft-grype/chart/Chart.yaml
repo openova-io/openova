@@ -15,7 +15,7 @@ description: |
   Pairs with bp-trivy (operator-driven scans) — Syft+Grype is the
   CI-friendly, image-focused complement.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "v1.43.0"
 keywords: [catalyst, blueprint, syft, grype, sbom, vulnerability, security]
 maintainers:
