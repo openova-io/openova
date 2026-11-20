@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T03:30:09Z` |
+| Last refreshed | `2026-11-20T03:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8047](https://github.com/openova-io/openova/issues/8047) | CMP-020 The API tells the truth: live mode, no fixture data, no invented list | Other |
-| [#8066](https://github.com/openova-io/openova/issues/8066) | CTL-233 Console: Git-owned objects show Managed by Git | Other |
-| [#8067](https://github.com/openova-io/openova/issues/8067) | NET-212 Show the separation; refuse the claim when it is none | Other |
 | [#8079](https://github.com/openova-io/openova/issues/8079) | AIP-113 Durable spool and admin routes | Other |
 | [#8080](https://github.com/openova-io/openova/issues/8080) | CLD-102 Delete the dead Provision method of the provider port | Other |
 | [#8083](https://github.com/openova-io/openova/issues/8083) | AIP-150 The tool server accepts agent tokens | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8433](https://github.com/openova-io/openova/issues/8433) | SOV-132 Nodes boot with a local-first registry file, a wildcard entry and the pu | Other |
 | [#8436](https://github.com/openova-io/openova/issues/8436) | SVC-205 Lock stage blueprints to deny | Other |
 | [#8441](https://github.com/openova-io/openova/issues/8441) | AIP-070 Delete the hollow gateway charts | Other |
+| [#8445](https://github.com/openova-io/openova/issues/8445) | AIP-227 Console read path: reverse proxy /api/v1/ops/* in catalyst-api | Other |
+| [#8446](https://github.com/openova-io/openova/issues/8446) | PRD-211 Document conversion parser | Other |
+| [#8449](https://github.com/openova-io/openova/issues/8449) | SVC-136 The foundation function tests pass on a fresh installation | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T03:40 | [#8444](https://github.com/openova-io/openova/pull/8444) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T23:28 | [#8405](https://github.com/openova-io/openova/pull/8405) | #8402 | refactor(cloud-init): first boot pulls no image ahead of tim |
 | 2026-11-19T22:37 | [#8404](https://github.com/openova-io/openova/pull/8404) | #5245 | fix(install): the platform's own automation leaves no hand's |
 | 2026-11-19T23:32 | [#8403](https://github.com/openova-io/openova/pull/8403) | #3695 | fix(charts): a function test reaches the API server the way  |
-| 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
 
 ---
 
