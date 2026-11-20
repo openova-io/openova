@@ -11723,26 +11723,38 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-521, SOV-522]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
-  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
-  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
+  - platform/self-sovereign-cutover/chart/README.md
   - platform/self-sovereign-cutover/chart/files/release/release-run.sh
+  - platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_credential.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_rbac_test.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_route_credential_test.go
   - products/catalyst/bootstrap/api/internal/lifecycle/release_run_test.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'RELEASE_RETRY' platform/self-sovereign-cutover/chart/files/release/release-run.sh || true"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/lifecycle/ && out=\"$(NO_COLOR=1 go test ./internal/lifecycle/ -count=1 -v 2>&1)\" || { printf '%s\\n' \"$out\" | tail -n 80; exit 1; }; for t in TestReleaseDeliveryJobResumesAfterAnEviction/evicted_before_it_records_its_prewarm TestReleaseDeliveryJobResumesAfterAnEviction/evicted_after_it_promoted_the_follower TestReleaseDeliveryJobResumesAfterAnEviction/its_first_read_of_the_state_fails TestReleaseDeliveryJobResumesAfterAnEviction/no_read_of_the_state_answers TestReleaseDeliveryJobResumesAfterAnEviction/its_record_of_the_prewarm_cannot_be_written TestReleaseFollowerJobResultIsItsCurrentPods/sovereign-release-stage-region-b TestReleaseFollowerJobResultIsItsCurrentPods/sovereign-release-promote-region-b TestReleaseBootstrapResumesAfterAnEviction TestReleaseDeliveryJobKilledIsAFailedDeliveryAndLeavesNoCredential TestReleaseDeliveryKilledDuringPromoteNamesWhatMoved TestReleaseScriptCallsAreGrantedToTheirAccount TestReleaseScriptsAreTheCutoverChartsOwn TestReleasePullSecretGoesWithItsJob; do grep -q -e \"--- PASS: $t (\" <<<\"$out\" || { echo \"this test did not pass: $t\"; exit 1; }; done"
+  - id: A2
+    run: "cmp products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh platform/self-sovereign-cutover/chart/files/release/release-run.sh && test \"$(cat platform/self-sovereign-cutover/chart/files/release/contract)\" = 1 && grep -q '^RELEASE_RETRY=.{\"backoffLimit\": 1, \"podReplacementPolicy\": \"Failed\", \"podFailurePolicy\": {\"rules\": \\[{\"action\": \"Count\", \"onPodConditions\": \\[{\"type\": \"DisruptionTarget\", \"status\": \"True\"}\\]}, {\"action\": \"FailJob\", \"onExitCodes\": {\"operator\": \"NotIn\", \"values\": \\[0\\]}}\\]}}.$' platform/self-sovereign-cutover/chart/files/release/release-run.sh && grep -q 'retryOneEviction(&job.Spec)' products/catalyst/bootstrap/api/internal/lifecycle/release_job.go && ! grep -q 'backoffLimit: 0' platform/self-sovereign-cutover/chart/README.md && bash platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'A delivery through PUT /api/v1/sovereign/release survives one eviction of any of its Pods (the bootstrap Job''s and the delivery Job''s): the new Pod resumes from state it has read with certainty. A read or a write of that state that fails is repeated or stops the delivery by name; it is never taken as "not done". The route reads the log of the Pod of the current attempt.'
+  delivers: 'A delivery through PUT /api/v1/sovereign/release survives one eviction of any of its Pods (the bootstrap Job''s, the delivery Job''s and a follower Job''s): the new Pod resumes from state it has read with certainty, a read or a write of that state that fails is repeated or stops the Pod by name and is never taken as not done, and a Job''s result is read from the log of the Pod of its current attempt.'
 - id: SOV-530
   title: Offline bundle load
   area: SOV
@@ -18787,7 +18799,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
