@@ -123,6 +123,20 @@ type Claims struct {
 	Typ      string   `json:"typ,omitempty"`
 	Agent    string   `json:"agent,omitempty"`
 	Audience []string `json:"-"`
+
+	// ActingPerson is the claim acting_person of an agent token: the person
+	// of tier admin in the token's Organization for whom the agent acts
+	// (docs/contracts/model-contract.md section 2.1). nil on every other
+	// token. agenttoken.Restrict reads it.
+	ActingPerson *ActingPerson `json:"acting_person,omitempty"`
+}
+
+// ActingPerson is the claim acting_person of an agent token.
+type ActingPerson struct {
+	// Email is the person's email address, in lower case.
+	Email string `json:"email"`
+	// Tier is the tier the agent acts with for the person: always "admin".
+	Tier string `json:"tier"`
 }
 
 // UnmarshalJSON accepts both the legacy `org` claim (tokens minted

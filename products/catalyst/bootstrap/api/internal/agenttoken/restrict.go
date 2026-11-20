@@ -15,12 +15,27 @@ type Mutation struct {
 	Method  string
 	Path    *regexp.Regexp // matched against the whole request path; anchor it
 	MinTier string         // viewer or developer
+	// Acting: only a token whose claim acting_person names a person of tier
+	// admin (ActsForAdmin) may make the request.
+	Acting bool
 }
 
 // MutationsAllowed is every request other than GET, HEAD and OPTIONS that
-// an agent token may make at catalyst-api. It is empty: an agent token
-// changes nothing. The package that needs a mutation adds its one entry.
-var MutationsAllowed = []Mutation{}
+// an agent token may make at catalyst-api. It has one entry: an agent that
+// acts for a person of tier admin in its Organization installs an
+// Application there (the tool create_application). An agent token without
+// that claim changes nothing. The package that needs another mutation adds
+// its one entry.
+var MutationsAllowed = []Mutation{
+	{Method: http.MethodPost, Path: regexp.MustCompile(`^/api/v1/org/applications$`), MinTier: "viewer", Acting: true},
+}
+
+// ActsForAdmin reports whether the claims carry the claim acting_person of a
+// person of tier admin: an email and the tier ActingTier.
+func ActsForAdmin(claims *auth.Claims) bool {
+	return claims != nil && claims.ActingPerson != nil && claims.ActingPerson.Tier == ActingTier &&
+		strings.TrimSpace(claims.ActingPerson.Email) != ""
+}
 
 // Restrict is the middleware of the session route group that runs after
 // the Organization scope guard. It does nothing for a request whose
@@ -30,7 +45,8 @@ var MutationsAllowed = []Mutation{}
 //  1. an audience without catalyst-api: 401 agent-token-wrong-audience;
 //  2. GET, HEAD and OPTIONS pass;
 //  3. any other method passes only when an entry of MutationsAllowed
-//     matches the method, the path and the tier; otherwise 403
+//     matches the method, the path and the tier, and, for an entry with
+//     Acting, the token acts for a person of tier admin; otherwise 403
 //     agent-token-forbidden.
 //
 // The Organization scope guard has already confined the token to the
@@ -53,6 +69,9 @@ func Restrict(next http.Handler) http.Handler {
 			return
 		}
 		for _, m := range MutationsAllowed {
+			if m.Acting && !ActsForAdmin(claims) {
+				continue
+			}
 			if m.Method == r.Method && m.Path.MatchString(r.URL.Path) && tierRank[claims.Tier] >= tierRank[m.MinTier] && tierRank[m.MinTier] > 0 {
 				next.ServeHTTP(w, r)
 				return

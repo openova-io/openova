@@ -128,7 +128,8 @@ version: 0.1.12
 # 0.2.9 (AIP-151): every tool answer is redacted, made inert and fitted to
 # 24,000 characters.
 # 0.2.10 (AIP-152): the stdio server reads its bearer file at every call.
-appVersion: "0.2.10"
+# 0.2.11 (AIP-154): an agent token acting for a person of tier admin has tier admin.
+appVersion: "0.2.11"
 keywords:
   - mcp
   - agent

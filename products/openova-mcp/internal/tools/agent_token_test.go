@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -153,5 +154,57 @@ func TestAgentTokenAnswerKeepsTheGate(t *testing.T) {
 func TestAgentTokenRefusedBySovereignModeInstance(t *testing.T) {
 	if _, err := resolveAgent(t, "developer", identity.ContextSovereign); err == nil {
 		t.Fatal("a Sovereign-mode instance accepted an agent token")
+	}
+}
+
+// An agent token that acts for a person of tier admin sees create_application
+// beside the six read tools, and a call of it reaches POST
+// /api/v1/org/applications with the agent's own bearer: the endpoint's own
+// check (agenttoken.Restrict at catalyst-api) is the final word.
+func TestAgentTokenActingForAnAdminCallsCreateApplication(t *testing.T) {
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	now := time.Now()
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": "https://console.hw307.omani.works", "sub": "agent:acme/agenity",
+		"aud": []string{"model-gateway", "platform-tools", "catalyst-api"},
+		"typ": "agent", "org": "acme", "org_id": "acme", "agent": "agenity", "tier": "developer",
+		"role": "openova-user", "email": "agenity@acme.agents.invalid",
+		"acting_person": map[string]any{"email": "ana@acme.example", "tier": "admin"},
+		"iat":           now.Unix(), "exp": now.Add(30 * time.Minute).Unix(),
+	})
+	tok.Header["kid"] = identity.KeyID(&k.PublicKey)
+	signed, err := tok.SignedString(k)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	id, err := identity.NewRS256Resolver(&k.PublicKey, identity.ContextOrganization).Resolve(signed)
+	if err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	var posts []string
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/v1/catalog" {
+			return jsonResp(200, catalogBody), nil
+		}
+		posts = append(posts, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+		return jsonResp(201, `{"kind":"Application","name":"blog","namespace":"acme","httpStatus":"201","applied":true}`), nil
+	})
+	reg := NewRegistry(catalystapi.New("https://console.acme.omani.homes").WithTenantHost("console.acme.omani.homes").WithHTTPClient(&http.Client{Transport: rt}))
+	want := []string{"create_application", "get_application", "list_applications", "list_blueprints", "list_environments", "list_organizations", "whoami"}
+	var got []string
+	for _, tl := range reg.List(id) {
+		got = append(got, tl.Name)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tools/list = %v, want %v", got, want)
+	}
+	if _, err := reg.Call(context.Background(), id, "create_application", []byte(`{"blueprint":"bp-wordpress","name":"blog"}`)); err != nil {
+		t.Fatalf("create_application acting for an admin: %v", err)
+	}
+	if len(posts) != 1 || posts[0] != "POST /api/v1/org/applications Bearer "+signed {
+		t.Fatalf("requests to catalyst-api: %v", posts)
 	}
 }
