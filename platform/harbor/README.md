@@ -236,6 +236,83 @@ Sovereign installed before this layout, the follower's core waits after that
 upgrade until the parent's next pass has copied the key (its steady-state
 heal runs every 5 minutes).
 
+### Proxy-cache integrity check (SOV-162)
+
+A pull-through (proxy cache) project can hold a cached image index that answers
+200 while a child it references answers `manifest unknown` (404), or a child's
+config blob answers 404, although the upstream registry serves both. Every pull
+of that image then fails, on every node that pulls it, until the cached
+artifact is deleted; the next pull then fetches the image whole.
+
+Why Harbor does not recover by itself (pinned upstream Harbor v2.14.3, chart
+goharbor/harbor-helm 1.18.3; source at
+<https://github.com/goharbor/harbor/tree/v2.14.3>):
+
+- A pull by digest is served from the registry's own storage as soon as
+  Harbor's database lists the artifact (`src/controller/proxy/controller.go`
+  lines 172-180, `src/controller/proxy/local.go` lines 54-64); storage is not
+  asked, and there is no fallback to upstream. A blob is served locally when
+  storage answers that it exists (`local.go` lines 84-86). So a manifest or
+  blob that storage has lost while the database still lists it stays broken.
+- An index pulled by tag is served for 7 days from the cache of manifest lists
+  (`controller.go` line 47, lines 209-228), whatever is left in storage, so the
+  index keeps answering 200.
+- Not the cause in this version: retention and the untagged clean-up of
+  garbage collection. Every pull-through project gets a retention policy at
+  creation (keep what was pulled in the last 7 days, daily;
+  `src/server/v2.0/handler/project.go` lines 64-65 and 242-249,
+  `src/pkg/retention/policy/models.go` lines 134-176), and garbage collection
+  may delete untagged artifacts (`src/jobservice/job/impl/gc/garbage_collection.go`
+  lines 533-538). Both list artifacts with the default filter, which leaves out
+  a child that an index references (`src/pkg/artifact/dao/dao.go` lines 63-68;
+  retention lists through the API, `src/pkg/clients/core/image.go` lines 24-32),
+  and deleting a referenced child is refused (`src/controller/artifact/controller.go`
+  lines 354-374). Neither removes a child while its tagged index stays. This
+  chart sets no retention rule and schedules no garbage collection of its own.
+
+The check, `templates/proxy-cache-integrity.yaml` (values
+`proxyCacheIntegrity`, on by default): the CronJob
+`<release>-proxy-cache-integrity` runs one pass on `schedule` (default
+`17 * * * *`, hourly; one pass at a time). A pass lists the projects with a
+`registry_id` (pull-through) and, for every tagged artifact there that is an
+image index, reads each referenced child manifest and its config blob through
+harbor-core's `/v2` with a pull token of the admin account, the path every
+pull takes.
+
+- A 404 is a miss. The pass deletes that cached index (and a missed child that
+  is still listed because it carries its own tag), writes a Kubernetes Event
+  `ProxyCacheArtifactHealed` (type Warning) on the CronJob that names the
+  index, its tags and what was missing, and adds one to
+  `harbor_proxy_cache_integrity_healed_total`.
+- Any other answer, or none, is a failed read: nothing is deleted for that
+  index, `harbor_proxy_cache_integrity_read_failures_total` grows, and the
+  pass's Job ends failed.
+- A hosted project (no `registry_id`) is never listed, read or changed. Untagged
+  indexes and single-platform images are not read.
+- Metrics (Prometheus text): `harbor_proxy_cache_integrity_healed_total`,
+  `..._missing_total`, `..._read_failures_total`, `..._indexes_checked`,
+  `..._children_checked`, `..._last_pass_ok`,
+  `..._last_pass_timestamp_seconds`. Each pass adds its counts to the totals in
+  the ConfigMap `<release>-proxy-cache-integrity-metrics` (key `metrics.txt`)
+  and writes it with server-side apply; when the earlier totals cannot be read
+  (any error but NotFound) the pass leaves the ConfigMap as it is and its Job
+  ends failed. The pass creates that ConfigMap; the
+  chart does not render it, so an upgrade never resets the totals. The
+  Deployment of the same name (busybox httpd) serves it on `metricsPort` (9090)
+  at `/metrics.txt`, announced by the `prometheus.io/*` pod annotations; until
+  the first pass the path answers 404. Under the default deny of
+  bp-plane-isolation a scraper in another namespace needs an ingress allow to
+  port 9090 of this pod; it belongs with the scraper's configuration. The check
+  itself needs no network rule: it reaches harbor-core in its own namespace and
+  the API server, which the namespace's policies allow.
+- The CronJob's ServiceAccount may only create Events, create ConfigMaps, and
+  read and patch the counters ConfigMap, in the release namespace.
+
+On a two-region Sovereign both regions run the check against one database; a
+deletion the other region already made answers 404 and counts nothing. Test:
+`tests/proxy-cache-integrity.sh` runs the rendered script against stand-ins for
+harbor-core and kubectl.
+
 ### Pull-mirror policy
 
 ```json
