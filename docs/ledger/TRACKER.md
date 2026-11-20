@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-20T03:15:05Z` |
+| Last refreshed | `2026-11-20T03:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-20T03:24 | [#8443](https://github.com/openova-io/openova/pull/8443) | #7087 | docs(ledger): plan update |
 | 2026-11-20T03:07 | [#8440](https://github.com/openova-io/openova/pull/8440) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:52 | [#8439](https://github.com/openova-io/openova/pull/8439) | #7087 | docs(ledger): plan update |
 | 2026-11-20T02:16 | [#8437](https://github.com/openova-io/openova/pull/8437) | #8436 | feat(chart): switch stage blueprints of the intent lock to d |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T22:37 | [#8404](https://github.com/openova-io/openova/pull/8404) | #5245 | fix(install): the platform's own automation leaves no hand's |
 | 2026-11-19T23:32 | [#8403](https://github.com/openova-io/openova/pull/8403) | #3695 | fix(charts): a function test reaches the API server the way  |
 | 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
-| 2026-11-19T21:19 | [#8400](https://github.com/openova-io/openova/pull/8400) | #8398 | feat(cortex): ingestion of uploads with the job table, the d |
 
 ---
 
