@@ -14,17 +14,22 @@
 # has none of it; a list that cannot be read for another reason fails the proof.
 #
 # WHAT THIS TEST DOES. It renders the chart, cuts from step 08's script the blocks
-# workspace-hold, tofu-cli-lint and tofu-pre-hold and the survival window, and runs
-# them under /bin/sh with `set -eu`: the pre-hold block while a stubbed kubectl
-# answers the state before the hold, then the window (one poll) while it answers the
-# state in the hold. Six cases:
+# step-record, workspace-hold, tofu-cli-lint and tofu-pre-hold and the survival
+# window, and runs them under /bin/sh with `set -eu`: the pre-hold block while a
+# stubbed kubectl answers the state before the hold, then the window (one poll) while
+# it answers the state in the hold. Seven cases:
 #   1 a Workspace Ready and Synced before the hold that turns Synced=False fails, named
 #   2 one that turns Ready=False fails (the namespaced kind)
 #   3 one not Synced before the hold is named as baseline and excluded
 #   4 a secondary region's Workspace that loses Synced fails that region
 #   5 a region that does not serve the kind passes
 #   6 a failed read that is not an absent kind fails, in the window and before the hold
+#   7 a region whose Workspaces exist and none is in the baseline is NOT MEASURED: it
+#     does not fail, says so with both numbers, never says judged or passed, and
+#     records not-measured on the status ConfigMap (a measured region records judged)
 # On origin/main before SOV-344 the render has no block workspace-hold: the test fails.
+# Case 7 fails before the NOT MEASURED repair: there the region reads "0 cloud Workspace(s) ...
+# judged in the window" and nothing is recorded.
 #
 # Usage: bash tests/egress-hold-workspaces.sh [CHART_DIR]
 set -uo pipefail
@@ -42,10 +47,10 @@ helm template ssc "${CHART_DIR}" --set sovereign.fqdn="${FQDN}" --set sovereign.
   || { echo "helm template failed:"; cat "${TMP}/render.err"; exit 1; }
 yq 'select(.kind == "ConfigMap" and .metadata.name == "cutover-step-08-egress-block-test") | .data["podSpec"]' "${TMP}/render.yaml" >"${TMP}/s08.yaml"
 yq '.containers[0].args[0]' "${TMP}/s08.yaml" >"${TMP}/s08.sh"
-yq '.containers[0].env[] | select(.name | test("^(TOFU_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$)")) | "export " + .name + "=\"" + .value + "\""' \
+yq '.containers[0].env[] | select(.name | test("^(TOFU_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$|CUTOVER_NAMESPACE$|STATUS_CONFIGMAP$)")) | "export " + .name + "=\"" + .value + "\""' \
   "${TMP}/s08.yaml" >"${TMP}/env.sh"
 block() { awk -v b="# $2 BEGIN" -v e="# $2 END" '$0 == b {f = 1} f {print} $0 == e {f = 0}' "$1"; }
-for b in workspace-hold tofu-cli-lint tofu-pre-hold; do block "${TMP}/s08.sh" "${b}"; done >"${TMP}/pre.sh"
+for b in step-record workspace-hold tofu-cli-lint tofu-pre-hold; do block "${TMP}/s08.sh" "${b}"; done >"${TMP}/pre.sh"
 awk 'index($0, "survival window — only NEW NotReady") {f = 1} f {print} index($0, "window complete; new-regression-cycles") {f = 0}' "${TMP}/s08.sh" >"${TMP}/window.sh"
 for f in ws_read ws_baseline ws_regressed run_tofu_cli_config_host_lint; do
   grep -q "^${f}() {$" "${TMP}/pre.sh" || { echo "[egress-hold-workspaces] step 08 of the render has no ${f}: nothing to run"; exit 1; }
@@ -80,6 +85,7 @@ kubectl() {
     *"get pods -o json"*) [ -f "${_s}/tofurc" ] && cat "${D}/../pods.json" || echo '{"items": []}' ;;
     *" exec provider-opentofu-abc -c package-runtime -- cat /etc/opentofu/cli/.tofurc"*) cat "${_s}/tofurc" ;;
     "get helmreleases."*|"get kustomizations."*) ;;
+    *" patch configmap "*) printf '%s\n' "$*" >>"${D}/patches" ;;
     *) echo "unexpected kubectl $*" >&2; return 1 ;;
   esac
 }
@@ -186,6 +192,23 @@ if [ "$(cycles 6a)" = 1 ] && grep -qF "region primary: cannot list ${WS} (error:
     && ! grep -q 'survival window' "${TMP}/6b/out"; then
   pass "an unreadable list is a regression in the window and fails the step before the hold"
 else fail "case 6"; show 6a; show 6b; fi
+
+echo "── Case 7: Workspaces exist and none is in the baseline: NOT MEASURED, recorded, never passed ──"
+setup 7 secondary
+cp "${TMP}/tofurc" "${TMP}/7/state/${SEC}/tofurc"
+ws 7 primary "${WS}" before "/adopt-a Ready=True Synced=False"; ws 7 primary "${WS}" before "/adopt-b Ready=False Synced=False"
+ws 7 primary "${WS}" during "/adopt-a Ready=True Synced=False"; ws 7 primary "${WS}" during "/adopt-b Ready=False Synced=False"
+ws 7 "${SEC}" "${WS}" before "/adopt-x Ready=True Synced=True"; ws 7 "${SEC}" "${WS}" during "/adopt-x Ready=True Synced=True"
+run 7
+REC='"step.egress-block-test.region.primary.workspaces":"not-measured: 2 exist, 0 in the baseline"'
+REC_SEC="\"step.egress-block-test.region.${SEC}.workspaces\":\"judged: 1 of 1 in the baseline\""
+grep -E 'region primary: .*(judged|PASS|passed)' "${TMP}/7/out" | grep -v 'OpenTofu CLI configuration' >"${TMP}/7/claims"
+if [ "$(cat "${TMP}/7/rc")" = 0 ] && [ "$(cycles 7)" = 0 ] && [ ! -s "${TMP}/7/claims" ] \
+    && grep -qF "region primary: cloud Workspaces NOT MEASURED — 2 exist, 0 were Ready and Synced before the hold" "${TMP}/7/out" \
+    && grep -qF "${REC}" "${TMP}/7/patches" && grep -qF "${REC_SEC}" "${TMP}/7/patches" \
+    && grep -qxF "primary (2 exist, 0 in the baseline)" "${TMP}/7/work/ws_not_measured.txt"; then
+  pass "primary is NOT MEASURED (2 exist, 0 in the baseline), recorded as such, does not fail; ${SEC} records judged"
+else fail "case 7"; show 7; sed 's/^/      patch | /' "${TMP}/7/patches"; fi
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "[egress-hold-workspaces] ${FAILURES} case(s) FAILED"; exit 1; fi

@@ -12,16 +12,20 @@
 # dev_overrides block. Otherwise the step fails before the hold, naming what it read.
 #
 # WHAT THIS TEST DOES. It renders the chart, cuts from step 08's script the blocks
-# workspace-hold, tofu-cli-lint and tofu-pre-hold, and runs them under /bin/sh with
-# `set -eu` and a stubbed kubectl. The configuration it passes is the kit's file
-# (clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml) as
-# step 11 rewrites it (tofu_cli_pivot_file of step 11's provider-pivot.sh, to the
-# host of sovereign.harborPublicURL) and Flux substitutes it. Three cases:
+# step-record, workspace-hold, tofu-cli-lint and tofu-pre-hold, and runs them under
+# /bin/sh with `set -eu` and a stubbed kubectl. The configuration it passes is the
+# kit's file (clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml)
+# as step 11 rewrites it (tofu_cli_pivot_file of step 11's provider-pivot.sh, to the
+# host of sovereign.harborPublicURL) and Flux substitutes it. Four cases:
 #   1 a configuration naming only the Sovereign's registry and no other method passes
 #   2 a direct block fails before the hold
 #   3 an oci_mirror host outside the Sovereign fails: the kit's file before step 11 in
 #     the ConfigMap, and the same in the pod's file while the ConfigMap is moved
+#   4 a pod list or a pod's file that cannot be read fails with the API's own error,
+#     never as "no running pod mounts" or as an empty file
 # On origin/main before SOV-344 the render has no block tofu-cli-lint: the test fails.
+# Case 4 fails on SOV-344's lint: it sent the list's stderr to /dev/null and read a
+# refused list as "no running pod mounts opentofu-cli-config".
 #
 # Usage: bash tests/tofu-cli-config-host-lint.sh [CHART_DIR]
 set -uo pipefail
@@ -43,10 +47,10 @@ cm() { yq "select(.kind == \"ConfigMap\" and .metadata.name == \"$1\") | .data[\
 cm cutover-step-08-egress-block-test podSpec >"${TMP}/s08.yaml"
 cm cutover-step-11-crossplane-provider-pivot provider-pivot.sh >"${TMP}/provider-pivot.sh"
 yq '.containers[0].args[0]' "${TMP}/s08.yaml" >"${TMP}/s08.sh"
-yq '.containers[0].env[] | select(.name | test("^(TOFU_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$)")) | "export " + .name + "=\"" + .value + "\""' \
+yq '.containers[0].env[] | select(.name | test("^(TOFU_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$|CUTOVER_NAMESPACE$|STATUS_CONFIGMAP$)")) | "export " + .name + "=\"" + .value + "\""' \
   "${TMP}/s08.yaml" >"${TMP}/env.sh"
 block() { awk -v b="# $2 BEGIN" -v e="# $2 END" '$0 == b {f = 1} f {print} $0 == e {f = 0}' "$1"; }
-for b in workspace-hold tofu-cli-lint tofu-pre-hold; do block "${TMP}/s08.sh" "${b}"; done >"${TMP}/pre.sh"
+for b in step-record workspace-hold tofu-cli-lint tofu-pre-hold; do block "${TMP}/s08.sh" "${b}"; done >"${TMP}/pre.sh"
 grep -q '^run_tofu_cli_config_host_lint() {$' "${TMP}/pre.sh" && grep -q '^ *run_tofu_cli_config_host_lint "' "${TMP}/pre.sh" \
   || { echo "[tofu-cli-config-host-lint] step 08 of the render has no tofu-cli-lint run before the hold: nothing to run"; exit 1; }
 grep -q '^tofu_cli_pivot_file() {$' "${TMP}/provider-pivot.sh" || { echo "[tofu-cli-config-host-lint] step 11 has no tofu_cli_pivot_file"; exit 1; }
@@ -67,8 +71,10 @@ set -eu
 kubectl() {
   case "$*" in
     *"get configmap opentofu-cli-config "*) echo opentofu-cli-config; cat "${D}/live" ;;
-    *"get pods -o json"*) cat "${D}/../pods.json" ;;
-    *" exec provider-opentofu-abc -c package-runtime -- cat /etc/opentofu/cli/.tofurc"*) cat "${D}/pod" ;;
+    *"get pods -o json"*) if [ -f "${D}/list.err" ]; then cat "${D}/list.err" >&2; return 1; fi; cat "${D}/../pods.json" ;;
+    *" exec provider-opentofu-abc -c package-runtime -- cat /etc/opentofu/cli/.tofurc"*)
+      if [ -f "${D}/exec.err" ]; then cat "${D}/exec.err" >&2; return 1; fi; cat "${D}/pod" ;;
+    *" patch configmap "*) ;;
     "get workspaces.opentofu.upbound.io "*) echo "/adopt-a Ready=True Synced=True" ;;
     "get workspaces.opentofu.m.upbound.io "*) echo "error: the server doesn't have a resource type \"$2\"" >&2; return 1 ;;
     *) echo "unexpected kubectl $*" >&2; return 1 ;;
@@ -119,6 +125,20 @@ if [ "$(cat "${TMP}/3a/rc")" != 0 ] && grep -qF "${FAILED_BEFORE}" "${TMP}/3a/ou
     && grep -qxF "    EXTERNAL-TOFU-SOURCE [primary] pod=provider-opentofu-abc:/etc/opentofu/cli/.tofurc: oci_mirror=${ORIGIN_T}" "${TMP}/3b/out"; then
   pass "the origin mirror fails before the hold, in the ConfigMap and in the pod's file"
 else fail "case 3"; show 3a; show 3b; fi
+
+echo "── Case 4: a pod list or a pod's file that cannot be read fails with the API's own error ──"
+FORBIDDEN='Error from server (Forbidden): pods is forbidden: User "system:serviceaccount:catalyst:cutover-runner" cannot list resource "pods" in API group "" in the namespace "crossplane-system"'
+mkdir -p "${TMP}/4a" "${TMP}/4b"
+printf '%s\n' "${FORBIDDEN}" >"${TMP}/4a/list.err"
+printf 'error: unable to upgrade connection: container not found ("package-runtime")\n' >"${TMP}/4b/exec.err"
+run 4a "${TMP}/local" "${TMP}/local"
+run 4b "${TMP}/local" "${TMP}/local"
+if [ "$(cat "${TMP}/4a/rc")" != 0 ] && ! grep -q "HOLD WOULD START" "${TMP}/4a/out" && ! grep -q 'no running pod mounts' "${TMP}/4a/out" \
+    && grep -qF "FAIL — region primary: cannot list the pods of crossplane-system (${FORBIDDEN}); a list that is not read is not a pass" "${TMP}/4a/out" \
+    && [ "$(cat "${TMP}/4b/rc")" != 0 ] && ! grep -q 'EXTERNAL-TOFU-SOURCE' "${TMP}/4b/out" \
+    && grep -qF "FAIL — region primary: cannot read /etc/opentofu/cli/.tofurc in pod provider-opentofu-abc (error: unable to upgrade connection" "${TMP}/4b/out"; then
+  pass "a Forbidden list fails naming the API's error; a failed read of the pod's file fails naming its error, not as an empty file"
+else fail "case 4"; show 4a; show 4b; fi
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "[tofu-cli-config-host-lint] ${FAILURES} case(s) FAILED"; exit 1; fi

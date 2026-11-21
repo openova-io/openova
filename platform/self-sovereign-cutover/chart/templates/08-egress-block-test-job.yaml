@@ -206,6 +206,15 @@ data:
           */}}
           - name: MIRROR_SELF_HEAL_ENABLED
             value: {{ eq (toString .Values.offlineMirror.selfHeal.enabled) "true" | quote }}
+          {{- /* The self-heal's registry probe: its bound, and the registry Deployment its failure names. */}}
+          - name: SELF_HEAL_REGISTRY_ROUNDS
+            value: {{ .Values.offlineMirror.selfHeal.registryAnswer.rounds | quote }}
+          - name: SELF_HEAL_REGISTRY_INTERVAL_SECONDS
+            value: {{ .Values.offlineMirror.selfHeal.registryAnswer.intervalSeconds | quote }}
+          - name: REGISTRY_NAMESPACE
+            value: {{ .Values.offlineMirror.selfHeal.registryAnswer.namespace | quote }}
+          - name: REGISTRY_DEPLOYMENT
+            value: {{ .Values.offlineMirror.selfHeal.registryAnswer.deployment | quote }}
           - name: MOTHERSHIP_HOST
             value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
           - name: GHCR_DOCKERCONFIG
@@ -415,6 +424,58 @@ data:
             : "${HARBOR_USERNAME:=admin}"
 
             {{- /*
+             step_fail prints the cause last and keeps it as step.egress-block-test.lastError
+             (the engine's lastError names no cause); status_record writes every
+             step.egress-block-test.* key. workload_pod_states names each Pod not Ready (all
+             with "all"): node, phase, each container's waiting reason and image.
+            */}}
+            # step-record BEGIN
+            status_record() {
+              _sr_p='{"data":{}}'
+              while [ "$#" -ge 2 ]; do
+                _sr_p=$(printf '%s' "${_sr_p}" | jq -c --arg k "$1" --arg v "$2" '.data[$k] = $v') || return 0
+                shift 2
+              done
+              kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge -p "${_sr_p}" >/dev/null 2>&1 \
+                || echo "[egress-block-test] WARNING: could not write ${_sr_p} to ${CUTOVER_NAMESPACE}/${STATUS_CONFIGMAP}"
+            }
+            step_fail() {
+              echo "[egress-block-test] FATAL: $1" >&2
+              status_record step.egress-block-test.lastError "$1"
+              exit 1
+            }
+            workload_pod_states() {
+              _ps_sel=$(kubectl get "$1" "$3" -n "$2" -o json 2>/dev/null \
+                | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null) || _ps_sel=""
+              if [ -z "${_ps_sel}" ]; then
+                echo "the selector of $1/$3 in namespace $2 could not be read"
+                return 0
+              fi
+              if ! _ps_json=$(kubectl get pods -n "$2" -l "${_ps_sel}" -o json 2>&1); then
+                echo "the Pods of $1/$3 could not be listed: $(printf '%s\n' "${_ps_json}" | sed -n 1p)"
+                return 0
+              fi
+              printf '%s' "${_ps_json}" | jq -r --arg all "${4:-}" '
+                .items[] | . as $p
+                | ([.status.conditions[]? | select(.type == "Ready") | .status] | first // "False") as $ready
+                | select($all == "all" or $ready != "True")
+                | ([(.status.initContainerStatuses // [])[], (.status.containerStatuses // [])[]]
+                   | map(select(.ready != true and .state.terminated.reason != "Completed"))) as $cs
+                | "Pod \($p.metadata.name) (node \($p.spec.nodeName // "none"), \($p.status.phase // "Unknown"), Ready=\($ready)): "
+                  + (if ($cs | length) > 0 then
+                       ($cs | map("container \(.name) "
+                         + (if .state.waiting then "waiting \(.state.waiting.reason // "?")"
+                            elif .state.terminated then "terminated \(.state.terminated.reason // "?")"
+                            else "running, not ready" end)
+                         + " image \(.image)") | join(", "))
+                     else "no container status; "
+                       + ([$p.status.conditions[]? | select(.status != "True") | "\(.type)=\(.status) \(.reason // "")"] | join(", "))
+                     end)' 2>/dev/null || echo "the Pods of $1/$3 could not be read"
+            }
+            # step-record END
+            status_record step.egress-block-test.lastError ""
+
+            {{- /*
              #4975 — the offline-mirror image→local-path resolver (shared with
              step-03). Defines offlinemirror_local_paths over the SAME
              HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
@@ -577,6 +638,7 @@ data:
              ONLY on the first actual miss, so a complete mirror (the common
              case) pays zero extra cost.
             */}}
+            # mirror-completeness BEGIN
             _selfheal_skopeo_ready=0
             _selfheal_creds_loaded=0
             _selfheal_ghcr_user=""; _selfheal_ghcr_pat=""
@@ -650,6 +712,31 @@ data:
             }
 
             {{- /*
+             A copy into a registry that does not answer cannot succeed (20 Nov 2026: 138 copies,
+             none OK). Each round first asks https://LOCAL_REGISTRY_HOST/v2/: 200 or 401 answers;
+             any other code or no HTTP answer (curl_no_answer) copies nothing that round, and
+             SELF_HEAL_REGISTRY_ROUNDS such rounds in a row fail the step naming the registry Pods.
+            */}}
+            {{- include "bp-self-sovereign-cutover.curlNoAnswer" . | nindent 12 }}
+            _selfheal_silent=0
+            self_heal_registry_answers() {
+              _ra_rc=0
+              _ra_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "https://${LOCAL_REGISTRY_HOST}/v2/" 2>/dev/null) || _ra_rc=$?
+              _ra_why="HTTP ${_ra_code:-none}"
+              [ "${_ra_rc}" = 0 ] || { _ra_code=none; _ra_why=$(curl_no_answer "${_ra_rc}"); }
+              case "${_ra_code}" in 200|401) _selfheal_silent=0; return 0 ;; esac
+              _selfheal_silent=$((_selfheal_silent+1))
+              echo "[egress-block-test] self-heal: the Sovereign's registry ${LOCAL_REGISTRY_HOST} did not answer (${_ra_why}; round ${_selfheal_silent} of ${SELF_HEAL_REGISTRY_ROUNDS}); this round copies nothing"
+              if [ "${_selfheal_silent}" -lt "${SELF_HEAL_REGISTRY_ROUNDS}" ]; then
+                sleep "${SELF_HEAL_REGISTRY_INTERVAL_SECONDS}"
+                return 1
+              fi
+              _ra_pods=$(workload_pod_states deployment "${REGISTRY_NAMESPACE}" "${REGISTRY_DEPLOYMENT}" all | tr '\n' ';')
+              step_fail "the Sovereign's registry does not answer: https://${LOCAL_REGISTRY_HOST}/v2/ gave no answer in ${_selfheal_silent} rounds ${SELF_HEAL_REGISTRY_INTERVAL_SECONDS}s apart (last: ${_ra_why}), so no copy into it can succeed; the Pods of deployment ${REGISTRY_NAMESPACE}/${REGISTRY_DEPLOYMENT}: ${_ra_pods:-none}"
+            }
+
+            {{- /*
              self_heal_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
              UPSTREAM_REF is the ORIGINAL pod-spec image (the enumerated
              ${_img}); LOCAL_PATH is the exact resolver-derived destination
@@ -693,6 +780,10 @@ data:
               [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ] && _wi_attempts="${PREWARM_PROXY_COPY_ATTEMPTS:-6}"
               _wi_attempt=1
               while [ "${_wi_attempt}" -le "${_wi_attempts}" ]; do
+                if ! self_heal_registry_answers; then
+                  _wi_attempt=$((_wi_attempt+1))
+                  continue
+                fi
                 echo "[egress-block-test] self-heal: warming ${_wi_up} -> ${_wi_lref} (attempt ${_wi_attempt}/${_wi_attempts})"
                 if offlinemirror_copy "${_wi_up}" "${_wi_sc}" "${_wi_lref}" --multi-arch all >/work/selfheal-warm.log 2>&1; then
                   echo "[egress-block-test] self-heal: warmed OK ${_wi_up} -> ${_wi_lref}"
@@ -756,12 +847,13 @@ data:
                   esac
                   {{- /*
                    3 attempts to absorb a transient Harbor blip (a genuine
-                   404/absent still FATALs — that is the whole point).
+                   404/absent still FATALs — that is the whole point), each
+                   bounded at 30s.
                   */}}
                   _code=000
                   _try=1
                   while [ "${_try}" -le 3 ]; do
-                    _code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                    _code=$(curl -sk -o /dev/null -w '%{http_code}' -m 30 \
                       -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                       -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
                       -I "${_base}/${_repo}/manifests/${_ref}" 2>/dev/null || echo 000)
@@ -779,7 +871,7 @@ data:
                        failure or a still-missing manifest afterward counts.
                       */}}
                       if [ "${MIRROR_SELF_HEAL_ENABLED:-true}" = "true" ] && self_heal_warm_image "${_img}" "${_lp}"; then
-                        _code=$(curl -sk -o /dev/null -w '%{http_code}' \
+                        _code=$(curl -sk -o /dev/null -w '%{http_code}' -m 30 \
                           -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                           -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
                           -I "${_base}/${_repo}/manifests/${_ref}" 2>/dev/null || echo 000)
@@ -810,6 +902,7 @@ data:
                 exit 1
               fi
             fi
+            # mirror-completeness END
 
             {{- /*
              #5026 — PRE-HOLD REF-HOST LINT (treadmill-breaker). Complements the
@@ -1465,7 +1558,9 @@ data:
              be read for another reason returns 1, which fails the proof. ws_baseline keeps
              the Workspaces that are Ready and Synced before the hold (the others are named
              and excluded). In the window ws_regressed names, by kind, namespace and name,
-             each of them that is no longer both, or is gone.
+             each of them that is no longer both, or is gone. Workspaces that exist with none
+             in the baseline are NOT MEASURED: said with both numbers, not a failure, never a
+             pass, recorded as step.egress-block-test.region.<region>.workspaces.
             */}}
             # workspace-hold BEGIN
             ws_jp='{range .items[*]}{.metadata.namespace}/{.metadata.name} Ready={.status.conditions[?(@.type=="Ready")].status} Synced={.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'
@@ -1495,7 +1590,18 @@ data:
               ws_read "$1" "$2" || return 1
               { grep -E ' Ready=True Synced=True$' /work/ws_now || true; } | cut -d' ' -f1 | sort -u >"/work/ws_base_$1.txt"
               { grep -vE ' Ready=True Synced=True$' /work/ws_now || true; } | sed "s/^/  baseline[$1] WS (not Ready and Synced before the hold, excluded) /"
-              echo "[egress-block-test] region $1: $(grep -c . "/work/ws_base_$1.txt" || true) cloud Workspace(s) Ready and Synced before the hold, judged in the window"
+              _wb_n=$(grep -c . /work/ws_now || true)
+              _wb_b=$(grep -c . "/work/ws_base_$1.txt" || true)
+              if [ "${_wb_n}" -gt 0 ] && [ "${_wb_b}" = 0 ]; then
+                echo "[egress-block-test] region $1: cloud Workspaces NOT MEASURED — ${_wb_n} exist, 0 were Ready and Synced before the hold, so the window judges none of them (not a failure, not a pass)"
+                echo "$1 (${_wb_n} exist, 0 in the baseline)" >>/work/ws_not_measured.txt
+                status_record "step.egress-block-test.region.$1.workspaces" "not-measured: ${_wb_n} exist, 0 in the baseline"
+                return 0
+              fi
+              echo "[egress-block-test] region $1: ${_wb_b} cloud Workspace(s) Ready and Synced before the hold, judged in the window"
+              _wb_r="judged: ${_wb_b} of ${_wb_n} in the baseline"
+              [ "${_wb_n}" -gt 0 ] || _wb_r="none: no cloud Workspace exists"
+              status_record "step.egress-block-test.region.$1.workspaces" "${_wb_r}"
             }
             ws_regressed() {
               ws_read "$1" "$2" || return 1
@@ -1551,16 +1657,28 @@ data:
               fi
               sed '1d' /work/tofu_cli_cm >/work/tofu_cli_live
               tofu_cli_judge /work/tofu_cli_live "configmap=${TOFU_NAMESPACE}/${TOFU_CLI_CM}" || _tc_bad=1
-              ws_kubectl -n "${TOFU_NAMESPACE}" get pods -o json 2>/dev/null | jq -r --arg cm "${TOFU_CLI_CM}" '.items[]
+              {{- /* A list or a file that cannot be read fails with the API's own error, never as an empty one. */}}
+              if ! ws_kubectl -n "${TOFU_NAMESPACE}" get pods -o json >/work/tofu_cli_podlist 2>/work/ws_err; then
+                echo "  FAIL — region $1: cannot list the pods of ${TOFU_NAMESPACE} ($(head -1 /work/ws_err)); a list that is not read is not a pass"
+                return 1
+              fi
+              if ! jq -r --arg cm "${TOFU_CLI_CM}" '.items[]
                 | select(.status.phase == "Running" and .metadata.deletionTimestamp == null) | . as $p
                 | [.spec.volumes[]? | select(.configMap.name == $cm) | .name] as $v | .spec.containers[] | . as $c
-                | .volumeMounts[]? | select(.name as $n | any($v[]; . == $n)) | "\($p.metadata.name) \($c.name) \(.mountPath)"' >/work/tofu_cli_pods 2>/dev/null || : >/work/tofu_cli_pods
+                | .volumeMounts[]? | select(.name as $n | any($v[]; . == $n)) | "\($p.metadata.name) \($c.name) \(.mountPath)"' \
+                /work/tofu_cli_podlist >/work/tofu_cli_pods 2>/work/ws_err; then
+                echo "  FAIL — region $1: the pod list of ${TOFU_NAMESPACE} cannot be read ($(head -1 /work/ws_err))"
+                return 1
+              fi
               if [ ! -s /work/tofu_cli_pods ]; then
                 echo "  FAIL — region $1: no running pod mounts ${TOFU_CLI_CM}, so the file tofu reads cannot be measured"
                 return 1
               fi
               while read -r _tc_p _tc_c _tc_m; do
-                ws_kubectl -n "${TOFU_NAMESPACE}" exec "${_tc_p}" -c "${_tc_c}" -- cat "${_tc_m}/.tofurc" </dev/null >/work/tofu_cli_pod 2>/dev/null || : >/work/tofu_cli_pod
+                if ! ws_kubectl -n "${TOFU_NAMESPACE}" exec "${_tc_p}" -c "${_tc_c}" -- cat "${_tc_m}/.tofurc" </dev/null >/work/tofu_cli_pod 2>/work/ws_err; then
+                  echo "  FAIL — region $1: cannot read ${_tc_m}/.tofurc in pod ${_tc_p} ($(head -1 /work/ws_err)); a file that is not read is not a pass"
+                  return 1
+                fi
                 tofu_cli_judge /work/tofu_cli_pod "pod=${_tc_p}:${_tc_m}/.tofurc" || _tc_bad=1
               done </work/tofu_cli_pods
               if [ "${_tc_bad}" != 0 ]; then
@@ -1573,6 +1691,7 @@ data:
             {{- /* SOV-344 — in every region, before the hold: the CLI configuration lint, then the Workspace baseline. */}}
             # tofu-pre-hold BEGIN
             _ws_verdict=0
+            : >/work/ws_not_measured.txt
             for _ws_t in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
               run_tofu_cli_config_host_lint "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
               ws_baseline "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
@@ -1913,6 +2032,7 @@ data:
                   case "${waiting_reasons}" in
                     *ImagePullBackOff*|*ErrImagePull*)
                       echo "  FAIL — new Pod ${ns}/${new_pod} hit image-pull error under deny-egress (${waiting_reasons}); local Harbor mirror is INERT for fresh pulls (#3647)"
+                      roll_failed deployment "${ns}" "${dep}" "${FRESH_PULL_TIMEOUT}"
                       return 1 ;;
                   esac
                   ready=$(kubectl get pod "${new_pod}" -n "${ns}" \
@@ -1928,7 +2048,20 @@ data:
                 sleep 10
               done
               echo "  FAIL — no replacement Pod of ${ns}/${dep} reached Running within ${FRESH_PULL_TIMEOUT}s under deny-egress (#3647)"
+              roll_failed deployment "${ns}" "${dep}" "${FRESH_PULL_TIMEOUT}"
               return 1
+            }
+
+            {{- /*
+             roll_failed <kind> <ns> <name> <budget>: the workload and its Pods not Ready, one line
+             in /work/roll_failures.txt (20 Nov 2026 it read only "ROLL_FAIL deployment/harbor-registry").
+            */}}
+            roll_failed() {
+              _rf_pods=$(workload_pod_states "$1" "$2" "$3")
+              [ -n "${_rf_pods}" ] || _rf_pods="no Pod of it is not Ready"
+              printf '%s\n' "${_rf_pods}" | sed 's/^/      /'
+              printf '%s %s/%s did not roll out under deny-egress (budget %ss): %s\n' \
+                "$1" "$2" "$3" "$4" "$(printf '%s' "${_rf_pods}" | tr '\n' ';')" >>/work/roll_failures.txt
             }
 
             {{- /*
@@ -1978,6 +2111,7 @@ data:
               case "${reasons}" in
                 *ImagePullBackOff*|*ErrImagePull*)
                   echo "    FAIL — ${kind}/${name} has a Pod in image-pull error under deny-egress (${reasons}); residual external-registry tether or inert mirror (#3695)"
+                  roll_failed "${kind}" "${ns}" "${name}" "${roll_timeout}"
                   return 1 ;;
               esac
               {{- /*
@@ -2036,6 +2170,7 @@ data:
                 return 0
               fi
               echo "    FAIL — ${kind}/${name} did not roll out within ${roll_timeout}s under deny-egress (reasons:${reasons:-<none>})"
+              roll_failed "${kind}" "${ns}" "${name}" "${roll_timeout}"
               return 1
             }
 
@@ -2274,18 +2409,22 @@ data:
               printf '%s\n' "${targets}" | sed 's/^/    /'
               rc=0
               {{- /*
-               Roll each; collect the first failure but attempt all so the log
-               lists every offender.
+               Stop at the first roll that does not finish: the step fails at once (20 Nov
+               2026 the sweep rolled three more workloads with the registry down).
               */}}
               printf '%s\n' "${targets}" | while IFS= read -r row; do
                 [ -z "${row}" ] && continue
                 kind=$(printf '%s' "${row}" | awk '{print $1}')
                 ns=$(printf '%s' "${row}" | awk '{print $2}')
                 name=$(printf '%s' "${row}" | awk '{print $3}' | cut -d= -f1)
-                roll_and_check_workload "${kind}" "${ns}" "${name}" || echo "ROLL_FAIL ${kind}/${name}" >> /work/roll_failures.txt
+                if ! roll_and_check_workload "${kind}" "${ns}" "${name}"; then
+                  [ -s /work/roll_failures.txt ] || echo "ROLL_FAIL ${kind}/${name}" >> /work/roll_failures.txt
+                  echo "  the sweep stops at ${kind}/${name}: no further workload is rolled"
+                  break
+                fi
               done
               if [ -s /work/roll_failures.txt ]; then
-                echo "  FAIL — workload(s) failed to roll under deny-egress:"
+                echo "  FAIL — a workload did not roll out under deny-egress:"
                 sed 's/^/    /' /work/roll_failures.txt
                 rc=1
               else
@@ -2359,6 +2498,7 @@ data:
               echo "[egress-block-test] #3678: call-home assertion requested but egressDeny not applied — cannot prove unreachability, skipping (survival-poll only)"
             fi
 
+            # fresh-pull-run BEGIN
             if [ "${FRESH_PULL_PROOF}" = "true" ] && [ "${POLICY_APPLIED}" = "yes" ]; then
               : > /work/roll_failures.txt
               if [ "${ROLL_ALL_EXTERNAL}" = "true" ]; then
@@ -2368,12 +2508,13 @@ data:
               fi
               if ! ${fresh_pull_fn}; then
                 {{- /* POLICY_APPLIED=yes here, so the EXIT trap set at the apply removes the hold. */}}
-                echo "[egress-block-test] FRESH-PULL proof FAILED — sovereignty proof FAILED (cutoverComplete stays false)"
-                exit 1
+                fp_why=$(tr '\n' ' ' </work/roll_failures.txt)
+                step_fail "FRESH-PULL proof FAILED: ${fp_why:-no roll record} — sovereignty proof FAILED (cutoverComplete stays false)"
               fi
             elif [ "${FRESH_PULL_PROOF}" = "true" ]; then
               echo "[egress-block-test] #3647: FRESH-PULL proof requested but egressDeny not applied (enforce off / fail-safe fallback) — skipping the fresh pull, survival-poll only"
             fi
+            # fresh-pull-run END
 
             {{- /*
              ── #3376 (Refs #3689): org-tenants MUST be Ready BEFORE the hold ─
@@ -2697,8 +2838,8 @@ data:
               else
                 sv_result="success"
               fi
-              kubectl -n "${NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                -p "{\"data\":{\"step.egress-block-test.region.${sv_region}.result\":\"${sv_result}\",\"step.egress-block-test.region.${sv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+              status_record "step.egress-block-test.region.${sv_region}.result" "${sv_result}" \
+                "step.egress-block-test.region.${sv_region}.finishedAt" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             done
             if [ "${new_failures}" -gt 0 ]; then
               echo "[egress-block-test] cluster developed NEW NotReady items or front-door failures during the window (any region) — sovereignty proof FAILED"
@@ -2746,6 +2887,10 @@ data:
                 echo "[egress-block-test] reboot hold released in region $(basename "${rh_kc:-primary}" .yaml): ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present; bp-kured (interval 1m) applies it within a minute"
               done
             }
+            {{- /* SOV-344 — a region whose Workspaces were not measured is named next to the verdict, never inside it. */}}
+            if [ -s /work/ws_not_measured.txt ]; then
+              echo "[egress-block-test] cloud Workspaces NOT MEASURED in: $(tr '\n' ' ' </work/ws_not_measured.txt)— the verdict below does not cover them (step.egress-block-test.region.<region>.workspaces)"
+            fi
             if [ "${POLICY_APPLIED}" != "yes" ]; then
               if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
                 echo "[egress-block-test] FATAL: the ${DURATION_SECONDS}s window completed with NO deny-egress hold applied (POLICY_APPLIED empty) while egressTest.enforceCIDRBlock=true asked for one. Surviving a window that denied nothing proves nothing; refusing to report a sovereignty PASS (#6309). cutoverComplete stays false." >&2
