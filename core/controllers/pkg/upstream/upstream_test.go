@@ -60,6 +60,10 @@ func example() map[string]string {
 		"CLOUD_CREDENTIAL_ROTATION_SCHEDULE": "0 2 1 * *",
 		"CLOUD_CREDENTIAL_ROTATION_NONCE":    "",
 		"GITOPS_REPO_URL":                    "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack",
+		"SOVEREIGN_TIME_ZONE":                "Asia/Muscat",
+		"KURED_START_TIME":                   "01:00",
+		"KURED_END_TIME":                     "05:00",
+		"KURED_TIME_ZONE":                    "",
 	}
 }
 
@@ -125,8 +129,8 @@ func TestRoundTrip(t *testing.T) {
 	if got["ORIGIN_PROXY_ENDPOINTS_JSON"] != "{}" || got["MAIL_RELAY_PORT"] != "587" {
 		t.Errorf("defaults not rendered: %q %q", got["ORIGIN_PROXY_ENDPOINTS_JSON"], got["MAIL_RELAY_PORT"])
 	}
-	if len(got) != 40 {
-		t.Errorf("ToMap renders %d keys, want the 40 contract keys", len(got))
+	if len(got) != 44 {
+		t.Errorf("ToMap renders %d keys, want the 44 contract keys", len(got))
 	}
 }
 
@@ -407,5 +411,47 @@ func TestLoad(t *testing.T) {
 	empty := fake.NewClientBuilder().WithScheme(scheme).Build()
 	if _, err := Load(context.Background(), empty); err == nil {
 		t.Errorf("Load without the ConfigMap must fail")
+	}
+}
+
+// The node maintenance window: four optional keys. Left out, a document gets
+// the night span 01:00 to 05:00 in the Sovereign's own time zone, UTC when
+// none is named. A child never takes them from its parent.
+func TestMaintenanceWindowKeys(t *testing.T) {
+	short := example()
+	for _, k := range []string{"SOVEREIGN_TIME_ZONE", "KURED_START_TIME", "KURED_END_TIME", "KURED_TIME_ZONE"} {
+		delete(short, k)
+	}
+	got := mustFromMap(t, short).ToMap()
+	want := map[string]string{"SOVEREIGN_TIME_ZONE": "UTC", "KURED_START_TIME": "01:00", "KURED_END_TIME": "05:00", "KURED_TIME_ZONE": ""}
+	for k, w := range want {
+		if got[k] != w {
+			t.Errorf("left out, %s renders %q, want %q", k, got[k], w)
+		}
+	}
+	for _, ok := range []map[string]string{
+		with(example(), "KURED_START_TIME", "22:30", "KURED_END_TIME", "03:15"),
+		with(example(), "KURED_TIME_ZONE", "America/Argentina/Buenos_Aires"),
+		with(example(), "SOVEREIGN_TIME_ZONE", "Etc/GMT+4"),
+	} {
+		mustFromMap(t, ok)
+	}
+	for name, m := range map[string]map[string]string{
+		"an hour past 23":             with(example(), "KURED_START_TIME", "24:00"),
+		"a time without its zero":     with(example(), "KURED_END_TIME", "5:00"),
+		"a zone with a space":         with(example(), "KURED_TIME_ZONE", "Asia Muscat"),
+		"an empty Sovereign zone":     with(example(), "SOVEREIGN_TIME_ZONE", ""),
+		"a zone that starts with a /": with(example(), "SOVEREIGN_TIME_ZONE", "/Asia/Muscat"),
+	} {
+		if _, err := FromMap(m); err == nil {
+			t.Errorf("%s: FromMap accepted it", name)
+		}
+	}
+	parent := mustFromMap(t, with(example(), "SOVEREIGN_TIME_ZONE", "Europe/Berlin", "KURED_START_TIME", "10:00", "KURED_END_TIME", "18:00", "KURED_TIME_ZONE", "Europe/Paris"))
+	child := Served("parent.example.net", parent).ToMap()
+	for k, w := range want {
+		if child[k] != w {
+			t.Errorf("Served: %s = %q, want the default %q", k, child[k], w)
+		}
 	}
 }

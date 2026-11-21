@@ -237,6 +237,10 @@ variables {
     CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
     CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
     GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+    SOVEREIGN_TIME_ZONE                = "UTC"
+    KURED_START_TIME                   = "01:00"
+    KURED_END_TIME                     = "05:00"
+    KURED_TIME_ZONE                    = ""
   }
 }
 
@@ -1068,6 +1072,10 @@ run "node_registry_file_without_origin_when_consume_is_local" {
       CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
       CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
       GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+      SOVEREIGN_TIME_ZONE                = "UTC"
+      KURED_START_TIME                   = "01:00"
+      KURED_END_TIME                     = "05:00"
+      KURED_TIME_ZONE                    = ""
     }
   }
 
@@ -1207,6 +1215,9 @@ run "post_back_render_fits_the_size_guards_with_room" {
       "HANDOVER_HOLD_SECONDS"              = "600"
       "K3S_UPGRADE_CONCURRENCY"            = "1"
       "K3S_VERSION"                        = "v1.31.8+k3s1"
+      "KURED_END_TIME"                     = "05:00"
+      "KURED_START_TIME"                   = "01:00"
+      "KURED_TIME_ZONE"                    = ""
       "LOCAL_REGISTRY_HOST"                = "registry.ae1r3b3eqk10j5wbg8ulhppktid7yj0g9.omani.works"
       "MAIL_FROM"                          = ""
       "MAIL_MODE"                          = "local"
@@ -1237,6 +1248,7 @@ run "post_back_render_fits_the_size_guards_with_room" {
       "RELEASE_VERSION"                    = ""
       "SOVEREIGN_CONSUME"                  = "origin"
       "SOVEREIGN_MODE"                     = "sovereign"
+      "SOVEREIGN_TIME_ZONE"                = "America/Argentina/ComodRivadavia"
     }
     wildcard_cert_use_staging = "true"
     worker_count              = 50

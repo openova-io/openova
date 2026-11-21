@@ -49,6 +49,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata" // the API image holds no zoneinfo files: Validate checks sovereignTimeZone against this copy
 
 	"github.com/openova-io/openova/core/controllers/pkg/upstream"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
@@ -404,6 +405,12 @@ type Request struct {
 	SovereignDomainMode string `json:"sovereignDomainMode"` // pool | byo
 	SovereignPoolDomain string `json:"sovereignPoolDomain"`
 	SovereignSubdomain  string `json:"sovereignSubdomain"`
+
+	// SovereignTimeZone is the Sovereign's own IANA time zone (the wizard
+	// proposes the browser's). childVariables writes it as SOVEREIGN_TIME_ZONE
+	// of the variables document, UTC when it is empty; kured's default reboot
+	// span, 01:00 to 05:00, is read in it (kit slot 04b).
+	SovereignTimeZone string `json:"sovereignTimeZone,omitempty"`
 
 	// ParentDomains — the canonical multi-domain payload introduced by
 	// issue #826 (sub-1 of epic #825 — Multi-domain Sovereign). The
@@ -907,6 +914,11 @@ func resolveGitopsBranch(req Request) (string, error) {
 func (r *Request) Validate() error {
 	if _, err := resolveGitopsBranch(*r); err != nil {
 		return err
+	}
+	if tz := strings.TrimSpace(r.SovereignTimeZone); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil || tz == "Local" {
+			return fmt.Errorf("sovereignTimeZone %q is not a time zone of the IANA database", tz)
+		}
 	}
 	if len(r.Regions) > 0 {
 		// Each region must carry a provider + cloudRegion. The sizes are
@@ -3367,6 +3379,9 @@ func childVariables(req Request, apiURL string) (map[string]string, error) {
 	v.HandoverAuto = req.FireCutoverOnHandover == nil || *req.FireCutoverOnHandover
 	v.LocalRegistryHost = "registry." + strings.ToLower(strings.TrimSpace(req.SovereignFQDN))
 	v.K3sVersion = moduleK3sVersion
+	if tz := strings.TrimSpace(req.SovereignTimeZone); tz != "" {
+		v.TimeZone = tz
+	}
 	req.MailRelay.apply(&v)
 	v.CloudCredentialMode = "supplied"
 	originRegistry := legacyOriginRegistry

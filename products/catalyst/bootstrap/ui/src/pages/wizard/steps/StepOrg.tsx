@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useWizardStore } from '@/entities/deployment/store'
-import { ORG_DEFAULTS } from '@/entities/deployment/model'
+import { ORG_DEFAULTS, browserTimeZone, offeredTimeZones } from '@/entities/deployment/model'
 import { useBreakpoint } from '@/shared/lib/useBreakpoint'
 import { StepShell, useStepNav } from './_shared'
 
@@ -19,6 +19,11 @@ import { StepShell, useStepNav } from './_shared'
  *     catalyst-api stamps orgEmail from session.email at submit time
  *     (PR #759 enforces `req.OrgEmail == session.email`), so the
  *     wizard never asks for it again.
+ * The step also asks for the Sovereign's own time zone (INF-054) and
+ * proposes the browser's: the Sovereign restarts its nodes for kernel
+ * updates between 01:00 and 05:00 in that zone unless the sovereign-admin
+ * changes the span later. The request carries it as sovereignTimeZone.
+ *
  *   - "Org domain" free-text field — removed entirely. The Sovereign FQDN
  *     captured in StepDomain replaces it; the orgDomain store slot is
  *     preserved for backwards-compat with persisted state but is no
@@ -135,6 +140,41 @@ function SelectField({ label, value, options, onChange, placeholder = 'Select…
   )
 }
 
+/**
+ * TimeZoneField — the Sovereign's own IANA time zone. The value shown is the
+ * stored pick, else the browser's zone when the list holds it, else UTC
+ * (browserTimeZone), which is the zone the wizard submits (StepReview). The
+ * list is offeredTimeZones (UTC and the browser's IANA list) with the shown
+ * value in it, so the select never falls back to another option.
+ */
+function TimeZoneField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const shown = value || browserTimeZone()
+  const zones = Array.from(new Set([shown, ...offeredTimeZones()])).sort()
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--wiz-text-lo)' }}>
+        Time zone of the Sovereign
+        <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)', marginLeft: 6 }}>proposed from your browser</span>
+      </span>
+      <select
+        name="sovereignTimeZone"
+        value={shown}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          height: 40, borderRadius: 8, border: '1.5px solid var(--wiz-border)',
+          background: 'var(--wiz-bg-input)', color: 'var(--wiz-text-md)', fontSize: 13,
+          paddingLeft: 12, paddingRight: 12, outline: 'none', fontFamily: 'Inter, sans-serif', cursor: 'pointer',
+        }}
+      >
+        {zones.map(z => <option key={z} value={z} style={{ background: 'var(--wiz-deep-bg)' }}>{z}</option>)}
+      </select>
+      <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>
+        Nodes restart for kernel updates between 01:00 and 05:00 in this zone, one at a time.
+      </span>
+    </div>
+  )
+}
+
 export function StepOrg() {
   const store = useWizardStore()
   const { next } = useStepNav()
@@ -165,6 +205,10 @@ export function StepOrg() {
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
         <SelectField label="Industry"          value={store.orgIndustry} options={INDUSTRIES} onChange={store.setOrgIndustry} />
         <SelectField label="Organisation size" value={store.orgSize}     options={SIZES}      onChange={store.setOrgSize} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
+        <TimeZoneField value={store.sovereignTimeZone} onChange={store.setSovereignTimeZone} />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -202,6 +202,10 @@ fixture_cp_common() {
       CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
       CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
       GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+      SOVEREIGN_TIME_ZONE                = "UTC"
+      KURED_START_TIME                   = "01:00"
+      KURED_END_TIME                     = "05:00"
+      KURED_TIME_ZONE                    = ""
     }
     console_isolation_enabled         = "true"
     continuum_enabled                 = "false"

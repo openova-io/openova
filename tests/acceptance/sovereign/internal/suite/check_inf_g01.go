@@ -17,10 +17,16 @@ import (
 )
 
 // Check INF-G01, coordinated reboot. The check makes kured restart nodes: it
-// is destructive and runs in the cloud only. It fails, and touches no node,
-// unless journey J1 of this run passed. Then it takes the regions one after
-// the other; a region is started only when every region before it passed.
-// In a region it:
+// is destructive and runs in the cloud only. It starts, in every region, by
+// looking for the note (rebootMarker, annotation rebootMark) that an earlier
+// run writes with a span into the region's variables document and removes
+// when it restores the values before: a note found there is a run whose
+// runner was stopped between the change and the restore. The step writes
+// the values before that run back, by the rule of the restore in step 4,
+// removes the note and fails, naming that run; the check then touches no
+// node. It fails, and touches no node, unless journey J1 of this run passed.
+// Then it takes the regions one after the other; a region is started only
+// when every region before it passed. In a region it:
 //  1. reads the settings of kured from the arguments of DaemonSet
 //     kube-system/kured. A setting that is not an argument fails the step:
 //     the check assumes no default. The step also fails, before any node is
@@ -58,9 +64,31 @@ import (
 //     Deployment), and how many Ready Pods that controller has in the region.
 //     A Pod of a Job, which ends by design, and a Pod without a controller,
 //     which nothing brings back, are not judged;
-//  4. waits when the reboot span is not open for the whole time limit: until
-//     the span opens the next time, at most rebootMaxWait. A longer wait
-//     fails the step;
+//  4. opens a window for the run when the reboot span is not open for the
+//     whole time limit, through the setting of the sovereign-admin: it reads
+//     the keys rebootStartKey and rebootEndKey of the region's variables
+//     document (ConfigMap flux-system/sovereign-variables, contract C5; the
+//     Kustomization bootstrap-kit substitutes it into kit slot 04b, whose
+//     values are kured's arguments). The span it needs starts at the minute
+//     of now and ends at that minute plus rebootApply, the time limit and one
+//     more minute (the minute of now has begun already), both in kured's time
+//     zone. The step judges that span with the rule of step 2 against every
+//     upgrade Plan of step 2; when one breaks it, the step writes nothing and
+//     fails, naming the Plan and its window: the run needs that span now. It
+//     writes nothing either while Flux applies the document (label
+//     rebootFluxOwner), which would undo the change. Else it writes the span
+//     and the note of the run (rebootMarker: the run, when, the values before
+//     and the values written) with one merge patch, made only while the
+//     document is still at the version it read, and waits at most rebootApply
+//     until the arguments of the DaemonSet of kured give that span and every
+//     Pod of it is updated and ready (its status has observed its current
+//     generation). The step records the document, the values before and the
+//     values written. After the last step of the region, also when a step
+//     failed, a step of its own writes the values before back (a key the
+//     document did not have is removed) and removes the note, only while the
+//     document holds exactly the span the run wrote: a document that holds
+//     anything else was changed during the run, is left as it is (the note
+//     of the run is removed) and fails the step, which names both values;
 //  5. reads the HelmReleases of every namespace once and keeps those that are
 //     Ready. None fails the step;
 //  6. creates a namespace of its own and one Pod on the chosen worker that
@@ -91,7 +119,8 @@ import (
 //     seconds from that reading to the first in which it has them back. A
 //     reading that fails is no observation.
 //
-// The check never restarts a node itself and never changes kured.
+// The check never restarts a node itself. It changes kured only through the
+// variables document, for the length of its run (step 4).
 const (
 	rebootID        = "INF-G01"
 	rebootNamespace = "kube-system"                 // of the DaemonSet of kured
@@ -104,8 +133,18 @@ const (
 	rebootMirror    = "kubernetes.io/config.mirror"
 	rebootEvery     = 5 * time.Second
 	rebootSettle    = 15 * time.Minute
-	rebootMaxWait   = 150 * time.Minute
-	rebootGap       = 30 // minutes from the end of a Plan window to the start of the reboot span, at least
+	rebootDocument  = "sovereign-variables" // ConfigMap flux-system/sovereign-variables, the variables document of the region (contract C5)
+	rebootDocNS     = "flux-system"
+	rebootStartKey  = "KURED_START_TIME" // the keys of the document that kit slot 04b gives kured as its reboot span
+	rebootEndKey    = "KURED_END_TIME"
+	rebootGap       = 30                                   // minutes from the end of a Plan window to the start of the reboot span, at least
+	rebootMark      = "catalyst.openova.io/inf-g01-window" // the annotation of the variables document that holds the note of the span the check wrote
+	rebootFluxOwner = "kustomize.toolkit.fluxcd.io/name"   // the label by which Flux marks an object that a Kustomization applies
+
+	// rebootApply is how long a span written into the document may take to
+	// reach kured: Kustomization bootstrap-kit substitutes the document every
+	// 5 minutes, then HelmRelease bp-kured upgrades and the DaemonSet rolls.
+	rebootApply = 15 * time.Minute
 
 	rebootFront   = "harbor"            // Service harbor/harbor, the registry's front, in the namespace of the same name
 	rebootHash    = "pod-template-hash" // the label by which a Pod of a Deployment's ReplicaSet names its hash
@@ -165,6 +204,7 @@ type rebootSettings struct {
 	workersOnly            bool   // the DaemonSet cannot run on control-plane nodes
 	held                   string // the annotation kured locks in, when it holds the install hold
 	dir, file              string // the folder of the node that holds the sentinel file, and its name
+	rolled                 bool   // every Pod of the DaemonSet runs its current template and is ready
 }
 
 func (k rebootSettings) limit() time.Duration { return rebootNodes*(k.period+k.release) + rebootSettle }
@@ -275,6 +315,9 @@ func (c rebootCheck) settings(ctx context.Context, region kube.Region) (rebootSe
 		if arg["--lock-annotation"] != "" {
 			key = arg["--lock-annotation"]
 		}
+		desired := ds.Int("status", "desiredNumberScheduled")
+		k.rolled = desired > 0 && ds.Int("status", "updatedNumberScheduled") == desired && ds.Int("status", "numberReady") == desired &&
+			ds.Int("status", "observedGeneration") >= ds.Int("metadata", "generation")
 		if _ = json.Unmarshal([]byte(ds.Str("metadata", "annotations", key)), &lock); lock.NodeID == rebootHold {
 			k.held = key
 		}
@@ -310,6 +353,218 @@ func (c rebootCheck) settings(ctx context.Context, region kube.Region) (rebootSe
 		return k, fmt.Errorf("DaemonSet %s/%s gives no usable value for: %s", rebootNamespace, rebootDaemonSet, strings.Join(bad, ", "))
 	}
 	return k, nil
+}
+
+// rebootMarker is the note that the check writes into the annotation
+// rebootMark of the variables document with the same change as its span:
+// the run that wrote it, when (RFC 3339, UTC), the values before and the
+// values written (a key the document did not have is null). The restore of
+// the run removes it; a note that a run finds at its start is an earlier
+// run's span that was never restored.
+type rebootMarker struct {
+	Run     string             `json:"run"`
+	Written string             `json:"written"`
+	Before  map[string]*string `json:"values_before"`
+	Set     map[string]*string `json:"values_set"`
+}
+
+// rebootDoc is what the check reads of the region's variables document.
+type rebootDoc struct {
+	values  map[string]*string // the keys rebootStartKey and rebootEndKey; a key the document does not have is nil
+	version string             // metadata.resourceVersion: a change made with it fails when the document changed in between
+	note    *rebootMarker      // the note of rebootMark; nil: none
+	owner   string             // the Flux Kustomization that applies the document (label rebootFluxOwner); "": none
+}
+
+// doc reads the region's variables document. A note that is not one of the
+// check fails the read: it is left as it is.
+func (c rebootCheck) doc(ctx context.Context, region kube.Region) (rebootDoc, error) {
+	out, err := c.kubectl(region, ctx, nil, "get", "-o", "json", "--request-timeout=15s", "configmap", rebootDocument, "-n", rebootDocNS)
+	if err != nil {
+		return rebootDoc{}, err
+	}
+	var o kube.Object
+	if err := json.Unmarshal(out, &o); err != nil {
+		return rebootDoc{}, fmt.Errorf("[%s] decode ConfigMap %s/%s: %w", region.ID, rebootDocNS, rebootDocument, err)
+	}
+	d := rebootDoc{values: map[string]*string{rebootStartKey: nil, rebootEndKey: nil}, version: o.Str("metadata", "resourceVersion"),
+		owner: o.Str("metadata", "labels", rebootFluxOwner)}
+	data, _ := o.Get("data").(map[string]any)
+	for key := range d.values {
+		if value, ok := data[key].(string); ok {
+			d.values[key] = &value
+		}
+	}
+	if note := o.Str("metadata", "annotations", rebootMark); note != "" {
+		d.note = &rebootMarker{}
+		if err := json.Unmarshal([]byte(note), d.note); err != nil || d.note.Run == "" {
+			return d, fmt.Errorf("the annotation %s of ConfigMap %s/%s is not a note of this check, so it is left as it is: %q", rebootMark, rebootDocNS, rebootDocument, note)
+		}
+	}
+	return d, nil
+}
+
+// write changes the region's variables document with one merge patch that
+// holds the version read, so that it fails when the document changed since:
+// values (a nil value removes its key; a nil map changes no key) and the note
+// of rebootMark (nil removes it).
+func (c rebootCheck) write(ctx context.Context, region kube.Region, version string, values map[string]*string, note *rebootMarker) error {
+	var mark any // null: the annotation is removed
+	if note != nil {
+		b, err := json.Marshal(note)
+		if err != nil {
+			return err
+		}
+		mark = string(b)
+	}
+	patch := map[string]any{"metadata": map[string]any{"resourceVersion": version, "annotations": map[string]any{rebootMark: mark}}}
+	if values != nil {
+		patch["data"] = values
+	}
+	b, err := json.Marshal(patch)
+	if err == nil {
+		_, err = c.kubectl(region, ctx, nil, "patch", "configmap", rebootDocument, "-n", rebootDocNS, "--type", "merge", "-p", string(b))
+	}
+	return err
+}
+
+// rebootSame reports whether have holds exactly the span of want.
+func rebootSame(have, want map[string]*string) bool {
+	for _, key := range []string{rebootStartKey, rebootEndKey} {
+		if (have[key] == nil) != (want[key] == nil) || (have[key] != nil && *have[key] != *want[key]) {
+			return false
+		}
+	}
+	return true
+}
+
+// rebootShow is the span of values as a reason names it.
+func rebootShow(values map[string]*string) string {
+	out := []string{}
+	for _, key := range []string{rebootStartKey, rebootEndKey} {
+		if values[key] == nil {
+			out = append(out, key+" absent")
+		} else {
+			out = append(out, key+"="+*values[key])
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
+// rebootValues is values as the record shows them: a key the document does not have is null.
+func rebootValues(values map[string]*string) map[string]any {
+	out := map[string]any{}
+	for key, value := range values {
+		out[key] = nil
+		if value != nil {
+			out[key] = *value
+		}
+	}
+	return out
+}
+
+// openWindow writes a reboot span into the region's variables document that
+// is open from the minute of now for rebootApply, the time limit and one more
+// minute (the minute of now has begun), in kured's time zone, together with
+// the note of the run, and waits until kured runs with it. It writes nothing,
+// and fails, while Flux applies the document or when the span breaks the
+// rule of step 2 for one of the upgrade Plans plans. It returns the settings
+// kured then has; note is set as soon as the change was made.
+func (c rebootCheck) openWindow(ctx context.Context, region kube.Region, k rebootSettings, plans []kube.Object, run string, note **rebootMarker, ev Evidence) (rebootSettings, error) {
+	doc, err := c.doc(ctx, region)
+	if err != nil {
+		return k, err
+	}
+	from := c.now().In(k.zone).Truncate(time.Minute)
+	until := from.Add(rebootApply + k.limit() + time.Minute)
+	start, end := from.Format("15:04"), until.Format("15:04")
+	set := map[string]*string{rebootStartKey: &start, rebootEndKey: &end}
+	ev["variables_document"], ev["values_before"], ev["values_set"] = rebootDocNS+"/"+rebootDocument, rebootValues(doc.values), rebootValues(set)
+	if doc.owner != "" {
+		return k, fmt.Errorf("ConfigMap %s/%s is applied by the Flux Kustomization %s (label %s), which would undo a span written for the run: no span was written and no node was touched", rebootDocNS, rebootDocument, doc.owner, rebootFluxOwner)
+	}
+	span := k
+	span.start, span.end, span.span = from.Hour()*60+from.Minute(), until.Hour()*60+until.Minute(), start+"-"+end+" "+k.zone.String()
+	if windows, problems := rebootPlanRule(plans, span, c.now()); len(problems) > 0 {
+		bad := []string{}
+		for _, name := range slices.Sorted(maps.Keys(problems)) {
+			bad = append(bad, "Plan "+name+" (window "+windows[name]+") "+problems[name])
+		}
+		return k, fmt.Errorf("the span %s that the run needs from now (%s for kured to take it, the time limit %s and one minute) breaks the rule of the upgrade Plans: %s: no span was written and no node was touched", span.span, rebootApply, k.limit(), strings.Join(bad, "; "))
+	}
+	mark := &rebootMarker{Run: run, Written: c.now().UTC().Format(time.RFC3339), Before: doc.values, Set: set}
+	if err := c.write(ctx, region, doc.version, set, mark); err != nil {
+		return k, err
+	}
+	*note = mark
+	ev["note"] = map[string]any{"annotation": rebootMark, "run": mark.Run, "written": mark.Written}
+	want, changed, last := span.span, c.now(), k.span
+	for {
+		got, err := c.settings(ctx, region)
+		if err == nil && got.span == want && got.rolled {
+			ev["applied_after"] = c.now().Sub(changed).String()
+			return got, nil
+		}
+		if err == nil {
+			last = got.span
+		}
+		if c.now().Sub(changed) >= rebootApply {
+			return k, fmt.Errorf("DaemonSet %s/%s does not run with the span %s, every Pod updated and ready, within %s of the change of %s/%s (its arguments give %s): no node was touched", rebootNamespace, rebootDaemonSet, want, rebootApply, rebootDocNS, rebootDocument, last)
+		}
+		if err := c.wait(ctx, rebootEvery); err != nil {
+			return k, err
+		}
+	}
+}
+
+// restore writes the values before the run back and removes its note, only
+// while the document holds exactly the span the run wrote. A document that
+// holds anything else was changed during the run, which is a finding: its
+// keys are left as they are, the note of the run is removed and the step
+// fails, naming both values.
+func (c rebootCheck) restore(ctx context.Context, region kube.Region, note *rebootMarker, ev Evidence) error {
+	ev["variables_document"], ev["values_written"] = rebootDocNS+"/"+rebootDocument, rebootValues(note.Set)
+	doc, err := c.doc(ctx, region)
+	if err != nil {
+		return err
+	}
+	if ev["values_found"] = rebootValues(doc.values); !rebootSame(doc.values, note.Set) {
+		err := fmt.Errorf("the variables document %s/%s holds %s, not the span the run wrote (%s): it was changed during the run, so it is left as it is and the values before the run (%s) are not written back", rebootDocNS, rebootDocument, rebootShow(doc.values), rebootShow(note.Set), rebootShow(note.Before))
+		if doc.note != nil && doc.note.Run == note.Run {
+			return errors.Join(err, c.write(ctx, region, doc.version, nil, nil))
+		}
+		return err
+	}
+	ev["values_restored"] = rebootValues(note.Before)
+	return c.write(ctx, region, doc.version, note.Before, nil)
+}
+
+// leftover looks for the note of an earlier run in the region's variables
+// document and passes when there is none. A note is a span that its run did
+// not restore (the runner was stopped between the change and the restore):
+// the values before that run are written back when the document still holds
+// exactly the span it wrote, else the keys are left as they are; the note is
+// removed and the step fails, naming that run.
+func (c rebootCheck) leftover(ctx context.Context, region kube.Region, ev Evidence) error {
+	ev["variables_document"], ev["previous_run"] = rebootDocNS+"/"+rebootDocument, nil
+	doc, err := c.doc(ctx, region)
+	if err != nil || doc.note == nil {
+		return err
+	}
+	m := doc.note
+	ev["previous_run"], ev["previous_written"], ev["values_set"], ev["values_found"], ev["values_before"] = m.Run, m.Written, rebootValues(m.Set), rebootValues(doc.values), rebootValues(m.Before)
+	left := fmt.Sprintf("a previous run left its window open: run %s wrote %s into %s/%s at %s and did not restore it", m.Run, rebootShow(m.Set), rebootDocNS, rebootDocument, m.Written)
+	if !rebootSame(doc.values, m.Set) {
+		if err := c.write(ctx, region, doc.version, nil, nil); err != nil {
+			return fmt.Errorf("%s; the document holds %s since, which is left as it is, and the note cannot be removed: %w", left, rebootShow(doc.values), err)
+		}
+		return fmt.Errorf("%s; the document holds %s since, which is left as it is (the values before that run were %s), and the note is removed: no node was touched", left, rebootShow(doc.values), rebootShow(m.Before))
+	}
+	if err := c.write(ctx, region, doc.version, m.Before, nil); err != nil {
+		return fmt.Errorf("%s; writing back the values before it (%s) failed: %w", left, rebootShow(m.Before), err)
+	}
+	ev["values_restored"] = rebootValues(m.Before)
+	return fmt.Errorf("%s; the values before it (%s) are written back and the note is removed: no node was touched", left, rebootShow(m.Before))
 }
 
 // rebootNode is what the check reads of one Node.
@@ -549,31 +804,44 @@ func (c rebootCheck) front(ctx context.Context, region kube.Region) (map[string]
 	return out, err
 }
 
-// plans judges the upgrade Plans of every namespace. It puts into ev whether
-// the cluster serves the kind, how many Plans there are and the window of each.
-func (c rebootCheck) plans(ctx context.Context, region kube.Region, k rebootSettings, ev Evidence) error {
+// rebootPlanRule judges every upgrade Plan of items with rebootWindow against
+// the reboot span of k at now. It returns the window of each Plan and why
+// each Plan that breaks the rule does, by namespace/name.
+func rebootPlanRule(items []kube.Object, k rebootSettings, now time.Time) (windows, problems map[string]string) {
+	windows, problems = map[string]string{}, map[string]string{}
+	for _, p := range items {
+		name := p.Namespace() + "/" + p.Name()
+		window, problem := rebootWindow(p, k, now)
+		if windows[name] = window; problem != "" {
+			problems[name] = problem
+		}
+	}
+	return windows, problems
+}
+
+// plans judges the upgrade Plans of every namespace and returns them, none
+// when the cluster does not serve the kind. It puts into ev whether the
+// cluster serves the kind, how many Plans there are and the window of each.
+func (c rebootCheck) plans(ctx context.Context, region kube.Region, k rebootSettings, ev Evidence) ([]kube.Object, error) {
 	items, err := c.list(ctx, region, rebootPlans, "-A")
 	served := err == nil || !strings.Contains(err.Error(), notServed)
 	ev["plan_kind_served"], ev["plans"] = served, len(items)
 	if !served {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	windows, bad := map[string]string{}, []string{}
-	for _, p := range items {
-		name := p.Namespace() + "/" + p.Name()
-		window, problem := rebootWindow(p, k, c.now())
-		if windows[name] = window; problem != "" {
-			bad = append(bad, "Plan "+name+" "+problem)
-		}
+	windows, problems := rebootPlanRule(items, k, c.now())
+	bad := []string{}
+	for _, name := range slices.Sorted(maps.Keys(problems)) {
+		bad = append(bad, "Plan "+name+" "+problems[name])
 	}
 	ev["plan_windows"] = windows
-	if sort.Strings(bad); len(bad) > 0 {
-		return fmt.Errorf("%d of %d upgrade Plans break the rule that a window ends at least %d minutes before the reboot span starts: %s", len(bad), len(items), rebootGap, strings.Join(bad, "; "))
+	if len(bad) > 0 {
+		return items, fmt.Errorf("%d of %d upgrade Plans break the rule that a window ends at least %d minutes before the reboot span starts: %s", len(bad), len(items), rebootGap, strings.Join(bad, "; "))
 	}
-	return nil
+	return items, nil
 }
 
 // releases returns the Ready state of every HelmRelease, by namespace/name.
@@ -640,14 +908,21 @@ func (c rebootCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 	if len(cc.Regions) == 0 {
 		return errors.New("the run has no region")
 	}
-	n := 1
-	if !checkStep(rec, rebootID, n, "journey J1 ran and every one of its steps passed", func(ev Evidence) error {
+	run, n, clean := NewRunID(c.now()), 0, true
+	for _, region := range cc.Regions {
+		n++
+		clean = checkStep(rec, rebootID, n, "no previous run left its window open in the variables document of region "+region.ID, func(ev Evidence) error {
+			return c.leftover(ctx, region, ev)
+		}) && clean
+	}
+	n++
+	if !clean || !checkStep(rec, rebootID, n, "journey J1 ran and every one of its steps passed", func(ev Evidence) error {
 		return priorPassed(cc.Prior, func(s *Step) bool { return s.Journey == "J1" }, "journey J1", ev)
 	}) {
 		return nil
 	}
 	for _, region := range cc.Regions {
-		if !c.region(ctx, region, rec, &n) {
+		if !c.region(ctx, region, rec, &n, run) {
 			break
 		}
 	}
@@ -655,7 +930,8 @@ func (c rebootCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 }
 
 // region runs the steps of one region and reports whether every one passed.
-func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRecorder, n *int) bool {
+// run names the run in the note of a span the check writes and in its namespace.
+func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRecorder, n *int, run string) bool {
 	step := func(name string, fn func(ev Evidence) error) bool {
 		*n++
 		return checkStep(rec, rebootID, *n, name+" in region "+region.ID, fn)
@@ -664,13 +940,16 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 	var chosen, ready, moving []string
 	var before map[string]rebootNode
 	var moved map[string]rebootMoved
-	ns, created := "inf-reboot-"+strings.ToLower(NewRunID(c.now())), false
+	var plans []kube.Object
+	var note *rebootMarker // the note of the span the check wrote into the variables document; nil: nothing written
+	ns, created := "inf-reboot-"+strings.ToLower(run), false
 	ok := step("kured is installed and its arguments give the settings", func(ev Evidence) (err error) {
 		k, err = c.settings(ctx, region)
 		ev["reboot_span"], ev["time_limit"], ev["sentinel"] = k.span, k.limit().String(), path.Join(k.dir, k.file)
 		return err
-	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) error {
-		return c.plans(ctx, region, k, ev)
+	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) (err error) {
+		plans, err = c.plans(ctx, region, k, ev)
+		return err
 	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, no container waits on an image, and the worker that runs the registry front, else the first that runs workloads, is chosen", func(ev Evidence) (err error) {
 		if !k.workersOnly {
 			return fmt.Errorf("DaemonSet %s/%s can run on a node with the label %s, so kured could restart a region's control-plane node, which it must never do: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
@@ -703,17 +982,21 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 			return fmt.Errorf("%d containers of the region wait on an image before the check started, so the drain could not be judged: no node was touched: %s", len(all.pulls), strings.Join(all.pulls, ", "))
 		}
 		return nil
-	}) && step("the reboot span is open for the time limit", func(ev Evidence) error {
-		open, next := k.window(c.now())
-		ev["open_for"], ev["waited"] = open.String(), "0s"
+	}) && step("the reboot span is open for the time limit, else the check opens a window for its run through the variables document", func(ev Evidence) (err error) {
+		open, _ := k.window(c.now())
+		ev["open_for"], ev["window_opened"] = open.String(), false
 		if open >= k.limit() {
 			return nil
 		}
-		if next > rebootMaxWait {
-			return fmt.Errorf("the reboot span %s is open for %s, the time limit is %s, and the span opens again in %s, more than %s: no node was touched", k.span, open, k.limit(), next, rebootMaxWait)
+		if k, err = c.openWindow(ctx, region, k, plans, run, &note, ev); err != nil {
+			return err
 		}
-		ev["waited"] = next.String()
-		return c.wait(ctx, next)
+		open, _ = k.window(c.now())
+		ev["reboot_span"], ev["open_for"], ev["window_opened"] = k.span, open.String(), true
+		if open < k.limit() {
+			return fmt.Errorf("the span %s written for the run is open for %s, less than the time limit %s: no node was touched", k.span, open, k.limit())
+		}
+		return nil
 	}) && step("the HelmReleases that are Ready before the first reboot are read", func(ev Evidence) error {
 		all, err := c.releases(ctx, region)
 		if err != nil {
@@ -755,9 +1038,18 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back within "+rebootBack.String()+" of its Pods leaving the worker, and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
+	ok = ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back within "+rebootBack.String()+" of its Pods leaving the worker, and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
 		return c.watch(ctx, region, k, chosen, moving, moved, before, ready, placed, ev)
 	})
+	if note != nil {
+		restored := step("the reboot span of the variables document is restored", func(ev Evidence) error {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			return c.restore(cleanup, region, note, ev)
+		})
+		ok = ok && restored
+	}
+	return ok
 }
 
 // watch reads the nodes and the Pods until the chosen worker has restarted

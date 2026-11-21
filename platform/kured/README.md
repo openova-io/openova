@@ -18,7 +18,7 @@ and the upgrade Plans carry a `spec.window` outside it.
 - The upstream chart `kubereboot/kured` 6.1.0 (kured 1.23.0) under the key
   `kured:` of `values.yaml`. Its DaemonSet is named `kured` and holds the
   reboot lock in an annotation of its own (see the install hold). Defaults: one
-  node at a time, from 00:30 to 22:00 UTC on every day, a check every 30
+  node at a time, from 01:00 to 05:00 on every day, a check every 30
   minutes, a 10-minute drain limit (a node that cannot drain is not
   rebooted), a lock time-to-live of 1 hour and a 5-minute pause before the
   next node. The check period stays above the drain limit plus the pause
@@ -27,6 +27,15 @@ and the upgrade Plans carry a `spec.window` outside it.
   `upgrade.cattle.io/plan`, leaves out the controller's own Pod. The
   measurements are in
   [`docs/ledger/plan/spikes/INF-030.md`](../../docs/ledger/plan/spikes/INF-030.md).
+- The reboot span is a setting of the sovereign-admin. Kit slot 04b reads it
+  from the keys `KURED_START_TIME`, `KURED_END_TIME` and `KURED_TIME_ZONE` of
+  the ConfigMap `flux-system/sovereign-variables` (contract C5, optional
+  keys), changed like every key of that document. Without them it is the
+  night span 01:00 to 05:00 in the Sovereign's own time zone,
+  `SOVEREIGN_TIME_ZONE`, which the parent writes from the installation's
+  request (the wizard proposes the browser's zone; UTC when it is absent).
+  An empty `KURED_TIME_ZONE` is that zone too. The chart's own defaults are
+  the same span in UTC.
 - The install hold. kured takes its lock in the annotation
   `catalyst.openova.io/kured-install-hold` (`kured.configuration.lockAnnotation`),
   and the chart creates the DaemonSet `kured` with a lock already in it
