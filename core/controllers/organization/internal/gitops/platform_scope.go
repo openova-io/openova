@@ -12,9 +12,11 @@ import (
 // The per-Organization host namespace runs two populations of pods: the ones
 // OpenOva delivers with every Organization (the vCluster control plane and the
 // platform stack in platformStack, plus their Helm hook Jobs and the surge
-// replica of a rolling update) and the ones the customer bought (the BSS
-// door's bp-wordpress-tenant / bp-stalwart-tenant and every Application the
-// syncer mirrors out of the Org vCluster).
+// replica of a rolling update) and the customer's: the website and mail
+// server every Organization is given (bp-wordpress-tenant /
+// bp-stalwart-tenant, which plan-quota holds on top of the plan —
+// plan_quota_included.go), every Application the customer adds and every pod
+// the syncer mirrors out of the Org vCluster.
 //
 // Until this split they shared ONE ResourceQuota sized plan + control plane +
 // stack, and the transients rode "the plan's unconsumed slack". Measured on
@@ -56,7 +58,8 @@ import (
 //     [catalyst-org-platform] (which is every pod without the class, since a
 //     classless pod's empty class name is "not in" the list), carrying the
 //     customer's plan — plus the vCluster's coredns, which is the one piece of
-//     control plane that cannot carry the class (see below).
+//     control plane that cannot carry the class (see below), plus the website
+//     and mail server every Organization is given (includedCreditFor).
 //
 // What a customer CANNOT do is put its own pod in the platform scope:
 //   - every customer pod reaches the host namespace either through the
@@ -389,9 +392,10 @@ func staticPlatformCredit(q PlanQuota) PlatformCredit {
 }
 
 // planQuotaHardWithCredit is plan-quota's hard cap: the plan term + the
-// synced coredns + the classless platform credit. With the credit unknown it
-// never shrinks — per resource, the larger of the live hard and the static
-// safe bound (plan + coredns + the whole modelled stack as credit).
+// synced coredns + what every Organization is given + the classless platform
+// credit. With the credit unknown it never shrinks — per resource, the larger
+// of the live hard and the static safe bound (plan + coredns + the given
+// applications + the whole modelled stack as credit).
 func planQuotaHardWithCredit(limits PlanQuota, in Inputs) (quotaHard, string) {
 	credit := in.ClasslessPlatformCredit
 	text := credit.String()
@@ -425,18 +429,25 @@ func planQuotaHardWithCredit(limits PlanQuota, in Inputs) (quotaHard, string) {
 
 // planQuotaHard sizes the customer-scope plan-quota: the plan term (the
 // guaranteed share on requests, the headline — or the grow ceiling — on
-// limits) plus the synced coredns.
+// limits) plus the synced coredns plus what every Organization is given in
+// this scope (includedCreditFor, plan_quota_included.go). The given term is
+// sized from the plan's HEADLINE row (planQuota(limits.Slug)): limits may be
+// a grow-ceiling copy, and the LimitRange defaults that size the given pods'
+// unsized containers are the headline's in both modes.
 func planQuotaHard(limits PlanQuota) quotaHard {
-	add := func(plan string, o resource.Quantity) string {
+	given := includedCreditFor(planQuota(limits.Slug)).Total()
+	add := func(plan string, o ...resource.Quantity) string {
 		s := mustQuantity(plan)
-		s.Add(o)
+		for _, x := range o {
+			s.Add(x)
+		}
 		return s.String()
 	}
 	return quotaHard{
-		RequestsCPU:    add(limits.CPURequest, corednsOverhead.RequestsCPU),
-		RequestsMemory: add(limits.MemRequest, corednsOverhead.RequestsMemory),
-		LimitsCPU:      add(limits.CPULimit, corednsOverhead.LimitsCPU),
-		LimitsMemory:   add(limits.MemLimit, corednsOverhead.LimitsMemory),
+		RequestsCPU:    add(limits.CPURequest, corednsOverhead.RequestsCPU, given.RequestsCPU),
+		RequestsMemory: add(limits.MemRequest, corednsOverhead.RequestsMemory, given.RequestsMemory),
+		LimitsCPU:      add(limits.CPULimit, corednsOverhead.LimitsCPU, given.LimitsCPU),
+		LimitsMemory:   add(limits.MemLimit, corednsOverhead.LimitsMemory, given.LimitsMemory),
 	}
 }
 

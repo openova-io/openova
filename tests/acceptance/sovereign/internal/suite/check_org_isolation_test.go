@@ -424,7 +424,7 @@ func TestOrgIsolationCheck(t *testing.T) {
 			}
 			for i, req := range console.requests {
 				slug, _ := req["subdomain"].(string)
-				if req["kind"] != "internal" || req["plan_slug"] != "s" || req["admin_email"] != slug+"@acceptance.invalid" || !strings.HasPrefix(slug, []string{"iso-a-", "iso-b-"}[i]) {
+				if req["kind"] != "internal" || req["plan_slug"] != []string{"m", "s"}[i] || req["admin_email"] != slug+"@acceptance.invalid" || !strings.HasPrefix(slug, []string{"iso-a-", "iso-b-"}[i]) {
 					t.Errorf("create %d: %v", i, req)
 				}
 			}

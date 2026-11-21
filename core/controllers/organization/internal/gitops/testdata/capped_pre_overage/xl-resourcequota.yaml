@@ -1,15 +1,21 @@
 # The customer's quota. Scoped to every pod that is NOT PriorityClass
-# catalyst-org-platform - the purchase and every Application synced out
-# of the Organization vCluster. The per-Org vCluster control plane (vcluster-0)
+# catalyst-org-platform - the website and mail server every Organization
+# is given, every Application the customer adds and every pod synced out of
+# the Organization vCluster. The per-Org vCluster control plane (vcluster-0)
 # and the per-Organization platform stack carry that class and are admitted
 # against platform-quota, so nothing OpenOva runs eats into what the
 # customer bought, and nothing the customer runs can starve OpenOva's pods.
 # The plan term is the headline on limits and the guaranteed share (headline
 # over the CPU 6x / memory 3x overcommit) on requests; the vCluster's synced
-# coredns is the one overhead in this scope and is added on top.
+# coredns and the given website and mail server are added on top, so the
+# plan's part is left as sold for what the customer adds.
 #   plan xl headline (limits): cpu=8 memory=16Gi
 #   plan xl guaranteed (requests): cpu=1334m memory=5462Mi
 #   vcluster coredns (synced): requests cpu=20m memory=64Mi; limits cpu=1 memory=170Mi
+#   given to every Organization (bp-wordpress-tenant, bp-stalwart-tenant): pods requests cpu=502m memory=1879Mi; limits cpu=3 memory=5632Mi; helm operations requests cpu=217m memory=811Mi; limits cpu=1250m memory=2304Mi
+#     (the website and mail server the funnel installs for every
+#     Organization, not chosen by the customer: their pods, the largest hook
+#     pod and one surge replica, so the plan's part stays as sold)
 #   classless platform credit: requests cpu=0 memory=0; limits cpu=0 memory=0; pods=0
 #     (platform pods admitted before the platform scope existed carry no
 #     class and are charged here; their usage is added back so they never eat
@@ -26,7 +32,8 @@ metadata:
     openova.io/managed-by: catalyst
     openova.io/quota-scope: customer
   annotations:
-    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"
+    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + what every Organization is given + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"
+    openova.io/included-applications-credit: "pods requests cpu=502m memory=1879Mi; limits cpu=3 memory=5632Mi; helm operations requests cpu=217m memory=811Mi; limits cpu=1250m memory=2304Mi"
     openova.io/classless-platform-credit: "requests cpu=0 memory=0; limits cpu=0 memory=0; pods=0"
     openova.io/plan-cap: "cpu=8 memory=16Gi"
     openova.io/plan-guaranteed-cpu: "1334m"
@@ -43,7 +50,7 @@ spec:
         values:
           - catalyst-org-platform
   hard:
-    requests.cpu: "1354m"
-    requests.memory: "5526Mi"
-    limits.cpu: "9"
-    limits.memory: "16554Mi"
+    requests.cpu: "2073m"
+    requests.memory: "8216Mi"
+    limits.cpu: "13250m"
+    limits.memory: "24490Mi"

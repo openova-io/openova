@@ -66,11 +66,12 @@ func TestReconcile_SpendStopRendersCappedAndRequeuesAtTheInstant(t *testing.T) {
 	}
 
 	// In force: capped figures (plan M, customer scope since #7067: limits
-	// 2 + the synced coredns 1 = 3, 4Gi + 170Mi = 4266Mi; disk 50Gi), the stop stamped on both
+	// 2 + the synced coredns 1 + the given applications 2500m = 5500m,
+	// 4Gi + 170Mi + 3328Mi = 7594Mi; disk 50Gi), the stop stamped on both
 	// quotas, and the requeue lands one second after 2026-11-01T00:00Z —
 	// 11 days 12 hours from now.
 	rq, sq, after := run(stopOrg("2026-11-01T00:00:00Z"))
-	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "3"`, `limits.memory: "4266Mi"`,
+	for _, want := range []string{`openova.io/overage-mode: "capped"`, `limits.cpu: "5500m"`, `limits.memory: "7594Mi"`,
 		`openova.io/overage-stopped-until: "2026-11-01T00:00:00Z"`} {
 		if !strings.Contains(rq, want) {
 			t.Errorf("stopped plan-quota lacks %s:\n%s", want, rq)
@@ -89,10 +90,11 @@ func TestReconcile_SpendStopRendersCappedAndRequeuesAtTheInstant(t *testing.T) {
 	}
 
 	// Lifted (the instant has passed, BSS has not cleared the field yet):
-	// grow again — the XL ceiling 8 + the synced coredns 1 = 9, disk 250Gi — and
+	// grow again — the XL ceiling 8 + the synced coredns 1 + the given
+	// applications 2500m = 11500m, disk 250Gi — and
 	// no stop-driven requeue.
 	rq, sq, after = run(stopOrg("2026-10-01T00:00:00Z"))
-	for _, want := range []string{`openova.io/overage-mode: "grow"`, `limits.cpu: "9"`} {
+	for _, want := range []string{`openova.io/overage-mode: "grow"`, `limits.cpu: "11500m"`} {
 		if !strings.Contains(rq, want) {
 			t.Errorf("lifted plan-quota lacks %s:\n%s", want, rq)
 		}

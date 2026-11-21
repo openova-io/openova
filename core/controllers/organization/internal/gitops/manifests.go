@@ -490,8 +490,9 @@ func mustQuantity(s string) resource.Quantity {
 
 // quotaHard is the four hard-cap strings a ResourceQuota template renders, in
 // the canonical Quantity spelling. Since #7067 there are two per Organization:
-// plan-quota (planQuotaHard — the plan term + the synced coredns; plan M
-// requests "334m" + 20m → "354m", limits "2" + 1000m → "3") and
+// plan-quota (planQuotaHard — the plan term + the synced coredns + what every
+// Organization is given; plan M requests "334m" + 20m + 428m → "782m", limits
+// "2" + 1000m + 2500m → "5500m") and
 // platform-quota (platformQuotaHard — vcluster-0 + the platform stack + the
 // transient headroom).
 type quotaHard struct {
@@ -630,8 +631,10 @@ func (o ControlPlaneOverhead) String() string {
 // plus the oidc-gate in front of it). The BSS door renders all four for every
 // Organization unconditionally (products/catalyst/bootstrap/api/internal/
 // handler/organization_gitops.go orgTenantTemplates; bp-wordpress-tenant and
-// bp-stalwart-tenant in that same map are the customer's purchase and are NOT
-// in this list). Every one of their pods — and every hook, CronJob and
+// bp-stalwart-tenant in that same map are given to every Organization too, but
+// in the CUSTOMER scope: they are NOT in this list, and plan-quota holds them
+// on top of the plan — includedStack, plan_quota_included.go). Every one of
+// their pods — and every hook, CronJob and
 // surge pod they create — carries PriorityClass catalyst-org-platform and is
 // charged to `platform-quota`, never to the customer's `plan-quota`
 // (platform_scope.go).
@@ -649,8 +652,9 @@ func (o ControlPlaneOverhead) String() string {
 // is OpenOva's overhead delivered with every Organization, not the customer's
 // purchase. Since #7067 it is admitted in its OWN scope: platform-quota =
 // vcluster-0 + this stack + the transient headroom; plan-quota = the
-// purchased plan + the synced coredns, and the customer's applications
-// consume the plan (platform_scope.go explains why one shared quota wedged
+// purchased plan + the synced coredns + the website and mail server every
+// Organization is given (plan_quota_included.go), and the customer's
+// applications consume the plan (platform_scope.go explains why one shared quota wedged
 // hw307). Chargeback draws the same line
 // (products/chargeback/internal/adapter/openova/collector.go isPlatformStack):
 // these pods stay off the customer's k8s.* meters.
@@ -1115,10 +1119,14 @@ spec:
 // resourceQuotaTemplate is the CUSTOMER-scope quota of the Org boundary host
 // namespace (#4292; split by admission scope in #7067 — platform_scope.go):
 // scoped PriorityClass NotIn [catalyst-org-platform], so it admits every pod
-// the platform scope does not — the BSS door's purchase charts and every
-// Application the syncer mirrors out of the Org vCluster — against the plan
-// the customer purchased PLUS the vCluster's coredns (a synced pod, and so in
-// this scope; added as overhead so it never eats the plan). The vcluster-0
+// the platform scope does not — the website and mail server every
+// Organization is given (bp-wordpress-tenant, bp-stalwart-tenant), every
+// Application the customer adds and every pod the syncer mirrors out of the
+// Org vCluster — against the plan the customer purchased PLUS the vCluster's
+// coredns (a synced pod, and so in this scope; added as overhead so it never
+// eats the plan) PLUS the given applications (includedCreditFor,
+// plan_quota_included.go: their pods and the room of their Helm operations,
+// so the plan's part is left as sold for what the customer adds). The vcluster-0
 // pod and the per-Organization platform stack are charged to platform-quota
 // (platformQuotaTemplate) instead; until #7067 they shared this object with
 // the customer, which let customer usage starve a platform hook (hw307).
@@ -1152,17 +1160,23 @@ spec:
 // materializes — and is usable in full, because the platform's own pods are in
 // another scope.
 const resourceQuotaTemplate = `# The customer's quota. Scoped to every pod that is NOT PriorityClass
-# {{ .PlatformPriorityClass }} - the purchase and every Application synced out
-# of the Organization vCluster. The per-Org vCluster control plane (vcluster-0)
+# {{ .PlatformPriorityClass }} - the website and mail server every Organization
+# is given, every Application the customer adds and every pod synced out of
+# the Organization vCluster. The per-Org vCluster control plane (vcluster-0)
 # and the per-Organization platform stack carry that class and are admitted
 # against {{ .PlatformQuotaName }}, so nothing OpenOva runs eats into what the
 # customer bought, and nothing the customer runs can starve OpenOva's pods.
 # The plan term is the headline on limits and the guaranteed share (headline
 # over the CPU 6x / memory 3x overcommit) on requests; the vCluster's synced
-# coredns is the one overhead in this scope and is added on top.
+# coredns and the given website and mail server are added on top, so the
+# plan's part is left as sold for what the customer adds.
 #   plan {{ .PlanSlug }} headline (limits): {{ .PlanCapText }}
 #   plan {{ .PlanSlug }} guaranteed (requests): {{ .PlanGuaranteedText }}
 #   vcluster coredns (synced): {{ .CoreDNSText }}
+#   given to every Organization (bp-wordpress-tenant, bp-stalwart-tenant): {{ .IncludedText }}
+#     (the website and mail server the funnel installs for every
+#     Organization, not chosen by the customer: their pods, the largest hook
+#     pod and one surge replica, so the plan's part stays as sold)
 #   classless platform credit: {{ .CreditText }}
 #     (platform pods admitted before the platform scope existed carry no
 #     class and are charged here; their usage is added back so they never eat
@@ -1191,7 +1205,8 @@ metadata:
     openova.io/managed-by: catalyst
     openova.io/quota-scope: customer
   annotations:
-    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
+    openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + what every Organization is given + the classless platform credit (every pod not in PriorityClass {{ .PlatformPriorityClass }})"
+    openova.io/included-applications-credit: {{ .IncludedText | quote }}
     openova.io/classless-platform-credit: {{ .CreditText | quote }}
     openova.io/plan-cap: {{ .PlanCapText | quote }}
     openova.io/plan-guaranteed-cpu: {{ .Quota.CPURequest | quote }}
@@ -1937,6 +1952,9 @@ type renderView struct {
 	PlatformScopeReadRole string
 	// CreditText states the classless platform credit on plan-quota.
 	CreditText string
+	// IncludedText states what plan-quota holds for the applications every
+	// Organization is given (includedCreditFor).
+	IncludedText string
 }
 
 // limitRangeDefaults derives the per-container defaults the LimitRange seeds
@@ -2107,6 +2125,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 		// term + the synced coredns; platform-quota carries vcluster-0 + the
 		// stack + the transient headroom (platform_scope.go).
 		view.Hard, view.CreditText = planQuotaHardWithCredit(limitsQuota, in)
+		view.IncludedText = includedCreditFor(quota).String()
 		view.PlatformHard = platformQuotaHard(quota)
 		view.TransientText = overheadText(transientHeadroomFor(quota))
 		view.EffectiveOverageMode = OverageModeCapped

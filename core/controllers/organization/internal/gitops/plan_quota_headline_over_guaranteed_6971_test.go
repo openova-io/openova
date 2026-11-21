@@ -128,23 +128,28 @@ func TestRender_PlanM_HeadlineLimitOverGuaranteedRequest(t *testing.T) {
 	if err := yaml.Unmarshal(out["vcluster/resourcequota.yaml"], &rq); err != nil {
 		t.Fatalf("resourcequota.yaml: %v", err)
 	}
-	sum := func(plan string, over resource.Quantity) string {
+	// ... plus what every Organization is given (plan_quota_included.go):
+	// plan M's given term is 428m / 1154Mi requests, 2500m / 3328Mi limits.
+	given := includedCreditFor(q).Total()
+	sum := func(plan string, over ...resource.Quantity) string {
 		s := mustQ(t, "m", plan)
-		s.Add(over)
+		for _, o := range over {
+			s.Add(o)
+		}
 		return s.String()
 	}
 	for _, c := range []struct{ key, want, literal string }{
-		{"requests.cpu", sum("334m", dns.RequestsCPU), "354m"},
-		{"requests.memory", sum("1366Mi", dns.RequestsMemory), "1430Mi"},
-		{"limits.cpu", sum("2", dns.LimitsCPU), "3"},
-		{"limits.memory", sum("4Gi", dns.LimitsMemory), "4266Mi"},
+		{"requests.cpu", sum("334m", dns.RequestsCPU, given.RequestsCPU), "782m"},
+		{"requests.memory", sum("1366Mi", dns.RequestsMemory, given.RequestsMemory), "2584Mi"},
+		{"limits.cpu", sum("2", dns.LimitsCPU, given.LimitsCPU), "5500m"},
+		{"limits.memory", sum("4Gi", dns.LimitsMemory, given.LimitsMemory), "7594Mi"},
 	} {
 		got := rq.Spec.Hard[c.key]
 		if got != c.want {
-			t.Errorf("plan m %s = %s, want %s (plan term + synced coredns)", c.key, got, c.want)
+			t.Errorf("plan m %s = %s, want %s (plan term + synced coredns + the given applications)", c.key, got, c.want)
 		}
 		if got != c.literal {
-			t.Errorf("plan m %s = %s, want the literal %s (334m + 20m / 2 + 1; 1366Mi + 64Mi / 4Gi + 170Mi)", c.key, got, c.literal)
+			t.Errorf("plan m %s = %s, want the literal %s (334m + 20m + 428m / 2 + 1 + 2500m; 1366Mi + 64Mi + 1154Mi / 4Gi + 170Mi + 3328Mi)", c.key, got, c.literal)
 		}
 	}
 	// requests < limits on both resources — the overcommit is visible on the cap.

@@ -240,31 +240,28 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 	}
 }
 
-// TestRender_ResourceQuotaPerPlan proves the ResourceQuota renders the plan
-// term PLUS the vCluster control-plane overhead PLUS the per-Organization
-// platform-stack overhead, in the exact canonical spellings an operator sees
-// on the live object (#6902 follow-ups, #6971 overcommit model). The plan
-// term is the GUARANTEED share on requests (S 167m/683Mi, M 334m/1366Mi,
+// TestRender_ResourceQuotaPerPlan proves the customer-scope plan-quota renders
+// the plan term PLUS the vCluster's synced coredns PLUS what every
+// Organization is given in that scope, in the exact canonical spellings an
+// operator sees on the live object (#6971 overcommit model, #7067 scopes). The
+// plan term is the GUARANTEED share on requests (S 167m/683Mi, M 334m/1366Mi,
 // L 667m/2731Mi, XL 1334m/5462Mi — headline ÷ 6 / ÷ 3) and the HEADLINE on
-// limits (S 1/2Gi, M 2/4Gi, L 4/8Gi, XL 8/16Gi); the control plane adds
-// 520m/1088Mi to requests and 1500m/1194Mi to limits (vcluster-0 syncer
-// 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits); the platform
-// stack adds 3820m/6016Mi to requests and 4010m/6880Mi to limits on every
-// plan (bp-keycloak 1/2Gi + its postgresql 500m/512Mi + the bp-newapi pod
-// 510m/288Mi requests, 700m/1152Mi limits + its CNPG 500m/512Mi + bp-openclaw
-// 250m/512Mi + bp-agenity 1010m/2080Mi requests and limits +
-// oidc-gate 50m/64Mi; with the #6971 headlines no plan's LimitRange default
-// sizes agenity's unsized init containers above its app containers any more).
-// The arithmetic itself is asserted plan-by-plan against the live table in
+// limits (S 1/2Gi, M 2/4Gi, L 4/8Gi, XL 8/16Gi); coredns adds 20m/64Mi to
+// requests and 1000m/170Mi to limits; the given website and mail server
+// (bp-wordpress-tenant, bp-stalwart-tenant, with the largest hook pod and one
+// surge replica) add S 407m/1069Mi, 2375m/3072Mi; M 428m/1154Mi,
+// 2500m/3328Mi; L 470m/1667Mi, 2750m/4864Mi; XL 719m/2690Mi, 4250m/7936Mi
+// (wantIncludedCredit, plan_quota_included_test.go). The arithmetic is
+// asserted plan-by-plan against the tables in
 // TestRender_ResourceQuotaIsPlanPlusBothOverheads; this test pins the rendered
 // strings so a change in any term is visible here by name.
 func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct{ reqCPU, reqMem, limCPU, limMem string }{
-		"s":  {"187m", "747Mi", "2", "2218Mi"},
-		"m":  {"354m", "1430Mi", "3", "4266Mi"},
-		"l":  {"687m", "2795Mi", "5", "8362Mi"},
-		"xl": {"1354m", "5526Mi", "9", "16554Mi"},
+		"s":  {"594m", "1816Mi", "4375m", "5290Mi"},
+		"m":  {"782m", "2584Mi", "5500m", "7594Mi"},
+		"l":  {"1157m", "4462Mi", "7750m", "13226Mi"},
+		"xl": {"2073m", "8216Mi", "13250m", "24490Mi"},
 	}
 	for slug, want := range cases {
 		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
@@ -284,7 +281,7 @@ func TestRender_ResourceQuotaPerPlan(t *testing.T) {
 			"limits.memory: \"" + want.limMem + "\"",
 			"namespace: acme",
 			"openova.io/plan: " + slug,
-			`openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"`,
+			`openova.io/quota-formula: "purchased plan + the vCluster's synced coredns + what every Organization is given + the classless platform credit (every pod not in PriorityClass catalyst-org-platform)"`,
 		} {
 			if !strings.Contains(s, line) {
 				t.Errorf("plan %s resourcequota.yaml missing %q\n%s", slug, line, s)

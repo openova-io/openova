@@ -147,19 +147,23 @@ func TestRender_PlanM_GrowDefaultCeilingIsTheXLHeadline(t *testing.T) {
 	q, xl := planQuota("m"), planQuotaTable[growCeilingPlan]
 	_ = q
 	dns := corednsOverhead // #7067: plan-quota = plan term + synced coredns
-	sum := func(plan string, over resource.Quantity) string {
+	// + what every Organization is given, sized at the M headline in both modes.
+	given := includedCreditFor(planQuota("m")).Total()
+	sum := func(plan string, over ...resource.Quantity) string {
 		s := mustQ(t, "m", plan)
-		s.Add(over)
+		for _, o := range over {
+			s.Add(o)
+		}
 		return s.String()
 	}
 	grow := parseRQ(t, renderOverage(t, "m", OverageModeGrow, "", ""))
 	capped := parseRQ(t, renderOverage(t, "m", OverageModeCapped, "", ""))
 	for _, c := range []struct{ key, want, literal string }{
-		{"limits.cpu", sum(xl.CPULimit, dns.LimitsCPU), "9"},
-		{"limits.memory", sum(xl.MemLimit, dns.LimitsMemory), "16554Mi"},
+		{"limits.cpu", sum(xl.CPULimit, dns.LimitsCPU, given.LimitsCPU), "11500m"},
+		{"limits.memory", sum(xl.MemLimit, dns.LimitsMemory, given.LimitsMemory), "19882Mi"},
 	} {
 		if got := grow.Spec.Hard[c.key]; got != c.want || got != c.literal {
-			t.Errorf("grow m %s = %s, want %s (literal %s: 8 + 1 / 16Gi + 170Mi)", c.key, got, c.want, c.literal)
+			t.Errorf("grow m %s = %s, want %s (literal %s: 8 + 1 + 2500m / 16Gi + 170Mi + 3328Mi)", c.key, got, c.want, c.literal)
 		}
 	}
 	for _, k := range []string{"requests.cpu", "requests.memory"} {
@@ -185,18 +189,22 @@ func TestRender_PlanM_GrowDefaultCeilingIsTheXLHeadline(t *testing.T) {
 func TestRender_PlanM_GrowChosenCeiling(t *testing.T) {
 	t.Parallel()
 	dns := corednsOverhead // #7067: plan-quota = plan term + synced coredns
-	sum := func(plan string, over resource.Quantity) string {
+	// + what every Organization is given, sized at the M headline.
+	given := includedCreditFor(planQuota("m")).Total()
+	sum := func(plan string, over ...resource.Quantity) string {
 		s := mustQ(t, "m", plan)
-		s.Add(over)
+		for _, o := range over {
+			s.Add(o)
+		}
 		return s.String()
 	}
 	out := renderOverage(t, "m", OverageModeGrow, "4", "8Gi")
 	rq := parseRQ(t, out)
-	if got, want := rq.Spec.Hard["limits.cpu"], sum("4", dns.LimitsCPU); got != want || got != "5" {
-		t.Errorf("limits.cpu = %s, want %s (5)", got, want)
+	if got, want := rq.Spec.Hard["limits.cpu"], sum("4", dns.LimitsCPU, given.LimitsCPU); got != want || got != "7500m" {
+		t.Errorf("limits.cpu = %s, want %s (7500m)", got, want)
 	}
-	if got, want := rq.Spec.Hard["limits.memory"], sum("8Gi", dns.LimitsMemory); got != want || got != "8362Mi" {
-		t.Errorf("limits.memory = %s, want %s (8362Mi)", got, want)
+	if got, want := rq.Spec.Hard["limits.memory"], sum("8Gi", dns.LimitsMemory, given.LimitsMemory); got != want || got != "11690Mi" {
+		t.Errorf("limits.memory = %s, want %s (11690Mi)", got, want)
 	}
 	if got := rq.Metadata.Annotations["openova.io/grow-ceiling"]; got != "cpu=4 memory=8Gi" {
 		t.Errorf("grow-ceiling annotation = %q", got)
