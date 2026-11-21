@@ -1877,7 +1877,7 @@ checks:
   needs: []
   proof: running
   asserts: Public listeners on edge nodes only
-  delivered_by: NET-183
+  delivered_by: NET-186
 - id: NET-G14
   title: Entry follows edge health
   owner: NET
@@ -1931,6 +1931,16 @@ checks:
   asserts: In each region two workers (Ready, schedulable, not control-plane) each run a probe Pod on the host network; on both, the MTU of cilium_host, the MTU Cilium runs with, equals the MTU of the interface that holds the node's address; an HTTP GET of the other worker's Hubble metrics listener (host port 9965) ends with at least 16384 bytes within 5 seconds in both directions, and so does the GET between the first workers of every two regions, both ways; each GET follows the same GET of the control-plane node of the destination's region, and a pair whose control GET fails is not measured and fails.
   implementation: tests/acceptance/sovereign/internal/suite/check_network_full_size.go
   delivered_by: NET-103
+- id: NET-G19
+  title: The name servers answer on public port 53 in every region
+  owner: NET
+  state: not-built
+  runs_in: [cloud]
+  destructive: false
+  needs: []
+  proof: running
+  asserts: For each region, the ExternalIP of its primary control-plane node (the region's name-server address, the contract output control_plane_ips_per_region) answers an SOA query for the Sovereign's domain over UDP and over TCP within 5 seconds, sent from the gate run's machine, outside every network of the Sovereign; no answer offers recursion, and a query for a name outside the Sovereign's zones gets no answer record; a region whose control-plane nodes have no ExternalIP is not measured and fails.
+  delivered_by: NET-185
 - id: PRD-G01
   title: Knowledge access trimming
   owner: PRD
@@ -2438,6 +2448,16 @@ checks:
   proof: running
   asserts: Ring switch by commit
   delivered_by: SOV-765
+- id: SOV-G19
+  title: The Sovereign's zone resolves by delegation from outside
+  owner: SOV
+  state: not-built
+  runs_in: [cloud]
+  destructive: false
+  needs: []
+  proof: running
+  asserts: The name servers of the parent zone answer for the Sovereign's zone with a referral that names one name server per region, each with glue equal to the ExternalIP of that region's primary control-plane node; the public resolvers 1.1.1.1 and 9.9.9.9 each return the SOA and a probe record of the Sovereign's zone equal to the answer of the Sovereign's own name server within 60 seconds; the wildcard certificate of the Sovereign's zone is Ready, and the DNS-01 solver of its issuer is the webhook whose API host is the Sovereign's own PowerDNS.
+  delivered_by: SOV-310
 - id: SVC-G01
   title: Catalogue honest
   owner: SVC
