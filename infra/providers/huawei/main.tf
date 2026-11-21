@@ -525,6 +525,37 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_80" {
   description       = "Cilium Gateway HTTP (ACME + .well-known)"
 }
 
+# NET-185 — the Sovereign's name servers answer on public port 53, over UDP
+# and TCP, in every region. The name-server address of a region is the public
+# address of its primary control-plane node (output
+# control_plane_ips_per_region); its EIP is a 1:1 NAT onto the node's private
+# address, where dnsdist holds host port 53 on every node
+# (POWERDNS_DNSDIST_HOSTPORT in provider-substitutes.yaml.tftpl). No load
+# balancer listener and no node port: the packet reaches node:53 directly.
+resource "huaweicloud_networking_secgroup_rule" "ingress_dns_udp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 53
+  port_range_max    = 53
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Sovereign name server DNS over UDP (dnsdist host port)"
+}
+
+resource "huaweicloud_networking_secgroup_rule" "ingress_dns_tcp" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 53
+  port_range_max    = 53
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Sovereign name server DNS over TCP (dnsdist host port)"
+}
+
 # NET-011 — the Kubernetes API port. Sources: the Sovereign's own public
 # addresses (local.sovereign_public_sources) and local.api_access_cidrs
 # (var.admin_cidrs, var.provisioner_cidrs, every region's node subnet and

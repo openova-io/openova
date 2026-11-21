@@ -1934,12 +1934,13 @@ checks:
 - id: NET-G19
   title: The name servers answer on public port 53 in every region
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: For each region, the ExternalIP of its primary control-plane node (the region's name-server address, the contract output control_plane_ips_per_region) answers an SOA query for the Sovereign's domain over UDP and over TCP within 5 seconds, sent from the gate run's machine, outside every network of the Sovereign; no answer offers recursion, and a query for a name outside the Sovereign's zones gets no answer record; a region whose control-plane nodes have no ExternalIP is not measured and fails.
+  implementation: tests/acceptance/sovereign/internal/suite/check_name_servers.go
   delivered_by: NET-185
 - id: PRD-G01
   title: Knowledge access trimming

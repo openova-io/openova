@@ -28,7 +28,7 @@ Rules (LIST: the workflows that may use the access):
       of NET-G02 must come from a hosted machine that holds nothing of the gate.
   P5  ACCESS holds anything but gate-egress and the objects of ROLES with exactly their rights (a RoleBinding: subjects and Role).
   P6  a NetworkPolicy differs from POLICIES: gate-egress is default deny with DNS only; the one the Job script
-      creates for a run allows TCP 6443 and 443 to each address as /32, for the Pods of the run's Job only
+      creates for a run allows TCP 6443 and 443, UDP and TCP 53 to each address as /32, for the Pods of the run's Job only
       (another range, port, peer or selector fails).
 
 GitHub reads the names of secrets and environments in any letter case, so the guard does too. A
@@ -67,8 +67,8 @@ RUN, GATE_EGRESS = ("gate-1-1-live-abcdef", "198.51.100.9", "203.0.113.7"), "Net
 POLICIES = {  # each NetworkPolicy exactly: any other range, port, peer or selector is a finding
     GATE_EGRESS: ({"podSelector": {}, "policyTypes": ["Ingress", "Egress"], "ingress": [], "egress": [DNS]}, "default deny with DNS only"),
     SCRIPT + " policy": ({"podSelector": {"matchLabels": {"batch.kubernetes.io/job-name": RUN[0]}}, "policyTypes": ["Egress"],
-                          "egress": [{"to": [{"ipBlock": {"cidr": a + "/32"}} for a in RUN[1:]], "ports": [{"protocol": "TCP", "port": p} for p in (6443, 443)]}]},
-                         "TCP 6443 and 443 to each address of the install as /32, for the Pods of the run's Job only")}
+                          "egress": [{"to": [{"ipBlock": {"cidr": a + "/32"}} for a in RUN[1:]], "ports": [{"protocol": t, "port": p} for t, p in (("TCP", 6443), ("TCP", 443), ("UDP", 53), ("TCP", 53))]}]},
+                         "TCP 6443 and 443, UDP and TCP 53 to each address of the install as /32, for the Pods of the run's Job only")}
 
 
 def access(root):
@@ -355,7 +355,7 @@ def self_test():
          {LIST[0]: GATE.replace("dial x}", "dial x, env: {R: '${{ vars.GATE_PARENT_RESOURCES }}'}}")}, None)
     case("P4 the job outside is gone", {LIST[0]: GATE.replace("  outside:", "  outside2:")}, "P4 .github/workflows/foundation-gate.yaml: there is no job outside")
     sec, np, dns = "[secrets], verbs: [create, delete]}", "[networkpolicies], verbs: [create, get, delete]}", "egress:\n  - to: [{namespaceSelector"
-    std_p6, run_p6 = "P6 %s: %s is not exactly default deny" % (ACCESS, GATE_EGRESS), "P6 %s: %s policy is not exactly TCP 6443 and 443" % (SCRIPT, SCRIPT)
+    std_p6, run_p6 = "P6 %s: %s is not exactly default deny" % (ACCESS, GATE_EGRESS), "P6 %s: %s policy is not exactly TCP 6443 and 443, UDP and TCP 53" % (SCRIPT, SCRIPT)
     case("P5 the Role of the gate may also read Secrets", {ACCESS: MANIFEST.replace(sec, "[secrets], verbs: [create, delete, get, list]}")}, "P5 %s: the Role" % ACCESS)
     case("P5 the Role of the gate cannot create the run's NetworkPolicy", {ACCESS: MANIFEST.replace(np, "[networkpolicies], verbs: [get, delete]}")}, "P5 %s: the Role" % ACCESS)
     case("P5 the Role of the gate may update NetworkPolicies", {ACCESS: MANIFEST.replace(np, np[:-2] + ", update]}")}, "P5 %s: the Role" % ACCESS)

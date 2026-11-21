@@ -886,6 +886,57 @@ run "peer_ports_closed" {
   }
 }
 
+# NET-185 — the Sovereign's name servers answer on public port 53: each
+# region's security group admits 53/UDP and 53/TCP from every source, the
+# path through the control-plane EIP's 1:1 NAT to dnsdist's host port 53.
+run "dns_port_53_open_to_every_source" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = join(",", sort(keys(huaweicloud_networking_secgroup_rule.ingress_dns_udp))) == "me-east-215-a,me-east-215-b" && join(",", sort(keys(huaweicloud_networking_secgroup_rule.ingress_dns_tcp))) == "me-east-215-a,me-east-215-b"
+    error_message = "Port 53 must have one UDP and one TCP rule per region."
+  }
+  assert {
+    condition     = alltrue([for r in values(huaweicloud_networking_secgroup_rule.ingress_dns_udp) : r.protocol == "udp" && r.port_range_min == 53 && r.port_range_max == 53 && r.remote_ip_prefix == "0.0.0.0/0" && r.direction == "ingress" && r.ethertype == "IPv4"])
+    error_message = "Every ingress_dns_udp rule must admit UDP 53 to 53, ingress IPv4, from 0.0.0.0/0."
+  }
+  assert {
+    condition     = alltrue([for r in values(huaweicloud_networking_secgroup_rule.ingress_dns_tcp) : r.protocol == "tcp" && r.port_range_min == 53 && r.port_range_max == 53 && r.remote_ip_prefix == "0.0.0.0/0" && r.direction == "ingress" && r.ethertype == "IPv4"])
+    error_message = "Every ingress_dns_tcp rule must admit TCP 53 to 53, ingress IPv4, from 0.0.0.0/0."
+  }
+  assert {
+    condition     = alltrue([for k, r in huaweicloud_networking_secgroup_rule.ingress_dns_udp : r.security_group_id == huaweicloud_networking_secgroup.region[k].id && huaweicloud_networking_secgroup_rule.ingress_dns_tcp[k].security_group_id == huaweicloud_networking_secgroup.region[k].id])
+    error_message = "The port 53 rules of a region must sit on that region's security group."
+  }
+  # The worker template rendered, not only its text: in each region the stub
+  # listener goes off before the k3s agent is installed.
+  assert {
+    condition     = length(local.worker_cloud_init_by_region) == 2 && alltrue([for ud in values(local.worker_cloud_init_by_region) : strcontains(ud, "\n  - |\n    if systemctl is-active -q systemd-resolved; then\n     mkdir -p /etc/systemd/resolved.conf.d\n     printf '[Resolve]\\nDNSStubListener=no\\n' >/etc/systemd/resolved.conf.d/90-no-stub.conf\n     systemctl restart systemd-resolved\n     ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf\n") && length(split("DNSStubListener=no", ud)[0]) < length(split("INSTALL_K3S_EXEC=", ud)[0])])
+    error_message = "The worker start-up data of every region must turn the stub listener of systemd-resolved off before the k3s agent is installed."
+  }
+}
+
 # NET-010 — on a single region the same rules collapse to the region's own
 # addresses and ranges: 2 public addresses + 2 node/pod ranges for the mesh
 # dial port, 2 node/pod ranges for Cilium WireGuard.

@@ -72,6 +72,27 @@ runcmd:
   # it live immediately. See the drop-in header for the full RCA + safety proof.
   - sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1 net.ipv6.conf.lo.disable_ipv6=1 || true
 
+  # ── NET-185: the node's own resolver leaves port 53 to dnsdist ─────────
+  # dnsdist holds host port 53 on every node (POWERDNS_DNSDIST_HOSTPORT), and
+  # Cilium's socket balancer in the host namespace (socketLB.hostNamespaceOnly)
+  # sends a host process's packet for any 127.0.0.0/8 address on port 53 to
+  # that Pod. Through systemd-resolved's stub (127.0.0.53) the node's own
+  # lookups (containerd, kubelet, curl) would reach the Sovereign's
+  # authoritative server and fail whenever its Pod is not running. So, before
+  # k3s starts and only where systemd-resolved runs, the stub stops listening
+  # and /etc/resolv.conf links /run/systemd/resolve/resolv.conf: the network's
+  # own servers. The node resolves through them before Cilium and dnsdist run,
+  # while they start and after. Where systemd-resolved does not run (the local
+  # pack masks it), nothing changes.
+  - |
+    if systemctl is-active -q systemd-resolved; then
+     mkdir -p /etc/systemd/resolved.conf.d
+     printf '[Resolve]\nDNSStubListener=no\n' >/etc/systemd/resolved.conf.d/90-no-stub.conf
+     systemctl restart systemd-resolved
+     ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+     echo "[resolver] stub off: $(grep -c ^nameserver /etc/resolv.conf) servers"
+    else echo "[resolver] systemd-resolved not active: unchanged"; fi
+
   # ── IPv4-pin harbor + local registry (#3735, 2026-06-18 — the hw159
   # ImagePullBackOff). Huawei VPCs are IPv4-only; harbor.openova.io is
   # dual-stack (A=45.151.123.50 + AAAA). The k3s-agent containerd image-pull
