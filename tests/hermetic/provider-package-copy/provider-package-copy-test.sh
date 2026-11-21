@@ -61,7 +61,9 @@ die() { say "FAIL: $*"; exit 1; }
 for t in helm go curl openssl sha256sum awk "${ENGINE}"; do
   command -v "${t}" >/dev/null 2>&1 || die "${t} is not on PATH"
 done
-cleanup() { "${ENGINE}" rm -f "${ID}-dst" "${ID}-src" >/dev/null 2>&1 || true; }
+# One container per call, joiners before the namespace's owner: one call removes in parallel,
+# and podman then refuses the owner while a joiner exists (measured: src was left behind).
+cleanup() { for c in cp dst src; do "${ENGINE}" rm -f "${ID}-${c}" >/dev/null 2>&1 || true; done; }
 trap cleanup EXIT
 rm -rf "${W}"
 mkdir -p "${BIN}" "${W}/pkg" "${W}/certs" "${W}/out"
@@ -167,7 +169,7 @@ reg src --network=none 5001
 reg dst "--network=container:${ID}-src" 5002
 cp "${HERE}/copier.sh" "${W}/copier.sh"
 rc=0
-"${ENGINE}" run --rm --network "container:${ID}-src" -v "${W}:/w" -v "${W}/certs.d:/etc/containers/certs.d:ro" \
+"${ENGINE}" run --rm --name "${ID}-cp" --network "container:${ID}-src" -v "${W}:/w" -v "${W}/certs.d:/etc/containers/certs.d:ro" \
   --entrypoint /bin/sh "${COPIER_IMAGE}" /w/copier.sh >"${W}/out/copier.log" 2>&1 || rc=$?
 sed 's/^/  | /' "${W}/out/copier.log"
 [ "${rc}" -eq 0 ] || say "the copier exited ${rc}"

@@ -390,7 +390,7 @@ offlinemirror_put_list() {
   _op_a=$(sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*\([^[:space:]]*\).*/\1/p' "${_op_f}.h" 2>/dev/null)
   _op_b=$(head -c 300 "${_op_f}.b" 2>/dev/null); rm -f "${_op_f}" "${_op_f}.h" "${_op_f}.b"
   [ "${_op_r}" = 201 ] && [ "${_op_a}" = "${_op_w}" ] && return 0
-  echo "level=fatal msg=\"writing manifest list ${_op_d}: HTTP ${_op_r}, digest ${_op_a:-none}: ${_op_b}\""; return 1
+  echo "level=fatal msg=\"writing manifest list ${_op_d}: HTTP ${_op_r}, digest ${_op_a:-none}, want ${_op_w}: ${_op_b}\""; return 1
 }
 {{- end -}}
 

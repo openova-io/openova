@@ -116,7 +116,8 @@ sed 's/^/    /' "${OUT}/copy.out"
   n=$(wc -l </w/list); p=$(grep -c "/v2/${TOFU_LOCAL_PATH}/.*/manifests/" "${PUTS}")
   if [ "${p}" -eq "${n}" ]; then echo "ok   — copy: each of the ${n} package index(es) was written by one registry-API manifest PUT, after its entries"
   else echo "FAIL — copy: ${p} of ${n} package index(es) took the registry-API branch"; fi
-  if [ -s "${NOCREDS}" ]; then echo "FAIL — copy: $(wc -l <"${NOCREDS}") read(s) of the origin without its credential: $(head -n 1 "${NOCREDS}" | cut -c1-240)"
+  nr=$(wc -l <"${NOCREDS}"); first=$(head -n 1 "${NOCREDS}" | cut -c1-240)
+  if [ -s "${NOCREDS}" ]; then echo "FAIL — copy: ${nr} read(s) of the origin without its credential: ${first}"
   else echo "ok   — copy: every read of the origin carried the credential src_creds_for gives it"; fi
   while read -r source version digest; do
     repo="${source#registry.opentofu.org/}"
@@ -156,7 +157,8 @@ code=$(curl -sS --cacert "${CA}" -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X P
 if [ "${code}" = 400 ] && grep -q MANIFEST_BLOB_UNKNOWN /tmp/ppc.ob; then
   echo "ok   — order: the index of ${repo}:${version} PUT before its entries is refused (400 MANIFEST_BLOB_UNKNOWN), so the copy wrote the entries first" >"${OUT}/case-order.txt"
 else
-  echo "FAIL — order: the index PUT before its entries answered ${code} $(head -c 200 /tmp/ppc.ob): this registry does not show the order" >"${OUT}/case-order.txt"
+  body=$(head -c 200 /tmp/ppc.ob)
+  echo "FAIL — order: the index PUT before its entries answered ${code} ${body}: this registry does not show the order" >"${OUT}/case-order.txt"
 fi
 
 echo "── case control: skopeo's own copy of the index, every manifest present, digests preserved ──"
