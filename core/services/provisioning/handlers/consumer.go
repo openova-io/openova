@@ -980,8 +980,8 @@ type tenantDeletedData struct {
 //  3. Wait for the namespace to be garbage-collected by Kubernetes. If it
 //     stays Terminating past the timeout, strip remaining finalizers as a
 //     last resort so the reset primitive (delete) can't be permanently wedged.
-//  4. Clean up the flux-system kubeconfig mirror Secret so it doesn't
-//     linger and collide with a same-slug re-provision.
+//  4. (Gone: the flux-system kubeconfig copy belongs to the Organization's
+//     boundary tree and bp-reflector; the funnel no longer deletes it.)
 //  5. Emit provision.tenant_removed so the tenant service can hard-delete
 //     the record and the UI can react.
 func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) error {
@@ -1123,12 +1123,9 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	// finalizers on funnel-authored Certificates. Issue #86 carried forward.
 	h.stripCertificateFinalizers(ctx, hostNS)
 
-	// 4. Drop the flux-system kubeconfig mirror so it doesn't linger (and so
-	// a same-slug re-provision starts from a clean slate).
-	if err := h.deleteVClusterKubeconfigMirror(ctx, data.Slug); err != nil {
-		slog.Warn("teardown: could not delete kubeconfig mirror secret",
-			"slug", data.Slug, "error", err)
-	}
+	// The flux-system kubeconfig copy is not the funnel's to delete: it
+	// belongs to the Organization's boundary tree (Flux prunes it with the
+	// tree) and bp-reflector deletes it when its source in `<slug>` goes.
 
 	h.publishEvent(ctx, "provision.tenant_removed", data.ID, map[string]string{
 		"id":   data.ID,
@@ -1504,7 +1501,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	// founder 2026-09-10); the org-controller renders the `vcluster`
 	// HelmRelease for all of them and the apps are reconciled INTO it via the
 	// apps-sync Kustomization's kubeConfig. So the vcluster-HR wait, the
-	// DNS-sync kick and the kubeconfig mirror below run for every Org — the
+	// DNS-sync kick and the kubeconfig wait below run for every Org — the
 	// former per-plan arm that completed this step immediately is gone, and
 	// the plan is consulted only by the manifest generator for QoS.
 	stepIdx := 0
@@ -1615,7 +1612,7 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	// --- Step: Wait for vCluster HelmRelease Ready ---
 	// Runs for every Organization (#4292): the org-controller renders the
 	// `vcluster` HelmRelease for every plan, so the HR wait, the syncer DNS
-	// kick and the `vc-vcluster` kubeconfig mirror always have something to
+	// kick and the kubeconfig wait always have something to
 	// wait on. (The former per-plan gate completed this step immediately for
 	// s/free/"" because those Orgs had no vcluster; that arm no longer exists.)
 	vcStepIdx := stepIdx
@@ -1639,15 +1636,16 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 		// Don't fail provisioning: apps might still come up if DNS syncs late,
 		// and a hard fail here would strand the tenant. We've done what we can.
 	}
-	// Mirror the vCluster kubeconfig into flux-system so the per-tenant Flux
-	// Kustomization CR (which now lives in flux-system — see issue #97) can
-	// resolve its spec.kubeConfig.secretRef. Without this mirror the CR
-	// reconciles into "secret not found" and tenant apps never deploy.
-	if err := h.mirrorVClusterKubeconfig(ctx, subdomain); err != nil {
-		slog.Error("failed to mirror vcluster kubeconfig", "tenant", subdomain, "error", err)
+	// Wait until the vCluster kubeconfig is held in `<slug>` and in
+	// flux-system, where the per-Org app HelmReleases and the apps-sync
+	// Kustomization (issue #97) resolve their kubeConfig.secretRef. The
+	// Organization's boundary tree produces both (the vCluster writes the
+	// source, bp-reflector copies it); the funnel only reads them.
+	if err := h.waitForVClusterKubeconfig(ctx, subdomain); err != nil {
+		slog.Error("vcluster kubeconfig not ready", "tenant", subdomain, "error", err)
 		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
 		h.failProvision(ctx, provisionID, tenantID, vcStepIdx,
-			fmt.Sprintf("mirror kubeconfig to flux-system: %s", err))
+			fmt.Sprintf("vcluster kubeconfig not ready: %s", err))
 		return
 	}
 	h.completeStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, totalSteps)

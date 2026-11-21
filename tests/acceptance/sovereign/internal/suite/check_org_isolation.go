@@ -37,9 +37,9 @@ import (
 // waits until their host namespaces are gone in every region.
 //
 // The kubeconfig of an Organization. In every region the vCluster of an
-// Organization writes its kubeconfig into the Secret vc-vcluster (key config)
-// of the host namespace, and bp-reflector mirrors it to
-// tenant-<slug>-kubeconfig in that namespace and in flux-system. Its server is
+// Organization writes its kubeconfig into the Secrets vc-vcluster and
+// tenant-<slug>-kubeconfig (key config) of the host namespace, and
+// bp-reflector copies the second into flux-system. Its server is
 // the Service vcluster.<slug>:443, which only the cluster resolves. The check
 // reads the Secret with the kubeconfig of the region, starts `kubectl
 // port-forward` to that Service, and calls kubectl with the kubeconfig of the

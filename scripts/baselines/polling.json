@@ -38,7 +38,6 @@
       "core/pool-domain-manager/internal/allocator/allocator.go": 1,
       "core/services/billing/handlers/settlement_launch_reconciler.go": 1,
       "core/services/model-meter/meter/publisher.go": 1,
-      "core/services/provisioning/handlers/kubeconfig_reconciler.go": 1,
       "core/services/provisioning/handlers/pending_install_reconciler.go": 1,
       "core/services/provisioning/handlers/pod_truth_reconciler.go": 1,
       "platform/huawei-evs-csi/driver-src/pkg/utils/mounts/mount.go": 1,

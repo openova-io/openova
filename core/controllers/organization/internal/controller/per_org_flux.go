@@ -140,9 +140,9 @@ func perOrgRegionAppsKustomizationName(slug string) string {
 
 // perOrgKubeconfigSecretName is the flux-system Secret holding the per-Org
 // vcluster's exported kubeconfig. Produced in EVERY region from that region's
-// own vCluster by the boundary tree's kubeconfig-mirror.yaml (reflector pull
-// of `<slug>/vc-vcluster`, gitops/region_local.go) — not only by the region-A
-// provisioning funnel's imperative copy.
+// own vCluster by the boundary tree's kubeconfig-mirror.yaml: the vCluster
+// writes `<slug>/tenant-<slug>-kubeconfig` and bp-reflector auto-reflects it
+// here on the source's own event (gitops/region_local.go).
 func perOrgKubeconfigSecretName(slug string) string {
 	return fmt.Sprintf("tenant-%s-kubeconfig", slug)
 }

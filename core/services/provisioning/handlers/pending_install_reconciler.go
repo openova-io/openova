@@ -35,8 +35,8 @@ var pendingInstallMaxAge = 30 * time.Minute
 // This is the durable half of the #4404 fix. The in-line widened budget covers
 // the common (fast-create) case without ever parking; this loop covers the slow
 // tail (and a pod restart between dispatch and create) so no latency can drop
-// the purchased app forever. Modeled on StartKubeconfigReconciler (#104) /
-// StartPodTruthReconciler (#115): cheap, stateless, ctx-stoppable.
+// the purchased app forever. Modeled on the former kubeconfig reconciler
+// (#104) / StartPodTruthReconciler (#115): cheap, stateless, ctx-stoppable.
 func (h *Handler) StartPendingInstallReconciler(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(pendingInstallReconcileInterval)

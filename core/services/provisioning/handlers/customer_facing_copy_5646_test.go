@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -76,23 +78,22 @@ func realInternalErrors(slug string) []string {
 			`{"kind":"Status","message":"internal error"}`)
 	}
 
+	// waitForKubeconfigHeld (handlers.go) run to its bound against an API that
+	// answers 404: the exact error the "Provisioning vCluster" step's failStep
+	// receives, produced by the production function itself.
+	waitErr := waitForKubeconfigHeld(context.Background(), func(path string) ([]byte, error) {
+		return nil, errors.New(k8sErr(http.MethodGet, path, 404))
+	}, slug, 0, 0)
+
 	return []string{
-		// mirrorVClusterKubeconfig PUT branch (handlers.go) wrapped by
-		// `update mirror secret (%s): %w`, reaching the customer through
-		// consumer.go's failStep on the "Provisioning vCluster" step.
-		fmt.Sprintf("update mirror secret (flux-system): %s",
-			k8sErr(http.MethodPut, "/api/v1/namespaces/flux-system/secrets/"+secret, 500)),
+		waitErr.Error(),
 
-		// mirrorVClusterKubeconfig POST branch, same customer field.
-		fmt.Sprintf("create mirror secret (%s): %s", slug,
-			k8sErr(http.MethodPost, "/api/v1/namespaces/"+slug+"/secrets", 403)),
+		// consumer.go failProvision wrapper around the wait error.
+		fmt.Sprintf("vcluster kubeconfig not ready: %s", waitErr),
 
-		// deleteVClusterKubeconfigMirror path, same object name.
-		k8sErr(http.MethodDelete, "/api/v1/namespaces/flux-system/secrets/"+secret, 409),
-
-		// consumer.go failProvision wrapper around the mirror error.
-		fmt.Sprintf("mirror kubeconfig to flux-system: read source secret %s/vc-vcluster: %s",
-			slug, k8sErr(http.MethodGet, "/api/v1/namespaces/"+slug+"/secrets/vc-vcluster", 404)),
+		// k8sGet of the kubeconfig Secret, the shape any other wrapper of
+		// the same read would carry.
+		k8sErr(http.MethodGet, "/api/v1/namespaces/flux-system/secrets/"+secret, 500),
 	}
 }
 
