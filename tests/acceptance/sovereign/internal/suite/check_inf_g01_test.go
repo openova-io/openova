@@ -38,6 +38,8 @@ type rebootWorld struct {
 	workloads  map[string][]string // node -> the names of its workload Pods ("<namespace>/<name>"); every node also runs a Pod of a DaemonSet
 	stuck      bool                // the workload Pods never move off their node
 	back       map[string]string   // workload Pod -> how it comes back after it moved: "" Ready, "never" never Ready, "pull" waits on its image, "rolled" Ready under a new ReplicaSet
+	late       map[string]int      // workload Pod -> the seconds after its node is cordoned at which its replacement is Ready; until then it is ContainerCreating
+	deleting   map[string]int      // workload Pod -> the seconds after its node is cordoned during which it stays on the node with a deletion timestamp
 	waits      map[string]string   // workload Pod that does not move -> "before" its container waits on its image from the start, "after" from the first restart on
 	front      map[string]string   // node -> its endpoint of Service harbor/harbor: "ready", "not ready", "unset" (no condition ready); nil: no endpoint
 	frontErr   error               // of get endpointslices
@@ -74,7 +76,8 @@ func newRebootWorld() *rebootWorld {
 		workloads: map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}, "w-1": {"shop/web-1", "shop/db-0"}, "w-2": {"shop/web-2"}},
 		plans:     []obj{rebootPlan("k3s-server", "22:00", "00:00", "UTC", rebootAllDays...), rebootPlan("k3s-agent", "22:00", "00:00", "UTC", rebootAllDays...)},
 		kuredBack: 750, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
-		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}, back: map[string]string{}, waits: map[string]string{}}
+		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}, back: map[string]string{}, waits: map[string]string{},
+		late: map[string]int{}, deleting: map[string]int{}}
 }
 
 // rebootTestPod is workload Pod ns/name on node, with its controller as its
@@ -186,9 +189,19 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 					continue
 				}
 				// evicted: its replacement runs on another node, under another uid
+				cordon := w.restarts[node][0]
+				if in(cordon, cordon+w.deleting[name]) {
+					old := rebootTestPod(ns, n, "uid-"+n, node, "7f9c", true, "")
+					old["metadata"].(obj)["deletionTimestamp"] = "2026-11-20T06:10:00Z"
+					list = append(list, old)
+				}
 				state, hash := w.back[name], map[bool]string{true: "5d2b", false: "7f9c"}[w.back[name] == "rolled"]
 				wait = map[bool]string{true: "ImagePullBackOff", false: ""}[state == "pull"]
-				list = append(list, rebootTestPod(ns, n, "uid-"+n+"-2", other, hash, state == "" || state == "rolled", wait))
+				slow := in(cordon, cordon+w.late[name])
+				if slow {
+					wait = "ContainerCreating"
+				}
+				list = append(list, rebootTestPod(ns, n, "uid-"+n+"-2", other, hash, (state == "" || state == "rolled") && !slow, wait))
 			}
 		}
 		return []byte(kubeList(list...)), nil
@@ -273,6 +286,9 @@ func TestRebootCheck(t *testing.T) {
 		chosen  string // the node that got the sentinel Pod; "" is w-1
 		by      string // the rule that chose it, in a check that passes; "" is rebootByName
 		judged  int    // the controllers of the moved Pods, in a check that passes; 0 is 2
+
+		at      int            // the second after the placing at which the last step ends; 0 is not compared
+		seconds map[string]int // the seconds of each moved controller to be back, in a check that passes; nil: each at most 180
 	}{
 		"one worker restarts in each region, its workloads move off and it comes back": {regions: 2},
 		"journey J1 did not pass":       {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
@@ -370,10 +386,26 @@ func TestRebootCheck(t *testing.T) {
 		"the registry front waits on its image after the drain of its node": {change: func(w *rebootWorld) {
 			w.front, w.restarts["w-1"], w.restarts["w-2"] = map[string]string{"w-2": "ready"}, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
 			w.workloads["w-2"], w.back["harbor/harbor-nginx-1"] = append(w.workloads["w-2"], "harbor/harbor-nginx-1"), "pull"
-		}, fails: "1 of 2 controllers whose Pods the drain moved have fewer Ready Pods than before: Deployment harbor/harbor-nginx has 0 of 1 Ready Pods (registry.example/harbor-nginx:1); " +
-			"1 containers of the region wait on an image: harbor/harbor-nginx-1/main ImagePullBackOff registry.example/harbor-nginx:1", regions: 1, chosen: "w-2"},
+		}, fails: "1 of 2 controllers whose Pods the drain moved are not back within 180 seconds of their Pods leaving w-2: Deployment harbor/harbor-nginx has 0 of 1 Ready Pods after 185 seconds (registry.example/harbor-nginx:1); " +
+			"1 containers of the region wait on an image: harbor/harbor-nginx-1/main ImagePullBackOff registry.example/harbor-nginx:1", regions: 1, chosen: "w-2", at: 785},
 		"a moved workload that is not Ready again fails": {change: func(w *rebootWorld) { w.back["shop/db-0"] = "never" },
-			fails: "1 of 2 controllers whose Pods the drain moved have fewer Ready Pods than before: StatefulSet shop/db has 0 of 1 Ready Pods (registry.example/db:1)", regions: 1},
+			fails: "1 of 2 controllers whose Pods the drain moved are not back within 180 seconds of their Pods leaving w-1: StatefulSet shop/db has 0 of 1 Ready Pods after 185 seconds (registry.example/db:1)", regions: 1, at: 785},
+		"a moved workload back after more than 180 seconds fails": {change: func(w *rebootWorld) {
+			w.late["shop/web-1"], w.releases["catalyst-system/bp-catalyst-platform"] = 185, "ready"
+		}, fails: "1 of 2 controllers whose Pods the drain moved are not back within 180 seconds of their Pods leaving w-1: Deployment shop/web has its 2 Ready Pods back after 185 seconds (registry.example/web:1)", regions: 1, at: 785},
+		"a moved workload back within 180 seconds passes": {change: func(w *rebootWorld) {
+			w.late["shop/web-1"], w.releases["catalyst-system/bp-catalyst-platform"] = 175, "ready"
+		}, regions: 2, seconds: map[string]int{"Deployment shop/web": 175, "StatefulSet shop/db": 0}},
+		"the 180 seconds count from the reading in which its Pod left the worker": {change: func(w *rebootWorld) {
+			w.restarts["w-1"], w.late["shop/web-1"] = [3]int{1200, 1240, 1300}, 60
+		}, regions: 2, seconds: map[string]int{"Deployment shop/web": 60, "StatefulSet shop/db": 0}},
+		"a moved Pod being deleted on the worker has left it": {change: func(w *rebootWorld) {
+			w.late["shop/web-1"], w.deleting["shop/web-1"], w.releases["catalyst-system/bp-catalyst-platform"] = 185, 100, "ready"
+		}, fails: "Deployment shop/web has its 2 Ready Pods back after 185 seconds (registry.example/web:1)", regions: 1, at: 785},
+		"a moved workload that left less than 180 seconds before the limit is named at the limit": {change: func(w *rebootWorld) {
+			w.back["shop/db-0"], w.restarts["w-1"] = "never", [3]int{1950, 1990, 2050}
+		}, fails: "35m0s after the pending reboot was placed: 1 of 1 nodes restarted, 0 unschedulable, 0 not Ready; " +
+			"1 of 2 controllers whose Pods the drain moved have fewer Ready Pods than before: StatefulSet shop/db has 0 of 1 Ready Pods (registry.example/db:1)", regions: 1, at: 2100},
 		"a moved Pod that comes back under a new ReplicaSet of its Deployment counts": {change: func(w *rebootWorld) { w.back["shop/web-1"] = "rolled" }, regions: 2},
 		"a moved Pod of a Job is not judged": {change: func(w *rebootWorld) {
 			w.workloads["w-1"], w.back["scan/job-1"] = append(w.workloads["w-1"], "scan/job-1"), "never"
@@ -414,7 +446,15 @@ func TestRebootCheck(t *testing.T) {
 				len(last.Evidence["controllers_not_ready_again"].([]string)) != 0 || len(last.Evidence["image_waits"].([]string)) != 0) {
 				t.Errorf("the evidence of the last step is %v", last.Evidence)
 			}
+			if last := steps[len(steps)-1]; tc.at != 0 && last.Evidence["seconds"] != tc.at {
+				t.Errorf("the last step ends at second %v after the placing, want %d", last.Evidence["seconds"], tc.at)
+			}
 			choose, judged := slices.IndexFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Name, "kured cannot run on control-plane nodes") }), map[bool]int{true: 2, false: tc.judged}[tc.judged == 0]
+			if seconds, _ := steps[len(steps)-1].Evidence["controllers_seconds_back"].(map[string]int); tc.fails == "" &&
+				(len(seconds) != judged || slices.ContainsFunc(slices.Collect(maps.Values(seconds)), func(s int) bool { return s > 180 }) ||
+					(tc.seconds != nil && !reflect.DeepEqual(seconds, tc.seconds))) {
+				t.Errorf("the seconds of the moved controllers to be back are %v, want %d controllers, each at most 180 (%v)", seconds, judged, tc.seconds)
+			}
 			if tc.fails == "" && (choose < 0 || steps[choose].Evidence["chosen_by"] != nonEmpty(tc.by, rebootByName) ||
 				len(steps[choose].Evidence["controllers_moved"].(map[string]int)) != judged) {
 				t.Errorf("the node choice says %v, want %q and %d controllers of the moved Pods", steps[choose].Evidence, nonEmpty(tc.by, rebootByName), judged)
