@@ -46,6 +46,12 @@ name: foundation-gate
 #              result is NOT-MEASURED with the chain's state: the verdict counts a check's PASS in two
 #              records of one candidate and does not look at the install, so a PASS measured on an
 #              install whose cutover failed would count as proof of that candidate.
+#              With the input discovery (boolean, default false; GATE_DISCOVERY of the job) there is
+#              no wait: the chain's state is read once, in the same words, and the suite runs at once
+#              in every state but unreachable. The record of a discovery run is NEVER committed,
+#              whatever the chain's state, a complete chain's too: it is an artifact of the run, its
+#              checks are in the summary, and the run's result is NOT-MEASURED with the words
+#              "discovery run" and the chain's state (gate-parent-job.sh chain_plan says why).
 #              Between the suite and the validation it runs gate check FND-G07: it creates the user
 #              gate-<run id>@<env>.omani.works in the realm sovereign of region A (kcadm.sh in the Pod
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
@@ -106,6 +112,10 @@ on:
         type: choice
         options: [hosted, parent]
         default: hosted
+      discovery:
+        description: "A discovery run: read the hand-over chain once and run the suite at once, without waiting for the chain to end. Its record is never committed and its result is NOT-MEASURED, whatever the chain's state."
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       env:
@@ -135,9 +145,12 @@ on:
       execution:
         type: string
         default: hosted
+      discovery:
+        type: boolean
+        default: false
     outputs:
       result:
-        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record) or the hand-over chain was not complete (halted, failed or not ended; the record is not committed); FAIL when no valid record was written
+        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record), the hand-over chain was not complete (halted, failed or not ended; the record is not committed) or the run is a discovery run (the record is never committed); FAIL when no valid record was written
         value: ${{ jobs.live.outputs.result }}
     secrets:
       ACCEPTANCE_KUBECONFIG_A:
@@ -390,6 +403,8 @@ jobs:
       (needs.candidate.result == 'success' || (inputs.candidate_id == '' && needs.candidate.result == 'skipped')) }}
     runs-on: ubuntu-latest
     environment: gate
+    env:
+      GATE_DISCOVERY: ${{ inputs.discovery == true }}
     timeout-minutes: 330
     concurrency: # one live run per Sovereign: two would move the same Primary under each other
       group: foundation-gate-${{ inputs.env }}
@@ -503,8 +518,8 @@ jobs:
           GITHUB_SHA="$(git rev-parse HEAD)"
           export GITHUB_SHA
           # The state of the hand-over chain and the decision of gate-parent-job.sh plan, verbatim, as the
-          # outputs plan_state, plan_suite, plan_commit and plan_result of this step; false when the suite
-          # does not run (unreachable).
+          # outputs plan_state, plan_suite, plan_commit and plan_result of this step (and plan_discovery in a
+          # discovery run); false when the suite does not run (unreachable).
           plan_outputs() { # $1 chain, $2 chain_state
             plan="$(bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" plan "$1")"
             { echo "chain=$1"; echo "chain_state=$2"; while IFS= read -r l; do echo "plan_$l"; done <<< "$plan"; } >> "$GITHUB_OUTPUT"
@@ -766,7 +781,7 @@ jobs:
           fi
           echo "valid=true" >> "$GITHUB_OUTPUT"
           # The decision of gate-parent-job.sh plan, verbatim (state, suite, commit, result): only the record
-          # of a complete chain is committed; chain_plan in that script says why. The self-test of the
+          # of a complete chain is committed, never a discovery run's; chain_plan in that script says why. The self-test of the
           # script holds the commit steps below to this one output.
           bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec" >> "$GITHUB_OUTPUT"
       - name: Upload record + log
@@ -812,16 +827,24 @@ jobs:
           rc=${PIPESTATUS[0]}
           { echo '### Outcome on this environment'; echo; echo '```'; cat "$RUNNER_TEMP/outcome.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
-      - name: "NOT MEASURED: the hand-over chain was not complete"
+      - name: "NOT MEASURED: the hand-over chain was not complete, or a discovery run"
         if: always() && steps.run.outputs.plan_result == 'NOT-MEASURED' && steps.run.outputs.not_measured != 'true'
         env:
           STATE: ${{ steps.run.outputs.chain_state }}
+          DISCOVERY: ${{ steps.run.outputs.plan_discovery }}
         run: |
           set -uo pipefail
-          # gate-parent-job.sh plan decided it (halted, failed or not ended). The suite ran and its checks are in
-          # the table of the step "Run the suite", but only the record of a complete chain is committed: this
-          # one is an artifact of the run (step "Upload record + log"), and the job's result is NOT-MEASURED.
-          msg="The hand-over chain: $STATE. This run measured nothing that counts: only the record of an install whose hand-over chain is complete is committed to docs/ledger/acceptance/, so this record is an artifact of this run, and its checks are in the table of the step Run the suite."
-          { echo '### NOT MEASURED'; echo; echo "Result: NOT-MEASURED (the hand-over chain: $STATE)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          # gate-parent-job.sh plan decided it (halted, failed or not ended; or a discovery run, in every state).
+          # The suite ran and its checks are in the table of the step "Run the suite", but only the record of a
+          # complete chain of a run that waited for it is committed: this one is an artifact of the run (step
+          # "Upload record + log"), and the job's result is NOT-MEASURED.
+          if [ "$DISCOVERY" = true ]; then
+            why="discovery run; the hand-over chain: $STATE"
+            msg="A discovery run: the hand-over chain was read once, without waiting for it to end ($STATE), and the suite ran at once. The record of a discovery run is never committed to docs/ledger/acceptance/, whatever the chain's state, so this record is an artifact of this run, and its checks are in the table of the step Run the suite."
+          else
+            why="the hand-over chain: $STATE"
+            msg="The hand-over chain: $STATE. This run measured nothing that counts: only the record of an install whose hand-over chain is complete is committed to docs/ledger/acceptance/, so this record is an artifact of this run, and its checks are in the table of the step Run the suite."
+          fi
+          { echo '### NOT MEASURED'; echo; echo "Result: NOT-MEASURED ($why)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
           echo "::error title=Gate run NOT MEASURED::$msg"
           exit 4

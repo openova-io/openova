@@ -56,6 +56,11 @@
 #        and result= (the run's result: with <record>, the record's own result when complete;
 #        NOT-MEASURED for halted, failed and not-ended; FAIL for unreachable). The workflow uses
 #        these lines verbatim; chain_plan says why a halted or failed chain's record never counts.
+#   A discovery run (GATE_DISCOVERY=true: the input discovery of foundation-gate.yaml) does not wait:
+#        live_wait reads the chain's state once, the suite runs at once in every state but unreachable,
+#        and plan prints commit=false, result=NOT-MEASURED (FAIL for unreachable) and the line
+#        discovery=true in every state, a complete chain's too. Any value of GATE_DISCOVERY but empty
+#        or false is a discovery run.
 #   gate-parent-job.sh recipe job <base>|probe   prints a generated Containerfile
 #   gate-parent-job.sh inner addresses|live|regions|update   in the Job, container gate
 #   gate-parent-job.sh probe                 in the Job, container probe (live only)
@@ -73,7 +78,7 @@
 #                            workflows pass the variable GATE_PARENT_RESOURCES of the environment gate.
 #                            A value that is not valid ends the run with exit code 2 before anything is created.
 #   The run's inputs, copied into the Job's environment: ENV_LABEL, GATE_RUN, CANDIDATE_COMMIT, CANDIDATE_ID,
-#   GITHUB_ACTIONS, GITHUB_WORKFLOW_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT and every ACCEPT_*
+#   GITHUB_ACTIONS, GITHUB_WORKFLOW_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GATE_DISCOVERY and every ACCEPT_*
 #   except the paths ACCEPT_KUBECONFIG_A, _B, ACCEPT_MANIFEST, ACCEPT_REPO_ROOT, ACCEPT_RECORD_DIR.
 # Every call to the parent retries a failure that looks like a lost connection, at most
 # GATE_PARENT_TRIES times (default 6, waiting GATE_PARENT_BACKOFF x attempt seconds, default 5).
@@ -450,7 +455,7 @@ if user and token:
     json.dump(pull, open(os.path.join(out, "pull.json"), "w"))
 paths = {"ACCEPT_KUBECONFIG_A", "ACCEPT_KUBECONFIG_B", "ACCEPT_MANIFEST", "ACCEPT_REPO_ROOT", "ACCEPT_RECORD_DIR"}
 fixed = ["ENV_LABEL", "GATE_RUN", "CANDIDATE_COMMIT", "CANDIDATE_ID", "GITHUB_ACTIONS", "GITHUB_WORKFLOW_REF", "GITHUB_RUN_ID",
-         "GITHUB_RUN_ATTEMPT"]
+         "GITHUB_RUN_ATTEMPT", "GATE_DISCOVERY"]
 names = fixed + sorted(k for k in os.environ if k.startswith("ACCEPT_") and k not in paths)
 env = [{"name": k, "value": os.environ[k]} for k in names if k in os.environ]
 env += [{"name": "HOME", "value": "/scratch/home"}, {"name": "TMPDIR", "value": "/scratch/tmp"}]
@@ -965,10 +970,16 @@ now() { date +%s; } # the clock of the wait; the self-test replaces it with a st
 # than SOV-242 has no record and clears failedStep at once when it fires the chain again, so for it a
 # chain that keeps failing ends the wait at the deadline, as on main. chain_plan decides what the run
 # does with each state.
+# A discovery run (discovery_run) does not wait: it reads the status once, and both regions as a pass
+# does, and ends in the state that reading shows, in the words of the wait: complete; halted; failed
+# (failedStep set without its repetition record); not-ended with "repeating step X, attempt n of m,
+# next at T" (the pause before a repetition), "not ended at step X" or "not ended (the status was never
+# read)"; unreachable as above.
 CHAIN="" CHAIN_STATE=""
+discovery_run() { [ "${GATE_DISCOVERY:-false}" != false ]; }
 live_wait() {
   local r t rc born="" last="nothing was read" step="" step_since=0 norec="" norec_since=0 deadline mins="${GATE_CHAIN_MINUTES:-180}"
-  local complete failed current halted again count limit next n
+  local complete failed current halted again count limit next n once
   CHAIN="" CHAIN_STATE=""
   # When the environment was created: the earliest creation of kube-system in the two regions.
   for r in a b; do
@@ -1003,6 +1014,7 @@ live_wait() {
            if [ "$n" != "?" ] && [ -n "$next" ]; then n=$((n + 1)); fi
            if [[ "$limit" =~ ^[0-9]+$ ]]; then limit=$((limit + 1)); else limit="?"; fi
            last="repeating step $failed, attempt $n of $limit, next at ${next:-now}"
+           once="not-ended|$last"
          elif [ -n "$failed" ]; then
            # No repetition record for this failure (autoRetryStep empty or another step's): the bound starts.
            [ "$norec" = "$failed|$again" ] || { norec="$failed|$again"; norec_since="$t"; }
@@ -1011,15 +1023,23 @@ live_wait() {
              break
            fi
            last="failed at step $failed, no repetition recorded for $(( (t - norec_since) / 60 )) of $NO_RECORD_MINUTES minutes"
+           once="failed|failed at step $failed, the engine recorded no repetition"
          else
            norec=""
            last="not ended, current step: ${current:-none}"
+           once="not-ended|not ended at step ${current:-none}"
          fi ;;
       3) not_read a; return 1 ;;
-      *) last="the status ConfigMap could not be read: $RK_ERR" ;;
+      *) last="the status ConfigMap could not be read: $RK_ERR"
+         once="not-ended|not ended (the status was never read)" ;;
     esac
     rk b get namespace kube-system -o name
     [ "$?" = 3 ] && { not_read b; return 1; }
+    if discovery_run; then
+      echo "gate: discovery run, the hand-over chain read once, in region a ($(region_addr a)): $last; region b ($(region_addr b)) $([ -z "${RK_DOWN[b]:-}" ] && echo answers || echo "not read for $(( $(date +%s) - RK_DOWN[b] )) seconds: $RK_ERR"); no wait"
+      CHAIN="${once%%|*}" CHAIN_STATE="${once#*|}"
+      break
+    fi
     echo "gate: waiting for the hand-over chain, read in region a ($(region_addr a)): $last; region b ($(region_addr b)) $([ -z "${RK_DOWN[b]:-}" ] && echo answers || echo "not read for $(( $(date +%s) - RK_DOWN[b] )) seconds: $RK_ERR"); $(( (deadline - $(now) + 59) / 60 )) minutes left"
     if [ "$(now)" -ge "$deadline" ]; then
       CHAIN=not-ended
@@ -1035,6 +1055,7 @@ live_wait() {
   done
   out "chain=$CHAIN"
   out "chain_state=$CHAIN_STATE"
+  discovery_run && summ "Discovery run: the hand-over chain was read once, without waiting for it to end; the record of this run is never committed."
   summ "Hand-over chain: $CHAIN_STATE"
   if [ "$CHAIN" != complete ]; then
     rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.lastError}'
@@ -1064,7 +1085,17 @@ chain_plan() {
     unreachable) suite=false result=FAIL ;;      # no suite, as before
     *) state=unknown suite=false result=FAIL ;;  # the wait printed no state: as unreachable
   esac
+  # A discovery run (GATE_DISCOVERY, the input discovery of the workflow) read the chain once and did not
+  # wait for it to end. Its record is NEVER committed, whatever the chain's state, a complete chain's too,
+  # and the run is NOT-MEASURED (unreachable stays FAIL: no suite, no record): the verdict counts a check's
+  # PASS in two records of one candidate and does not look at how the record was made, so a run that was
+  # asked not to wait must never be able to count.
+  if discovery_run; then
+    commit=false
+    [ "$suite" = false ] || result=NOT-MEASURED
+  fi
   printf 'state=%s\nsuite=%s\ncommit=%s\nresult=%s\n' "$state" "$suite" "$commit" "${result:-FAIL}"
+  if discovery_run; then echo discovery=true; fi
 }
 
 inner_live() {
@@ -1339,17 +1370,19 @@ STUB
   mkdir -p "$T/cand"; echo "stand-in session" > "$T/sec/session"
   local inputs='ACCEPT_CAPABILITIES ACCEPT_CONSOLE ACCEPT_KUBECONFIG_A ACCEPT_KUBECONFIG_B ACCEPT_MANIFEST ACCEPT_REPO_ROOT ACCEPT_RUN_IN capabilities=multi-region'
   rep() { local i; for ((i = 0; i < $1; i++)); do echo "$2"; done; }
-  state() { # state CASE STUB_DOWN GATE_CHAIN_MINUTES: inner_live on chain.seq, then the plan of its record
+  state() { # state CASE STUB_DOWN GATE_CHAIN_MINUTES [GATE_DISCOVERY]: inner_live on chain.seq, then the plan of its record
     local f="$T/st-$1.out" chain
-    rm -rf "$T/fl" "$T/suite.env" "$T/chain.n"; reset_stub
+    rm -rf "$T/fl" "$T/suite.env" "$T/chain.n" "$T/slept"; reset_stub
     echo 1763600000 > "$T/clock"
     ( export STUB_DOWN="$2" STUB_CHAIN=seq GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES="$3" ACCEPT_CAPABILITIES=multi-region ENV_LABEL=hw399 GATE_RUN=7
       SECRET_DIR="$T/sec" SCRATCH="$T/fl" SHARED="$T/sh" CANDIDATE_ROOT="$T/cand" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
       now() { cat "$T/clock"; }
+      # A discovery case also writes every pause of the run (a wait) into slept, with the function that paused.
+      if [ -n "${4:-}" ]; then export GATE_DISCOVERY="$4"; sleep() { echo "${FUNCNAME[1]} $*" >> "$T/slept"; }; fi
       inner_setup; inner_live ) > "$f" 2>&1
     rm -f "$T/clock"
     chain="$(sed -n 's/^GATE-OUTPUT chain=//p' "$f" | tail -n 1)"
-    chain_plan "$chain" "$T/fl/record/stub.json" | sed 's/^/plan:/' >> "$f"
+    ( [ -z "${4:-}" ] || export GATE_DISCOVERY="$4"; chain_plan "$chain" "$T/fl/record/stub.json" ) | sed 's/^/plan:/' >> "$f"
     [ ! -f "$T/suite.env" ] || sed 's/^/suite:/' "$T/suite.env" >> "$f"
   }
   ran() { # ran CASE SUITE(yes/no) STATE COMMIT RESULT CHAIN_STATE: the outcome of the case
@@ -1397,6 +1430,43 @@ STUB
   state unreachable a 30
   ran unreachable no unreachable false FAIL unreachable
   ok $? "chain unreachable: the suite does not run and nothing is committed, as before"
+  # The same states in a discovery run (GATE_DISCOVERY=true, the input discovery of the workflow), with the
+  # deadline of 180 minutes and a status that reads complete from its second reading on: the status is read
+  # once and nothing pauses, the suite runs at once with its inputs of today in every state but unreachable,
+  # and the record is never committed, a complete chain's of result PASS too; the run is NOT-MEASURED and
+  # its plan says discovery=true.
+  dran() { # dran CASE SUITE(yes/no) STATE RESULT CHAIN_STATE READINGS: the outcome of a discovery case
+    local f="$T/st-$1.out"
+    if [ "$2" = yes ]; then grep -qx "suite:$inputs" "$f" || return 1; else ! grep -q '^suite:' "$f" || return 1; fi
+    grep -qx "GATE-OUTPUT chain_state=$5" "$f" && [ ! -e "$T/slept" ] && [ "$(calls_of '{.data.cutoverComplete}')" = "$6" ] \
+      && ! grep -q '^gate: waiting for the hand-over chain' "$f" \
+      && [ "$(sed -n 's/^plan://p' "$f" | tr '\n' ' ')" = "state=$3 suite=$([ "$2" = yes ] && echo true || echo false) commit=false result=$4 discovery=true " ]
+  }
+  local later='true||gitea-token-mint|||||'
+  echo "$later" > "$T/chain.seq"
+  state dcomplete '' 180 true
+  dran dcomplete yes complete NOT-MEASURED complete 1
+  ok $? "discovery run, chain complete: read once, the suite runs at once, its record of PASS is NOT committed, NOT-MEASURED"
+  { echo '|harbor-prewarm|harbor-prewarm|true|harbor-prewarm|3|3|'; echo "$later"; } > "$T/chain.seq"
+  state dhalted '' 180 true
+  dran dhalted yes halted NOT-MEASURED 'failed at step harbor-prewarm after 4 attempts' 1
+  ok $? "discovery run, chain halted: read once, the suite runs at once, the record is not committed, NOT-MEASURED"
+  { echo '|harbor-prewarm|harbor-prewarm||gitea-mirror|1|3|'; echo "$later"; } > "$T/chain.seq"
+  state dfailed '' 180 true
+  dran dfailed yes failed NOT-MEASURED 'failed at step harbor-prewarm, the engine recorded no repetition' 1
+  ok $? "discovery run, failed without a repetition record: no wait for the bound of 5 minutes, the suite runs at once, NOT-MEASURED"
+  { echo "$pause"; echo "$later"; } > "$T/chain.seq"
+  state drepeating '' 180 true
+  dran drepeating yes not-ended NOT-MEASURED 'repeating step harbor-prewarm, attempt 2 of 4, next at 2026-11-20T10:05:00Z' 1 \
+    && [ "$(grep -c -x 'gate: discovery run, the hand-over chain read once, in region a (203.0.113.1): repeating step harbor-prewarm, attempt 2 of 4, next at 2026-11-20T10:05:00Z; region b (203.0.113.24) answers; no wait' "$T/st-drepeating.out")" = 1 ]
+  ok $? "discovery run, in the pause before a repetition: read once and said so, the suite runs at once, NOT-MEASURED"
+  { echo '||harbor-prewarm|||||'; echo "$later"; } > "$T/chain.seq"
+  state dnotended '' 180 true
+  dran dnotended yes not-ended NOT-MEASURED 'not ended at step harbor-prewarm' 1
+  ok $? "discovery run, chain not ended: no wait for the deadline of 180 minutes, the suite runs at once, NOT-MEASURED"
+  state dunreachable a 180 true
+  dran dunreachable no unreachable FAIL unreachable 0
+  ok $? "discovery run, chain unreachable: the suite does not run and nothing is committed, as without the input"
   grep -Eq "^[[:space:]]*defaultCutoverReconcileInterval[[:space:]]*=[[:space:]]*$ENGINE_TICK_MINUTES \* time\.Minute\$" \
     "$TOOLS/products/catalyst/bootstrap/api/internal/handler/cutover_reconciler.go" && [ "$NO_RECORD_MINUTES" = $(( 2 * ENGINE_TICK_MINUTES + 1 )) ]
   ok $? "the bound of a failure without a repetition record comes from the engine's pass interval, read in its source"
@@ -1411,6 +1481,16 @@ STUB
     && [ "$(cmd_plan complete | tr '\n' ' ')" = "state=complete suite=true commit=true result=FAIL " ] \
     && [ "$(cmd_plan '' | tr '\n' ' ')" = "state=unknown suite=false commit=false result=FAIL " ]
   ok $? "hosted: the wait on the job's machine is live_wait, and plan gives the same answer as in the Job"
+  ( export STUB_CHAIN="$pause" GATE_DISCOVERY=true GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+    export GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0
+    cmd_wait --out "$T/hosted-d" ) > "$T/hosted-d.out" 2>&1
+  o=$?
+  [ "$o" = 0 ] && grep -qx 'chain=not-ended' "$T/hosted-d/outputs" \
+    && grep -qx 'chain_state=repeating step harbor-prewarm, attempt 2 of 4, next at 2026-11-20T10:05:00Z' "$T/hosted-d/outputs" \
+    && grep -qx 'Discovery run: the hand-over chain was read once, without waiting for it to end; the record of this run is never committed.' "$T/hosted-d/summary.md" \
+    && [ "$(GATE_DISCOVERY=true cmd_plan complete | tr '\n' ' ')" = "state=complete suite=true commit=false result=NOT-MEASURED discovery=true " ] \
+    && [ "$(GATE_DISCOVERY=true cmd_plan unreachable | tr '\n' ' ')" = "state=unreachable suite=false commit=false result=FAIL discovery=true " ]
+  ok $? "hosted, discovery run: the wait on the job's machine reads the chain once, and plan never commits it"
   # The workflow commits a record on the decision alone: the commit step (and the push key and the judge
   # with it) reads the output commit, which the step "Validate the record" writes verbatim from plan once
   # the record is valid, and nothing else.
@@ -1424,6 +1504,11 @@ STUB
     && [ "$(grep -F '"$GITHUB_OUTPUT"' <<< "$v" | tail -n 1 | sed 's/^ *//')" = 'bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec" >> "$GITHUB_OUTPUT"' ] \
     && [ "$(grep -n -F 'acceptance-gate.py validate-record' <<< "$v" | cut -d: -f1)" -lt "$(grep -n -F 'bash scripts/gate-parent-job.sh plan' <<< "$v" | cut -d: -f1)" ]
   ok $? "workflow: the record is committed on the output commit of plan alone, written after the record is valid"
+  # A discovery run is the input discovery of both triggers (boolean, default false), set as GATE_DISCOVERY in
+  # the environment of the whole job live, so every plan of the job and the Job on the parent see the same value.
+  [ "$(awk '$0 == "      discovery:" {f = 1; n++; next} f && !/^        / {f = 0} f && ($0 == "        type: boolean" || $0 == "        default: false") {c++} END {print n + 0 "/" c + 0}' "$wf")" = 2/4 ] \
+    && [ "$(awk '$0 == "  live:" {j = 1; next} j && /^  [^ ]/ {exit} j && $0 == "    env:" {e = 1; next} e && !/^      / {e = 0} e' "$wf")" = "      GATE_DISCOVERY: \${{ inputs.discovery == true }}" ]
+  ok $? "workflow: the input discovery (boolean, default false) is GATE_DISCOVERY of the whole job live"
   reset_stub
   ( export STUB_FAIL_TIMES=2 GATE_UNREAD_MINUTES=5; SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
     inner_setup; inner_addresses ) > "$T/w6.out" 2>&1
@@ -1483,6 +1568,11 @@ PY
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb"; TOOLS="$T/tools" manifests addresses gate-1-1-addresses-x "$JI" none "$T/m2" )
   python3 -c 'import json, sys; p = json.load(open(sys.argv[1]))["spec"]["template"]["spec"]; sys.exit(0 if [c["name"] for c in p["containers"]] == ["gate"] and "imagePullSecrets" not in p else 1)' "$T/m2/job.json"
   ok $? "manifests: addresses runs the container gate only"
+  mkdir -p "$T/m4"
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_DISCOVERY=true; TOOLS="$T/tools" manifests live gate-3-1-live-x "$JI" "$PI" "$T/m4" )
+  jq -e '[.spec.template.spec.containers[] | select(.name == "gate") | .env[] | select(.name == "GATE_DISCOVERY") | .value] == ["true"]' "$T/m4/job.json" > /dev/null \
+    && jq -e '[.spec.template.spec.containers[].env[] | select(.name == "GATE_DISCOVERY")] == []' "$T/m/job.json" > /dev/null
+  ok $? "manifests: a discovery run's GATE_DISCOVERY reaches the container gate of the Job, and a run without it gives the Job none"
 
   # the resources: requests the parent can schedule, limits as the ceiling, GATE_RESOURCES over the defaults
   python3 - "$T/m/job.json" <<'PY'
