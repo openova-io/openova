@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T01:15:04Z` |
+| Last refreshed | `2026-11-21T01:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T01:17 | [#8555](https://github.com/openova-io/openova/pull/8555) | #7087 | docs(ledger): plan update |
+| 2026-11-21T01:16 | [#8554](https://github.com/openova-io/openova/pull/8554) | #8549 | fix(release): a release run that publishes several charts ne |
 | 2026-11-21T01:11 | [#8553](https://github.com/openova-io/openova/pull/8553) | #8515 | feat(gate): a discovery run judges an install at once, witho |
 | 2026-11-20T22:50 | [#8552](https://github.com/openova-io/openova/pull/8552) | #8551 | fix(charts): the function tests of bp-openbao, bp-reloader a |
 | 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
 | 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
-| 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
-| 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
 
 ---
 
