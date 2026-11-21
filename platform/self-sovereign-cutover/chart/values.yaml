@@ -2468,6 +2468,225 @@ mirrorResync:
 # upstream registry. What it DOES do is publish the exact missing set to a
 # durable ConfigMap + loud logs, which is what "today nothing notices" (#5640)
 # needed. Reaching upstream stays opt-in behind mode=warm, exactly as before.
+# The design of template 12-daytwo-harbor-pin-reconciler.yaml, its header until SOV-343,
+# word for word (a template's comments are stored in every Helm release Secret, #6004):
+#
+# #5265 + #5640 — POST-CUTOVER DAY-2 local-Harbor reconciler.
+#
+# The gap
+# ───────
+# `bp-self-sovereign-cutover` mirrors the public catalog into the local Gitea
+# (step-01) and prewarms every pinned chart+image into the local Harbor
+# (step-03) EXACTLY ONCE at cutover time. Post-cutover the local Harbor is the
+# ONLY registry that matters — step-04 pivots node containerd `certs.d` and
+# step-06 repoints every HelmRepository at it — so anything published UPSTREAM
+# after step-03 ran can never reach the Sovereign.
+#
+#   • #5265 (the CHART half). On the operator's chosen schedule the local Gitea
+#     RE-SYNCS upstream pin bumps (CLAUDE.md §Customer-Sync) and Flux picks the
+#     new pin up — verified live hw277 (dep 1708c340ffc0e3f2, 2026-07-19): after
+#     cc=true, catalog merges #5258/#5260 landed, the mirror re-synced, the
+#     bootstrap-kit pin moved (region-b bp-continuum HR spec.chart.spec.version=
+#     0.1.12) — but the local Harbor still held ONLY the versions the one-time
+#     step-03 prewarm pushed. The HelmChart could not reconcile → the HR upgrade
+#     wedged.
+#
+#   • #5640 (the IMAGE half). The SAME structure, one layer down and strictly
+#     worse: a chart version that DOES reconcile installs workload templates
+#     pinned to image tags published after cutover. Verified live hw292 (dep
+#     1c56518035a83e03, cutoverComplete=true, 2026-08-03) —
+#
+#         curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+#         {"name":"openova-io/openova/catalyst-ui","tags":["fad88bd"]}
+#         d674a94 -> 404      # the tag deploy-bot pinned today
+#         fad88bd -> 200      # CONTROL: same probe, the tag deployed at cutover
+#
+#     …and the Pod pinned to `catalyst-ui:d674a94` sat in ImagePullBackOff. The
+#     delivery chain merge → build → publish → deploy-bot pin is complete for a
+#     PRE-cutover Sovereign and SILENTLY incomplete for a post-cutover one:
+#     main is green, the GHCR tag exists, the pin is committed, and nothing on
+#     the repo side reveals a thing.
+#
+# The Git leg has a companion (step-01's re-runnable mirror + the operator's
+# sync schedule). The Harbor leg had none — this reconciler IS that companion,
+# for BOTH artifact kinds, in ONE loop.
+#
+# Why a Deployment, not a CronJob
+# ───────────────────────────────
+# `reference_region_local_reconciler_must_be_deployment_not_cronjob_survives_
+# region_kill.md` (#5157): a CronJob's scheduler lives in the control-plane
+# region; when that region is killed the CronJob stops firing and the loop dies
+# silently. A Deployment (replicas: 1, Recreate) is rescheduled onto a surviving
+# node by the kube scheduler, so the Day-2 loop keeps running across a region
+# kill — exactly the failure the multi-region Sovereign is built to survive.
+# (The #1899 gitea-mirror-resync CronJob predates this canon.)
+#
+# Why region-local, not a mothership-side push (#5640 shape choice)
+# ─────────────────────────────────────────────────────────────────
+# The alternative shape — the deploy-bot pin commit triggering a push FROM the
+# mothership INTO each Sovereign's Harbor — requires OpenOva to hold a standing
+# write credential for every customer-run Sovereign and to reach it on demand.
+# That is a permanent INBOUND tether from the mothership into the Sovereign: the
+# exact inverse of Pillar 5 / ADR-0002, and structurally impossible for an
+# air-gapped Sovereign. It also cannot be substituted by Harbor pull-through:
+# step-02 creates `openova-io` as a PUSH-mode project (no `registry_id`, see
+# 02-harbor-projects-job.yaml) and step-06 pivots the workload refs onto exactly
+# that project, so no proxy-cache sits behind the path that 404'd on hw292.
+# Keeping the loop ON the Sovereign keeps the Sovereign self-sufficient.
+#
+# Single-source discipline — nothing here is a second mechanism
+# ─────────────────────────────────────────────────────────────
+#   • chart pins  ← the SAME 03b `bootstrapkit_pins` extractor step-03 (Phase
+#     A2-pins) and step-06 (Phase 3a-pin) use, mounted from the
+#     `cutover-bootstrap-kit-pins` ConfigMap (03b's documented #5265 reuse seam).
+#   • image → local path  ← the SAME 03a `offlinemirror_local_paths` resolver
+#     step-03 (skopeo push dest) and step-08 (pre-hold completeness HEAD) use,
+#     mounted from the `cutover-offline-mirror-resolver` ConfigMap. THREE
+#     consumers, ONE mapping function.
+#   • image enumeration  ← running Pods ∪ declared workload templates
+#     (Deployments/StatefulSets/DaemonSets/CronJobs/Jobs), the #3944 completeness
+#     union step-03 Phase A performs, so a scaled-to-zero or ImagePullBackOff
+#     workload is still seen (which is the whole point here — the hw292 Pod was
+#     NOT Running).
+#   • image copy  ← the SAME copy (offlinemirror_copy, --multi-arch all: a list
+#     as its entries, then its own bytes), the SAME #5095 mothership-proxy → DIRECT
+#     inverse-coverage-map fallback, and the SAME #5525 scarf.sh → mothership-
+#     proxy forward-map fallback that step-03 `copy_one` and step-08's #5194
+#     self-heal already run. skopeo acquisition reuses step-08's pinned static
+#     build verbatim.
+#   • presence probe ← the Harbor artifact API for charts (#5030 durable probe)
+#     and the local `/v2/<repo>/manifests/<ref>` HEAD for images (step-08's).
+#
+# Sovereignty — this NEVER weakens the Pillar-5 guarantee
+# ───────────────────────────────────────────────────────
+#   • mode=detect (THE DEFAULT) — the loop reaches ONLY the local Gitea mirror
+#     and the local Harbor. ZERO external egress: skopeo is never downloaded, no
+#     upstream registry is dialled, no `helm pull` runs. It emits the exact set
+#     of pinned charts AND declared images MISSING from local Harbor to a durable
+#     ConfigMap + loud logs. That set IS the air-gapped Sovereign's offline-media
+#     manifest (side-load exactly these) and it turns the previously-SILENT
+#     strand into a visible, actionable signal — the #5640 "today nothing
+#     notices" defect, closed.
+#
+#   • mode=request (THE DEFAULT) — detect's behaviour EXACTLY until an operator
+#     files a delivery request, and detect's behaviour again the moment that one
+#     request is consumed. This is the shape the sovereignty argument actually
+#     wants: an explicitly operator-INITIATED, scope-BOUNDED, credential-SCOPED,
+#     AUDITED, ONE-SHOT pull is a different object from a standing mirror.
+#       – initiated: nothing happens without a ConfigMap the operator creates.
+#       – bounded: only the refs that request names (or ALL_MISSING), capped at
+#         request.maxRefsPerRequest; an over-size scope is REFUSED, not truncated.
+#       – credential-scoped: step-06 strips the cutover's own ghcr auth, so the
+#         credential can only be one the operator provisioned and can revoke.
+#       – audited: every attempt appends to the delivery ConfigMap with
+#         timestamp, requestId, requestedBy, source, destination and outcome.
+#       – one-shot: the consumed requestId is recorded durably, so re-applying
+#         the same request does NOT re-open the window. A new window needs a new
+#         requestId — the window cannot stay open because someone forgot.
+#     Because a request-less cycle dials nothing, this is safe as a DEFAULT in a
+#     way `warm` is not, and an operator needing one stale image does not have to
+#     edit the chart, roll the reconciler, and remember to turn it off again.
+#
+#   • mode=warm — an ALWAYS-ON mirror: every cycle, forever, unbounded in scope,
+#     with a standing credential. Legitimate for an operator who has chosen to
+#     track upstream continuously, but it IS a standing outbound tether and is
+#     NOT the sovereignty-preserving option. Kept, documented as such, not the
+#     default.
+#
+# Both delivery modes are fail-SOFT (a failed fetch is logged and left in the
+# missing manifest) so the loop never crash-loops and workloads keep running on
+# the installed version.
+#
+# #5640 flips `daytwoReconciler.enabled` to TRUE by default. The severance-safe
+# property that mattered was never "no Deployment" — it was "no upstream egress
+# by default", and detect/request both hold that with zero egress. Shipping the
+# loop OFF would have shipped a knob nobody turns on, leaving the failure exactly
+# as silent as the issue describes.
+#
+# Why the enumerated ref must be INVERTED before it is copied (#5640)
+# ───────────────────────────────────────────────────────────────────
+# step-07's pod-spec sweep (sweep_one_workload -> podspec_pivot_ref) rewrites
+# every workload image to `registry.<fqdn>/<local-path>`. Post-cutover, therefore,
+# the refs this loop reads off the LIVE cluster carry NO upstream host — which is
+# the ONLY shape the hw292 defect appears in. Handing such a ref to skopeo as the
+# SOURCE copies the local registry to itself, for an artifact the local registry
+# just 404'd: it can never deliver, and it fails as "copy error" rather than as
+# "I do not know where this came from". The copy therefore inverts the SHARED 03a
+# map first (`offlinemirror_upstream_ref`, the exact inverse of
+# `offlinemirror_local_paths` — one function, one place) and REFUSES the copy
+# outright when the map cannot name an upstream.
+#
+# The FAIL-CLOSED surface (#5640)
+# ───────────────────────────────
+# A missing pin used to be a log line plus a ConfigMap, i.e. still a silent
+# freeze — the operator found out when a UAT row would not go green. The loop now
+# writes a readiness verdict from the MEASURED cycle outcome, and the container
+# carries a readinessProbe on it. READY requires every enabled leg to have
+# completed AND zero missing artifacts; "I could not check" is NOT-READY, never
+# all-clear. `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 is
+# then the visible statement "this Sovereign holds a pin its registry cannot
+# serve". No livenessProbe: the correct response is to go not-ready, not restart.
+#
+# NOT a cutover-step ConfigMap: no `bp.openova.io/cutover-order` label, so it does
+# NOT count toward the 11-step contract (tests/cutover-contract.sh Case 2/4).
+#
+# Image phase: pre — like the #1899 mirror-resync CronJob, this workload is
+# created at chart-install time and uses the upstream-public image reference;
+# because it RENDERS at install time, step-03 Phase A's declared-workload-template
+# enumeration mirrors that very image into local Harbor, and post-cutover the node
+# containerd (step-04 registries.yaml v2) resolves the reference from there. The
+# loop's own image is therefore self-contained either way.
+#
+# From 12-daytwo-harbor-pin-reconciler.yaml, the comment "#5759 CONTINUOUS SOURCE-HOST DRIFT LINT", word for word:
+#   ── #5759 CONTINUOUS SOURCE-HOST DRIFT LINT ──────────────────────
+#   Same host-classification shape as step-08's egressTest.
+#   fluxSourceHostLint (08-egress-block-test-job.yaml,
+#   run_flux_source_host_lint) — reused, not forked (single-source
+#   discipline: one allowlist, egressTest.fluxSourceHostLint.
+#   allowHosts, feeds both). The difference is WHEN it runs. That
+#   lint fires ONCE, inside the 600s deny-egress hold, at the
+#   ORIGINAL cutover, and is torn down with the hold — proving
+#   nothing about a re-render minutes, days or months later. This
+#   reconciler is a standing Deployment (#5157: a CronJob's
+#   scheduler dies with its region on a region-kill, so this is a
+#   Deployment on purpose), so its own copy keeps watching for the
+#   Sovereign's entire post-cutover life — INTERVAL-INDEPENDENT,
+#   per #5759 item 2 — and catches a revert from ANY cause: this
+#   reconciler's own (now-refused) CATALOG leg, a sovereign-admin
+#   re-stamping an unfixed step-01 PodSpec ConfigMap by hand via
+#   scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes
+#   only protect a Sovereign already upgraded past this release),
+#   or a cause nobody has written yet. Measured live on hw292 (dep
+#   1c56518035a83e03) 2026-08-06: 69/69 local HelmRepositories fell
+#   to 7/69 (62 reverted to ghcr.io) with nothing standing watch.
+#
+# From 12-daytwo-harbor-pin-reconciler.yaml, the comment "#5640 SOURCE INVERSION", word for word:
+#   ── #5640 SOURCE INVERSION ────────────────────────────────────
+#   Post-cutover, step-07's pod-spec sweep has ALREADY rewritten
+#   this workload's image to registry.<fqdn>/<local-path>, so the
+#   ref enumerated off the live cluster carries NO upstream host.
+#   Copying it as the SOURCE asks skopeo to copy the local registry
+#   to itself, for an artifact the local registry just 404'd — it
+#   can never deliver anything, and it would report "copy failed"
+#   rather than "I do not know where this came from". That is the
+#   hw292 class exactly: catalyst-ui was pinned to a tag published
+#   after cutover, and its live ref was the pivoted one. Invert the
+#   SHARED 03a map (offlinemirror_upstream_ref) to recover the true
+#   upstream before copying.
+#
+# From 12-daytwo-harbor-pin-reconciler.yaml, the comment "#5759 — REFUSE-BY-DEFAULT. The push below is `git push --force`", word for word:
+#   #5759 — REFUSE-BY-DEFAULT. The push below is `git push --force`
+#   of a bare upstream clone (step-01's refspec shape): a ref
+#   overwrite, not a merge. After cutover the local
+#   ${UPSTREAM_BRANCH} holds this Sovereign's own commits (step-06's
+#   HelmRepository pivot among them); the overwrite discards them
+#   and re-tethers every chart to ghcr.io with no credential left
+#   (hw292, dep 1c56518035a83e03, 2026-08-06: 62 of 69
+#   HelmRepositories reverted, 44 of 72 HelmReleases not Ready). A
+#   later release reaches a cut-over Sovereign by merge instead:
+#   PUT /api/v1/sovereign/release (#7938). Gated on the LITERAL
+#   'false': an unreadable status counts as cut over (fail-closed,
+#   as step-08's per-region lint, #5359).
 daytwoReconciler:
   # Master switch. false => the whole template renders to nothing.
   #
@@ -3122,6 +3341,184 @@ vclusterRegistryPivot:
 # go-containerregistry's `remote.Image()` DIRECTLY, NOT through the
 # kubelet/containerd CRI client. See 11-crossplane-provider-pivot-job.yaml
 # for the full protocol.
+# The design of template 11-crossplane-provider-pivot-job.yaml, its header until SOV-343,
+# word for word (a template's comments are stored in every Helm release Secret, #6004):
+#
+# Pivots every `pkg.crossplane.io/v1.Provider` CR's `spec.package` host
+# literal from `xpkg.upbound.io/...` to `harbor.<SOVEREIGN_FQDN>/
+# proxy-xpkg/...` so the Crossplane package manager fetches Provider
+# packages from the Sovereign-local Harbor `proxy-xpkg` project, NOT
+# from `xpkg.upbound.io`. Without this step, every Provider package
+# fetch (initial install, version bump, ProviderRevision reconcile of
+# an inactive revision, Pod-restart-with-evicted-cache, any new
+# operator-installed Provider) hits `xpkg.upbound.io` directly — a
+# direct violation of Principle #11 (no tether to external upstreams
+# after handover).
+#
+# Why Step 04 (containerd registries.yaml.v2 pivot) does NOT catch it
+# ───────────────────────────────────────────────────────────────────
+# Crossplane's package manager uses `github.com/google/go-container
+# registry`'s `remote.Image()` DIRECTLY from inside the
+# `crossplane-system` controller Pod (see crossplane source
+# `internal/xpkg/fetch.go`). It does NOT route fetches through the
+# kubelet's CRI containerd client, so the `/etc/containerd/certs.d/`
+# and `/etc/rancher/k3s/registries.yaml` mirror config (rewritten by
+# Step 04's DaemonSet) is irrelevant to it. The package pull is a
+# plain HTTPS dial-out from the Crossplane controller Pod to the
+# literal hostname in `spec.package`.
+#
+# There is no first-class registry-mirror knob on Crossplane v1
+# `Provider`/`ProviderRevision`/`Lock`/`Configuration` CRDs and the
+# chart's `global.imageRegistry` controls only the controller image,
+# not the package URL. The ONLY way to redirect Provider package
+# fetches is to rewrite each Provider's `spec.package` host literal.
+#
+# Patches applied (idempotent merge-patch + Gitea YAML edit)
+# ──────────────────────────────────────────────────────────
+# The bootstrap-kit ships THREE Provider CRs that all carry
+# `spec.package = xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0`:
+#
+#   - clusters/_template/infrastructure/hetzner/provider-hcloud.yaml  (#4212 — moved under hetzner/)
+#   - clusters/omantel.omani.works/infrastructure/provider-hcloud.yaml
+#   - clusters/otech.omani.works/infrastructure/provider-hcloud.yaml
+#
+# Each per-Sovereign overlay copy ships only into ITS Sovereign cluster.
+# The live K8s patch is therefore scoped per-cluster (only the local
+# Sovereign's Provider CR is present at cutover time). The Gitea YAML
+# edit fixes ALL infrastructure provider-*.yaml files under
+# `clusters/<sov>/infrastructure/` defensively so a fresh prov pulls the
+# already-pivoted spec from local Gitea.
+#
+# Phase inventory
+# ───────────────
+#   Phase 1  Live K8s patch — `kubectl patch provider.pkg.crossplane.io`
+#            for every Provider CR (cluster-scoped). Computes the new
+#            package literal by replacing the `xpkg.upbound.io` prefix
+#            with `harbor.<SOVEREIGN_FQDN>/proxy-xpkg` while preserving
+#            the path, and (#5232) replacing the TAG with the
+#            `@sha256:<digest>` step-03 Phase A4 minted — Harbor
+#            proxy-cache never records tags for pulled-through xpkg
+#            artifacts, so only a digest ref serves post-severance.
+#            Triggers an immediate Crossplane revision reconcile so the
+#            new package is fetched within seconds.
+#   Phase 2  Push YAML edit to local Gitea — rewrite every
+#            `clusters/<sov>/infrastructure/provider-<name>.yaml` package
+#            literal to the SAME digest form (#5232). Without this phase,
+#            the bootstrap-kit Kustomization reconcile (every ~1 min from
+#            local Gitea) would silently revert Phase 1 back to the
+#            upstream URL (or a dead tag-form ref) within minutes.
+#
+# Idempotency
+# ───────────
+# - Phase 1: a merge-patch with the SAME spec.package literal is a
+#   no-op (kubectl emits "no change", resourceVersion unchanged). The
+#   step reads the current literal first and SKIPs the patch if
+#   already pivoted.
+# - Phase 2: the sed pattern targets `xpkg.upbound.io/` so a re-run
+#   against a YAML where the literal has been replaced finds no match
+#   and exits cleanly. We also guard with a sentinel grep so the git
+#   commit is skipped when the diff is empty.
+#
+# Order rationale: 11 (after Step 10)
+# ────────────────────────────────────
+# Placed at order 11 to run LAST. Functionally it depends on:
+#   - Step 02 (harbor-projects) so the `proxy-xpkg` Harbor project
+#     exists for the new pulls (chart values.yaml ships proxy-xpkg in
+#     the canonical list since chart 0.1.x).
+#   - Step 06 Phase-0 (helmrepository-patches) so the ghcr-pull Secret
+#     carries auth for `harbor.<sov-fqdn>` (Crossplane fetch uses the
+#     same pull-secret machinery via K8sFetcher's pullSecretFromConfig).
+#   - Step 04 / containerd is NOT a hard dep (Crossplane bypasses it)
+#     but running after Step 04 ensures the rest of the cluster is on
+#     the Sovereign-local mirror plane before the Provider re-fetches.
+#
+# Image phase: post (uses the same alpine/k8s image as Step 10).
+#
+# From 11-crossplane-provider-pivot-job.yaml, the comment "Phase 0: wire package-pull AUTH (ImageConfig + Secret)", word for word:
+#   ---- Phase 0: wire package-pull AUTH (ImageConfig + Secret) ----
+#
+#   #5204 (Refs #3379). Pivoting spec.package to the local Harbor's
+#   `proxy-xpkg` project is NOT sufficient: `proxy-xpkg` is a Harbor
+#   PROXY-CACHE project, and Harbor requires an AUTHENTICATED pull
+#   from a proxy-cache project even when the project is public
+#   (unlike the push-mode offline-mirror projects step 02 creates
+#   public:true for anonymous pull). The Crossplane package manager
+#   (go-containerregistry remote.Image()) uses its OWN registry-auth
+#   path — NOT the node containerd certs.d (step 04) nor the
+#   flux-system/ghcr-pull dockerconfigjson (step 06, wired for Flux
+#   source-controller). With no credential wired it pulls anonymously
+#   and 401s (live hw270: provider-opentofu Installed=False,
+#   UnpackingPackage, 401 Unauthorized) — a latent Pillar-5 gap: the
+#   existing revision keeps running, but the Sovereign can never
+#   upgrade its own Crossplane providers post-severance.
+#
+#   FIX (Crossplane 1.18 native): create a dockerconfigjson Secret in
+#   the Crossplane namespace carrying the SAME admin:<HARBOR password>
+#   credential step 02/03/06 use, and an ImageConfig
+#   (pkg.crossplane.io/v1beta1) whose matchImages prefixes cover the
+#   pivot host `harbor.<fqdn>/proxy-xpkg` AND the canonical
+#   `registry.<fqdn>/proxy-xpkg` alias, with
+#   spec.registry.authentication.pullSecretRef -> that Secret. The
+#   package manager then authenticates every package pull against the
+#   local Harbor. Runs BEFORE Phase 1 so the spec.package patch's
+#   immediate re-pull already has auth. Idempotent (kubectl apply).
+#
+# From 11-crossplane-provider-pivot-job.yaml, the comment "Phase 0.5 (#5204): local-artifact verify gate", word for word:
+#   ---- Phase 0.5 (#5204): local-artifact verify gate ----
+#
+#   Rewrite a Provider's spec.package onto the local Harbor ONLY
+#   after the registry v2 manifest API confirms the package's digest
+#   is durably served locally (#5232 round 2, live hw274 — the
+#   multi-arch-aware durability signal; the Harbor artifact-
+#   management API records only the per-arch CHILD manifests for a
+#   multi-arch package and never exposes the top-level OCI index by
+#   its own digest, so a digest-addressed artifact-API probe 404s
+#   even when the index IS durable + servable via /v2, exactly
+#   containerd/Crossplane's pull path). Step-03 Phase A4 warms every
+#   Provider package through proxy-xpkg for exactly this; a miss here
+#   means the warm never ran / was skipped for this package (e.g. a
+#   Provider created mid-cutover after step-03 enumerated), and
+#   pivoting anyway would point spec.package at a ref the local
+#   registry cannot serve post-severance. FAIL-LOUD: the offender is
+#   named and the step exits 1 so the operator re-triggers the
+#   cutover (step-03 re-warms, idempotent) instead of shipping a
+#   silently-dangling pivot.
+#
+# From 11-crossplane-provider-pivot-job.yaml, the comment "#5232: digest-addressed pivot refs", word for word:
+#   ---- #5232: digest-addressed pivot refs ----
+#
+#   Harbor proxy-cache NEVER records TAGS for pulled-through xpkg
+#   artifacts (live hw274 dep d51a69f885872a81: manual tag-create
+#   401s on proxy projects; a fresh tag manifest GET serves the OCI
+#   index but still records no tag — deterministic), so a tag-form
+#   local ref genuinely 404s post-severance. Every spec.package
+#   pivot below is therefore DIGEST-addressed:
+#   registry-path preserved, tag replaced by @sha256:<digest>.
+#   Crossplane's package manager accepts digest refs: spec.package
+#   is an unrestricted string (pkg.crossplane.io_providers.yaml CRD)
+#   parsed by go-containerregistry name.ParseReference (crossplane
+#   v1.18.0 internal/controller/pkg/manager/revisioner.go), and the
+#   xpkg naming layer treats ":@" as the identifier delimiter set
+#   (internal/xpkg/name.go) — digest identifiers are first-class.
+#   The ONLY digest mint is step-03 Phase A4's full pull-through +
+#   durable verify; there is NO live re-resolve here (a fresh tag
+#   GET through the proxy could record a manifest with COLD blobs).
+#
+# From 11-crossplane-provider-pivot-job.yaml, the comment "#5232 — rewrite each file's `package:` literal to the DIGEST", word for word:
+#   #5232 — rewrite each file's `package:` literal to the DIGEST
+#   form so the bootstrap-kit reconcile from local Gitea
+#   re-asserts the SAME digest ref Phase 1 patched live (a
+#   tag-form YAML would revert the live patch on the next
+#   reconcile AND 404 post-severance). Handles all three source
+#   shapes Phase 1 handles: the raw upstream host, the mothership
+#   proxy prefix (#4488 Huawei), and a pre-#5232 tag-form local
+#   pivot. A ref with NO minted digest (a foreign-Sovereign /
+#   _template overlay whose Provider never ran on THIS cluster,
+#   or the very-early-handover path where step-03 skipped on the
+#   absent CRD) keeps the pre-#5232 host-swap so no upstream-host
+#   literal survives; the eventual step re-run upgrades it to the
+#   digest form. `,` sed delimiter — the refs never contain
+#   commas; the OLD literal has its `.` escaped for -E.
 crossplaneProviderPivot:
   # Upstream package host literal to match in `spec.package`. The
   # cutover-step script swaps this prefix for `harbor.<sov-fqdn>/
@@ -3653,6 +4050,67 @@ rebootHold:
 # mounts; the day-two reconciler copies a listed package the registry lacks.
 # provider-pivot.sh (step 11) carries the same three last values as defaults
 # for the release stage, which re-applies its rewrite.
+#
+# The rules, in the code they govern (these comments sit here because a
+# template's comments are stored in every Helm release Secret, #6004):
+#
+# The list (_helpers.tpl, define tofuProviders, block tofu-providers-list).
+#   tofu_list_read FILE writes the lines of the list ConfigMap to FILE: 0 read,
+#   2 the ConfigMap does not exist (a Sovereign installed before the mirror),
+#   1 it could not be read. tofu_list_line LINE sets _tl_repo
+#   (<namespace>/<type>), _tl_ver and _tl_dig; 1 for a line that is not
+#   "<host>/<namespace>/<type> <version> sha256:<64 hex>". tofu_local_digest
+#   REPO REF prints the digest the local registry serves for localPath/REPO at
+#   REF (a tag or a digest): the Docker-Content-Digest of a registry v2 HEAD
+#   through the in-cluster Harbor service; nothing when it serves none. A
+#   package is present when the tag of its version serves the listed digest.
+#
+# Step 03, Phase A5 (after A4, before Phase B; block tofu-providers-copy). The
+#   provider pod installs every provider of the cloud Workspaces from the OCI
+#   mirror its CLI configuration names (SOV-342): the origin, until step 11
+#   moves that address here. Each listed package is copied by the digest the
+#   list names through offlinemirror_copy (each manifest of its index by digest,
+#   then the index, digests preserved), from the origin with the pull credential
+#   of Phase A (step 06 removes the origin's login later), to
+#   <HARBOR_HOST>/localPath/<namespace>/<type>:<version>, up to
+#   PREWARM_COPY_ATTEMPTS times. A tag the registry holds at the listed digest is
+#   left; one at another digest is FATAL (a tag never moves, #7938), as is a
+#   copy after which the tag does not serve the listed digest, a list that
+#   cannot be read, or one that names no package. No list ConfigMap: one line,
+#   nothing copied.
+#
+# Step 11, Phase 0.6 (block tofu-cli-pivot). Before the clone of Phase 2, each
+#   listed version must be served at its listed digest; otherwise FATAL naming
+#   each, and nothing is rewritten. Phase 2 then rewrites every
+#   repository_template of cliConfigFile in the clone that names originPrefix
+#   to <registry_host>/localPath (tofu_cli_pivot_file of provider-pivot.sh),
+#   registry_host being the host of sovereign.harborPublicURL, the host step 06
+#   merges into the pull Secret the provider pod mounts as the credential of
+#   this configuration; the rewrite is part of the one commit of Phase 2, and
+#   the live object is never edited by the step. Success needs, inside
+#   crossplaneProviderPivot.liveSettleSeconds counted from the start of the
+#   Provider wait: the Kustomization named by the Flux labels of the live
+#   ConfigMap has applied that commit, and the live ConfigMap's .tofurc and
+#   <mountPath>/.tofurc (kubectl exec, cat) in every running pod that mounts it
+#   name only <registry_host>/localPath/ (tofu_cli_local); otherwise FATAL
+#   naming what is not settled, and the engine retries the step. No list
+#   ConfigMap: no pivot, one line.
+#
+# The release stage (files/release/release-region.sh). With a provider-pivot.sh
+#   that defines tofu_cli_pivot_file, a conflicted cliConfigFile whose region
+#   side is exactly that rewrite of the merge base, to the region's registry
+#   host, is taken from the candidate; after the merge, where the branch the
+#   region runs names that registry in the file, the rewrite is applied again,
+#   and the stage refuses when the file then names any other mirror.
+#
+# The day-two reconciler (daytwoReconciler.tofuProviders.enabled). A listed
+#   version whose tag does not serve the listed digest is copied by digest from
+#   the origin through offlinemirror_copy, behind the same delivery gate as the
+#   image leg (daytwo_delivery_allowed: mode warm, or an open request), and must
+#   then serve it; otherwise it is a TOFU line of the missing manifest. A tag at
+#   another digest is never copied over. A list that cannot be read is
+#   NOT-READY (tofu-leg-unreadable); a missing package is NOT-READY
+#   (unservable-tofu-providers=<n>).
 tofuProviders:
   namespace: "crossplane-system"
   listConfigMapName: "opentofu-providers"

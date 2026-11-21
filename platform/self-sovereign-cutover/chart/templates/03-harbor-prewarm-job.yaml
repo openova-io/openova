@@ -2924,19 +2924,7 @@ data:
       fi
     fi
 
-    {{- /*
-     ─── Phase A5 (SOV-343): the OpenTofu provider packages ───
-     The provider pod installs every provider of the cloud Workspaces from the OCI
-     mirror its CLI configuration names (SOV-342): the origin, until step 11 moves
-     that address here. Each package of the list is copied by the digest the list
-     names through offlinemirror_copy (each manifest of its index by digest, then the
-     index), from the origin with the pull credential of Phase A (step 06 removes the
-     origin's login later), to <registry>/TOFU_LOCAL_PATH/<namespace>/<type>:<version>.
-     A tag the registry holds at the listed digest is left; one at another digest is
-     FATAL (a tag never moves, #7938), as is a copy after which the tag does not serve
-     the listed digest. No list ConfigMap (a Sovereign installed before the mirror):
-     one line, nothing copied.
-    */}}
+    {{- /* Phase A5 (SOV-343): the OpenTofu provider packages, copied by digest; the rules are above the key tofuProviders of values.yaml. */}}
     {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 4 }}
     # tofu-providers-copy BEGIN
     tofu_providers_copy() {
@@ -3558,7 +3546,6 @@ data:
             value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
           - name: XPKG_MOTHERSHIP_PROXY_PREFIX
             value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
-          {{- /* SOV-343 — Phase A5: the OpenTofu provider packages (tofuProviders). */}}
           {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
           {{- /*
            #5232 (Refs #5226 #5204) — the tag->digest map Phase A4 records

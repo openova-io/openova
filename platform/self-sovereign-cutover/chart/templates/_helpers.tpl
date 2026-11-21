@@ -404,10 +404,7 @@ curl_no_answer() {
 }
 {{- end -}}
 
-{{/*
-SOV-343 — the settings of the OpenTofu provider packages (values tofuProviders), the environment
-of step 03, step 11 and the day-two reconciler.
-*/}}
+{{/* SOV-343 — the settings tofuProviders of values.yaml, the environment of steps 03 and 11 and the day-two reconciler. */}}
 {{- define "bp-self-sovereign-cutover.tofuProvidersEnv" -}}
 - name: TOFU_NAMESPACE
   value: {{ .Values.tofuProviders.namespace | quote }}
@@ -423,16 +420,7 @@ of step 03, step 11 and the day-two reconciler.
   value: {{ .Values.tofuProviders.cliConfigFile | quote }}
 {{- end -}}
 
-{{/*
-SOV-343 — the list of the OpenTofu provider packages (SOV-342), read by step 03, step 11 and the
-day-two reconciler. tofu_list_read FILE writes the lines of the ConfigMap
-TOFU_NAMESPACE/TOFU_LIST_CM (key providers) to FILE: 0 read, 2 the ConfigMap does not exist (a
-Sovereign installed before the mirror), 1 it could not be read. tofu_list_line LINE sets _tl_repo
-(<namespace>/<type>), _tl_ver and _tl_dig; 1 for a line that is not
-"<host>/<namespace>/<type> <version> sha256:<64 hex>". tofu_local_digest REPO REF prints the digest
-the local registry serves for TOFU_LOCAL_PATH/REPO at REF (a tag or a digest), the
-Docker-Content-Digest of a registry v2 HEAD; nothing when it serves none.
-*/}}
+{{/* SOV-343 — the one reading of the list of OpenTofu provider packages; described above the key tofuProviders of values.yaml. */}}
 {{- define "bp-self-sovereign-cutover.tofuProviders" -}}
 # tofu-providers-list BEGIN
 tofu_list_read() {
