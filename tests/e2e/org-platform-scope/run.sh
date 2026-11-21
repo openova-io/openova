@@ -17,7 +17,9 @@
 #   1. RBAC missing (the read Role not yet bound): the controller cannot list
 #      pods and its plan-quota never shrinks below the safe bound;
 #   2. first real render: plan-quota scoped NotIn the class, hard = plan +
-#      coredns + the classless credit; the refused hook Job's retry is admitted
+#      coredns + the website and mail server every Organization is given
+#      (core/controllers/organization/internal/gitops/plan_quota_included.go,
+#      M 428m / 1154Mi) + the classless credit; the refused hook Job's retry is admitted
 #      and charged to platform-quota;
 #   3. platform pods restarted one by one: each stamped replacement is
 #      admitted; the credit shrinks every re-render and reaches zero;
@@ -149,8 +151,11 @@ log="$(credit_render system:serviceaccount:catalyst-system:catalyst-organization
 echo "    $log" | cut -c1-200
 grep -q "known=false" <<<"$log" && pass "pod list forbidden -> credit unknown" || bad "credit was computed without the read RBAC: $log"
 apply_plan_quota
-for k in requests.cpu:5479m requests.memory:9286Mi limits.cpu:9500m limits.memory:14122Mi; do
-  [ "$(hard plan-quota "${k%%:*}")" = "${k#*:}" ] && pass "unknown credit keeps ${k%%:*} at the live ${k#*:} (>= static bound)" || bad "unknown credit ${k%%:*} = $(hard plan-quota "${k%%:*}"), want ${k#*:}"
+# Per resource the larger of the live hard (5479m / 9286Mi, 9500m / 14122Mi)
+# and the static bound plan + coredns + the given applications + vcluster-0 +
+# the stack (5102m / 9624Mi, 10010m / 15498Mi).
+for k in requests.cpu:5479m requests.memory:9624Mi limits.cpu:10010m limits.memory:15498Mi; do
+  [ "$(hard plan-quota "${k%%:*}")" = "${k#*:}" ] && pass "unknown credit holds ${k%%:*} at ${k#*:} (max of the live hard and the static bound)" || bad "unknown credit ${k%%:*} = $(hard plan-quota "${k%%:*}"), want ${k#*:}"
 done
 kubectl -n "$NS" get resourcequota plan-quota -o jsonpath='{.spec.scopeSelector.matchExpressions[0].operator}' | grep -q NotIn && pass "plan-quota scoped NotIn even with the credit unknown" || bad "plan-quota not scoped"
 
@@ -160,7 +165,7 @@ log="$(credit_render)"
 echo "    $log" | cut -c1-200
 grep -q "known=true requests cpu=3805m memory=6736Mi; limits cpu=3850m memory=6784Mi; pods=7" <<<"$log" && pass "controller credits the 7 classless platform pods (3805m / 6736Mi)" || bad "credit: $log"
 apply_plan_quota
-[ "$(hard plan-quota requests.cpu)" = "4159m" ] && [ "$(hard plan-quota requests.memory)" = "8166Mi" ] && pass "plan-quota hard = plan 334m/1366Mi + coredns 20m/64Mi + credit = 4159m / 8166Mi" || bad "plan-quota hard $(hard plan-quota requests.cpu) / $(hard plan-quota requests.memory)"
+[ "$(hard plan-quota requests.cpu)" = "4587m" ] && [ "$(hard plan-quota requests.memory)" = "9320Mi" ] && pass "plan-quota hard = plan 334m/1366Mi + coredns 20m/64Mi + given 428m/1154Mi + credit = 4587m / 9320Mi" || bad "plan-quota hard $(hard plan-quota requests.cpu) / $(hard plan-quota requests.memory)"
 hookpod=""
 for _ in $(seq 1 90); do
   hookpod="$(kubectl -n "$NS" get pod -l job-name=bp-keycloak-keycloak-config-cli -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
@@ -184,7 +189,7 @@ for p in "${PLATFORM[@]}"; do
   [ "$now" -lt "$prev" ] && pass "credit shrank: plan-quota requests.cpu ${prev}m -> ${now}m" || bad "credit did not shrink after $name (${prev}m -> ${now}m)"
   prev="$now"
 done
-[ "$(hard plan-quota requests.cpu)" = "354m" ] && [ "$(hard plan-quota requests.memory)" = "1430Mi" ] && pass "credit reached zero: plan-quota = plan + coredns (354m / 1430Mi)" || bad "final plan-quota $(hard plan-quota requests.cpu) / $(hard plan-quota requests.memory)"
+[ "$(hard plan-quota requests.cpu)" = "782m" ] && [ "$(hard plan-quota requests.memory)" = "2584Mi" ] && pass "credit reached zero: plan-quota = plan + coredns + the given applications (782m / 2584Mi)" || bad "final plan-quota $(hard plan-quota requests.cpu) / $(hard plan-quota requests.memory)"
 for _ in $(seq 1 30); do [ "$(used platform-quota requests.cpu)" = "4055m" ] && break; sleep 2; done
 [ "$(used platform-quota requests.cpu)" = "4055m" ] && pass "platform-quota charges the stack + hook: 4055m of $(hard platform-quota requests.cpu)" || bad "platform-quota used $(used platform-quota requests.cpu)"
 

@@ -30,8 +30,9 @@ import (
 //
 // The Organizations. The check creates A (iso-a-<tag>) and B (iso-b-<tag>)
 // through the console API, POST /api/v1/organizations with kind internal (no
-// voucher step), plan s and the free subdomain of the first ready parent
-// domain, and waits until GET /api/v1/organizations/{id} says done for both
+// voucher step), A on plan isoPlanA and B on plan isoPlanB (see the constants
+// below), and the free subdomain of the first ready parent domain, and waits
+// until GET /api/v1/organizations/{id} says done for both
 // (failed ends the wait). Before it ends, also when a step failed, it deletes
 // every Organization it created with DELETE /api/v1/organizations/{id} and
 // waits until their host namespaces are gone in every region.
@@ -107,7 +108,21 @@ const (
 	// isoBlueprint is the Blueprint of ISO-9: the Blueprint of the journeys,
 	// whose HTTPRoute inside the vCluster the syncer reflects to the host,
 	// where the gateway routes it.
-	isoBlueprint       = "bp-wordpress-tenant"
+	isoBlueprint = "bp-wordpress-tenant"
+	// isoPlanA is the plan of A, the Organization that installs ISO-9's
+	// Application: the smallest plan whose customer part holds it. Installed
+	// with the chart's defaults it needs 250m of requests.cpu while its
+	// post-install hooks run (WordPress 100m + its database 100m + a hook
+	// 50m, platform/wordpress-tenant/chart/values.yaml and templates), and
+	// plan s sells a guaranteed share of 167m (planQuotaTable in
+	// core/controllers/organization/internal/gitops/manifests.go), so no plan
+	// s Organization can hold it, whatever else runs. The organization
+	// controller's test TestPlanQuota_AcceptanceApplicationFitsItsPlan reads
+	// this constant and fails when the plan does not hold the Application or
+	// a smaller plan would. isoPlanB is the plan of B, which installs nothing:
+	// the smallest plan.
+	isoPlanA           = "m"
+	isoPlanB           = "s"
 	isoInternet        = "1.1.1.1" // ISO-5: a public anycast address that answers on TCP port 443
 	isoInternetPort    = 443
 	isoAllowAll        = "iso-allow-all" // ISO-6: the NetworkPolicy that A creates in its vCluster
@@ -165,9 +180,9 @@ func (orgIsolationCheck) ID() string { return orgIsolationID }
 
 // isoOrg is one test Organization.
 type isoOrg struct {
-	label, slug, id, namespace string
-	created                    bool
-	vc                         map[string]*isoVC // by region ID
+	label, slug, plan, id, namespace string
+	created                          bool
+	vc                               map[string]*isoVC // by region ID
 }
 
 // isoVC is the vCluster of an Organization in one region, reached through a port forward.
@@ -221,8 +236,8 @@ func (c orgIsolationCheck) Run(ctx context.Context, cc *CheckContext, rec StepRe
 	run := strings.ToLower(NewRunID(time.Now())) // 20261119t101500z-abcd
 	tag := run[9:15] + run[len(run)-4:]
 	j := &isoJourney{c: c, cc: cc, rec: rec, dir: dir, tag: tag, ns: "iso-" + tag, targets: map[string]*isoTargets{},
-		a: &isoOrg{label: "A", slug: "iso-a-" + tag, vc: map[string]*isoVC{}},
-		b: &isoOrg{label: "B", slug: "iso-b-" + tag, vc: map[string]*isoVC{}}}
+		a: &isoOrg{label: "A", slug: "iso-a-" + tag, plan: isoPlanA, vc: map[string]*isoVC{}},
+		b: &isoOrg{label: "B", slug: "iso-b-" + tag, plan: isoPlanB, vc: map[string]*isoVC{}}}
 	j.run(ctx)
 	return nil
 }
@@ -254,7 +269,7 @@ func (j *isoJourney) createOrgs(ctx context.Context) bool {
 	ok := true
 	for _, o := range j.orgs() {
 		ok = j.step("ISO: Organization "+o.label+" ("+o.slug+") is created through the console API (POST /api/v1/organizations)", func(ev Evidence) error {
-			body := map[string]any{"subdomain": o.slug, "admin_email": o.slug + "@acceptance.invalid", "kind": "internal", "plan_slug": "s"}
+			body := map[string]any{"subdomain": o.slug, "admin_email": o.slug + "@acceptance.invalid", "kind": "internal", "plan_slug": o.plan}
 			ev["organization"], ev["request"] = o.label, body
 			res, err := j.cc.API.Do(ctx, "POST", "/api/v1/organizations", body)
 			if err != nil {

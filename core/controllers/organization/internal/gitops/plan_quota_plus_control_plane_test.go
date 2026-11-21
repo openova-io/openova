@@ -271,7 +271,7 @@ func TestControlPlaneOverheadOf_PodUsageRule(t *testing.T) {
 // planQuotaTable itself so a new plan is covered the moment it is added. Since
 // #7067 the overheads live in their own admission scope:
 //
-//	plan-quota     (NotIn catalyst-org-platform) = plan + synced coredns
+//	plan-quota     (NotIn catalyst-org-platform) = plan + synced coredns + what every Organization is given (includedCreditFor)
 //	platform-quota (In    catalyst-org-platform) = vcluster-0 + platform stack + transient headroom
 //
 // and together they hold exactly what the single quota held before plus the
@@ -348,20 +348,21 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 		hardCapped++
 		ps := platformStackOverheadFor(q)
 		th := transientHeadroomFor(q)
+		gv := includedCreditFor(q).Total()
 		rq, pq := parse(slug, "resourcequota.yaml", raw), parse(slug, platformQuotaDoc, praw)
 		scopeIs(slug, "resourcequota.yaml", rq, "NotIn")
 		scopeIs(slug, platformQuotaDoc, pq, "In")
 
 		for res, tc := range map[string]struct {
-			plan                        string
-			coredns, vc0, stack, transi resource.Quantity
+			plan                               string
+			coredns, given, vc0, stack, transi resource.Quantity
 		}{
-			"requests.cpu":    {q.CPURequest, corednsOverhead.RequestsCPU, vclusterPodOverhead.RequestsCPU, ps.RequestsCPU, th.RequestsCPU},
-			"requests.memory": {q.MemRequest, corednsOverhead.RequestsMemory, vclusterPodOverhead.RequestsMemory, ps.RequestsMemory, th.RequestsMemory},
-			"limits.cpu":      {q.CPULimit, corednsOverhead.LimitsCPU, vclusterPodOverhead.LimitsCPU, ps.LimitsCPU, th.LimitsCPU},
-			"limits.memory":   {q.MemLimit, corednsOverhead.LimitsMemory, vclusterPodOverhead.LimitsMemory, ps.LimitsMemory, th.LimitsMemory},
+			"requests.cpu":    {q.CPURequest, corednsOverhead.RequestsCPU, gv.RequestsCPU, vclusterPodOverhead.RequestsCPU, ps.RequestsCPU, th.RequestsCPU},
+			"requests.memory": {q.MemRequest, corednsOverhead.RequestsMemory, gv.RequestsMemory, vclusterPodOverhead.RequestsMemory, ps.RequestsMemory, th.RequestsMemory},
+			"limits.cpu":      {q.CPULimit, corednsOverhead.LimitsCPU, gv.LimitsCPU, vclusterPodOverhead.LimitsCPU, ps.LimitsCPU, th.LimitsCPU},
+			"limits.memory":   {q.MemLimit, corednsOverhead.LimitsMemory, gv.LimitsMemory, vclusterPodOverhead.LimitsMemory, ps.LimitsMemory, th.LimitsMemory},
 		} {
-			for _, x := range []resource.Quantity{tc.coredns, tc.vc0, tc.stack, tc.transi} {
+			for _, x := range []resource.Quantity{tc.coredns, tc.given, tc.vc0, tc.stack, tc.transi} {
 				if x.IsZero() {
 					t.Fatalf("vacuity: plan %q %s has a zero term — a scope would not be distinguishable from the bare plan", slug, res)
 				}
@@ -369,8 +370,9 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 			plan := mustQ(t, slug+" plan "+res, tc.plan)
 			wantPlan := plan.DeepCopy()
 			wantPlan.Add(tc.coredns)
+			wantPlan.Add(tc.given)
 			if got := mustQ(t, slug+" plan-quota "+res, rq.Spec.Hard[res]); got.Cmp(wantPlan) != 0 {
-				t.Errorf("plan %q: plan-quota %s = %s, want plan %s + coredns %s = %s", slug, res, got.String(), plan.String(), tc.coredns.String(), wantPlan.String())
+				t.Errorf("plan %q: plan-quota %s = %s, want plan %s + coredns %s + the given applications %s = %s", slug, res, got.String(), plan.String(), tc.coredns.String(), tc.given.String(), wantPlan.String())
 			}
 			wantPlat := tc.vc0.DeepCopy()
 			wantPlat.Add(tc.stack)
@@ -380,17 +382,19 @@ func TestRender_ResourceQuotaIsPlanPlusBothOverheads(t *testing.T) {
 			}
 			// Conservation: plan-quota + platform-quota == the pre-#7067
 			// single quota (plan + control plane + stack) + the transient
-			// headroom. Nothing the customer bought moved into the platform
-			// scope, and nothing of the platform's leaked into the plan.
+			// headroom + the given applications. Nothing the customer bought
+			// moved into the platform scope, and nothing of the platform's
+			// leaked into the plan.
 			total := mustQ(t, "plan-quota "+res, rq.Spec.Hard[res])
 			total.Add(mustQ(t, "platform-quota "+res, pq.Spec.Hard[res]))
 			pre := plan.DeepCopy()
 			pre.Add(tc.coredns)
+			pre.Add(tc.given)
 			pre.Add(tc.vc0)
 			pre.Add(tc.stack)
 			pre.Add(tc.transi)
 			if total.Cmp(pre) != 0 {
-				t.Errorf("plan %q: %s plan-quota + platform-quota = %s, want plan + control plane + stack + transients = %s", slug, res, total.String(), pre.String())
+				t.Errorf("plan %q: %s plan-quota + platform-quota = %s, want plan + control plane + given applications + stack + transients = %s", slug, res, total.String(), pre.String())
 			}
 		}
 		for name, d := range map[string]rqDoc{"plan-quota": rq, "platform-quota": pq} {

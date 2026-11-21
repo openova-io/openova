@@ -196,11 +196,12 @@ func TestReconcile_7067_ClasslessCredit_UnwedgesAcmewalk307(t *testing.T) {
 		t.Fatalf("plan-quota is not scoped NotIn %s on the first render: %+v", cls, plan.Spec.ScopeSelector)
 	}
 	// hard = plan m (334m/1366Mi, 2/4Gi) + coredns (20m/64Mi, 1/170Mi) +
-	// credit (the 7 classless platform pods incl. the Pending agenity:
-	// 3805m/6736Mi requests, 3850m/6784Mi limits).
-	for k, w := range map[string]string{"requests.cpu": "4159m", "requests.memory": "8166Mi", "limits.cpu": "6850m", "limits.memory": "11050Mi"} {
+	// the given website and mail server (428m/1154Mi, 2500m/3328Mi,
+	// gitops plan_quota_included.go) + credit (the 7 classless platform pods
+	// incl. the Pending agenity: 3805m/6736Mi requests, 3850m/6784Mi limits).
+	for k, w := range map[string]string{"requests.cpu": "4587m", "requests.memory": "9320Mi", "limits.cpu": "9350m", "limits.memory": "14378Mi"} {
 		if got := resource.MustParse(plan.Spec.Hard[k]); got.Cmp(resource.MustParse(w)) != 0 {
-			t.Errorf("first render: plan-quota %s = %s, want %s (plan + coredns + classless credit)", k, plan.Spec.Hard[k], w)
+			t.Errorf("first render: plan-quota %s = %s, want %s (plan + coredns + given + classless credit)", k, plan.Spec.Hard[k], w)
 		}
 	}
 
@@ -212,7 +213,7 @@ func TestReconcile_7067_ClasslessCredit_UnwedgesAcmewalk307(t *testing.T) {
 	}
 
 	// The customer is over its plan with pods sized before #7078: 1400m /
-	// 3072Mi used against 354m / 1430Mi + 0 credit. Existing pods keep
+	// 3072Mi used against 782m / 2584Mi + 0 credit. Existing pods keep
 	// running; a NEW customer pod is refused — correct, and only that.
 	if ok, _ := admits(t, plan, false, all, acmePod{"new-customer", lbl("app", "x"), "10m", "16Mi", "10m", "16Mi", "", ""}); ok {
 		t.Errorf("a new customer pod fits although the customer is over its plan — the credit is crediting customer pods")
@@ -249,9 +250,9 @@ func TestReconcile_7067_ClasslessCredit_UnwedgesAcmewalk307(t *testing.T) {
 		}
 		prevCPU = got
 	}
-	for k, w := range map[string]string{"requests.cpu": "354m", "requests.memory": "1430Mi", "limits.cpu": "3", "limits.memory": "4266Mi"} {
+	for k, w := range map[string]string{"requests.cpu": "782m", "requests.memory": "2584Mi", "limits.cpu": "5500m", "limits.memory": "7594Mi"} {
 		if got := resource.MustParse(plan.Spec.Hard[k]); got.Cmp(resource.MustParse(w)) != 0 {
-			t.Errorf("(c) every platform pod stamped: plan-quota %s = %s, want the bare plan + coredns %s", k, plan.Spec.Hard[k], w)
+			t.Errorf("(c) every platform pod stamped: plan-quota %s = %s, want the bare plan + coredns + the given applications %s", k, plan.Spec.Hard[k], w)
 		}
 	}
 	// The stamped stack plus the hook fits platform-quota.
@@ -269,7 +270,8 @@ func (f failingReader) List(ctx context.Context, list client.ObjectList, opts ..
 }
 
 // (d) Pods not listable: never lower than the safe bound — per resource, the
-// larger of the live hard and plan + coredns + the whole modelled stack.
+// larger of the live hard and plan + coredns + the given applications + the
+// whole modelled stack.
 func TestReconcile_7067_ClasslessCredit_RBACMissingNeverShrinks(t *testing.T) {
 	t.Parallel()
 	pods := append(acmewalk307Platform(), acmewalk307Customer()...)
@@ -278,7 +280,7 @@ func TestReconcile_7067_ClasslessCredit_RBACMissingNeverShrinks(t *testing.T) {
 		t.Fatalf("plan-quota is not scoped when the credit is unknown: %+v", plan.Spec.ScopeSelector)
 	}
 	live := liveTransitionalPlanQuota().Spec.Hard
-	static := map[string]string{"requests.cpu": "4674m", "requests.memory": "8470Mi", "limits.cpu": "7510m", "limits.memory": "12170Mi"}
+	static := map[string]string{"requests.cpu": "5102m", "requests.memory": "9624Mi", "limits.cpu": "10010m", "limits.memory": "15498Mi"}
 	for k, s := range static {
 		got := resource.MustParse(plan.Spec.Hard[k])
 		l := live[corev1.ResourceName(k)]
@@ -286,9 +288,10 @@ func TestReconcile_7067_ClasslessCredit_RBACMissingNeverShrinks(t *testing.T) {
 			t.Errorf("(d) unknown credit: plan-quota %s = %s, below the safe bound (static %s, live %s)", k, got.String(), s, l.String())
 		}
 	}
-	// It is no looser than needed: the live hard wins exactly here.
-	if plan.Spec.Hard["requests.memory"] != "9286Mi" {
-		t.Errorf("(d) unknown credit: requests.memory %s, want the live 9286Mi kept", plan.Spec.Hard["requests.memory"])
+	// It is no looser than needed: the live hard wins exactly here (and the
+	// static bound on the other three).
+	if plan.Spec.Hard["requests.cpu"] != "5479m" || plan.Spec.Hard["requests.memory"] != "9624Mi" {
+		t.Errorf("(d) unknown credit: requests.cpu %s / requests.memory %s, want the live 5479m kept and the bound 9624Mi", plan.Spec.Hard["requests.cpu"], plan.Spec.Hard["requests.memory"])
 	}
 	// And the classless platform pods are still credited at least in full:
 	// the static stack bound alone covers the 6736Mi they hold.

@@ -593,10 +593,11 @@ twice it for XL — raised to the package headline if set below it and lowered
 to that grow ceiling if set above it. The requests side (the
 guaranteed share) and the overheads are the same in both modes, and the
 LimitRange per-container defaults stay headline-derived. Since #7067 the
-customer-scope `plan-quota` carries only the plan term plus the synced coredns
-(the platform's own pods are admitted against `platform-quota`, below), so plan
-M grow at the default ceiling renders `limits.cpu` 8 + 1 = 9 against capped M's
-2 + 1 = 3, with `requests.*` unchanged (334m + 20m = 354m).
+customer-scope `plan-quota` carries the plan term plus the synced coredns plus
+what every Organization is given in that scope (below; the platform's own pods
+are admitted against `platform-quota`), so plan M grow at the default ceiling
+renders `limits.cpu` 8 + 1 + 2.5 = 11.5 against capped M's 2 + 1 + 2.5 = 5.5,
+with `requests.*` unchanged (334m + 20m + 428m = 782m).
 
 **Two admission scopes (#7067).** The Organization namespace holds OpenOva's
 pods and the customer's pods, and until #7067 they shared one quota sized
@@ -617,13 +618,20 @@ openclaw per-user pods, and refusing a synced pod that claims the class;
 `platform-quota` scoped `PriorityClass In [catalyst-org-platform]` = vcluster-0
 + platform stack + transient headroom (largest hook pod + one surge replica):
 5080m / 7808Mi requests, 5460m / 9312Mi limits on every plan; and `plan-quota`
-scoped `NotIn` = plan + the synced coredns (M: 354m / 1430Mi requests, 3 /
-4266Mi limits) **+ the classless platform credit**: the effective usage of
+scoped `NotIn` = plan + the synced coredns + **what every Organization is
+given in that scope**: the website and mail server the funnel installs for
+every Organization (`bp-wordpress-tenant` with its database, `bp-stalwart-tenant`
+with its webmail), their pods plus the largest hook pod and one surge replica,
+each figure pinned to the source that sets it
+(`core/controllers/organization/internal/gitops/plan_quota_included.go`; M
+428m / 1154Mi requests, 2500m / 3328Mi limits), so the plan's part is left as
+sold for what the customer adds (M in all: 782m / 2584Mi requests, 5500m /
+7594Mi limits) **+ the classless platform credit**: the effective usage of
 the platform pods admitted before the class existed, which the always-scoped
 `plan-quota` charges, recomputed by the organization-controller on every
 reconcile from the namespace's pods and shrinking to zero as they are
 replaced (pods not listable → the hard never shrinks: max of the live hard and
-plan + coredns + vcluster-0 + the whole stack). The BSS door sizes the purchase it delivers (bp-stalwart-tenant,
+plan + coredns + the given applications + vcluster-0 + the whole stack). The BSS door sizes the website and mail server it delivers (bp-stalwart-tenant,
 bp-wordpress-tenant) at request = limit ÷ the plan overcommit, the LimitRange
 rule, so the request side never refuses a purchase whose limits fit. Usage above the headline
 is billed in arrears by BSS. The ResourceQuota and LimitRange carry

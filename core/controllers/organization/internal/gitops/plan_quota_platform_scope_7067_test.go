@@ -607,16 +607,17 @@ func TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit(t *testing.T) {
 			t.Errorf("%s: plan-quota does not state its classless platform credit", name)
 		}
 	}
-	// plan m = 334m / 1366Mi, 2 / 4Gi; coredns 20m / 64Mi, 1 / 170Mi.
+	// plan m = 334m / 1366Mi, 2 / 4Gi; coredns 20m / 64Mi, 1 / 170Mi; the
+	// given applications 428m / 1154Mi, 2500m / 3328Mi (plan_quota_included.go).
 	got := renderCredit(t, Inputs{ClasslessPlatformCredit: credit}).Spec.Hard
-	for k, w := range map[string]string{"requests.cpu": "4159m", "requests.memory": "8166Mi", "limits.cpu": "6850m", "limits.memory": "11050Mi"} {
+	for k, w := range map[string]string{"requests.cpu": "4587m", "requests.memory": "9320Mi", "limits.cpu": "9350m", "limits.memory": "14378Mi"} {
 		if got[k] != w {
-			t.Errorf("credit: plan-quota %s = %s, want %s (plan + coredns + credit)", k, got[k], w)
+			t.Errorf("credit: plan-quota %s = %s, want %s (plan + coredns + given + credit)", k, got[k], w)
 		}
 	}
 	zero := renderCredit(t, Inputs{}).Spec.Hard
-	if zero["requests.cpu"] != "354m" || zero["requests.memory"] != "1430Mi" {
-		t.Errorf("no credit: plan-quota = %v, want the plan + coredns (354m / 1430Mi)", zero)
+	if zero["requests.cpu"] != "782m" || zero["requests.memory"] != "2584Mi" {
+		t.Errorf("no credit: plan-quota = %v, want the plan + coredns + the given applications (782m / 2584Mi)", zero)
 	}
 }
 
@@ -627,16 +628,24 @@ func TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit(t *testing.T) {
 func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	t.Parallel()
 	static := staticPlatformCredit(planQuota("m"))
-	// plan + coredns + vcluster-0 + stack = 354m+500m+3820m / 1430Mi+1Gi+6016Mi …
-	bound := map[string]string{"requests.cpu": "4674m", "requests.memory": "8470Mi", "limits.cpu": "7510m", "limits.memory": "12170Mi"}
+	// plan + coredns + given + vcluster-0 + stack =
+	// 354m+428m+500m+3820m / 1430Mi+1154Mi+1Gi+6016Mi …
+	bound := map[string]string{"requests.cpu": "5102m", "requests.memory": "9624Mi", "limits.cpu": "10010m", "limits.memory": "15498Mi"}
 	if static.Pods != len(platformStack)+1 {
 		t.Errorf("static credit covers %d pods, want the stack + vcluster-0", static.Pods)
 	}
-	// The live acmewalk307 hard after #7078 (unscoped transitional): larger on
-	// every side, so it is kept.
-	live := map[string]string{"requests.cpu": "5479m", "requests.memory": "9286Mi", "limits.cpu": "9500m", "limits.memory": "14122Mi"}
+	// A live hard larger on every side is kept.
+	live := map[string]string{"requests.cpu": "5479m", "requests.memory": "9900Mi", "limits.cpu": "11", "limits.memory": "16Gi"}
 	if got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: live}).Spec.Hard; !equalHard(got, live) {
 		t.Errorf("unknown credit with a larger live hard: %v, want the live hard kept %v", got, live)
+	}
+	// The live acmewalk307 hard after #7078 (unscoped transitional) is larger
+	// than the bound on requests.cpu only since the given applications are
+	// held: that side is kept, the others take the bound.
+	acme := map[string]string{"requests.cpu": "5479m", "requests.memory": "9286Mi", "limits.cpu": "9500m", "limits.memory": "14122Mi"}
+	acmeWant := map[string]string{"requests.cpu": "5479m", "requests.memory": "9624Mi", "limits.cpu": "10010m", "limits.memory": "15498Mi"}
+	if got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: acme}).Spec.Hard; !equalHard(got, acmeWant) {
+		t.Errorf("unknown credit with the acmewalk307 live hard: %v, want per-resource max %v", got, acmeWant)
 	}
 	// A live hard below the bound (or none at all) never pulls it down.
 	for name, l := range map[string]map[string]string{
@@ -651,7 +660,7 @@ func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	// Mixed: each resource takes its own maximum.
 	mixed := map[string]string{"requests.cpu": "9000m", "requests.memory": "1Mi", "limits.cpu": "1", "limits.memory": "99Gi"}
 	got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: mixed}).Spec.Hard
-	want := map[string]string{"requests.cpu": "9", "requests.memory": "8470Mi", "limits.cpu": "7510m", "limits.memory": "99Gi"}
+	want := map[string]string{"requests.cpu": "9", "requests.memory": "9624Mi", "limits.cpu": "10010m", "limits.memory": "99Gi"}
 	if !equalHard(got, want) {
 		t.Errorf("unknown credit, mixed live: %v, want per-resource max %v", got, want)
 	}

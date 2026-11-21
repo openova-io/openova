@@ -41,6 +41,46 @@ on:
       - 'core/controllers/go.mod'
       - 'core/controllers/go.sum'
       - '.github/workflows/build-organization-controller.yaml'
+      # The files outside this module that the quota pin tests of
+      # core/controllers/organization/internal/gitops read (their table
+      # pinnedSources, plan_quota_plus_platform_stack_test.go): a change to
+      # one runs the tests that pin it. On 21 Nov 2026 an agenity chart
+      # change left TestPlatformStack_PinnedToSources red on main for a day
+      # because this workflow did not run. The tree guard
+      # tools/guards/cmd/pinned-sources fails when an entry of that table is
+      # not covered here. Not added to push: a push run builds, signs and
+      # deploys a new image, and a chart change does not change the binary.
+      - 'core/services/provisioning/gitops/helmrelease_apps.go'
+      - 'platform/newapi/chart/Chart.yaml'
+      - 'platform/newapi/chart/templates/000-external-secrets-webhook-readiness-job.yaml'
+      - 'platform/newapi/chart/templates/admin-sso-seed-job.yaml'
+      - 'platform/newapi/chart/templates/channel-seed-job.yaml'
+      - 'platform/newapi/chart/templates/database-secret-sync-job.yaml'
+      - 'platform/newapi/chart/templates/deployment.yaml'
+      - 'platform/newapi/chart/values.yaml'
+      - 'platform/openclaw/chart/Chart.yaml'
+      - 'platform/openclaw/chart/templates/controller-deployment.yaml'
+      - 'platform/openclaw/chart/templates/per-user-pod-template.yaml'
+      - 'platform/openclaw/chart/values.yaml'
+      - 'platform/stalwart-tenant/chart/templates/deployment.yaml'
+      - 'platform/stalwart-tenant/chart/templates/mailbox-provision-job.yaml'
+      - 'platform/stalwart-tenant/chart/templates/webmail-deployment.yaml'
+      - 'platform/stalwart-tenant/chart/values.yaml'
+      - 'platform/wordpress-tenant/chart/templates/_helpers.tpl'
+      - 'platform/wordpress-tenant/chart/templates/admin-user-job.yaml'
+      - 'platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml'
+      - 'platform/wordpress-tenant/chart/templates/deployment.yaml'
+      - 'platform/wordpress-tenant/chart/templates/media-migrate-job.yaml'
+      - 'platform/wordpress-tenant/chart/templates/oidc-config-job.yaml'
+      - 'platform/wordpress-tenant/chart/values.yaml'
+      - 'products/agenity/chart/Chart.yaml'
+      - 'products/agenity/chart/templates/oidc-gate.yaml'
+      - 'products/agenity/chart/templates/statefulset.yaml'
+      - 'products/agenity/chart/values.yaml'
+      - 'products/catalyst/bootstrap/api/internal/handler/organization_funnel_apps.go'
+      - 'products/catalyst/bootstrap/api/internal/handler/organization_gitops.go'
+      - 'products/catalyst/bootstrap/api/internal/handler/organization_purchase_sizing.go'
+      - 'tests/acceptance/sovereign/internal/suite/check_org_isolation.go'
   workflow_dispatch:
 
 env:

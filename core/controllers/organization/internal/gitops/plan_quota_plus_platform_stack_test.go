@@ -6,7 +6,8 @@
 //
 //  1. INSTALL LIST — platformStack covers exactly the HelmReleases the BSS door
 //     renders for every Organization (organization_gitops.go orgTenantTemplates)
-//     minus the customer's purchase (bp-wordpress-tenant, bp-stalwart-tenant).
+//     minus the two given in the customer scope (bp-wordpress-tenant,
+//     bp-stalwart-tenant: includedStack, plan_quota_included_test.go).
 //     The list is read from the source, not restated.
 //  2. PIN — every figure in platformStack equals what its Source sets today:
 //     the BSS door's HelmRelease values (parsed out of organization_gitops.go),
@@ -85,11 +86,61 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
+// pinnedSources is every file outside this package that the pin tests of this
+// package read, as a repo-root-relative path. readRepo refuses any other, so
+// the list cannot fall behind the reads. A change to one of these files must
+// run this package's tests: .github/workflows/build-organization-controller.yaml
+// lists each in its pull_request path filter, and the tree guard
+// tools/guards/cmd/pinned-sources fails when one is not covered (on 21 Nov
+// 2026 TestPlatformStack_PinnedToSources was red on main for a day after an
+// agenity chart change that did not run this workflow).
+var pinnedSources = []string{
+	"core/services/provisioning/gitops/helmrelease_apps.go",
+	"platform/newapi/chart/Chart.yaml",
+	"platform/newapi/chart/templates/000-external-secrets-webhook-readiness-job.yaml",
+	"platform/newapi/chart/templates/admin-sso-seed-job.yaml",
+	"platform/newapi/chart/templates/channel-seed-job.yaml",
+	"platform/newapi/chart/templates/database-secret-sync-job.yaml",
+	"platform/newapi/chart/templates/deployment.yaml",
+	"platform/newapi/chart/values.yaml",
+	"platform/openclaw/chart/Chart.yaml",
+	"platform/openclaw/chart/templates/controller-deployment.yaml",
+	"platform/openclaw/chart/templates/per-user-pod-template.yaml",
+	"platform/openclaw/chart/values.yaml",
+	"platform/stalwart-tenant/chart/templates/deployment.yaml",
+	"platform/stalwart-tenant/chart/templates/mailbox-provision-job.yaml",
+	"platform/stalwart-tenant/chart/templates/webmail-deployment.yaml",
+	"platform/stalwart-tenant/chart/values.yaml",
+	"platform/wordpress-tenant/chart/templates/_helpers.tpl",
+	"platform/wordpress-tenant/chart/templates/admin-user-job.yaml",
+	"platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml",
+	"platform/wordpress-tenant/chart/templates/deployment.yaml",
+	"platform/wordpress-tenant/chart/templates/media-migrate-job.yaml",
+	"platform/wordpress-tenant/chart/templates/oidc-config-job.yaml",
+	"platform/wordpress-tenant/chart/values.yaml",
+	"products/agenity/chart/Chart.yaml",
+	"products/agenity/chart/templates/oidc-gate.yaml",
+	"products/agenity/chart/templates/statefulset.yaml",
+	"products/agenity/chart/values.yaml",
+	"products/catalyst/bootstrap/api/internal/handler/organization_funnel_apps.go",
+	"products/catalyst/bootstrap/api/internal/handler/organization_gitops.go",
+	"products/catalyst/bootstrap/api/internal/handler/organization_purchase_sizing.go",
+	"tests/acceptance/sovereign/internal/suite/check_org_isolation.go",
+}
+
 // readRepo reads a repo-root-relative file. FATAL on a miss: every read here is
 // a term of the quota arithmetic, and a term that silently reads as empty is
-// how an overhead loses a workload.
+// how an overhead loses a workload. FATAL too on a path not in pinnedSources.
 func readRepo(t *testing.T, parts ...string) string {
 	t.Helper()
+	rel := strings.Join(parts, "/")
+	listed := false
+	for _, s := range pinnedSources {
+		listed = listed || s == rel
+	}
+	if !listed {
+		t.Fatalf("%s is not in pinnedSources — add it there, and to the pull_request paths of .github/workflows/build-organization-controller.yaml (tools/guards/cmd/pinned-sources checks the two agree)", rel)
+	}
 	p := filepath.Join(append([]string{repoRoot(t)}, parts...)...)
 	b, err := os.ReadFile(p)
 	if err != nil {
@@ -401,9 +452,22 @@ func TestPlatformStack_CoversTheBSSDoorInstallList(t *testing.T) {
 	if len(rendered) < 4 {
 		t.Fatalf("vacuity: found only %d bp-*.yaml entries in orgTenantTemplates (%v) — the scanner missed; re-point it", len(rendered), rendered)
 	}
-	// The customer's purchase, subtracted by name. Each must actually be in
-	// the rendered list, or the subtraction is a no-op that hides a rename.
-	purchase := []string{"bp-wordpress-tenant", "bp-stalwart-tenant"}
+	// The applications given in the customer scope (includedStack, held by
+	// plan-quota on top of the plan), subtracted by name. Each must actually
+	// be in the rendered list, or the subtraction is a no-op that hides a
+	// rename. includedStack names the funnel's Application, the overlay
+	// HelmRelease name without "bp-".
+	var purchase []string
+	seenGiven := map[string]bool{}
+	for _, w := range includedStack {
+		if !seenGiven[w.Release] {
+			seenGiven[w.Release] = true
+			purchase = append(purchase, "bp-"+w.Release)
+		}
+	}
+	if len(purchase) != 2 {
+		t.Fatalf("includedStack spans %v, want bp-wordpress-tenant and bp-stalwart-tenant", purchase)
+	}
 	for _, p := range purchase {
 		if !rendered[p] {
 			t.Fatalf("orgTenantTemplates no longer renders %s — the purchase list this test subtracts is stale", p)
@@ -520,6 +584,19 @@ func TestPlatformStack_PinnedToSources(t *testing.T) {
 		t.Errorf("openovaMCP.enabled = %q — the tool-identity sidecar and its init render only under it, so platformStack would overstate the pod", v)
 	}
 	sameShape(t, wlAgenity+" tool-identity", ag.Containers[1], shapeAt(t, av, "toolIdentity", "resources"))
+	// The agenity figures are the chart's defaults only while neither door
+	// overrides them: the BSS door (orgTenantBPAgenity, also the funnel's
+	// Application parameters) and the per-Org door (generateAgenityHR).
+	for door, vals := range map[string]map[string]any{
+		"BSS door orgTenantBPAgenity": helmReleaseValues(t, goRawString(t, bss, "const orgTenantBPAgenity = ")),
+		"per-Org generateAgenityHR":   helmReleaseValues(t, goRawString(t, funnel, "func generateAgenityHR(")),
+	} {
+		for _, p := range [][]string{{"resources"}, {"toolIdentity", "resources"}, {"openovaMCP", "enabled"}, {"oidcGate", "resources"}} {
+			if _, set := dig(vals, p...); set {
+				t.Errorf("%s sets %s — platformStack models bp-agenity from the chart defaults; pin the door's value instead", door, strings.Join(p, "."))
+			}
+		}
+	}
 	sts := readRepo(t, "products", "agenity", "chart", "templates", "statefulset.yaml")
 	namesEqual(t, wlAgenity, podSpecContainerNames(t, sts, "bp-agenity statefulset.yaml"),
 		[]string{"workspace-home", "tool-identity-init", "chepherd", "tool-identity"})
