@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T05:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-21T05:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,11 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T05:25 | [#8581](https://github.com/openova-io/openova/pull/8581) | #7087 | docs(ledger): plan update |
 | 2026-11-21T05:10 | [#8579](https://github.com/openova-io/openova/pull/8579) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:29 | [#8573](https://github.com/openova-io/openova/pull/8573) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:18 | [#8572](https://github.com/openova-io/openova/pull/8572) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:50 | [#8571](https://github.com/openova-io/openova/pull/8571) | #8557 | fix(charts): every foundation release has a function test th |
+| 2026-11-21T05:28 | [#8570](https://github.com/openova-io/openova/pull/8570) | #6762 | fix(cutover): the sovereignty proof counts the cloud Workspa |
 | 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
 | 2026-11-20T21:06 | [#8540](https://github.com/openova-io/openova/pull/8540) | fix(tests): three Go tests of the platform API stop failing  |  |
 | 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
-| 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
-| 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
 
 ---
 
