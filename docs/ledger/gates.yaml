@@ -1490,7 +1490,7 @@ checks:
   destructive: true
   needs: [node-reboot]
   proof: running
-  asserts: Region by region, one worker node that runs workloads gets a pending reboot and restarts drained (judged by boot identifier and unschedulable) within period + lock release delay + 15 minutes; its workload Pods move off it and it comes back; no control-plane node restarts and kured's DaemonSet cannot run on one; afterwards every node is Ready and schedulable, kured's DaemonSet is fully ready and every HelmRelease that was Ready before the reboot is Ready again; journey J1 of the same run passed; every upgrade Plan present has a window that ends at least 30 minutes before kured's reboot span starts.
+  asserts: Region by region, the worker node that runs a Ready endpoint of Service harbor/harbor, the registry front (else the first worker by name that runs workloads), gets a pending reboot and restarts drained (judged by boot identifier and unschedulable) within period + lock release delay + 15 minutes; its workload Pods move off it and it comes back; no control-plane node restarts and kured's DaemonSet cannot run on one; no container of the region waits on an image before the reboot; afterwards every node is Ready and schedulable, kured's DaemonSet is fully ready, every HelmRelease that was Ready before the reboot is Ready again, every controller of a moved Pod has as many Ready Pods as before, and no container of the region waits on an image; journey J1 of the same run passed; every upgrade Plan present has a window that ends at least 30 minutes before kured's reboot span starts.
   implementation: tests/acceptance/sovereign/internal/suite/check_inf_g01.go
   implemented_by: INF-051
   delivered_by: INF-052
