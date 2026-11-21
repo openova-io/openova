@@ -31,6 +31,9 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kfake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
@@ -249,42 +252,48 @@ const emptyTenantsIndex = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Ku
 // credential (Phase 0) and trust (Phase 0.5) and succeeded.
 var afterStep06 = map[string]string{"registriesYamlActive": "v2", "step.helmrepository-patches.result": "success", "currentStep": "catalyst-api-env-patch"}
 
-// publicAuthHeld is the lookup of a cluster where step 06 has not stripped the
-// public catalog's auth from ghcr-pull; publicAuthStripped of one where it has.
-func publicAuthHeld(context.Context) (bool, error)     { return true, nil }
-func publicAuthStripped(context.Context) (bool, error) { return false, nil }
+// credentialAbsent is the lookup of a cluster where step 06's Phase 0 has not
+// merged the registry's credential into ghcr-pull; credentialPresent of one
+// where it has; trustAbsent of one where Phase 0.5 has not written the trust
+// Secret.
+func credentialAbsent(context.Context, string) (bool, error)  { return false, nil }
+func credentialPresent(context.Context, string) (bool, error) { return true, nil }
+func trustAbsent(context.Context) (string, error)             { return "", nil }
+
+// stepSixRunning is the cutover status while step 06 runs: through Phase 0,
+// Phase 0.5, Phase 2b, the read-back and the Phase 3b strip.
+var stepSixRunning = map[string]string{"registriesYamlActive": "v2", "currentStep": "helmrepository-patches", "step.helmrepository-patches.result": "running"}
 
 // The source an Organization written at each moment of the cutover gets, and
-// that it can use then: the public catalog until step 06 has written the
-// credential and the trust of the Sovereign's registry (egress stays open
-// until step 08), the Sovereign's own with certSecretRef from then on. On main
-// the two middle moments got the Sovereign's registry, which source-controller
-// can neither authenticate to nor trust before step 06, and a cutover that
-// stopped there left every later Organization on a source that cannot work.
-// Once step 06 has stripped the public catalog's auth (Phase 3b) the own source
-// is the only one that works, also when the step then failed (a secondary not
-// reached) or a re-run blanked its row: the public catalog there would fail
-// "no auth config for 'ghcr.io'" on all six shared blocks.
+// that it can use then: the public catalog until step 06 has merged the
+// registry's credential (Phase 0) and written its trust Secret (Phase 0.5)
+// (egress stays open until step 08), the Sovereign's own with certSecretRef
+// from then on, while the step still runs (the file Phase 2b writes, which a
+// write must not undo before the read-back ahead of the strip), after it failed
+// or after a re-run blanked its row.
 func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 	for name, tc := range map[string]struct {
-		stamp    bool
-		status   map[string]string
-		stripped bool
-		own      bool
+		stamp  bool
+		status map[string]string
+		cred   bool // Phase 0's credential is in ghcr-pull
+		trust  bool // Phase 0.5's trust Secret is there
+		own    bool
 	}{
-		"before step 03 ends":                        {status: map[string]string{"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"}},
-		"between step 03's end and step 06's phases": {status: map[string]string{"registriesYamlActive": "v2", "currentStep": "helmrepository-patches", "step.helmrepository-patches.result": "running"}},
-		"a cutover stopped after step 03":            {status: map[string]string{"registriesYamlActive": "v2", "failedStep": "registry-pivot", "step.registry-pivot.result": "failed"}},
-		"a cutover stopped in step 06 after its strip": {
-			status:   map[string]string{"registriesYamlActive": "v2", "failedStep": "helmrepository-patches", "step.helmrepository-patches.result": "failed"},
-			stripped: true, own: true,
+		"before step 03 ends":                   {status: map[string]string{"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"}},
+		"after step 03, before step 06 Phase 0": {status: stepSixRunning},
+		"after Phase 0, before Phase 0.5":       {status: stepSixRunning, cred: true},
+		"after Phase 0.5 while step 06 runs":    {status: stepSixRunning, cred: true, trust: true, own: true},
+		"a cutover stopped after step 03":       {status: map[string]string{"registriesYamlActive": "v2", "failedStep": "registry-pivot", "step.registry-pivot.result": "failed"}},
+		"a cutover stopped inside step 06 after Phase 0.5": {
+			status: map[string]string{"registriesYamlActive": "v2", "failedStep": "helmrepository-patches", "step.helmrepository-patches.result": "failed"},
+			cred:   true, trust: true, own: true,
 		},
-		"a re-run blanked step 06's row after an earlier strip": {
-			status:   map[string]string{"registriesYamlActive": "v2", "currentStep": "harbor-prewarm", "step.helmrepository-patches.result": ""},
-			stripped: true, own: true,
+		"a re-run blanked step 06's row after an earlier Phase 0.5": {
+			status: map[string]string{"registriesYamlActive": "v2", "currentStep": "harbor-prewarm", "step.helmrepository-patches.result": ""},
+			cred:   true, trust: true, own: true,
 		},
-		"after step 06":               {status: afterStep06, own: true},
-		"after step 07 (the new Pod)": {stamp: true, own: true},
+		"after step 06":               {status: afterStep06, cred: true, trust: true, own: true},
+		"after step 07 (the new Pod)": {stamp: true, trust: true, own: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			oldEnginePodEnv(t)
@@ -294,13 +303,12 @@ func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 			bare := tenantsRemote(t, map[string]string{
 				"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
 			})
-			// publicAuthHeld would turn the last two moments to the public
-			// catalog: they must answer without looking the strip up.
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(tc.status), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
-			if tc.stripped {
-				w.PublicAuth = publicAuthStripped
+			// Without the credential the trust Secret is not looked up.
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(tc.status), PullAuth: credentialAbsent, HarborTrust: trustLookupMustNotRun(t)}
+			if tc.cred {
+				w.PullAuth, w.HarborTrust = credentialPresent, trustAbsent
 			}
-			if tc.own {
+			if tc.trust {
 				w.HarborTrust = trustPresent
 			}
 			if _, err := w.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
@@ -318,24 +326,71 @@ func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 	}
 }
 
-// An Organization written between step 03 and step 06 gets the public catalog,
-// and the re-render before step 08 moves it onto the Sovereign's own with the
-// trust reference once step 06 has succeeded.
+// An Organization written after step 06's Phase 2b pivoted the shared file in
+// Git and before its Phase 3b strip (the credential and the trust in place, the
+// step still running, ghcr-pull still holding the ghcr.io auth) keeps the file
+// on the Sovereign's registry with the trust reference, so step 06's read-back
+// before the strip finds bp-keycloak, bp-wordpress-tenant, bp-openclaw,
+// bp-stalwart-tenant and bp-agenity pivoted. The previous head answered "not
+// usable" while the ghcr.io auth was held and rewrote the file to the public
+// catalog, undoing Phase 2b in Git. The lookups read the Secrets as step 06
+// leaves them, through the package's own readers.
+func TestOrganizationWrittenAfterPhase2bKeepsTheSovereignsRegistry(t *testing.T) {
+	oldEnginePodEnv(t)
+	dir := "clusters/" + pivotTestFQDN + "/org-tenants/"
+	pivoted := orgtenantrepos.Render("oci://registry."+pivotTestFQDN+"/openova-io", orgtenantrepos.TrustSecretName)
+	bare := tenantsRemote(t, map[string]string{
+		dir + "kustomization.yaml":    emptyTenantsIndex,
+		dir + "helmrepositories.yaml": pivoted,
+	})
+	auths := `{"auths":{"ghcr.io":{"auth":"eDp5"},"harbor.openova.io":{"auth":"eDp5"},"registry.` + pivotTestFQDN + `":{"auth":"eDp5"}}}`
+	core := kfake.NewSimpleClientset(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: orgtenantrepos.PullSecretName, Namespace: orgtenantrepos.TrustSecretNamespace},
+			Type:       corev1.SecretTypeDockerConfigJson,
+			Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(auths)},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: orgtenantrepos.TrustSecretName, Namespace: orgtenantrepos.TrustSecretNamespace,
+				Labels: map[string]string{"bp.openova.io/cutover-step": "helmrepository-patches"}},
+			Data: map[string][]byte{"ca.crt": []byte("-----BEGIN CERTIFICATE-----")},
+		},
+	)
+	w := DefaultOrganizationGitOpsWriter{
+		CutoverStatus: cutoverStatusFixed(stepSixRunning),
+		PullAuth: func(ctx context.Context, host string) (bool, error) {
+			return orgtenantrepos.PullAuth(ctx, core, host)
+		},
+		HarborTrust: func(ctx context.Context) (string, error) { return orgtenantrepos.Trust(ctx, core) },
+	}
+	if _, err := w.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
+		t.Fatalf("WriteTenantOverlay: %v", err)
+	}
+	got := remoteFile(t, bare, dir+"helmrepositories.yaml")
+	if got != pivoted {
+		t.Fatalf("an Organization written after Phase 2b and before the strip changed the pivoted file:\n%s", got)
+	}
+	assertSixOnOwnCatalog(t, got, orgtenantrepos.TrustSecretName)
+}
+
+// An Organization written after step 03 and before step 06's Phase 0 gets the
+// public catalog, and the re-render before step 08 moves it onto the
+// Sovereign's own with the trust reference once step 06 has run.
 func TestOrganizationWrittenBeforeStep06IsMovedByTheReRenderBeforeStep08(t *testing.T) {
 	oldEnginePodEnv(t)
 	path := "clusters/" + pivotTestFQDN + "/org-tenants/helmrepositories.yaml"
 	bare := tenantsRemote(t, map[string]string{
 		"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
 	})
-	between := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{"registriesYamlActive": "v2"}), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
+	between := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{"registriesYamlActive": "v2"}), PullAuth: credentialAbsent, HarborTrust: trustLookupMustNotRun(t)}
 	if _, err := between.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
 		t.Fatalf("WriteTenantOverlay: %v", err)
 	}
 	if got := remoteFile(t, bare, path); got != orgtenantrepos.Template {
-		t.Fatalf("written between step 03 and step 06: want the public catalog:\n%s", got)
+		t.Fatalf("written after step 03, before step 06's Phase 0: want the public catalog:\n%s", got)
 	}
 	before := remoteCommits(t, bare)
-	sha, err := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}.RepointSharedHelmRepositories(context.Background(), afterStep06)
+	sha, err := DefaultOrganizationGitOpsWriter{PullAuth: credentialPresent, HarborTrust: trustPresent}.RepointSharedHelmRepositories(context.Background(), afterStep06)
 	if err != nil || sha == "" || remoteCommits(t, bare) != before+1 {
 		t.Fatalf("re-render before step 08: sha=%q err=%v commits=%d (was %d), want one commit", sha, err, remoteCommits(t, bare), before)
 	}
@@ -398,7 +453,7 @@ func TestReRenderBeforeStep08AgainstASilentRemoteReturnsWithinItsDeadline(t *tes
 	go func() {
 		defer close(done)
 		repointOrgTenantSources(context.Background(), slog.New(slog.NewTextHandler(&logged, nil)),
-			DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}, &cutoverDeps{core: client, ns: cutoverTestNS},
+			DefaultOrganizationGitOpsWriter{PullAuth: credentialPresent, HarborTrust: trustPresent}, &cutoverDeps{core: client, ns: cutoverTestNS},
 			func(ev cutoverEvent) { events = append(events, ev) })
 	}()
 	select {
@@ -431,7 +486,7 @@ func TestSharedHelmRepositoriesWrittenBeforePivotAreRewrittenAfterIt(t *testing.
 		dir + "040755fec9/kustomization.yaml": overlay,
 	})
 	before := remoteCommits(t, bare)
-	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
+	w := DefaultOrganizationGitOpsWriter{PullAuth: credentialPresent, HarborTrust: trustPresent}
 	status := afterStep06
 
 	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
@@ -464,8 +519,8 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 		"no status":             nil,
 		"before harbor-prewarm": {"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"},
 		"rolled back":           {"registriesYamlActive": "rollback"},
-		// The registry pivot without step 06 (no credential, no trust yet).
-		"after step 03, before step 06": {"registriesYamlActive": "v2"},
+		// The registry pivot before step 06's Phase 0 (no credential yet).
+		"after step 03, before step 06 Phase 0": {"registriesYamlActive": "v2"},
 		// Step 06's result without the registry pivot is not enough either.
 		"step 06 result only": {"registriesYamlActive": "v1", "step.helmrepository-patches.result": "success"},
 	} {
@@ -476,7 +531,7 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 				dir + "helmrepositories.yaml": orgtenantrepos.Template,
 			})
 			before := remoteCommits(t, bare)
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status), PullAuth: credentialAbsent, HarborTrust: trustLookupMustNotRun(t)}
 			sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 			if err != nil || sha != "" || remoteCommits(t, bare) != before {
 				t.Fatalf("re-render before the pivot: sha=%q err=%v commits=%d (was %d), want nothing", sha, err, remoteCommits(t, bare), before)
@@ -501,7 +556,7 @@ func TestSharedHelmRepositoriesWrittenBeforeTheTrustSecretGetItBeforeTheHold(t *
 		path: orgtenantrepos.Render("oci://registry."+pivotTestFQDN+"/openova-io", ""),
 	})
 	before := remoteCommits(t, bare)
-	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
+	w := DefaultOrganizationGitOpsWriter{PullAuth: credentialPresent, HarborTrust: trustPresent}
 	status := afterStep06
 	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 	if err != nil || sha == "" || remoteCommits(t, bare) != before+1 {

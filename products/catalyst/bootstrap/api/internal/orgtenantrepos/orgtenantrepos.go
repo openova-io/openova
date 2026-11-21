@@ -18,10 +18,11 @@
 // was only created at 04:09:37. Nothing wrote the file again, and step 08 failed
 // three Pods on OFFENDER bp-agenity, bp-openclaw, bp-stalwart-tenant and
 // bp-wordpress-tenant=oci://ghcr.io/openova-io. OwnSourceUsable therefore also
-// reads the cutover's own status, where the engine records that step 06 gave
-// source-controller the registry's credential and trust, and the Secret step
-// 06 strips the public catalog's auth from (publicauth.go); NeedsRewrite lets
-// the re-render find a file written before that moment. The blocks on the
+// reads the evidence that the own source can be used: the registry pivot in
+// the cutover's status, the registry's credential step 06's Phase 0 merges into
+// ghcr-pull (pullauth.go) and the trust Secret its Phase 0.5 writes (trust.go),
+// all three in place before its Phase 2b pivots this file in Git; NeedsRewrite
+// lets the re-render find a file written before that moment. The blocks on the
 // Sovereign's registry carry the trust reference step 06 gives every source
 // it pivots (trust.go).
 package orgtenantrepos
@@ -43,21 +44,12 @@ const FileName = "helmrepositories.yaml"
 // The engine sets it to "v2" when step harbor-prewarm succeeds (handler
 // cutover.go runCutoverWith): from then on the Sovereign's registry holds
 // every chart and image, and the registry-pivot DaemonSet (step 04) points
-// every node at it. source-controller can pull from it only after step 06
-// (StatusKeySourcesPivoted). Nothing in the engine writes the key back;
-// the chart creates the ConfigMap once (lookup guard, #3667), so a helm
-// upgrade does not either. "v1" (the initial value) and "rollback" are not
-// pivoted.
+// every node at it. source-controller can pull from it only once step 06 has
+// given it the registry's credential (Phase 0, pullauth.go) and trust (Phase
+// 0.5, trust.go). Nothing in the engine writes the key back; the chart creates
+// the ConfigMap once (lookup guard, #3667), so a helm upgrade does not either.
+// "v1" (the initial value) and "rollback" are not pivoted.
 const StatusKeyRegistries = "registriesYamlActive"
-
-// StatusKeySourcesPivoted is the status row of step 06
-// (helmrepository-patches); the engine writes "success" when the step's Job
-// completes. Its Phase 0 merges the registry's auth into flux-system/ghcr-pull
-// and its Phase 0.5 writes the trust Secret (trust.go), so "success" says that
-// both exist. Any other value does not say they do not: the step can fail
-// after its Phase 3b strip, and a re-run blanks the row (OwnSourceUsable then
-// reads the strip itself, publicauth.go).
-const StatusKeySourcesPivoted = "step.helmrepository-patches.result"
 
 // Template is the six blocks, on the public catalog.
 //
@@ -153,62 +145,85 @@ spec:
 `
 
 // OwnSourceUsable reports whether source-controller can use the Sovereign's
-// own registry as the blocks' source, from three facts: the step-07 stamp
-// (the last item) is checked first, then the status, then the strip.
+// own registry as the blocks' source (ownSource).
+func OwnSourceUsable(ctx context.Context, env func(string) string, status map[string]string, pullAuth PullAuthFunc, trust TrustFunc, log *slog.Logger) bool {
+	usable, _, _ := ownSource(ctx, env, status, pullAuth, trust, log)
+	return usable
+}
+
+// ownSource decides whether the blocks can use the Sovereign's own registry,
+// from the evidence that they can, and returns with it the trust reference it
+// looked up (looked: the lookup was made and answered).
 //
-//   - The cutover status (status, the data of the status ConfigMap; nil when it
-//     could not be read): StatusKeyRegistries is "v2" (step 03 put every chart
-//     there) and StatusKeySourcesPivoted is "success" (step 06 wrote the
-//     credential and the trust). It is read without a new Pod.
-//   - With StatusKeyRegistries "v2" and the step-06 row anything else (not
-//     reached, running, failed, or blanked by a re-run, #5437, or by a restart
-//     of the engine): the evidence of the strip, publicAuth (nil:
-//     PublicAuthInCluster). Once step 06 has stripped the public catalog's auth
-//     (Phase 3b, after its Phase 0 credential and Phase 0.5 trust) only the
-//     Sovereign's own source works, also when the step failed after the strip.
-//     While the Secret still holds that auth the public catalog works until
-//     step 08 blocks egress, where an Organization written between step 03 and
-//     step 06 would get an own source it can neither authenticate to nor trust;
-//     the re-render before step 08 (handler repointOrgTenantSources) moves it.
-//     A lookup error is logged on log (when not nil) and answers the own
-//     source: a block on it heals once step 06 adds the credential and the
-//     trust, one on the public catalog after the strip does not.
 //   - The issuer pair that step 07 (catalyst-api-env-patch) stamps on the
 //     catalyst-api Deployment, CATALYST_PIN_ISSUER or
-//     CATALYST_HANDOVER_JWT_ISSUER (#5527). It was chosen because nothing else
-//     sets either variable, so its presence is uniquely the cutover's, and it
-//     survives restarts and helm upgrades. Step 07 runs only after step 06
-//     succeeded, so it implies both, also on a Sovereign whose status cannot
-//     be read or after a re-run blanked the row. Its other readers are unchanged: the
-//     issuer of the console's sessions (handler auth.go pinIssuer, agenttoken),
-//     of the hand-over tokens (handoverjwt signer.go) and the image-registry
-//     host of the org-tenant overlay (VClusterImageRegistry, vcluster_registry.go).
+//     CATALYST_HANDOVER_JWT_ISSUER (#5527), is checked first. It was chosen
+//     because nothing else sets either variable, so its presence is uniquely
+//     the cutover's, and it survives restarts and helm upgrades. Step 07 runs
+//     only after step 06 succeeded. Its other readers are unchanged: the issuer
+//     of the console's sessions (handler auth.go pinIssuer, agenttoken), of the
+//     hand-over tokens (handoverjwt signer.go) and the image-registry host of
+//     the org-tenant overlay (VClusterImageRegistry, vcluster_registry.go).
+//   - Otherwise all three facts of step 06's first phases, each read before
+//     the next: StatusKeyRegistries is "v2" in the cutover status (status, the
+//     data of the status ConfigMap; nil when it could not be read: step 03 put
+//     every chart there); ghcr-pull holds the auth of OwnRegistryHost
+//     (pullAuth, nil: PullAuthInCluster; Phase 0); and the trust Secret is
+//     found (trust, nil: TrustInCluster; Phase 0.5). Both phases run before
+//     Phase 2b rewrites this file to the Sovereign's registry and before the
+//     read-back that precedes the Phase 3b strip, so an Organization written
+//     while step 06 runs keeps the file Phase 2b wrote. The step-06 status row
+//     is not read: it is "running" through that whole window, and it says
+//     nothing after a failure or a re-run. The strip is not read either: it
+//     comes after the read-back.
+//   - A read error of ghcr-pull or of the trust Secret is not evidence: the
+//     blocks keep the public catalog and the error is logged on log (when not
+//     nil). The file is decided again on the next Organization write and by
+//     the re-render before step 08 (handler repointOrgTenantSources). A cutover
+//     that stopped inside step 06 after its strip runs neither, so a file
+//     written there on a read error keeps the public catalog, which no longer
+//     authenticates, until a later Organization write reads the Secrets.
 //
-// None holds on the mothership, which has no cutover, and the strip is only
-// looked up when the status alone cannot answer.
-func OwnSourceUsable(ctx context.Context, env func(string) string, status map[string]string, publicAuth PublicAuthFunc, log *slog.Logger) bool {
+// None holds on the mothership, which has no cutover, and no Secret is read
+// before the registry pivot.
+func ownSource(ctx context.Context, env func(string) string, status map[string]string, pullAuth PullAuthFunc, trust TrustFunc, log *slog.Logger) (usable bool, ref string, looked bool) {
 	if strings.TrimSpace(env("CATALYST_PIN_ISSUER")) != "" ||
 		strings.TrimSpace(env("CATALYST_HANDOVER_JWT_ISSUER")) != "" {
-		return true
+		return true, "", false
 	}
 	if strings.TrimSpace(status[StatusKeyRegistries]) != "v2" {
-		return false
+		return false, "", false
 	}
-	if strings.TrimSpace(status[StatusKeySourcesPivoted]) == "success" {
-		return true
+	host := OwnRegistryHost(env)
+	if host == "" {
+		return false, "", false
 	}
-	if publicAuth == nil {
-		publicAuth = PublicAuthInCluster
+	if pullAuth == nil {
+		pullAuth = PullAuthInCluster
 	}
-	held, err := publicAuth(ctx)
+	held, err := pullAuth(ctx, host)
 	if err != nil {
 		if log != nil {
-			log.Warn("org-tenant: the shared HelmRepositories' Secret is unreadable — the blocks take the Sovereign's own registry",
-				"secret", TrustSecretNamespace+"/"+PublicAuthSecretName, "err", err)
+			log.Warn("org-tenant: the shared HelmRepositories' pull Secret is unreadable — the blocks keep the public catalog",
+				"secret", TrustSecretNamespace+"/"+PullSecretName, "host", host, "err", err)
 		}
-		return true
+		return false, "", false
 	}
-	return !held
+	if !held {
+		return false, "", false
+	}
+	if trust == nil {
+		trust = TrustInCluster
+	}
+	ref, err = trust(ctx)
+	if err != nil {
+		if log != nil {
+			log.Warn("org-tenant: the cutover trust Secret is unreadable — the blocks keep the public catalog",
+				"namespace", TrustSecretNamespace, "selector", TrustLabelSelector, "err", err)
+		}
+		return false, "", false
+	}
+	return ref != "", ref, true
 }
 
 // Base returns the OCI base the six blocks declare.

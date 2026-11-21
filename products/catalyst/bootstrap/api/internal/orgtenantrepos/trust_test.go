@@ -107,38 +107,44 @@ func TestTrustSecretNameIsTheChartDefault(t *testing.T) {
 	}
 }
 
-func TestFileLooksUpTrustOnlyOffThePublicCatalog(t *testing.T) {
+// File looks the trust Secret up once: as evidence when it decides from step
+// 06's phases (the reference it found is the one rendered), for the reference
+// alone when it decides from the step-07 stamp, never on the public catalog
+// before the registry's credential is there.
+func TestFileTakesTheTrustReferenceOnce(t *testing.T) {
 	ctx := context.Background()
-	calls, strips := 0, 0
-	lookup := func(ref string, err error) TrustFunc {
-		return func(context.Context) (string, error) { calls++; return ref, err }
-	}
-	held, stripped := stripLookup(true, nil, &strips), stripLookup(false, nil, &strips)
 	env := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test"})
-	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v1"}, held, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 {
-		t.Errorf("not pivoted: want Template and no lookup, got %d lookups:\n%s", calls, got)
-	}
-	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v2"}, held, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 || strips != 1 {
-		t.Errorf("pivoted, step 06 before its strip: want Template and no trust lookup, got %d lookups, %d of the strip:\n%s", calls, strips, got)
-	}
-	failedAfterStrip := map[string]string{StatusKeyRegistries: "v2", StatusKeySourcesPivoted: "failed"}
-	if got := File(ctx, env, failedAfterStrip, stripped, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 1 {
-		t.Errorf("step 06 failed after its strip: want the own source with the trust reference, %d lookups:\n%s", calls, got)
-	}
-	pivoted := usableStatus
-	if got := File(ctx, env, pivoted, nil, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 2 {
-		t.Errorf("pivoted, Secret present: %d lookups:\n%s", calls, got)
-	}
-	if got := File(ctx, env, pivoted, nil, lookup("", nil), nil); got != Render(testLocal, "") {
-		t.Errorf("pivoted, Secret absent:\n%s", got)
-	}
-	var logged bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logged, nil))
-	if got := File(ctx, env, pivoted, nil, lookup(TrustSecretName, errors.New("forbidden")), log); got != Render(testLocal, TrustSecretName) {
-		t.Errorf("lookup error: the reference must be kept:\n%s", got)
-	}
-	if !strings.Contains(logged.String(), "forbidden") {
-		t.Errorf("lookup error not logged: %q", logged.String())
+	stamp := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test", "CATALYST_PIN_ISSUER": "https://console.hw.test"})
+	v2 := map[string]string{StatusKeyRegistries: "v2", "step.helmrepository-patches.result": "running"}
+	for _, tc := range []struct {
+		name          string
+		env           func(string) string
+		status        map[string]string
+		ev            evidence
+		want          string
+		creds, trusts int
+		logs          bool
+	}{
+		{"not pivoted", env, map[string]string{StatusKeyRegistries: "v1"}, evidence{cred: true, trust: TrustSecretName}, Template, 0, 0, false},
+		{"pivoted, before Phase 0", env, v2, evidence{trust: TrustSecretName}, Template, 1, 0, false},
+		{"after Phase 0, before Phase 0.5", env, v2, evidence{cred: true}, Template, 1, 1, false},
+		{"after Phase 0.5", env, v2, evidence{cred: true, trust: TrustSecretName}, Render(testLocal, TrustSecretName), 1, 1, false},
+		{"after Phase 0.5, an overridden trust Secret name", env, v2, evidence{cred: true, trust: "sovereign-registry-ca"}, Render(testLocal, "sovereign-registry-ca"), 1, 1, false},
+		{"the trust Secret unreadable", env, v2, evidence{cred: true, trustErr: errors.New("forbidden")}, Template, 1, 1, true},
+		{"step-07 stamp, Secret present", stamp, nil, evidence{trust: TrustSecretName}, Render(testLocal, TrustSecretName), 0, 1, false},
+		{"step-07 stamp, Secret absent", stamp, nil, evidence{}, Render(testLocal, ""), 0, 1, false},
+		{"step-07 stamp, Secret unreadable: the chart's default name", stamp, nil, evidence{trustErr: errors.New("forbidden")}, Render(testLocal, TrustSecretName), 0, 1, true},
+	} {
+		creds, trusts := 0, 0
+		pull, trust := tc.ev.counted(t, &creds, &trusts)
+		var logged bytes.Buffer
+		got := File(ctx, tc.env, tc.status, pull, trust, slog.New(slog.NewTextHandler(&logged, nil)))
+		if got != tc.want || creds != tc.creds || trusts != tc.trusts {
+			t.Errorf("%s: %d credential and %d trust lookups, want %d and %d; file:\n%s", tc.name, creds, trusts, tc.creds, tc.trusts, got)
+		}
+		if logs := strings.Contains(logged.String(), "forbidden"); logs != tc.logs {
+			t.Errorf("%s: lookup error logged %v, want %v: %q", tc.name, logs, tc.logs, logged.String())
+		}
 	}
 }
 

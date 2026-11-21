@@ -43,9 +43,9 @@ func clearCutoverEnv(t *testing.T) {
 }
 
 // envBase is the base the process env alone gives (no cutover status, so the
-// strip is never looked up).
+// cluster is never read).
 func envBase() string {
-	return orgtenantrepos.Base(os.Getenv, orgtenantrepos.OwnSourceUsable(context.Background(), os.Getenv, nil, nil, nil))
+	return orgtenantrepos.Base(os.Getenv, orgtenantrepos.OwnSourceUsable(context.Background(), os.Getenv, nil, nil, nil, nil))
 }
 
 // hrBlockCount returns the number of HelmRepository blocks in the
