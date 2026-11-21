@@ -273,12 +273,76 @@ run "tier_b_two_regions_poc" {
     condition     = huaweicloud_elb_loadbalancer.primary.cross_vpc_backend == true
     error_message = "Multi-region provs must enable cross_vpc_backend on the gateway ELB (#5244)."
   }
+  # CLD-G12 — the balancer admits BOTH regions' entry points: every member of
+  # all four pools, primary and secondary region alike, carries weight 1. The
+  # provider cannot send a 0 (utils.ValueIgnoreEmpty drops it), so a planned 0
+  # is a change that never converges: every second plan showed 24 of them.
+  assert {
+    condition     = length(huaweicloud_elb_member.console_https) == 6 && length(huaweicloud_elb_member.console_http) == 6
+    error_message = "Console ELB pools must contain every region's nodes (6 for 2×(1 CP + 2 workers))."
+  }
+  assert {
+    condition = alltrue(flatten([
+      for pool in [huaweicloud_elb_member.https, huaweicloud_elb_member.http, huaweicloud_elb_member.console_https, huaweicloud_elb_member.console_http] : [
+        for i, m in local.gateway_lb_members : pool[i].weight == 1 if m.primary
+      ]
+    ]))
+    error_message = "Every primary-region member of the gateway and console pools must carry weight 1."
+  }
+  assert {
+    condition = alltrue(flatten([
+      for pool in [huaweicloud_elb_member.https, huaweicloud_elb_member.http, huaweicloud_elb_member.console_https, huaweicloud_elb_member.console_http] : [
+        for i, m in local.gateway_lb_members : pool[i].weight == 1 if !m.primary
+      ]
+    ]))
+    error_message = "Every secondary-region member of the gateway and console pools must carry weight 1, the primary's weight: the balancer admits both regions' entry points, and a 0 is a weight the provider cannot send (CLD-G12)."
+  }
+  assert {
+    condition = length(flatten([
+      for pool in [huaweicloud_elb_member.https, huaweicloud_elb_member.http, huaweicloud_elb_member.console_https, huaweicloud_elb_member.console_http] : [
+        for m in pool : m if m.weight < 1
+      ]
+    ])) == 0
+    error_message = "No gateway or console member may plan a weight below 1: the provider drops a 0 and the cloud keeps 1, so the plan never converges (CLD-G12)."
+  }
   # §854 — the member ports stay the durable cilium-envoy hostNetwork host
   # ports; the k8s NodePort range must never appear.
   assert {
     condition     = length([for m in huaweicloud_elb_member.https : m if m.protocol_port >= 30000]) == 0 && length([for m in huaweicloud_elb_member.http : m if m.protocol_port >= 30000]) == 0
     error_message = "Gateway ELB member ports must stay below the k8s NodePort range — nodePorts are forbidden (§854)."
   }
+}
+
+# CLD-G12 — a secondary-region weight of 0 is refused at the variable: the
+# huaweicloud provider passes the member weight through utils.ValueIgnoreEmpty
+# on create and update, so a 0 is never sent, the cloud keeps 1, and the plan
+# would show the same in-place change on every run.
+run "secondary_region_lb_weight_zero_refused" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+    secondary_region_lb_weight = 0
+  }
+
+  expect_failures = [var.secondary_region_lb_weight]
 }
 
 # Scenario 2 — single-region shape (1 CP region, no secondary). Verifies

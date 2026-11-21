@@ -726,44 +726,30 @@ variable "provider_api_cidrs" {
 
 variable "secondary_region_lb_weight" {
   type        = number
-  default     = 0
+  default     = 1
   description = <<-EOT
-    Gateway/console ELB member weight for nodes in the SECONDARY regions
-    (indexes 1..N of `regions`). Primary-region members are always weight 1.
+    Gateway and console ELB member weight of the nodes of the SECONDARY regions
+    (indexes 1..N of `regions`); the primary region's members carry
+    local.gateway_lb_primary_weight (1), and the default keeps the two equal.
 
-    0 (default) = ACTIVE / HOT-STANDBY: 100% of north-south traffic is served
-    by the primary region. The secondary regions stay fully provisioned and
-    stay pool members — they are hot, they replicate, and they are one weight
-    change away from taking traffic — but they serve none of it while the
-    primary is healthy.
-
-    Set to 1 to fail traffic over to the secondaries (the region-promotion
-    path), or for a deliberate active/active posture. Note that a secondary
-    only serves a given host correctly once that host's Blueprint is actually
-    running there: with `SECONDARY_HR_SUSPEND` the workload is suspended in the
-    secondary, so flipping this to 1 without promoting the region reintroduces
-    the split 404 this default exists to prevent (#6827, #6837).
-
-    ── FAILOVER: this weight MUST be flipped by the promotion path ──
-    Weight 0 does NOT degrade to "used only when everything else is down".
-    Measured on hw307 (#6837) with an isolated listener on an unused port:
-    a weight-1 member OFFLINE alongside a weight-0 member ONLINE refuses the
-    connection; flipping that same member to weight 1 — the only variable
-    changed — connects immediately. So a total loss of the primary region
-    leaves the pool with no eligible member until something raises this value.
-    That is a deliberate trade against #5244 (which spanned members across all
-    regions precisely so a region-kill would not black-hole the public EIP),
-    and it is why region promotion has to own this flip.
-
-    Huawei's native active/standby primitive cannot be substituted here: a
-    `master-slave-pool` accepts EXACTLY two members, one master and one slave
-    (measured: `ELB.8902 Master_slave_pool must have two members`), so it
-    cannot express 6 primary-region nodes + 6 secondary-region nodes.
+    The cloud's balancer admits every region's entry points, each member at the
+    same positive weight. Which region SERVES a request is decided inside the
+    platform (Gateway API routes, the secondary edge of kit slot 13e forwarding
+    to the primary's backends over the cluster mesh, ADR-0015 placement), not
+    at the cloud's balancer.
   EOT
 
+  # A weight of 0 can never be applied through this module: the huaweicloud
+  # provider (1.92.0 to 1.100.0) sends `weight` through utils.ValueIgnoreEmpty
+  # on create and on update (huaweicloud/services/elb/resource_huaweicloud_elb_member.go
+  # lines 202 and 371), which turns 0 into nil and drops the key; the cloud then
+  # applies its default of 1, the read stores 1, and every later plan shows the
+  # same in-place change (acceptance check CLD-G12, gate run 44903143049: 24
+  # members). A member at 0 would also never serve, not even with the primary
+  # region gone (#6837's own measurement), and nothing raises it at a failover.
   validation {
-    condition     = var.secondary_region_lb_weight >= 0 && var.secondary_region_lb_weight <= 100
-    error_message = "secondary_region_lb_weight must be between 0 and 100 (Huawei ELB member weight range)."
+    condition     = var.secondary_region_lb_weight >= 1 && var.secondary_region_lb_weight <= 100 && floor(var.secondary_region_lb_weight) == var.secondary_region_lb_weight
+    error_message = "secondary_region_lb_weight must be an integer from 1 to 100. 0 cannot be applied: the huaweicloud provider passes the member weight through utils.ValueIgnoreEmpty on create and update (resource_huaweicloud_elb_member.go lines 202 and 371), which drops a 0, so the cloud keeps its default of 1 and every later plan shows the drift."
   }
 }
 

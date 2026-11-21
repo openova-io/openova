@@ -10,7 +10,7 @@
 #
 # The job needs a checkout of two commits, Python 3.12 with PyYAML, the Go of the module
 # tools/guards (set up from its go.mod, before the steps of its guards), bash and git, and
-# the Helm of the release for cronjob-jobs, which renders the kit (the yq and jq of the
+# the Helm of the release for cronjob-jobs and edge-hosts, which render the kit (the yq and jq of the
 # runner), the Helm of blueprint-release.yaml for release-own-tree, and nothing else. A guard that needs another tool (Node), the Go of another module or a
 # secret, or that reads the pull request itself, runs elsewhere: go-lint.yaml,
 # console-lint.yaml, check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
@@ -451,6 +451,21 @@ jobs:
           mkdir "$RUNNER_TEMP/kit-render"
           KIT_RENDER_DIR="$RUNNER_TEMP/kit-render" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
           cd tools/guards && go run ./cmd/cronjob-jobs -render "$RUNNER_TEMP/kit-render"
+      # edge-hosts renders the kit twice more, with the value set of each control plane of a
+      # two-region install, under the same Helm; the dependency builds of the render above stay
+      # in the checkout (charts/ of each chart, ignored by git), so each render only templates.
+      - name: 'edge-hosts | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/edge-hosts
+      - name: 'edge-hosts | Every public hostname the primary region''s edge routes is routed by the secondary region''s edge'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          mkdir "$RUNNER_TEMP/edge-primary" "$RUNNER_TEMP/edge-secondary"
+          KIT_VALUE_SETS=tests/fixtures/variables/today.env+tests/fixtures/variables/two-region-primary.env \
+            KIT_RENDER_DIR="$RUNNER_TEMP/edge-primary" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
+          KIT_VALUE_SETS=tests/fixtures/variables/today.env+tests/fixtures/variables/two-region-secondary.env \
+            KIT_RENDER_DIR="$RUNNER_TEMP/edge-secondary" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
+          cd tools/guards && go run ./cmd/edge-hosts -primary "$RUNNER_TEMP/edge-primary" -secondary "$RUNNER_TEMP/edge-secondary"
       - name: 'coherence-credential | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/coherence-credential
