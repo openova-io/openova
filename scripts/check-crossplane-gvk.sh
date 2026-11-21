@@ -44,8 +44,10 @@ fail() {
   EXIT=1
 }
 
-# The only upbound API group a Sovereign serves today: provider-opentofu's.
-ALLOWED_GROUPS='opentofu\.upbound\.io'
+# The only upbound API groups a Sovereign serves today: provider-opentofu's, the
+# cluster-scoped opentofu.upbound.io and the namespaced opentofu.m.upbound.io (v1.1.11
+# serves both: docs/ledger/plan/spikes/CLD-050.md row E1; step 08 reads both, SOV-344).
+ALLOWED_GROUPS='opentofu\.(m\.)?upbound\.io'
 
 SCAN_ROOTS=(platform products clusters infra core)
 
@@ -91,7 +93,7 @@ if [ -n "${VIOLATIONS}" ]; then
   fail "a non-allowlisted *.upbound.io API group reappeared (#4788 class):"
   printf '%s' "${VIOLATIONS}" >&2
 else
-  echo "OK — every live upbound.io reference is opentofu.upbound.io (or the xpkg registry host)."
+  echo "OK — every live upbound.io reference is opentofu.upbound.io or opentofu.m.upbound.io (or the xpkg registry host)."
 fi
 
 # ─── Phase 2 — provider ↔ consumer pairing assertion ─────────────────────

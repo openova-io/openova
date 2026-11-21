@@ -169,6 +169,9 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]   # step 11 probes for providers.pkg.crossplane.io CRD presence before patching
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["opentofu.upbound.io", "opentofu.m.upbound.io"]
+    resources: ["workspaces"]   # step 08 (SOV-344) lists the cloud Workspaces before and during the hold: one that was Ready and Synced before it and is not in it fails the proof. Read-only.
+    verbs: ["get", "list"]
 
   {{- /*
    ───────────────────────────────────────────────────────────────
