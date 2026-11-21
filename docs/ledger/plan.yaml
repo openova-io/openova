@@ -17345,7 +17345,7 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s\\n' 'c2485e5be0ef5ad1e16969b41e7ba4314e8ae9cddf56567d5ebbcdabae22d916  tests/hermetic/encrypted-path/encrypted-path-test.sh' 'd7e170f2d023d86831f602cc55157943d3dce5bd6572635054b4d7289633fc68  .github/workflows/test-encrypted-path-hermetic.yaml' | sha256sum --check --quiet -"
+    run: "printf '%s\\n' 'f5ea75ae3db4e539ef0fa32eb33c5417936478af63d9e079a1564e3e0b8e2d52  tests/hermetic/encrypted-path/encrypted-path-test.sh' 'd7e170f2d023d86831f602cc55157943d3dce5bd6572635054b4d7289633fc68  .github/workflows/test-encrypted-path-hermetic.yaml' | sha256sum --check --quiet -"
   - id: A2
     run: "bash tests/hermetic/encrypted-path/encrypted-path-test.sh --self-test > /dev/null"
   rollback: revert
@@ -17353,7 +17353,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: A job without a cloud starts three k3s machines with only the kit's Cilium (WireGuard, node encryption, native routing) and moves a 65,536-byte answer host to host between the two agents, both ways, within 5 seconds at the MTU the kit's slot renders, while the same with CILIUM_MTU=1420 must not arrive, which proves the test sees the defect; it runs on every change of the Cilium chart, its slot and the k3s version of the local pack.
 - id: NET-125
