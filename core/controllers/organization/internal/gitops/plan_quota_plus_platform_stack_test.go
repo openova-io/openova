@@ -43,19 +43,19 @@ import (
 
 // wantPlatformStackOverhead is the derived figure per plan, pinned. All four
 // hard-capped plans share one figure under the #6971 headlines: bp-agenity's
-// unsized init container takes the plan's LimitRange defaults (XL: 1 CPU /
+// unsized init containers take the plan's LimitRange defaults (XL: 1 CPU /
 // 2Gi limit, 167m / 683Mi request) and no plan's defaults exceed its app
-// containers (1050m / 2112Mi limits, 1005m / 2064Mi requests), so the pod's
+// containers (1010m / 2080Mi limits, 1010m / 2080Mi requests), so the pod's
 // effective shape is the app sum everywhere (see the platformStack comment in
 // manifests.go; TestPlatformStackOverhead_PinnedFigures asserts that this
 // coincidence is arithmetic, not an accident). If any source moves, property
 // 2 fails first and names it; this fails second and names the doc lines that
 // must move with it.
 var wantPlatformStackOverhead = map[string]map[string]string{
-	"s":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
-	"m":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
-	"l":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
-	"xl": {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
+	"s":  {"requests.cpu": "3820m", "requests.memory": "6016Mi", "limits.cpu": "4010m", "limits.memory": "6880Mi"},
+	"m":  {"requests.cpu": "3820m", "requests.memory": "6016Mi", "limits.cpu": "4010m", "limits.memory": "6880Mi"},
+	"l":  {"requests.cpu": "3820m", "requests.memory": "6016Mi", "limits.cpu": "4010m", "limits.memory": "6880Mi"},
+	"xl": {"requests.cpu": "3820m", "requests.memory": "6016Mi", "limits.cpu": "4010m", "limits.memory": "6880Mi"},
 }
 
 // The pod names platformStack uses, so the tests below address rows by name
@@ -509,28 +509,27 @@ func TestPlatformStack_PinnedToSources(t *testing.T) {
 	namesEqual(t, wlOpenClaw, podSpecContainerNames(t, readRepo(t, "platform", "openclaw", "chart", "templates", "controller-deployment.yaml"), "bp-openclaw controller-deployment.yaml"),
 		[]string{"controller"})
 
-	// bp-agenity: chart defaults; the init container is unsized by the chart.
+	// bp-agenity: chart defaults; the init containers are unsized by the chart.
 	av := yamlFile(t, "products", "agenity", "chart", "values.yaml")
 	ag := workload(t, byName, wlAgenity)
-	if len(ag.Containers) != 2 || len(ag.Inits) != 1 {
-		t.Fatalf("%s: modelled as %d containers / %d inits, want chepherd + creds-resync and the seed-claude-creds init", wlAgenity, len(ag.Containers), len(ag.Inits))
+	if len(ag.Containers) != 2 || len(ag.Inits) != 2 {
+		t.Fatalf("%s: modelled as %d containers / %d inits, want chepherd + tool-identity and the workspace-home + tool-identity-init inits", wlAgenity, len(ag.Containers), len(ag.Inits))
 	}
 	sameShape(t, wlAgenity+" chepherd", ag.Containers[0], shapeAt(t, av, "resources"))
-	if v := scalarAt(t, av, "anthropic", "credentialResync", "enabled"); v != "true" {
-		t.Errorf("anthropic.credentialResync.enabled = %q — platformStack models the creds-resync sidecar as rendered", v)
+	if v := scalarAt(t, av, "openovaMCP", "enabled"); v != "true" {
+		t.Errorf("openovaMCP.enabled = %q — the tool-identity sidecar and its init render only under it, so platformStack would overstate the pod", v)
 	}
-	if v := scalarAt(t, av, "anthropic", "credentialsKey"); v == "" {
-		t.Errorf("anthropic.credentialsKey is empty — the creds-resync sidecar renders only under it, so platformStack would overstate the pod")
-	}
-	sameShape(t, wlAgenity+" creds-resync", ag.Containers[1], shapeAt(t, av, "anthropic", "credentialResync", "resources"))
+	sameShape(t, wlAgenity+" tool-identity", ag.Containers[1], shapeAt(t, av, "toolIdentity", "resources"))
 	sts := readRepo(t, "products", "agenity", "chart", "templates", "statefulset.yaml")
 	namesEqual(t, wlAgenity, podSpecContainerNames(t, sts, "bp-agenity statefulset.yaml"),
-		[]string{"seed-claude-creds", "chepherd", "creds-resync"})
-	if ag.Inits[0] != (containerShape{}) {
-		t.Errorf("%s: seed-claude-creds is modelled as sized %+v, but the chart leaves it unsized — the LimitRange default is what admission charges", wlAgenity, ag.Inits[0])
-	}
-	if strings.Contains(containerBlock(t, sts, "seed-claude-creds"), "resources:") {
-		t.Errorf("%s: the chart now sizes seed-claude-creds — replace the zero-value shape in platformStack with its figures (the LimitRange default no longer applies)", wlAgenity)
+		[]string{"workspace-home", "tool-identity-init", "chepherd", "tool-identity"})
+	for i, name := range []string{"workspace-home", "tool-identity-init"} {
+		if ag.Inits[i] != (containerShape{}) {
+			t.Errorf("%s: %s is modelled as sized %+v, but the chart leaves it unsized — the LimitRange default is what admission charges", wlAgenity, name, ag.Inits[i])
+		}
+		if strings.Contains(containerBlock(t, sts, name), "resources:") {
+			t.Errorf("%s: the chart now sizes %s — replace the zero-value shape in platformStack with its figures (the LimitRange default no longer applies)", wlAgenity, name)
+		}
 	}
 
 	// The oidc-gate the bp-agenity chart renders in front of agenity.

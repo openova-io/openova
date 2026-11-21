@@ -15,7 +15,8 @@
 #      (templates/native-routing-range.yaml), and the error names
 #      cilium.ipv4NativeRoutingCIDR and the substitute.
 #   3. A render that names an API host and a range, as the slot does, holds
-#      that range, native routing, direct node routes, MTU 1420, WireGuard,
+#      that range, native routing, direct node routes, MTU 1500 (the node
+#      interface MTU; Cilium takes WireGuard's 80 bytes off itself), WireGuard,
 #      and the API host in the agent's environment.
 #
 # Usage:
@@ -77,7 +78,7 @@ cases() (
   grep -q -E "^\s*ipv4-native-routing-cidr: ${RANGE}\s*$" "$out/slot.yaml" || fail "ipv4-native-routing-cidr is not ${RANGE}"
   grep -q -E '^\s*routing-mode: "native"\s*$' "$out/slot.yaml" || fail "routing-mode is not native"
   grep -q -E '^\s*auto-direct-node-routes: "true"\s*$' "$out/slot.yaml" || fail "auto-direct-node-routes is not true"
-  grep -q -E '^\s*mtu: "1420"\s*$' "$out/slot.yaml" || fail "mtu is not 1420"
+  grep -q -E '^\s*mtu: "1500"\s*$' "$out/slot.yaml" || fail "mtu is not 1500, the node interface MTU"
   grep -q -E '^\s*enable-wireguard: "true"\s*$' "$out/slot.yaml" || fail "WireGuard is not on"
   grep -q -F 'name: KUBERNETES_SERVICE_HOST' "$out/slot.yaml" || fail "the agent has no KUBERNETES_SERVICE_HOST"
   if grep -A1 -F 'name: KUBERNETES_SERVICE_HOST' "$out/slot.yaml" | grep -E '^\s*value:' | grep -v -q -F "\"${HOST}\""; then

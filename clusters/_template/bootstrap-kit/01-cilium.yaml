@@ -222,19 +222,23 @@ spec:
       # sovereign-variables, in every region (infra/providers/_shared/
       # cloudinit-control-plane.tftpl). There is no default address.
       k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST}
-      # 1.4.11 (#4656, 2026-07-05): NATIVE routing (drop VXLAN) — the datapath
-      # MTU is now WG-only. The old VXLAN-tunnel + WireGuard stack was
-      # UNFIXABLE by any MTU (cilium derived cilium_wg0 = MTU−80, so a pod
-      # packet + 50B VXLAN header ALWAYS exceeded wg0 → full-size cross-node
-      # pod TCP DF-dropped → Phase-1 convergence deadlock; #4467's MTU=1370
-      # pin disproven live on hw224). With routingMode: native (chart
-      # values.yaml) there is no VXLAN header to stack — WireGuard
-      # encapsulates ONCE, so the correct pod MTU is eth0(1500)−80 = 1420.
-      # The chart default (platform/cilium/chart/values.yaml `cilium.MTU:
-      # 1420`) already carries this; pinned here too so the load-bearing value
-      # is visible at the slot. Jumbo-frame / non-1500-eth0 Sovereigns override
-      # via ${CILIUM_MTU:=1420} in their per-Sovereign overlay (eth0−80).
-      MTU: ${CILIUM_MTU:=1420}
+      # MTU is the MTU of the node interface of the provider, never a value
+      # with an overhead taken off: Cilium takes WireGuard's 80 bytes off
+      # itself (cilium_wg0 and the pods get MTU - 80; cilium_net and
+      # cilium_host get MTU, and every decrypted packet for the host passes
+      # cilium_net). The former 1420 here took the overhead twice: on a
+      # two-region Huawei install (eth0 1500, 21 Nov 2026) every decrypted
+      # host packet above 1420 was dropped, the largest do-not-fragment
+      # packet worker to worker was 1424 bytes in a region and across
+      # regions, and image copies between workers took 64 to 257 s for
+      # 15 MB; with 1500 the limit was 1500 and the copies took 0.4 to
+      # 0.6 s. Native routing (chart values.yaml) adds no VXLAN header
+      # (#4656). The default is the interface MTU of Huawei and the local
+      # pack; a pack whose interface differs writes CILIUM_MTU into
+      # sovereign-variables (Hetzner: 1450). tools/guards/cmd/cilium-mtu
+      # holds this default and every pack's value to local.node_interface_mtu
+      # of its provider module.
+      MTU: ${CILIUM_MTU:=1500}
       # The range of pod addresses that Cilium routes natively, without
       # masquerading: the pod supernet of the Sovereign, which the provider
       # module computes and first boot writes as CILIUM_NATIVE_ROUTING_CIDR.

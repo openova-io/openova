@@ -460,14 +460,14 @@ func TestPlatformStack_SurgeMatchesController(t *testing.T) {
 
 // ─── 4. FIGURES ──────────────────────────────────────────────────────────────
 
-// wantPlatformQuota: vcluster-0 500m/1Gi + stack (3815m/6000Mi, 4050m/6912Mi) +
+// wantPlatformQuota: vcluster-0 500m/1Gi + stack (3820m/6016Mi, 4010m/6880Mi) +
 // transient headroom = largest hook (keycloak-config-cli 250m/256Mi) + one
 // surge replica per resource (requests: newapi pod 510m, openclaw 512Mi;
 // limits: newapi pod 700m/1152Mi) = 760m/768Mi requests, 950m/1408Mi limits.
 // Identical on every plan for the reason TestPlatformStackOverhead_PinnedFigures
 // gives.
 var wantPlatformQuota = map[string]string{
-	"requests.cpu": "5075m", "requests.memory": "7792Mi", "limits.cpu": "5500m", "limits.memory": "9344Mi",
+	"requests.cpu": "5080m", "requests.memory": "7808Mi", "limits.cpu": "5460m", "limits.memory": "9312Mi",
 }
 
 func TestPlatformQuota_PinnedFigures(t *testing.T) {
@@ -627,8 +627,8 @@ func TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit(t *testing.T) {
 func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	t.Parallel()
 	static := staticPlatformCredit(planQuota("m"))
-	// plan + coredns + vcluster-0 + stack = 354m+500m+3815m / 1430Mi+1Gi+6000Mi …
-	bound := map[string]string{"requests.cpu": "4669m", "requests.memory": "8454Mi", "limits.cpu": "7550m", "limits.memory": "12202Mi"}
+	// plan + coredns + vcluster-0 + stack = 354m+500m+3820m / 1430Mi+1Gi+6016Mi …
+	bound := map[string]string{"requests.cpu": "4674m", "requests.memory": "8470Mi", "limits.cpu": "7510m", "limits.memory": "12170Mi"}
 	if static.Pods != len(platformStack)+1 {
 		t.Errorf("static credit covers %d pods, want the stack + vcluster-0", static.Pods)
 	}
@@ -651,7 +651,7 @@ func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	// Mixed: each resource takes its own maximum.
 	mixed := map[string]string{"requests.cpu": "9000m", "requests.memory": "1Mi", "limits.cpu": "1", "limits.memory": "99Gi"}
 	got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: mixed}).Spec.Hard
-	want := map[string]string{"requests.cpu": "9", "requests.memory": "8454Mi", "limits.cpu": "7550m", "limits.memory": "99Gi"}
+	want := map[string]string{"requests.cpu": "9", "requests.memory": "8470Mi", "limits.cpu": "7510m", "limits.memory": "99Gi"}
 	if !equalHard(got, want) {
 		t.Errorf("unknown credit, mixed live: %v, want per-resource max %v", got, want)
 	}

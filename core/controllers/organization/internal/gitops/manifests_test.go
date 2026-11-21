@@ -249,12 +249,12 @@ func TestPlanQuota_CatalogSlugMapping(t *testing.T) {
 // limits (S 1/2Gi, M 2/4Gi, L 4/8Gi, XL 8/16Gi); the control plane adds
 // 520m/1088Mi to requests and 1500m/1194Mi to limits (vcluster-0 syncer
 // 500m/1Gi + coredns 20m/64Mi requests, 1000m/170Mi limits); the platform
-// stack adds 3815m/6000Mi to requests and 4050m/6912Mi to limits on every
+// stack adds 3820m/6016Mi to requests and 4010m/6880Mi to limits on every
 // plan (bp-keycloak 1/2Gi + its postgresql 500m/512Mi + the bp-newapi pod
 // 510m/288Mi requests, 700m/1152Mi limits + its CNPG 500m/512Mi + bp-openclaw
-// 250m/512Mi + bp-agenity 1005m/2064Mi requests, 1050m/2112Mi limits +
+// 250m/512Mi + bp-agenity 1010m/2080Mi requests and limits +
 // oidc-gate 50m/64Mi; with the #6971 headlines no plan's LimitRange default
-// sizes agenity's unsized init container above its app containers any more).
+// sizes agenity's unsized init containers above its app containers any more).
 // The arithmetic itself is asserted plan-by-plan against the live table in
 // TestRender_ResourceQuotaIsPlanPlusBothOverheads; this test pins the rendered
 // strings so a change in any term is visible here by name.

@@ -126,11 +126,12 @@ The org-controller now admits the stack in its own scope — since #7067
 `platform-quota` (PriorityClass `catalyst-org-platform`) = vcluster-0 +
 **platform stack** + the transient headroom, and the customer's `plan-quota`
 = plan + the synced coredns (`manifests.go` `platformStack`,
-`platform_scope.go`; the stack is requests 3815m / 6000Mi and
-limits 4050m / 6912Mi on every plan since AIP-040 switched the newapi
-metering sidecar off — under the National Cloud headlines
+`platform_scope.go`; the stack is requests 3820m / 6016Mi and
+limits 4010m / 6880Mi on every plan since AIP-040 switched the newapi
+metering sidecar off and AIP-155 put agenity's tool-identity sidecar in
+place of creds-resync — under the National Cloud headlines
 (NC-OO-Pricing.xlsx, 2026-06-28: S 1 vCPU / 2 GiB … XL 8 / 16) no plan's
-LimitRange default sizes agenity's unsized init container above its app
+LimitRange default sizes agenity's unsized init containers above its app
 containers), and the collector draws the same line:
 `isPlatformStack` keeps those pods and their labelled PVCs off a customer
 Organization's `k8s.*` meters, by `app.kubernetes.io/instance` ∈
