@@ -43,7 +43,6 @@
       "products/catalyst/bootstrap/api/internal/handler/credentials.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_activity_bridge.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/cutover_aware_vcluster_5439.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_chart_floor.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_engine_lease.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_internal.go": 1,
@@ -177,7 +176,7 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 95525
+      "products/catalyst/bootstrap/api/internal/handler": 95299
     },
     "handler_methods": {
       "products/catalyst/bootstrap/api/internal/handler": 616

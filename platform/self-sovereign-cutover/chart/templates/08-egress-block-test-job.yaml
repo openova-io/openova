@@ -482,11 +482,11 @@ data:
             */}}
             count_offenders() {
               {{- /*
-               Echoes the current external (non-slot-self-ref) ghcr.io
-               HelmRepositories, one per line; caller derives the count.
+               Echoes the external (non-slot-self-ref) ghcr.io HelmRepositories, one per line,
+               each with owner=<ns>/<name>, the Flux Kustomization that re-applies it ("/": none).
               */}}
               kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
-                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url} owner={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/namespace}/{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}{"\n"}{end}' \
                 | grep -E '=oci://ghcr\.io/openova-io' \
                 | grep -vE '/(bp-newapi|bp-self-sovereign-cutover)=' || true
             }
@@ -528,16 +528,16 @@ data:
             echo "  external HelmRepositories still pointing at ghcr.io/openova-io (excluding slot-managed self-refs): ${ext_count}"
             while [ "${ext_count}" -gt 0 ] && [ "$(date +%s)" -lt "${pivot_deadline}" ]; do
               printf '%s\n' "${ext_offenders}" | sed 's/^/    not-yet-pivoted /'
-              echo "  [egress-block-test] #3526: ${ext_count} HelmRepository(ies) not yet pivoted at $(($(date +%s) - now_ts))s; re-poking reconcile, re-checking in 15s (bounded ${pivot_deadline}s)"
+              echo "  [egress-block-test] #3526: ${ext_count} HelmRepository(ies) not yet pivoted at $(($(date +%s) - now_ts))s; re-poking reconcile, re-checking in 15s (deadline in $((pivot_deadline - $(date +%s)))s)"
               poke_ts=$(date +%s)
-              for poke_obj in gitrepository/openova kustomization/bootstrap-kit; do kubectl annotate --overwrite "${poke_obj}" -n flux-system "reconcile.fluxcd.io/requestedAt=${poke_ts}" >/dev/null 2>&1 || true; done
+              for poke_obj in gitrepository/openova kustomization/bootstrap-kit "gitrepository/${ORG_TENANTS_GITREPO:-openova-org-tenants}" "kustomization/${ORG_TENANTS_KUSTOMIZATION:-org-tenants}"; do kubectl annotate --overwrite "${poke_obj}" -n flux-system "reconcile.fluxcd.io/requestedAt=${poke_ts}" >/dev/null 2>&1 || true; done
               sleep 15
               ext_offenders="$(count_offenders)"
               ext_count=$(printf '%s' "${ext_offenders}" | grep -c '=' || true)
             done
             if [ "${ext_count}" -gt 0 ]; then
               printf '%s\n' "${ext_offenders}" | sed 's/^/    OFFENDER /'
-              echo "  FAIL — at least one HelmRepository did not pivot within the bounded reconcile wait (#3526)"
+              echo "  FAIL — at least one HelmRepository did not pivot within the bounded reconcile wait (#3526); owner= names the Kustomization whose source still holds oci://ghcr.io/openova-io (owner=flux-system/${ORG_TENANTS_KUSTOMIZATION:-org-tenants}: catalyst-api writes clusters/<fqdn>/org-tenants/helmrepositories.yaml and re-renders it before this step, see its log line 'org-tenants shared HelmRepositories')"
               exit 1
             fi
             echo "[egress-block-test] HelmRepository pivot converged — all external HelmRepositories on local Harbor"

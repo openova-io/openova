@@ -45,6 +45,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -60,6 +61,13 @@ type DefaultOrganizationGitOpsWriter struct {
 	// env at startup; the orchestrator caller is expected to provide
 	// non-empty values when wiring.
 	ChartVersions OrganizationChartVersions
+	// CutoverStatus returns the data of the cutover status ConfigMap, the
+	// registry-pivot fact of the shared HelmRepositories
+	// (orgtenantrepos.RegistryPivoted). nil reads it from the cluster
+	// (cutoverStatusInCluster); tests set it. HarborTrust is the lookup of the
+	// step-06 trust Secret (orgtenantrepos.File); nil reads it in cluster.
+	CutoverStatus func(context.Context) map[string]string
+	HarborTrust   orgtenantrepos.TrustFunc
 }
 
 // OrganizationChartVersions enumerates the SemVer strings the overlay
@@ -175,40 +183,11 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 		return "", nil
 	}
 	cfg := loadGitOpsConfig()
-	if cfg.Token == "" {
-		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
-	}
-	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "org-tenant-overlay-*")
+	repoDir, done, err := w.cloneTenantsBranch(ctx, cfg, "org-tenant-overlay-*")
 	if err != nil {
-		return "", fmt.Errorf("mktempdir: %w", err)
+		return "", err
 	}
-	defer func() {
-		if err := os.RemoveAll(scratch); err != nil && w.Log != nil {
-			w.Log.Warn("org-tenant: scratch cleanup failed", "dir", scratch, "err", err)
-		}
-	}()
-
-	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
-	if err != nil {
-		return "", fmt.Errorf("rewrite repo URL: %w", err)
-	}
-	repoDir := filepath.Join(scratch, "repo")
-	if err := runGit(ctx, scratch, "clone",
-		"--depth=1",
-		"--branch="+cfg.Branch,
-		"--single-branch",
-		authURL,
-		repoDir,
-	); err != nil {
-		return "", fmt.Errorf("git clone: %w", err)
-	}
-
-	if err := runGit(ctx, repoDir, "config", "user.name", cfg.CommitterName); err != nil {
-		return "", fmt.Errorf("git config user.name: %w", err)
-	}
-	if err := runGit(ctx, repoDir, "config", "user.email", cfg.CommitterMail); err != nil {
-		return "", fmt.Errorf("git config user.email: %w", err)
-	}
+	defer done()
 
 	// Per-tenant overlay path:
 	//   clusters/<otech-fqdn>/org-tenants/<org_tenant_id>/
@@ -253,14 +232,14 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	// always current. Without this, Flux fails with "kustomization path
 	// not found" on a fresh Sovereign that has never had a tenant.
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", orgtenantrepos.FileName)
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}
@@ -270,19 +249,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	// Allow-empty so a re-run that produces identical bytes still
 	// succeeds (Flux is idempotent; we don't punish the operator with
 	// an error when the manifest didn't drift).
-	if err := runGit(ctx, repoDir, "commit", "--allow-empty", "-m", msg); err != nil {
-		return "", fmt.Errorf("git commit: %w", err)
-	}
-
-	if err := runGit(ctx, repoDir, "push", "origin", "HEAD:"+cfg.Branch); err != nil {
-		return "", fmt.Errorf("git push: %w", err)
-	}
-
-	out, err := runGitOutput(ctx, repoDir, "rev-parse", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("rev-parse HEAD: %w", err)
-	}
-	return strings.TrimSpace(out), nil
+	return commitAndPushTenants(ctx, repoDir, cfg.Branch, msg)
 }
 
 // writeParentTenantsIndex (re)generates the parent
@@ -295,8 +262,9 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 // canonical kustomize.config.k8s.io/v1beta1 Kustomization. Per #3, this
 // is a pure file write — Flux owns the apply.
 //
-// Issue #889, 2026-05-05.
-func writeParentTenantsIndex(parentDir string) error {
+// Issue #889, 2026-05-05. shared is the shared HelmRepositories file
+// (orgtenantrepos.File).
+func writeParentTenantsIndex(parentDir, shared string) error {
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir parent: %w", err)
 	}
@@ -334,10 +302,9 @@ func writeParentTenantsIndex(parentDir string) error {
 	// dedupes on name. helmrepositories.yaml is added to the parent
 	// kustomization.yaml's resources list FIRST so source-controller
 	// reconciles them before any tenant HelmChart is requested.
-	hrFileName := "helmrepositories.yaml"
-	hrFilePath := filepath.Join(parentDir, hrFileName)
-	if err := os.WriteFile(hrFilePath, []byte(orgTenantSharedHelmRepositoriesYAML()), 0o644); err != nil {
-		return fmt.Errorf("write shared helmrepositories: %w", err)
+	hrFileName := orgtenantrepos.FileName
+	if err := writeSharedHelmRepositories(parentDir, shared); err != nil {
+		return err
 	}
 
 	var b bytes.Buffer
@@ -364,237 +331,6 @@ func writeParentTenantsIndex(parentDir string) error {
 		return fmt.Errorf("write index: %w", err)
 	}
 	return nil
-}
-
-// orgTenantSharedHelmRepositories is the canonical HelmRepository
-// declarations the Organization tenant overlays sourceRef into. Issue #893 —
-// these were missing on Sovereigns because the bootstrap-kit doesn't
-// ship them (they're tenant-mode-only charts). Emitted once at the
-// parent level, shared by every tenant.
-//
-// The URL is cutover-aware (#5527) — see
-// orgTenantSharedHelmRepositoriesYAML, the emission entry point.
-// Pre-cutover every block declares the canonical public catalog
-// (oci://ghcr.io/openova-io). Post-cutover the emitter swaps in the
-// Sovereign-local registry base. The earlier belief that the ghcr URL
-// "works transparently for both phases via the node registries.yaml
-// rewrite" was wrong: the cutover step-04 rewrite only covers
-// containerd IMAGE pulls — Flux source-controller resolves
-// HelmRepository URLs with its own client, so a ghcr URL here
-// re-tethers the Sovereign the moment this file regenerates (hw291:
-// step-06 pivoted the live objects, Flux drift-corrected them straight
-// back from this git source, and the step-08 deny-egress hold failed
-// on OFFENDER bp-agenity/bp-openclaw/bp-stalwart-tenant/
-// bp-wordpress-tenant=oci://ghcr.io/openova-io).
-//
-// secretRef: ghcr-pull is the canonical name written by cloud-init at
-// /var/lib/catalyst/ghcr-pull-secret.yaml and reflected into every
-// namespace via bp-reflector (issue #543).
-//
-// Every chart the orgTenantTemplates overlay sourceRefs into MUST have a
-// HelmRepository block here, or its rendered HelmRelease fails with
-// `HelmRepository <name> not found` on a fresh per-Org prov. bp-agenity
-// was the gap (#4180/#4239): the overlay HR pinned
-// sourceRef: HelmRepository/bp-agenity but no block declared it, so a
-// fresh Org only resolved when the HelmRepository was hand-applied
-// (the forbidden kubectl patch). Refs #4180.
-const orgTenantSharedHelmRepositories = `# Generated by catalyst-api/org-tenant pipeline (#893).
-# Shared HelmRepositories the per-tenant overlays sourceRef into.
-# DO NOT EDIT — re-run the orchestrator to regenerate.
-# url: is cutover-aware (#5527) — once cutover step-07 has stamped this
-# Sovereign, regeneration emits the Sovereign-local registry base
-# (oci://registry.<fqdn>/openova-io) instead of ghcr; secretRef stays
-# ghcr-pull in both phases (the cutover rewrites that Secret's contents,
-# not its name).
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-keycloak
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-newapi
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-wordpress-tenant
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-openclaw
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-stalwart-tenant
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: bp-agenity
-  namespace: flux-system
-spec:
-  type: oci
-  interval: 15m
-  url: oci://ghcr.io/openova-io
-  secretRef:
-    name: ghcr-pull
-`
-// NOTE — the `loft` (https://charts.loft.sh) HelmRepository was removed
-// from this shared set in #4188 along with the legacy vc-<subdomain>
-// overlay. The per-Org vCluster (chart vcluster@0.33.x) is owned by the
-// CRD org-controller, which sources from its own `loft`/vcluster-system
-// HelmRepository (Harbor-mirrored). The org-tenant overlay no longer
-// pulls any chart from loft, so this entry was dead weight + the only
-// place this path referenced the upstream rancher/k3s distro.
-
-// orgTenantGHCRBase — the pre-cutover (public catalog) OCI base every
-// block in orgTenantSharedHelmRepositories declares.
-const orgTenantGHCRBase = "oci://ghcr.io/openova-io"
-
-// sovereignRegistryPivoted reports whether cutover step-07
-// (catalyst-api-env-patch, platform/self-sovereign-cutover/chart/
-// templates/07-catalyst-api-env-patch-job.yaml) has stamped THIS
-// catalyst-api process — the in-process, readable form of the
-// registry-pivot fact (#5527).
-//
-// The seam is the step-07 Phase-3b issuer env pair (CATALYST_PIN_ISSUER
-// + CATALYST_HANDOVER_JWT_ISSUER, set in a single `kubectl set env`):
-// nothing else in the platform sets either var — the
-// bp-catalyst-platform chart's api-deployment.yaml never templates
-// them (auth.go falls back to the in-code mothership constants when
-// unset), so their presence on the Deployment is uniquely the step-07
-// patch. The patch survives pod restarts and helm upgrades (a 3-way
-// strategic merge preserves env entries absent from both chart
-// manifests — the same durability the post-cutover GitOps loop already
-// stakes on step-07's CATALYST_GITOPS_REPO_URL patch).
-//
-// Why NOT the two neighbouring candidates:
-//
-//   - CATALYST_GITOPS_REPO_URL: on a Sovereign it points at the local
-//     Gitea from BIRTH (products/catalyst/chart/templates/
-//     api-deployment.yaml stamps the in-cluster gitea-http URL whenever
-//     global.sovereignFQDN is set), so it is a Sovereign fact, not a
-//     cutover fact — branching on it would emit local registry URLs on
-//     a pre-cutover Sovereign whose Harbor holds no charts yet.
-//   - The #3667 OpenBao seal (secret/catalyst/cutover-complete): this
-//     writer has no OpenBao client, and — decisive even with one — the
-//     seal flips only AFTER step-08's deny-egress hold passes, while
-//     the org-tenants git source must already be local DURING the hold
-//     (the hw291 wedge: step-06 pivots the objects, Flux
-//     drift-corrects them back from this generator's file). Step-07's
-//     env fact covers exactly that window: it lands after step-03's
-//     harbor-prewarm, so the local Harbor already serves every chart
-//     this file sourceRefs.
-func sovereignRegistryPivoted() bool {
-	return strings.TrimSpace(os.Getenv("CATALYST_PIN_ISSUER")) != "" ||
-		strings.TrimSpace(os.Getenv("CATALYST_HANDOVER_JWT_ISSUER")) != ""
-}
-
-// orgTenantHelmRepositoryURL returns the OCI base URL the shared per-Org
-// HelmRepositories declare (#5527).
-//
-//   - Pre-cutover (and on the mothership / Catalyst-Zero): the canonical
-//     public catalog, oci://ghcr.io/openova-io.
-//   - Post-cutover (step-07 fact present, see sovereignRegistryPivoted):
-//     the Sovereign-local registry, oci://registry.<SOVEREIGN_FQDN>/
-//     openova-io — the SAME value shape cutover step-06
-//     (helmrepository-patches) patches the live objects to, so the git
-//     source and the pivoted objects agree and Flux has nothing to
-//     drift-correct.
-//
-// The local host derivation follows the platform-wide canon
-// `registry.<fqdn>` (bp-harbor's HTTPRoute hostname, see
-// clusters/_template/bootstrap-kit/19-harbor.yaml; the cutover
-// overlay's sovereign.harborPublicURL is
-// https://registry.${SOVEREIGN_FQDN} in 06a-bp-self-sovereign-cutover
-// .yaml). Per Inviolable Principle #4 the full base is overridable via
-// CATALYST_LOCAL_REGISTRY_URL (e.g.
-// oci://registry.hw291.omantel.biz/openova-io); a non-empty override is
-// itself the pivot fact, so a future cutover step-07 that stamps the
-// exact value flips this generator with no code change and no
-// derivation. secretRef stays ghcr-pull in both phases: the cutover
-// rewrites that Secret's CONTENTS to local-registry credentials without
-// renaming it (step-06 parity — the pivoted objects on hw291 keep it).
-func orgTenantHelmRepositoryURL() string {
-	if v := strings.TrimSpace(os.Getenv("CATALYST_LOCAL_REGISTRY_URL")); v != "" {
-		if !strings.HasPrefix(v, "oci://") {
-			v = "oci://" + v
-		}
-		return strings.TrimSuffix(v, "/")
-	}
-	if !sovereignRegistryPivoted() {
-		return orgTenantGHCRBase
-	}
-	fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
-	if fqdn == "" {
-		// Synonym on chroot pods where only the OTECH form is stamped —
-		// same fallback order as sovereign_self.go.
-		fqdn = strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
-	}
-	if fqdn == "" {
-		// Pivot fact without a Sovereign identity is an inconsistent
-		// state this generator cannot mint a registry host from — fail
-		// safe to the public catalog rather than emit a URL that
-		// resolves nowhere.
-		return orgTenantGHCRBase
-	}
-	return "oci://registry." + fqdn + "/openova-io"
-}
-
-// orgTenantSharedHelmRepositoriesYAML renders the shared HelmRepository
-// file with the cutover-aware URL (#5527): the template's ghcr base is
-// swapped for orgTenantHelmRepositoryURL() once the registry-pivot fact
-// is set. Everything else — names, namespace, type, interval, secretRef
-// — stays byte-identical to the template, so pre-cutover output is
-// EXACTLY the historical const and Flux sees zero drift on regeneration.
-func orgTenantSharedHelmRepositoriesYAML() string {
-	base := orgTenantHelmRepositoryURL()
-	if base == orgTenantGHCRBase {
-		return orgTenantSharedHelmRepositories
-	}
-	return strings.ReplaceAll(orgTenantSharedHelmRepositories,
-		"url: "+orgTenantGHCRBase,
-		"url: "+base)
 }
 
 // DeleteTenantOverlay implements OrganizationGitOpsWriter. Removes the
@@ -624,35 +360,11 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 		return "", nil
 	}
 	cfg := loadGitOpsConfig()
-	if cfg.Token == "" {
-		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
-	}
-	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), "org-tenant-delete-*")
+	repoDir, done, err := w.cloneTenantsBranch(ctx, cfg, "org-tenant-delete-*")
 	if err != nil {
-		return "", fmt.Errorf("mktempdir: %w", err)
+		return "", err
 	}
-	defer os.RemoveAll(scratch)
-
-	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
-	if err != nil {
-		return "", fmt.Errorf("rewrite repo URL: %w", err)
-	}
-	repoDir := filepath.Join(scratch, "repo")
-	if err := runGit(ctx, scratch, "clone",
-		"--depth=1",
-		"--branch="+cfg.Branch,
-		"--single-branch",
-		authURL,
-		repoDir,
-	); err != nil {
-		return "", fmt.Errorf("git clone: %w", err)
-	}
-	if err := runGit(ctx, repoDir, "config", "user.name", cfg.CommitterName); err != nil {
-		return "", fmt.Errorf("git config user.name: %w", err)
-	}
-	if err := runGit(ctx, repoDir, "config", "user.email", cfg.CommitterMail); err != nil {
-		return "", fmt.Errorf("git config user.email: %w", err)
-	}
+	defer done()
 	overlayDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants", rec.OrganizationID)
 	if err := os.RemoveAll(overlayDir); err != nil {
 		return "", fmt.Errorf("remove overlay: %w", err)
@@ -668,24 +380,30 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	// reduced resources list. If no tenants remain, the parent index is
 	// rewritten with `resources: []` (still a valid Kustomization root).
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
 	if err := runGit(ctx, repoDir, "add", parentRel); err != nil {
 		return "", fmt.Errorf("git add parent index: %w", err)
 	}
-	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "helmrepositories.yaml")
+	parentHRRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", orgtenantrepos.FileName)
 	if err := runGit(ctx, repoDir, "add", parentHRRel); err != nil {
 		return "", fmt.Errorf("git add parent helmrepositories: %w", err)
 	}
 
 	msg := fmt.Sprintf("org-tenant: tear down %s (%s) on %s",
 		rec.Subdomain, rec.OrganizationID, rec.OTECHFQDN)
+	return commitAndPushTenants(ctx, repoDir, cfg.Branch, msg)
+}
+
+// commitAndPushTenants commits what is staged in repoDir (an empty commit when
+// nothing is), pushes it to branch and returns the commit.
+func commitAndPushTenants(ctx context.Context, repoDir, branch, msg string) (string, error) {
 	if err := runGit(ctx, repoDir, "commit", "--allow-empty", "-m", msg); err != nil {
 		return "", fmt.Errorf("git commit: %w", err)
 	}
-	if err := runGit(ctx, repoDir, "push", "origin", "HEAD:"+cfg.Branch); err != nil {
+	if err := runGit(ctx, repoDir, "push", "origin", "HEAD:"+branch); err != nil {
 		return "", fmt.Errorf("git push: %w", err)
 	}
 	out, err := runGitOutput(ctx, repoDir, "rev-parse", "HEAD")
@@ -693,6 +411,159 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 		return "", fmt.Errorf("rev-parse HEAD: %w", err)
 	}
 	return strings.TrimSpace(out), nil
+}
+
+// cloneTenantsBranch clones cfg's branch (the tenants branch on a Sovereign)
+// into a scratch directory and sets the committer. done removes the scratch.
+func (w DefaultOrganizationGitOpsWriter) cloneTenantsBranch(ctx context.Context, cfg gitOpsConfig, pattern string) (string, func(), error) {
+	if cfg.Token == "" {
+		return "", nil, errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
+	}
+	scratch, err := os.MkdirTemp(envOr("CATALYST_GITOPS_TMPDIR", os.TempDir()), pattern)
+	if err != nil {
+		return "", nil, fmt.Errorf("mktempdir: %w", err)
+	}
+	done := func() {
+		if err := os.RemoveAll(scratch); err != nil && w.Log != nil {
+			w.Log.Warn("org-tenant: scratch cleanup failed", "dir", scratch, "err", err)
+		}
+	}
+	repoDir := filepath.Join(scratch, "repo")
+	authURL, err := injectTokenIntoURLWithUser(cfg.RepoURL, cfg.User, cfg.Token)
+	if err != nil {
+		done()
+		return "", nil, fmt.Errorf("rewrite repo URL: %w", err)
+	}
+	steps := [][]string{
+		{scratch, "clone", "--depth=1", "--branch=" + cfg.Branch, "--single-branch", authURL, repoDir},
+		{repoDir, "config", "user.name", cfg.CommitterName},
+		{repoDir, "config", "user.email", cfg.CommitterMail},
+	}
+	for _, s := range steps {
+		if err := runGit(ctx, s[0], s[1:]...); err != nil {
+			done()
+			return "", nil, fmt.Errorf("git %s: %w", s[1], err)
+		}
+	}
+	return repoDir, done, nil
+}
+
+// writeSharedHelmRepositories writes doc as parentDir/helmrepositories.yaml
+// (#893): the six HelmRepositories every per-tenant overlay sourceRefs into,
+// which the bootstrap-kit does not ship, on the catalog and trust reference
+// orgtenantrepos.File picks (#5527). The parent kustomization.yaml lists it
+// first, so source-controller has them before any tenant HelmChart is requested.
+func writeSharedHelmRepositories(parentDir, doc string) error {
+	if err := os.WriteFile(filepath.Join(parentDir, orgtenantrepos.FileName), []byte(doc), 0o600); err != nil {
+		return fmt.Errorf("write shared helmrepositories: %w", err)
+	}
+	return nil
+}
+
+// cutoverStatus is the data of the cutover status ConfigMap; nil when it
+// cannot be read, which leaves the step-07 stamp as the only pivot fact.
+func (w DefaultOrganizationGitOpsWriter) cutoverStatus(ctx context.Context) map[string]string {
+	if w.CutoverStatus != nil {
+		return w.CutoverStatus(ctx)
+	}
+	st, err := cutoverStatusInCluster(ctx)
+	if err != nil && w.Log != nil {
+		w.Log.Warn("org-tenant: cutover status unreadable — the shared HelmRepositories' catalog is decided from the step-07 stamp alone", "err", err)
+	}
+	return st
+}
+
+// cutoverStatusInCluster reads the status ConfigMap the cutover engine keeps
+// (readCutoverStatus): no ConfigMap (the mothership, a Sovereign before the
+// cutover chart) is an empty map.
+func cutoverStatusInCluster(ctx context.Context) (map[string]string, error) {
+	deps, err := cutoverDepsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return readCutoverStatus(ctx, deps)
+}
+
+// RepointSharedHelmRepositories rewrites, on the tenants branch, every
+// clusters/<fqdn>/org-tenants/helmrepositories.yaml written before the writer
+// knew of the pivot (status: the cutover status; orgtenantrepos.NeedsRewrite);
+// Flux applies it through the Kustomization org-tenants. Returns the pushed
+// commit, or "" when nothing needed one. Nothing is written while the file is
+// the public catalog, nor when per-Org GitOps owns the Organizations (#5425).
+func (w DefaultOrganizationGitOpsWriter) RepointSharedHelmRepositories(ctx context.Context, status map[string]string) (string, error) {
+	doc := orgtenantrepos.File(ctx, os.Getenv, status, w.HarborTrust, w.Log)
+	if perOrgGitopsEnabled() || !orgtenantrepos.RegistryPivoted(os.Getenv, status) || doc == orgtenantrepos.Template {
+		return "", nil
+	}
+	cfg := loadGitOpsConfig()
+	repoDir, done, err := w.cloneTenantsBranch(ctx, cfg, "org-tenant-repoint-*")
+	if err != nil {
+		return "", err
+	}
+	defer done()
+	files, err := filepath.Glob(filepath.Join(repoDir, "clusters", "*", "org-tenants", orgtenantrepos.FileName))
+	if err != nil {
+		return "", fmt.Errorf("list shared helmrepositories: %w", err)
+	}
+	var fixed []string
+	for _, f := range files {
+		raw, err := os.ReadFile(filepath.Clean(f))
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", f, err)
+		}
+		if !orgtenantrepos.NeedsRewrite(raw, doc) {
+			continue
+		}
+		if err := writeSharedHelmRepositories(filepath.Dir(f), doc); err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(repoDir, f)
+		if err != nil {
+			return "", err
+		}
+		if err := runGit(ctx, repoDir, "add", rel); err != nil {
+			return "", fmt.Errorf("git add %s: %w", rel, err)
+		}
+		fixed = append(fixed, rel)
+	}
+	if len(fixed) == 0 {
+		return "", nil
+	}
+	return commitAndPushTenants(ctx, repoDir, cfg.Branch,
+		"org-tenant: the shared HelmRepositories name the Sovereign's own registry (registry pivoted): "+strings.Join(fixed, ", "))
+}
+
+// orgTenantRepointer is the writer the cutover engine asks to re-render the
+// shared HelmRepositories before the egress hold.
+type orgTenantRepointer interface {
+	RepointSharedHelmRepositories(ctx context.Context, status map[string]string) (string, error)
+}
+
+// repointOrgTenantSources runs before the cutover's egress-block-test step:
+// step 08 fails on any HelmRepository still on the public catalog, and an
+// Organization written while the cutover ran may have left the shared ones
+// there. The writer that owns the file rewrites it in Git (a live patch would
+// be written back by Flux); step 08's bounded poll then sees Flux apply it. A
+// failure is logged, not fatal: step 08 judges the objects and names the owner.
+func repointOrgTenantSources(ctx context.Context, log *slog.Logger, gitops OrganizationGitOpsWriter, deps *cutoverDeps) {
+	r, ok := gitops.(orgTenantRepointer)
+	if !ok {
+		return
+	}
+	status, err := readCutoverStatus(ctx, deps)
+	if err != nil {
+		log.Warn("cutover: org-tenants shared HelmRepositories not re-rendered — the cutover status is unreadable", "err", err)
+		return
+	}
+	sha, err := r.RepointSharedHelmRepositories(ctx, status)
+	switch {
+	case err != nil:
+		log.Error("cutover: org-tenants shared HelmRepositories re-render failed — step egress-block-test will name them", "err", err)
+	case sha != "":
+		log.Info("cutover: org-tenants shared HelmRepositories re-rendered on the Sovereign's own registry", "commit", sha)
+	default:
+		log.Info("cutover: org-tenants shared HelmRepositories need no re-render (none names the public catalog, or the registry is not pivoted)")
+	}
 }
 
 /* ── overlay rendering ───────────────────────────────────────────── */
@@ -804,9 +675,9 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	// mothership Harbor back into the Flux-owned overlay on the next Org
 	// signup/teardown. With no pivot fact present the resolver returns the
 	// input unchanged — pre-cutover bytes are identical, zero Flux drift.
-	// See cutover_aware_vcluster_5439.go.
-	imageRegistry := vclusterImageRegistryFor(
-		strings.TrimSpace(envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", mothershipVClusterImageRegistry)))
+	// See orgtenantrepos/vcluster_registry.go.
+	imageRegistry := orgtenantrepos.VClusterImageRegistry(os.Getenv,
+		strings.TrimSpace(envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", orgtenantrepos.MothershipVClusterImageRegistry)))
 
 	data := orgTenantTemplateData{
 		TenantID:              rec.OrganizationID,

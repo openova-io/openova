@@ -338,6 +338,18 @@ if [ -n "${BASE_TREE}" ]; then
         -e 's#git -c http\.extraHeader="Authorization: Basic \$\{basic_auth\}" push --mirror#git push --mirror#' \
         -e 's#push --mirror --force "\$\{(local_url|push_url)\}"#push --mirror --force "MIRROR_URL"#'
     }
+    # One more axis, kept out of the twenty-three above: step 08's #3526 pivot check
+    # re-reconciles the org-tenants source and names each offender's owning Kustomization,
+    # in EVERY topology; not the follower leg. While origin/main lacks
+    # the owner= field, the step-08 document is left out of BOTH trees;
+    # tests/step08-pivot-names-owner.sh executes the change. The axis switches
+    # itself off once origin/main holds it.
+    if ! grep -qF '{.spec.url} owner={.metadata.labels.kustomize' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/08-egress-block-test-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.no08"
+        mv "${TMP}/${t}.no08" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
