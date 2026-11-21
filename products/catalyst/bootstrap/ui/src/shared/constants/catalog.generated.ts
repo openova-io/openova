@@ -3899,7 +3899,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "application",
     "lifecycle": "deprecated",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "depends": [
       "bp-cert-manager",
       "bp-cert-manager-powerdns-webhook",
