@@ -4084,7 +4084,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.6.6
+  version: 0.6.7
   card:
     title: WordPress (per-Organization)
     summary: Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired.
@@ -4125,7 +4125,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.6.6
+    version: 0.6.7
   regionLocalVolumes:
   - name: wp-content
     template: chart/templates/pvc.yaml
