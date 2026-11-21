@@ -526,6 +526,17 @@ offlineMirror:
   # set false to restore the pre-#5194 immediate-fail behavior.
   selfHeal:
     enabled: true
+    # A copy round without an answer from https://registry.<fqdn>/v2/ copies
+    # nothing; `rounds` of them in a row, `intervalSeconds` apart, fail step 08
+    # with "the Sovereign's registry does not answer" and the Pods of
+    # namespace/deployment. Measured: a restarted registry Pod had its images
+    # 1 s after scheduling (21 Nov 2026, hw311); a registry down for 34+ min
+    # took 138 copies in 23 min, none OK (20 Nov 2026, hw310).
+    registryAnswer:
+      rounds: 6
+      intervalSeconds: 10
+      namespace: "harbor"
+      deployment: "harbor-registry"
   # host → local Harbor project. project "" = host-swap, path preserved (the
   # mothership host, whose path already carries the proxy-<x> segment).
   hostProjects:
@@ -1913,8 +1924,16 @@ egressTest:
     # RollingUpdate(maxUnavailable:1) is SEQUENTIAL — 6 nodes x (pull +
     # start + ready) blew the 240s budget and FAILed registry-pivot + falco
     # spuriously. 600s covers a 6-node Sovereign; DaemonSets additionally
-    # get a per-node budget below. Any ImagePull error observed still FAILS
-    # immediately regardless of the budget.
+    # get a per-node budget below. The single-Pod proof fails on an ImagePull
+    # error when it sees one; the sweep reads the Pods when `rollout status`
+    # returns, at the latest at the budget.
+    # The ONE budget of each roll. When it is over, step 08 fails at once,
+    # rolls nothing more, and names the workload, its Pods not Ready and each
+    # container's waiting reason and image (step.egress-block-test.lastError).
+    # Measured healthy rolls: 16 workloads in 0 to 45 s each (21 Nov 2026,
+    # hw311; keycloak 35 s, harbor-core 33 s); four harbor Deployments within
+    # 3.5 min of the step's start (20 Nov 2026, hw310), where harbor-registry's
+    # new Pod stayed in ImagePullBackOff. 600 s is 13 times the slowest.
     timeoutSeconds: 600
     # Per-node rollout budget for DaemonSets (#5022): the effective per-DS
     # timeout is max(timeoutSeconds, desiredNumberScheduled x

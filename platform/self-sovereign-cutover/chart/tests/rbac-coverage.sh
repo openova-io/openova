@@ -25,6 +25,10 @@
 # PROVEN ABLE TO FAIL. The last case deletes the `namespaces` rule from the
 # rendered ClusterRole and requires this guard to go RED. A coverage check that
 # has only ever been observed passing is not yet known to be a check.
+#
+# GROUP AND RESOURCE TOGETHER (Cases 6 and 7). A name-only match let the read of
+# workspaces.opentofu.m.upbound.io pass on the rule of opentofu.upbound.io. Case 6
+# judges every read as a group/resource pair, Case 7 drops that one group and requires RED.
 set -uo pipefail
 
 CHART_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -180,6 +184,93 @@ if grep -q '^MISSING namespaces$' <<<"${MUT}"; then
 else
   fail "mutation control did NOT go red — this guard cannot detect the very defect it exists for"
   printf '%s\n' "${MUT}" | sed 's/^/         /'
+fi
+
+# ── Case 6 — every read is granted in its API GROUP, not only by its name ──
+# Cases 4 and 5 compare resource names: a rule for workspaces in opentofu.upbound.io
+# also "covered" the read of workspaces.opentofu.m.upbound.io, so dropping that group
+# from the Role kept this suite green while the API server refused the list (SOV-344).
+# Here each read is a group/resource pair: a qualified token names its group; a bare
+# name takes the group kubectl resolves it to (the table below); a bare name outside
+# the table fails, because a read whose group is not known cannot be judged. A rule
+# grants a pair when its apiGroups hold the group (or *) and its resources the
+# resource (or *).
+plural() { case "$1" in *s) echo "$1" ;; *[aeiou]y) echo "$1s" ;; *y) echo "${1%y}ies" ;; *) echo "$1s" ;; esac; }
+bare_pair() {
+  local r
+  case "$1" in
+    cm) r=configmaps ;; svc) r=services ;; pvc) r=persistentvolumeclaims ;; pv) r=persistentvolumes ;;
+    ns) r=namespaces ;; sa) r=serviceaccounts ;; ep) r=endpoints ;; deploy) r=deployments ;;
+    ds) r=daemonsets ;; sts) r=statefulsets ;; rs) r=replicasets ;; hr) r=helmreleases ;;
+    crd) r=customresourcedefinitions ;; *) r=$(plural "$1") ;;
+  esac
+  case "${r}" in
+    pods|secrets|configmaps|nodes|namespaces|services|events|endpoints|serviceaccounts|persistentvolumeclaims|persistentvolumes) echo "/${r}" ;;
+    deployments|daemonsets|statefulsets|replicasets) echo "apps/${r}" ;;
+    jobs|cronjobs) echo "batch/${r}" ;;
+    helmreleases) echo "helm.toolkit.fluxcd.io/${r}" ;;
+    kustomizations) echo "kustomize.toolkit.fluxcd.io/${r}" ;;
+    gitrepositories|helmrepositories|ocirepositories|helmcharts) echo "source.toolkit.fluxcd.io/${r}" ;;
+    customresourcedefinitions) echo "apiextensions.k8s.io/${r}" ;;
+    volumeattachments) echo "storage.k8s.io/${r}" ;;
+    *) echo "?/$1" ;;
+  esac
+}
+# read_pairs <render> -> <render>.pairs: one "<group>/<resource>" per resource the scripts read
+read_pairs() {
+  { tr '\n' ' ' <"$1" \
+      | grep -oE 'kubectl[[:space:]]+((-[^[:space:]]+|[a-z-]+=[^[:space:]]+)[[:space:]]+)*get[[:space:]]+[A-Za-z][A-Za-z0-9.,-]*'
+    grep -oE 'srp_kubectl_json[[:space:]]+[A-Za-z][A-Za-z0-9.,-]*' "$1"
+  } | awk '{print $NF}' | tr ',' '\n' | sort -u >"$1.tokens"
+  : >"$1.pairs"
+  local t
+  while IFS= read -r t; do
+    case "${t}" in
+      ""|-*|po|no) ;;
+      *.*) echo "${t#*.}/$(plural "${t%%.*}")" >>"$1.pairs" ;;
+      *) bare_pair "${t}" >>"$1.pairs" ;;
+    esac
+  done <"$1.tokens"
+  sort -u -o "$1.pairs" "$1.pairs"
+}
+# grant_pairs <render> -> <render>.grants: one "<group>/<resource>" per Role or ClusterRole rule
+grant_pairs() {
+  yq -N 'select(.kind == "ClusterRole" or .kind == "Role") | .rules[] | .apiGroups[] as $g | .resources[] | $g + "/" + .' "$1" \
+    | sort -u >"$1.grants"
+}
+# missing_pairs <render>: each read pair no rule grants
+missing_pairs() {
+  local p g r
+  while IFS= read -r p; do
+    g="${p%%/*}"; r="${p#*/}"
+    grep -qxF -e "${g}/${r}" -e "*/${r}" -e "${g}/*" -e "*/*" "$1.grants" || echo "${p}"
+  done <"$1.pairs"
+}
+read_pairs "${TMP}/render.yaml"; grant_pairs "${TMP}/render.yaml"
+missing_pairs "${TMP}/render.yaml" >"${TMP}/missing-pairs.txt"
+if grep -qxF 'opentofu.m.upbound.io/workspaces' "${TMP}/render.yaml.pairs" && grep -qxF 'apps/deployments' "${TMP}/render.yaml.pairs" \
+    && [ "$(grep -c . "${TMP}/render.yaml.grants")" -ge 10 ]; then
+  pass "$(grep -c . "${TMP}/render.yaml.pairs") group/resource reads and $(grep -c . "${TMP}/render.yaml.grants") granted pairs, qualified and bare"
+else
+  fail "the group/resource extraction found no opentofu.m.upbound.io/workspaces or apps/deployments read, or under 10 grants — a pass would be meaningless"
+fi
+if [ ! -s "${TMP}/missing-pairs.txt" ]; then
+  pass "every read is granted in its own API group"
+else
+  fail "reads with no rule for their group and resource:"
+  sed 's/^/         - /' "${TMP}/missing-pairs.txt"
+fi
+
+# ── Case 7 — MUTATION CONTROL: drop the group opentofu.m.upbound.io, demand RED ──
+yq '(select(.kind == "ClusterRole" or .kind == "Role") | .rules[].apiGroups) |= map(select(. != "opentofu.m.upbound.io"))' \
+  "${TMP}/render.yaml" >"${TMP}/render-nogroup.yaml"
+cp "${TMP}/render.yaml.pairs" "${TMP}/render-nogroup.yaml.pairs"
+grant_pairs "${TMP}/render-nogroup.yaml"
+missing_pairs "${TMP}/render-nogroup.yaml" >"${TMP}/missing-nogroup.txt"
+if grep -qxF 'opentofu.m.upbound.io/workspaces' "${TMP}/missing-nogroup.txt" && grep -qxF 'opentofu.upbound.io/workspaces' "${TMP}/render-nogroup.yaml.grants"; then
+  pass "mutation control: without the group opentofu.m.upbound.io the read workspaces.opentofu.m.upbound.io is reported missing"
+else
+  fail "mutation control did NOT go red when the group opentofu.m.upbound.io was dropped from the rules"
 fi
 
 echo
