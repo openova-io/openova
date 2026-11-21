@@ -2924,6 +2924,54 @@ data:
       fi
     fi
 
+    {{- /* Phase A5 (SOV-343): the OpenTofu provider packages, copied by digest; the rules are above the key tofuProviders of values.yaml. */}}
+    {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 4 }}
+    # tofu-providers-copy BEGIN
+    tofu_providers_copy() {
+      _tp_rc=0; tofu_list_read /tmp/tofu-providers.list || _tp_rc=$?
+      if [ "${_tp_rc}" -eq 2 ]; then
+        echo "[harbor-prewarm] Phase A5: no ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: this Sovereign lists no OpenTofu provider package, none is copied"
+        return 0
+      fi
+      if [ "${_tp_rc}" -ne 0 ]; then
+        echo "[harbor-prewarm] FATAL: Phase A5 cannot read ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: the OpenTofu provider packages are not known to be in the local registry"
+        return 1
+      fi
+      _tp_bad=""; _tp_n=0; _tp_creds=$(src_creds_for "${TOFU_ORIGIN_PREFIX%%/*}")
+      while IFS= read -r _tp_l; do
+        if ! tofu_list_line "${_tp_l}"; then
+          _tp_bad="${_tp_bad}; the list line '${_tp_l}' is not '<source> <version> sha256:<digest>'"; continue
+        fi
+        _tp_n=$((_tp_n+1)); _tp_dst="${HARBOR_HOST}/${TOFU_LOCAL_PATH}/${_tl_repo}:${_tl_ver}"
+        _tp_have=$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")
+        if [ "${_tp_have}" = "${_tl_dig}" ]; then
+          echo "[harbor-prewarm] Phase A5 present ${_tp_dst} at ${_tl_dig}"; continue
+        fi
+        if [ -n "${_tp_have}" ]; then
+          _tp_bad="${_tp_bad}; ${_tp_dst} is ${_tp_have}, the list names ${_tl_dig} (a tag never moves)"; continue
+        fi
+        _tp_src="${TOFU_ORIGIN_PREFIX}/${_tl_repo}@${_tl_dig}"; _tp_ok=""
+        for _tp_try in $(seq 1 "${PREWARM_COPY_ATTEMPTS}"); do
+          echo "[harbor-prewarm] Phase A5 copy ${_tp_src} -> ${_tp_dst} (attempt ${_tp_try}/${PREWARM_COPY_ATTEMPTS})"
+          if offlinemirror_copy "${_tp_src}" "${_tp_creds}" "${_tp_dst}" --multi-arch all >/tmp/tofu-providers.log 2>&1 \
+              && [ "$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")" = "${_tl_dig}" ]; then
+            _tp_ok=1; break
+          fi
+          sed 's/^/    /' /tmp/tofu-providers.log
+          [ "${_tp_try}" -ge "${PREWARM_COPY_ATTEMPTS}" ] || sleep 5
+        done
+        [ -n "${_tp_ok}" ] || _tp_bad="${_tp_bad}; ${_tp_src} could not be copied to ${_tp_dst} at its digest"
+      done </tmp/tofu-providers.list
+      [ "${_tp_n}" -gt 0 ] || _tp_bad="${_tp_bad}; the list names no package"
+      if [ -n "${_tp_bad}" ]; then
+        echo "[harbor-prewarm] FATAL: Phase A5: ${_tp_bad#; } (step 11 moves the OpenTofu CLI configuration here only when every listed package is)"
+        return 1
+      fi
+      echo "[harbor-prewarm] Phase A5 complete: ${_tp_n} OpenTofu provider package(s) in the local registry by digest"
+    }
+    # tofu-providers-copy END
+    tofu_providers_copy
+
     # ─── Phase B (legacy): HEAD against proxy-cache for non-openova-io ─
     echo "[harbor-prewarm] Phase B: HEAD against proxy-cache for upstream images"
     base="${HARBOR_INTERNAL_URL}/v2"  # #5036 in-cluster Harbor Service — always resolves pre-pivot; the /v2 registry API uses literal-slash repo names (no gateway-decode nuance)
@@ -3498,6 +3546,7 @@ data:
             value: {{ .Values.crossplaneProviderPivot.registryPath | quote }}
           - name: XPKG_MOTHERSHIP_PROXY_PREFIX
             value: {{ .Values.crossplaneProviderPivot.mothershipProxyPrefix | quote }}
+          {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
           {{- /*
            #5232 (Refs #5226 #5204) — the tag->digest map Phase A4 records
            for step-11. Harbor proxy-cache NEVER records TAGS for

@@ -1,169 +1,8 @@
 {{- /*
-#5265 + #5640 — POST-CUTOVER DAY-2 local-Harbor reconciler.
-
-The gap
-───────
-`bp-self-sovereign-cutover` mirrors the public catalog into the local Gitea
-(step-01) and prewarms every pinned chart+image into the local Harbor
-(step-03) EXACTLY ONCE at cutover time. Post-cutover the local Harbor is the
-ONLY registry that matters — step-04 pivots node containerd `certs.d` and
-step-06 repoints every HelmRepository at it — so anything published UPSTREAM
-after step-03 ran can never reach the Sovereign.
-
-  • #5265 (the CHART half). On the operator's chosen schedule the local Gitea
-    RE-SYNCS upstream pin bumps (CLAUDE.md §Customer-Sync) and Flux picks the
-    new pin up — verified live hw277 (dep 1708c340ffc0e3f2, 2026-07-19): after
-    cc=true, catalog merges #5258/#5260 landed, the mirror re-synced, the
-    bootstrap-kit pin moved (region-b bp-continuum HR spec.chart.spec.version=
-    0.1.12) — but the local Harbor still held ONLY the versions the one-time
-    step-03 prewarm pushed. The HelmChart could not reconcile → the HR upgrade
-    wedged.
-
-  • #5640 (the IMAGE half). The SAME structure, one layer down and strictly
-    worse: a chart version that DOES reconcile installs workload templates
-    pinned to image tags published after cutover. Verified live hw292 (dep
-    1c56518035a83e03, cutoverComplete=true, 2026-08-03) —
-
-        curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
-        {"name":"openova-io/openova/catalyst-ui","tags":["fad88bd"]}
-        d674a94 -> 404      # the tag deploy-bot pinned today
-        fad88bd -> 200      # CONTROL: same probe, the tag deployed at cutover
-
-    …and the Pod pinned to `catalyst-ui:d674a94` sat in ImagePullBackOff. The
-    delivery chain merge → build → publish → deploy-bot pin is complete for a
-    PRE-cutover Sovereign and SILENTLY incomplete for a post-cutover one:
-    main is green, the GHCR tag exists, the pin is committed, and nothing on
-    the repo side reveals a thing.
-
-The Git leg has a companion (step-01's re-runnable mirror + the operator's
-sync schedule). The Harbor leg had none — this reconciler IS that companion,
-for BOTH artifact kinds, in ONE loop.
-
-Why a Deployment, not a CronJob
-───────────────────────────────
-`reference_region_local_reconciler_must_be_deployment_not_cronjob_survives_
-region_kill.md` (#5157): a CronJob's scheduler lives in the control-plane
-region; when that region is killed the CronJob stops firing and the loop dies
-silently. A Deployment (replicas: 1, Recreate) is rescheduled onto a surviving
-node by the kube scheduler, so the Day-2 loop keeps running across a region
-kill — exactly the failure the multi-region Sovereign is built to survive.
-(The #1899 gitea-mirror-resync CronJob predates this canon.)
-
-Why region-local, not a mothership-side push (#5640 shape choice)
-─────────────────────────────────────────────────────────────────
-The alternative shape — the deploy-bot pin commit triggering a push FROM the
-mothership INTO each Sovereign's Harbor — requires OpenOva to hold a standing
-write credential for every customer-run Sovereign and to reach it on demand.
-That is a permanent INBOUND tether from the mothership into the Sovereign: the
-exact inverse of Pillar 5 / ADR-0002, and structurally impossible for an
-air-gapped Sovereign. It also cannot be substituted by Harbor pull-through:
-step-02 creates `openova-io` as a PUSH-mode project (no `registry_id`, see
-02-harbor-projects-job.yaml) and step-06 pivots the workload refs onto exactly
-that project, so no proxy-cache sits behind the path that 404'd on hw292.
-Keeping the loop ON the Sovereign keeps the Sovereign self-sufficient.
-
-Single-source discipline — nothing here is a second mechanism
-─────────────────────────────────────────────────────────────
-  • chart pins  ← the SAME 03b `bootstrapkit_pins` extractor step-03 (Phase
-    A2-pins) and step-06 (Phase 3a-pin) use, mounted from the
-    `cutover-bootstrap-kit-pins` ConfigMap (03b's documented #5265 reuse seam).
-  • image → local path  ← the SAME 03a `offlinemirror_local_paths` resolver
-    step-03 (skopeo push dest) and step-08 (pre-hold completeness HEAD) use,
-    mounted from the `cutover-offline-mirror-resolver` ConfigMap. THREE
-    consumers, ONE mapping function.
-  • image enumeration  ← running Pods ∪ declared workload templates
-    (Deployments/StatefulSets/DaemonSets/CronJobs/Jobs), the #3944 completeness
-    union step-03 Phase A performs, so a scaled-to-zero or ImagePullBackOff
-    workload is still seen (which is the whole point here — the hw292 Pod was
-    NOT Running).
-  • image copy  ← the SAME copy (offlinemirror_copy, --multi-arch all: a list
-    as its entries, then its own bytes), the SAME #5095 mothership-proxy → DIRECT
-    inverse-coverage-map fallback, and the SAME #5525 scarf.sh → mothership-
-    proxy forward-map fallback that step-03 `copy_one` and step-08's #5194
-    self-heal already run. skopeo acquisition reuses step-08's pinned static
-    build verbatim.
-  • presence probe ← the Harbor artifact API for charts (#5030 durable probe)
-    and the local `/v2/<repo>/manifests/<ref>` HEAD for images (step-08's).
-
-Sovereignty — this NEVER weakens the Pillar-5 guarantee
-───────────────────────────────────────────────────────
-  • mode=detect (THE DEFAULT) — the loop reaches ONLY the local Gitea mirror
-    and the local Harbor. ZERO external egress: skopeo is never downloaded, no
-    upstream registry is dialled, no `helm pull` runs. It emits the exact set
-    of pinned charts AND declared images MISSING from local Harbor to a durable
-    ConfigMap + loud logs. That set IS the air-gapped Sovereign's offline-media
-    manifest (side-load exactly these) and it turns the previously-SILENT
-    strand into a visible, actionable signal — the #5640 "today nothing
-    notices" defect, closed.
-
-  • mode=request (THE DEFAULT) — detect's behaviour EXACTLY until an operator
-    files a delivery request, and detect's behaviour again the moment that one
-    request is consumed. This is the shape the sovereignty argument actually
-    wants: an explicitly operator-INITIATED, scope-BOUNDED, credential-SCOPED,
-    AUDITED, ONE-SHOT pull is a different object from a standing mirror.
-      – initiated: nothing happens without a ConfigMap the operator creates.
-      – bounded: only the refs that request names (or ALL_MISSING), capped at
-        request.maxRefsPerRequest; an over-size scope is REFUSED, not truncated.
-      – credential-scoped: step-06 strips the cutover's own ghcr auth, so the
-        credential can only be one the operator provisioned and can revoke.
-      – audited: every attempt appends to the delivery ConfigMap with
-        timestamp, requestId, requestedBy, source, destination and outcome.
-      – one-shot: the consumed requestId is recorded durably, so re-applying
-        the same request does NOT re-open the window. A new window needs a new
-        requestId — the window cannot stay open because someone forgot.
-    Because a request-less cycle dials nothing, this is safe as a DEFAULT in a
-    way `warm` is not, and an operator needing one stale image does not have to
-    edit the chart, roll the reconciler, and remember to turn it off again.
-
-  • mode=warm — an ALWAYS-ON mirror: every cycle, forever, unbounded in scope,
-    with a standing credential. Legitimate for an operator who has chosen to
-    track upstream continuously, but it IS a standing outbound tether and is
-    NOT the sovereignty-preserving option. Kept, documented as such, not the
-    default.
-
-Both delivery modes are fail-SOFT (a failed fetch is logged and left in the
-missing manifest) so the loop never crash-loops and workloads keep running on
-the installed version.
-
-#5640 flips `daytwoReconciler.enabled` to TRUE by default. The severance-safe
-property that mattered was never "no Deployment" — it was "no upstream egress
-by default", and detect/request both hold that with zero egress. Shipping the
-loop OFF would have shipped a knob nobody turns on, leaving the failure exactly
-as silent as the issue describes.
-
-Why the enumerated ref must be INVERTED before it is copied (#5640)
-───────────────────────────────────────────────────────────────────
-step-07's pod-spec sweep (sweep_one_workload -> podspec_pivot_ref) rewrites
-every workload image to `registry.<fqdn>/<local-path>`. Post-cutover, therefore,
-the refs this loop reads off the LIVE cluster carry NO upstream host — which is
-the ONLY shape the hw292 defect appears in. Handing such a ref to skopeo as the
-SOURCE copies the local registry to itself, for an artifact the local registry
-just 404'd: it can never deliver, and it fails as "copy error" rather than as
-"I do not know where this came from". The copy therefore inverts the SHARED 03a
-map first (`offlinemirror_upstream_ref`, the exact inverse of
-`offlinemirror_local_paths` — one function, one place) and REFUSES the copy
-outright when the map cannot name an upstream.
-
-The FAIL-CLOSED surface (#5640)
-───────────────────────────────
-A missing pin used to be a log line plus a ConfigMap, i.e. still a silent
-freeze — the operator found out when a UAT row would not go green. The loop now
-writes a readiness verdict from the MEASURED cycle outcome, and the container
-carries a readinessProbe on it. READY requires every enabled leg to have
-completed AND zero missing artifacts; "I could not check" is NOT-READY, never
-all-clear. `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 is
-then the visible statement "this Sovereign holds a pin its registry cannot
-serve". No livenessProbe: the correct response is to go not-ready, not restart.
-
-NOT a cutover-step ConfigMap: no `bp.openova.io/cutover-order` label, so it does
-NOT count toward the 11-step contract (tests/cutover-contract.sh Case 2/4).
-
-Image phase: pre — like the #1899 mirror-resync CronJob, this workload is
-created at chart-install time and uses the upstream-public image reference;
-because it RENDERS at install time, step-03 Phase A's declared-workload-template
-enumeration mirrors that very image into local Harbor, and post-cutover the node
-containerd (step-04 registries.yaml v2) resolves the reference from there. The
-loop's own image is therefore self-contained either way.
+#5265 + #5640 — the POST-CUTOVER DAY-2 local-Harbor reconciler: the legs (catalog, charts,
+images, OpenTofu provider packages), the modes detect, request and warm, and the fail-closed
+readiness. Its design is written above the key daytwoReconciler of values.yaml (a template's
+comments are stored in every Helm release Secret, #6004; those of values.yaml are not).
 */ -}}
 {{- if .Values.daytwoReconciler.enabled }}
 apiVersion: apps/v1
@@ -311,6 +150,9 @@ spec:
               value: {{ eq (toString .Values.daytwoReconciler.images.enabled) "true" | quote }}
             - name: CATALOG_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.catalog.enabled) "true" | quote }}
+            - name: TOFU_LEG_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.tofuProviders.enabled) "true" | quote }}
+            {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 12 }}
             {{- /* ── warm-mode source (operator-supplied; only read when mode=warm) ── */}}
             - name: WARM_UPSTREAM_OCI_PREFIX
               value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
@@ -382,6 +224,7 @@ spec:
               : "${CHART_LEG_ENABLED:=true}"
               : "${IMAGE_LEG_ENABLED:=true}"
               : "${CATALOG_LEG_ENABLED:=true}"
+              : "${TOFU_LEG_ENABLED:=true}"
               : "${GITEA_USERNAME:=gitea_admin}"
               : "${UPSTREAM_REPO_URL:=}"
               : "${IMAGE_SCAN_MAX:=400}"
@@ -783,20 +626,7 @@ spec:
                 _wi_up=$(offlinemirror_normalize_ref "$1")
                 _wi_lp="$2"
                 _wi_lref="${LOCAL_REGISTRY_HOST}/${_wi_lp}"
-                {{- /*
-                 ── #5640 SOURCE INVERSION ────────────────────────────────────
-                 Post-cutover, step-07's pod-spec sweep has ALREADY rewritten
-                 this workload's image to registry.<fqdn>/<local-path>, so the
-                 ref enumerated off the live cluster carries NO upstream host.
-                 Copying it as the SOURCE asks skopeo to copy the local registry
-                 to itself, for an artifact the local registry just 404'd — it
-                 can never deliver anything, and it would report "copy failed"
-                 rather than "I do not know where this came from". That is the
-                 hw292 class exactly: catalyst-ui was pinned to a tag published
-                 after cutover, and its live ref was the pivoted one. Invert the
-                 SHARED 03a map (offlinemirror_upstream_ref) to recover the true
-                 upstream before copying.
-                */}}
+                {{- /* #5640 SOURCE INVERSION: word for word above the key daytwoReconciler of values.yaml (#6004). */}}
                 case "${_wi_up}" in
                   "${LOCAL_REGISTRY_HOST}"/*)
                     _wi_inv=$(offlinemirror_upstream_ref "${_wi_up}" 2>/dev/null || true)
@@ -988,6 +818,51 @@ spec:
                 return 0
               }
 
+              {{- /* SOV-343: the OpenTofu provider leg; the rules are above the key tofuProviders of values.yaml. */}}
+              {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 14 }}
+              TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0; TOFU_STATUS="skipped"
+              MISSING_TOFU_FILE="${WORK}/missing-tofu.tsv"
+              reconcile_tofu_once() {
+                : > "${MISSING_TOFU_FILE}"
+                TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0
+                _to_rc=0; tofu_list_read "${WORK}/tofu.list" || _to_rc=$?
+                if [ "${_to_rc}" -eq 2 ]; then
+                  echo "[daytwo] tofu leg: no ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: no OpenTofu provider package is listed"
+                  TOFU_STATUS="ok"; return 0
+                fi
+                if [ "${_to_rc}" -ne 0 ]; then
+                  echo "[daytwo] tofu leg: cannot read ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM} — a broken read, NOT an all-clear; skipping this cycle"
+                  TOFU_STATUS="unreadable"; return 1
+                fi
+                while IFS= read -r _to_l; do
+                  if ! tofu_list_line "${_to_l}"; then
+                    printf 'TOFU\tmalformed\t%s\n' "${_to_l}" >> "${MISSING_TOFU_FILE}"; TOFU_MISS=$((TOFU_MISS+1)); continue
+                  fi
+                  TOFU_LISTED=$((TOFU_LISTED+1))
+                  _to_lp="${TOFU_LOCAL_PATH}/${_tl_repo}:${_tl_ver}"; _to_src="${TOFU_ORIGIN_PREFIX}/${_tl_repo}@${_tl_dig}"
+                  _to_have=$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")
+                  if [ "${_to_have}" = "${_tl_dig}" ]; then TOFU_PRESENT=$((TOFU_PRESENT+1)); continue; fi
+                  if [ -z "${_to_have}" ] && daytwo_delivery_allowed "${_to_src}" "${TOFU_ORIGIN_PREFIX}/${_tl_repo}:${_tl_ver}" "${_to_lp}"; then
+                    if daytwo_ensure_skopeo && daytwo_load_creds \
+                        && offlinemirror_copy "${_to_src}" "$(daytwo_src_creds_for "${TOFU_ORIGIN_PREFIX%%/*}")" "${HARBOR_HOST}/${_to_lp}" --multi-arch all >"${WORK}/tofu-warm.log" 2>&1 \
+                        && [ "$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")" = "${_tl_dig}" ]; then
+                      TOFU_WARMED=$((TOFU_WARMED+1)); REQ_DELIVERED=$((REQ_DELIVERED+1))
+                      [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "TOFU\tdelivered\t${REQ_ID}\t${REQ_BY}\t${_to_src}\t${HARBOR_HOST}/${_to_lp}"
+                      echo "[daytwo] tofu leg: copied ${_to_src} -> ${HARBOR_HOST}/${_to_lp}"
+                      continue
+                    fi
+                    sed 's/^/    /' "${WORK}/tofu-warm.log" 2>/dev/null
+                    REQ_FAILED=$((REQ_FAILED+1))
+                    [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "TOFU\tfailed\t${REQ_ID}\t${REQ_BY}\t${_to_src}\t${HARBOR_HOST}/${_to_lp}"
+                  fi
+                  printf 'TOFU\t%s\t%s\t%s\n' "${_to_src}" "${HARBOR_HOST}/${_to_lp}" "${_to_have:-absent}" >> "${MISSING_TOFU_FILE}"
+                  TOFU_MISS=$((TOFU_MISS+1))
+                  echo "[daytwo] MISSING OpenTofu provider package ${HARBOR_HOST}/${_to_lp} at ${_tl_dig} (the registry serves ${_to_have:-nothing}) — a Workspace's tofu init fails on it"
+                done < "${WORK}/tofu.list"
+                TOFU_STATUS="ok"
+                echo "[daytwo] tofu leg: listed=${TOFU_LISTED} present=${TOFU_PRESENT} copied=${TOFU_WARMED} missing=${TOFU_MISS}"
+              }
+
               {{- /*
                ── #5640 leg 0: the CATALOG (git) pin ────────────────────────
                THE HEAD OF THE CHAIN. The chart leg below enumerates its pin set
@@ -1068,20 +943,7 @@ spec:
                         return 0 ;;
                 esac
 
-                {{- /*
-                 #5759 — REFUSE-BY-DEFAULT. The push below is `git push --force`
-                 of a bare upstream clone (step-01's refspec shape): a ref
-                 overwrite, not a merge. After cutover the local
-                 ${UPSTREAM_BRANCH} holds this Sovereign's own commits (step-06's
-                 HelmRepository pivot among them); the overwrite discards them
-                 and re-tethers every chart to ghcr.io with no credential left
-                 (hw292, dep 1c56518035a83e03, 2026-08-06: 62 of 69
-                 HelmRepositories reverted, 44 of 72 HelmReleases not Ready). A
-                 later release reaches a cut-over Sovereign by merge instead:
-                 PUT /api/v1/sovereign/release (#7938). Gated on the LITERAL
-                 'false': an unreadable status counts as cut over (fail-closed,
-                 as step-08's per-region lint, #5359).
-                */}}
+                {{- /* #5759 — REFUSE-BY-DEFAULT. The push below is `git push --force`: word for word above the key daytwoReconciler of values.yaml (#6004). */}}
                 if [ "${CUTOVER_COMPLETE:-}" != "false" ]; then
                   CATALOG_STATUS="blocked-post-cutover"
                   echo "[daytwo] catalog leg: REFUSING (#5759) — cutoverComplete='${CUTOVER_COMPLETE:-unreadable}' (expected the literal 'false' to proceed). Force-pushing ${UPSTREAM_REPO_URL} onto this Sovereign's local Gitea mirror would overwrite ${UPSTREAM_BRANCH} wholesale and silently discard step-06's durable HelmRepository-pivot commit, re-tethering every chart Flux re-renders to ghcr.io with no credential left to reach it (step-06 already stripped ghcr-pull auth by design). The mirror is UNCHANGED and the Sovereign keeps running on its current pins. No override exists for this refusal: a later release reaches a cut-over Sovereign by merge, through PUT /api/v1/sovereign/release (#7938)."
@@ -1256,18 +1118,21 @@ spec:
               */}}
               publish_manifest() {
                 _mf="${WORK}/manifest.txt"
-                _total=$((CHART_MISS + IMAGE_MISS))
+                _total=$((CHART_MISS + IMAGE_MISS + TOFU_MISS))
                 {
                   echo "# self-sovereign-cutover Day-2 local-Harbor manifest (#5265 charts + #5640 images)"
                   echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=${RECONCILE_MODE}"
                   echo "# chartLeg=${CHART_STATUS} pins=${CHART_PINS} present=${CHART_PRESENT} warmed=${CHART_WARMED} missing=${CHART_MISS}"
                   echo "# imageLeg=${IMAGE_STATUS} refs=${IMAGE_REFS} present=${IMAGE_PRESENT} warmed=${IMAGE_WARMED} missing=${IMAGE_MISS}"
+                  echo "# tofuLeg=${TOFU_STATUS} listed=${TOFU_LISTED} present=${TOFU_PRESENT} copied=${TOFU_WARMED} missing=${TOFU_MISS}"
                   echo "# CHART lines side-load as:"
                   echo "#   helm pull ${WARM_UPSTREAM_OCI_PREFIX}/<chart> --version <version>  &&  helm push <tgz> oci://${HARBOR_HOST}/openova-io"
                   echo "# IMAGE lines side-load as:"
                   echo "#   skopeo copy docker://<upstream-ref> docker://${LOCAL_REGISTRY_HOST}/<local-path>"
+                  echo "# TOFU lines (source by digest, destination by tag) side-load each manifest of the index by digest, then the index"
                   if [ -s "${MISSING_CHARTS_FILE}" ]; then sort -u "${MISSING_CHARTS_FILE}"; fi
                   if [ -s "${MISSING_IMAGES_FILE}" ]; then sort -u "${MISSING_IMAGES_FILE}"; fi
+                  if [ -s "${MISSING_TOFU_FILE}" ]; then sort -u "${MISSING_TOFU_FILE}"; fi
                   if [ "${_total}" -eq 0 ] && [ "${CHART_STATUS}" != "pins-empty" ] && [ "${IMAGE_STATUS}" != "enumeration-empty" ]; then
                     echo "ALL_PINS_PRESENT"
                   fi
@@ -1279,29 +1144,7 @@ spec:
                   || echo "[daytwo] WARN: could not update ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} (logs still carry the manifest)"
               }
 
-              {{- /*
-               ── #5759 CONTINUOUS SOURCE-HOST DRIFT LINT ──────────────────────
-               Same host-classification shape as step-08's egressTest.
-               fluxSourceHostLint (08-egress-block-test-job.yaml,
-               run_flux_source_host_lint) — reused, not forked (single-source
-               discipline: one allowlist, egressTest.fluxSourceHostLint.
-               allowHosts, feeds both). The difference is WHEN it runs. That
-               lint fires ONCE, inside the 600s deny-egress hold, at the
-               ORIGINAL cutover, and is torn down with the hold — proving
-               nothing about a re-render minutes, days or months later. This
-               reconciler is a standing Deployment (#5157: a CronJob's
-               scheduler dies with its region on a region-kill, so this is a
-               Deployment on purpose), so its own copy keeps watching for the
-               Sovereign's entire post-cutover life — INTERVAL-INDEPENDENT,
-               per #5759 item 2 — and catches a revert from ANY cause: this
-               reconciler's own (now-refused) CATALOG leg, a sovereign-admin
-               re-stamping an unfixed step-01 PodSpec ConfigMap by hand via
-               scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes
-               only protect a Sovereign already upgraded past this release),
-               or a cause nobody has written yet. Measured live on hw292 (dep
-               1c56518035a83e03) 2026-08-06: 69/69 local HelmRepositories fell
-               to 7/69 (62 reverted to ghcr.io) with nothing standing watch.
-              */}}
+              {{- /* #5759 CONTINUOUS SOURCE-HOST DRIFT LINT: word for word above the key daytwoReconciler of values.yaml (#6004). */}}
               run_daytwo_source_host_lint() {
                 DRIFT_STATUS="skipped"; DRIFT_COUNT=0
                 [ "${SOURCE_HOST_LINT_ENABLED}" = "true" ] || return 0
@@ -1397,8 +1240,14 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ] && [ "${IMAGE_STATUS}" != "ok" ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}image-leg-${IMAGE_STATUS}"
                 fi
+                if [ "${TOFU_LEG_ENABLED}" = "true" ] && [ "${TOFU_STATUS}" != "ok" ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}tofu-leg-${TOFU_STATUS}"
+                fi
                 if [ "$((CHART_MISS + IMAGE_MISS))" -gt 0 ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}unpullable-pins=$((CHART_MISS + IMAGE_MISS))"
+                fi
+                if [ "${TOFU_MISS}" -gt 0 ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}unservable-tofu-providers=${TOFU_MISS}"
                 fi
                 {{- /*
                  #5759 — UNLIKE CATALOG_STATUS above, source-host drift IS a
@@ -1423,8 +1272,9 @@ spec:
 
               reconcile_once() {
                 _rc=0
-                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"; CATALOG_STATUS="disabled"
-                : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"
+                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"; CATALOG_STATUS="disabled"; TOFU_STATUS="disabled"
+                : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"; : > "${MISSING_TOFU_FILE}"
+                TOFU_LISTED=0; TOFU_PRESENT=0; TOFU_WARMED=0; TOFU_MISS=0
                 CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
                 IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
                 CATALOG_SYNCED=0
@@ -1454,6 +1304,9 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ]; then
                   reconcile_images_once || _rc=1
                 fi
+                if [ "${TOFU_LEG_ENABLED}" = "true" ]; then
+                  reconcile_tofu_once || _rc=1
+                fi
                 {{- /*
                  #5759 — runs every cycle regardless of which legs are
                  enabled: it watches the CLUSTER's Flux sources, not this
@@ -1465,7 +1318,7 @@ spec:
                 daytwo_audit_flush
                 publish_manifest
                 publish_health
-                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} | sourceHostLint(${DRIFT_STATUS}) drift=${DRIFT_COUNT} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} | tofu(${TOFU_STATUS}) missing=${TOFU_MISS} | sourceHostLint(${DRIFT_STATUS}) drift=${DRIFT_COUNT} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
                 return "${_rc}"
               }
 

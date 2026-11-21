@@ -34,11 +34,39 @@ import (
 // serve the kind holds none). A claim there would observe a second time what
 // the primary observes.
 //
+// In the primary region the OpenTofu CLI configuration of the provider pod
+// (SOV-342: the key .tofurc of the ConfigMap crossplane-system/opentofu-cli-config,
+// with which every tofu init of a Workspace installs its providers) is judged
+// (SOV-343): it names at least one OCI mirror (repository_template) and no other
+// installation method (direct, network_mirror, filesystem_mirror, dev_overrides);
+// when the ConfigMap catalyst/self-sovereign-cutover-status says
+// cutoverComplete=true every mirror is the Sovereign's registry (registry. or
+// harbor. before SOVEREIGN_FQDN of flux-system/sovereign-variables, then
+// /openova-io/tofu-providers/), before it the origin
+// (ghcr.io/openova-io/tofu-providers/). A configuration that is absent is a
+// finding: tofu init then takes the implied configuration, which installs from
+// the public registry.
+//
 // The package reference (spec.package) of every Crossplane provider and
 // function is recorded as evidence and not judged: the hand-over rewrites the
 // package references, so one run cannot say which registry is right. The check
 // only reads: it runs `kubectl get` and nothing else.
 const crossplaneID = "CLD-G06"
+
+// The OpenTofu CLI configuration of the provider pod, and the mirror paths it
+// may name.
+const (
+	crossplaneCLINamespace  = "crossplane-system"
+	crossplaneCLIConfigMap  = "opentofu-cli-config"
+	crossplaneCLIKey        = ".tofurc"
+	crossplaneTofuOrigin    = "ghcr.io/openova-io/tofu-providers/"
+	crossplaneTofuLocalPath = "/openova-io/tofu-providers/"
+)
+
+// crossplaneCLIMethods are the installation methods of an OpenTofu CLI
+// configuration other than oci_mirror: each can fetch a provider from a source
+// the Sovereign does not hold.
+var crossplaneCLIMethods = []string{"direct", "network_mirror", "filesystem_mirror", "dev_overrides"}
 
 // The kinds the check reads, by their full resource names.
 const (
@@ -123,6 +151,7 @@ func (crossplaneCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecord
 					bad = append(bad, "Workspace "+own[0].Name()+" of claim "+name+" "+why)
 				}
 			}
+			bad = append(bad, crossplaneCLIConfig(ctx, region, ev)...)
 			sort.Strings(bad)
 			ev["claims"], ev["workspaces"], ev["composed"], ev["not_ready"] = len(claims), len(workspaces), composed, bad
 			if len(claims) == 0 {
@@ -151,6 +180,83 @@ func crossplaneSyncedReady(o kube.Object) string {
 		}
 	}
 	return strings.Join(why, " and ")
+}
+
+// crossplaneCLIConfig judges the OpenTofu CLI configuration of the region: one
+// line per problem. It records the cutover state, the mirrors and the other
+// installation methods it read as evidence.
+func crossplaneCLIConfig(ctx context.Context, region kube.Region, ev Evidence) []string {
+	const where = "the OpenTofu CLI configuration " + crossplaneCLINamespace + "/" + crossplaneCLIConfigMap
+	status, _, err := getNamed(ctx, region, "configmaps", "catalyst", "self-sovereign-cutover-status")
+	if err != nil {
+		return []string{"the cutover state cannot be read, so " + where + " cannot be judged: " + err.Error()}
+	}
+	cut := stringValues(status.Get("data"))["cutoverComplete"] == "true"
+	ev["cutover_complete"] = cut
+	want := []string{crossplaneTofuOrigin}
+	if cut {
+		vars, _, err := sovereignVariables(ctx, region)
+		if err != nil {
+			return []string{"the Sovereign's registry cannot be named, so " + where + " cannot be judged: " + err.Error()}
+		}
+		fqdn := vars["SOVEREIGN_FQDN"]
+		if fqdn == "" {
+			return []string{"SOVEREIGN_FQDN is empty: the Sovereign's registry cannot be named, so " + where + " cannot be judged"}
+		}
+		want = []string{"registry." + fqdn + crossplaneTofuLocalPath, "harbor." + fqdn + crossplaneTofuLocalPath}
+	}
+	cm, found, err := getNamed(ctx, region, "configmaps", crossplaneCLINamespace, crossplaneCLIConfigMap)
+	if err != nil {
+		return []string{where + " cannot be read: " + err.Error()}
+	}
+	text := stringValues(cm.Get("data"))[crossplaneCLIKey]
+	if !found || strings.TrimSpace(text) == "" {
+		return []string{where + " (key " + crossplaneCLIKey + ") is absent: tofu init takes the implied configuration, which installs from registry.opentofu.org"}
+	}
+	mirrors, methods := crossplaneCLIParse(text)
+	ev["tofu_mirrors"], ev["tofu_methods"] = mirrors, methods
+	var bad []string
+	for _, m := range methods {
+		bad = append(bad, where+" names the installation method "+m+": a provider can come from outside the Sovereign's registry")
+	}
+	if len(mirrors) == 0 {
+		bad = append(bad, where+" names no OCI mirror (repository_template)")
+	}
+	for _, m := range mirrors {
+		ok := false
+		for _, w := range want {
+			ok = ok || strings.HasPrefix(m, w)
+		}
+		if !ok {
+			bad = append(bad, fmt.Sprintf("%s names the mirror %s; with cutoverComplete=%t it may name only %s", where, m, cut, strings.Join(want, " or ")))
+		}
+	}
+	return bad
+}
+
+// crossplaneCLIParse returns the repository_template values of an OpenTofu CLI
+// configuration and the other installation methods it opens, in their order.
+// Comment lines (# or //) are not read.
+func crossplaneCLIParse(text string) (mirrors, methods []string) {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "repository_template"); ok {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(rest), "="); ok {
+				mirrors = append(mirrors, strings.Trim(strings.TrimSpace(v), `"`))
+			}
+			continue
+		}
+		word := strings.TrimSpace(strings.SplitN(line, "{", 2)[0])
+		for _, m := range crossplaneCLIMethods {
+			if word == m {
+				methods = append(methods, m)
+			}
+		}
+	}
+	return mirrors, methods
 }
 
 // crossplanePackages records the package reference of every Crossplane

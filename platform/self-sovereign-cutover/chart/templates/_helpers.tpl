@@ -403,3 +403,45 @@ curl_no_answer() {
   esac
 }
 {{- end -}}
+
+{{/* SOV-343 — the settings tofuProviders of values.yaml, the environment of steps 03 and 11 and the day-two reconciler. */}}
+{{- define "bp-self-sovereign-cutover.tofuProvidersEnv" -}}
+- name: TOFU_NAMESPACE
+  value: {{ .Values.tofuProviders.namespace | quote }}
+- name: TOFU_LIST_CM
+  value: {{ .Values.tofuProviders.listConfigMapName | quote }}
+- name: TOFU_CLI_CM
+  value: {{ .Values.tofuProviders.cliConfigMapName | quote }}
+- name: TOFU_ORIGIN_PREFIX
+  value: {{ .Values.tofuProviders.originPrefix | quote }}
+- name: TOFU_LOCAL_PATH
+  value: {{ .Values.tofuProviders.localPath | quote }}
+- name: TOFU_CLI_FILE
+  value: {{ .Values.tofuProviders.cliConfigFile | quote }}
+{{- end -}}
+
+{{/* SOV-343 — the one reading of the list of OpenTofu provider packages; described above the key tofuProviders of values.yaml. */}}
+{{- define "bp-self-sovereign-cutover.tofuProviders" -}}
+# tofu-providers-list BEGIN
+tofu_list_read() {
+  _tr=$(kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_LIST_CM}" --ignore-not-found \
+    -o 'jsonpath={.metadata.name}{"\n"}{.data.providers}' 2>/dev/null) || return 1
+  [ -n "${_tr}" ] || return 2
+  printf '%s\n' "${_tr}" | sed '1d; /^[[:space:]]*$/d' >"$1"
+}
+tofu_list_line() {
+  set -f; set -- $1; set +f
+  [ "$#" -eq 3 ] || return 1
+  _tl_repo="${1#*/}"; _tl_ver="$2"; _tl_dig="$3"
+  case "${_tl_repo}" in */*/*|/*|*/) return 1 ;; */*) ;; *) return 1 ;; esac
+  case "${_tl_dig#sha256:}" in "${_tl_dig}"|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#_tl_dig}" -eq 71 ]
+}
+tofu_local_digest() {
+  curl -sSIk --max-time 30 -u "${HARBOR_USERNAME:-admin}:${HARBOR_PASSWORD:-}" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json' \
+    "${HARBOR_INTERNAL_URL}/v2/${TOFU_LOCAL_PATH}/$1/manifests/$2" 2>/dev/null \
+    | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | tail -n 1
+}
+# tofu-providers-list END
+{{- end -}}

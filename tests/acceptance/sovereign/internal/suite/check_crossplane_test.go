@@ -48,10 +48,13 @@ func init() {
 		fakeCrossplaneWorkspace("other", "xnodepool-abc12", "Synced", "False", "Ready", "False")) // another composite: not judged
 	providers := kubeList(fakeCrossplanePackage("provider-opentofu", "xpkg.upbound.io/upbound/provider-opentofu:v1.1.3"))
 	functions := kubeList(fakeCrossplanePackage("function-patch-and-transform", "harbor.example/crossplane/function-patch-and-transform:v0.8.2"))
+	// The OpenTofu CLI configuration of a Sovereign before its cutover: the origin.
+	cli, status := kubeList(fakeCLIConfig(fakeTofurc(crossplaneTofuOrigin))), kubeList(fakeCutoverStatus("false"))
 	good := map[string]string{
 		"a " + crossplaneClaimResource: claims, "a " + crossplaneWorkspaceResource: workspaces,
 		"b " + crossplaneClaimResource:    kubeList(),
 		"* " + crossplaneProviderResource: providers, "* " + crossplaneFunctionResource: functions,
+		"a configmaps " + crossplaneCLINamespace: cli, "a configmaps catalyst": status,
 	}
 	with := func(question, answer string) map[string]string {
 		out := map[string]string{question: answer}
@@ -95,7 +98,8 @@ func init() {
 	}
 	fakeAnswers["crossplane-packages-unread"] = map[string]string{
 		"a " + crossplaneClaimResource: claims, "a " + crossplaneWorkspaceResource: workspaces,
-		"b " + crossplaneClaimResource: kubeList(),
+		"b " + crossplaneClaimResource:           kubeList(),
+		"a configmaps " + crossplaneCLINamespace: cli, "a configmaps catalyst": status,
 	}
 	// The follower region of the run of 15 November 2026: the claim kind is
 	// served (bp-crossplane-claims runs in every region), no claim, and no
@@ -109,7 +113,124 @@ func init() {
 	fakeAnswers["crossplane-follower-claims-unread"] = map[string]string{
 		"a " + crossplaneClaimResource: claims, "a " + crossplaneWorkspaceResource: workspaces,
 		"* " + crossplaneProviderResource: providers, "* " + crossplaneFunctionResource: functions,
+		"a configmaps " + crossplaneCLINamespace: cli, "a configmaps catalyst": status,
 	}
+	// SOV-343: the OpenTofu CLI configuration, after and before the cutover.
+	local := "registry." + fakeCLIFQDN + crossplaneTofuLocalPath
+	vars := kubeList(obj{"metadata": kubeMeta("flux-system", "sovereign-variables"), "data": obj{"SOVEREIGN_FQDN": fakeCLIFQDN}})
+	cutover := func(complete string, tofurc ...string) map[string]string {
+		configs := []obj{}
+		for _, t := range tofurc {
+			configs = append(configs, fakeCLIConfig(t))
+		}
+		m := with("a configmaps "+crossplaneCLINamespace, kubeList(configs...))
+		m["a configmaps catalyst"] = kubeList(fakeCutoverStatus(complete))
+		m["a configmaps flux-system"] = vars
+		return m
+	}
+	fakeAnswers["crossplane-cli-local-after"] = cutover("true", fakeTofurc(local))
+	fakeAnswers["crossplane-cli-harbor-alias-after"] = cutover("true", fakeTofurc("harbor."+fakeCLIFQDN+crossplaneTofuLocalPath))
+	fakeAnswers["crossplane-cli-origin-after"] = cutover("true", fakeTofurc(crossplaneTofuOrigin))
+	fakeAnswers["crossplane-cli-other-sovereign-after"] = cutover("true", fakeTofurc("registry.other.example"+crossplaneTofuLocalPath))
+	fakeAnswers["crossplane-cli-origin-before"] = cutover("false", fakeTofurc(crossplaneTofuOrigin))
+	fakeAnswers["crossplane-cli-local-before"] = cutover("false", fakeTofurc(local))
+	fakeAnswers["crossplane-cli-direct-before"] = cutover("false", fakeTofurc(crossplaneTofuOrigin, "direct {}"))
+	fakeAnswers["crossplane-cli-direct-after"] = cutover("true", fakeTofurc(local, "direct {", "  exclude = [\"registry.opentofu.org/example/*\"]", "}"))
+	fakeAnswers["crossplane-cli-network-mirror-after"] = cutover("true", fakeTofurc(local, "network_mirror {", "  url = \"https://mirror.example/\"", "}"))
+	fakeAnswers["crossplane-cli-missing"] = cutover("false")
+	fakeAnswers["crossplane-cli-empty-key"] = cutover("true", "")
+	fakeAnswers["crossplane-cli-no-mirror"] = cutover("false", "provider_installation {\n}\n")
+	// A configuration that cannot be read is not judged absent.
+	fakeAnswers["crossplane-cli-unread"] = map[string]string{
+		"a " + crossplaneClaimResource: claims, "a " + crossplaneWorkspaceResource: workspaces, "b " + crossplaneClaimResource: kubeList(),
+		"a configmaps catalyst": status,
+	}
+}
+
+// fakeCLIFQDN is the Sovereign of the CLI configuration scenarios.
+const fakeCLIFQDN = "sov.example.test"
+
+// fakeCLIConfig is the ConfigMap crossplane-system/opentofu-cli-config with the
+// CLI configuration text.
+func fakeCLIConfig(text string) obj {
+	return obj{"metadata": kubeMeta(crossplaneCLINamespace, crossplaneCLIConfigMap), "data": obj{crossplaneCLIKey: text}}
+}
+
+// fakeCutoverStatus is the ConfigMap catalyst/self-sovereign-cutover-status.
+func fakeCutoverStatus(complete string) obj {
+	return obj{"metadata": kubeMeta("catalyst", "self-sovereign-cutover-status"), "data": obj{"cutoverComplete": complete}}
+}
+
+// fakeTofurc is the CLI configuration the kit renders (SOV-342), with its OCI
+// mirror at prefix and more lines inside provider_installation.
+func fakeTofurc(prefix string, more ...string) string {
+	lines := []string{"# the provider pod's CLI configuration", "provider_installation {", "  oci_mirror {",
+		"    repository_template = \"" + prefix + "${namespace}/${type}\"", "    include             = [\"registry.opentofu.org/*/*\"]", "  }"}
+	lines = append(append(lines, more...), "}", "", "oci_default_credentials {",
+		"  docker_style_config_files = [\"/etc/opentofu/oci/config.json\"]", "}")
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// crossplaneCLIVerdicts runs CLD-G06 on each scenario: "" wants PASS, any
+// other text a FAIL of the primary region's step whose reason holds it.
+func crossplaneCLIVerdicts(t *testing.T, cases map[string]string) {
+	t.Helper()
+	for scenario, want := range cases {
+		r := runCheck(t, scenario, crossplaneCheck{}, &CheckContext{})
+		got := r.run.Checks[0]
+		switch {
+		case want == "" && got.Status != Pass:
+			t.Errorf("%s: want PASS, got %+v", scenario, got)
+		case want != "" && (got.Status != Fail || !strings.Contains(got.Reason, want) || r.run.Steps[0].Status != Fail):
+			t.Errorf("%s: want the primary step to FAIL with %q, got %+v", scenario, want, got)
+		}
+	}
+}
+
+// After the cutover the configuration names the Sovereign's registry and no
+// other; the origin, or another Sovereign's registry, is a finding.
+func TestCrossplaneCLIConfigLocalAfterCutover(t *testing.T) {
+	crossplaneCLIVerdicts(t, map[string]string{
+		"crossplane-cli-local-after":           "",
+		"crossplane-cli-harbor-alias-after":    "",
+		"crossplane-cli-origin-after":          "names the mirror " + crossplaneTofuOrigin + "${namespace}/${type}; with cutoverComplete=true it may name only registry." + fakeCLIFQDN,
+		"crossplane-cli-other-sovereign-after": "names the mirror registry.other.example" + crossplaneTofuLocalPath,
+	})
+	r := runCheck(t, "crossplane-cli-local-after", crossplaneCheck{}, &CheckContext{})
+	if ev := r.run.Steps[0].Evidence; ev["cutover_complete"] != true || len(ev["tofu_mirrors"].([]string)) != 1 {
+		t.Errorf("the step does not record the cutover state and the mirror: %+v", ev)
+	}
+}
+
+// Before the cutover the configuration names the origin; the Sovereign's own
+// registry then is a finding (it holds the packages only after step 03).
+func TestCrossplaneCLIConfigOriginBeforeCutover(t *testing.T) {
+	crossplaneCLIVerdicts(t, map[string]string{
+		"crossplane-cli-origin-before": "",
+		"crossplane-healthy":           "",
+		"crossplane-cli-local-before":  "names the mirror registry." + fakeCLIFQDN + crossplaneTofuLocalPath + "${namespace}/${type}; with cutoverComplete=false it may name only " + crossplaneTofuOrigin,
+	})
+}
+
+// A direct method, or any method that is not an OCI mirror, is a finding
+// before and after the cutover.
+func TestCrossplaneCLIConfigDirectIsAFinding(t *testing.T) {
+	crossplaneCLIVerdicts(t, map[string]string{
+		"crossplane-cli-direct-before":        "names the installation method direct",
+		"crossplane-cli-direct-after":         "names the installation method direct",
+		"crossplane-cli-network-mirror-after": "names the installation method network_mirror",
+	})
+}
+
+// An absent configuration, an empty one or one without an OCI mirror is a
+// finding; one that cannot be read is reported as unread, not as absent.
+func TestCrossplaneCLIConfigMissingIsAFinding(t *testing.T) {
+	crossplaneCLIVerdicts(t, map[string]string{
+		"crossplane-cli-missing":   "the OpenTofu CLI configuration crossplane-system/opentofu-cli-config (key .tofurc) is absent",
+		"crossplane-cli-empty-key": "(key .tofurc) is absent",
+		"crossplane-cli-no-mirror": "names no OCI mirror",
+		"crossplane-cli-unread":    "the OpenTofu CLI configuration crossplane-system/opentofu-cli-config cannot be read",
+	})
 }
 
 func TestCrossplaneCheck(t *testing.T) {
