@@ -1,0 +1,1 @@
+{"replicas":2,"strategy":{"type":"Recreate"},"topologySpreadConstraints":[{"maxSkew":1,"nodeTaintsPolicy":"Honor","topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"DoNotSchedule","labelSelector":{"matchLabels":{"release":"harbor","app":"harbor","component":"registry"}}}]}
