@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T05:45:05Z` |
+| Last refreshed | `2026-11-21T06:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T05:49 | [#8583](https://github.com/openova-io/openova/pull/8583) | #7087 | docs(ledger): plan update |
+| 2026-11-21T05:49 | [#8582](https://github.com/openova-io/openova/pull/8582) | #8577 | test(gate): check NET-G18 proves full-size transfers between |
 | 2026-11-21T05:25 | [#8581](https://github.com/openova-io/openova/pull/8581) | #7087 | docs(ledger): plan update |
 | 2026-11-21T05:10 | [#8579](https://github.com/openova-io/openova/pull/8579) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
@@ -315,6 +317,7 @@ flowchart LR
 | 2026-11-21T04:50 | [#8571](https://github.com/openova-io/openova/pull/8571) | #8557 | fix(charts): every foundation release has a function test th |
 | 2026-11-21T05:28 | [#8570](https://github.com/openova-io/openova/pull/8570) | #6762 | fix(cutover): the sovereignty proof counts the cloud Workspa |
 | 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
+| 2026-11-21T05:59 | [#8567](https://github.com/openova-io/openova/pull/8567) | #4467 | fix(cilium): the MTU given to Cilium is the node interface's |
 | 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
 | 2026-11-21T02:30 | [#8563](https://github.com/openova-io/openova/pull/8563) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-20T22:49 | [#8544](https://github.com/openova-io/openova/pull/8544) | #8533 | fix(cutover): step 04 keeps the nodes shared registry mirror |
 | 2026-11-20T21:04 | [#8543](https://github.com/openova-io/openova/pull/8543) | #8536 | test(gate): check INF-G01 drains the worker of the registry  |
 | 2026-11-21T00:42 | [#8542](https://github.com/openova-io/openova/pull/8542) | fix(tests): the umbrella chart's allow-list test cannot fail |  |
-| 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
-| 2026-11-20T21:06 | [#8540](https://github.com/openova-io/openova/pull/8540) | fix(tests): three Go tests of the platform API stop failing  |  |
-| 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
 
 ---
 
