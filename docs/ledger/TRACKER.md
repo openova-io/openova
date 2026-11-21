@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T09:45:04Z` |
+| Last refreshed | `2026-11-21T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T09:49 | [#8593](https://github.com/openova-io/openova/pull/8593) | #7087 | docs(ledger): plan update |
 | 2026-11-21T08:04 | [#8591](https://github.com/openova-io/openova/pull/8591) | #8567 | fix(organization): the smallest plan's quota holds what ever |
 | 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
 | 2026-11-21T07:39 | [#8589](https://github.com/openova-io/openova/pull/8589) | #5646 | fix(organization): the mirror of an Organization's kubeconfi |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-21T02:23 | [#8558](https://github.com/openova-io/openova/pull/8558) | #8556 | fix(cutover): steps 03 and 11 and the day-two reconciler mov |
 | 2026-11-21T01:17 | [#8555](https://github.com/openova-io/openova/pull/8555) | #7087 | docs(ledger): plan update |
 | 2026-11-21T01:16 | [#8554](https://github.com/openova-io/openova/pull/8554) | #8549 | fix(release): a release run that publishes several charts ne |
-| 2026-11-21T01:11 | [#8553](https://github.com/openova-io/openova/pull/8553) | #8515 | feat(gate): a discovery run judges an install at once, witho |
 
 ---
 
