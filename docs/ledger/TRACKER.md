@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T05:00:04Z` |
+| Last refreshed | `2026-11-21T05:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T05:10 | [#8579](https://github.com/openova-io/openova/pull/8579) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:29 | [#8573](https://github.com/openova-io/openova/pull/8573) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:18 | [#8572](https://github.com/openova-io/openova/pull/8572) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
-| 2026-11-20T19:00 | [#8531](https://github.com/openova-io/openova/pull/8531) | #7087 | docs(ledger): plan update |
 
 ---
 
