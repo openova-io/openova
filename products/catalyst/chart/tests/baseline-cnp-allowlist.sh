@@ -68,9 +68,18 @@ if ! grep -E '^\s*-\s+port:\s+"587"' "$TMP/cnp.yaml" >/dev/null; then
 fi
 # Confirm 587 is on a toEntities:[world] rule, not accidentally on a
 # kube-dns toEndpoints block (which would be a different bug).
-if ! awk '/toEntities:/,/toPorts:/{block=block"\n"$0} /port: "587"/{if (block ~ /world/) {print "ok"; exit 0}; exit 1}' "$TMP/cnp.yaml" | grep -q ok; then
+#
+# Every yes-or-no search in this file reads its text whole: a here-string, or
+# grep on the file. A writer piped into grep -q is cut off when grep stops at
+# its first match, and pipefail then fails the case although the match was
+# found (8 in 1000 runs for a 4.5 KiB slice, now and then on the runner).
+# tools/guards/cmd/pipe-cannot-break fails on echo or printf of a variable
+# piped into grep -q; a command as the writer (awk '/egress:/,0' "$f" |
+# grep -q x, the larger source of the flake here) it does not judge: review
+# holds that one.
+if ! grep -q ok <<<"$(awk '/toEntities:/,/toPorts:/{block=block"\n"$0} /port: "587"/{if (block ~ /world/) {print "ok"; exit 0}; exit 1}' "$TMP/cnp.yaml")"; then
   # Looser fallback: render the egress section and confirm world + 587 co-occur within 30 lines.
-  if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "587"' | grep -q '\- world'; then
+  if ! grep -q '\- world' <<<"$(awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "587"')"; then
     echo "FAIL: port 587/TCP exists but not scoped to toEntities:[world] (#1803)" >&2
     exit 1
   fi
@@ -123,7 +132,7 @@ fi
 # Confirm 6443 is on a toEntities:[world] rule (the secondary CPs are
 # reachable only via public LB IPs per ClusterMesh model), not on a
 # kube-dns or kube-apiserver-entity block.
-if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "6443"' | grep -q '\- world'; then
+if ! grep -q '\- world' <<<"$(awk '/egress:/,0' "$TMP/cnp.yaml" | grep -B30 'port: "6443"')"; then
   echo "FAIL: port 6443/TCP exists but not scoped to toEntities:[world] (#1908)" >&2
   exit 1
 fi
@@ -139,7 +148,7 @@ echo "[baseline-cnp] Case 5c: egress allow-list includes 'org-services' namespac
 # drops the traffic and the Console returns 503 `context deadline exceeded`.
 # Caught LIVE on t32 fresh-prov walk 2026-05-19 (then under the 'sme' name);
 # any re-narrowing must fail here.
-if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -q '"org-services"'; then
+if ! grep -q '"org-services"' <<<"$(awk '/egress:/,0' "$TMP/cnp.yaml")"; then
   echo "FAIL: egress allow-list missing 'org-services' namespace — Console → gateway.org-services.svc will 503 (#1920/#3383 regression)" >&2
   exit 1
 fi
@@ -150,7 +159,7 @@ echo "[baseline-cnp] Case 5d: egress allow-list includes 'newapi' namespace — 
 # `newapi` namespace for the customer-journey D29 flows. Without
 # `newapi` in the egress allow-list, every catalyst-system → NewAPI v2
 # call times out.
-if ! awk '/egress:/,0' "$TMP/cnp.yaml" | grep -q '"newapi"'; then
+if ! grep -q '"newapi"' <<<"$(awk '/egress:/,0' "$TMP/cnp.yaml")"; then
   echo "FAIL: egress allow-list missing 'newapi' namespace — catalyst-system → NewAPI v2 will time out (#1920 regression)" >&2
   exit 1
 fi
@@ -172,9 +181,9 @@ if ! grep -E 'protocol:\s+UDP' "$TMP/cnp.yaml" >/dev/null; then
 fi
 # Both 53/UDP AND 53/TCP must be present. Collapse the rendered DNS
 # block and check the protocol set.
-dns_block=$(awk '/k8s-app: kube-dns/,/toPorts/{print}; /toPorts/,/^\s{4}-/{print}' "$TMP/cnp.yaml" | head -60)
-udp_53=$(printf '%s\n' "$dns_block" | grep -c "protocol: UDP" || true)
-tcp_53=$(printf '%s\n' "$dns_block" | grep -c "protocol: TCP" || true)
+dns_block=$(head -60 <<<"$(awk '/k8s-app: kube-dns/,/toPorts/{print}; /toPorts/,/^\s{4}-/{print}' "$TMP/cnp.yaml")")
+udp_53=$(grep -c "protocol: UDP" <<<"$dns_block" || true)
+tcp_53=$(grep -c "protocol: TCP" <<<"$dns_block" || true)
 if [ "${udp_53}" -lt 1 ] || [ "${tcp_53}" -lt 1 ]; then
   echo "FAIL: kube-dns toPorts must include BOTH UDP and TCP on port 53 (got UDP=${udp_53} TCP=${tcp_53})" >&2
   exit 1
@@ -229,15 +238,15 @@ echo "[baseline-cnp] Case 10: ingress allow-list is namespace-scoped (NOT reserv
 # `fromEntities: [world]` would render the default-deny CNP toothless
 # and must fail here.
 ingress_block=$(awk '/^  ingress:/,/^  egress:/' "$TMP/cnp.yaml")
-if printf '%s\n' "$ingress_block" | grep -qE '^\s*-\s*cluster\s*$'; then
+if grep -qE '^\s*-\s*cluster\s*$' <<<"$ingress_block"; then
   echo "FAIL: ingress fromEntities includes 'cluster' (toothless wildcard) — must use namespace allow-list" >&2
   exit 1
 fi
-if printf '%s\n' "$ingress_block" | grep -qE '^\s*-\s*world\s*$'; then
+if grep -qE '^\s*-\s*world\s*$' <<<"$ingress_block"; then
   echo "FAIL: ingress fromEntities includes 'world' — the catalyst-system CNP must not allow direct internet ingress" >&2
   exit 1
 fi
-if printf '%s\n' "$ingress_block" | grep -qE '^\s*-\s*all\s*$'; then
+if grep -qE '^\s*-\s*all\s*$' <<<"$ingress_block"; then
   echo "FAIL: ingress fromEntities includes 'all' — toothless wildcard" >&2
   exit 1
 fi
@@ -341,11 +350,11 @@ if [ -z "$_ing14" ] || [ -z "$_egr14" ]; then
   exit 1
 fi
 
-if ! printf '%s' "$_ing14" | grep -q '"cnpg-system"'; then
+if ! grep -q '"cnpg-system"' <<<"$_ing14"; then
   echo "FAIL: cnpg-system missing from the INGRESS allow-list — the CNPG operator's reverse status probe into catalyst-system is denied. Clusters still admit and run; the only symptom is 'Cannot extract Pod status ... i/o timeout' in the operator log (#5813, UAT row R22)." >&2
   exit 1
 fi
-if ! printf '%s' "$_egr14" | grep -q '"cnpg-system"'; then
+if ! grep -q '"cnpg-system"' <<<"$_egr14"; then
   echo "FAIL: cnpg-system missing from the EGRESS allow-list — this half was already correct before #5813; losing it breaks catalyst-system -> cnpg-system calls." >&2
   exit 1
 fi
@@ -396,7 +405,7 @@ fi
 # Assert on the VALUE of the destination selector, not merely that the key
 # exists: `endpointSelector: {}` would also carry an endpointSelector key and
 # would silently widen the grant to the whole namespace.
-if ! awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/backchannel.yaml" | grep -q '^      app.kubernetes.io/name: catalyst-api$'; then
+if ! grep -q '^      app.kubernetes.io/name: catalyst-api$' <<<"$(awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/backchannel.yaml")"; then
   echo "FAIL: the backchannel CNP is not scoped to the catalyst-api Pods (endpointSelector app.kubernetes.io/name=catalyst-api). A namespace-wide selector would admit keycloak to org-pg / guacamole-pg / shared-pg too (#6106)." >&2
   exit 1
 fi
@@ -408,15 +417,15 @@ if [ -z "$_ing6106" ]; then
   echo "FAIL: could not slice the ingress block out of the backchannel CNP — the awk range is broken, not the policy." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6106" | grep -q 'k8s:io.kubernetes.pod.namespace: "keycloak"'; then
+if ! grep -q 'k8s:io.kubernetes.pod.namespace: "keycloak"' <<<"$_ing6106"; then
   echo "FAIL: the backchannel CNP does not admit the 'keycloak' namespace — the broker's token exchange stays denied (#6106)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6106" | grep -q 'port: "8080"'; then
+if ! grep -q 'port: "8080"' <<<"$_ing6106"; then
   echo "FAIL: the backchannel CNP does not name TCP/8080 — catalyst-api's only Service port, the port keycloak-0 timed out on (#6106)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6106" | grep -q 'protocol: TCP'; then
+if ! grep -q 'protocol: TCP' <<<"$_ing6106"; then
   echo "FAIL: the backchannel CNP's port rule has no TCP protocol (#6106)." >&2
   exit 1
 fi
@@ -429,26 +438,26 @@ echo "[baseline-cnp] Case 16: the backchannel allow uses ClusterMesh-safe ENDPOI
 # region-B backchannel arrives here over the mesh. Naming
 # io.cilium.k8s.policy.cluster suppresses Cilium's implicit cluster=<local>
 # AND-injection; dropping it re-breaks region B while region A keeps passing.
-if ! printf '%s' "$_ing6106" | grep -q 'fromEndpoints:'; then
+if ! grep -q 'fromEndpoints:' <<<"$_ing6106"; then
   echo "FAIL: the backchannel allow does not use fromEndpoints (#6106)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6106" | grep -q 'key: io.cilium.k8s.policy.cluster'; then
+if ! grep -q 'key: io.cilium.k8s.policy.cluster' <<<"$_ing6106"; then
   echo "FAIL: the backchannel allow does not name io.cilium.k8s.policy.cluster — Cilium AND-injects cluster=<local> and the region-B Keycloak Pod is silently denied (#6106)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6106" | grep -A1 'key: io.cilium.k8s.policy.cluster' | grep -q 'operator: Exists'; then
+if ! grep -q 'operator: Exists' <<<"$(grep -A1 'key: io.cilium.k8s.policy.cluster' <<<"$_ing6106")"; then
   echo "FAIL: io.cilium.k8s.policy.cluster is named but not with operator Exists — the AND-injection suppression is what makes the peer-region source match (#6106)." >&2
   exit 1
 fi
 for _bad in 'ipBlock' 'fromCIDR' 'fromCIDRSet'; do
-  if printf '%s' "$_ing6106" | grep -q "${_bad}"; then
+  if grep -q "${_bad}" <<<"$_ing6106"; then
     echo "FAIL: the backchannel allow uses ${_bad} — a CIDR match NEVER resolves a ClusterMesh remote pod identity (#6106)." >&2
     exit 1
   fi
 done
 for _wild in 'world' 'cluster' 'all'; do
-  if printf '%s' "$_ing6106" | grep -qE "^\s*-\s*${_wild}\s*$"; then
+  if grep -qE "^\s*-\s*${_wild}\s*$" <<<"$_ing6106"; then
     echo "FAIL: the backchannel allow includes the '${_wild}' entity — that is a wildcard, not a carve-out (#6106)." >&2
     exit 1
   fi
@@ -466,12 +475,12 @@ echo "[baseline-cnp] Case 17: CONTROL — baseline-default-deny is UNCHANGED, ke
 # catalyst-system CNP granting ingress) must still carry exactly its six
 # pre-#6106 namespaces and must NOT have gained keycloak. If a later change
 # widens the blanket list instead, Case 15 would still pass and this one fails.
-if printf '%s\n' "$_ing14" | grep -q '"keycloak"'; then
+if grep -q '"keycloak"' <<<"$_ing14"; then
   echo "FAIL: 'keycloak' appears in baseline-default-deny's blanket ingress allow-list. That admits the namespace to EVERY catalyst-system Pod on EVERY port; the backchannel needs one workload on one port and has its own policy (#6106)." >&2
   exit 1
 fi
 for _ns in catalyst flux-system kube-system oidc-gate guacamole cnpg-system; do
-  if ! printf '%s\n' "$_ing14" | grep -q "\"${_ns}\""; then
+  if ! grep -q "\"${_ns}\"" <<<"$_ing14"; then
     echo "FAIL: baseline-default-deny lost '${_ns}' from its ingress allow-list — the #6106 diff must not have touched this policy at all." >&2
     exit 1
   fi
@@ -541,7 +550,7 @@ if ! grep -q '^kind: CiliumNetworkPolicy$' "$TMP/enforcement.yaml"; then
   echo "FAIL: the enforcement allow is not a CiliumNetworkPolicy (#6867)." >&2
   exit 1
 fi
-if ! awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/enforcement.yaml" | grep -q '^      app.kubernetes.io/name: catalyst-api$'; then
+if ! grep -q '^      app.kubernetes.io/name: catalyst-api$' <<<"$(awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/enforcement.yaml")"; then
   echo "FAIL: the enforcement CNP is not scoped to the catalyst-api Pods — a namespace-wide selector would admit chargeback to org-pg / guacamole-pg / shared-pg too (#6867)." >&2
   exit 1
 fi
@@ -550,40 +559,40 @@ if [ -z "$_ing6867" ]; then
   echo "FAIL: could not slice the ingress block out of the enforcement CNP — the awk range is broken, not the policy." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6867" | grep -q 'k8s:io.kubernetes.pod.namespace: "chargeback"'; then
+if ! grep -q 'k8s:io.kubernetes.pod.namespace: "chargeback"' <<<"$_ing6867"; then
   echo "FAIL: the enforcement CNP does not admit the 'chargeback' namespace (#6867)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6867" | grep -q 'port: "8080"'; then
+if ! grep -q 'port: "8080"' <<<"$_ing6867"; then
   echo "FAIL: the enforcement CNP does not name TCP/8080 — catalyst-api's only Service port (#6867)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6867" | grep -q 'protocol: TCP'; then
+if ! grep -q 'protocol: TCP' <<<"$_ing6867"; then
   echo "FAIL: the enforcement CNP's port rule has no TCP protocol (#6867)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6867" | grep -q 'fromEndpoints:'; then
+if ! grep -q 'fromEndpoints:' <<<"$_ing6867"; then
   echo "FAIL: the enforcement allow does not use fromEndpoints (#6867)." >&2
   exit 1
 fi
-if ! printf '%s' "$_ing6867" | grep -A1 'key: io.cilium.k8s.policy.cluster' | grep -q 'operator: Exists'; then
+if ! grep -q 'operator: Exists' <<<"$(grep -A1 'key: io.cilium.k8s.policy.cluster' <<<"$_ing6867")"; then
   echo "FAIL: the enforcement allow does not name io.cilium.k8s.policy.cluster with operator Exists (#6867)." >&2
   exit 1
 fi
 for _bad in 'ipBlock' 'fromCIDR' 'fromCIDRSet'; do
-  if printf '%s' "$_ing6867" | grep -q "${_bad}"; then
+  if grep -q "${_bad}" <<<"$_ing6867"; then
     echo "FAIL: the enforcement allow uses ${_bad} — a CIDR match NEVER resolves a ClusterMesh remote pod identity (#6867)." >&2
     exit 1
   fi
 done
 for _wild in 'world' 'cluster' 'all'; do
-  if printf '%s' "$_ing6867" | grep -qE "^\s*-\s*${_wild}\s*$"; then
+  if grep -qE "^\s*-\s*${_wild}\s*$" <<<"$_ing6867"; then
     echo "FAIL: the enforcement allow includes the '${_wild}' entity — that is a wildcard, not a carve-out (#6867)." >&2
     exit 1
   fi
 done
 # CONTROL: the blanket list did not gain chargeback (Case 17's reasoning).
-if printf '%s\n' "$_ing14" | grep -q '"chargeback"'; then
+if grep -q '"chargeback"' <<<"$_ing14"; then
   echo "FAIL: 'chargeback' appears in baseline-default-deny's blanket ingress allow-list — that admits the namespace to EVERY catalyst-system Pod on EVERY port; enforcement has its own port-scoped policy (#6867)." >&2
   exit 1
 fi

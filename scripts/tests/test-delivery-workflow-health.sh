@@ -78,12 +78,12 @@ else
   pass "H1 — guard went RED on the real outage (exit ${RC})."
 fi
 # The numbers themselves must be right, not just the verdict.
-if ! printf '%s' "${OUT}" | grep -q "consecutive failures    : 53"; then
+if ! grep -q "consecutive failures    : 53" <<<"${OUT}"; then
   fail "H1 — guard did not count 53 consecutive failures. Counted: $(printf '%s' "${OUT}" | grep 'consecutive failures' || echo '<nothing>')"
 else
   pass "H1b — counted the streak correctly (53)."
 fi
-if ! printf '%s' "${OUT}" | grep -q "106h ago"; then
+if ! grep -q "106h ago" <<<"${OUT}"; then
   fail "H1 — expected 106h since last success (2026-08-06T07:34:08Z → 2026-08-10T18:00:00Z). Got: $(printf '%s' "${OUT}" | grep 'last success' || echo '<nothing>')"
 else
   pass "H1c — computed 106h since the last success."

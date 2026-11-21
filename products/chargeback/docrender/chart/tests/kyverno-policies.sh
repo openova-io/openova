@@ -72,6 +72,11 @@ if ! ls "$PARENT_CHART"/charts/docrender-*.tgz >/dev/null 2>&1; then
   "$helm" dependency build "$PARENT_CHART" >/dev/null 2>&1 || \
     die "could not resolve the docrender dependency of $PARENT_CHART"
 fi
+# The policy chart declares platform/kube-access-lib the same way (#8403).
+if ! ls "$POLICY_CHART"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
+  "$helm" dependency build "$POLICY_CHART" >/dev/null 2>&1 || \
+    die "could not resolve the kube-access-lib dependency of $POLICY_CHART"
+fi
 
 # ── the filter, shared by every invocation below ──────────────────────────
 cat > "$work/filter.py" <<'PYEOF'

@@ -107,8 +107,8 @@ for wf in "${WATCH[@]}"; do
 
   TOTAL="$(printf '%s\n' "${RUNS}" | grep -c .)"
 
-  LATEST_CONCL="$(printf '%s\n' "${RUNS}" | head -1 | awk '{print $1}')"
-  LATEST_AT="$(printf '%s\n' "${RUNS}" | head -1 | awk '{print $2}')"
+  LATEST_CONCL="$(head -1 <<<"${RUNS}" | awk '{print $1}')"
+  LATEST_AT="$(head -1 <<<"${RUNS}" | awk '{print $2}')"
 
   # Consecutive failures, newest-first.
   CONSEC=0
@@ -119,7 +119,7 @@ for wf in "${WATCH[@]}"; do
   done <<< "${RUNS}"
 
   # Most recent success.
-  LAST_SUCCESS_AT="$(printf '%s\n' "${RUNS}" | awk '$1=="success"{print $2; exit}')"
+  LAST_SUCCESS_AT="$(awk '$1=="success"{print $2; exit}' <<<"${RUNS}")"
 
   if [ -n "${LAST_SUCCESS_AT}" ]; then
     LAST_SUCCESS_EPOCH="$(date -u -d "${LAST_SUCCESS_AT}" +%s 2>/dev/null || echo "")"

@@ -209,8 +209,9 @@ done < <(find "${REPO_ROOT}/platform" "${REPO_ROOT}/products" \
 # The value of the first line matching <pattern> in <path> at BASE_REF, or
 # nothing when the file does not exist there (FND-020).
 base_value() {
-  git -C "${REPO_ROOT}" show "${BASE_REF}:$1" 2>/dev/null \
-    | awk -v re="$2" '$0 ~ re {print $2; exit}' | tr -d '"'
+  local text
+  text="$(git -C "${REPO_ROOT}" show "${BASE_REF}:$1" 2>/dev/null)" || return
+  awk -v re="$2" '$0 ~ re {print $2; exit}' <<<"$text" | tr -d '"'
 }
 
 drift=0
@@ -365,7 +366,7 @@ if [ -n "${CHECK_GHCR}" ]; then
     fi
     tags="${TAG_CACHE[$name]}"
     ghcr_checked=$((ghcr_checked + 1))
-    if printf '%s\n' "$tags" | grep -qx -- "$pin_ver"; then
+    if grep -qx -- "$pin_ver" <<<"$tags"; then
       echo "  GHCR OK   ${name}:${pin_ver} (pin file: ${pin_path})"
     else
       echo "  GHCR MISS ${name}:${pin_ver} — tag NOT FOUND on ghcr.io/${GHCR_ORG}/${name} (pin file: ${pin_path})"

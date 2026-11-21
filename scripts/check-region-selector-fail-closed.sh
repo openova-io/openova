@@ -112,7 +112,7 @@ mapfile -t FOUND < <(
 registered_paths="$(echo "$REGISTRY" | awk -F'|' 'NF{print $1}' | sort)"
 
 for f in "${FOUND[@]}"; do
-  if echo "$registered_paths" | grep -qxF "$f"; then
+  if grep -qxF "$f" <<<"$registered_paths"; then
     continue
   fi
   fail "UNREGISTERED region selector: $f
@@ -123,11 +123,12 @@ for f in "${FOUND[@]}"; do
 done
 [ "${#FOUND[@]}" -gt 0 ] || fail "found ZERO region selectors — the enumeration itself broke"
 
+printf -v found_list '%s\n' "${FOUND[@]}"
 while IFS='|' read -r tpl chart guard; do
   [ -n "${tpl:-}" ] || continue
   if [ ! -f "$tpl" ]; then
     fail "STALE registry entry: $tpl no longer exists — drop the row"
-  elif ! printf '%s\n' "${FOUND[@]}" | grep -qxF "$tpl"; then
+  elif ! grep -qxF "$tpl" <<<"$found_list"; then
     fail "STALE registry entry: $tpl no longer emits a region selector — drop the row"
   fi
 done <<<"$REGISTRY"

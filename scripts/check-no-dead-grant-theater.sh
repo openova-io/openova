@@ -50,24 +50,24 @@ fail() {
 NC="$(noncomment "${RECONCILER}")"
 
 # 1. No live function DEFINITIONS of the dead grants.
-if printf '%s\n' "${NC}" | grep -Eq 'grant_operator_(admin|realm_roles)[[:space:]]*\(\)'; then
+if grep -Eq 'grant_operator_(admin|realm_roles)[[:space:]]*\(\)' <<<"${NC}"; then
   fail "a dead grant function (grant_operator_admin / grant_operator_realm_roles) was re-defined in the reconciler — #3374 Layer-C deleted these; admin is conferred ONLY by /sovereign-admins membership."
 fi
 
 # 2. No live CALL SITES of the dead grants.
-if printf '%s\n' "${NC}" | grep -Eq '(^|[[:space:];&|])grant_operator_(admin|realm_roles)[[:space:]]'; then
+if grep -Eq '(^|[[:space:];&|])grant_operator_(admin|realm_roles)[[:space:]]' <<<"${NC}"; then
   fail "a dead grant function is being CALLED in the reconciler — remove the call; the group composite confers catalyst-admin generically."
 fi
 
 # 3. No "skipping admin grant" / "skipping realm-role grant" log emitters
 #    (the exact dead-tick signature the founder flagged on hw150).
-if printf '%s\n' "${NC}" | grep -Eq 'skipping (admin|realm-role) grant'; then
+if grep -Eq 'skipping (admin|realm-role) grant' <<<"${NC}"; then
   fail "a 'skipping admin grant'/'skipping realm-role grant' log emitter reappeared — this was the dead-tick theater (#3685). The reconciler no longer grants admin."
 fi
 
 # 4. No per-HR realmRolesGranted plumbing (the dead config the per-email
 #    grant consumed). The keycloak group composite replaces it.
-if printf '%s\n' "${NC}" | grep -Eq 'realmRolesGranted'; then
+if grep -Eq 'realmRolesGranted' <<<"${NC}"; then
   fail "per-HR 'realmRolesGranted' plumbing reappeared in the reconciler — admin is conferred by the /sovereign-admins group composite, not a per-app realm-role grant."
 fi
 

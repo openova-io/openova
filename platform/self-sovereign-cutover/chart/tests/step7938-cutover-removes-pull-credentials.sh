@@ -167,7 +167,7 @@ for path in "yes true sovereignty proof PASSED" "_ false survival poll, NOT the 
   said="$(grep -c "region .*: holds no ${COPY} " "${TMP}/out.txt")"
   if [ "${said}" = 3 ]; then pass "the log says so once per region"; else fail "the log says so for ${said} of 3 regions: $(grep -c . "${TMP}/out.txt") lines of output"; fi
 done
-if [ "$(grep -c " delete secret ${COPY_NAME} " "${TMP}/record.txt")" = 3 ] && ! grep -v " delete secret ${COPY_NAME} " "${TMP}/record.txt" | grep -q ' delete '; then
+if [ "$(grep -c " delete secret ${COPY_NAME} " "${TMP}/record.txt")" = 3 ] && ! grep -q ' delete ' <<<"$(grep -v " delete secret ${COPY_NAME} " "${TMP}/record.txt")"; then
   pass "one delete of ${COPY_NAME} per region and no other delete"
 else
   fail "the deletes differ from one ${COPY_NAME} per region: $(grep ' delete ' "${TMP}/record.txt" | tr '\n' ';')"

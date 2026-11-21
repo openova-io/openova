@@ -101,7 +101,7 @@ seed="$(cat "${TMP}/seed.sh")"
 promote="$(cat "${TMP}/promote.sh")"
 
 for fn in ensure_connection set_connection_parameter load_connection_credentials seed_connections; do
-  if printf '%s' "${common}" | grep -q "^${fn}() {"; then
+  if grep -q "^${fn}() {" <<<"${common}"; then
     pass "common.sh defines ${fn}()"
   else
     fail "common.sh does not define ${fn}() — the producer is missing"
@@ -110,12 +110,12 @@ done
 
 # Both legs: the one-shot seed writes the set, the per-minute CronJob converges
 # it. Losing either leg is the #5598 shape (one leg deleted, suite still green).
-if printf '%s' "${seed}" | grep -qx 'seed_connections'; then
+if grep -qx 'seed_connections' <<<"${seed}"; then
   pass "seed.sh calls seed_connections (install/upgrade leg)"
 else
   fail "seed.sh never calls seed_connections"
 fi
-if printf '%s' "${promote}" | grep -qx 'seed_connections'; then
+if grep -qx 'seed_connections' <<<"${promote}"; then
   pass "promote.sh calls seed_connections (per-minute converging leg)"
 else
   fail "promote.sh never calls seed_connections — the set would never re-converge"
@@ -123,25 +123,25 @@ fi
 
 echo "[connection-seed] 2/6 — the produced connection is a real, named target"
 seed_body="$(body "${TMP}/common.sh" seed_connections)"
-if printf '%s' "${seed_body}" | grep -q "ensure_connection 'sovereign-node' 'ssh'"; then
+if grep -q "ensure_connection 'sovereign-node' 'ssh'" <<<"${seed_body}"; then
   pass "seed_connections() creates the sovereign-node ssh connection (asserted on the VALUES)"
 else
   fail "seed_connections() has no sovereign-node/ssh target"
 fi
 # The hostname must come from the downward API at run time — a hardcoded
 # address in a public chart would be both wrong and a leak.
-if printf '%s' "${seed_body}" | grep -q 'set_connection_parameter .sovereign-node. .hostname. "\${NODE_IP}"'; then
+if grep -q 'set_connection_parameter .sovereign-node. .hostname. "\${NODE_IP}"' <<<"${seed_body}"; then
   pass "hostname is \${NODE_IP} (downward API), not a baked address"
 else
   fail "hostname is not sourced from \${NODE_IP}"
 fi
-if printf '%s' "${seed_body}" | grep -q "NODE_IP:-" && printf '%s' "${seed_body}" | grep -q 'NOT written'; then
+if grep -q "NODE_IP:-" <<<"${seed_body}" && grep -q 'NOT written' <<<"${seed_body}"; then
   pass "an empty NODE_IP writes no connection (runtime half of the control)"
 else
   fail "no runtime guard on an empty NODE_IP — the producer could write a hostname-less row"
 fi
 
-if printf '%s' "${seed_body}" | grep -q "ensure_connection 'cluster-shell' 'kubernetes'"; then
+if grep -q "ensure_connection 'cluster-shell' 'kubernetes'" <<<"${seed_body}"; then
   pass "seed_connections() creates the cluster-shell connection on guacd's kubernetes protocol"
 else
   fail "seed_connections() has no cluster-shell/kubernetes target — nothing seeded can authenticate on click"
@@ -150,19 +150,19 @@ fi
 # it false, guacamole-server 1.5.5 settings.c never even PARSES
 # client-cert/client-key/ca-cert (they are read inside `if
 # (settings->use_ssl)`), so the connection would dial plaintext and 401.
-if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'use-ssl' 'true'"; then
+if grep -q "set_connection_parameter 'cluster-shell' 'use-ssl' 'true'" <<<"${seed_body}"; then
   pass "cluster-shell sets use-ssl=true (guacd parses the client-cert parameters only when it is on)"
 else
   fail "cluster-shell does not set use-ssl=true — guacd would ignore the client certificate entirely"
 fi
 # guacd verifies the SERVER certificate against this exact string, so a
 # short name here is a handshake failure.
-if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'hostname' 'k8s-ws-proxy.catalyst-system.svc.cluster.local'"; then
+if grep -q "set_connection_parameter 'cluster-shell' 'hostname' 'k8s-ws-proxy.catalyst-system.svc.cluster.local'" <<<"${seed_body}"; then
   pass "cluster-shell dials the proxy by its fully-qualified Service name"
 else
   fail "cluster-shell hostname is not the fully-qualified proxy Service name"
 fi
-if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'pod' 'k8s-ws-proxy'"; then
+if grep -q "set_connection_parameter 'cluster-shell' 'pod' 'k8s-ws-proxy'" <<<"${seed_body}"; then
   pass "cluster-shell targets a WORKLOAD name (survives a pod rollout; a literal pod name would 404)"
 else
   fail "cluster-shell has no pod target"
@@ -179,7 +179,7 @@ if printf '%s' "${common}" | grep -A6 'INSERT INTO guacamole_connection_paramete
 else
   fail "parameter writes are not idempotent"
 fi
-if printf '%s' "${common}" | grep -q "INSERT INTO guacamole_connection_permission"; then
+if grep -q "INSERT INTO guacamole_connection_permission" <<<"${common}"; then
   pass "the admin USER_GROUP is granted READ on the connection"
 else
   fail "no connection_permission grant — a non-admin group member would not see the connection"
@@ -203,7 +203,7 @@ else
   else
     fail "CONTROL: ${n} connection write(s) rendered from an empty declared set"
   fi
-  if printf '%s' "${empty_common}" | grep -q '^seed_connections() {'; then
+  if grep -q '^seed_connections() {' <<<"${empty_common}"; then
     pass "CONTROL is non-vacuous: seed_connections() still renders, it just writes nothing"
   else
     fail "CONTROL: seed_connections() absent, so the zero-writes result proves nothing"
@@ -246,7 +246,7 @@ if render "${TMP}/withhost.yaml" \
      --set 'guacamole.database.connections.extra[0].protocol=ssh' \
      --set 'guacamole.database.connections.extra[0].parameters.hostname=10.0.0.9'; then
   scripts "${TMP}/withhost.yaml" common.sh >"${TMP}/withhost-common.sh"
-  if body "${TMP}/withhost-common.sh" seed_connections | grep -q "ensure_connection 'nowhere' 'ssh'"; then
+  if grep -q "ensure_connection 'nowhere' 'ssh'" <<<"$(body "${TMP}/withhost-common.sh" seed_connections)"; then
     pass "an extra target WITH a hostname renders its own connection"
   else
     fail "the extra target did not render a connection write"
@@ -288,7 +288,7 @@ PY
 for want in "Job:volume:optional=True" "CronJob:volume:optional=True" \
             "Job:mount:readOnly=True" "CronJob:mount:readOnly=True" \
             "Job:NODE_IP=status.hostIP" "CronJob:NODE_IP=status.hostIP"; do
-  if printf '%s\n' "${mounts}" | grep -qx -- "${want}"; then
+  if grep -qx -- "${want}" <<<"${mounts}"; then
     pass "${want}"
   else
     fail "missing: ${want} (got: $(printf '%s' "${mounts}" | tr '\n' ' '))"
@@ -324,7 +324,7 @@ PY
 # the seed Pod in ContainerCreating and produce NO connections at all.
 for want in "Job:volume:optional=True" "CronJob:volume:optional=True" \
             "Job:mount:readOnly=True" "CronJob:mount:readOnly=True"; do
-  if printf '%s\n' "${csmounts}" | grep -qx -- "${want}"; then
+  if grep -qx -- "${want}" <<<"${csmounts}"; then
     pass "cluster-shell mTLS credential ${want}"
   else
     fail "cluster-shell mTLS credential missing: ${want} (got: $(printf '%s' "${csmounts}" | tr '\n' ' '))"
@@ -336,7 +336,7 @@ done
 # ca-cert. Writing them through unrenamed leaves guacd with no client
 # certificate and every click 401s, with nothing in the row to say why.
 for pair in 'tls.crt:client-cert' 'tls.key:client-key' 'ca.crt:ca-cert'; do
-  if printf '%s' "${common}" | grep -q "${pair}"; then
+  if grep -q "${pair}" <<<"${common}"; then
     pass "load_connection_credentials maps ${pair}"
   else
     fail "load_connection_credentials does not map ${pair} — guacd would receive no client certificate"

@@ -182,7 +182,7 @@ t() {
   got=0
   out="$(check "$dir" 2>&1)" || got=$?
   rm -rf "$dir"
-  if [ "$got" = "$want" ] && { [ -z "$text" ] || printf '%s\n' "$out" | grep -q -F -- "$text"; }; then
+  if [ "$got" = "$want" ] && { [ -z "$text" ] || grep -q -F -- "$text" <<<"$out"; }; then
     PASSED=$((PASSED + 1))
   else
     FAILED=$((FAILED + 1))

@@ -144,8 +144,7 @@ fi
 # parentRef namespace must default to kube-system (canonical Sovereign
 # Gateway location — clusters/_template/sovereign-tls/cilium-gateway.yaml).
 # We grep within the HTTPRoute's parentRefs block.
-if ! awk '/^kind: HTTPRoute$/,/^---$/' "$TMP/hubble-explicit.yaml" \
-     | grep -qE "namespace: \"kube-system\""; then
+if ! grep -qE "namespace: \"kube-system\"" <<<"$(awk '/^kind: HTTPRoute$/,/^---$/' "$TMP/hubble-explicit.yaml")"; then
   echo "FAIL: HTTPRoute parentRef namespace must default to kube-system (Sovereign Gateway namespace)." >&2
   exit 1
 fi

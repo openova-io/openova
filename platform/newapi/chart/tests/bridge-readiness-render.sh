@@ -115,7 +115,7 @@ if [ -n "$dsn_line" ] && [ "$bridge_line" -ge "$dsn_line" ]; then
   exit 1
 fi
 # It must NOT also appear as a plain container (no duplication).
-containers_only=$(echo "$dep" | awk '/^      containers:/{f=1} f' | awk '/^      volumes:/{exit} {print}')
+containers_only=$(awk '/^      containers:/{f=1} f&&/^      volumes:/{exit} f' <<<"$dep")
 if grep -q "name: sandbox-bridge" <<<"$containers_only"; then
   echo "FAIL: sandbox-bridge duplicated as a plain container while native sidecar is on"
   exit 1
@@ -185,7 +185,7 @@ if grep -q "name: sandbox-bridge" <<<"$init_block2"; then
   echo "FAIL: nativeSidecar=false but bridge still rendered as a native sidecar (default-true-bool coercion bug?)"
   exit 1
 fi
-containers2=$(echo "$dep2" | awk '/^      containers:/{f=1} f' | awk '/^      volumes:/{exit} {print}')
+containers2=$(awk '/^      containers:/{f=1} f&&/^      volumes:/{exit} f' <<<"$dep2")
 if ! grep -q "name: sandbox-bridge" <<<"$containers2"; then
   echo "FAIL: nativeSidecar=false but bridge not present as a plain container"
   exit 1

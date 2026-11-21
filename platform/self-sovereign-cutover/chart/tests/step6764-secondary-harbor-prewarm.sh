@@ -92,8 +92,7 @@ echo "[step6764] (c) the in-region Harbor-prewarm Job carries the kyverno flux-m
 # Isolate the secondary-harbor-prewarm ConfigMap/Job block and assert the Job's
 # managed-by label is present — without it, cluster kyverno ClusterPolicy
 # flux-managed denies the stamped Job exactly as it did the #6490 gitea Job (#6493).
-if grep -A400 'cutover-secondary-harbor-prewarm-script' "${TMP}/on.yaml" \
-     | grep -qE 'app\.kubernetes\.io/managed-by:[[:space:]]*flux'; then
+if grep -qE 'app\.kubernetes\.io/managed-by:[[:space:]]*flux' <<<"$(grep -A400 'cutover-secondary-harbor-prewarm-script' "${TMP}/on.yaml")"; then
   pass "ON render's secondary Harbor-prewarm carries app.kubernetes.io/managed-by: flux"
 else
   fail "ON render's secondary Harbor-prewarm is MISSING managed-by: flux — kyverno flux-managed would deny the stamped Job (#6493 class)"

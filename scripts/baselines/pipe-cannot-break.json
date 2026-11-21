@@ -1,0 +1,11 @@
+{
+  "allow": [
+    {
+      "count": 6,
+      "owner": "#8547",
+      "path": "platform/harbor/chart/tests/admin-secret.sh",
+      "reason": "printf of a rendered Secret or Job into grep -q; issue #8547 repairs the six with a here-string (grep -q x <<<\"$admin_block\") and drops this entry in the same change",
+      "rule": "grep-q"
+    }
+  ]
+}

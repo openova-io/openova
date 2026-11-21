@@ -44,7 +44,7 @@ check() {
   packs="$(git ls-tree -r --name-only "$hc" -- infra/providers | sed -n -E 's#^infra/providers/([a-z][a-z0-9-]*)/pack\.yaml$#\1#p')"
   while IFS= read -r -d '' status && IFS= read -r -d '' path; do
     lines+=("$status $path")
-    if [ "$status" = M ] && git show "$mb:$GENERATED" 2> /dev/null | grep -q -x -F -- "$path"; then
+    if [ "$status" = M ] && grep -q -x -F -- "$path" <<<"$(git show "$mb:$GENERATED" 2> /dev/null)"; then
       gen="$(grep -l -x -F -- "It writes  $path" scripts/generators/*.py 2> /dev/null)"
       n_gen="$(printf '%s' "$gen" | grep -c .)"
       [ "$n_gen" = 1 ] || { echo "pack-additive: $path is a generated file with $n_gen generators"; return 2; }

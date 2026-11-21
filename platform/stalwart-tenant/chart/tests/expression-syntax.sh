@@ -47,7 +47,7 @@ fail=0
 while IFS= read -r line; do
   expr=$(printf '%s' "${line}" | sed -nE 's/.*"([^"]+)".*/\1/p')
   # If the expression contains an equality test, it MUST use `==`.
-  if printf '%s' "${expr}" | grep -qE "[a-zA-Z_]+ = '"; then
+  if grep -qE "[a-zA-Z_]+ = '" <<<"${expr}"; then
     echo "::error title=Stalwart expression '=' bug::Line in rendered config uses single '=' instead of '==':"
     echo "  ${line}"
     echo "  expression: ${expr}"

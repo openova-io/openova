@@ -15,6 +15,14 @@
 // from then on the chart cannot publish: bp-stalwart-sovereign, 19 November
 // 2026, release runs 44598516820 and 44622665054.
 //
+// The text does not have to pass the pipe's buffer. A writer that writes in
+// more than one call (bash writes a variable to a pipe 4 KiB at a time; awk
+// and grep buffer their output the same way) loses a race whenever the reader
+// stops between two of its writes: the umbrella chart's allow-list test piped
+// a 4.5 KiB slice of a 12 KiB render into grep -q and failed 8 times in 1000
+// on a host with SIGPIPE ignored, and on GitHub's runner now and then on
+// changes that did not touch it (19 and 20 November 2026).
+//
 // It reads the files Git lists (tracked, and new files Git does not ignore)
 // that are shell scripts (.sh) under the tests/ folder of a chart
 // (platform/<x>/chart/tests/, products/<x>/chart/tests/,
@@ -25,11 +33,36 @@
 //	head      echo or printf of a shell variable piped into head
 //	sed-q     echo or printf of a shell variable piped into sed whose script
 //	          has a q or Q command
+//	grep-q    echo or printf of a shell variable piped into grep (egrep,
+//	          fgrep) with -q, --quiet or --silent: it exits at its first match
+//	grep-m    the same into grep with -m N or --max-count: it stops after N
+//	grep-l    the same into grep with -l, -L, --files-with-matches or
+//	          --files-without-match: it stops at its first match
 //
-// The repaired form gives the reader the text as a here-string, which is a
-// file and has no writer that can be cut off:
+// A writer is what it was before grep was read: echo or printf whose words
+// expand a shell variable. A constant (`printf 'a\nb\n' | grep -q a`) is not
+// one: it is written in one call and cannot grow. A grep that reads to the
+// end is not an early reader: -c, -v, -A, -o, and a plain grep whose output
+// goes to /dev/null (GNU grep 3.7 was measured to read that one to the end).
+// An option is read the way grep reads it: clusters (-Eq, -m1), the argument
+// of -e, -f, -m, -A, -B, -C, -d, -D and of the long options that take one,
+// an option after the pattern, nothing after --.
+//
+// The repaired form gives the reader the text as a here-string. Bash writes
+// the whole text before the reader runs (into a pipe when it fits the pipe's
+// buffer, as bash 5.1 and later do, else into a temporary file), so there is
+// no writer left that can be cut off:
 //
 //	awk '/smtp-host: /{print $2; exit}' <<<"$out"
+//	grep -q '"cnpg-system"' <<<"$ingress"
+//
+// A finding in a file that a story in progress owns is held in
+// scripts/baselines/pipe-cannot-break.json: per file and rule, the number of
+// findings allowed, the owner (an issue) and the reason. More findings than
+// allowed fail as findings. Fewer fail too, with a line that names the count
+// to lower the entry to: the change that repairs a pipe lowers the entry, so
+// the room it frees is not taken by a new pipe. The baseline only falls: a
+// file that is repaired leaves it.
 //
 // The shell is read by a small lexer: quotes, $( ), ` `, ${ }, $(( )),
 // here-documents (their bodies are text, not commands), comments, a backslash
@@ -38,25 +71,27 @@
 // substitution (the end of a case pattern).
 //
 // Known limits, what it does NOT cover (review holds them):
-//   - grep -q, grep -m and grep -l: readers that also stop early. The chart
-//     tests still pipe small texts into them (a block, a line, the output of
-//     a script); a whole render goes to grep as a here-string.
 //   - a command as the writer: `helm template ... | head`,
-//     `uncomment <<<"$1" | awk '...exit'`, `grep x file | head`.
+//     `uncomment <<<"$1" | awk '...exit'`, `grep x file | head`,
+//     `awk '/egress:/,0' "$f" | grep -q x`.
 //   - a filter between the variable and the reader:
 //     `echo "$out" | grep -A1 X | head -5`. The reader's writer is the
 //     filter, whose output is a slice of the text.
 //   - a file without pipefail: the status of its pipe is the last reader's.
 //   - a q in a sed script that is not the command (`s/a q;/b/`) is read as
 //     the command; an `exit` in an awk string is read as the statement.
+//   - a long option of grep abbreviated (`--qui`), and an option or its
+//     argument built by an expansion (`grep $flags x`).
 //
 // Usage, from tools/guards:
 //
 //	go run ./cmd/pipe-cannot-break   exit 1 on a finding, 2 when it cannot read
+//	                                 the tree or the baseline
 package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -115,7 +150,14 @@ func run(args []string, out, errw io.Writer) int {
 		return 2
 	}
 	tree := os.DirFS(*root)
-	read, bad := 0, 0
+	entries, err := readBaseline(tree)
+	if err != nil {
+		say(errw, "pipe-cannot-break: %s: %v\n", baselinePath, err)
+		return 2
+	}
+	read, bad, held := 0, 0, 0
+	found := map[key][]finding{}
+	var order []key
 	for _, p := range strings.Split(listed, "\x00") {
 		if !chartTest.MatchString(p) {
 			continue
@@ -130,20 +172,111 @@ func run(args []string, out, errw io.Writer) int {
 		}
 		read++
 		for _, f := range scan(string(b)) {
-			bad++
-			say(out, "FAIL %s %s:%d: %s\n", f.Rule, p, f.Line, f.Text)
+			k := key{p, f.Rule}
+			if found[k] == nil {
+				order = append(order, k)
+			}
+			found[k] = append(found[k], f)
 		}
 	}
 	if read == 0 {
 		say(errw, "pipe-cannot-break: no shell script of the tests of a chart was read: nothing was measured\n")
 		return 2
 	}
+	allowed := map[key]allowance{}
+	for _, a := range entries {
+		allowed[key{a.Path, a.Rule}] = a
+	}
+	for _, k := range order {
+		got, a := found[k], allowed[k]
+		if a.Count >= len(got) {
+			held += len(got)
+			for _, f := range got {
+				say(out, "HELD %s %s:%d: %s (owner %s)\n", f.Rule, k.path, f.Line, f.Text, a.Owner)
+			}
+			continue
+		}
+		for _, f := range got {
+			bad++
+			say(out, "FAIL %s %s:%d: %s\n", f.Rule, k.path, f.Line, f.Text)
+		}
+		if a.Count > 0 {
+			say(out, "  %s allows %d %s findings in %s (owner %s); there are %d\n", baselinePath, a.Count, k.rule, k.path, a.Owner, len(got))
+		}
+	}
+	stale := 0
+	for _, a := range entries {
+		if n := len(found[key{a.Path, a.Rule}]); n < a.Count {
+			stale++
+			say(out, "FAIL baseline %s allows %d %s findings in %s, there are %d: lower the count to %d in this change (drop the entry at 0), the baseline only falls\n", baselinePath, a.Count, a.Rule, a.Path, n, n)
+		}
+	}
 	if bad > 0 {
-		say(out, "pipe-cannot-break: %d findings in %d files read. Give the reader the text as a here-string (awk '...' <<<\"$out\", head -1 <<<\"$out\"): a here-string is a file, so no writer is cut off when the reader stops early, and pipefail cannot turn a found match into a failure once the text passes the 64 KiB pipe buffer.\n", bad, read)
+		say(out, "pipe-cannot-break: %d findings in %d files read. Give the reader the text as a here-string (awk '...' <<<\"$out\", grep -q x <<<\"$out\"): bash writes the whole text before the reader runs, so no writer is cut off when the reader stops early, and pipefail cannot turn a found match into a failure.\n", bad, read)
+	}
+	if stale > 0 {
+		say(out, "pipe-cannot-break: %d baseline entries allow more findings than there are; a new pipe would take the room, so they fail until lowered\n", stale)
+	}
+	if bad > 0 || stale > 0 {
 		return 1
 	}
-	say(out, "pipe-cannot-break: OK, %d chart test scripts read, none pipes a shell variable into awk with exit, head or sed with q under pipefail\n", read)
+	say(out, "pipe-cannot-break: OK, %d chart test scripts read, none pipes a shell variable into awk with exit, head, sed with q or grep with -q, -m or -l under pipefail (%d held by %s)\n", read, held, baselinePath)
 	return 0
+}
+
+const baselinePath = "scripts/baselines/pipe-cannot-break.json"
+
+type key struct{ path, rule string }
+
+// allowance is one entry of the baseline: the findings of one rule in one file
+// that a story in progress owns.
+type allowance struct {
+	Path   string `json:"path"`
+	Rule   string `json:"rule"`
+	Count  int    `json:"count"`
+	Owner  string `json:"owner"`
+	Reason string `json:"reason"`
+}
+
+var rules = map[string]bool{"awk-exit": true, "head": true, "sed-q": true, "grep-q": true, "grep-m": true, "grep-l": true}
+
+// readBaseline reads the baseline of the tree; a tree without one allows
+// nothing.
+func readBaseline(tree fs.FS) ([]allowance, error) {
+	b, err := fs.ReadFile(tree, baselinePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Allow []allowance `json:"allow"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&doc); err != nil {
+		return nil, err
+	}
+	seen := map[key]bool{}
+	for i, a := range doc.Allow {
+		switch {
+		case !chartTest.MatchString(a.Path):
+			return nil, fmt.Errorf("entry %d: %q is not a shell script of the tests of a chart", i, a.Path)
+		case !rules[a.Rule]:
+			return nil, fmt.Errorf("entry %d: %q is not a rule of this guard", i, a.Rule)
+		case a.Count < 1:
+			return nil, fmt.Errorf("entry %d: count %d, want at least 1", i, a.Count)
+		case strings.TrimSpace(a.Owner) == "" || strings.TrimSpace(a.Reason) == "":
+			return nil, fmt.Errorf("entry %d: an entry names its owner and its reason", i)
+		}
+		k := key{a.Path, a.Rule}
+		if seen[k] {
+			return nil, fmt.Errorf("entry %d: %s %s is listed twice", i, a.Path, a.Rule)
+		}
+		seen[k] = true
+	}
+	return doc.Allow, nil
 }
 
 func say(w io.Writer, format string, args ...any) {
@@ -218,8 +351,125 @@ func earlyReader(stage string) string {
 		if sedQuit.MatchString(rest) {
 			return "sed-q"
 		}
+	case "grep", "egrep", "fgrep":
+		return grepEarly(words(rest))
 	}
 	return ""
+}
+
+// grepEarly reads the options of grep and names the one that makes it stop
+// before the end of its input: -q first (it overrides -l and -m), then -m,
+// then -l or -L.
+func grepEarly(args []string) string {
+	var q, m, l bool
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "--") {
+			name, _, hasValue := strings.Cut(a[2:], "=")
+			switch name {
+			case "quiet", "silent":
+				q = true
+			case "max-count":
+				m = true
+			case "files-with-matches", "files-without-match":
+				l = true
+			}
+			if !hasValue && grepLongWithArg[name] {
+				i++
+			}
+			continue
+		}
+		if len(a) < 2 || a[0] != '-' {
+			continue // the pattern, a file, or a redirection
+		}
+		for j := 1; j < len(a); j++ {
+			c := a[j]
+			switch c {
+			case 'q':
+				q = true
+			case 'l', 'L':
+				l = true
+			case 'm':
+				m = true
+			}
+			if strings.IndexByte("efmABCdD", c) >= 0 {
+				if j == len(a)-1 {
+					i++ // the argument is the next word
+				}
+				break // the rest of the word is the argument
+			}
+		}
+	}
+	switch {
+	case q:
+		return "grep-q"
+	case m:
+		return "grep-m"
+	case l:
+		return "grep-l"
+	}
+	return ""
+}
+
+// The long options of GNU grep that take an argument, as the next word when
+// it is not given with =.
+var grepLongWithArg = map[string]bool{
+	"regexp": true, "file": true, "max-count": true, "after-context": true, "before-context": true,
+	"context": true, "label": true, "include": true, "exclude": true, "exclude-from": true,
+	"exclude-dir": true, "binary-files": true, "devices": true, "directories": true, "group-separator": true,
+}
+
+// words splits the rest of one command into its words as the shell does for
+// quotes: a quoted part loses its quotes, a backslash keeps the next byte.
+// An expansion stays as written.
+func words(s string) []string {
+	var out []string
+	var w strings.Builder
+	in := false
+	flush := func() {
+		if in {
+			out = append(out, w.String())
+			w.Reset()
+			in = false
+		}
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\n':
+			flush()
+		case c == '\\' && i+1 < len(s):
+			i++
+			if s[i] != '\n' {
+				w.WriteByte(s[i])
+				in = true
+			}
+		case c == '\'':
+			j := strings.IndexByte(s[i+1:], c)
+			if j < 0 {
+				j = len(s) - i - 1
+			}
+			w.WriteString(s[i+1 : i+1+j])
+			in = true
+			i += j + 1
+		case c == '"':
+			in = true
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && strings.IndexByte("\"\\$`", s[i+1]) >= 0 {
+					i++
+				}
+				w.WriteByte(s[i])
+			}
+		default:
+			w.WriteByte(c)
+			in = true
+		}
+	}
+	flush()
+	return out
 }
 
 // withoutEnd removes the END blocks of an awk program: an exit there runs after

@@ -203,7 +203,7 @@ if [ "${#FOUND[@]}" -eq 0 ]; then
 fi
 
 for f in "${FOUND[@]}"; do
-  if echo "$registered_paths" | grep -qxF "$f"; then
+  if grep -qxF "$f" <<<"$registered_paths"; then
     continue
   fi
   fail "UNREGISTERED DR pair: $f

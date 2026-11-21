@@ -175,7 +175,7 @@ yaml.safe_dump_all([d for d in docs if d], open(dst, "w", encoding="utf-8"))
 PYEOF
 
 MUT="$(python3 "${TMP}/extract.py" "${TMP}/render.yaml" "${TMP}/role-mutated.yaml")"
-if printf '%s\n' "${MUT}" | grep -q '^MISSING namespaces$'; then
+if grep -q '^MISSING namespaces$' <<<"${MUT}"; then
   pass "mutation control: removing the namespaces rule makes this guard report it missing"
 else
   fail "mutation control did NOT go red — this guard cannot detect the very defect it exists for"

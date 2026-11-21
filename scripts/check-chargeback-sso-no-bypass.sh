@@ -93,7 +93,7 @@ if command -v helm >/dev/null 2>&1; then
   gated=$(helm template cb "$CHART" --api-versions cilium.io/v2 \
       --set config.sovereignFqdn=t99.omani.works \
       --set forwardAuth.header=X-Forwarded-Email --set httpRoute.enabled=false 2>/dev/null)
-  cnp=$(printf '%s' "$gated" | awk '/kind: CiliumNetworkPolicy/{f=1} f&&/  ingress:/{p=1} p{print} p&&/protocol: TCP/{exit}')
+  cnp=$(awk '/kind: CiliumNetworkPolicy/{f=1} f&&/  ingress:/{p=1} p{print} p&&/protocol: TCP/{exit}' <<<"$gated")
   if [[ -z "$cnp" ]]; then
     echo "FAIL: the gated render produced NO ingress CiliumNetworkPolicy — the app would be"
     echo "      reachable by anything in the cluster while trusting a spoofable header."

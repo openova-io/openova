@@ -83,6 +83,10 @@ render "$TMP/legacy.yaml" "wordpress"
 # S8 — the stores chart, rendered per region from the same registry the
 # bootstrap-kit slot 15a threads in (a JSON string, as Flux substitutes it).
 STORES_DIR="$(cd "$CHART_DIR/../../external-secrets-stores/chart" && pwd)"
+# It declares platform/kube-access-lib as a file:// dependency (#8403).
+if ! ls "$STORES_DIR"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
+  helm dependency build "$STORES_DIR" >/dev/null
+fi
 stores() {  # $1 out $2 self $3 registry-json
   python3 -c 'import json,sys; print(json.dumps({"peerStores": {"selfRegion": sys.argv[1], "regions": sys.argv[2]}}))' "$2" "$3" > "$1.v.json"
   helm template external-secrets-stores "$STORES_DIR" --namespace external-secrets-system -f "$1.v.json" > "$1"

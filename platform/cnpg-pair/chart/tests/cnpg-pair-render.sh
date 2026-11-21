@@ -430,7 +430,7 @@ docs = list(yaml.safe_load_all(open(sys.argv[1])))
 nontest = [d for d in docs if d and 'helm.sh/hook' not in (d.get('metadata',{}).get('annotations') or {})]
 print(yaml.safe_dump_all(nontest))
 PYEOF
-if sed 's/#.*//' "$TMP/nomesh-primary-nontest.yaml" | grep -q 'service\.cilium\.io/global'; then
+if grep -q 'service\.cilium\.io/global' <<<"$(sed 's/#.*//' "$TMP/nomesh-primary-nontest.yaml")"; then
   echo "FAIL: clusterMesh disabled but side=primary still renders service.cilium.io/global." >&2
   exit 1
 fi

@@ -183,7 +183,7 @@ if [ "${SELF_TEST}" -eq 1 ]; then
   # 7. VACUITY: empty input must not read LIVE by having nothing to inspect.
   out="$(printf '' | classify_loop)"
   live="$(printf '%s' "${out}" | grep '^CTRL_LIVE' | cut -f2)"
-  [ "${live}" = "0" ] && printf '%s' "${out}" | grep -q '^VERDICT	LIVE' \
+  [ "${live}" = "0" ] && grep -q '^VERDICT	LIVE' <<<"${out}" \
     || st_fail "empty input did not report CTRL_LIVE 0"
   echo "   (note: empty input reads LIVE with CTRL_LIVE=0 — the live sweep below"
   echo "    treats a zero-controller read as a precondition failure, not a pass.)"

@@ -170,7 +170,7 @@ grep -q 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' "${TM
 grep -q 'WARNING' "${TMP}/run-c1/out" && fail "an unreadable source was reported as a moved tag" || pass "no moved-tag WARNING for an unreadable source"
 
 echo "[step7938-tag] D: every copy carries --preserve-digests"
-[ -s "${TMP}/run-a1/calls" ] && ! grep -v -- '--preserve-digests' "${TMP}/run-a1/calls" | grep -q . \
+[ -s "${TMP}/run-a1/calls" ] && ! grep -q . <<<"$(grep -v -- '--preserve-digests' "${TMP}/run-a1/calls")" \
   && pass "all $(copies a1) copies of run 1 pass --preserve-digests" || fail "a copy without --preserve-digests: $(grep -v -- '--preserve-digests' "${TMP}/run-a1/calls" | head -1 | cut -c1-160)"
 grep -c 'if offlinemirror_copy "' "${TMP}/s03.sh" | grep -qx 2 && grep -q 'copy --insecure-policy --preserve-digests "\$@"' "${TMP}/resolver.sh" \
   && pass "the chart copy (Phase A2) passes it too: both go through offlinemirror_copy" || fail "the rendered chart copy does not pass --preserve-digests"

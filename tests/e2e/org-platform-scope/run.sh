@@ -137,17 +137,17 @@ EOF
 ev=""
 for _ in $(seq 1 30); do
   ev="$(kubectl -n "$NS" get events --field-selector involvedObject.name=bp-keycloak-keycloak-config-cli -o jsonpath='{.items[*].message}' 2>/dev/null)"
-  echo "$ev" | grep -q "exceeded quota: plan-quota" && break
+  grep -q "exceeded quota: plan-quota" <<<"$ev" && break
   sleep 2
 done
-echo "$ev" | grep -q "exceeded quota: plan-quota" && pass "wedge reproduced: the hook is refused by the unscoped plan-quota ($(echo "$ev" | grep -o 'exceeded quota: plan-quota[^,]*, requested: [^ ]*' | head -1))" || bad "hook was not refused under the #7078 quota: $ev"
+grep -q "exceeded quota: plan-quota" <<<"$ev" && pass "wedge reproduced: the hook is refused by the unscoped plan-quota ($(echo "$ev" | grep -o 'exceeded quota: plan-quota[^,]*, requested: [^ ]*' | head -1))" || bad "hook was not refused under the #7078 quota: $ev"
 
 echo "== 1. RBAC missing: the controller cannot list pods -> never below the safe bound"
 kubectl apply -f "$OUT/scoped/platform-scope-rbac.yaml" >/dev/null
 kubectl -n "$NS" delete rolebinding org-controller-platform-scope-read >/dev/null
 log="$(credit_render system:serviceaccount:catalyst-system:catalyst-organization-controller)"
 echo "    $log" | cut -c1-200
-echo "$log" | grep -q "known=false" && pass "pod list forbidden -> credit unknown" || bad "credit was computed without the read RBAC: $log"
+grep -q "known=false" <<<"$log" && pass "pod list forbidden -> credit unknown" || bad "credit was computed without the read RBAC: $log"
 apply_plan_quota
 for k in requests.cpu:5479m requests.memory:9286Mi limits.cpu:9500m limits.memory:14122Mi; do
   [ "$(hard plan-quota "${k%%:*}")" = "${k#*:}" ] && pass "unknown credit keeps ${k%%:*} at the live ${k#*:} (>= static bound)" || bad "unknown credit ${k%%:*} = $(hard plan-quota "${k%%:*}"), want ${k#*:}"
@@ -158,7 +158,7 @@ echo "== 2. first real render: scoped + classless credit"
 kubectl apply -f "$OUT/scoped/platform-scope-rbac.yaml" >/dev/null
 log="$(credit_render)"
 echo "    $log" | cut -c1-200
-echo "$log" | grep -q "known=true requests cpu=3805m memory=6736Mi; limits cpu=3850m memory=6784Mi; pods=7" && pass "controller credits the 7 classless platform pods (3805m / 6736Mi)" || bad "credit: $log"
+grep -q "known=true requests cpu=3805m memory=6736Mi; limits cpu=3850m memory=6784Mi; pods=7" <<<"$log" && pass "controller credits the 7 classless platform pods (3805m / 6736Mi)" || bad "credit: $log"
 apply_plan_quota
 [ "$(hard plan-quota requests.cpu)" = "4159m" ] && [ "$(hard plan-quota requests.memory)" = "8166Mi" ] && pass "plan-quota hard = plan 334m/1366Mi + coredns 20m/64Mi + credit = 4159m / 8166Mi" || bad "plan-quota hard $(hard plan-quota requests.cpu) / $(hard plan-quota requests.memory)"
 hookpod=""
@@ -177,7 +177,7 @@ for p in "${PLATFORM[@]}"; do
   name="${p%%|*}"
   kubectl -n "$NS" delete pod "$name" --wait >/dev/null
   out="$(CLASS="" mk "$p")"
-  if echo "$out" | grep -q created && stamped "$name"; then pass "restarted $name admitted + stamped"; else bad "restart $name: $out $(klass "$name" 2>/dev/null)"; fi
+  if grep -q created <<<"$out" && stamped "$name"; then pass "restarted $name admitted + stamped"; else bad "restart $name: $out $(klass "$name" 2>/dev/null)"; fi
   credit_render >/dev/null
   apply_plan_quota
   now="$(milli "$(hard plan-quota requests.cpu)")"
@@ -190,10 +190,10 @@ for _ in $(seq 1 30); do [ "$(used platform-quota requests.cpu)" = "4055m" ] && 
 
 echo "== 4. the customer over its plan; per-user; synced claim"
 out="$(create new-customer '{"app":"x"}' 10m 16Mi 10m 16Mi || true)"
-echo "$out" | grep -q "exceeded quota: plan-quota" && pass "customer over plan: a NEW customer pod is refused (existing ones keep running)" || bad "new customer pod: $out"
+grep -q "exceeded quota: plan-quota" <<<"$out" && pass "customer over plan: a NEW customer pod is refused (existing ones keep running)" || bad "new customer pod: $out"
 [ "$(kubectl -n "$NS" get pod bp-stalwart-tenant-0 -o jsonpath='{.metadata.deletionTimestamp}')" = "" ] && pass "existing customer pods untouched" || bad "customer pod disturbed"
 out="$(create sneaky-x-acme-x-vcluster '{"app.kubernetes.io/instance":"bp-keycloak","vcluster.loft.sh/managed-by":"vcluster"}' 10m 16Mi 10m 16Mi "$CLS" || true)"
-echo "$out" | grep -q "synced-pods-stay-customer-scope" && pass "synced pod claiming the class refused" || bad "synced claim: $out"
+grep -q "synced-pods-stay-customer-scope" <<<"$out" && pass "synced pod claiming the class refused" || bad "synced claim: $out"
 
 kubectl -n "$NS" get resourcequota
 kubectl -n "$NS" get pods -o custom-columns=NAME:.metadata.name,CLASS:.spec.priorityClassName,PRIORITY:.spec.priority

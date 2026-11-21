@@ -209,8 +209,7 @@ echo "PASS 3e empty-list control: ${GUARDED_REF} -> ${got}"
 
 # ── 4. The copy path must actually CONSUME the helper ───────────────────────
 # A correct helper that nothing calls is the purest form of this theater.
-awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "${RENDER}" \
-  | grep -q 'prewarm_multiarch_flags' \
+grep -q 'prewarm_multiarch_flags' <<<"$(awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "${RENDER}")" \
   || fail "prewarm_skopeo_copy() does not call prewarm_multiarch_flags -- the helper renders but nothing consumes it, so every copy still uses the unconditional default"
 echo "PASS 4: prewarm_skopeo_copy() consumes prewarm_multiarch_flags"
 

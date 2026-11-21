@@ -169,7 +169,7 @@ self_test() {
     local want="$1" needle="$2" name="$3" got=0 out
     cases=$((cases + 1))
     out="$(scan "$work/t" 2>&1)" || got=$?
-    if [ "$got" = "$want" ] && printf '%s\n' "$out" | grep -q -F -e "$needle"; then
+    if [ "$got" = "$want" ] && grep -q -F -e "$needle" <<<"$out"; then
       echo "ok    $name"
     else
       echo "FAIL  $name: exit $got (wanted $want), or the output does not hold: $needle"

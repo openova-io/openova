@@ -197,7 +197,7 @@ esac
 # ── Case 5 — the SUCCESS direction still works (a guard that only ever ───────
 #    reports red is as useless as one that only ever reports green).
 OUT_OK="$(run_apply_block "${TMP}/apply.sh" 0)"; RC_OK=$?
-if [ "${RC_OK}" -eq 0 ] && printf '%s' "${OUT_OK}" | grep -q 'POLICY_APPLIED=\[yes\]'; then
+if [ "${RC_OK}" -eq 0 ] && grep -q 'POLICY_APPLIED=\[yes\]' <<<"${OUT_OK}"; then
   pass "a successful apply still sets POLICY_APPLIED=yes and exits 0"
 else
   fail "a SUCCESSFUL apply no longer sets POLICY_APPLIED=yes / exits 0 (rc=${RC_OK}): ${OUT_OK}"
@@ -217,7 +217,7 @@ open(dst, "w", encoding="utf-8").write("\n".join(lines[start:end + 1]) + "\n")
 PYEOF
 
 V_DENIED="$(run_verdict "${TMP}/verdict.sh" "" "true")"; RC_DENIED=$?
-if printf '%s' "${V_DENIED}" | grep -q 'sovereignty proof PASSED'; then
+if grep -q 'sovereignty proof PASSED' <<<"${V_DENIED}"; then
   fail "verdict printed 'sovereignty proof PASSED' with POLICY_APPLIED empty — THIS IS the #6309 false PASS"
 else
   pass "verdict refuses to print PASSED with POLICY_APPLIED empty"
@@ -229,7 +229,7 @@ else
 fi
 
 V_OPTOUT="$(run_verdict "${TMP}/verdict.sh" "" "false")"; RC_OPTOUT=$?
-if printf '%s' "${V_OPTOUT}" | grep -q 'sovereignty proof PASSED'; then
+if grep -q 'sovereignty proof PASSED' <<<"${V_OPTOUT}"; then
   fail "verdict called the enforceCIDRBlock=false survival poll a sovereignty proof"
 elif [ "${RC_OPTOUT}" -eq 0 ]; then
   pass "explicit enforceCIDRBlock=false opt-out still exits 0, but is never called a proof"
@@ -238,7 +238,7 @@ else
 fi
 
 V_HELD="$(run_verdict "${TMP}/verdict.sh" "yes" "true")"; RC_HELD=$?
-if [ "${RC_HELD}" -eq 0 ] && printf '%s' "${V_HELD}" | grep -q 'sovereignty proof PASSED'; then
+if [ "${RC_HELD}" -eq 0 ] && grep -q 'sovereignty proof PASSED' <<<"${V_HELD}"; then
   pass "a hold that WAS applied and survived still reports PASSED and exits 0"
 else
   fail "an applied+survived hold no longer reports PASSED (rc=${RC_HELD}): ${V_HELD}"
@@ -258,7 +258,7 @@ if [ -f /work/egress-deny.yaml ]; then
 fi
 EOF
 P_OUT="$(run_apply_block "${TMP}/prefix-apply.sh" 1)"; P_RC=$?
-if [ "${P_RC}" -eq 0 ] && printf '%s' "${P_OUT}" | grep -q 'assertion-only fallback'; then
+if [ "${P_RC}" -eq 0 ] && grep -q 'assertion-only fallback' <<<"${P_OUT}"; then
   pass "mutation control: the PRE-FIX apply block does swallow the failure (rc=0) — Case 4 can fail"
 else
   fail "mutation control did NOT reproduce the pre-fix swallow (rc=${P_RC}) — Case 4 may be untestable: ${P_OUT}"
@@ -286,7 +286,7 @@ if [ -f /work/egress-deny.yaml ]; then
 fi
 EOF
 E_OUT="$(run_apply_block "${TMP}/errexit-apply.sh" 1)"; E_RC=$?
-if [ "${E_RC}" -ne 0 ] && ! printf '%s' "${E_OUT}" | grep -q 'FATAL'; then
+if [ "${E_RC}" -ne 0 ] && ! grep -q 'FATAL' <<<"${E_OUT}"; then
   pass "errexit control: the bare-assignment form dies before its own FATAL — the \`if\`-condition capture is load-bearing"
 else
   fail "errexit control did not reproduce the set -eu abort (rc=${E_RC}) — Case 4's message assertion may be passing for the wrong reason: ${E_OUT}"
@@ -300,7 +300,7 @@ fi
 echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED"
 EOF
 PV_OUT="$(run_verdict "${TMP}/prefix-verdict.sh" "" "true")"; PV_RC=$?
-if [ "${PV_RC}" -eq 0 ] && printf '%s' "${PV_OUT}" | grep -q 'sovereignty proof PASSED'; then
+if [ "${PV_RC}" -eq 0 ] && grep -q 'sovereignty proof PASSED' <<<"${PV_OUT}"; then
   pass "mutation control: the PRE-FIX verdict does print PASSED on an empty POLICY_APPLIED — Case 6 can fail"
 else
   fail "mutation control did NOT reproduce the pre-fix false PASS (rc=${PV_RC}) — Case 6 may be untestable: ${PV_OUT}"

@@ -190,7 +190,7 @@ self_test() {
     out="$(FAKE_REG="$reg" DOCKER="$base/docker" PUSH_VERSION_TAG_ATTEMPTS=2 PUSH_VERSION_TAG_RETRY_SLEEP=0 \
       bash "$SELF" "${TARGET:-$repo:1.0.0}" "${SOURCE:-$repo@$a}" 2>&1)" || got_exit=$?
     creates="$(wc -l < "$reg/creates.log" | tr -d ' ')"
-    if [ "$got_exit" != "$want_exit" ] || [ "$creates" != "$want_creates" ] || ! printf '%s' "$out" | grep -qF -- "$want_text"; then
+    if [ "$got_exit" != "$want_exit" ] || [ "$creates" != "$want_creates" ] || ! grep -qF -- "$want_text" <<<"$out"; then
       echo "$ME: SELF-TEST FAIL case '$name': exit $got_exit (want $want_exit), creates $creates (want $want_creates), text '$want_text' in: $out"
       problems=$((problems + 1))
     else
