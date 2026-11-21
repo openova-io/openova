@@ -17,24 +17,58 @@ import "strings"
 //    the vCluster (the `-vcluster` tree is applied everywhere) but never the
 //    kubeconfig, so nothing could be delivered into it.
 //
-//    Each region's vCluster already exports its own kubeconfig: the loft-sh
-//    chart writes `vc-vcluster` into `<slug>` (exportKubeConfig.server is the
-//    in-cluster `https://vcluster.<slug>:443`, so the bytes are valid in every
-//    region for that region's own vCluster). The tree below lets the
-//    platform's own cross-namespace copier, bp-reflector, mirror THAT Secret
-//    under the two names consumers read:
+//    Each region's vCluster exports its own kubeconfig (exportKubeConfig.server
+//    is the in-cluster `https://vcluster.<slug>:443`, so the bytes are valid in
+//    every region for that region's own vCluster). It always writes its
+//    default `vc-vcluster`, and it writes `tenant-<slug>-kubeconfig` in
+//    `<slug>` too, because the vcluster HelmRelease lists that name under
+//    exportKubeConfig.additionalSecrets (manifests.go). Both come from one
+//    call (loft-sh vcluster 0.33.4 pkg/setup WriteKubeConfigToSecret) with
+//    the same properties, so they hold the same bytes. The flux-system copy
+//    is made by the platform's cross-namespace copier, bp-reflector:
 //
-//      <slug>/vc-vcluster                  annotations only (source opt-in)
-//      <slug>/tenant-<slug>-kubeconfig     reflects <slug>/vc-vcluster
-//      flux-system/tenant-<slug>-kubeconfig reflects <slug>/vc-vcluster
+//      <slug>/tenant-<slug>-kubeconfig      written by the vCluster; the
+//                                           SOURCE, auto-reflected into
+//                                           flux-system only
+//      flux-system/tenant-<slug>-kubeconfig reflects the source above
+//      <slug>/vc-vcluster                   written by the vCluster; reflected
+//                                           nowhere (stub kept so an upgrade
+//                                           never prunes it)
+//
+//    The scheme is SOURCE-DRIVEN on purpose. The earlier tree had the two
+//    mirrors name `vc-vcluster` (`reflects`). Reflector 7.1.288 records that
+//    binding only if the source exists when it handles the MIRROR's event
+//    (ResourceMirror.cs HandleUpsert: a missing source logs "could not be
+//    found" and returns before `_directReflectionCache` is filled). Flux
+//    creates the mirrors in the same second as the source request, while the
+//    vCluster writes its kubeconfig about 40 s later. So the source's events
+//    found no binding, and the mirrors stayed empty until the reflector's
+//    Secret watch session ended and it listed again (51 min on the
+//    2026-11-21 gate run, 22 min on an earlier one). A source with
+//    reflection-auto-enabled is handled on EVERY Added/Modified event of the
+//    SOURCE itself (HandleUpsert → AutoReflectionForSource): the reflector
+//    lists the Secrets of that name and fills each permitted copy that is
+//    missing or stale. No binding cache is involved, so the copy holds the
+//    kubeconfig as soon as the reflector has handled the source's own event,
+//    in any order of creation.
 //
 //    All three are applied by the region's own `-vcluster` Kustomization.
 //    Flux applies them WITHOUT `data`, so server-side apply owns only the
-//    metadata: the vCluster syncer keeps writing `vc-vcluster`'s data, and
-//    reflector keeps writing the mirrors' data. Same stub idiom as
+//    metadata: the vCluster writes the data of its two Secrets (CreateOrPatch
+//    keeps the annotations), and reflector writes the data of the
+//    flux-system copy. Same stub idiom as
 //    platform/powerdns-admin/chart/templates/pdns-api-credentials-mirror.yaml.
-//    The source opt-in names exactly the two namespaces above, so no other
-//    namespace can pull an Organization's kubeconfig.
+//    The source opt-in names exactly flux-system, both for what may reflect it
+//    and for where it is auto-created. An empty list would mean every
+//    namespace to the reflector, so no other namespace can pull an
+//    Organization's kubeconfig. Auto-reflections keep the source's name, so
+//    the flux-system copy of each Organization is unique by name.
+//
+//    One writer per Secret: the provisioning funnel no longer copies
+//    `vc-vcluster` into the two names. Its full-object PUT would strip the
+//    source's opt-in, and the reflector would then delete the flux-system
+//    copy. The funnel now only waits until both hold the kubeconfig
+//    (core/services/provisioning handlers.waitForVClusterKubeconfig).
 //
 //    Not done with exportKubeConfig.additionalSecrets[].namespace=flux-system:
 //    vcluster 0.33 then adds flux-system to its manager cache
@@ -79,9 +113,17 @@ const (
 // stubs of the region-local kubeconfig producer.
 const kubeconfigMirrorDoc = "kubeconfig-mirror.yaml"
 
-// VClusterKubeconfigSourceSecret is the Secret the loft-sh vCluster chart
-// exports its kubeconfig into (`vc-<release>`, release `vcluster`).
-const VClusterKubeconfigSourceSecret = "vc-vcluster"
+// VClusterDefaultKubeconfigSecret is the Secret the loft-sh vCluster always
+// writes its kubeconfig into (`vc-<release>`, release `vcluster`). It is not
+// reflected anywhere; KubeconfigSecretName is the source.
+const VClusterDefaultKubeconfigSecret = "vc-vcluster"
+
+// KubeconfigSecretName is the Organization's vCluster kubeconfig Secret: the
+// vCluster writes it in `<slug>` (exportKubeConfig.additionalSecrets) and
+// bp-reflector auto-reflects it into flux-system under the same name.
+func KubeconfigSecretName(slug string) string {
+	return "tenant-" + slug + "-kubeconfig"
+}
 
 // kubeconfigMirrorTemplate — see the file header (1). No `data:` on any of
 // the three stubs: that is what keeps Flux from ever owning (or blanking)
@@ -89,19 +131,11 @@ const VClusterKubeconfigSourceSecret = "vc-vcluster"
 const kubeconfigMirrorTemplate = `# Region-local producer of the Organization's vCluster kubeconfig
 # (ADR-0015 D1, Refs #7067). Applied by THIS region's own Flux; the bytes are
 # THIS region's vCluster's own export. Flux owns metadata only.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vc-vcluster
-  namespace: {{ .Slug }}
-  labels:
-    openova.io/organization: {{ .Slug }}
-    catalyst.openova.io/component: per-org-kubeconfig-source
-  annotations:
-    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "{{ .Slug }},flux-system"
-type: Opaque
----
+#
+# The source: the vCluster writes this Secret itself
+# (exportKubeConfig.additionalSecrets). Reflector auto-reflects it into
+# flux-system on every event of this Secret, so the copy is filled when the
+# kubeconfig appears, not at the reflector's next watch session.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -109,11 +143,16 @@ metadata:
   namespace: {{ .Slug }}
   labels:
     openova.io/organization: {{ .Slug }}
-    catalyst.openova.io/component: per-org-kubeconfig-mirror
+    catalyst.openova.io/component: per-org-kubeconfig-source
   annotations:
-    reflector.v1.k8s.emberstack.com/reflects: "{{ .Slug }}/vc-vcluster"
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "flux-system"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "flux-system"
 type: Opaque
 ---
+# The copy the per-Org Flux Kustomizations read (spec.kubeConfig.secretRef
+# has no namespace). Reflector writes its data.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -123,7 +162,20 @@ metadata:
     openova.io/organization: {{ .Slug }}
     catalyst.openova.io/component: per-org-kubeconfig-mirror
   annotations:
-    reflector.v1.k8s.emberstack.com/reflects: "{{ .Slug }}/vc-vcluster"
+    reflector.v1.k8s.emberstack.com/reflects: "{{ .Slug }}/tenant-{{ .Slug }}-kubeconfig"
+type: Opaque
+---
+# The vCluster's default export. Reflected nowhere; kept in this tree so
+# that Flux never prunes it from an Organization created before the
+# source-driven scheme (the vCluster writes it only when it starts).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vc-vcluster
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    catalyst.openova.io/component: per-org-kubeconfig-default
 type: Opaque
 `
 

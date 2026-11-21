@@ -742,21 +742,21 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 // vcluster, never on the host). The former free/S/"" host-namespace arm —
 // "omit kubeConfig, reconcile straight into the host `<slug>` ns" — is gone;
 // the org-controller renders the `vcluster` HelmRelease for every plan, so the
-// `vc-vcluster` export the mirror is copied from always appears.
+// kubeconfig the apps-sync Kustomization reads always appears.
 //
 // kubeConfig.secretRef: Flux's Kustomization API accepts only `name`+`key` on
 // secretRef (no namespace override), so the secret must live in flux-system
 // alongside the CR. The org-controller's `vcluster` HelmRelease exports the
-// kubeconfig to `<slug>/vc-vcluster`; the provisioning workflow mirrors that
-// into `flux-system/tenant-<slug>-kubeconfig` after the vcluster HelmRelease
-// becomes Ready (handlers.mirrorVClusterKubeconfig). The mirror is deleted
-// during teardown.
+// kubeconfig to `<slug>/tenant-<slug>-kubeconfig` and bp-reflector copies it
+// into `flux-system/tenant-<slug>-kubeconfig` (org-controller
+// gitops/region_local.go). The provisioning workflow only waits for both after
+// the vcluster HelmRelease becomes Ready (handlers.waitForVClusterKubeconfig).
 //
 // Readiness gating: NO manifest-level dependsOn is used (Flux Kustomization
 // dependsOn references other Kustomizations, not the vcluster HelmRelease). The
 // gate is enforced in code: the consumer waits for the vcluster HR Ready and
-// mirrors the kubeconfig BEFORE the apps are expected up; until the mirror
-// exists this Kustomization simply StateErrors-then-retries (retryInterval 1m)
+// for the kubeconfig BEFORE the apps are expected up; until the kubeconfig
+// is held this Kustomization simply StateErrors-then-retries (retryInterval 1m)
 // — the intended self-healing.
 //
 // #4761 — sourceRef.name is threaded from ManifestGenerator.appsSyncSourceRepo()

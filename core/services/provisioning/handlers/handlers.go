@@ -1028,102 +1028,71 @@ func (h *Handler) k8sRequest(method, path string, body []byte) ([]byte, error) {
 	return respBody, nil
 }
 
-// mirrorVClusterKubeconfig copies the `vc-vcluster` Secret from the tenant
-// namespace to flux-system as `tenant-<slug>-kubeconfig`. The per-tenant
-// Flux Kustomization CR (which lives in flux-system per issue #97) references
-// this mirror to reconcile resources into the vCluster. We mirror rather than
-// place the CR in the tenant NS because:
+// vclusterKubeconfigWaitTimeout bounds the funnel's wait, after the vcluster
+// HelmRelease is Ready, for the Organization's kubeconfig to be held in both
+// Secrets its readers use. The vCluster writes the source when it starts and
+// bp-reflector copies it into flux-system on the source's own watch event, so
+// the expected wait is seconds; the bound only turns a broken producer into a
+// failed step instead of a silent hang.
+const (
+	vclusterKubeconfigWaitTimeout = 5 * time.Minute
+	vclusterKubeconfigPollEvery   = 5 * time.Second
+)
+
+// waitForVClusterKubeconfig waits until `tenant-<slug>-kubeconfig` holds the
+// Organization's vCluster kubeconfig in `<slug>` (read by the per-Org
+// application HelmReleases, whose kubeConfig.secretRef has no namespace) and
+// in flux-system (read by the apps-sync Kustomization, issue #97).
 //
-//  1. Flux Kustomization.spec.kubeConfig.secretRef has no `namespace` field —
-//     the secret must live in the CR's own namespace.
-//  2. Placing the CR in tenant-<slug> re-introduces the finalizer-blocks-NS-GC
-//     defect this whole fix is solving.
-//
-// Idempotent: if the mirror already exists it's updated in place (handles
-// password rotation or kubeconfig CA rotation). Call this after the vcluster
-// HelmRelease reaches Ready so the source secret definitely exists.
-func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug string) error {
-	// #4290: the vCluster kubeconfig secret `vc-vcluster` is exported by the
-	// org-controller's `vcluster` HelmRelease into the `<slug>` namespace (the
-	// single boundary), not a `tenant-<slug>` stray. Mirror it from there into
-	// flux-system as `tenant-<slug>-kubeconfig`, the name the apps-sync
-	// Kustomization (generateAppsSyncKustomization) references.
-	srcNS := tenantSlug
-	srcName := "vc-vcluster"
-	dstName := vclusterKubeconfigSecretName(tenantSlug)
-
-	srcBody, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", srcNS, srcName))
-	if err != nil {
-		return fmt.Errorf("read source secret %s/%s: %w", srcNS, srcName, err)
-	}
-	var src struct {
-		Data map[string]string `json:"data"`
-		Type string            `json:"type"`
-	}
-	if err := json.Unmarshal(srcBody, &src); err != nil {
-		return fmt.Errorf("parse source secret: %w", err)
-	}
-
-	// #4785: mirror the kubeconfig into BOTH `flux-system` AND the tenant
-	// `<slug>` namespace. `flux-system` is where the apps-sync Kustomization's
-	// `kubeConfig.secretRef` resolves (issue #97). But the per-Org application
-	// HelmReleases (generateHelmReleaseApp → helmrelease_apps.go) are stamped
-	// into the `<slug>` namespace and reference the kubeconfig with NO
-	// namespace on the secretRef — Flux resolves that in the HR's OWN
-	// namespace. A flux-system-only mirror therefore left every customer app HR
-	// stuck `could not get KubeConfig secret '<slug>/tenant-<slug>-kubeconfig':
-	// not found` → no customer app ever deployed (proven live hw225 uat225wp:
-	// bp-openclaw HR False, WordPress 404). Mirroring into both namespaces is
-	// the last mile of the per-Org apps-in-vCluster pillar.
-	for _, dstNS := range []string{"flux-system", tenantSlug} {
-		// Build the destination secret payload. Copy .data verbatim (base64
-		// values survive the round trip) and carry over the type so opaque
-		// stays opaque. NB: K8s label values are restricted to [A-Za-z0-9-_.],
-		// so the source-ns reference goes in an annotation (unconstrained).
-		dst := map[string]any{
-			"apiVersion": "v1",
-			"kind":       "Secret",
-			"metadata": map[string]any{
-				"name":      dstName,
-				"namespace": dstNS,
-				"labels": map[string]string{
-					"openova.io/tenant":     tenantSlug,
-					"openova.io/managed-by": "provisioning",
-				},
-				"annotations": map[string]string{
-					"openova.io/mirror-of": srcNS + "/" + srcName,
-				},
-			},
-			"data": src.Data,
-			"type": src.Type,
-		}
-		payload, err := json.Marshal(dst)
-		if err != nil {
-			return fmt.Errorf("marshal mirror secret (%s): %w", dstNS, err)
-		}
-
-		// Try create first; fall back to PUT (full replace) if it exists.
-		_, err = h.k8sRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%s/secrets", dstNS), payload)
-		if err == nil {
-			slog.Info("mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
-			continue
-		}
-		// 409 conflict → already exists. Update via PUT to keep data fresh.
-		if !strings.Contains(err.Error(), "status 409") {
-			return fmt.Errorf("create mirror secret (%s): %w", dstNS, err)
-		}
-		_, err = h.k8sRequest(http.MethodPut, fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", dstNS, dstName), payload)
-		if err != nil {
-			return fmt.Errorf("update mirror secret (%s): %w", dstNS, err)
-		}
-		slog.Info("updated mirrored vCluster kubeconfig", "src", srcNS+"/"+srcName, "dst", dstNS+"/"+dstName)
-	}
-	return nil
+// The funnel only READS the two Secrets. The Organization's boundary tree
+// produces them in every region (core/controllers/organization/internal/
+// gitops/region_local.go): the vCluster writes `<slug>/tenant-<slug>-kubeconfig`
+// itself and bp-reflector auto-reflects it into flux-system. The funnel used
+// to copy `vc-vcluster` into both names with a full-object PUT; that PUT would
+// strip the source's reflection opt-in, after which the reflector deletes the
+// flux-system copy. So the funnel writes neither, and each Secret has one
+// writer.
+func (h *Handler) waitForVClusterKubeconfig(ctx context.Context, tenantSlug string) error {
+	return waitForKubeconfigHeld(ctx, h.k8sGet, tenantSlug, vclusterKubeconfigWaitTimeout, vclusterKubeconfigPollEvery)
 }
 
-// deleteVClusterKubeconfigMirror removes the flux-system mirror secret during
-// tenant teardown. 404 is treated as success (already gone).
-func (h *Handler) deleteVClusterKubeconfigMirror(ctx context.Context, tenantSlug string) error {
-	return h.k8sDelete(fmt.Sprintf(
-		"/api/v1/namespaces/flux-system/secrets/%s", vclusterKubeconfigSecretName(tenantSlug)))
+// waitForKubeconfigHeld polls through get (GET only) until the kubeconfig
+// Secret of slug holds a kubeconfig under the data key `config` (the key every
+// reader names) in `<slug>` and in flux-system. A Secret that exists without
+// that key is the boundary tree's metadata-only stub before the kubeconfig is
+// written, and does not count.
+func waitForKubeconfigHeld(ctx context.Context, get func(path string) ([]byte, error), slug string, timeout, every time.Duration) error {
+	name := vclusterKubeconfigSecretName(slug)
+	deadline := time.Now().Add(timeout)
+	for {
+		var missing []string
+		for _, ns := range []string{slug, "flux-system"} {
+			body, err := get(fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", ns, name))
+			if err != nil || !secretHoldsKubeconfig(body) {
+				missing = append(missing, ns)
+			}
+		}
+		if len(missing) == 0 {
+			slog.Info("vCluster kubeconfig present", "slug", slug, "secret", name)
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("secret %s holds no kubeconfig in namespace %s after %s",
+				name, strings.Join(missing, ", "), timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
+	}
+}
+
+// secretHoldsKubeconfig reports whether a Secret's JSON carries a non-empty
+// data key `config`.
+func secretHoldsKubeconfig(body []byte) bool {
+	var s struct {
+		Data map[string]string `json:"data"`
+	}
+	return json.Unmarshal(body, &s) == nil && s.Data["config"] != ""
 }

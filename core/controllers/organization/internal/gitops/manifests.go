@@ -1000,8 +1000,13 @@ spec:
       context: vcluster
       server: https://vcluster.{{ .Slug }}:443
       insecure: false
+      # The vCluster always writes its default vc-vcluster with the
+      # properties above. The additional Secret is the SOURCE of the
+      # region-local kubeconfig producer (region_local.go): same bytes, the
+      # name its readers in <slug> use, auto-reflected into flux-system. No
+      # namespace: another namespace would join the vCluster's cache.
       additionalSecrets:
-        - name: vc-vcluster
+        - name: tenant-{{ .Slug }}-kubeconfig
           server: https://vcluster.{{ .Slug }}:443
           insecure: false
           context: vcluster
@@ -1792,8 +1797,10 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
-    # create/update/patch: the #4785 dual-namespace kubeconfig mirror
-    # (mirrorVClusterKubeconfig) upserts tenant-<slug>-kubeconfig into this ns.
+    # create/update/patch were granted for the funnel's former kubeconfig
+    # copy (#4785). The funnel now only reads tenant-<slug>-kubeconfig
+    # (written by the vCluster, region_local.go); the verbs stay until the
+    # funnel's own copy of this Role (provisioning gitops.go) is narrowed too.
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: [""]

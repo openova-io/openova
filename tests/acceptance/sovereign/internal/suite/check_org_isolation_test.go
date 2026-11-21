@@ -540,7 +540,9 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 }
 
 // TestOrgIsolationCheck_Sources: the organization controller writes what the
-// check reads: the kubeconfig Secret and its server, the two mirrors, and the
+// check reads: the server of the kubeconfig, the additional Secret
+// tenant-<slug>-kubeconfig that the vCluster writes beside its default
+// vc-vcluster (the source of the flux-system mirror), the two mirrors, and the
 // label of synced Pods that both objects of the fence select.
 func TestOrgIsolationCheck_Sources(t *testing.T) {
 	read := func(name string) string {
@@ -556,7 +558,7 @@ func TestOrgIsolationCheck_Sources(t *testing.T) {
 		n          int
 	}{
 		{manifests, "      server: https://" + isoVClusterName + ".{{ .Slug }}:443", 1},
-		{manifests, "        - name: " + isoVClusterSecret, 1},
+		{manifests, "        - name: tenant-{{ .Slug }}-kubeconfig", 1},
 		{manifests, "      - key: " + isoManagedBy, 2},
 		{mirrors, "  name: tenant-{{ .Slug }}-kubeconfig", 2},
 		{mirrors, "  namespace: flux-system", 1},

@@ -331,13 +331,10 @@ func main() {
 		"group", "provisioning",
 	)
 
-	// Start the kubeconfig mirror reconciler (issue #104). Self-heals
-	// tenants whose provisioning pod was killed between the DNS-ready wait
-	// and the kubeconfig mirror step — without this, a CI deploy or OOM
-	// kill mid-provision leaves a tenant's Flux Kustomization permanently
-	// stuck with "secret not found". Reuses consumerCtx so the goroutine
-	// stops cleanly on shutdown.
-	h.StartKubeconfigReconciler(consumerCtx)
+	// No kubeconfig mirror reconciler (issue #104) any more: the funnel no
+	// longer copies the vCluster kubeconfig, so a pod killed mid-provision
+	// cannot strand it. The Organization's boundary tree produces it in every
+	// region (core/controllers/organization/internal/gitops/region_local.go).
 	// Pod-truth reconciler (issue #115): advances stuck provision steps +
 	// clears 'installing' app_states when apps are actually Ready. Essential
 	// for the case where a pod restart orphans the in-memory workflow mid-

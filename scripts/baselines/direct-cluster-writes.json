@@ -112,7 +112,7 @@
     },
     "R": {
       "core/services/provisioning/handlers/consumer.go": 4,
-      "core/services/provisioning/handlers/handlers.go": 6,
+      "core/services/provisioning/handlers/handlers.go": 3,
       "core/services/provisioning/handlers/organization_create.go": 1,
       "core/services/provisioning/handlers/tenant_public_patch.go": 1
     }
