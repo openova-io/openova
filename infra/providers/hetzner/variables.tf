@@ -207,6 +207,7 @@ variable "variables" {
       "MAIL_MODE", "MAIL_RELAY_HOST", "MAIL_RELAY_PORT", "MAIL_FROM", "MAIL_RELAY_SECRET",
       "K3S_VERSION", "K3S_UPGRADE_CONCURRENCY", "CLOUD_CREDENTIAL_MODE", "CLOUD_CREDENTIAL_ROTATION_SCHEDULE",
       "CLOUD_CREDENTIAL_ROTATION_NONCE", "GITOPS_REPO_URL",
+      "SOVEREIGN_TIME_ZONE", "KURED_START_TIME", "KURED_END_TIME", "KURED_TIME_ZONE",
     ])
     error_message = "variables must hold exactly the keys of contract C5 (docs/contracts/c5-upstream-variables.schema.json), no more and no fewer."
   }

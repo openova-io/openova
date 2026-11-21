@@ -11,6 +11,12 @@
 // any of them; FromMap ignores them. Every other key is a contract key and
 // is a field of Variables.
 //
+// Four optional keys are the node maintenance window, read by kit slot 04b:
+// KURED_START_TIME and KURED_END_TIME (HH:MM, default 01:00 and 05:00) bound
+// the hours in which kured may restart a node, in KURED_TIME_ZONE; an empty
+// KURED_TIME_ZONE (the default) is SOVEREIGN_TIME_ZONE, the Sovereign's own
+// IANA time zone (default UTC), which the parent writes from the request.
+//
 // The cross-field rules of the contract:
 //
 //  1. SOVEREIGN_CONSUME local requires REGISTRY_HOST == LOCAL_REGISTRY_HOST
@@ -93,6 +99,7 @@ type Variables struct {
 	K3sVersion, K3sUpgradeConcurrency                                                          string
 	CloudCredentialMode, CloudCredentialRotationSchedule, CloudCredentialRotationNonce         string
 	GitopsRepoURL                                                                              string
+	TimeZone, KuredStartTime, KuredEndTime, KuredTimeZone                                      string
 }
 
 // field binds one contract key to its field of Variables.
@@ -146,6 +153,10 @@ var fields = []field{
 	{key: "CLOUD_CREDENTIAL_ROTATION_SCHEDULE", str: func(v *Variables) *string { return &v.CloudCredentialRotationSchedule }},
 	{key: "CLOUD_CREDENTIAL_ROTATION_NONCE", str: func(v *Variables) *string { return &v.CloudCredentialRotationNonce }},
 	{key: "GITOPS_REPO_URL", str: func(v *Variables) *string { return &v.GitopsRepoURL }},
+	{key: "SOVEREIGN_TIME_ZONE", str: func(v *Variables) *string { return &v.TimeZone }},
+	{key: "KURED_START_TIME", str: func(v *Variables) *string { return &v.KuredStartTime }},
+	{key: "KURED_END_TIME", str: func(v *Variables) *string { return &v.KuredEndTime }},
+	{key: "KURED_TIME_ZONE", str: func(v *Variables) *string { return &v.KuredTimeZone }},
 }
 
 // contract is the embedded schema, compiled once.

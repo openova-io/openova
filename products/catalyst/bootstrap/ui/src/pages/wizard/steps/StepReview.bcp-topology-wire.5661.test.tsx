@@ -82,6 +82,7 @@ vi.mock('@/widgets/auth/PinSignInModal', () => ({
 interface WireBody {
   bcpTopology?: string
   regions?: unknown[]
+  sovereignTimeZone?: string
 }
 
 /**
@@ -228,6 +229,34 @@ describe('#5661 — the wizard can fire a single-region prov', () => {
     // The VALUE, not the presence of the card.
     expect(body.bcpTopology).toBe('single-region')
     expect(rejectedByValidate(body)).toBeNull()
+  })
+
+  it('sends the Sovereign time zone: the pick of step 1, else the browser zone (INF-054)', async () => {
+    // The browser reports a zone other than UTC: the runner runs in UTC, the
+    // same as the fallback, so its own zone could not tell the two apart.
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions
+    let reported: string | undefined = 'Pacific/Auckland'
+    const zoneSpy = vi
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockImplementation(function (this: Intl.DateTimeFormat) {
+        return { ...real.call(this), timeZone: reported as string }
+      })
+    try {
+      seedStore('solo')
+      useWizardStore.setState({ sovereignTimeZone: '' })
+      expect((await launchAndCaptureBody()).sovereignTimeZone).toBe('Pacific/Auckland')
+      cleanup()
+      useWizardNav.setState({ nav: {} })
+      reported = undefined
+      expect((await launchAndCaptureBody()).sovereignTimeZone).toBe('UTC')
+      cleanup()
+      useWizardNav.setState({ nav: {} })
+      reported = 'Pacific/Auckland'
+      useWizardStore.setState({ sovereignTimeZone: 'Asia/Muscat' })
+      expect((await launchAndCaptureBody()).sovereignTimeZone).toBe('Asia/Muscat')
+    } finally {
+      zoneSpy.mockRestore()
+    }
   })
 
   it('renders the declared topology in the Review card (body-mirror contract)', async () => {

@@ -85,6 +85,7 @@ interface WizardActions {
   setSovereignDomainMode: (mode: import('./model').DomainMode) => void
   setSovereignPoolDomain: (id: string) => void
   setSovereignSubdomain: (subdomain: string) => void
+  setSovereignTimeZone: (zone: string) => void
   setSovereignByoDomain: (domain: string) => void
 
   // Step 1 — BYO-api registrar credentials (#169 BYO Flow B)
@@ -252,6 +253,7 @@ export const useWizardStore = create<WizardStore>()(
         setOrgSize: (orgSize) => set({ orgSize }, false, 'wizard/setOrgSize'),
         setOrgHeadquarters: (orgHeadquarters) => set({ orgHeadquarters }, false, 'wizard/setOrgHeadquarters'),
         setOrgCompliance: (orgCompliance) => set({ orgCompliance }, false, 'wizard/setOrgCompliance'),
+        setSovereignTimeZone: (sovereignTimeZone) => set({ sovereignTimeZone }, false, 'wizard/setSovereignTimeZone'),
 
         // Sovereign-domain setters
         setSovereignDomainMode: (sovereignDomainMode) =>

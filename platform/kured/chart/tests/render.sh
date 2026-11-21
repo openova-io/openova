@@ -14,6 +14,11 @@
 # 4: the function test passes and fails when it should, against a stub kubectl.
 # 5: functionTest.timeoutSeconds is the bound T: the Pod ends at T, the test
 #    waits for a DaemonSet that is ready late and gives up 60 seconds before T.
+# 6: the reboot span of the default render is the night span 01:00 to 05:00,
+#    and the kit slot 04b falls back to the same span when the variables
+#    document has no KURED_* key, in the Sovereign's own time zone: the slot is
+#    rendered with the document's values as Flux substitutes them, then the
+#    chart with the slot's values, and kured's arguments are read.
 set -euo pipefail
 CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 CHECK="$(cd "$CHART_DIR/../../.." && pwd)/scripts/check-function-test.py"
@@ -82,10 +87,10 @@ kured = one(ds, "DaemonSet", "kured")["spec"]["template"]["spec"]
 want = ["--ds-name=kured", "--ds-namespace=kube-system", "--metrics-port=8080", "--lock-ttl=1h",
         "--lock-release-delay=5m",
         "--blocking-pod-selector=upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan",
-        "--end-time=22:00", "--lock-annotation=catalyst.openova.io/kured-install-hold", "--period=30m", "--drain-timeout=10m"] + \
+        "--end-time=05:00", "--lock-annotation=catalyst.openova.io/kured-install-hold", "--period=30m", "--drain-timeout=10m"] + \
        ["--reboot-days=" + d for d in ("su", "mo", "tu", "we", "th", "fr", "sa")] + \
        ["--reboot-sentinel=/sentinel/reboot-required", "--reboot-command=/bin/systemctl reboot",
-        "--start-time=00:30", "--time-zone=UTC", "--annotate-nodes=true", "--log-format=text", "--concurrency=1"]
+        "--start-time=01:00", "--time-zone=UTC", "--annotate-nodes=true", "--log-format=text", "--concurrency=1"]
 args = kured["containers"][0]["args"]
 assert args == want, "kured arguments:\n  got  %r\n  want %r" % (args, want)
 # A drain that cannot finish (#7922): kured's ticks queue while an attempt runs, so a period at
@@ -208,4 +213,52 @@ run_test "3 3" 0 3 600
 run_test "3 2" 1 0 839
 grep -q -x -F 'FUNCTION-TEST fail bp-kured not ready within 840 seconds: the DaemonSet kured has 2 of 3 Pods ready' "$TMP/out.txt" \
   || fail "under T 900 the failure does not name the DaemonSet and the wait of 840 seconds"
+
+echo "[kured] case 6: the night span, in the chart and in the fallbacks of the kit slot"
+# Cases 1 and 2 hold the arguments of the default render to 01:00 to 05:00 UTC. The slot reads the span from the
+# variables document; a document without the KURED_* keys gets the same span, in SOVEREIGN_TIME_ZONE (UTC without it).
+# The slot is rendered as a Sovereign renders it: the values of the document substituted into it as Flux's post-build
+# step does (flux_subst), then this chart with the values of its HelmRelease; kured's arguments are read from that.
+SLOT="$(cd "$CHART_DIR/../../.." && pwd)/clusters/_template/bootstrap-kit/04b-bp-kured.yaml"
+# flux_subst: stdin with the variables of the environment substituted as Flux's post-build step does for the forms
+# ${NAME}, ${NAME:=default} and ${NAME:-default}: the innermost first, until none is left; a NAME that is unset or
+# empty takes the default, and without one the empty text.
+flux_subst() {
+  local s name value re='[$][{]([A-Za-z_][A-Za-z0-9_]*)(:[-=]([^${}]*))?[}]'
+  s="$(cat)"
+  while [[ $s =~ $re ]]; do
+    name="${BASH_REMATCH[1]}"
+    value="${!name-}"
+    [ -n "$value" ] || value="${BASH_REMATCH[3]}"
+    s="${s/"${BASH_REMATCH[0]}"/"$value"}"
+  done
+  printf '%s\n' "$s"
+}
+[ "$(printf '%s' '${A:=${B:=UTC}}' | A='' B='' flux_subst)/$(printf '%s' '${A:=${B:=UTC}}' | A='' B=x flux_subst)/$(printf '%s' '${A:=${B:=UTC}}' | A=y B=x flux_subst)" = "UTC/x/y" ] \
+  || fail "flux_subst does not substitute a nested default as Flux does"
+# slot_span NAME=VALUE...: the start, end and time zone arguments of kured, sorted, when the variables document holds
+# these values and no other of the four keys.
+slot_span() {
+  (
+    unset KURED_START_TIME KURED_END_TIME KURED_TIME_ZONE SOVEREIGN_TIME_ZONE
+    for kv in "$@"; do export "${kv?}"; done
+    flux_subst < "$SLOT" > "$TMP/slot.yaml"
+  ) || return 1
+  yq ea -N 'select(.kind == "HelmRelease" and .metadata.name == "bp-kured") | .spec.values' "$TMP/slot.yaml" > "$TMP/slot-values.yaml" || return 1
+  helm template kured . --namespace kube-system -f "$TMP/slot-values.yaml" > "$TMP/slot-render.yaml" || return 1
+  yq ea -N 'select(.kind == "DaemonSet" and .metadata.name == "kured") | .spec.template.spec.containers[] | select(.name == "kured") | .args[]' \
+    "$TMP/slot-render.yaml" | grep -E '^--(start-time|end-time|time-zone)=' | LC_ALL=C sort | tr '\n' ' '
+}
+for row in '--end-time=05:00 --start-time=01:00 --time-zone=Asia/Muscat |KURED_START_TIME= KURED_END_TIME= KURED_TIME_ZONE= SOVEREIGN_TIME_ZONE=Asia/Muscat' \
+  '--end-time=05:00 --start-time=01:00 --time-zone=UTC |KURED_TIME_ZONE= SOVEREIGN_TIME_ZONE=' \
+  '--end-time=05:00 --start-time=01:00 --time-zone=UTC |' \
+  '--end-time=04:30 --start-time=23:00 --time-zone=Europe/Berlin |KURED_START_TIME=23:00 KURED_END_TIME=04:30 KURED_TIME_ZONE=Europe/Berlin SOVEREIGN_TIME_ZONE=Asia/Muscat'; do
+  want="${row%%|*}"
+  read -r -a values <<< "${row#*|}"
+  got="$(slot_span "${values[@]}")" || fail "the kit slot does not render with ${row#*|}"
+  [ "$got" = "$want" ] || fail "with the document holding ${row#*|} the kit slot gives kured: ${got}; want: $want"
+done
+for value in 'startTime: "01:00"' 'endTime: "05:00"' 'timeZone: UTC'; do
+  [ "$(grep -c -E "^    ${value} +# --" values.yaml)" = 1 ] || fail "values.yaml does not hold the night span: $value"
+done
 echo "render: all cases passed"

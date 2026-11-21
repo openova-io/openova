@@ -49,6 +49,7 @@ import {
   TOPOLOGY_REGION_LABELS,
   resolveSovereignDomain,
   SOVEREIGN_POOL_DOMAINS,
+  browserTimeZone,
 } from '@/entities/deployment/model'
 import type { CloudProvider } from '@/entities/deployment/model'
 import { findNodeSize } from '@/shared/constants/providerSizes'
@@ -746,6 +747,9 @@ export function StepReview() {
           sovereignDomainMode: store.sovereignDomainMode,
           sovereignPoolDomain: poolDomainLabel,
           sovereignSubdomain: store.sovereignSubdomain,
+          // INF-054 — the Sovereign's own time zone: the operator's pick on
+          // step 1, else the browser's. It becomes SOVEREIGN_TIME_ZONE.
+          sovereignTimeZone: store.sovereignTimeZone || browserTimeZone(),
           // Hetzner credentials — passed when Region 1 is on Hetzner; the
           // provisioner reads non-Hetzner provider tokens out of
           // providerTokens for those code paths when activated.

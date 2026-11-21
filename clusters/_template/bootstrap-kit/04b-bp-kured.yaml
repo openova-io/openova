@@ -5,9 +5,13 @@
 #
 # The chart's defaults carry every kured setting (platform/kured/chart/values.yaml).
 # This slot sets only:
-#   - the reboot span, as three substitutions of the Sovereign's variables
-#     with the chart's defaults as fallback: 00:30 to 22:00 UTC. The upgrade
-#     Plans keep their window outside this span;
+#   - the reboot span, a setting of the sovereign-admin: the keys
+#     KURED_START_TIME, KURED_END_TIME and KURED_TIME_ZONE of the Sovereign's
+#     variables document (contract C5), with the chart's defaults as
+#     fallback: 01:00 to 05:00, a night span, in the Sovereign's own time zone
+#     SOVEREIGN_TIME_ZONE (UTC when the document has none); an empty
+#     KURED_TIME_ZONE is that zone too. The upgrade Plans keep their window
+#     outside this span;
 #   - the image of node-patch-config and of the function test, behind the
 #     registry prefix the platform's charts use for alpine/k8s:1.31.4;
 #   - the bound T of the function test, the install timeout (below).
@@ -61,9 +65,9 @@ spec:
   values:
     kured:
       configuration:
-        startTime: "${KURED_START_TIME:=00:30}"
-        endTime: "${KURED_END_TIME:=22:00}"
-        timeZone: "${KURED_TIME_ZONE:=UTC}"
+        startTime: "${KURED_START_TIME:=01:00}"
+        endTime: "${KURED_END_TIME:=05:00}"
+        timeZone: "${KURED_TIME_ZONE:=${SOVEREIGN_TIME_ZONE:=UTC}}"
     nodePatchConfig:
       image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
     functionTest:
