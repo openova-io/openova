@@ -60,14 +60,15 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 helm="${HELM_BIN:-helm}"
 
-render() { # <chart dir> <out file> [helm arguments]
+render() { # <chart dir> <out file> [helm arguments]; without the test hook, which only `helm test`
+  # runs and which tests/function-test-render.sh checks, so rule R1 reads the objects of an install
   local src="$1" out="$2" tmp rc=0
   shift 2
   tmp="$(mktemp -d)"
   cp -r "$src" "$tmp/chart"
   rm -rf "$tmp/chart/charts"
   awk '/^dependencies:/{skip=1;next} skip&&/^[^ #-]/{skip=0} !skip' "$src/Chart.yaml" > "$tmp/chart/Chart.yaml"
-  "$helm" template stalwart-sovereign "$tmp/chart" --namespace stalwart-sovereign \
+  "$helm" template stalwart-sovereign "$tmp/chart" --namespace stalwart-sovereign --skip-tests \
     --set global.sovereignFQDN=render-test.example.test "$@" > "$out" || rc=1
   rm -rf "$tmp"
   return "$rc"

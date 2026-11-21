@@ -50,4 +50,7 @@ templates/ui-deployment-kustomize.yaml
 
 # CI-only contract scripts — run from the working tree, never from the package.
 # Packaging them put the umbrella over the #6004 release-Secret budget.
-tests/
+# Anchored to the chart root: a pattern without a leading slash matches a
+# folder of that name at any depth, and so dropped templates/tests/, the
+# function test of the release (docs/RUNBOOKS.md section 4.5).
+/tests/

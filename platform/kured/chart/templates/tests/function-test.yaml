@@ -3,7 +3,17 @@ Function test of bp-kured (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
 It passes when the DaemonSet kured has as many ready Pods as nodes to run on
 (at least one), and when the node of this Pod has both files of
 node-patch-config with exactly the content of its ConfigMap.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before kured and
+node-patch-config are up: it judges again every 10 seconds until 60 seconds
+before its bound T, and fails naming the DaemonSet or the file that is not
+ready by then. T is functionTest.timeoutSeconds, the Pod's
+activeDeadlineSeconds: the kit states the install timeout of its release there
+(docs/RUNBOOKS.md section 4.5); without it T is 300.
 */ -}}
+{{- $bound := int ((.Values.functionTest | default dict).timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -61,7 +71,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   restartPolicy: Never
-  activeDeadlineSeconds: 300
+  activeDeadlineSeconds: {{ $bound }}
   serviceAccountName: {{ .Release.Name }}-function-test
   containers:
     - name: function-test
@@ -87,23 +97,34 @@ spec:
         - {name: tmp, mountPath: /tmp}
         - {name: apt-conf-d, mountPath: /host, readOnly: true}
         - {name: config, mountPath: /config, readOnly: true}
-      command: ["/bin/sh", "-c"]
+      command: ["/bin/bash", "-c"]
       args:
         - |
           set -u
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
-          if ! counts="$(kubectl -n "${TEST_NAMESPACE}" get daemonset kured -o jsonpath='{.status.desiredNumberScheduled} {.status.numberReady}' 2>/tmp/error)"; then
-            fail "the DaemonSet kured cannot be read: $(tr '\n' ' ' </tmp/error | cut -c1-200)"
-          fi
-          set -- ${counts}
-          want="${1:-0}"
-          ready="${2:-0}"
-          [ "${want}" -gt 0 ] || fail "the DaemonSet kured has no node to run on"
-          [ "${ready}" = "${want}" ] || fail "the DaemonSet kured has ${ready} of ${want} Pods ready"
-          for f in 20auto-upgrades 52unattended-upgrades-catalyst; do
-            [ -f "/host/${f}" ] || fail "node ${NODE_NAME} has no file /etc/apt/apt.conf.d/${f}"
-            cmp -s "/config/${f}" "/host/${f}" || fail "/etc/apt/apt.conf.d/${f} on node ${NODE_NAME} differs from the ConfigMap node-patch-config"
+          # judge: sets why to what is not ready yet, or to nothing.
+          judge() {
+            why=""
+            if ! counts="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get daemonset kured -o jsonpath='{.status.desiredNumberScheduled} {.status.numberReady}' 2>/tmp/error)"; then
+              why="the DaemonSet kured cannot be read: $(tr '\n' ' ' </tmp/error | cut -c1-200)"
+              return
+            fi
+            read -r want ready <<< "${counts}"
+            want="${want:-0}"
+            ready="${ready:-0}"
+            [ "${want}" -gt 0 ] 2>/dev/null || { why="the DaemonSet kured has no node to run on"; return; }
+            [ "${ready}" = "${want}" ] || { why="the DaemonSet kured has ${ready} of ${want} Pods ready"; return; }
+            for f in 20auto-upgrades 52unattended-upgrades-catalyst; do
+              [ -f "/host/${f}" ] || { why="node ${NODE_NAME} has no file /etc/apt/apt.conf.d/${f}"; return; }
+              cmp -s "/config/${f}" "/host/${f}" || { why="/etc/apt/apt.conf.d/${f} on node ${NODE_NAME} differs from the ConfigMap node-patch-config"; return; }
+            done
+          }
+          while :; do
+            judge
+            [ -z "${why}" ] && break
+            [ "${SECONDS}" -lt {{ $wait }} ] || fail "not ready within {{ $wait }} seconds: ${why}"
+            sleep 10
           done
           echo "FUNCTION-TEST pass {{ .Chart.Name }} kured has ${ready} of ${want} Pods ready and node ${NODE_NAME} has both node-patch-config files"
   volumes:
