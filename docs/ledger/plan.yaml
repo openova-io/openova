@@ -11628,6 +11628,7 @@ packages:
   - CLAUDE.md
   - scripts/lifecycle-ratchets-baseline.txt
   - scripts/check-crossplane-gvk.sh
+  - platform/self-sovereign-cutover/chart/.helmignore
   resources: []
   flips: []
   implements: []
@@ -11645,7 +11646,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Cutover step 08 fails when a cloud Workspace that was Ready and Synced before the hold is not so during it, in any region, and fails before the hold when the live OpenTofu CLI configuration or the file in the provider pod names a source outside the Sovereign; the tether lists of the design documents and of the chart name the OpenTofu provider binaries as a ninth tether.
 - id: SOV-405
