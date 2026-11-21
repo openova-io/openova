@@ -65,9 +65,18 @@ for tok in \
   fi
 done
 
-echo "[step6490] (b) genuine BYTE-IDENTICAL check against origin/main (when git is available)"
-if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-  git -C "${REPO_ROOT}" archive origin/main platform/self-sovereign-cutover/chart 2>/dev/null \
+echo "[step6490] (b) genuine BYTE-IDENTICAL check against the main this tree left (when git is available)"
+# The second tree is where this tree left main (`git merge-base HEAD origin/main`),
+# never main's tip, which can hold later commits that changed this chart: in a
+# release run for commit X the release writer has fetched origin/main, and run
+# 44832081080 (7dff3b89f) failed here on the change of #8549, merged after it. X
+# is on main, so its merge base is X and the run judges X; on a pull request's
+# merge ref it is the first parent, however far main has moved; on a branch, the
+# branch's base. "origin/main" in the axes below names that tree.
+# tools/guards/cmd/release-own-tree runs this check with main ahead.
+BASE_TREE="$(git -C "${REPO_ROOT}" merge-base HEAD origin/main 2>/dev/null || true)"
+if [ -n "${BASE_TREE}" ]; then
+  git -C "${REPO_ROOT}" archive "${BASE_TREE}" platform/self-sovereign-cutover/chart 2>/dev/null \
     | tar -x -C "${TMP}" 2>/dev/null
   MAIN_CHART="${TMP}/platform/self-sovereign-cutover/chart"
   if [ -d "${MAIN_CHART}" ]; then
@@ -324,16 +333,16 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
-      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the twenty-three axes normalised above, each verified by its own test)"
+      pass "the ENTIRE single-region render is byte-identical to the main this tree left (${BASE_TREE}), modulo the twenty-three axes normalised above, each verified by its own test"
     else
-      fail "single-region render DIFFERS from origin/main beyond the twenty-three normalised axes — see diff:"
+      fail "single-region render DIFFERS from the main this tree left (${BASE_TREE}) beyond the twenty-three normalised axes — see diff:"
       diff "${TMP}/main.norm" "${TMP}/off.norm" | head -40
     fi
   else
-    echo "  skip — could not archive origin/main chart; the token-absence gate above is the no-op proof"
+    echo "  skip — could not archive the chart of ${BASE_TREE}; the token-absence gate above is the no-op proof"
   fi
 else
-  echo "  skip — origin/main not fetched in this checkout; the token-absence gate above is the no-op proof"
+  echo "  skip — no merge base with origin/main in this checkout (not fetched, or the history is cut); the token-absence gate above is the no-op proof"
 fi
 
 echo "[step6490] (a) step-05 pivots each secondary at its IN-CLUSTER gitea-http Service"
