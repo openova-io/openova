@@ -7,12 +7,17 @@
 # --check-ghcr counted it as "1 missing artifact", and the cut said the pins were not coherent.
 # The same run's classifier and a dry run six minutes earlier found the version published.
 #
-# The guards run against this checkout with a fake `gh` first on the PATH. The fake answers every
-# version listing with every version string the bootstrap kit pins, so every pin resolves, except
-# for the one package named in FAKE_GH_PKG, which it treats as FAKE_GH_MODE says:
+# The guards run with a fake `gh` first on the PATH. The fake answers every version listing with
+# every version string the tree under test pins, so every pin resolves, except for the one
+# package named in FAKE_GH_PKG, which it treats as FAKE_GH_MODE says:
 #   flaky  the first two listings answer HTTP 502, later ones list the tags
 #   down   every listing answers HTTP 502
 #   404    every listing answers HTTP 404 (the package does not exist)
+# Cases 1 to 4 run the pin-sync guard of this checkout on a fixture tree built here (two charts
+# and their kit pins, in step), never on the kit and charts of this checkout: main itself holds a
+# drift between the two commits of an umbrella release (the chart version, then the pin once the
+# chart is published), and on 20 Nov 2026 the check of pull request 8542 ran in those minutes and
+# went red for a drift that was not its own. Case 5 reads this checkout (it found no fault there).
 # Cases, each able to fail:
 #   1 pin-sync, every listing good                  exit 0
 #   2 pin-sync, one flaky listing                   exit 0, the listing was retried
@@ -20,9 +25,13 @@
 #   4 pin-sync, one package 404                     exit 1, GHCR MISS
 #   5 catalog-seed, one listing down                exit 2, NOT MEASURED, no GHCR MISS
 #   6 ghcr_tags alone: flaky / down / 404           0 / 2 / 3, tries counted
-# On main cases 2, 3 and 5 fail: the first failed listing counts as missing (exit 1).
+#   7 cases 1 to 4 pass on a copy of this checkout that sits between the two commits of an
+#     umbrella release (its chart version one patch above its kit pin)
+# On main cases 2, 3 and 5 fail: the first failed listing counts as missing (exit 1). Before the
+# fixture tree, case 7 failed: cases 1 to 4 read the drift of the copy (exit 1).
 #
 # Usage: bash scripts/test-ghcr-not-measured.sh
+#   GHCR_SELFTEST_FIXTURE_ONLY=1 runs cases 1 to 4 only (case 7 runs the copy so).
 # Needs: bash, yq (the catalog-seed guard), helm (the catalog-seed guard renders the umbrella).
 set -uo pipefail
 
@@ -65,19 +74,41 @@ esac
 STUB
 chmod +x "$TMP/bin/gh"
 
-# run <name> <mode> <package> <cmd...>: output in $TMP/out, exit code in RC.
+# run <name> <mode> <package> <cmd...>: output in $TMP/out, exit code in RC. The fake lists the
+# tags in $TAGS and answers 404 for the packages in $ABSENT.
+TAGS="$TMP/tags"
+ABSENT="$TMP/absent"
 run() {
   local name="$1" mode="$2" pkg="$3"; shift 3
   rm -f "$TMP/count"
   RC=0
-  PATH="$TMP/bin:$PATH" FAKE_GH_TAGS="$TMP/tags" FAKE_GH_ABSENT="$TMP/absent" FAKE_GH_COUNT="$TMP/count" FAKE_GH_MODE="$mode" FAKE_GH_PKG="$pkg" \
+  PATH="$TMP/bin:$PATH" FAKE_GH_TAGS="$TAGS" FAKE_GH_ABSENT="$ABSENT" FAKE_GH_COUNT="$TMP/count" FAKE_GH_MODE="$mode" FAKE_GH_PKG="$pkg" \
     GHCR_LIST_ATTEMPTS=4 GHCR_RETRY_SLEEP=0 "$@" > "$TMP/out" 2>&1 || RC=$?
   CALLS="$(cat "$TMP/count" 2>/dev/null || echo 0)"
   echo "     ($name: exit $RC, $CALLS listing(s) of ${pkg:-no package})"
 }
 has() { grep -q -F -- "$1" "$TMP/out"; }
 
-PIN_SYNC=(bash "$ROOT/scripts/check-bootstrap-kit-pin-sync.sh" --check-ghcr)
+# The fixture tree of cases 1 to 4: the pin-sync guard of this checkout and its helper, and two
+# charts with their kit pins, in step.
+FX="$TMP/fixture"
+KIT_FX="$FX/clusters/_template/bootstrap-kit"
+mkdir -p "$FX/scripts/lib" "$KIT_FX" "$FX/platform/self-sovereign-cutover/chart" "$FX/products/catalyst/chart"
+cp "$ROOT/scripts/check-bootstrap-kit-pin-sync.sh" "$FX/scripts/"
+cp "$ROOT/scripts/lib/ghcr-tags.sh" "$FX/scripts/lib/"
+fixture_chart() { # <chart folder> <name> <version> <kit slot file>
+  printf 'apiVersion: v2\nname: %s\nversion: %s\n' "$2" "$3" > "$FX/$1/chart/Chart.yaml"
+  printf 'apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: %s\nspec:\n  chart:\n    spec:\n      chart: %s\n      version: %s\n' \
+    "$2" "$2" "$3" > "$KIT_FX/$4"
+  echo "$3" >> "$TMP/fixture-tags"
+}
+fixture_chart platform/self-sovereign-cutover bp-self-sovereign-cutover 0.1.244 06a-bp-self-sovereign-cutover.yaml
+fixture_chart products/catalyst bp-catalyst-platform 1.4.2232 13-bp-catalyst-platform.yaml
+: > "$TMP/fixture-absent"
+TAGS="$TMP/fixture-tags"
+ABSENT="$TMP/fixture-absent"
+
+PIN_SYNC=(bash "$FX/scripts/check-bootstrap-kit-pin-sync.sh" --check-ghcr)
 PKG="bp-self-sovereign-cutover"
 
 run "1 pin-sync, every listing good" "" "" "${PIN_SYNC[@]}"
@@ -98,6 +129,15 @@ if [ "$RC" = 1 ] && [ "$CALLS" = 1 ] && has "GHCR MISS ${PKG}:" && has "1 missin
   ok "4 a package that does not exist (HTTP 404) is missing, exit 1, no retry"
 else bad "4 one package 404: exit $RC, $CALLS listing(s); $(grep -E "${PKG}|GHCR-checked" "$TMP/out" | head -n 3)"; fi
 
+if [ -n "${GHCR_SELFTEST_FIXTURE_ONLY:-}" ]; then
+  echo
+  if [ "$FAILED" -eq 0 ]; then echo "test-ghcr-not-measured: cases 1 to 4 passed"; exit 0; fi
+  echo "test-ghcr-not-measured: $FAILED of cases 1 to 4 FAILED"; exit 1
+fi
+
+# Case 5 reads this checkout: the tags its kit and charts pin.
+TAGS="$TMP/tags"
+ABSENT="$TMP/absent"
 if command -v helm > /dev/null 2>&1 && command -v yq > /dev/null 2>&1; then
   SEED=(bash "$ROOT/scripts/check-catalog-seed-lockstep.sh" --check-ghcr)
   run "5 catalog-seed, one listing down" down bp-keycloak "${SEED[@]}"
@@ -123,6 +163,36 @@ if [ -f "$ROOT/scripts/lib/ghcr-tags.sh" ]; then
   [ "$(one 404)" = "3 1" ] && ok "6 ghcr_tags: 404 -> does not exist (3), no retry" || bad "6 ghcr_tags 404: $(one 404)"
 else
   bad "6 scripts/lib/ghcr-tags.sh does not exist"
+fi
+
+# 7: a copy of every file of this checkout that cases 1 to 4 could read, in the state of main
+# between the two commits of an umbrella release (20 Nov 2026, 21:04 to 21:20 UTC: chart
+# 1.4.2232, pin 1.4.2231). The copy must hold that drift, and cases 1 to 4 must pass there.
+W="$TMP/window"
+mkdir -p "$W/scripts/lib" "$W/clusters/_template"
+cp "$ROOT/scripts/test-ghcr-not-measured.sh" "$ROOT/scripts/check-bootstrap-kit-pin-sync.sh" \
+  "$ROOT/scripts/expected-unpublished-catalog-seed-pins.yaml" "$W/scripts/"
+cp "$ROOT/scripts/lib/ghcr-tags.sh" "$W/scripts/lib/"
+cp -R "$ROOT/clusters/_template/bootstrap-kit" "$W/clusters/_template/"
+for f in "$ROOT"/platform/*/chart/Chart.yaml "$ROOT"/products/*/chart/Chart.yaml "$ROOT"/products/catalyst/chart/charts/*/Chart.yaml; do
+  [ -f "$f" ] || continue
+  rel="${f#"$ROOT"/}"
+  mkdir -p "$W/$(dirname "$rel")"
+  cp "$f" "$W/$rel"
+done
+pin="$(awk '/^      version:/{print $2; exit}' "$W/clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml" | tr -d '"')"
+next="${pin%.*}.$(( ${pin##*.} + 1 ))"
+sed -i -E "s|^version: .*\$|version: ${next}|" "$W/products/catalyst/chart/Chart.yaml"
+RC=0
+bash "$W/scripts/check-bootstrap-kit-pin-sync.sh" > "$TMP/window-sync" 2>&1 || RC=$?
+if [ "$RC" != 1 ] || ! grep -q -F "DRIFT bp-catalyst-platform: chart=${next} pin=${pin}" "$TMP/window-sync"; then
+  bad "7 the copy does not sit between the two commits of an umbrella release: pin-sync exit $RC; $(grep -E 'DRIFT|FAIL' "$TMP/window-sync" | head -n 3)"
+else
+  RC=0
+  GHCR_SELFTEST_FIXTURE_ONLY=1 bash "$W/scripts/test-ghcr-not-measured.sh" > "$TMP/window-out" 2>&1 || RC=$?
+  if [ "$RC" = 0 ] && grep -q "cases 1 to 4 passed" "$TMP/window-out"; then
+    ok "7 cases 1 to 4 pass on a copy between the two commits of an umbrella release (chart ${next}, pin ${pin})"
+  else bad "7 on a copy between the two commits of an umbrella release (chart ${next}, pin ${pin}): exit $RC; $(grep -E '^FAIL' "$TMP/window-out" | head -n 4)"; fi
 fi
 
 echo

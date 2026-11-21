@@ -457,6 +457,12 @@ jobs:
       - name: 'coherence-credential | Every workflow step that runs the coherence check of a candidate has ORIGIN_USER and ORIGIN_TOKEN'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/coherence-credential
+      - name: 'release-push | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/release-push
+      - name: 'release-push | A release run that publishes six charts lands every one on main, or fails naming the one it lost'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/release-push
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
