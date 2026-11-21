@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T07:30:08Z` |
+| Last refreshed | `2026-11-21T07:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
+| 2026-11-21T07:39 | [#8589](https://github.com/openova-io/openova/pull/8589) | #5646 | fix(organization): the mirror of an Organization's kubeconfi |
 | 2026-11-21T07:16 | [#8588](https://github.com/openova-io/openova/pull/8588) | fix(gate): the zero-change plan check packs the provider con |  |
 | 2026-11-21T07:23 | [#8587](https://github.com/openova-io/openova/pull/8587) | #8570 | fix(cutover): step 08 fails at once when its roll cannot fin |
 | 2026-11-21T07:09 | [#8585](https://github.com/openova-io/openova/pull/8585) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T01:16 | [#8554](https://github.com/openova-io/openova/pull/8554) | #8549 | fix(release): a release run that publishes several charts ne |
 | 2026-11-21T01:11 | [#8553](https://github.com/openova-io/openova/pull/8553) | #8515 | feat(gate): a discovery run judges an install at once, witho |
 | 2026-11-20T22:50 | [#8552](https://github.com/openova-io/openova/pull/8552) | #8551 | fix(charts): the function tests of bp-openbao, bp-reloader a |
-| 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
-| 2026-11-20T22:49 | [#8549](https://github.com/openova-io/openova/pull/8549) | #7900 | fix(cutover): the prewarm's readiness probe counts a failed  |
 
 ---
 
