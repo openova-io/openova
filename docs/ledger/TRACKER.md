@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T16:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-21T16:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T16:10 | [#8599](https://github.com/openova-io/openova/pull/8599) | fix(gate): check NET-G07 proves the platform's denial in a s |  |
+| 2026-11-21T16:12 | [#8598](https://github.com/openova-io/openova/pull/8598) | #6837 | fix(providers): the reference cloud's balancer members carry |
 | 2026-11-21T13:56 | [#8597](https://github.com/openova-io/openova/pull/8597) | #8558 | fix(cutover): step 03 copies the OpenTofu provider packages  |
 | 2026-11-21T13:22 | [#8596](https://github.com/openova-io/openova/pull/8596) | fix(ci): the acceptance job of a work package has OpenTofu,  |  |
 | 2026-11-21T09:49 | [#8593](https://github.com/openova-io/openova/pull/8593) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
 | 2026-11-21T02:30 | [#8563](https://github.com/openova-io/openova/pull/8563) | #7087 | docs(ledger): plan update |
 | 2026-11-21T02:52 | [#8562](https://github.com/openova-io/openova/pull/8562) | #8560 | fix(providers): the wipe removes the bucket, the listeners a |
-| 2026-11-21T03:16 | [#8561](https://github.com/openova-io/openova/pull/8561) | #8554 | fix(release): a release started by hand builds a chart that  |
-| 2026-11-21T02:14 | [#8559](https://github.com/openova-io/openova/pull/8559) | #7087 | docs(ledger): plan update |
 
 ---
 
