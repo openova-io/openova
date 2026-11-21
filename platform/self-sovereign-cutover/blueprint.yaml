@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-self-sovereign-cutover
 spec:
-  version: 0.1.250
+  version: 0.1.251
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
