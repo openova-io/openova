@@ -5,7 +5,7 @@ metadata:
   annotations:
     catalyst.openova.io/provider: huawei
 spec:
-  version: 1.0.10
+  version: 1.0.11
   card:
     title: Huawei EVS CSI
     summary: |
