@@ -1988,7 +1988,7 @@ func (h *Handler) runCutoverWith(acquireCtx context.Context, deps *cutoverDeps, 
 			}
 		}
 		if step.stepName == cutoverStepEgressBlockTest {
-			repointOrgTenantSources(ctx, h.log, h.orgTenantDeps.GitOps, deps)
+			repointOrgTenantSources(ctx, h.log, h.orgTenantDeps.GitOps, deps, func(ev cutoverEvent) { h.publishCutoverEvent(bus, ev) })
 		}
 		if stepErr == nil {
 			// #6307 — run the step as the chart defines it NOW, not as it

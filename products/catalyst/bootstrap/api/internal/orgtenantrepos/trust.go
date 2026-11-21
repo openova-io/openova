@@ -17,17 +17,22 @@ import (
 	"log/slog"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
-// TrustSecretName is the chart's helmRepositoryTrust.destSecretName
-// (platform/self-sovereign-cutover/chart/values.yaml): the ca.crt-only Secret
-// step 06 writes when trust is enabled (the default) and the in-cluster
-// Harbor's CA is readable.
+// TrustSecretName is the chart's default helmRepositoryTrust.destSecretName
+// (platform/self-sovereign-cutover/chart/values.yaml; trust_test.go fails when
+// the two differ): the name Trust answers when the cluster cannot be read.
+// When it can, Trust answers the name step 06 actually gave the Secret.
 const TrustSecretName = "cutover-harbor-ca"
+
+// TrustLabelSelector selects what step 06 writes (06-helmrepository-patches-job
+// .yaml Phase 0.5 has labelled the trust Secret so since #3379): in
+// TrustSecretNamespace that is the trust Secret alone, under whatever name the
+// chart's helmRepositoryTrust.destSecretName gives it.
+const TrustLabelSelector = "bp.openova.io/cutover-step=helmrepository-patches"
 
 // TrustSecretNamespace is the namespace of the six blocks, where step 06
 // writes the Secret (helmRepositories.namespace) and where Flux resolves their
@@ -38,22 +43,31 @@ const TrustSecretNamespace = "flux-system"
 // registry ("" for none) and the error of the lookup, if any.
 type TrustFunc func(context.Context) (string, error)
 
-// Trust is the step-06 rule read back from the cluster: TrustSecretName when
-// the Secret exists, "" when it does not (step 06 has not reached Phase 0.5,
-// trust is off, or the CA was unreadable; step 06 then pivots without a
-// reference too, and its Phase 2b injects one into the file once it writes the
-// Secret). Any other read error returns TrustSecretName with the error, since
-// trust is on by default: a reference to a Secret that appears later heals by
-// itself, a block without one fails x509 until something rewrites the file.
+// Trust is the step-06 rule read back from the cluster, in one read: the name
+// of the Secret step 06 wrote in TrustSecretNamespace (TrustLabelSelector, with a
+// ca.crt key; the newest when an override left two), so an overridden
+// helmRepositoryTrust.destSecretName is followed; "" when there is none (step
+// 06 has not reached Phase 0.5, trust is off, or the CA was unreadable; step
+// 06 then pivots without a reference too, and its Phase 2b injects one into
+// the file once it writes the Secret). A read error returns TrustSecretName
+// with the error, since trust is on by default: a reference to a Secret that
+// appears later heals by itself, a block without one fails x509 until
+// something rewrites the file.
 func Trust(ctx context.Context, core kubernetes.Interface) (string, error) {
-	_, err := core.CoreV1().Secrets(TrustSecretNamespace).Get(ctx, TrustSecretName, metav1.GetOptions{})
-	switch {
-	case err == nil:
-		return TrustSecretName, nil
-	case apierrors.IsNotFound(err):
-		return "", nil
+	list, err := core.CoreV1().Secrets(TrustSecretNamespace).List(ctx, metav1.ListOptions{LabelSelector: TrustLabelSelector})
+	if err != nil {
+		return TrustSecretName, err
 	}
-	return TrustSecretName, err
+	name, newest := "", metav1.Time{}
+	for _, s := range list.Items {
+		if _, ok := s.Data["ca.crt"]; !ok {
+			continue
+		}
+		if name == "" || newest.Before(&s.CreationTimestamp) || (newest.Equal(&s.CreationTimestamp) && s.Name < name) {
+			name, newest = s.Name, s.CreationTimestamp
+		}
+	}
+	return name, nil
 }
 
 // TrustInCluster is Trust against the cluster this process runs in.
@@ -69,23 +83,30 @@ func TrustInCluster(ctx context.Context) (string, error) {
 	return Trust(ctx, core)
 }
 
-// File is the shared file the writer emits: every block on Base(env, status)
-// and, off the public catalog, with the certSecretRef trust returns (nil:
-// TrustInCluster). The public catalog needs no reference and is never looked
-// up. A lookup error is logged on log (when not nil); the reference it
-// returned is kept.
-func File(ctx context.Context, env func(string) string, status map[string]string, trust TrustFunc, log *slog.Logger) string {
-	base := Base(env, status)
+// File is the shared file the writer emits: every block on Base(env, usable)
+// and, off the public catalog, with the certSecretRef of the trust Secret
+// (trust, nil: TrustInCluster). usable is ownSource, which has already looked
+// the trust Secret up when it decided from step 06's evidence; when it decided
+// from the step-07 stamp, or Base is CATALYST_LOCAL_REGISTRY_URL without the
+// evidence, the Secret is looked up here, and a lookup error is logged on log
+// (when not nil) with the reference it returned kept. The public catalog
+// needs no reference.
+func File(ctx context.Context, env func(string) string, status map[string]string, pullAuth PullAuthFunc, trust TrustFunc, log *slog.Logger) string {
+	usable, ref, looked := ownSource(ctx, env, status, pullAuth, trust, log)
+	base := Base(env, usable)
 	if base == GHCRBase {
 		return Template
+	}
+	if looked {
+		return Render(base, ref)
 	}
 	if trust == nil {
 		trust = TrustInCluster
 	}
 	ref, err := trust(ctx)
 	if err != nil && log != nil {
-		log.Warn("org-tenant: the cutover trust Secret is unreadable — the shared HelmRepositories reference it anyway",
-			"secret", TrustSecretNamespace+"/"+TrustSecretName, "err", err)
+		log.Warn("org-tenant: the cutover trust Secret is unreadable — the shared HelmRepositories reference the chart's default name",
+			"secret", TrustSecretNamespace+"/"+ref, "selector", TrustLabelSelector, "err", err)
 	}
 	return Render(base, ref)
 }

@@ -5,14 +5,18 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kfake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
+	"sigs.k8s.io/yaml"
 )
 
 const testLocal = "oci://registry.hw.test/openova-io"
@@ -35,24 +39,47 @@ func TestRenderPutsTheTrustReferenceUnderEveryURL(t *testing.T) {
 	}
 }
 
-func trustSecret() *corev1.Secret {
-	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: TrustSecretName, Namespace: TrustSecretNamespace}}
+// step06Secret is a Secret as step 06's Phase 0.5 writes it (labelled, ca.crt
+// only), named name in ns and created at minute min.
+func step06Secret(name, ns string, min int) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns,
+			Labels:            map[string]string{"app.kubernetes.io/managed-by": "self-sovereign-cutover", "bp.openova.io/cutover-step": "helmrepository-patches"},
+			CreationTimestamp: metav1.NewTime(time.Date(2026, 11, 21, 4, min, 0, 0, time.UTC))},
+		Data: map[string][]byte{"ca.crt": []byte("-----BEGIN CERTIFICATE-----")},
+	}
 }
 
 func TestTrustFollowsTheStep06Secret(t *testing.T) {
 	ctx := context.Background()
-	if got, err := Trust(ctx, kfake.NewSimpleClientset(trustSecret())); got != TrustSecretName || err != nil {
+	if got, err := Trust(ctx, kfake.NewSimpleClientset(step06Secret(TrustSecretName, TrustSecretNamespace, 5))); got != TrustSecretName || err != nil {
 		t.Errorf("Secret present: %q, %v; want %q", got, err, TrustSecretName)
+	}
+	// helmRepositoryTrust.destSecretName overridden: on main the blocks named
+	// no Secret at all, and step 08, which judges the url only, passed them.
+	if got, err := Trust(ctx, kfake.NewSimpleClientset(step06Secret("sovereign-registry-ca", TrustSecretNamespace, 5))); got != "sovereign-registry-ca" || err != nil {
+		t.Errorf("overridden name: %q, %v; want sovereign-registry-ca", got, err)
+	}
+	if got, _ := Trust(ctx, kfake.NewSimpleClientset(step06Secret("old-ca", TrustSecretNamespace, 3), step06Secret("new-ca", TrustSecretNamespace, 7))); got != "new-ca" {
+		t.Errorf("two step-06 Secrets (an override between runs): %q, want the newest", got)
 	}
 	if got, err := Trust(ctx, kfake.NewSimpleClientset()); got != "" || err != nil {
 		t.Errorf("Secret absent (step 06 not there yet, trust off, CA unreadable): %q, %v; want none", got, err)
 	}
-	other := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: TrustSecretName, Namespace: "kube-system"}}
-	if got, _ := Trust(ctx, kfake.NewSimpleClientset(other)); got != "" {
-		t.Errorf("a Secret of that name outside %s is not the trust Secret: %q", TrustSecretNamespace, got)
+	if got, _ := Trust(ctx, kfake.NewSimpleClientset(step06Secret(TrustSecretName, "vcluster-platform", 5))); got != "" {
+		t.Errorf("a step-06 Secret outside %s (the loft trust copy) is not the trust Secret: %q", TrustSecretNamespace, got)
+	}
+	noCA := step06Secret("ghcr-pull-copy", TrustSecretNamespace, 5)
+	noCA.Data = map[string][]byte{".dockerconfigjson": []byte("{}")}
+	if got, _ := Trust(ctx, kfake.NewSimpleClientset(noCA)); got != "" {
+		t.Errorf("a labelled Secret without ca.crt is not a trust Secret: %q", got)
+	}
+	unlabelled := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: TrustSecretName, Namespace: TrustSecretNamespace}}
+	if got, _ := Trust(ctx, kfake.NewSimpleClientset(unlabelled)); got != "" {
+		t.Errorf("a Secret step 06 did not write is not the trust Secret: %q", got)
 	}
 	broken := kfake.NewSimpleClientset()
-	broken.PrependReactor("get", "secrets", func(clienttesting.Action) (bool, runtime.Object, error) {
+	broken.PrependReactor("list", "secrets", func(clienttesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("the apiserver is unreachable")
 	})
 	if got, err := Trust(ctx, broken); got != TrustSecretName || err == nil {
@@ -60,30 +87,64 @@ func TestTrustFollowsTheStep06Secret(t *testing.T) {
 	}
 }
 
-func TestFileLooksUpTrustOnlyOffThePublicCatalog(t *testing.T) {
+// The name Trust answers when the cluster cannot be read is the chart's
+// default: the test reads the cutover chart's values file in this checkout.
+func TestTrustSecretNameIsTheChartDefault(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Clean("../../../../../../platform/self-sovereign-cutover/chart/values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values struct {
+		HelmRepositoryTrust struct {
+			DestSecretName string `json:"destSecretName"`
+		} `json:"helmRepositoryTrust"`
+	}
+	if err := yaml.Unmarshal(raw, &values); err != nil {
+		t.Fatal(err)
+	}
+	if got := values.HelmRepositoryTrust.DestSecretName; got != TrustSecretName {
+		t.Errorf("chart helmRepositoryTrust.destSecretName = %q, TrustSecretName = %q: change both", got, TrustSecretName)
+	}
+}
+
+// File looks the trust Secret up once: as evidence when it decides from step
+// 06's phases (the reference it found is the one rendered), for the reference
+// alone when it decides from the step-07 stamp, never on the public catalog
+// before the registry's credential is there.
+func TestFileTakesTheTrustReferenceOnce(t *testing.T) {
 	ctx := context.Background()
-	calls := 0
-	lookup := func(ref string, err error) TrustFunc {
-		return func(context.Context) (string, error) { calls++; return ref, err }
-	}
 	env := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test"})
-	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v1"}, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 {
-		t.Errorf("not pivoted: want Template and no lookup, got %d lookups:\n%s", calls, got)
-	}
-	pivoted := map[string]string{StatusKeyRegistries: "v2"}
-	if got := File(ctx, env, pivoted, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 1 {
-		t.Errorf("pivoted, Secret present: %d lookups:\n%s", calls, got)
-	}
-	if got := File(ctx, env, pivoted, lookup("", nil), nil); got != Render(testLocal, "") {
-		t.Errorf("pivoted, Secret absent:\n%s", got)
-	}
-	var logged bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logged, nil))
-	if got := File(ctx, env, pivoted, lookup(TrustSecretName, errors.New("forbidden")), log); got != Render(testLocal, TrustSecretName) {
-		t.Errorf("lookup error: the reference must be kept:\n%s", got)
-	}
-	if !strings.Contains(logged.String(), "forbidden") {
-		t.Errorf("lookup error not logged: %q", logged.String())
+	stamp := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test", "CATALYST_PIN_ISSUER": "https://console.hw.test"})
+	v2 := map[string]string{StatusKeyRegistries: "v2", "step.helmrepository-patches.result": "running"}
+	for _, tc := range []struct {
+		name          string
+		env           func(string) string
+		status        map[string]string
+		ev            evidence
+		want          string
+		creds, trusts int
+		logs          bool
+	}{
+		{"not pivoted", env, map[string]string{StatusKeyRegistries: "v1"}, evidence{cred: true, trust: TrustSecretName}, Template, 0, 0, false},
+		{"pivoted, before Phase 0", env, v2, evidence{trust: TrustSecretName}, Template, 1, 0, false},
+		{"after Phase 0, before Phase 0.5", env, v2, evidence{cred: true}, Template, 1, 1, false},
+		{"after Phase 0.5", env, v2, evidence{cred: true, trust: TrustSecretName}, Render(testLocal, TrustSecretName), 1, 1, false},
+		{"after Phase 0.5, an overridden trust Secret name", env, v2, evidence{cred: true, trust: "sovereign-registry-ca"}, Render(testLocal, "sovereign-registry-ca"), 1, 1, false},
+		{"the trust Secret unreadable", env, v2, evidence{cred: true, trustErr: errors.New("forbidden")}, Template, 1, 1, true},
+		{"step-07 stamp, Secret present", stamp, nil, evidence{trust: TrustSecretName}, Render(testLocal, TrustSecretName), 0, 1, false},
+		{"step-07 stamp, Secret absent", stamp, nil, evidence{}, Render(testLocal, ""), 0, 1, false},
+		{"step-07 stamp, Secret unreadable: the chart's default name", stamp, nil, evidence{trustErr: errors.New("forbidden")}, Render(testLocal, TrustSecretName), 0, 1, true},
+	} {
+		creds, trusts := 0, 0
+		pull, trust := tc.ev.counted(t, &creds, &trusts)
+		var logged bytes.Buffer
+		got := File(ctx, tc.env, tc.status, pull, trust, slog.New(slog.NewTextHandler(&logged, nil)))
+		if got != tc.want || creds != tc.creds || trusts != tc.trusts {
+			t.Errorf("%s: %d credential and %d trust lookups, want %d and %d; file:\n%s", tc.name, creds, trusts, tc.creds, tc.trusts, got)
+		}
+		if logs := strings.Contains(logged.String(), "forbidden"); logs != tc.logs {
+			t.Errorf("%s: lookup error logged %v, want %v: %q", tc.name, logs, tc.logs, logged.String())
+		}
 	}
 }
 
