@@ -230,6 +230,10 @@ spec:
       #   DNS/cert change. externalURL + OIDC redirect_uri stay on registry.<fqdn>.
       # 1.2.42: updateStrategy Recreate — single-replica RWO jobservice
       # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
+      # The knob stays Recreate for jobservice's ReadWriteOnce claim; the
+      # upstream chart reads it for harbor-registry too, which with type s3
+      # mounts no volume and rolls one copy at a time by the postRenderers
+      # patch below (SOV-155).
       # 1.2.44: #5302 — fix the disableredirect key casing (was silently-dropped
       # camelCase; the s3 overlay above now sets the correct lowercase key).
       # 1.2.45: #5406 — ONE session/queue/cache store per Sovereign. See the
@@ -266,6 +270,42 @@ spec:
     remediation:
       retries: 5
       remediateLastFailure: true
+  # SOV-155: a roll never removes every copy of the registry. The upstream
+  # chart has ONE strategy knob (harbor.updateStrategy.type) and reads it for
+  # harbor-registry and harbor-jobservice only. bp-harbor sets it to Recreate
+  # for harbor-jobservice, whose job logs sit on a ReadWriteOnce claim (#5022).
+  # With this slot's storage (type s3) harbor-registry mounts no volume and
+  # runs two copies that share the object store (SOV-138), yet Recreate
+  # removed both in one roll: cutover step 08 rolls it under blocked outside
+  # access, the old copies went first and the new one could not pull its own
+  # image (fresh install of 20 November 2026). A parent chart cannot change
+  # what a packaged subchart renders, so this post-render patch (the way
+  # 03-flux.yaml gives source-controller its strategy; it runs inside
+  # helm-controller's render and is never reverted) gives harbor-registry
+  # RollingUpdate with maxUnavailable 0 and maxSurge 1: both copies stay
+  # Ready until each new copy is Ready, and the extra copy fits the spread
+  # (maxSkew 1 counts old and new copies alike). harbor-nginx and harbor-core
+  # render no strategy and already roll so by the API default; harbor-
+  # jobservice keeps Recreate. The patch carries only spec.strategy;
+  # platform/harbor/chart/tests/roll-strategy.sh judges the effective
+  # strategy of every Deployment.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: harbor-registry
+            patch: |
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: harbor-registry
+              spec:
+                strategy:
+                  type: RollingUpdate
+                  rollingUpdate:
+                    maxUnavailable: 0
+                    maxSurge: 1
   # ── Vendor-agnostic Object Storage backend wiring (issue #383 / #425) ──
   #
   # Each entry below pulls a single key from the canonical
