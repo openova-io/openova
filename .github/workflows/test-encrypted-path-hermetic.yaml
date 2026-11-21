@@ -1,0 +1,75 @@
+# test-encrypted-path-hermetic.yaml - the cloud-free test of the encrypted path between two workers.
+#
+# tests/hermetic/encrypted-path/encrypted-path-test.sh runs three k3s machines as containers on the
+# runner (one server, two agents, the k3s version of the local pack) with only the kit's Cilium: the
+# chart platform/cilium/chart with the values of its bootstrap-kit slot 01 (WireGuard, node
+# encryption, native routing, kube-proxy replacement), on a container network of MTU 1500. Two cases:
+#   kit      the slot's defaults: a 65,536-byte answer moves host to host between the agents, both
+#            ways, 3 times each, each within 5 seconds, through cilium_wg0;
+#   control  the same with CILIUM_MTU=1420: no fetch completes. If one does, the test cannot see the
+#            defect and the job fails.
+# The job fails when a case does not come out as stated. The case files and the summary are
+# uploaded as the artifact encrypted-path-hermetic. Nothing publishes a port and nothing uses a node
+# port.
+#
+# Triggers: a pull request or a push to main that changes the Cilium chart, its slot, the k3s version
+# of the local pack, the test or this workflow; workflow_dispatch runs it on any branch.
+name: test-encrypted-path-hermetic
+
+on:
+  pull_request:
+    paths:
+      - 'platform/cilium/**'
+      - 'clusters/_template/bootstrap-kit/01-cilium.yaml'
+      - 'infra/providers/local/variables.tf'
+      - 'tests/hermetic/encrypted-path/**'
+      - '.github/workflows/test-encrypted-path-hermetic.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/cilium/**'
+      - 'clusters/_template/bootstrap-kit/01-cilium.yaml'
+      - 'infra/providers/local/variables.tf'
+      - 'tests/hermetic/encrypted-path/**'
+      - '.github/workflows/test-encrypted-path-hermetic.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-encrypted-path-hermetic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  encrypted-path-hermetic:
+    name: encrypted-path-hermetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Self-test of the readers and the verdict
+        run: bash tests/hermetic/encrypted-path/encrypted-path-test.sh --self-test
+
+      - name: Cases kit and control
+        id: cases
+        run: bash tests/hermetic/encrypted-path/encrypted-path-test.sh run
+
+      - name: Upload the case results
+        if: always() && steps.cases.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: encrypted-path-hermetic
+          path: ${{ runner.temp }}/encrypted-path/results
+          if-no-files-found: warn
+
+      - name: Down
+        if: always()
+        run: bash tests/hermetic/encrypted-path/encrypted-path-test.sh down
