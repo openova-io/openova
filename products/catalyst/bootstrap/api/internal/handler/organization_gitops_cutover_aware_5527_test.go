@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
 )
 
 // clearCutoverEnv isolates each test from ambient process env for every
@@ -55,8 +57,8 @@ func TestOrgTenantHelmRepositories_PreCutoverEmitsGHCR(t *testing.T) {
 	clearCutoverEnv(t)
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgTenantSharedHelmRepositoriesYAML()
-	if got != orgTenantSharedHelmRepositories {
+	got := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil))
+	if got != orgtenantrepos.Template {
 		t.Fatalf("pre-cutover emission must be byte-identical to the template (zero Flux drift), diff detected:\n%s", got)
 	}
 
@@ -64,7 +66,7 @@ func TestOrgTenantHelmRepositories_PreCutoverEmitsGHCR(t *testing.T) {
 	if blocks == 0 {
 		t.Fatal("vacuity check failed: rendered document contains no HelmRepository blocks at all")
 	}
-	ghcr := strings.Count(got, "url: "+orgTenantGHCRBase)
+	ghcr := strings.Count(got, "url: "+orgtenantrepos.GHCRBase)
 	if ghcr != blocks {
 		t.Fatalf("pre-cutover: want every block on the ghcr base, got %d ghcr url lines across %d blocks:\n%s", ghcr, blocks, got)
 	}
@@ -85,7 +87,7 @@ func TestOrgTenantHelmRepositories_PostCutoverEmitsLocalRegistry(t *testing.T) {
 	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgTenantSharedHelmRepositoriesYAML()
+	got := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil))
 	blocks := hrBlockCount(got)
 	if blocks == 0 {
 		t.Fatal("vacuity check failed: rendered document contains no HelmRepository blocks at all")
@@ -94,7 +96,7 @@ func TestOrgTenantHelmRepositories_PostCutoverEmitsLocalRegistry(t *testing.T) {
 	if local != blocks {
 		t.Fatalf("post-cutover: want every block on the local base, got %d local url lines across %d blocks:\n%s", local, blocks, got)
 	}
-	if strings.Contains(got, "url: "+orgTenantGHCRBase) {
+	if strings.Contains(got, "url: "+orgtenantrepos.GHCRBase) {
 		t.Fatalf("post-cutover: a ghcr url line survived — the #5527 re-tether:\n%s", got)
 	}
 	pull := strings.Count(got, "name: ghcr-pull")
@@ -119,7 +121,7 @@ func TestOrgTenantHelmRepositories_HandoverIssuerAloneFlips(t *testing.T) {
 	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgTenantHelmRepositoryURL()
+	got := orgtenantrepos.Base(os.Getenv, nil)
 	want := "oci://registry.hw291.omantel.biz/openova-io"
 	if got != want {
 		t.Fatalf("handover-JWT issuer alone must flip the base: got %q want %q", got, want)
@@ -134,7 +136,7 @@ func TestOrgTenantHelmRepositories_OTECHFQDNSynonym(t *testing.T) {
 	t.Setenv("CATALYST_PIN_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("CATALYST_OTECH_FQDN", "hw291.omantel.biz")
 
-	got := orgTenantHelmRepositoryURL()
+	got := orgtenantrepos.Base(os.Getenv, nil)
 	want := "oci://registry.hw291.omantel.biz/openova-io"
 	if got != want {
 		t.Fatalf("CATALYST_OTECH_FQDN synonym must resolve the host: got %q want %q", got, want)
@@ -149,10 +151,10 @@ func TestOrgTenantHelmRepositories_FactWithoutIdentityFailsSafe(t *testing.T) {
 	clearCutoverEnv(t)
 	t.Setenv("CATALYST_PIN_ISSUER", "https://console.hw291.omantel.biz")
 
-	if got := orgTenantHelmRepositoryURL(); got != orgTenantGHCRBase {
+	if got := orgtenantrepos.Base(os.Getenv, nil); got != orgtenantrepos.GHCRBase {
 		t.Fatalf("fact without identity must fall back to ghcr, got %q", got)
 	}
-	if doc := orgTenantSharedHelmRepositoriesYAML(); doc != orgTenantSharedHelmRepositories {
+	if doc := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil)); doc != orgtenantrepos.Template {
 		t.Fatalf("fact without identity must emit the unmodified template:\n%s", doc)
 	}
 }
@@ -175,10 +177,10 @@ func TestOrgTenantHelmRepositories_ExplicitOverrideWins(t *testing.T) {
 			// Deliberately NO issuer fact and NO FQDN — the override
 			// alone must flip.
 			t.Setenv("CATALYST_LOCAL_REGISTRY_URL", tc.override)
-			if got := orgTenantHelmRepositoryURL(); got != tc.want {
+			if got := orgtenantrepos.Base(os.Getenv, nil); got != tc.want {
 				t.Fatalf("override %q: got %q want %q", tc.override, got, tc.want)
 			}
-			doc := orgTenantSharedHelmRepositoriesYAML()
+			doc := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil))
 			blocks := hrBlockCount(doc)
 			if blocks == 0 {
 				t.Fatal("vacuity check failed: no HelmRepository blocks rendered")
@@ -186,7 +188,7 @@ func TestOrgTenantHelmRepositories_ExplicitOverrideWins(t *testing.T) {
 			if n := strings.Count(doc, "url: "+tc.want); n != blocks {
 				t.Fatalf("override emission: got %d local url lines across %d blocks:\n%s", n, blocks, doc)
 			}
-			if strings.Contains(doc, "url: "+orgTenantGHCRBase) {
+			if strings.Contains(doc, "url: "+orgtenantrepos.GHCRBase) {
 				t.Fatalf("override emission: a ghcr url line survived:\n%s", doc)
 			}
 		})
@@ -204,7 +206,7 @@ func TestWriteParentTenantsIndex_PostCutoverFileCarriesLocalURL(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
 	parent := filepath.Join(t.TempDir(), "org-tenants")
-	if err := writeParentTenantsIndex(parent); err != nil {
+	if err := writeParentTenantsIndex(parent, nil); err != nil {
 		t.Fatalf("writeParentTenantsIndex: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(parent, "helmrepositories.yaml"))
@@ -219,7 +221,7 @@ func TestWriteParentTenantsIndex_PostCutoverFileCarriesLocalURL(t *testing.T) {
 	if n := strings.Count(doc, "url: oci://registry.hw291.omantel.biz/openova-io"); n != blocks {
 		t.Fatalf("written file: got %d local url lines across %d blocks:\n%s", n, blocks, doc)
 	}
-	if strings.Contains(doc, "url: "+orgTenantGHCRBase) {
+	if strings.Contains(doc, "url: "+orgtenantrepos.GHCRBase) {
 		t.Fatalf("written file: a ghcr url line survived — regeneration would re-tether the Sovereign:\n%s", doc)
 	}
 }
@@ -233,7 +235,7 @@ func TestWriteParentTenantsIndex_PreCutoverFileKeepsGHCR(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
 	parent := filepath.Join(t.TempDir(), "org-tenants")
-	if err := writeParentTenantsIndex(parent); err != nil {
+	if err := writeParentTenantsIndex(parent, nil); err != nil {
 		t.Fatalf("writeParentTenantsIndex: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(parent, "helmrepositories.yaml"))
@@ -245,7 +247,7 @@ func TestWriteParentTenantsIndex_PreCutoverFileKeepsGHCR(t *testing.T) {
 	if blocks == 0 {
 		t.Fatal("vacuity check failed: written file contains no HelmRepository blocks")
 	}
-	if n := strings.Count(doc, "url: "+orgTenantGHCRBase); n != blocks {
+	if n := strings.Count(doc, "url: "+orgtenantrepos.GHCRBase); n != blocks {
 		t.Fatalf("pre-cutover written file: got %d ghcr url lines across %d blocks:\n%s", n, blocks, doc)
 	}
 	if strings.Contains(doc, "registry.hw291.omantel.biz") {

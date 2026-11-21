@@ -1987,6 +1987,9 @@ func (h *Handler) runCutoverWith(acquireCtx context.Context, deps *cutoverDeps, 
 				stepErr = assertMirrorSnapshotFresh(steps, live, attemptStart)
 			}
 		}
+		if step.stepName == cutoverStepEgressBlockTest {
+			repointOrgTenantSources(ctx, h.log, h.orgTenantDeps.GitOps, deps)
+		}
 		if stepErr == nil {
 			// #6307 — run the step as the chart defines it NOW, not as it
 			// was captured at /start: a re-mirror earlier in this attempt

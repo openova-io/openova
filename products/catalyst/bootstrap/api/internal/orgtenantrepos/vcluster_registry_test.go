@@ -1,6 +1,9 @@
-package handler
+package orgtenantrepos
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // ---------------------------------------------------------------------------
 // #5439 — post-cutover re-tether guard for the catalyst-api org-tenants leg's
@@ -36,15 +39,15 @@ func apiNoPivotFactEnv(t *testing.T) {
 // TestVClusterImageRegistry_PostCutover_NoMothershipHost is the RED guard.
 func TestVClusterImageRegistry_PostCutover_NoMothershipHost(t *testing.T) {
 	apiPivotFactEnv(t)
-	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", mothershipVClusterImageRegistry)
-	got := vclusterImageRegistryFor(mothershipVClusterImageRegistry)
-	if got == mothershipVClusterImageRegistry {
+	t.Setenv("CATALYST_VCLUSTER_IMAGE_REGISTRY", MothershipVClusterImageRegistry)
+	got := VClusterImageRegistry(os.Getenv, MothershipVClusterImageRegistry)
+	if got == MothershipVClusterImageRegistry {
 		t.Fatalf("#5439 re-tether: org-tenant overlay would declare the mothership host %q "+
 			"on a cut-over Sovereign — the next Org signup/teardown writes it back into the Flux source",
-			mothershipVClusterImageRegistry)
+			MothershipVClusterImageRegistry)
 	}
 	if got != "harbor.hw292.omani.works" {
-		t.Fatalf("vclusterImageRegistryFor = %q, want %q (the SAME host step-10 pivots the "+
+		t.Fatalf("VClusterImageRegistry = %q, want %q (the SAME host step-10 pivots the "+
 			"platform vClusters to; a different host makes the source and the pivoted objects disagree)",
 			got, "harbor.hw292.omani.works")
 	}
@@ -55,14 +58,14 @@ func TestVClusterImageRegistry_PostCutover_NoMothershipHost(t *testing.T) {
 // mirrored images yet, so it MUST keep pulling through the mothership.
 func TestVClusterImageRegistry_PreCutover_ByteIdenticalToHistorical(t *testing.T) {
 	apiNoPivotFactEnv(t)
-	if got := vclusterImageRegistryFor(mothershipVClusterImageRegistry); got != mothershipVClusterImageRegistry {
+	if got := VClusterImageRegistry(os.Getenv, MothershipVClusterImageRegistry); got != MothershipVClusterImageRegistry {
 		t.Fatalf("pre-cutover resolve = %q, want the historical %q — pointing a pre-cutover "+
 			"Sovereign at its own empty Harbor is an ImagePullBackOff, not a fix",
-			got, mothershipVClusterImageRegistry)
+			got, MothershipVClusterImageRegistry)
 	}
-	if got := vclusterImageRegistryFor(""); got != mothershipVClusterImageRegistry {
+	if got := VClusterImageRegistry(os.Getenv, ""); got != MothershipVClusterImageRegistry {
 		t.Fatalf("unset configured value = %q, want the historical default %q",
-			got, mothershipVClusterImageRegistry)
+			got, MothershipVClusterImageRegistry)
 	}
 }
 
@@ -78,7 +81,7 @@ func TestVClusterImageRegistry_ExplicitOverrideWinsBothPhases(t *testing.T) {
 	} {
 		t.Run(phase.name, func(t *testing.T) {
 			phase.set(t)
-			if got := vclusterImageRegistryFor("registry.internal.example"); got != "registry.internal.example" {
+			if got := VClusterImageRegistry(os.Getenv, "registry.internal.example"); got != "registry.internal.example" {
 				t.Errorf("explicit override lost in %s: got %q", phase.name, got)
 			}
 		})
@@ -90,7 +93,7 @@ func TestVClusterImageRegistry_ExplicitOverrideWinsBothPhases(t *testing.T) {
 func TestResolveVClusterImageRegistry_API(t *testing.T) {
 	t.Parallel()
 	const fqdn = "hw292.omani.works"
-	const mothership = mothershipVClusterImageRegistry
+	const mothership = MothershipVClusterImageRegistry
 	cases := []struct {
 		name                                             string
 		configured, localHost, localURL, pinIss, handIss string
@@ -117,8 +120,8 @@ func TestResolveVClusterImageRegistry_API(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolveVClusterImageRegistry(c.configured, c.localHost, c.localURL, c.pinIss, c.handIss, c.fqdns...); got != c.want {
-				t.Errorf("resolveVClusterImageRegistry = %q, want %q", got, c.want)
+			if got := ResolveVClusterImageRegistry(c.configured, c.localHost, c.localURL, c.pinIss, c.handIss, c.fqdns...); got != c.want {
+				t.Errorf("ResolveVClusterImageRegistry = %q, want %q", got, c.want)
 			}
 		})
 	}

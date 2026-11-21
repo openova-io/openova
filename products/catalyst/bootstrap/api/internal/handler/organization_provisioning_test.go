@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -706,11 +707,11 @@ func TestRenderOrganizationOverlay_NoVClusterDuplicate(t *testing.T) {
 // from; with the vCluster removed (#4188) it is dead weight and its
 // presence would imply the duplicate could come back.
 func TestOrgTenantSharedHelmRepositories_NoLoft(t *testing.T) {
-	if strings.Contains(orgTenantSharedHelmRepositories, "charts.loft.sh") {
-		t.Errorf("#4188 regression: shared HelmRepositories still reference charts.loft.sh:\n%s", orgTenantSharedHelmRepositories)
+	if strings.Contains(orgtenantrepos.Template, "charts.loft.sh") {
+		t.Errorf("#4188 regression: shared HelmRepositories still reference charts.loft.sh:\n%s", orgtenantrepos.Template)
 	}
-	if strings.Contains(orgTenantSharedHelmRepositories, "name: loft") {
-		t.Errorf("#4188 regression: shared HelmRepositories still declare the loft HelmRepository:\n%s", orgTenantSharedHelmRepositories)
+	if strings.Contains(orgtenantrepos.Template, "name: loft") {
+		t.Errorf("#4188 regression: shared HelmRepositories still declare the loft HelmRepository:\n%s", orgtenantrepos.Template)
 	}
 }
 
@@ -725,8 +726,8 @@ func TestOrgTenantSharedHelmRepositories_NoLoft(t *testing.T) {
 // EVERY chart the overlay sourceRefs into has a declared HelmRepository.
 func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
 	// 1. bp-agenity must be declared.
-	if !strings.Contains(orgTenantSharedHelmRepositories, "name: bp-agenity") {
-		t.Fatalf("#4180 regression: shared HelmRepositories missing bp-agenity block:\n%s", orgTenantSharedHelmRepositories)
+	if !strings.Contains(orgtenantrepos.Template, "name: bp-agenity") {
+		t.Fatalf("#4180 regression: shared HelmRepositories missing bp-agenity block:\n%s", orgtenantrepos.Template)
 	}
 
 	// 2. Every chart whose overlay HelmRelease pins
@@ -740,13 +741,13 @@ func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
 		"name: bp-stalwart-tenant",
 		"name: bp-agenity",
 	} {
-		if !strings.Contains(orgTenantSharedHelmRepositories, want) {
+		if !strings.Contains(orgtenantrepos.Template, want) {
 			t.Errorf("shared HelmRepositories missing %q", want)
 		}
 	}
 	// #4920 — the per-Org bp-cnpg operator was removed; its HelmRepository
 	// must no longer be declared in the shared block.
-	if strings.Contains(orgTenantSharedHelmRepositories, "name: bp-cnpg") {
+	if strings.Contains(orgtenantrepos.Template, "name: bp-cnpg") {
 		t.Errorf("#4920 regression: shared HelmRepositories still declares bp-cnpg (the per-Org operator was removed)")
 	}
 
@@ -754,8 +755,8 @@ func TestOrgTenantSharedHelmRepositories_DeclaresAgenity(t *testing.T) {
 	//    the canonical oci type + ghcr url + ghcr-pull secretRef + the
 	//    flux-system namespace, so Flux owns it (GitOps-managed, never a
 	//    hand-applied patch).
-	idx := strings.Index(orgTenantSharedHelmRepositories, "name: bp-agenity")
-	block := orgTenantSharedHelmRepositories[idx:]
+	idx := strings.Index(orgtenantrepos.Template, "name: bp-agenity")
+	block := orgtenantrepos.Template[idx:]
 	for _, want := range []string{
 		"namespace: flux-system",
 		"type: oci",
@@ -803,7 +804,7 @@ func TestRenderOrganizationOverlay_AgenityHRResolvesToDeclaredRepo(t *testing.T)
 	}
 	// And that source is declared in the shared set written to the same
 	// overlay parent, so Flux resolves it (no `not found`, no hand-patch).
-	if !strings.Contains(orgTenantSharedHelmRepositories, "name: bp-agenity") {
+	if !strings.Contains(orgtenantrepos.Template, "name: bp-agenity") {
 		t.Fatalf("#4180: rendered HR sourceRefs HelmRepository/bp-agenity but the shared set never declares it")
 	}
 }

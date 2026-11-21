@@ -1,8 +1,8 @@
-package handler
+package orgtenantrepos
 
 // Cutover-aware vCluster/app IMAGE registry host (#5439) — the catalyst-api
-// org-tenants leg. Companion to organization_gitops.go's
-// orgTenantSharedHelmRepositoriesYAML (#5527), which made the OCI *chart* base
+// org-tenants leg (moved here from internal/handler/cutover_aware_vcluster_5439.go,
+// unchanged). Companion to Base (#5527), which made the OCI *chart* base
 // cutover-aware but left the IMAGE registry host a compile-time literal.
 //
 // THE DEFECT: orgTenantTemplateData.VClusterImageRegistry is read from
@@ -27,16 +27,13 @@ package handler
 //
 // Refs #5439 #5527 #4885.
 
-import (
-	"os"
-	"strings"
-)
+import "strings"
 
-// mothershipVClusterImageRegistry is the bootstrap (pre-cutover) image-registry
+// MothershipVClusterImageRegistry is the bootstrap (pre-cutover) image-registry
 // host this leg ships as its default — the OpenOva mothership Harbor.
-const mothershipVClusterImageRegistry = "harbor.openova.io"
+const MothershipVClusterImageRegistry = "harbor.openova.io"
 
-// resolveVClusterImageRegistry is the pure resolution core (unit-tested
+// ResolveVClusterImageRegistry is the pure resolution core (unit-tested
 // directly, no env). Precedence, highest first:
 //
 //   - configured non-empty AND not the mothership literal → explicit operator
@@ -46,12 +43,12 @@ const mothershipVClusterImageRegistry = "harbor.openova.io"
 //     → harbor.<fqdn>.
 //   - a fact WITHOUT an FQDN → fail safe to the configured host.
 //   - no fact → the configured host, unchanged (byte-identical pre-cutover).
-func resolveVClusterImageRegistry(configured, localImageRegistryHost, localRegistryURL, pinIssuer, handoverIssuer string, fqdnCandidates ...string) string {
+func ResolveVClusterImageRegistry(configured, localImageRegistryHost, localRegistryURL, pinIssuer, handoverIssuer string, fqdnCandidates ...string) string {
 	cfg := strings.TrimSpace(configured)
 	if cfg == "" {
-		cfg = mothershipVClusterImageRegistry
+		cfg = MothershipVClusterImageRegistry
 	}
-	if cfg != mothershipVClusterImageRegistry {
+	if cfg != MothershipVClusterImageRegistry {
 		return cfg
 	}
 	if h := normalizeVClusterRegistryHost(localImageRegistryHost); h != "" {
@@ -84,17 +81,18 @@ func normalizeVClusterRegistryHost(v string) string {
 	return strings.TrimSuffix(s, "/")
 }
 
-// vclusterImageRegistryFor reads the process env and resolves the image
-// registry host the rendered org-tenant overlay declares. Called at render
-// time (per Org mutation), so the value tracks the Deployment's CURRENT env.
-func vclusterImageRegistryFor(configured string) string {
-	return resolveVClusterImageRegistry(
+// VClusterImageRegistry reads env (the process env in production) and
+// resolves the image registry host the rendered org-tenant overlay declares.
+// Called at render time (per Org mutation), so the value tracks the
+// Deployment's CURRENT env.
+func VClusterImageRegistry(env func(string) string, configured string) string {
+	return ResolveVClusterImageRegistry(
 		configured,
-		os.Getenv("CATALYST_LOCAL_IMAGE_REGISTRY_HOST"),
-		os.Getenv("CATALYST_LOCAL_REGISTRY_URL"),
-		os.Getenv("CATALYST_PIN_ISSUER"),
-		os.Getenv("CATALYST_HANDOVER_JWT_ISSUER"),
-		os.Getenv("SOVEREIGN_FQDN"),
-		os.Getenv("CATALYST_OTECH_FQDN"),
+		env("CATALYST_LOCAL_IMAGE_REGISTRY_HOST"),
+		env("CATALYST_LOCAL_REGISTRY_URL"),
+		env("CATALYST_PIN_ISSUER"),
+		env("CATALYST_HANDOVER_JWT_ISSUER"),
+		env("SOVEREIGN_FQDN"),
+		env("CATALYST_OTECH_FQDN"),
 	)
 }
