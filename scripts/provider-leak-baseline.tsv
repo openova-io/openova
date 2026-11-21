@@ -4,7 +4,7 @@
 .github/workflows/check-adoption-endpoint-region.yaml	1
 .github/workflows/check-cloudinit-primary-kubeconfig-capture.yaml	2
 .github/workflows/check-freshprov-image-registry.yaml	3
-.github/workflows/check-gateway-lb-active-standby.yaml	6
+.github/workflows/check-gateway-lb-active-standby.yaml	4
 .github/workflows/cloud-init-size.yaml	1
 .github/workflows/dod.yaml	9
 .github/workflows/preflight-bootstrap-kit.yaml	1
@@ -251,7 +251,7 @@ scripts/check-adoption-endpoint-region.sh	11
 scripts/check-chart-renders-self-only.sh	2
 scripts/check-cloudinit-primary-kubeconfig-capture.sh	14
 scripts/check-freshprov-image-registry.sh	2
-scripts/check-gateway-lb-active-standby.sh	11
+scripts/check-gateway-lb-active-standby.sh	5
 scripts/check-live-gateway-host-ports.sh	8
 scripts/check-machine-plane.py	16
 scripts/check-mothership-proxy-image-path.sh	11

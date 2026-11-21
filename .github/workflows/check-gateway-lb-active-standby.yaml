@@ -1,27 +1,23 @@
-name: check — gateway ELBs are active/hot-standby by default (#6837)
+name: check — gateway ELB members of both regions carry the same weight the provider can apply
 
-# Permanent guard on the north-south traffic posture.
+# Permanent guard on the weights of the reference cloud's gateway and console
+# balancer members (scripts/check-gateway-lb-active-standby.sh, the file name
+# of #6837's guard, kept).
 #
-# The Huawei gateway + console ELBs pool EVERY node of EVERY region (#5244, so a
-# region-kill does not black-hole the public EIP). Under the provider-default
-# member weight of 1 and ROUND_ROBIN, that pooling silently means active/active:
-# measured on hw307 as an exact 6/6 split across all four pools, with the
-# secondary region taking 6 of 11 live members.
+# The ruling (CLD-G12): the cloud's balancer admits BOTH regions' entry points;
+# which region serves is decided inside the platform (Gateway API routes, the
+# secondary edge of kit slot 13e, ADR-0015 placement), not at the balancer.
+# Every member of every region therefore carries the same positive weight.
 #
-# Nobody chose that. It fell out of "every node is a member", and it produced
-# user-visible 404s: the pool health monitor is TCP on node:443, which
-# cilium-envoy answers on every node in every region, so a secondary-region node
-# passes the health check while holding no L7 HTTPRoute for a host whose
-# Blueprint is SECONDARY_HR_SUSPENDed there. Any host installed in only one
-# region flaps at the rate of the other region's pool share (#6827).
-#
-# Founder set the posture on 2026-09-03: 100% of north-south traffic to the
-# primary region by default. This gate fails if a member resource stops
-# weighting on its .primary flag, or if the default posture stops being 0.
-#
-# It does NOT forbid active/active — `secondary_region_lb_weight` is the knob and
-# an operator may set it. It forbids losing the knob, or shipping a DEFAULT that
-# splits traffic across regions again.
+# #6837 set the secondary region's members to weight 0. That never took
+# effect: the huaweicloud provider drops a 0 weight (utils.ValueIgnoreEmpty on
+# create and update), the cloud applies 1, and every second plan of a fresh
+# two-region install showed 24 in-place changes (gate run 44903143049). This
+# gate fails on a member without the weight expression, a weight written as 0,
+# a secondary default that differs from the primary weight, or a validation
+# that admits 0. The hostnames that make both entry points safe (every host the
+# primary's edge routes is routed by the secondary's edge too) are held by
+# tools/guards/cmd/edge-hosts in tree-guards.yaml.
 #
 # Per docs/PRINCIPLES.md #4a this workflow reads source only — it does not
 # deploy, call cloud APIs, or touch a live cluster.
@@ -47,30 +43,14 @@ permissions:
 
 jobs:
   gateway-lb-active-standby:
-    name: Gateway + console ELBs are active/hot-standby by default
+    name: Gateway + console ELB members of both regions carry the same positive weight
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run gateway-LB active/hot-standby gate
+      - name: Run the member-weight gate
         run: bash scripts/check-gateway-lb-active-standby.sh
 
-      - name: Self-test — the gate must reject an active/active default
-        run: |
-          set -euo pipefail
-          tmp=$(mktemp -d)
-          cp infra/providers/huawei/main.tf "$tmp/m.tf"
-          sed 's/^  default     = 0$/  default     = 1/' \
-            infra/providers/huawei/variables.tf > "$tmp/v.tf"
-          if bash scripts/check-gateway-lb-active-standby.sh "$tmp/m.tf" "$tmp/v.tf" >/dev/null 2>&1; then
-            echo "SELF-TEST FAILED: gate passed on an active/active default (weight 1)"
-            exit 1
-          fi
-          # and it must reject a member resource that drops its weight entirely
-          grep -v 'weight        = local.gateway_lb_members' infra/providers/huawei/main.tf > "$tmp/m2.tf"
-          if bash scripts/check-gateway-lb-active-standby.sh "$tmp/m2.tf" infra/providers/huawei/variables.tf >/dev/null 2>&1; then
-            echo "SELF-TEST FAILED: gate passed with no member weights at all"
-            exit 1
-          fi
-          echo "self-test ok — the gate rejects both mutants"
+      - name: Self-test — the gate passes the tree and rejects a 0 default, unequal weights, a 0 weight, a 0-admitting validation and a member without a weight
+        run: bash scripts/check-gateway-lb-active-standby.sh --self-test

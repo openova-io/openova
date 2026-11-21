@@ -1768,23 +1768,27 @@ locals {
   # `primary` marks nodes in the ELB's own VPC (region_keys[0]) — they carry
   # the primary subnet_id; peer-region nodes are IP-type members (no subnet,
   # requires cross_vpc_backend on the LB).
-  # #6837 — ACTIVE / HOT-STANDBY is the default north-south posture (founder
-  # 2026-09-03: "our traffic should go by default 100% to region a, so we have
-  # the active hotstandby approach by default instead of active active").
+  # The cloud's balancer admits BOTH regions' entry points: every member of
+  # every region carries the same positive weight (the primary's below, the
+  # secondaries' var.secondary_region_lb_weight, default 1), so ROUND_ROBIN
+  # splits new connections evenly across the regions and a region kill leaves
+  # the survivors' health-checked members serving the EIPs (#5244). Which
+  # region SERVES a request is decided inside the platform, not here: the
+  # secondary edge (kit slot 13e) forwards what enters in the secondary region
+  # to the primary's backends over the cluster mesh, and traffic follows
+  # Gateway API routes and ADR-0015 placement. The founder's "100% to region
+  # a" (#6837) holds in that sense: the primary's workloads serve every
+  # request until a move or a failover; a request may ENTER through either
+  # region's edge.
   #
-  # Every node in EVERY region is a pool member (that stays true — it is what
-  # makes a region-kill recoverable without re-plumbing the ELB), but the
-  # SECONDARY regions' members carry weight 0, so they receive no traffic while
-  # the primary region has a healthy member. Before this, all members were
-  # provider-default weight 1 under ROUND_ROBIN, i.e. an even split across
-  # regions — measured on hw307 as a 6/6 split on all four pools.
-  #
-  # Why an even split was actively wrong, not merely un-chosen: the pool health
-  # monitor is TCP against node:443, and cilium-envoy answers that on every node
-  # in every region. A secondary-region node therefore passes the health check
-  # while having no L7 HTTPRoute for a host whose Blueprint is suspended there —
-  # so it correctly returns 404 for roughly half of all requests to that host.
-  # hw307 chargeback measured 7/12 before, 15/15 after (#6827).
+  # #6837 asked for weight 0 on the secondaries. It never took effect: the
+  # huaweicloud provider drops a 0 weight (utils.ValueIgnoreEmpty,
+  # resource_huaweicloud_elb_member.go lines 202 and 371), the cloud applies 1,
+  # and every second plan showed 24 in-place changes (CLD-G12). The cost of
+  # admitting both edges is that a public hostname the primary's edge routes
+  # and the secondary's does not answers 404 for about half of its requests
+  # (#6827): tools/guards/cmd/edge-hosts holds that every hostname the kit
+  # routes on the primary is routed on the secondary too.
   gateway_lb_primary_weight = 1
 
   gateway_lb_members = concat(
