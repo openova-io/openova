@@ -161,10 +161,10 @@ OpenOva-MCP tool surface (read tools plus the `create_application` write path)
 working end-to-end is Pillar 4 unshipped, regardless of how good the chrome
 looks.
 
-### Pillar 5 — `bp-self-sovereign-cutover` and the 8-tether pivot
+### Pillar 5 — `bp-self-sovereign-cutover` and the 9-tether pivot
 
 A franchised Sovereign emerging from Phase 1 is operationally tethered to the
-OpenOva mothership in **eight** places (full map in
+OpenOva mothership and the public registries in **nine** places (full map in
 [`adr/0002-post-handover-sovereignty-cutover.md`](adr/0002-post-handover-sovereignty-cutover.md)
 §2.1 and in [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.6):
 
@@ -178,10 +178,17 @@ OpenOva mothership in **eight** places (full map in
 | 6 | Crossplane provider packages from `xpkg.upbound.io` | P1 |
 | 7 | Catalyst-authored images = `ghcr.io/openova-io/openova/*` | P0 |
 | 8 | OS package mirrors during cloud-init (`apt`, `get.k3s.io`) | P2 (cold-start only) |
+| 9 | OpenTofu provider binaries of the cloud Workspaces and of the provisioning engine from `registry.opentofu.org` | P1 |
+
+Tether 9 is moved by steps 03 (harbor-prewarm copies the listed provider
+packages into the Sovereign's registry) and 11 (crossplane-provider-pivot moves
+the OCI mirror of the OpenTofu CLI configuration there), and proven by step 08:
+before the hold that configuration may name only the Sovereign's registry, and
+a cloud Workspace that is Ready and Synced before the hold must stay so in it.
 
 `bp-self-sovereign-cutover` installs **dormant** at bootstrap-kit slot 06a
 during Phase 1 and is triggered post-handover by the operator's "Achieve True
-Sovereignty" CTA. An **11-step chain** (templates 01-11) pivots the 8 tethers
+Sovereignty" CTA. An **11-step chain** (templates 01-11) pivots the 9 tethers
 in dependency order; **step 08 is a 10-minute deny-egress NetworkPolicy hold**
 against `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty
 proof), with steps 09-11 (gitea-token-mint, vcluster-registry-pivot,
@@ -190,11 +197,11 @@ if all 11 steps succeed AND the cluster reconciles green during the step-08
 hold. **No cutover claim without the egress-block proof.** Full
 choreography in §7 below.
 
-The eight tethers, the cutover that pivots them, and the proof that gates the claim:
+The nine tethers, the cutover that pivots them, and the proof that gates the claim:
 
 ```mermaid
 graph LR
-  subgraph T["8 mothership tethers (Phase 0/1/2)"]
+  subgraph T["9 tethers (Phase 0/1/2)"]
     direction TB
     t1["Flux GitRepository → github.com/openova-io"]
     t2["containerd registries.yaml → harbor.openova.io"]
@@ -204,6 +211,7 @@ graph LR
     t6["Crossplane providers → xpkg.upbound.io"]
     t7["Catalyst images → ghcr.io/openova-io"]
     t8["OS package mirrors (cold-start)"]
+    t9["OpenTofu providers → registry.opentofu.org"]
   end
   T -->|"bp-self-sovereign-cutover<br/>11-step chain, dependency order"| PIVOT["local Gitea + Harbor"]
   PIVOT --> HOLD["Step 08 of 11: 10-min deny-egress hold<br/>github.com · ghcr.io · harbor.openova.io"]
@@ -984,7 +992,7 @@ operate independently of the OpenOva mothership.
    pivots active.
 2. Post-handover, the operator clicks the "Achieve True Sovereignty" CTA in
    the Sovereign Console.
-3. The Blueprint runs an **11-step chain** (templates 01-11), pivoting the 8
+3. The Blueprint runs an **11-step chain** (templates 01-11), pivoting the 9
    tethers listed in §1 Pillar 5. Tethers are pivoted in dependency order so
    the cluster never loses its ability to pull what it needs at each step
    (e.g. Harbor proxy-cache is warmed before containerd registries.yaml
@@ -995,6 +1003,8 @@ operate independently of the OpenOva mothership.
    crossplane-provider-pivot — run after it). During the hold:
    - Flux must continue to reconcile (sources are now local Gitea + Harbor).
    - All HelmReleases must remain Ready=True.
+   - Every cloud Workspace that was Ready and Synced before the hold must stay
+     so (tether 9: its providers come from the Sovereign's registry).
    - No image-pull errors, no Git fetch errors, no upstream registry hits.
 5. `cutoverComplete=true` is set **only if** all 11 steps succeed AND the
    cluster reconciles green during the full 10-minute step-08 hold. Any hiccup =

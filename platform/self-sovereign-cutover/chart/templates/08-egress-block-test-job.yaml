@@ -4,7 +4,9 @@ Step 08 — egress-block-test.
 The proof-of-sovereignty step. Applies a CiliumNetworkPolicy denying
 egress to upstream domains for .Values.egressTest.durationSeconds, then
 asserts every HelmRelease + Kustomization stays Ready throughout. The
-policy is removed at end-of-test regardless of pass/fail.
+policy is removed at end-of-test regardless of pass/fail. SOV-344: before
+the hold the OpenTofu CLI configuration may name only the Sovereign's
+registry, and a cloud Workspace Ready and Synced before it must stay so.
 
 #5359 — SECONDARY-REGION legs. On a 2-region Sovereign the hold is
 ALSO applied to every secondary region's cluster (kubeconfigs from the
@@ -375,6 +377,8 @@ data:
             value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.storageClasses | default (list "evs-ssd") | join " " | quote }}
           - name: FRESH_PULL_RWO_EVS_CSIDRIVERS
             value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.csiDrivers | default (list "evs.csi.huaweicloud.com") | join " " | quote }}
+          {{- /* SOV-344 — the OpenTofu CLI configuration the pre-hold lint reads (values tofuProviders). */}}
+          {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
         volumeMounts:
           {{- /*
            #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
@@ -1450,6 +1454,135 @@ data:
               echo "[egress-block-test] #7900 front door: clean before the hold (${FRONT_DOOR_HOSTS}; ${FRONT_DOOR_SAMPLES} request(s) each) — judged in the window"
             fi
 
+            {{- /*
+             SOV-344 — the cloud Workspaces. provider-opentofu runs tofu init for each
+             Workspace on its own reconcile loop. A Workspace is neither a HelmRelease nor
+             a Kustomization, and the Kustomization that applies the claims does not
+             health-check them: a hold that counted only those passed while 21 of 24
+             Workspaces could not reach registry.opentofu.org. ws_read lists both kinds of
+             a region into /work/ws_now, one row "<kind>/<namespace>/<name> Ready=<s>
+             Synced=<s>". A kind the region does not serve has no rows; a list that cannot
+             be read for another reason returns 1, which fails the proof. ws_baseline keeps
+             the Workspaces that are Ready and Synced before the hold (the others are named
+             and excluded). In the window ws_regressed names, by kind, namespace and name,
+             each of them that is no longer both, or is gone.
+            */}}
+            # workspace-hold BEGIN
+            ws_jp='{range .items[*]}{.metadata.namespace}/{.metadata.name} Ready={.status.conditions[?(@.type=="Ready")].status} Synced={.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'
+            ws_kubectl() { if [ -n "${ws_kc}" ]; then kubectl --kubeconfig="${ws_kc}" "$@"; else kubectl "$@"; fi; }
+            ws_take() {
+              if [ "$2" = 0 ]; then
+                sed "s|^|$1/|" /work/ws_raw >>/work/ws_now
+                ws_served=$((ws_served+1))
+                return 0
+              fi
+              grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind" /work/ws_err && return 0
+              echo "[egress-block-test] region ${ws_region}: cannot list $1 ($(head -1 /work/ws_err)); a list that is not read is not a pass"
+              return 1
+            }
+            ws_read() {
+              ws_region="$1"; ws_kc="$2"; ws_served=0; _wr_rc=0
+              : >/work/ws_now
+              _wr_g=0
+              ws_kubectl get workspaces.opentofu.upbound.io -A -o "jsonpath=${ws_jp}" >/work/ws_raw 2>/work/ws_err || _wr_g=$?
+              ws_take workspaces.opentofu.upbound.io "${_wr_g}" || _wr_rc=1
+              _wr_g=0
+              ws_kubectl get workspaces.opentofu.m.upbound.io -A -o "jsonpath=${ws_jp}" >/work/ws_raw 2>/work/ws_err || _wr_g=$?
+              ws_take workspaces.opentofu.m.upbound.io "${_wr_g}" || _wr_rc=1
+              return "${_wr_rc}"
+            }
+            ws_baseline() {
+              ws_read "$1" "$2" || return 1
+              { grep -E ' Ready=True Synced=True$' /work/ws_now || true; } | cut -d' ' -f1 | sort -u >"/work/ws_base_$1.txt"
+              { grep -vE ' Ready=True Synced=True$' /work/ws_now || true; } | sed "s/^/  baseline[$1] WS (not Ready and Synced before the hold, excluded) /"
+              echo "[egress-block-test] region $1: $(grep -c . "/work/ws_base_$1.txt" || true) cloud Workspace(s) Ready and Synced before the hold, judged in the window"
+            }
+            ws_regressed() {
+              ws_read "$1" "$2" || return 1
+              awk -v r="$1" -v nf=/work/ws_now 'FILENAME == nf { now[$1] = $2 " " $3; next }
+                { s = ($1 in now) ? now[$1] : "absent"; if (s != "Ready=True Synced=True") { print "  NEW[" r "] WS " $1 " " s; bad = 1 } }
+                END { exit bad }' /work/ws_now "/work/ws_base_$1.txt"
+            }
+            # workspace-hold END
+            {{- /*
+             SOV-344 — the OpenTofu CLI configuration, before the hold. Every tofu init of a
+             Workspace installs its providers as the key .tofurc of the ConfigMap
+             TOFU_NAMESPACE/TOFU_CLI_CM says; the provider pod mounts it, and step 11 moves
+             its OCI mirror into the Sovereign's registry. The lint reads the live ConfigMap
+             and the file in every running pod that mounts it: each repository_template
+             names LOCAL_REGISTRY_HOST, registry.SOVEREIGN_FQDN or harbor.SOVEREIGN_FQDN, and
+             no direct, network_mirror, filesystem_mirror or dev_overrides block exists.
+             Without the ConfigMap tofu init takes the implied configuration, which installs
+             from registry.opentofu.org: a region passes without it only when it serves no
+             Workspace kind.
+            */}}
+            # tofu-cli-lint BEGIN
+            tofu_cli_judge() {
+              grep -vE '^[[:space:]]*(#|//)' "$1" >/work/tofu_cli_code || true
+              _tj_bad=$(sed -n -E 's/^[[:space:]]*(direct|network_mirror|filesystem_mirror|dev_overrides)[[:space:]]*(\{.*)?$/ method=\1/p' /work/tofu_cli_code | tr -d '\n')
+              sed -n -E 's/^[[:space:]]*repository_template[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/p' /work/tofu_cli_code >/work/tofu_cli_mirrors
+              [ -s /work/tofu_cli_mirrors ] || _tj_bad="${_tj_bad} [no oci_mirror]"
+              while IFS= read -r _tj_t; do
+                case "${_tj_t%%/*}" in
+                  "${LOCAL_REGISTRY_HOST}"|"registry.${SOVEREIGN_FQDN}"|"harbor.${SOVEREIGN_FQDN}") ;;
+                  *) _tj_bad="${_tj_bad} oci_mirror=${_tj_t}" ;;
+                esac
+              done </work/tofu_cli_mirrors
+              [ -n "${_tj_bad}" ] || return 0
+              echo "    EXTERNAL-TOFU-SOURCE [${ws_region}] $2:${_tj_bad}"
+              return 1
+            }
+            run_tofu_cli_config_host_lint() {
+              ws_region="$1"; ws_kc="$2"; _tc_bad=0
+              echo "[egress-block-test] SOV-344: PRE-HOLD OpenTofu CLI configuration lint [region=$1] — ${TOFU_NAMESPACE}/${TOFU_CLI_CM} and the file in each pod that mounts it may name only the Sovereign's registry"
+              if ! ws_kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_CLI_CM}" --ignore-not-found \
+                -o 'jsonpath={.metadata.name}{"\n"}{.data.\.tofurc}' >/work/tofu_cli_cm 2>/work/ws_err; then
+                echo "  FAIL — region $1: cannot read ${TOFU_NAMESPACE}/${TOFU_CLI_CM} ($(head -1 /work/ws_err)); a configuration that is not read is not a pass"
+                return 1
+              fi
+              if [ ! -s /work/tofu_cli_cm ]; then
+                ws_read "$1" "$2" || return 1
+                if [ "${ws_served}" = 0 ]; then
+                  echo "  PASS — region $1: no ${TOFU_CLI_CM} and no Workspace kind served, so no tofu runs here"
+                  return 0
+                fi
+                echo "  FAIL — region $1: no ${TOFU_NAMESPACE}/${TOFU_CLI_CM} while a Workspace kind is served: tofu init takes the implied configuration, which installs from registry.opentofu.org"
+                return 1
+              fi
+              sed '1d' /work/tofu_cli_cm >/work/tofu_cli_live
+              tofu_cli_judge /work/tofu_cli_live "configmap=${TOFU_NAMESPACE}/${TOFU_CLI_CM}" || _tc_bad=1
+              ws_kubectl -n "${TOFU_NAMESPACE}" get pods -o json 2>/dev/null | jq -r --arg cm "${TOFU_CLI_CM}" '.items[]
+                | select(.status.phase == "Running" and .metadata.deletionTimestamp == null) | . as $p
+                | [.spec.volumes[]? | select(.configMap.name == $cm) | .name] as $v | .spec.containers[] | . as $c
+                | .volumeMounts[]? | select(.name as $n | any($v[]; . == $n)) | "\($p.metadata.name) \($c.name) \(.mountPath)"' >/work/tofu_cli_pods 2>/dev/null || : >/work/tofu_cli_pods
+              if [ ! -s /work/tofu_cli_pods ]; then
+                echo "  FAIL — region $1: no running pod mounts ${TOFU_CLI_CM}, so the file tofu reads cannot be measured"
+                return 1
+              fi
+              while read -r _tc_p _tc_c _tc_m; do
+                ws_kubectl -n "${TOFU_NAMESPACE}" exec "${_tc_p}" -c "${_tc_c}" -- cat "${_tc_m}/.tofurc" </dev/null >/work/tofu_cli_pod 2>/dev/null || : >/work/tofu_cli_pod
+                tofu_cli_judge /work/tofu_cli_pod "pod=${_tc_p}:${_tc_m}/.tofurc" || _tc_bad=1
+              done </work/tofu_cli_pods
+              if [ "${_tc_bad}" != 0 ]; then
+                echo "  FAIL — region $1: the OpenTofu CLI configuration names a source outside the Sovereign (step 11 moves its mirror)"
+                return 1
+              fi
+              echo "  PASS — region $1: the OpenTofu CLI configuration and the file in each pod that mounts it name only the Sovereign's registry"
+            }
+            # tofu-cli-lint END
+            {{- /* SOV-344 — in every region, before the hold: the CLI configuration lint, then the Workspace baseline. */}}
+            # tofu-pre-hold BEGIN
+            _ws_verdict=0
+            for _ws_t in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
+              run_tofu_cli_config_host_lint "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
+              ws_baseline "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
+            done
+            if [ "${_ws_verdict}" != 0 ]; then
+              echo "[egress-block-test] the OpenTofu CLI configuration lint or the cloud Workspace baseline FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false)"
+              exit 1
+            fi
+            # tofu-pre-hold END
+
             POLICY_APPLIED=""
             if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
               echo "[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs"
@@ -2495,6 +2628,11 @@ data:
                 [ -n "${new_ks}" ] && echo "${new_ks}" | sed 's/^/  NEW KS /'
                 new_failures=$((new_failures+1))
               fi
+              {{- /* SOV-344 — a cloud Workspace that was Ready and Synced before the hold must stay so. */}}
+              if ! ws_regressed primary ""; then
+                echo "[egress-block-test] cloud Workspace(s) of region primary not Ready and Synced at $(($(date +%s) - start))s (regression)"
+                new_failures=$((new_failures+1))
+              fi
 
               {{- /*
                #5359 — the same regression diff against every SECONDARY
@@ -2517,6 +2655,11 @@ data:
                   echo "[egress-block-test] #5359 NEW NotReady on SECONDARY ${sp_region} at $(($(date +%s) - start))s (regression):"
                   [ -n "${sp_new_hr}" ] && echo "${sp_new_hr}" | sed "s/^/  NEW[${sp_region}] HR /"
                   [ -n "${sp_new_ks}" ] && echo "${sp_new_ks}" | sed "s/^/  NEW[${sp_region}] KS /"
+                  new_failures=$((new_failures+1))
+                  echo "${sp_region}" >> /work/secondary_failed_regions.txt
+                fi
+                if ! ws_regressed "${sp_region}" "${sp_kc}"; then
+                  echo "[egress-block-test] cloud Workspace(s) of SECONDARY ${sp_region} not Ready and Synced at $(($(date +%s) - start))s (regression)"
                   new_failures=$((new_failures+1))
                   echo "${sp_region}" >> /work/secondary_failed_regions.txt
                 fi

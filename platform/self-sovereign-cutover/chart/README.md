@@ -44,8 +44,31 @@ has run.
 | 05 | `cutover-step-05-flux-gitrepository-patch` ConfigMap | post-pivot | Patch `flux-system/openova` GitRepository.url → local Gitea — in EVERY region (#5359: per-secondary-region leg via `/secondary-kubeconfigs`, fail-loud Ready wait) |
 | 06 | `cutover-step-06-helmrepository-patches` ConfigMap | post-pivot | Patch every OCI HelmRepository → `oci://harbor.<sov-fqdn>/openova-io` — in EVERY region (#5359: per-secondary leg syncs ghcr-pull auth + the harbor-ca trust Secret, pivots + read-back-asserts zero upstream HRs remain) |
 | 07 | `cutover-step-07-catalyst-api-env-patch` ConfigMap | post-pivot | `kubectl set env deploy/catalyst-api CATALYST_GITOPS_REPO_URL=...` |
-| 08 | `cutover-step-08-egress-block-test` ConfigMap | post-pivot | CiliumNetworkPolicy denies egress to upstream for 10 min, asserts cluster stays Ready — the hold + green-assertion cover EVERY region (#5359) |
+| 08 | `cutover-step-08-egress-block-test` ConfigMap | post-pivot | CiliumNetworkPolicy denies egress to upstream for 10 min, asserts cluster stays Ready — the hold + green-assertion cover EVERY region (#5359); before the hold the OpenTofu CLI configuration may name only the Sovereign's registry, and a cloud Workspace Ready and Synced before it must stay so (SOV-344) |
 | 09 | `self-sovereign-cutover-status` ConfigMap | mutable state | Per-step state machine read+written by every step + the UI (#5359 adds `step.<step>.region.<regionKey>.*` per-secondary-region keys) |
+
+### The tethers
+
+The chain pivots nine tethers ([`docs/DOD.md`](../../../docs/DOD.md) §Pillar 5
+is the canonical list), and step 08 is the proof:
+
+| # | Tether |
+|---|---|
+| 1 | Flux `GitRepository.url` = `github.com/openova-io/openova` |
+| 2 | containerd registry rewrites to `harbor.openova.io` |
+| 3 | OCI `HelmRepository` urls = `oci://ghcr.io/openova-io` |
+| 4 | `catalyst-api` env fallback to GitHub |
+| 5 | `flux-system/ghcr-pull` Secret for private GHCR pulls |
+| 6 | Crossplane provider packages from `xpkg.upbound.io` |
+| 7 | Catalyst-authored images = `ghcr.io/openova-io/openova/*` |
+| 8 | OS package mirrors during cloud-init (cold start only) |
+| 9 | OpenTofu provider binaries of the cloud Workspaces and of the provisioning engine from `registry.opentofu.org` |
+
+Tether 9 is moved by step 03 (Phase A5 copies the packages that
+`crossplane-system/opentofu-providers` lists) and step 11 (it moves the OCI
+mirror of `crossplane-system/opentofu-cli-config` to the Sovereign's registry).
+Step 08 lints that configuration, live and in the provider pod, before the hold,
+and fails when a cloud Workspace Ready and Synced before the hold is not so in it.
 
 ### Secondary-region legs (#5359)
 

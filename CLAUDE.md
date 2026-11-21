@@ -276,11 +276,14 @@ none of those qualify; auto-pick and dispatch.
 
 ### Sovereignty cutover — `bp-self-sovereign-cutover`
 
-A franchised Sovereign is tethered to the OpenOva mothership in 8 places (full
-list in [`docs/DOD.md`](docs/DOD.md) §Pillar 5 and
+A franchised Sovereign is tethered to the OpenOva mothership and the public
+registries in 9 places (full list in [`docs/DOD.md`](docs/DOD.md) §Pillar 5 and
 [`docs/adr/0002-post-handover-sovereignty-cutover.md`](docs/adr/0002-post-handover-sovereignty-cutover.md)).
+The ninth is the OpenTofu provider binaries of the cloud Workspaces and of the
+provisioning engine from `registry.opentofu.org`: `harbor-prewarm` and
+`crossplane-provider-pivot` move them, `egress-block-test` proves it (SOV-344).
 `bp-self-sovereign-cutover` installs dormant at bootstrap-kit slot 06a during
-Phase 1 and runs an **11-step chain** post-handover that pivots all 8 tethers
+Phase 1 and runs an **11-step chain** post-handover that pivots all 9 tethers
 (ADR-0002 originally specified eight sequential Jobs; the shipped chart —
 `platform/self-sovereign-cutover/chart` — runs the 11 steps below, tracked
 per-step in the `self-sovereign-cutover-status` ConfigMap). The steps run one

@@ -239,7 +239,7 @@ The **same upstream technology** can serve in multiple categories. For example: 
 | AI observability | **Langfuse** | CNPG-backed; OIDC via Keycloak |
 | Observability (general) | **Grafana Alloy** + **Loki** + **Mimir** + **Tempo** + **Grafana** | OTel-native, multi-tenant, cost-efficient at scale. SeaweedFS-backed |
 | Container registry | **Harbor** | Per-host registry, proxy-cache for upstream, signature verification |
-| Sovereignty pivot | **bp-self-sovereign-cutover** | 8-tether pivot from mothership to local Gitea + local Harbor. ADR-0002. Principle #11 |
+| Sovereignty pivot | **bp-self-sovereign-cutover** | 9-tether pivot from mothership to local Gitea + local Harbor. ADR-0002. Principle #11 |
 | Failover | **Continuum** (custom CRD + controller) | Lease-based (Cloudflare KV witness or 3-DNS-quorum), low-TTL lua-record flip. Replaced README-only `failover-controller` per Phase 0 #11 |
 | Browser access | **Guacamole** (single per Sovereign) | Bastion, pod consoles, RDP/VNC over Keycloak SSO; session recording is target, not built ([ADR-0033](adr/0033-access-plane.md)) |
 | UI | **Astro 5 + Svelte 5 islands** | Static-first, minimal JS, fast interaction-to-paint |
@@ -305,7 +305,7 @@ Every Catalyst control-plane component carries an open-source license that allow
 | `bp-agenity` | Per-Org **Agenity** workspace (Pillar 4) — auto-attaches `bp-openova-mcp` with full org knowledge |
 | `bp-openova-mcp` | RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) — Pillar 4 |
 | `bp-chargeback` | Standalone chargeback application ([ADR-0014](adr/0014-chargeback-usage-ledger-and-split-deployment.md)): app-internal `Customer` model, usage ledger, Huawei cloud collector, rating + statements, own UI; OpenOva is one adapter (Organization sync + platform collector); sidebar entry via `Blueprint.spec.consoleUI`; profiles `sovereign` / `operator-central` |
-| `bp-self-sovereign-cutover` | 8-tether pivot — see §5.6 |
+| `bp-self-sovereign-cutover` | 9-tether pivot — see §5.6 |
 
 **Specter (AIOps agents) is not a composite Blueprint** — it is a deliverable service and does not appear in the table above. Brownfield virtual-machine migration is the optional Blueprint `bp-vm-migration`: designed, not built ([ADR-0032](adr/0032-vm-migration-is-a-platform-product.md)); it joins the table above when its folder `products/vm-migration/` exists. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` used to survive as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), carried by the catalog-integrity gate in an explicit `KNOWN_UNBUILT` debt allowlist. That card was **removed** under UAT row **W5** / [#6183](https://github.com/openova-io/openova/issues/6183): it installed nothing, yet its `familyRequires: ['cortex']` cascaded nine real CORTEX components into any deployment that ticked it. `KNOWN_UNBUILT` is now empty and the gate's assertion is bidirectional, so re-adding a component that resolves to no Blueprint fails CI. Building a real `bp-specter` — which would restore the card — is tracked separately at [#6318](https://github.com/openova-io/openova/issues/6318); an empty `products/specter/` directory created only to satisfy the resolver would be scaffold theater ([`PRINCIPLES.md`](PRINCIPLES.md) §Anti-pattern-catalog), not a fix.
 
@@ -727,28 +727,28 @@ graph LR
 
 ### §5.6 Phase 2 — Self-Sovereignty Cutover
 
-A franchised Sovereign emerging from Phase 1 is operationally tethered to the OpenOva mothership in **eight** places (audit per [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md) §2.1 and umbrella issue #790): Flux GitRepository url, containerd registry rewrites, 38 OCI HelmRepositories, `catalyst-api` upstream fallback, GHCR pull Secret, Crossplane provider packages, Catalyst-authored image refs, OS package mirrors. Six are operationally hot (P0/P1) and must be pivoted before the customer can claim sovereignty.
+A franchised Sovereign emerging from Phase 1 is operationally tethered to the OpenOva mothership and the public registries in **nine** places (audit per [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md) §2.1 and umbrella issue #790, with its addendum for the ninth): Flux GitRepository url, containerd registry rewrites, 38 OCI HelmRepositories, `catalyst-api` upstream fallback, GHCR pull Secret, Crossplane provider packages, Catalyst-authored image refs, OS package mirrors, and the OpenTofu provider binaries of the cloud Workspaces and of the provisioning engine from `registry.opentofu.org`. Seven are operationally hot (P0/P1) and must be pivoted before the customer can claim sovereignty.
 
 The cutover follows a **30/70 model**:
 
 - **OpenTofu provisions ~30%** — k3s install, Cilium, the cold-start `registries.yaml` v1 (routing pulls through `harbor.openova.io` to absorb docker.io rate limits), Flux pointed at `github.com/openova-io/openova`, and bootstrap-kit slots 01–15 + 19. The dormant `bp-self-sovereign-cutover` Blueprint is installed at slot 06a — JobTemplate ConfigMaps + RBAC + status ConfigMap are present, but the eleven cutover Jobs are NOT created during Phase 1.
 - **The Sovereign's own ecosystem provisions the remaining ~70%** post-cutover. Once the customer's local Gitea and local Harbor have absorbed the mothership tether, every subsequent reconcile (slots 16–48, day-2 Crossplane operations, Catalyst-platform updates, customer Application installs) flows through the Sovereign's own infrastructure.
 
-The seam is a single Helm chart running an **11-step chain** (templates 01..11), triggered POST-HANDOVER by a sovereign-admin click on **"Achieve True Sovereignty"** in the admin console (or, optionally, by `catalyst-api` auto-fire on first login). The 11 steps are the canonical implementation of the eight-tether map:
+The seam is a single Helm chart running an **11-step chain** (templates 01..11), triggered POST-HANDOVER by a sovereign-admin click on **"Achieve True Sovereignty"** in the admin console (or, optionally, by `catalyst-api` auto-fire on first login). The 11 steps are the canonical implementation of the nine-tether map:
 
 | # | Job | Pivots tether |
 |---|---|---|
 | 1 | `gitea-mirror` | Mirrors `github.com/openova-io/openova` → local Gitea |
 | 2 | `harbor-projects` | Creates 7 proxy-cache projects on local Harbor |
-| 3 | `harbor-prewarm` | Pre-pulls all bootstrap-kit images through local Harbor |
+| 3 | `harbor-prewarm` | Pre-pulls all bootstrap-kit images through local Harbor, and copies the listed OpenTofu provider packages by digest (tether 9) |
 | 4 | `registry-pivot` | DaemonSet rewrites `/etc/rancher/k3s/registries.yaml` (mothership Harbor → local Harbor) |
 | 5 | `flux-gitrepository-patch` | Flips Flux source to local Gitea |
 | 6 | `helmrepository-patches` | Flips 38 HelmRepositories to local Harbor |
 | 7 | `catalyst-api-env-patch` | Removes upstream fallback in `catalyst-api` |
-| 8 | `egress-block-test` | NetworkPolicy deny-egress hold for 10 min — the sovereignty DoD proof (steps 9–11 follow it) |
+| 8 | `egress-block-test` | NetworkPolicy deny-egress hold for 10 min — the sovereignty DoD proof (steps 9–11 follow it); a cloud Workspace Ready and Synced before the hold must stay so, and the OpenTofu CLI configuration may name only the local registry |
 | 9 | `gitea-token-mint` | Mints the local Gitea token for the host GitOps loop |
 | 10 | `vcluster-registry-pivot` | Pivots vcluster control-plane images to the local registry |
-| 11 | `crossplane-provider-pivot` | Pivots Crossplane provider packages off `xpkg.upbound.io` |
+| 11 | `crossplane-provider-pivot` | Pivots Crossplane provider packages off `xpkg.upbound.io`, and the OpenTofu CLI configuration's mirror off the origin (tether 9) |
 
 ```mermaid
 flowchart LR
@@ -758,7 +758,7 @@ flowchart LR
   P2 --> D2[Day-2<br/>local Gitea<br/>local Harbor<br/>Crossplane]
 ```
 
-The Phase 2 cutover itself is the 11-step chain that pivots the 8 mothership tethers — the egress-block hold (step 08) is the DoD proof, and `cutoverComplete=true` is set only if the cluster reconciles green while github.com / ghcr.io / harbor.openova.io are denied (steps 09–11 run after the hold):
+The Phase 2 cutover itself is the 11-step chain that pivots the 9 tethers — the egress-block hold (step 08) is the DoD proof, and `cutoverComplete=true` is set only if the cluster reconciles green while github.com / ghcr.io / harbor.openova.io are denied (steps 09–11 run after the hold):
 
 ```mermaid
 stateDiagram-v2
@@ -1220,7 +1220,7 @@ Console at `console.{location-code}.{sovereign-domain}`.
 
 Phase 2  Self-Sovereignty Cutover (sovereign-admin click "Achieve True Sovereignty")
 ─────────────────────────────────────────────────────────────────────
-An 11-step chain pivots the 8 mothership tethers — see §5.6.
+An 11-step chain pivots the 9 tethers — see §5.6.
 Egress-block-test (step 08) holds NetworkPolicy deny-egress against
 github.com / ghcr.io / harbor.openova.io for 10 min. The Sovereign
 must reconcile green during this hold (steps 09–11 run after it);
@@ -1875,7 +1875,7 @@ Each major Blueprint folder ships a `DESIGN.md` capturing the architectural deci
 |---|---|
 | bp-cnpg-pair | [`platform/cnpg-pair/DESIGN.md`](../platform/cnpg-pair/DESIGN.md) — synchronous `remote_apply` ReplicaCluster, ClusterMesh wiring, pre-merge guards (PRs #2087/#2093) |
 | bp-continuum | [`products/continuum/DESIGN.md`](../products/continuum/DESIGN.md) — lease + witness, switchover sequence, PDM integration |
-| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/chart/README.md`](../platform/self-sovereign-cutover/chart/README.md) — 8-tether pivot, 11-step chain, egress-block DoD test |
+| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/chart/README.md`](../platform/self-sovereign-cutover/chart/README.md) — 9-tether pivot, 11-step chain, egress-block DoD test |
 | bp-agenity | [`products/agenity/README.md`](../products/agenity/README.md) — per-Org **Agenity** workspace (Pillar 4); auto-attaches `bp-openova-mcp` with full org knowledge |
 | bp-openova-mcp | [`products/openova-mcp/README.md`](../products/openova-mcp/README.md) — RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) |
 | bp-kyverno | [`platform/kyverno/README.md`](../platform/kyverno/README.md) — label-vocab mutate + validate ClusterPolicies, audit ↔ enforce toggle |

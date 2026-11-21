@@ -21,3 +21,7 @@ tests/
 # (README.md, "Release mechanism"). Helm never renders it, so it stays out of
 # the package and of every release Secret (it would cost ~33 KB of payload).
 files/release/
+
+# README.md is the chart's authoring documentation, as in platform/gitea/chart: Helm never
+# renders it, and packaged it costs ~17 KB of every release Secret (SOV-344).
+/README.md
