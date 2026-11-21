@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T04:45:04Z` |
+| Last refreshed | `2026-11-21T05:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8175](https://github.com/openova-io/openova/issues/8175) | CLD-112 Credential check from the profile; one registry | Other |
-| [#8182](https://github.com/openova-io/openova/issues/8182) | AIP-102 Tool calls passed through; no shared sessions | Other |
 | [#8189](https://github.com/openova-io/openova/issues/8189) | FND-206 The size budget of a story leaves out the lines a registered generator w | Other |
 | [#8192](https://github.com/openova-io/openova/issues/8192) | CLD-104 The engine writes neutral variables; adapters write their own | Other |
 | [#8201](https://github.com/openova-io/openova/issues/8201) | AIP-103 Real streaming and real usage | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8564](https://github.com/openova-io/openova/issues/8564) | SOV-155 A roll of the registry never removes both copies: harbor-registry rolls  | Other |
 | [#8569](https://github.com/openova-io/openova/issues/8569) | SOV-344 The sovereignty proof counts the cloud Workspaces, and the tether list n | Other |
 | [#8574](https://github.com/openova-io/openova/issues/8574) | SOV-139 A cloud-free harness drains the registry's node with the outside blocked | Other |
+| [#8577](https://github.com/openova-io/openova/issues/8577) | NET-103 Gate check NET-G18: full-size transfers between two workers over the nod | Other |
+| [#8578](https://github.com/openova-io/openova/issues/8578) | NET-121 A cloud-free test moves full-size packets between two workers through th | Other |
 
 ---
 
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:29 | [#8573](https://github.com/openova-io/openova/pull/8573) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:18 | [#8572](https://github.com/openova-io/openova/pull/8572) | #7087 | docs(ledger): plan update |
+| 2026-11-21T04:50 | [#8571](https://github.com/openova-io/openova/pull/8571) | #8557 | fix(charts): every foundation release has a function test th |
 | 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T19:15 | [#8537](https://github.com/openova-io/openova/pull/8537) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:07 | [#8535](https://github.com/openova-io/openova/pull/8535) | #7087 | docs(ledger): plan update |
 | 2026-11-20T19:00 | [#8531](https://github.com/openova-io/openova/pull/8531) | #7087 | docs(ledger): plan update |
-| 2026-11-20T18:53 | [#8530](https://github.com/openova-io/openova/pull/8530) | #7087 | docs(ledger): plan update |
-| 2026-11-20T21:34 | [#8529](https://github.com/openova-io/openova/pull/8529) | #8528 | fix(charts): six function tests wait for their subject in th |
 
 ---
 
