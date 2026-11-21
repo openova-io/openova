@@ -73,6 +73,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # The tools a precondition command may use: git, the shell, Python with PyYAML.
+      # A precondition reads the tree at the merge base to show that the work is still to do; it builds and
+      # tests nothing (no precondition of the plan runs Go, Node, Helm or OpenTofu), so it has not the
+      # toolchains of acceptance. tools/guards/cmd/acceptance-tools holds this line to the steps as well.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -96,7 +100,8 @@ jobs:
         with:
           fetch-depth: 0
       # The whole history is fetched, with every branch: an acceptance command may compare the change with origin/main.
-      # The tools an acceptance command may use: git, the shell, Python with PyYAML, Go, Node with npm, Helm.
+      # The tools an acceptance command may use: git, the shell, Python with PyYAML, Go, Node with npm, Helm, OpenTofu.
+      # tools/guards/cmd/acceptance-tools fails when that line and the steps of this job name different tools.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -114,6 +119,15 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           version: v3.18.4
+      # OpenTofu: a package that changes a provider module (infra/providers/<pack>) proves it with the
+      # module's offline tests (tofu test), so the job installs OpenTofu as those tests do in
+      # .github/workflows/infra-*-tofu.yaml (huawei, hetzner, local): the same action, the same version.
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.11.6
+      - name: OpenTofu version
+        run: tofu version
       - name: Acceptance commands of the package
         run: |
           set -euo pipefail

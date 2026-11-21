@@ -490,6 +490,12 @@ jobs:
       - name: 'pinned-sources | Every file a pin test reads runs the workflow of that test when it changes'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/pinned-sources
+      - name: 'acceptance-tools | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/acceptance-tools
+      - name: 'acceptance-tools | The precondition and acceptance jobs of a work package install exactly the tools their lines name, OpenTofu as the provider modules test with'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/acceptance-tools
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
