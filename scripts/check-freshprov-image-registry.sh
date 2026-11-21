@@ -238,12 +238,9 @@ fail() { echo "FAIL: $1" >&2; EXIT=1; }
 RENDER_STATUS_FILE="${RENDER_STATUS_FILE:-$(mktemp)}"
 render_status() { cat "$RENDER_STATUS_FILE" 2>/dev/null; }
 dep_build() { ( cd "$1" && timeout "${DEP_TIMEOUT:-120s}" helm dependency build >/dev/null 2>&1 ); }
-add_dep_repos() { # <dir> — `helm repo add` every http(s) repository its Chart.yaml dependencies name
-  local url
-  for url in $(awk '/^dependencies:/ {d = 1} d && /repository:/ {gsub(/["'\'' ]/, ""); sub(/^-?repository:/, ""); print}' "$1/Chart.yaml" | grep -E '^https?://' | sort -u); do
-    helm repo add --force-update "dep-$(printf '%s' "$url" | sha256sum | cut -c1-12)" "$url" >/dev/null 2>&1 || true
-  done
-}
+# add_dep_repos <dir>: one definition, shared with the release workflow's dependency build.
+# shellcheck source=scripts/lib/helm-dep-repos.sh
+. "${SELF_ROOT}/scripts/lib/helm-dep-repos.sh"
 render_chart() {
   local dir="$1" out rc=0
   printf 'ok' > "$RENDER_STATUS_FILE"

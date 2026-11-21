@@ -261,6 +261,12 @@ jobs:
               exit 1
             fi
             packaged="$(mktemp -d)"
+            # This build leaves a Chart.lock in the tree; the step "Helm dependency
+            # build" then builds from it, and so the repositories go in first here
+            # and there (scripts/lib/helm-dep-repos.sh).
+            # shellcheck source=scripts/lib/helm-dep-repos.sh
+            . scripts/lib/helm-dep-repos.sh
+            add_dep_repos "${CHART_PATH}/chart"
             helm dependency build "${CHART_PATH}/chart"
             helm package "${CHART_PATH}/chart" --destination "${packaged}"
             set +e
@@ -409,17 +415,31 @@ jobs:
       # that DO declare dependencies, real resolution failures surface
       # loudly (no `|| true`) — a chart that can't pull its subchart must
       # NOT proceed to publish as a hollow artifact.
+      #
+      # The same build on both routes: every http(s) repository the chart's
+      # dependencies name is added first (scripts/lib/helm-dep-repos.sh). With a
+      # Chart.lock in the tree `helm dependency build` refuses a repository that
+      # was not added, and a dispatched run's release writer has just built the
+      # dependencies and left one (run 44837071750: `no repository definition for
+      # https://sigstore.github.io/helm-charts`). tools/guards/cmd/release-own-tree
+      # runs this step with and without such a lock.
       - name: Helm dependency build
+        id: dep_build
         if: steps.chart.outputs.skip != 'true'
+        env:
+          CHART_PATH: ${{ matrix.path }}
         run: |
           set -euo pipefail
-          chart_dir="${{ matrix.path }}/chart"
+          chart_dir="${CHART_PATH}/chart"
           dep_count=$(yq '.dependencies | length // 0' "$chart_dir/Chart.yaml")
           if [ "$dep_count" -eq 0 ]; then
             echo "Chart $chart_dir declares no dependencies — skipping helm dependency build."
             exit 0
           fi
           echo "Resolving $dep_count declared dependency/dependencies for $chart_dir"
+          # shellcheck source=scripts/lib/helm-dep-repos.sh
+          . scripts/lib/helm-dep-repos.sh
+          add_dep_repos "$chart_dir"
           helm dependency build "$chart_dir"
 
       # ──────────────────────────────────────────────────────────────

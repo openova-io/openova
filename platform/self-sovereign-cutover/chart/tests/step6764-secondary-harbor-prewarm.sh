@@ -66,9 +66,11 @@ for tok in \
   fi
 done
 
-echo "[step6764] (b) genuine BYTE-IDENTICAL OFF render against origin/main (when git is available)"
-if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-  git -C "${REPO_ROOT}" archive origin/main platform/self-sovereign-cutover/chart 2>/dev/null \
+echo "[step6764] (b) genuine BYTE-IDENTICAL OFF render against the main this tree left (when git is available)"
+# The merge base with origin/main, never main's tip (see step6490-secondary-gitea-mirror.sh).
+BASE_TREE="$(git -C "${REPO_ROOT}" merge-base HEAD origin/main 2>/dev/null || true)"
+if [ -n "${BASE_TREE}" ]; then
+  git -C "${REPO_ROOT}" archive "${BASE_TREE}" platform/self-sovereign-cutover/chart 2>/dev/null \
     | tar -x -C "${TMP}" 2>/dev/null
   MAIN_CHART="${TMP}/platform/self-sovereign-cutover/chart"
   if [ -d "${MAIN_CHART}" ]; then
@@ -85,7 +87,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     fi
   fi
 else
-  echo "  note — origin/main not fetched; skipping the byte-identical diff"
+  echo "  note — no merge base with origin/main in this checkout; skipping the byte-identical diff"
 fi
 
 echo "[step6764] (c) the in-region Harbor-prewarm Job carries the kyverno flux-managed escape (#6493 class)"

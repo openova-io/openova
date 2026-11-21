@@ -11,7 +11,7 @@
 # The job needs a checkout of two commits, Python 3.12 with PyYAML, the Go of the module
 # tools/guards (set up from its go.mod, before the steps of its guards), bash and git, and
 # the Helm of the release for cronjob-jobs, which renders the kit (the yq and jq of the
-# runner), and nothing else. A guard that needs another tool (Node), the Go of another module or a
+# runner), the Helm of blueprint-release.yaml for release-own-tree, and nothing else. A guard that needs another tool (Node), the Go of another module or a
 # secret, or that reads the pull request itself, runs elsewhere: go-lint.yaml,
 # console-lint.yaml, check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
 #
@@ -463,6 +463,21 @@ jobs:
       - name: 'release-push | A release run that publishes six charts lands every one on main, or fails naming the one it lost'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/release-push
+      # release-own-tree runs the dependency build of the release, whose two paths are Helm's,
+      # so it sets up the Helm of blueprint-release.yaml (the guard stops on another version;
+      # in `go test ./...` above, its two tests that need it skip, here they must run).
+      # No step after it runs helm.
+      - name: 'release-own-tree | Set up the Helm of the release'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+      - name: 'release-own-tree | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && RELEASE_OWN_TREE_HELM=required go test -count=1 ./cmd/release-own-tree
+      - name: 'release-own-tree | A release builds any chart with or without a Chart.lock, and its chart tests judge its own commit'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/release-own-tree
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
