@@ -666,10 +666,10 @@ func (o ControlPlaneOverhead) String() string {
 // (plan_quota_plus_platform_stack_test.go) re-reads each of those sources,
 // fails on drift, and checks the release list against orgTenantTemplates.
 //
-// A container the chart leaves UNSIZED (bp-agenity's `seed-claude-creds` init
-// container) is admitted with the per-Org LimitRange defaults of the plan
-// (limitRangeDefaults: default limit = headline/8, default request = that over
-// the overcommit ratio) — so its cost, and with it the stack overhead, depends
+// A container the chart leaves UNSIZED (bp-agenity's `workspace-home` and
+// `tool-identity-init` init containers) is admitted with the per-Org
+// LimitRange defaults of the plan (limitRangeDefaults: default limit =
+// headline/8, default request = that over the overcommit ratio) — so its cost, and with it the stack overhead, depends
 // on the plan in principle. With the #6971 headlines (XL 8 vCPU / 16 GiB →
 // defaults 1 CPU / 2Gi limit, 167m / 683Mi request) the agenity app
 // containers dominate the pod on every plan, so the four figures coincide
@@ -764,13 +764,13 @@ var platformStack = []platformStackWorkload{
 	},
 	{
 		Name: "bp-agenity-0", Release: "bp-agenity",
-		Source: "products/agenity/chart/values.yaml resources (chepherd) and anthropic.credentialResync.resources (creds-resync); " +
-			"seed-claude-creds is unsized in templates/statefulset.yaml and takes the LimitRange defaults",
+		Source: "products/agenity/chart/values.yaml resources (chepherd) and toolIdentity.resources (tool-identity, rendered under openovaMCP.enabled); " +
+			"workspace-home and tool-identity-init are unsized in templates/statefulset.yaml and take the LimitRange defaults",
 		Containers: []containerShape{
-			{RequestsCPU: "1", RequestsMemory: "2Gi", LimitsCPU: "1", LimitsMemory: "2Gi"},      // chepherd
-			{RequestsCPU: "5m", RequestsMemory: "16Mi", LimitsCPU: "50m", LimitsMemory: "64Mi"}, // creds-resync (#6317)
+			{RequestsCPU: "1", RequestsMemory: "2Gi", LimitsCPU: "1", LimitsMemory: "2Gi"},       // chepherd
+			{RequestsCPU: "10m", RequestsMemory: "32Mi", LimitsCPU: "10m", LimitsMemory: "32Mi"}, // tool-identity (AIP-155)
 		},
-		Inits: []containerShape{{}}, // seed-claude-creds → LimitRange defaults of the plan
+		Inits: []containerShape{{}, {}}, // workspace-home, tool-identity-init → LimitRange defaults of the plan
 	},
 	{
 		Name: "oidc-gate-agenity-<slug>", Release: "bp-agenity",
@@ -1333,8 +1333,8 @@ spec:
   reflects the vcluster's own bundled system pods into it (coredns: 20m
   requests / 1000m limits, ratio 50:1 cpu, 2.66:1 mem) and the per-Organization
   platform stack runs here too (the newapi sandbox-bridge sidecar at
-  20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
-  at 10:1, newapi memory at 4:1 — platformStack). A LimitRange ratio applies to
+  20:1, its wait-for-sql-dsn init at 10:1, newapi memory at 4:1 —
+  platformStack). A LimitRange ratio applies to
   EVERY container admitted into the namespace, so any ratio tighter than 50:1
   forbids those pods at admission → coredns Pending → the vcluster runs
   nothing → the customer's first app (WordPress) 404s. Live-confirmed on hw223
