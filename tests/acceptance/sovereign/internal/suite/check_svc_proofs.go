@@ -22,12 +22,17 @@ import (
 //   - pass: every test hook of that revision has phase Succeeded;
 //   - fail: a test hook of that revision has phase Failed;
 //   - none: no hook ran. Either spec.test.enable is not true, or the
-//     condition TestSuccess is True with the message "no test hooks";
+//     condition TestSuccess is True with a message that ends in
+//     noTestHooks, the one helm-controller writes for a chart without a test
+//     hook, or spec.test.filters leaves out every test hook;
 //   - pending: anything else. The release is not settled (its
 //     status.observedGeneration is not metadata.generation, or it has a
 //     Reconciling condition), it has no revision, or its test has not
 //     finished. An empty testHooks while TestSuccess is not True with
-//     "no test hooks" is pending, never none.
+//     that message is pending, never none.
+//
+// A test hook that spec.test.filters leaves out is not judged: Helm never
+// runs it, so it keeps no phase in the newest revision (proofsSkipped).
 //
 // The Ready condition and status.failures are never read: with
 // spec.test.ignoreFailures they do not show the result of the test.
@@ -65,6 +70,13 @@ var proofExempt = map[string]bool{
 	"bp-cnpg-pair": true, "bp-continuum": true, "bp-reflector": true,
 	"bp-sealed-secrets": true, "bp-self-sovereign-cutover": true,
 }
+
+// noTestHooks ends the message of the condition TestSuccess that helm-controller
+// (v1.1.0, internal/reconcile/test.go, fmtTestSuccess) writes when the chart
+// has no test hook: "Helm test succeeded for release <namespace>/<name>.v<n>
+// with chart <chart>@<version>: no test hooks". No release carries the bare
+// text "no test hooks".
+const noTestHooks = ": no test hooks"
 
 // The results of one HelmRelease.
 const (
@@ -177,7 +189,7 @@ func proofOf(hr kube.Object) (result, why string) {
 	hooks, _ := history[0].Get("testHooks").(map[string]any)
 	if len(hooks) == 0 {
 		status, reason, message, found := hr.Condition("TestSuccess")
-		if found && status == "True" && message == "no test hooks" {
+		if found && status == "True" && strings.HasSuffix(message, noTestHooks) {
 			return proofNone, "the chart has no test hook"
 		}
 		if !found {
@@ -190,8 +202,13 @@ func proofOf(hr kube.Object) (result, why string) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	failed, unfinished := []string{}, []string{}
+	skipped := proofsSkipped(hr)
+	failed, unfinished, left := []string{}, []string{}, 0
 	for _, name := range names {
+		if skipped(name) {
+			left++
+			continue
+		}
 		hook, _ := hooks[name].(map[string]any)
 		switch phase := kube.Object(hook).Str("phase"); phase {
 		case "Succeeded":
@@ -206,8 +223,34 @@ func proofOf(hr kube.Object) (result, why string) {
 		return proofFail, "test hook " + strings.Join(failed, ", ") + " failed"
 	case len(unfinished) > 0:
 		return proofPending, "test hook " + strings.Join(unfinished, ", ")
+	case left == len(names):
+		return proofNone, "spec.test.filters leaves out every test hook"
 	}
 	return proofPass, ""
+}
+
+// proofsSkipped reports whether Helm leaves the test hook of a name out by the
+// release's spec.test.filters. helm-controller (v1.1.0,
+// internal/action/test.go) hands the filters to Helm's ReleaseTesting (v3.16.1,
+// pkg/action/release_testing.go), which skips a hook named by a filter with
+// exclude true and, when a filter without exclude names any hook, every
+// remaining hook it does not name. bp-openbao excludes the upstream chart's
+// openbao-server-test this way (slot 08).
+func proofsSkipped(hr kube.Object) func(name string) bool {
+	exclude, include := map[string]bool{}, map[string]bool{}
+	filters, _ := hr.Get("spec", "test", "filters").([]any)
+	for _, f := range filters {
+		filter, _ := f.(map[string]any)
+		name, _ := filter["name"].(string)
+		if out, _ := filter["exclude"].(bool); out {
+			exclude[name] = true
+		} else {
+			include[name] = true
+		}
+	}
+	return func(name string) bool {
+		return exclude[name] || (len(include) > 0 && !include[name])
+	}
 }
 
 // proofsBlueprint is the Blueprint name of a HelmRelease: the name of its

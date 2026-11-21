@@ -1,0 +1,95 @@
+{{- /*
+Function test of bp-catalyst-platform (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The umbrella delivers the Sovereign's control plane, whose two front parts
+are the console's API and its UI. The test asks GET /healthz of the release's
+Services catalyst-api (port 8080) and catalyst-ui (port 80, the UI's 8080) and
+passes when both answer 200. It reads no credential and writes nothing; the
+Pod gets no API token.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the two are up: it
+asks both again every 5 seconds until 60 seconds before its bound T, and fails
+naming the status each Service gave last (000: no answer). T is
+functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the kit states
+the install timeout of its release there (docs/RUNBOOKS.md section 4.5);
+without it T is 300.
+
+It runs in the release namespace, whose baseline policy
+(templates/network-policies/baseline-catalyst-system.yaml) lets the Pods of the
+namespace reach each other and the cluster DNS. The release runs in the primary
+region only, and the follower regions hold no backend of the two Services, so
+the test judges the control plane of its own region. The image is the kubectl
+image the chart's Jobs already use, which carries bash and curl;
+functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: {{ $bound }}
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: API_URL
+          value: {{ printf "http://catalyst-api.%s.svc.cluster.local:8080/healthz" .Release.Namespace | quote }}
+        - name: UI_URL
+          value: {{ printf "http://catalyst-ui.%s.svc.cluster.local:80/healthz" .Release.Namespace | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          # status <url>: the HTTP status of GET <url>; 000 when nothing answers.
+          status() { curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$1" 2>/dev/null || true; }
+          api="000"
+          ui="000"
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
+            api="$(status "${API_URL}")"
+            ui="$(status "${UI_URL}")"
+            [ "${api}" = "200" ] && [ "${ui}" = "200" ] && break
+            sleep 5
+          done
+          [ "${api}" = "200" ] && [ "${ui}" = "200" ] || fail "GET /healthz did not answer 200 from both Services within {{ $wait }} seconds: catalyst-api ${api:-000}, catalyst-ui ${ui:-000}"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} GET /healthz answered 200 from catalyst-api and catalyst-ui"
+  volumes:
+    - name: tmp
+      emptyDir: {}

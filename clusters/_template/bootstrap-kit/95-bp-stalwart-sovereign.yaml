@@ -14,8 +14,9 @@
 #     reads for every sign-in code.
 #
 # disableWait on install and upgrade: the release is Ready once its objects
-# are applied and never waits for the setup Job, so mail never holds the kit.
-# No other slot depends on this one.
+# are applied and its function test has run (failures ignored), and never
+# waits for the setup Job, so mail never holds the kit. No other slot depends
+# on this one.
 #
 # dependsOn:
 #   - bp-cert-manager — the chart renders a cert-manager Certificate.
@@ -86,3 +87,13 @@ spec:
     service:
       mail:
         type: ClusterIP
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)
+  test:
+    enable: true
+    ignoreFailures: true
+    # The function test reads the SMTP banner 220 from the smtp port of the
+    # mail Service; it waits for the server itself until 60 seconds before
+    # its bound T, the install timeout above, stated once as
+    # values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 15m

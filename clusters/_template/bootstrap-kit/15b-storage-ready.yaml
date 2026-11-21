@@ -2,8 +2,10 @@
 # platform/storage-ready). Its hook Job succeeds when the StorageClass named by
 # SOVEREIGN_CNPG_STORAGE_CLASS is the cluster default; after 10 minutes it
 # fails and Flux retries. Slots that bind volumes (16-cnpg first) depend on
-# storage-ready and on no cloud-specific disk-driver release. The chart comes
-# through the HelmRepository bp-flux of slot 03 (the same OCI registry).
+# storage-ready and on no cloud-specific disk-driver release. Its function
+# test, run on install with failures ignored, holds that this class is the one
+# default. The chart comes through the HelmRepository bp-flux of slot 03 (the
+# same OCI registry).
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -29,6 +31,16 @@ spec:
         namespace: flux-system
   values:
     expectedClass: ${SOVEREIGN_CNPG_STORAGE_CLASS}
+    functionTest:
+      timeoutSeconds: 900  # T = install.timeout (15m)
+  test:
+    enable: true
+    ignoreFailures: true
+    # The function test passes when the class of expectedClass is the one
+    # default StorageClass; it reads the classes again until 60 seconds
+    # before its bound T, the install timeout below, stated once as
+    # values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 15m
   # Longer than the 10 minutes the hook Job may wait.
   install:
     timeout: 15m

@@ -47,6 +47,10 @@ spec:
   test:
     enable: true
     ignoreFailures: true
+    # The function test asks GET /healthz of catalyst-api and catalyst-ui
+    # until 60 seconds before its bound T, the install timeout (30m), stated
+    # once as values.functionTest.timeoutSeconds (docs/RUNBOOKS.md section 4.5).
+    timeout: 30m
   # G2 (Refs #2574, 2026-05-29): bp-catalyst-platform is mothership-only.
   # On a secondary CP this HR must NOT install — the Sovereign control
   # plane (catalyst-api / catalyst-ui / controllers / catalyst-catalog /
@@ -1624,6 +1628,8 @@ spec:
   # for console/admin/api. All chart-level Catalyst service config (image refs,
   # OTel endpoints, NATS subjects) lives in products/catalyst/chart/values.yaml.
   values:
+    functionTest:
+      timeoutSeconds: 1800  # T = install.timeout (30m)
     # #4706 — console gateway listener host-ports, per-provider. This wires the
     # CONSOLE_GATEWAY_{HTTPS,HTTP}_PORT cloud-init substitutes into the chart's
     # consoleGateway values so the sovereign-tls-vars CM (CONSOLE_LISTENERS_YAML)

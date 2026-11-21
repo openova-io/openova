@@ -26,7 +26,9 @@ package bootstrapkit
 //	    B1 while the Pod still ends at 300 seconds. (Each chart's render test
 //	    proves that the wait ends 60 seconds before T.) Every targetPath of
 //	    the release's valuesFrom, which Flux reads from the cluster at
-//	    install, gets a stand-in value in the render.
+//	    install, gets a stand-in value in the render, and a value that is
+//	    only a variable without a default, which the cluster's variables
+//	    supply, is left to the chart's default.
 //
 // owed lists the releases that break B1 to B3 and that a later change repairs.
 // The list only shrinks: a release on it that breaks no rule any more fails
@@ -73,11 +75,11 @@ var testNeeds = map[string]string{
 // bp-valkey, which did fail their test on the fresh two-region installs of
 // 20 November 2026 (a role written a minute late, a change made before
 // Reloader watched, a primary that answered after the deadline), left the list
-// with SVC-139.
+// with SVC-139; bp-catalyst-platform left it with SVC-138, which gave the
+// umbrella its first function test.
 var owed = map[string]bool{
 	"bp-cert-manager":           true,
 	"bp-cert-manager-issuers":   true,
-	"bp-catalyst-platform":      true,
 	"bp-cilium":                 true,
 	"bp-cnpg":                   true,
 	"bp-cnpg-pair":              true,
@@ -325,6 +327,31 @@ func ftbSubstitute(s string) string {
 	return s
 }
 
+// ftbBareVariable is a value that is only a variable without a default.
+var ftbBareVariable = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
+
+// ftbWithoutBareVariables returns a copy of values without every key whose
+// value is only a variable without a default. The cluster's variables supply
+// such a value at install, as a ConfigMap supplies a valuesFrom target, and a
+// render has not got them: the empty text would be null, which removes the
+// chart's default of the key (bp-catalyst-platform's parentZones, a list,
+// from ${PARENT_DOMAINS_YAML}). Without the key the chart's default holds.
+func ftbWithoutBareVariables(values map[string]any) map[string]any {
+	out := make(map[string]any, len(values))
+	for k, x := range values {
+		switch v := x.(type) {
+		case map[string]any:
+			x = ftbWithoutBareVariables(v)
+		case string:
+			if ftbBareVariable.MatchString(v) {
+				continue
+			}
+		}
+		out[k] = x
+	}
+	return out
+}
+
 // ftbStandIn is the value B5 gives a valuesFrom target. Flux reads the value
 // from a ConfigMap or Secret of the cluster at install, which a render has
 // not got, and a chart's test may render only when it is set: bp-openbao's
@@ -456,7 +483,7 @@ func TestFunctionTestBound_ChartsReadTheBound(t *testing.T) {
 			t.Errorf("%s (%s): its chart %s is not a chart of platform/ or products/", r.Name, r.File, r.Chart)
 			continue
 		}
-		given, err := ftbWithStandIns(r.Values, r.StandIns)
+		given, err := ftbWithStandIns(ftbWithoutBareVariables(r.Values), r.StandIns)
 		if err != nil {
 			t.Errorf("%s (%s): %v", r.Name, r.File, err)
 			continue
@@ -631,5 +658,20 @@ spec:
 		if _, err := ftbWithStandIns(vals, []string{bad}); err == nil || !strings.HasPrefix(err.Error(), "B5 ") {
 			t.Errorf("B5 the targetPath %q is not refused: %v", bad, err)
 		}
+	}
+
+	// B5 bare variables: a value that is only a variable without a default is
+	// left out at any depth, a variable with a default or inside a text stays,
+	// and the release's values are not changed.
+	withVars := map[string]any{"parentZones": "${PARENT_DOMAINS_YAML}", "keep": "${X:=1}", "host": "console.${FQDN}",
+		"global": map[string]any{"sovereignFQDN": "${FQDN}", "n": 2}}
+	bare := ftbWithoutBareVariables(withVars)
+	switch _, zones := bare["parentZones"]; {
+	case zones || ftbDig(bare, "global", "sovereignFQDN") != nil:
+		t.Errorf("B5 a value that is only a variable without a default is kept: %v", bare)
+	case bare["keep"] != "${X:=1}" || bare["host"] != "console.${FQDN}" || ftbDig(bare, "global", "n") != 2:
+		t.Errorf("B5 a value that is not only a variable without a default is left out: %v", bare)
+	case withVars["parentZones"] != "${PARENT_DOMAINS_YAML}" || ftbDig(withVars, "global", "sovereignFQDN") != "${FQDN}":
+		t.Errorf("B5 leaving out the bare variables changes the release's own values: %v", withVars)
 	}
 }

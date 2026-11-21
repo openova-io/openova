@@ -40,12 +40,18 @@ func proofsStatus(o obj) obj { return o["status"].(obj) }
 
 var (
 	proofsCilium  = proofsHR("flux-system", "bp-cilium", "bp-cilium", map[string]string{"bp-cilium-function-test": "Succeeded"})
-	proofsSealed  = proofsWith(proofsHR("flux-system", "bp-sealed-secrets", "bp-sealed-secrets", nil), proofsNoHooks("True", "no test hooks"))
+	proofsSealed  = proofsWith(proofsHR("flux-system", "bp-sealed-secrets", "bp-sealed-secrets", nil), proofsNoHooks("True", proofsFluxNoHooks))
 	proofsShared  = proofsHR("flux-system", "bp-postgres-shared", "bp-postgres", map[string]string{"bp-postgres-shared-function-test": "Succeeded"})
 	proofsOtelOp  = proofsHR("flux-system", "bp-opentelemetry-operator", "bp-opentelemetry-operator", map[string]string{"t": "Failed"})
 	proofsShop    = proofsWith(proofsHR("acme", "shop", "bp-shop", nil), func(o obj) { delete(o, "spec") })
 	proofsCilFail = proofsHR("flux-system", "bp-cilium", "bp-cilium", map[string]string{"bp-cilium-function-test": "Failed"})
 )
+
+// proofsFluxNoHooks is the message of TestSuccess that helm-controller v1.1.0
+// writes for a chart without a test hook (internal/reconcile/test.go,
+// fmtTestSuccess with "no test hooks"), here for a release of
+// bp-catalyst-platform before the chart had a test.
+const proofsFluxNoHooks = "Helm test succeeded for release catalyst-system/catalyst-platform.v1 with chart bp-catalyst-platform@1.4.2237: no test hooks"
 
 // proofsNoHooks empties testHooks and sets the condition TestSuccess.
 func proofsNoHooks(status, message string) func(o obj) {
@@ -185,13 +191,32 @@ func TestProofsResult(t *testing.T) {
 			for _, p := range phases {
 				hooks := obj{}
 				for k, v := range p {
-					hooks[k] = obj{"phase": v}
+					// A hook that never ran has no phase: helm-controller
+					// writes the field with omitempty.
+					hooks[k] = obj{}
+					if v != "" {
+						hooks[k] = obj{"phase": v}
+					}
 				}
 				list = append(list, obj{"chartName": "bp-cilium", "testHooks": hooks})
 			}
 			proofsStatus(o)["history"] = list
 		}
 	}
+	// filtered gives the release the hooks of one revision and the filters of
+	// spec.test.filters, each "<name>" (include) or "!<name>" (exclude).
+	filtered := func(hooks map[string]string, filters ...string) func(o obj) {
+		return func(o obj) {
+			history(hooks)(o)
+			list := []any{}
+			for _, f := range filters {
+				name, exclude := strings.CutPrefix(f, "!")
+				list = append(list, obj{"name": name, "exclude": exclude})
+			}
+			o["spec"].(obj)["test"].(obj)["filters"] = list
+		}
+	}
+	server := map[string]string{"openbao-function-test": "Succeeded", "openbao-server-test": ""}
 	for name, c := range map[string]struct {
 		change      func(o obj)
 		result, why string
@@ -202,16 +227,22 @@ func TestProofsResult(t *testing.T) {
 		"the newest revision counts":        {history(map[string]string{"a": "Succeeded"}, map[string]string{"a": "Failed"}), proofPass, ""},
 		"the newest revision failed":        {history(map[string]string{"a": "Failed"}, map[string]string{"a": "Succeeded"}), proofFail, "test hook a failed"},
 		"no revision":                       {func(o obj) { delete(proofsStatus(o), "history") }, proofPending, "status.history holds no revision"},
-		"the chart has no test hook":        {proofsNoHooks("True", "no test hooks"), proofNone, "the chart has no test hook"},
+		"the chart has no test hook":        {proofsNoHooks("True", proofsFluxNoHooks), proofNone, "the chart has no test hook"},
 		"awaiting tests is not none":        {proofsNoHooks("Unknown", ""), proofPending, "no test hook is recorded and TestSuccess is Unknown (Fixture)"},
 		"TestSuccess False and no hook yet": {proofsNoHooks("False", "pod failed"), proofPending, "no test hook is recorded and TestSuccess is False (Fixture)"},
 		"no hook and no TestSuccess": {func(o obj) {
 			proofsNoHooks("True", "")(o)
 			proofsStatus(o)["conditions"] = []any{}
 		}, proofPending, "no test hook is recorded and there is no TestSuccess condition"},
-		"test not enabled":  {func(o obj) { delete(o["spec"].(obj), "test") }, proofNone, "spec.test.enable is not true"},
-		"not settled":       {func(o obj) { o["metadata"].(obj)["generation"] = 3 }, proofPending, "status.observedGeneration 2 is not metadata.generation 3"},
-		"still reconciling": {func(o obj) { proofsStatus(o)["conditions"] = kubeConditions("Reconciling", "True") }, proofPending, "the release has a Reconciling condition"},
+		"a hook that never ran is pending":        {history(server), proofPending, "test hook openbao-server-test has phase none"},
+		"a hook the filters exclude is not read":  {filtered(server, "!openbao-server-test"), proofPass, ""},
+		"a hook the filters include is read":      {filtered(server, "openbao-server-test"), proofPending, "test hook openbao-server-test has phase none"},
+		"a hook outside the included is not read": {filtered(server, "openbao-function-test"), proofPass, ""},
+		"an excluded hook hides no failure":       {filtered(map[string]string{"a": "Failed", "b": ""}, "!b"), proofFail, "test hook a failed"},
+		"the filters leave out every hook":        {filtered(server, "!openbao-server-test", "!openbao-function-test"), proofNone, "spec.test.filters leaves out every test hook"},
+		"test not enabled":                        {func(o obj) { delete(o["spec"].(obj), "test") }, proofNone, "spec.test.enable is not true"},
+		"not settled":                             {func(o obj) { o["metadata"].(obj)["generation"] = 3 }, proofPending, "status.observedGeneration 2 is not metadata.generation 3"},
+		"still reconciling":                       {func(o obj) { proofsStatus(o)["conditions"] = kubeConditions("Reconciling", "True") }, proofPending, "the release has a Reconciling condition"},
 	} {
 		if result, why := proofOf(cilium(c.change)); result != c.result || why != c.why {
 			t.Errorf("%s: got %s %q, want %s %q", name, result, why, c.result, c.why)
@@ -219,6 +250,31 @@ func TestProofsResult(t *testing.T) {
 	}
 	if got := proofsBlueprint(cilium(func(o obj) { delete(o["spec"].(obj), "chart") })); got != "bp-cilium" {
 		t.Errorf("without spec.chart the Blueprint is the chart of the newest revision: got %q", got)
+	}
+}
+
+// TestProofsNoneOnlyFromFluxMessage: a release without a recorded test hook
+// reads as none only when TestSuccess is True with the message helm-controller
+// writes for a chart without a test hook, which ends in ": no test hooks". The
+// bare text "no test hooks", which no release carries, and every other message
+// read as pending.
+func TestProofsNoneOnlyFromFluxMessage(t *testing.T) {
+	const other = "Helm test succeeded for release flux-system/bp-cilium.v2 with chart bp-cilium@1.4.20: 1 test hook completed successfully"
+	for name, c := range map[string]struct {
+		status, message, result, why string
+	}{
+		"the message of Flux":       {"True", proofsFluxNoHooks, proofNone, "the chart has no test hook"},
+		"the bare text":             {"True", "no test hooks", proofPending, "no test hook is recorded and TestSuccess is True (Fixture)"},
+		"hooks that completed":      {"True", other, proofPending, "no test hook is recorded and TestSuccess is True (Fixture)"},
+		"the suffix on a failure":   {"False", "Helm test failed for release flux-system/bp-cilium.v2 with chart bp-cilium@1.4.20: no test hooks", proofPending, "no test hook is recorded and TestSuccess is False (Fixture)"},
+		"the suffix while awaiting": {"Unknown", proofsFluxNoHooks, proofPending, "no test hook is recorded and TestSuccess is Unknown (Fixture)"},
+	} {
+		var o kube.Object
+		b, _ := json.Marshal(proofsWith(proofsCilium, proofsNoHooks(c.status, c.message)))
+		_ = json.Unmarshal(b, &o)
+		if result, why := proofOf(o); result != c.result || why != c.why {
+			t.Errorf("%s: got %s %q, want %s %q", name, result, why, c.result, c.why)
+		}
 	}
 }
 

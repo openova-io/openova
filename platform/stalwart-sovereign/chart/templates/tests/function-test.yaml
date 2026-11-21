@@ -1,0 +1,107 @@
+{{- /*
+Function test of bp-stalwart-sovereign (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The mail server sends the console's sign-in codes. The test opens a TCP
+connection to the smtp port of the release's mail Service,
+<fullname>-mail.<namespace>.svc.cluster.local, reads the server's greeting and
+passes when its first line is an SMTP banner, the reply code 220; it then says
+QUIT. It reads no credential and writes nothing.
+
+The connection and the greeting are read by bash itself (/dev/tcp), so the
+test needs no mail tool in its image. Opening /dev/tcp has no time limit of its
+own, so every attempt runs in a shell of its own under `timeout 15`.
+
+The kit installs this release without waiting for its workloads
+(install.disableWait), so at install the test runs before the server is up: it
+tries again every 5 seconds until 60 seconds before its bound T, and fails
+naming the Service and the last answer when no banner came by then. T is
+functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds: the kit states
+the install timeout of its release there (docs/RUNBOOKS.md section 4.5);
+without it T is 300.
+
+It renders only when the chart installs the mail server (stalwart.enabled and
+mailMode local), like every other template of the chart. The test Pod carries
+neither selector label of the server, so the chart's NetworkPolicy does not
+select it; that policy lets any Pod reach port 25 of the server. The image is
+the kubectl image the kit already pulls, which carries bash, behind
+global.imageRegistry like the chart's other images; functionTest.image
+overrides it.
+*/ -}}
+{{- if include "bp-stalwart-sovereign.active" . }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
+{{- $g := .Values.global | default dict }}
+{{- $image := $ft.image | default (printf "%s/alpine/k8s:1.31.4" ($g.imageRegistry | default "harbor.openova.io/proxy-dockerhub")) }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: {{ $bound }}
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: SMTP_HOST
+          value: {{ printf "%s-mail.%s.svc.cluster.local" (include "bp-stalwart-sovereign.fullname" .) .Release.Namespace | quote }}
+        - name: SMTP_PORT
+          value: {{ .Values.service.mail.ports.smtp | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { printf '%s' "$1" | tr -d '\r' | tr '\n' ' ' | cut -c1-160; }
+          # banner: opens the smtp port, prints the first line the server sends, then says QUIT.
+          banner() {
+            exec 3<>"/dev/tcp/${SMTP_HOST}/${SMTP_PORT}" || return 1
+            IFS= read -r -t 10 line <&3 || return 1
+            printf 'QUIT\r\n' >&3
+            exec 3<&-
+            printf '%s\n' "${line%$'\r'}"
+          }
+          export -f banner
+          out=""
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
+            out="$(timeout 15 bash -c banner 2>&1)" && [ "${out:0:3}" = "220" ] && break
+            sleep 5
+          done
+          [ "${out:0:3}" = "220" ] || fail "no SMTP banner 220 from ${SMTP_HOST}:${SMTP_PORT} within {{ $wait }} seconds: $(oneline "${out}")"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} ${SMTP_HOST}:${SMTP_PORT} greets with the SMTP banner: $(oneline "${out}")"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

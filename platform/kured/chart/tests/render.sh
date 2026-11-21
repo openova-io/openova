@@ -12,6 +12,8 @@
 #    contract of docs/RUNBOOKS.md section 4.5 (scripts/check-function-test.py).
 # 3: the node-patch-config loop writes a file only when it differs.
 # 4: the function test passes and fails when it should, against a stub kubectl.
+# 5: functionTest.timeoutSeconds is the bound T: the Pod ends at T, the test
+#    waits for a DaemonSet that is ready late and gives up 60 seconds before T.
 set -euo pipefail
 CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 CHECK="$(cd "$CHART_DIR/../../.." && pwd)/scripts/check-function-test.py"
@@ -151,21 +153,59 @@ PATH="$TMP/bin:$PATH" sh "$TMP/loop-local.sh" > "$TMP/run2.txt" 2>&1 || fail "th
 [ "$(ls "$TMP/host" | wc -l)" = 2 ] || fail "the loop left another file: $(ls "$TMP/host")"
 
 echo "[kured] case 4: the function test against a stub kubectl"
-local_copy "$TMP/test.sh" > "$TMP/test-local.sh"
-run_test() { # <what the stub kubectl prints> <expected exit code>
-  printf '#!/bin/sh\necho "%s"\n' "$1" > "$TMP/bin/kubectl"
+# The stub sleep of case 3 ends the shell that calls it; the waits of the test need one that returns at once.
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/sleep"
+mkdir -p "$TMP/run"
+# local_test <script>: the test script with its /tmp under $TMP/run (first: $TMP itself may be under /tmp) and the
+# node's and the ConfigMap's folders under $TMP.
+local_test() { sed -e "s#/tmp/#$TMP/run/#g" "$1" > "$TMP/test-run.sh"; local_copy "$TMP/test-run.sh"; }
+local_test "$TMP/test.sh" > "$TMP/test-local.sh"
+# run_test <what the stub kubectl prints> <expected exit code> [<reads answered "1 0" first> [<SECONDS at the start>]]
+# The stub answers the first reads of the DaemonSet with one node and no Pod ready, then with the counts given; the
+# kube-access-lib lines (kubectl config ...) are not reads. bash takes SECONDS from the environment.
+run_test() {
+  printf '#!/bin/sh\ncase "$1" in config) exit 0 ;; esac\nn=$(( $(cat "%s" 2>/dev/null || echo 0) + 1 )); echo "$n" > "%s"\nif [ "$n" -le %s ]; then echo "1 0"; else echo "%s"; fi\n' \
+    "$TMP/count" "$TMP/count" "${3:-0}" "$1" > "$TMP/bin/kubectl"
   chmod +x "$TMP/bin/kubectl"
+  rm -f "$TMP/count"
   code=0
-  PATH="$TMP/bin:$PATH" TEST_NAMESPACE=kube-system NODE_NAME=n1 sh "$TMP/test-local.sh" > "$TMP/out.txt" 2>&1 || code=$?
-  [ "$code" = "$2" ] || fail "kubectl '$1': exit $code, expected $2: $(cat "$TMP/out.txt")"
+  PATH="$TMP/bin:$PATH" TEST_NAMESPACE=kube-system NODE_NAME=n1 SECONDS="${4:-0}" bash "$TMP/test-local.sh" > "$TMP/out.txt" 2>&1 || code=$?
+  [ "$code" = "$2" ] || fail "kubectl '$1' after ${3:-0} reads: exit $code, expected $2: $(cat "$TMP/out.txt")"
   verdict="$([ "$2" = 0 ] && echo pass || echo fail)"
-  tail -n 1 "$TMP/out.txt" | grep -q "^FUNCTION-TEST $verdict bp-kured " || fail "kubectl '$1': last line: $(tail -n 1 "$TMP/out.txt")"
+  last="$(tail -n 1 "$TMP/out.txt")"
+  case "$last" in "FUNCTION-TEST $verdict bp-kured "*) ;; *) fail "kubectl '$1' after ${3:-0} reads: last line: $last" ;; esac
 }
 run_test "3 3" 0
-run_test "3 2" 1
-run_test "0 0" 1
+run_test "3 3" 0 3
+run_test "3 2" 1 0 239
+grep -q -x -F 'FUNCTION-TEST fail bp-kured not ready within 240 seconds: the DaemonSet kured has 2 of 3 Pods ready' "$TMP/out.txt" \
+  || fail "without functionTest.timeoutSeconds the wait does not end at second 240 of 300 naming the DaemonSet"
+run_test "0 0" 1 0 239
 printf 'Unattended-Upgrade::Automatic-Reboot "true";\n' > "$TMP/host/52unattended-upgrades-catalyst"
-run_test "3 3" 1
+run_test "3 3" 1 0 239
 rm "$TMP/host/52unattended-upgrades-catalyst"
-run_test "3 3" 1
+run_test "3 3" 1 0 239
+grep -q -F 'node n1 has no file /etc/apt/apt.conf.d/52unattended-upgrades-catalyst' "$TMP/out.txt" || fail "a missing file is not named"
+cp "$TMP/config/52unattended-upgrades-catalyst" "$TMP/host/"
+
+echo "[kured] case 5: functionTest.timeoutSeconds is the bound T: the Pod ends at T and the wait 60 seconds before it"
+TEST=templates/tests/function-test.yaml
+helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=example/shell:1 --show-only "$TEST" > "$TMP/default-test.yaml"
+grep -q -x '  activeDeadlineSeconds: 300' "$TMP/default-test.yaml" || fail "without functionTest.timeoutSeconds the test Pod does not end at 300 seconds"
+helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=example/shell:1 --set functionTest.timeoutSeconds=900 \
+  --show-only "$TEST" > "$TMP/bound.yaml" || fail "the render with functionTest.timeoutSeconds=900 errored"
+grep -q -x '  activeDeadlineSeconds: 900' "$TMP/bound.yaml" || fail "with functionTest.timeoutSeconds=900 the test Pod does not end at 900 seconds"
+# pod_script <render>: the block under args of the test Pod, as the shell reads it. On the default render it must equal
+# the script case 2 read with PyYAML, so the bound render is read the same way.
+pod_script() {
+  awk '/^      args:$/{a=1; next} a && /^        - [|]$/{b=1; next} b && /^$/{print; next} b && /^          /{print substr($0, 11); next} b{exit}' "$1"
+}
+pod_script "$TMP/default-test.yaml" > "$TMP/default-test.sh"
+cmp -s "$TMP/default-test.sh" "$TMP/test.sh" || fail "the script read from the default render differs from the one case 2 read"
+pod_script "$TMP/bound.yaml" > "$TMP/bound-test.sh"
+local_test "$TMP/bound-test.sh" > "$TMP/test-local.sh"
+run_test "3 3" 0 3 600
+run_test "3 2" 1 0 839
+grep -q -x -F 'FUNCTION-TEST fail bp-kured not ready within 840 seconds: the DaemonSet kured has 2 of 3 Pods ready' "$TMP/out.txt" \
+  || fail "under T 900 the failure does not name the DaemonSet and the wait of 840 seconds"
 echo "render: all cases passed"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # bp-storage-ready: render and behaviour test of the storage gate. Needs bash,
 # helm and python3 with PyYAML; no cluster. Case 1: the default render works.
-# Case 2: the render holds exactly the four hooks with their phases, weights
-# and values. Case 3: the Job's script, run against a stub kubectl, exits 0
+# Case 2: the render without the test hooks holds exactly the four hooks with
+# their phases, weights and values (tests/function-test-render.sh checks the
+# function test). Case 3: the Job's script, run against a stub kubectl, exits 0
 # only when the expected class carries the default annotation.
 # Usage: bash tests/storage-ready-render.sh [CHART_DIR]
 set -euo pipefail
@@ -11,6 +12,10 @@ CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
+if [ ! -d "$CHART_DIR/charts" ] || [ -z "$(ls -A "$CHART_DIR/charts" 2>/dev/null)" ]; then
+  # A helm home of its own: the build reads no repository list of the host.
+  HELM_CONFIG_HOME="$TMP/hc" HELM_CACHE_HOME="$TMP/hk" HELM_DATA_HOME="$TMP/hd" helm dependency build "$CHART_DIR" >/dev/null
+fi
 
 echo "[storage-ready] case 1: default render"
 helm template storage-ready "$CHART_DIR" --namespace flux-system > "$TMP/default.yaml" \
@@ -26,7 +31,7 @@ PY
 echo "  PASS"
 
 echo "[storage-ready] case 2: render with expectedClass=durable-ssd"
-helm template storage-ready "$CHART_DIR" --namespace flux-system \
+helm template storage-ready "$CHART_DIR" --namespace flux-system --skip-tests \
   --set expectedClass=durable-ssd > "$TMP/set.yaml" || fail "the render with expectedClass errored"
 python3 - "$TMP/set.yaml" "$TMP/gate.sh" <<'PY' || fail "case 2"
 import sys, yaml
