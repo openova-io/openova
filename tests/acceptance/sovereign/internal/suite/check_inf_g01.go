@@ -65,8 +65,9 @@ import (
 //     Ready. None fails the step;
 //  6. creates a namespace of its own and one Pod on the chosen worker that
 //     creates the file kured looks for, and deletes the namespace;
-//  7. reads the nodes every rebootEvery until the chosen worker has a new
-//     boot identifier, no node is unschedulable, every node is Ready, none
+//  7. reads the nodes and every Pod of the region every rebootEvery until
+//     the chosen worker has a new boot identifier, no node is
+//     unschedulable, every node is Ready, none
 //     of the workload Pods that ran on the worker in step 3 is still on it
 //     (they moved off during the drain), the DaemonSet of kured has every
 //     Pod ready (its Pod on the worker among them: the node is back), every
@@ -81,8 +82,14 @@ import (
 //     unschedulable in one reading,
 //     when a node is unschedulable for longer than drain timeout + lock
 //     release delay, when the worker shows a new boot identifier and was
-//     never read unschedulable, or when a workload Pod of step 3 is still on
-//     the worker after its restart. A reading that fails is no observation.
+//     never read unschedulable, when a workload Pod of step 3 is still on
+//     the worker after its restart, or when a controller of step 3 does not
+//     have as many Ready Pods as it had then within rebootBack of the first
+//     reading in which none of its Pods of step 3 is on the worker (gone,
+//     being deleted or ended); the reason names the controller, its images
+//     and the seconds, and the evidence holds for each controller the
+//     seconds from that reading to the first in which it has them back. A
+//     reading that fails is no observation.
 //
 // The check never restarts a node itself and never changes kured.
 const (
@@ -104,6 +111,17 @@ const (
 	rebootHash    = "pod-template-hash" // the label by which a Pod of a Deployment's ReplicaSet names its hash
 	rebootByFront = "the worker that runs a Ready endpoint of the registry front harbor/harbor"
 	rebootByName  = "the first worker by name that runs a workload Pod: no worker runs a Ready endpoint of the registry front harbor/harbor"
+
+	// rebootBack is how long a controller of a moved Pod may take to have its
+	// Ready Pods of step 3 back, from the first reading in which none of its
+	// Pods of step 3 is on the worker. Measured on a healthy drain of a
+	// worker of a two-region install on 20 November: its 28 moved Pods were
+	// Ready 1 to 76 seconds after their creation (median 31), all within 84
+	// seconds of the first eviction; in the other region the Pods whose new
+	// node held their image, within 36 seconds. 180 seconds is about twice
+	// the slowest. A Pod whose image copy stalls for minutes fails here; the
+	// time limit of the node's restart alone would let it come back late.
+	rebootBack = 180 * time.Second
 )
 
 // rebootPod creates the sentinel file of its node and ends. Its values are
@@ -367,10 +385,12 @@ type rebootPods struct {
 }
 
 // rebootMoved is a controller of a Pod that the drain moves: its Ready Pods
-// before the reboot and the images of the moved Pod.
+// before the reboot, the images of the moved Pod and the keys of its Pods on
+// the worker.
 type rebootMoved struct {
 	ready  int
 	images string
+	pods   []string
 }
 
 // pods reads every Pod of the region once. A workload Pod is one that is not
@@ -468,15 +488,50 @@ func (r rebootPods) readyBy() map[string]int {
 }
 
 // moved returns the controllers of the Pods moving, each with its Ready Pods
-// now and the images of the moved Pod.
+// now, the images of the moved Pod and the keys of its Pods moving.
 func (r rebootPods) moved(moving []string) map[string]rebootMoved {
 	out, ready := map[string]rebootMoved{}, r.readyBy()
 	for _, p := range r.pods {
 		if p.controller != "" && slices.Contains(moving, p.key) {
-			out[p.controller] = rebootMoved{ready: ready[p.controller], images: p.images}
+			out[p.controller] = rebootMoved{ready: ready[p.controller], images: p.images, pods: append(out[p.controller].pods, p.key)}
 		}
 	}
 	return out
+}
+
+// returned judges one reading of the Pods, made at at, against rebootBack.
+// It notes in left when each controller of moved first had none of its
+// Pods of step 3 on node, and in back the seconds from then to the first
+// reading in which it has its Ready Pods of step 3 again, counted up to a
+// whole second. It returns, sorted, each controller that is not back within
+// rebootBack of leaving, or was first read back later.
+func (r rebootPods) returned(node string, moved map[string]rebootMoved, left map[string]time.Time, back map[string]int, at time.Time) []string {
+	ready, late := r.readyBy(), []string{}
+	for _, name := range slices.Sorted(maps.Keys(moved)) {
+		m := moved[name]
+		if _, done := back[name]; done {
+			continue
+		}
+		if _, gone := left[name]; !gone && len(r.stayed(node, m.pods)) == 0 {
+			left[name] = at
+		}
+		since, gone := left[name]
+		if !gone {
+			continue
+		}
+		took := at.Sub(since)
+		seconds := int((took + time.Second - 1) / time.Second)
+		if ready[name] >= m.ready {
+			back[name] = seconds
+		}
+		switch {
+		case took > rebootBack && ready[name] >= m.ready:
+			late = append(late, fmt.Sprintf("%s has its %d Ready Pods back after %d seconds (%s)", name, m.ready, seconds, m.images))
+		case took > rebootBack:
+			late = append(late, fmt.Sprintf("%s has %d of %d Ready Pods after %d seconds (%s)", name, ready[name], m.ready, seconds, m.images))
+		}
+	}
+	return late
 }
 
 // front returns the nodes that run a Ready endpoint of the registry's front:
@@ -700,18 +755,21 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
+	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back within "+rebootBack.String()+" of its Pods leaving the worker, and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
 		return c.watch(ctx, region, k, chosen, moving, moved, before, ready, placed, ev)
 	})
 }
 
-// watch reads the nodes until the chosen worker has restarted with its
-// workload Pods moved off, every node is schedulable and Ready, kured has
-// every Pod ready, every HelmRelease of ready is Ready again, every
-// controller of moved has its Ready Pods back and no container waits on an
-// image, a rule is broken or the time limit ends.
+// watch reads the nodes and the Pods until the chosen worker has restarted
+// with its workload Pods moved off, every node is schedulable and Ready,
+// kured has every Pod ready, every HelmRelease of ready is Ready again, every
+// controller of moved has its Ready Pods back, each within rebootBack of its
+// Pods leaving the worker, and no container waits on an image, a rule is
+// broken or the time limit ends.
 func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, moved map[string]rebootMoved, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
 	since, drained, oldIDs, newIDs := map[string]time.Time{}, map[string]bool{}, map[string]string{}, map[string]string{}
+	left, back := map[string]time.Time{}, map[string]int{}
+	ev["controllers_seconds_back"] = back
 	for _, name := range chosen {
 		oldIDs[name] = before[name].boot
 	}
@@ -773,25 +831,35 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 				newIDs[name] = node.boot
 			}
 			last = fmt.Sprintf("%d of %d nodes restarted, %d unschedulable, %d not Ready", len(newIDs), len(chosen), len(down), notReady)
-			if len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
-				all, err := c.pods(ctx, region)
-				if stayed := all.stayed(chosen[0], moving); err == nil && len(stayed) > 0 {
+			all, err := c.pods(ctx, region)
+			late := []string{}
+			if err == nil {
+				late = all.returned(chosen[0], moved, left, back, c.now())
+			}
+			if len(late) > 0 {
+				pulls := ""
+				if len(all.pulls) > 0 {
+					pulls = fmt.Sprintf("; %d containers of the region wait on an image: %s", len(all.pulls), strings.Join(all.pulls, ", "))
+				}
+				return fmt.Errorf("%d of %d controllers whose Pods the drain moved are not back within %d seconds of their Pods leaving %s: %s%s", len(late), len(moved), int(rebootBack.Seconds()), chosen[0], strings.Join(late, ", "), pulls)
+			}
+			if err == nil && len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
+				if stayed := all.stayed(chosen[0], moving); len(stayed) > 0 {
 					return fmt.Errorf("%d of the %d workload Pods that ran on %s are still on it after its restart, so its drain did not move them off: %s", len(stayed), len(moving), chosen[0], strings.Join(stayed, ", "))
 				}
 				var waiting string
-				if err == nil {
-					ev["workloads_moved_off"] = len(moving)
-					waiting, err = c.recovery(ctx, region, ready, moved, all, ev)
-				}
-				switch {
-				case err != nil:
-					failed++
-					ev["failed_readings"] = failed
-				case waiting == "":
+				ev["workloads_moved_off"] = len(moving)
+				waiting, err = c.recovery(ctx, region, ready, moved, all, ev)
+				if err == nil && waiting == "" {
 					return nil
-				default:
+				}
+				if err == nil {
 					last += "; " + waiting
 				}
+			}
+			if err != nil {
+				failed++
+				ev["failed_readings"] = failed
 			}
 		}
 		if now.Sub(placed) >= k.limit() {
