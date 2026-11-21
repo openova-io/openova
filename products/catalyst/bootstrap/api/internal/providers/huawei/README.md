@@ -58,3 +58,15 @@ the platform is to be multi-cloud, the abstraction-with-stubs IS the
 target-state shape. Punting the Huawei stub to Wave 3 would mean Wave
 2 lands a single-impl interface that doesn't prove the interface is
 actually polymorphic — defeating the point of the refactor.
+
+## Wipe: removed before the destroy (CLD-116)
+
+`tofu destroy` cannot remove three objects on this cloud, so `Wipe` first runs
+three named steps (`wipe_before_destroy.go`) with the purge's own calls, and
+the report's `providerPurge` names what each removed (an empty list when
+nothing): `before_destroy_buckets` (the deployment's bucket, emptied and
+removed), `before_destroy_listeners` (each load-balancer listener, its default
+pool unset first, read back as gone before the next) and
+`before_destroy_nat_rules` (each SNAT and DNAT rule, until the gateway lists
+none). A step that stops writes `<key>: <reason>` to the errors; the destroy
+and the purge run all the same. The module's `force_destroy` stays.
