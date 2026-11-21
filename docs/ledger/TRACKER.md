@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T02:45:03Z` |
+| Last refreshed | `2026-11-21T03:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-21T02:30 | [#8563](https://github.com/openova-io/openova/pull/8563) | #7087 | docs(ledger): plan update |
+| 2026-11-21T02:52 | [#8562](https://github.com/openova-io/openova/pull/8562) | #8560 | fix(providers): the wipe removes the bucket, the listeners a |
 | 2026-11-21T02:14 | [#8559](https://github.com/openova-io/openova/pull/8559) | #7087 | docs(ledger): plan update |
 | 2026-11-21T02:23 | [#8558](https://github.com/openova-io/openova/pull/8558) | #8556 | fix(cutover): steps 03 and 11 and the day-two reconciler mov |
 | 2026-11-21T01:17 | [#8555](https://github.com/openova-io/openova/pull/8555) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:50 | [#8523](https://github.com/openova-io/openova/pull/8523) | #5488 | fix(cutover): the first step does not fail because the deplo |
 | 2026-11-20T20:42 | [#8522](https://github.com/openova-io/openova/pull/8522) | #8494 | fix(install): the image pre-flight fills a cache entry that  |
-| 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
 
 ---
 
