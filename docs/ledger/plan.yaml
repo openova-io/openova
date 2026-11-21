@@ -7256,26 +7256,32 @@ packages:
   size: S
   lane: CONTROL
   depends_on: []
-  after: [CLD-102, CLD-103, CLD-104, CLD-105, CLD-109, CLD-111, CLD-114, CLD-115, SVC-040]
+  after: []
   touches:
+  - products/catalyst/bootstrap/api/internal/providers/huawei/README.md
   - products/catalyst/bootstrap/api/internal/providers/huawei/provider.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/wipe_before_destroy.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/wipe_before_destroy_test.go
-  - products/catalyst/bootstrap/api/internal/providers/huawei/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'if err := prov.Destroy(ctx, destroyReq, provEvents); err != nil {' products/catalyst/bootstrap/api/internal/providers/huawei/provider.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go test -count=1 ./internal/providers/... && test \"$(NO_COLOR=1 go test -count=1 -v -run '^(TestRemoveBeforeDestroy_RemovesTheThreeAndNamesThem|TestRemoveBeforeDestroy_AFailedReadIsNotGone|TestRemoveBeforeDestroy_NothingToRemove|TestWipe_RemovesBeforeTheDestroy)$' ./internal/providers/huawei/ | grep -c '^--- PASS')\" = 4"
+  - id: A2
+    run: "f=products/catalyst/bootstrap/api/internal/providers/huawei && test \"$(grep -c -F 'removeBeforeDestroy(ctx, beforeDestroyCloud{' $f/provider.go)\" = 1 && test \"$(grep -c -F 'prov.Destroy(ctx, destroyReq' $f/provider.go)\" = 0 && test \"$(grep -c -F 'endpoint := obsEndpointFor(region)' $f/provider.go)\" = 1 && for k in before_destroy_buckets before_destroy_listeners before_destroy_nat_rules; do grep -q -F \"$k\" $f/README.md; done && python3 scripts/check-provider-leaks.py --check && bash scripts/check-provider-contract.sh && cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/providers/..."
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The wipe''s own destroy finishes on the reference cloud: before it, the wipe removes the bucket, the load balancers'' listeners and the NAT gateways'' rules that the destroy could not remove on 20 November, and the wipe report names each of them.'
+  delivers: Before `tofu destroy` the Huawei adapter's Wipe removes the deployment's bucket, every listener of the Sovereign's load balancers and every SNAT and DNAT rule of its NAT gateways by three named steps, reads each back as gone, and names them in the wipe report's providerPurge under before_destroy_buckets, before_destroy_listeners and before_destroy_nat_rules.
 - id: CLD-121
   title: Providers routes
   area: CLD
@@ -7913,7 +7919,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161, CLD-166]
-  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-105, CLD-111, CLD-114, CLD-115, CLD-133, CLD-185, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-149, SOV-154, SOV-335, SOV-342, SEC-030, SEC-040, SEC-152, SEC-153, SEC-154, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, SVC-159, SVC-160, SVC-170, AIP-201, INF-060]
+  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-105, CLD-111, CLD-114, CLD-115, CLD-116, CLD-133, CLD-185, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-149, SOV-154, SOV-335, SOV-342, SEC-030, SEC-040, SEC-152, SEC-153, SEC-154, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, SVC-159, SVC-160, SVC-170, AIP-201, INF-060]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -19172,7 +19178,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
