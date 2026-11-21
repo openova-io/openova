@@ -226,8 +226,17 @@ func (p *Provider) ValidateCreds(ctx context.Context, creds providers.ProviderCr
 	}
 }
 
+// tofuDestroy runs `tofu destroy` for Wipe. A package variable only so tests
+// can replace the destroy.
+var tofuDestroy = func(ctx context.Context, req provisioner.Request, events chan<- provisioner.Event) error {
+	return provisioner.New().Destroy(ctx, req, events)
+}
+
 // Wipe runs the canonical purge sequence:
 //
+//  0. Before it (CLD-116, wipe_before_destroy.go), by named steps, what the
+//     destroy cannot remove on this cloud: the bucket, the listeners and the
+//     NAT rules; the report names them under before_destroy_<step>.
 //  1. `tofu destroy` against the per-deployment workdir.
 //  2. Huawei-side orphan sweep — query ECS / VPC / EIP / SG by the
 //     canonical `catalyst.openova.io/deployment-id` tag and delete in
@@ -256,6 +265,13 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		WipedAt:       time.Now().UTC(),
 	}
 
+	region := regionFromCreds(spec.Creds)
+	client := httpClientFor(spec.Creds)
+
+	// Step 0 (CLD-116) — remove first what the destroy cannot remove here.
+	removeBeforeDestroy(ctx, beforeDestroyCloud{client: client, hw: hw, region: region,
+		sovereignFQDN: spec.SovereignFQDN, deployment: spec.DeploymentID, progress: progress}, out)
+
 	// Step 1 — tofu destroy. Build a destroy Request that carries the
 	// Huawei creds parsed from spec.Creds so writeTfvars renders a
 	// tfvars file with valid AK/SK/project_id/region — provisioner.Destroy
@@ -282,8 +298,7 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 			progress("tofu: " + e.Message)
 		}
 	}()
-	prov := provisioner.New()
-	if err := prov.Destroy(ctx, destroyReq, provEvents); err != nil {
+	if err := tofuDestroy(ctx, destroyReq, provEvents); err != nil {
 		out.Errors = append(out.Errors, "tofu destroy: "+err.Error())
 	} else {
 		out.TofuDestroyed = true
@@ -317,8 +332,6 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// G104 zero-touch gate (never silently leaked). bastion-* stays
 	// hard-protected throughout (verifyZeroOrphans + every list*ByName
 	// helper exclude it).
-	region := regionFromCreds(spec.Creds)
-	client := httpClientFor(spec.Creds)
 	const maxPurgePasses = 6
 	for pass := 1; pass <= maxPurgePasses; pass++ {
 		if err := purgeHuaweiResources(ctx, client, hw, region, spec.SovereignFQDN, spec.DeploymentID, progress, out); err != nil {
@@ -410,7 +423,7 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	}
 
 	// Step 3 — OBS bucket purge (best effort).
-	endpoint := fmt.Sprintf("obs.%s.kom4dc.nationalcloud.om", region)
+	endpoint := obsEndpointFor(region)
 	bucketCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	removed, berr := purgeOBSBuckets(bucketCtx, endpoint, hw, region, spec.SovereignFQDN, progress)
