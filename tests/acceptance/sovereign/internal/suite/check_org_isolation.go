@@ -78,7 +78,17 @@ import (
 //	      and the DNS Pod of B in r, so these targets answer.
 //	ISO-3 it times out on the ClusterIP of openbao/openbao:8200,
 //	      gitea/gitea-http:3000 and catalyst-system/catalyst-api:8080, each a
-//	      Service with a ready endpoint (or the row fails). A headless Service
+//	      Service that is shown to listen in r (or the row fails): it has a
+//	      ready endpoint in r, or it has none there and is a Cilium global and
+//	      shared Service (its annotations service.cilium.io/global and
+//	      service.cilium.io/shared in r), whose backends answer from another
+//	      region over the mesh, and then a positive control connects to its
+//	      ClusterIP from a dial Pod on the host network of r. That Pod dials as
+//	      the node, which every platform target admits as it admits the
+//	      kubelet; the Pod of an Organization cannot be the control, the fence
+//	      denies it. A secondary region runs no catalyst-api: there the Service
+//	      is the global stub of bp-catalyst-edge-routes (slot 13e) and its
+//	      backends are the Pods of the primary region. A headless Service
 //	      (gitea/gitea-http has clusterIP None) has no ClusterIP: it is dialed
 //	      at every ready endpoint address on its port, one row each, and has
 //	      at least one such endpoint (or the row fails).
@@ -132,6 +142,12 @@ const (
 	isoKubeletPort     = 10250
 	isoForwardWait     = 30 * time.Second // the longest wait for kubectl port-forward to print its local address
 	isoVClusterAPIPort = 443
+	// isoGlobal and isoShared are the Cilium annotations of a ClusterMesh
+	// global Service: Cilium merges the Services of that name and namespace
+	// of every region into one, whose backends are those of every region that
+	// shares them (shared is true when it is not set).
+	isoGlobal = "service.cilium.io/global"
+	isoShared = "service.cilium.io/shared"
 )
 
 // isoPlatform are the Services of ISO-3: OpenBao, the Git service and catalyst-system.
@@ -215,7 +231,11 @@ type isoJourney struct {
 	dir     string
 	a, b    *isoOrg
 	targets map[string]*isoTargets
-	app     struct {
+	// controls are the dialers of the positive control of a global Service,
+	// by region ID: one Pod on the host network in the namespace iso-ctl-<tag>
+	// of the host, created only in a region that needs it.
+	controls map[string]*Dialer
+	app      struct {
 		name, namespace, uid, fqdn string
 		created                    bool
 	}
@@ -235,7 +255,7 @@ func (c orgIsolationCheck) Run(ctx context.Context, cc *CheckContext, rec StepRe
 	defer func() { _ = os.RemoveAll(dir) }()
 	run := strings.ToLower(NewRunID(time.Now())) // 20261119t101500z-abcd
 	tag := run[9:15] + run[len(run)-4:]
-	j := &isoJourney{c: c, cc: cc, rec: rec, dir: dir, tag: tag, ns: "iso-" + tag, targets: map[string]*isoTargets{},
+	j := &isoJourney{c: c, cc: cc, rec: rec, dir: dir, tag: tag, ns: "iso-" + tag, targets: map[string]*isoTargets{}, controls: map[string]*Dialer{},
 		a: &isoOrg{label: "A", slug: "iso-a-" + tag, plan: isoPlanA, vc: map[string]*isoVC{}},
 		b: &isoOrg{label: "B", slug: "iso-b-" + tag, plan: isoPlanB, vc: map[string]*isoVC{}}}
 	j.run(ctx)
@@ -567,8 +587,11 @@ func isoNamespaces(ctx context.Context, k kubectlFunc, r kube.Region) ([]string,
 func (j *isoJourney) readTargets(ctx context.Context) bool {
 	ok := true
 	for _, region := range j.cc.Regions {
-		ok = j.step("ISO: the targets of region "+region.ID+" are read: the DNS Service and a DNS Pod of B, the Services of ISO-3 and the API server, each with a ready endpoint, and the Ready nodes", func(ev Evidence) error {
+		ok = j.step("ISO: the targets of region "+region.ID+" are read: the DNS Service and a DNS Pod of B, the Services of ISO-3 and the API server, each with a ready endpoint "+
+			"or, a Cilium global Service, a positive control that reaches it, and the Ready nodes", func(ev Evidence) error {
 			ev["region"] = region.ID
+			listeners := map[string]string{}
+			ev["listeners"] = listeners
 			v := j.b.vc[region.ID]
 			k := j.vcKubectl(v)
 			out, err := k(v.region, ctx, nil, "-n", "kube-system", "get", "service", "kube-dns", "-o", "jsonpath={.spec.clusterIP}")
@@ -585,24 +608,27 @@ func (j *isoJourney) readTargets(ctx context.Context) bool {
 			}
 			host := &Dialer{Kubectl: j.c.kubectl, Region: region}
 			for _, s := range isoPlatform {
-				addrs, headless, err := isoAddresses(ctx, host, s)
+				l, err := j.listener(ctx, host, s, listeners)
 				if err != nil {
 					return err
 				}
 				what := "the Service " + s.Namespace + "/" + s.Service
-				if headless {
+				switch {
+				case l.headless:
 					what = "a ready endpoint of the headless Service " + s.Namespace + "/" + s.Service
+				case l.global:
+					what = "the Cilium global Service " + s.Namespace + "/" + s.Service + " (its backends answer from another region over the mesh)"
 				}
-				for _, a := range addrs {
+				for _, a := range l.addrs {
 					t.rest = append(t.rest, isoRow{"ISO-3", what, DialTarget{Address: a, Port: s.Port}})
 				}
 			}
 			api := DialTarget{Namespace: "default", Service: "kubernetes", Port: 443}
-			addrs, _, err := isoAddresses(ctx, host, api)
+			l, err := j.listener(ctx, host, api, listeners)
 			if err != nil {
 				return err
 			}
-			for _, a := range addrs {
+			for _, a := range l.addrs {
 				t.rest = append(t.rest, isoRow{"ISO-4", "the host API server (default/kubernetes)", DialTarget{Address: a, Port: api.Port}})
 			}
 			nodes, err := isoNodes(ctx, j.c.kubectl, region)
@@ -623,39 +649,122 @@ func (j *isoJourney) readTargets(ctx context.Context) bool {
 	return ok
 }
 
+// isoListener is how a Service of ISO-3 or ISO-4 is dialed in one region: at
+// addrs on its port. headless: it has no ClusterIP and addrs are its ready
+// endpoints. global: it has no ready endpoint in the region and is a Cilium
+// global and shared Service, dialed at its ClusterIP once a positive control
+// reached it there.
+type isoListener struct {
+	addrs            []string
+	headless, global bool
+}
+
 // isoAddresses are the addresses at which the Service t of the region of host
-// is dialed on t.Port, and whether it is headless. A Service with a ClusterIP
-// is dialed at its ClusterIP and must have a ready endpoint: without one
-// nothing listens, and a timeout would prove nothing. A headless Service
+// is dialed on t.Port. A Service with a ClusterIP is dialed at its ClusterIP
+// and must be shown to listen: by a ready endpoint in the region, or, when it
+// has none there, by being a Cilium global and shared Service (read from the
+// Service itself), whose backends are in another region; then global is set
+// and the caller proves the listener with a positive control. Anything else
+// has no listener, and a timeout would prove nothing. A headless Service
 // (clusterIP None, as gitea/gitea-http of the upstream gitea chart) has no
 // address of its own: its clients reach its ready endpoints directly, so those
 // are its listeners, and every ready endpoint address whose EndpointSlice
 // serves TCP port t.Port is dialed; at least one must exist.
-func isoAddresses(ctx context.Context, host *Dialer, t DialTarget) ([]string, bool, error) {
+func isoAddresses(ctx context.Context, host *Dialer, t DialTarget) (isoListener, error) {
 	out, err := host.Kubectl(host.Region, ctx, nil, "-n", t.Namespace, "get", "service", t.Service, "-o", "jsonpath={.spec.clusterIP}")
 	if err != nil {
-		return nil, false, err
+		return isoListener{}, err
 	}
 	ip := strings.TrimSpace(string(out))
 	if ip == "None" {
-		var addrs []string
-		if addrs, err = isoReadyAddresses(ctx, host, t); err == nil && len(addrs) == 0 {
+		addrs, err := isoReadyAddresses(ctx, host, t)
+		if err == nil && len(addrs) == 0 {
 			err = fmt.Errorf("the headless Service %s/%s of region %s has no ready endpoint on TCP port %d: nothing listens, so a timeout would prove nothing",
 				t.Namespace, t.Service, host.Region.ID, t.Port)
 		}
-		return addrs, true, err
+		return isoListener{addrs: addrs, headless: true}, err
 	}
 	if net.ParseIP(ip) == nil {
-		return nil, false, fmt.Errorf("the Service %s/%s of region %s has no ClusterIP (%q)", t.Namespace, t.Service, host.Region.ID, ip)
+		return isoListener{}, fmt.Errorf("the Service %s/%s of region %s has no ClusterIP (%q)", t.Namespace, t.Service, host.Region.ID, ip)
 	}
 	n, err := host.ReadyEndpoints(ctx, t)
 	if err != nil {
-		return nil, false, err
+		return isoListener{}, err
 	}
-	if n == 0 {
-		return nil, false, fmt.Errorf("the Service %s/%s of region %s has no ready endpoint: nothing listens, so a timeout would prove nothing", t.Namespace, t.Service, host.Region.ID)
+	if n > 0 {
+		return isoListener{addrs: []string{ip}}, nil
 	}
-	return []string{ip}, false, nil
+	out, err = host.Kubectl(host.Region, ctx, nil, "-n", t.Namespace, "get", "service", t.Service, "-o", "json")
+	if err != nil {
+		return isoListener{}, err
+	}
+	var svc kube.Object
+	if err := json.Unmarshal(out, &svc); err != nil {
+		return isoListener{}, fmt.Errorf("the Service %s/%s of region %s is not JSON: %v", t.Namespace, t.Service, host.Region.ID, err)
+	}
+	global, shared := svc.Str("metadata", "annotations", isoGlobal), svc.Str("metadata", "annotations", isoShared)
+	if global != "true" || (shared != "true" && shared != "") {
+		return isoListener{}, fmt.Errorf("the Service %s/%s of region %s has no ready endpoint and is no Cilium global and shared Service (%s %q, %s %q): nothing listens, so a timeout would prove nothing",
+			t.Namespace, t.Service, host.Region.ID, isoGlobal, global, isoShared, shared)
+	}
+	return isoListener{addrs: []string{ip}, global: true}, nil
+}
+
+// listener reads how the Service t of the region of host is dialed, and
+// proves the listener of a global Service with a positive control from that
+// region. It records in listeners what shows that t listens.
+func (j *isoJourney) listener(ctx context.Context, host *Dialer, t DialTarget, listeners map[string]string) (isoListener, error) {
+	key := t.Namespace + "/" + t.Service
+	l, err := isoAddresses(ctx, host, t)
+	switch {
+	case err != nil:
+		return l, err
+	case l.headless:
+		listeners[key] = fmt.Sprintf("%d ready endpoints in the region", len(l.addrs))
+		return l, nil
+	case !l.global:
+		listeners[key] = "a ready endpoint in the region"
+		return l, nil
+	}
+	to := DialTarget{Address: l.addrs[0], Port: t.Port}
+	res, err := j.control(ctx, host.Region, to)
+	if err != nil {
+		return l, fmt.Errorf("the Service %s of region %s has no ready endpoint, and the positive control from a Pod on the host network of the region did not run: %v", key, host.Region.ID, err)
+	}
+	listeners[key] = "no ready endpoint in the region; a global Service: the positive control from a Pod on the host network of the region dialed " +
+		to.String() + ": control " + res.Control + ", target " + res.Outcome + " (" + res.Output + ")"
+	switch {
+	case res.Control != DialConnected:
+		return l, fmt.Errorf("the Service %s of region %s has no ready endpoint, and the positive control from a Pod on the host network of the region has no working network (%s:%d %s: %s): nothing is shown to listen, so a timeout would prove nothing",
+			key, host.Region.ID, dialControlHost, dialControlPort, res.Control, res.ControlOutput)
+	case res.Outcome != DialConnected:
+		return l, fmt.Errorf("the Service %s of region %s has no ready endpoint, and the dial of its ClusterIP %s from a Pod on the host network of region %s %s (%s): nothing is shown to listen, so a timeout would prove nothing",
+			key, host.Region.ID, to, host.Region.ID, res.Outcome, res.Output)
+	}
+	return l, nil
+}
+
+// control dials to from the Pod of the positive control in region, which it
+// starts on the first call: the namespace iso-ctl-<tag> of the host and in it
+// one dial Pod on the host network. It dials as the node (the identity host,
+// remote-node in another region of the mesh), which the platform targets
+// admit as they admit the kubelet: catalyst-system/baseline-default-deny
+// (fromEntities host, remote-node) and the allow-gateway-ingress policies of
+// openbao and gitea.
+func (j *isoJourney) control(ctx context.Context, region kube.Region, to DialTarget) (DialResult, error) {
+	src := DialSource{Namespace: "iso-ctl-" + j.tag}
+	d := j.controls[region.ID]
+	if d == nil {
+		if _, err := j.c.kubectl(region, ctx, nil, "create", "namespace", src.Namespace); err != nil {
+			return DialResult{}, err
+		}
+		d = &Dialer{Kubectl: j.c.kubectl, Region: region, Run: j.tag + "ctl", HostNetwork: true}
+		j.controls[region.ID] = d
+	}
+	if err := d.Start(ctx, []DialSource{src}); err != nil {
+		return DialResult{}, err
+	}
+	return d.Dial(ctx, src, to)
 }
 
 // isoSlices is what the check reads of a list of EndpointSlices.
@@ -977,6 +1086,17 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 	}
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), j.c.waits.gone+5*time.Minute)
 	defer cancel()
+	for _, region := range j.cc.Regions {
+		if j.controls[region.ID] == nil {
+			continue
+		}
+		ns := "iso-ctl-" + j.tag
+		j.step("ISO: the namespace "+ns+" of the positive control and its Pod on the host network are deleted in region "+region.ID, func(ev Evidence) error {
+			ev["region"], ev["namespace"], ev["pods"] = region.ID, ns, j.controls[region.ID].Pods()
+			_, err := j.c.kubectl(region, cctx, nil, "delete", "namespace", ns, "--wait=false", "--ignore-not-found")
+			return err
+		})
+	}
 	if j.app.created {
 		j.step("ISO-9: the Application "+j.app.name+" is deleted (DELETE /api/v1/sovereigns/{id}/applications/{name})", func(ev Evidence) error {
 			path := j.appsPath() + "/" + url.PathEscape(j.app.name)

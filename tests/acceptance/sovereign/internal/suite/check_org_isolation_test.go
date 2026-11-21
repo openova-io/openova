@@ -30,6 +30,11 @@ var isoFakeBDNS = map[string][2]string{"region-a": {"10.43.1.10", "10.42.1.5"}, 
 var isoFakeServices = map[string]string{"openbao/openbao": "10.43.0.20", "gitea/gitea-http": "None",
 	"catalyst-system/catalyst-api": "10.43.0.22", "default/kubernetes": "10.43.0.1"}
 
+// isoFakeMeshAPI is the ClusterIP of catalyst-system/catalyst-api in region-b
+// when region-b is a secondary region (isoFake.meshB): the global stub of the
+// edge, with no local endpoint, whose backends are the Pods of region-a.
+const isoFakeMeshAPI = "10.53.0.22"
+
 // isoFakeHostNamespaces are the namespaces of the host of every region, besides
 // the host namespaces of the Organizations.
 var isoFakeHostNamespaces = []string{"default", "kube-system", "catalyst-system", "openbao", "gitea", "keycloak"}
@@ -43,12 +48,13 @@ const isoFakeNodes = `{"items": [
  {"metadata": {"name": "node-3"}, "status": {"conditions": [{"type": "Ready", "status": "False"}], "addresses": [{"type": "InternalIP", "address": "10.0.0.3"}]}}]}`
 
 // isoAnswers are the outcomes of nc: the Pod of A before ISO-6 (A), after it
-// (A6), and the Pod of B (B).
+// (A6), the Pod of B (B), and the Pod of the positive control on the host
+// network (C).
 func isoAnswers() map[string]map[string]string {
 	control := dialControlHost + ":53"
 	a := map[string]string{control: DialConnected}
 	for _, d := range []string{"10.43.1.10:53", "10.42.1.5:1053", "10.53.1.10:53", "10.52.1.5:1053", "10.43.0.20:8200", "10.42.0.31:3000",
-		"10.42.0.32:3000", "10.43.0.22:8080", "10.43.0.1:443", "10.0.0.1:10250", "10.0.0.2:10250", "169.254.169.254:80", "1.1.1.1:443"} {
+		"10.42.0.32:3000", "10.43.0.22:8080", isoFakeMeshAPI + ":8080", "10.43.0.1:443", "10.0.0.1:10250", "10.0.0.2:10250", "169.254.169.254:80", "1.1.1.1:443"} {
 		a[d] = DialTimedOut
 	}
 	a6 := map[string]string{}
@@ -58,7 +64,8 @@ func isoAnswers() map[string]map[string]string {
 	a6["1.1.1.1:443"] = DialConnected
 	b := map[string]string{control: DialConnected, "10.43.1.10:53": DialConnected, "10.42.1.5:1053": DialConnected,
 		"10.53.1.10:53": DialConnected, "10.52.1.5:1053": DialConnected}
-	return map[string]map[string]string{"A": a, "A6": a6, "B": b}
+	c := map[string]string{control: DialConnected, isoFakeMeshAPI + ":8080": DialConnected}
+	return map[string]map[string]string{"A": a, "A6": a6, "B": b, "C": c}
 }
 
 func isoKubeconfig(slug string) string {
@@ -92,12 +99,26 @@ type isoFake struct {
 	vcNS       map[string]string   // vCluster -> the namespace created in it
 	kubeconfig []string            // the kubeconfig files the check wrote
 	dialed     []string            // <org> <host>:<port> of every dial
+
+	// meshB makes region-b a secondary region: catalyst-system/catalyst-api
+	// there has the ClusterIP isoFakeMeshAPI and no local endpoint.
+	// apiAnnotations are the annotations of catalyst-system/catalyst-api in
+	// every region; newISOFake sets the pair that both charts render
+	// (products/catalyst/chart/templates/api-service.yaml and the stub of
+	// platform/catalyst-edge-routes/chart/templates/services.yaml).
+	meshB          bool
+	apiAnnotations map[string]string
+	ctlCreated     []string // "<region> <namespace>" of every namespace of the positive control
+	ctlDeleted     []string // "<region> <namespace>" of every one deleted
+	ctlPods        []string // "<region> <namespace>/<name>" of every Pod on the host network
+	ctlDialed      []string // "<region> <host>:<port>" of every dial of the positive control
 }
 
 func newISOFake(t *testing.T) *isoFake {
 	return &isoFake{t: t, dial: &dialFake{t: t}, answers: isoAnswers(), applied: map[string]bool{}, pods: map[string][]string{}, vcNS: map[string]string{},
-		headless: map[string][]string{"gitea/gitea-http": {"10.42.0.31", "10.42.0.32"}},
-		page:     &wordpress.Page{Status: 200, FinalURL: "https://wp.iso.test/wp-admin/install.php"}}
+		headless:       map[string][]string{"gitea/gitea-http": {"10.42.0.31", "10.42.0.32"}},
+		apiAnnotations: map[string]string{"service.cilium.io/global": "true", "service.cilium.io/shared": "true"},
+		page:           &wordpress.Page{Status: 200, FinalURL: "https://wp.iso.test/wp-admin/install.php"}}
 }
 
 func (f *isoFake) kubectl(r kube.Region, ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
@@ -216,12 +237,51 @@ func (f *isoFake) host(r kube.Region, ctx context.Context, stdin io.Reader, args
 			}
 		}
 		return []byte(strings.Join(names, " ")), nil
+	case len(args) == 7 && args[2] == "get" && args[3] == "service" && args[6] == "json":
+		annotations := map[string]string{}
+		if args[1]+"/"+args[4] == "catalyst-system/catalyst-api" {
+			annotations = f.apiAnnotations
+		}
+		return []byte(mustJSON(f.t, map[string]any{"apiVersion": "v1", "kind": "Service",
+			"metadata": map[string]any{"name": args[4], "namespace": args[1], "annotations": annotations}})), nil
 	case len(args) == 7 && args[2] == "get" && args[3] == "service":
 		ip, ok := isoFakeServices[args[1]+"/"+args[4]]
 		if !ok {
 			f.t.Fatalf("unexpected Service %s/%s", args[1], args[4])
 		}
+		if f.meshB && r.ID == "region-b" && args[1]+"/"+args[4] == "catalyst-system/catalyst-api" {
+			ip = isoFakeMeshAPI
+		}
 		return []byte(ip), nil
+	case len(args) > 5 && args[2] == "get" && args[3] == "endpointslices" && f.meshB && r.ID == "region-b" &&
+		args[1]+"/"+args[5] == "catalyst-system/kubernetes.io/service-name=catalyst-api":
+		// The stub selects no Pod of region-b: its EndpointSlice holds no endpoint.
+		return []byte(`{"items": [{"endpoints": null, "ports": [{"name": "", "port": 8080, "protocol": "TCP"}]}]}`), nil
+	case len(args) == 3 && args[0] == "create" && args[1] == "namespace" && strings.HasPrefix(args[2], "iso-ctl-"):
+		f.ctlCreated = append(f.ctlCreated, r.ID+" "+args[2])
+		return nil, nil
+	case len(args) == 5 && line == "delete namespace "+args[2]+" --wait=false --ignore-not-found" && strings.HasPrefix(args[2], "iso-ctl-"):
+		f.ctlDeleted = append(f.ctlDeleted, r.ID+" "+args[2])
+		return nil, nil
+	case len(args) > 3 && args[0] == "-n" && strings.HasPrefix(args[1], "iso-ctl-") && args[2] == "create":
+		b, _ := io.ReadAll(stdin)
+		var o kube.Object
+		if err := json.Unmarshal(b, &o); err != nil || o.Str("kind") != "Pod" || o.Namespace() != args[1] || !contains(f.ctlCreated, r.ID+" "+args[1]) {
+			f.t.Fatalf("the positive control creates another object than a Pod of its namespace in %s: %s", r.ID, b)
+		}
+		c := o.Objects("spec", "containers")[0]
+		if c.Str("image") != secProbeImage || o.Get("spec", "hostNetwork") != true || o.Str("spec", "dnsPolicy") != "ClusterFirstWithHostNet" ||
+			o.Get("spec", "automountServiceAccountToken") != false || o.Get("spec", "securityContext", "runAsNonRoot") != true || o.Str("metadata", "labels", DialLabel) == "" {
+			f.t.Errorf("the Pod of the positive control runs another image, not on the host network with the cluster DNS, with a token, as root or without its label: %s", b)
+		}
+		f.ctlPods = append(f.ctlPods, r.ID+" "+args[1]+"/"+o.Name())
+		return nil, nil
+	case len(args) > 3 && args[0] == "-n" && strings.HasPrefix(args[1], "iso-ctl-") && args[2] == "wait":
+		return nil, nil
+	case len(args) > 3 && args[0] == "-n" && strings.HasPrefix(args[1], "iso-ctl-") && args[2] == "exec":
+		f.dial.answers = f.answers["C"]
+		f.ctlDialed = append(f.ctlDialed, r.ID+" "+args[len(args)-2]+":"+args[len(args)-1])
+		return f.dial.kubectl(r, ctx, stdin, args...)
 	case len(args) > 5 && args[2] == "get" && args[3] == "endpointslices":
 		addrs, ok := f.headless[args[1]+"/"+strings.TrimPrefix(args[5], "kubernetes.io/service-name=")]
 		if !ok {
@@ -380,6 +440,9 @@ func isoRun(t *testing.T, f *isoFake, console *isoConsole, regions []kube.Region
 	if f.forwards != f.stops {
 		t.Errorf("%d forwards started, %d ended", f.forwards, f.stops)
 	}
+	if strings.Join(f.ctlCreated, ",") != strings.Join(f.ctlDeleted, ",") {
+		t.Errorf("namespaces of the positive control created %v, deleted %v", f.ctlCreated, f.ctlDeleted)
+	}
 	for _, p := range f.kubeconfig {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("the kubeconfig file %s was not removed: %v", p, err)
@@ -448,6 +511,11 @@ func TestOrgIsolationCheck(t *testing.T) {
 			}
 			if n := strings.Count(strings.Join(f.dialed, ","), "B "); n != 4 || len(f.dialed) != 4+24+2+22 {
 				t.Errorf("want 4 dials of B and 48 of A, got %d of %d: %v", n, len(f.dialed), f.dialed)
+			}
+			// catalyst-api is a global Service in both regions, as both charts render it, and has a
+			// ready endpoint in each: it is judged by its endpoint, with no positive control.
+			if len(f.ctlCreated) != 0 || len(f.ctlDialed) != 0 {
+				t.Errorf("a positive control ran though every Service has a ready endpoint: %v %v", f.ctlCreated, f.ctlDialed)
 			}
 			// The headless Git service: each ready endpoint on its port, in ISO-3 and ISO-6 of both
 			// regions; never the endpoint that is not ready nor the one of another port.
@@ -536,6 +604,73 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 	}
 	if c, ok := registry[orgIsolationID].(orgIsolationCheck); !ok || c.kubectl == nil || c.forward == nil || c.fetch == nil || c.waits.org != 30*time.Minute || c.waits.policy != 3*time.Minute {
 		t.Errorf("the registry must hold %s with kubectl, the port forward, the fetch and the waits of a cloud run", orgIsolationID)
+	}
+}
+
+// TestOrgIsolationCheck_SecondaryRegion: region-b is a secondary region, as on
+// every install with two regions. It runs no catalyst-api: its
+// catalyst-system/catalyst-api is the global and shared stub of the edge,
+// with no local endpoint, whose backends answer from region-a over the mesh.
+// The check proves that it listens from region-b with a positive control on
+// the host network, then requires the Pod of A to time out on it, before and
+// after ISO-6. Region-a, whose catalyst-api has a ready endpoint, is judged
+// by that endpoint, as before.
+func TestOrgIsolationCheck_SecondaryRegion(t *testing.T) {
+	mesh := isoFakeMeshAPI + ":8080"
+	for name, c := range map[string]struct {
+		setup func(f *isoFake)
+		want  string
+	}{
+		"the control reaches it and the Pod of A times out": {func(*isoFake) {}, ""},
+		"the control does not reach it": {func(f *isoFake) { f.answers["C"][mesh] = DialTimedOut },
+			"the Service catalyst-system/catalyst-api of region region-b has no ready endpoint, and the dial of its ClusterIP " + mesh +
+				" from a Pod on the host network of region region-b timed-out"},
+		"the control has no network": {func(f *isoFake) { f.answers["C"][dialControlHost+":53"] = DialTimedOut },
+			"the Service catalyst-system/catalyst-api of region region-b has no ready endpoint, and the positive control from a Pod on the host network of the region has no working network"},
+		"the Pod of A reaches it through the mesh": {func(f *isoFake) { f.answers["A"][mesh] = DialConnected },
+			"want deny; the dial of " + mesh + " connected"},
+		"the Pod of A reaches it through the mesh after ISO-6": {func(f *isoFake) { f.answers["A6"][mesh] = DialConnected },
+			"want deny; the dial of " + mesh + " connected"},
+		"the Pod of A is refused by it": {func(f *isoFake) { f.answers["A"][mesh] = DialRefused },
+			"want deny; the dial of " + mesh + " was refused"},
+		"it is no global Service": {func(f *isoFake) { f.apiAnnotations = nil },
+			`the Service catalyst-system/catalyst-api of region region-b has no ready endpoint and is no Cilium global and shared Service (service.cilium.io/global "", service.cilium.io/shared "")`},
+		"it is global and not shared": {func(f *isoFake) { f.apiAnnotations["service.cilium.io/shared"] = "false" },
+			`has no ready endpoint and is no Cilium global and shared Service (service.cilium.io/global "true", service.cilium.io/shared "false")`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newISOFake(t)
+			f.meshB = true
+			c.setup(f)
+			r := isoRun(t, f, &isoConsole{t: t}, twoRegions(), c.want)
+			if c.want != "" {
+				return
+			}
+			if len(r.run.Steps) != 75 {
+				t.Fatalf("want 75 steps (the 74 of a primary region and the deletion of the namespace of the positive control), got %d", len(r.run.Steps))
+			}
+			if len(f.ctlCreated) != 1 || !strings.HasPrefix(f.ctlCreated[0], "region-b iso-ctl-") || len(f.ctlPods) != 1 ||
+				strings.Join(f.ctlDialed, ",") != "region-b "+mesh {
+				t.Errorf("want one positive control, in region-b only, on the host network, dialing %s once: %v %v %v", mesh, f.ctlCreated, f.ctlPods, f.ctlDialed)
+			}
+			dialed := strings.Join(f.dialed, ",") + ","
+			if strings.Count(dialed, "A "+mesh+",") != 2 || strings.Count(dialed, "A 10.43.0.22:8080,") != 2 || len(f.dialed) != 4+24+2+22 {
+				t.Errorf("want the Pod of A to dial catalyst-api in each region in ISO-3 and ISO-6, and 52 dials: %v", f.dialed)
+			}
+			listeners := map[string]string{}
+			for _, s := range r.run.Steps {
+				if s.Evidence["expect"] == "deny" && s.Evidence["observed"] != DialTimedOut {
+					t.Errorf("a deny row passed without a timeout: %s %v", s.Name, s.Evidence)
+				}
+				if l, ok := s.Evidence["listeners"].(map[string]string); ok {
+					listeners[s.Evidence["region"].(string)] = l["catalyst-system/catalyst-api"]
+				}
+			}
+			if listeners["region-a"] != "a ready endpoint in the region" || !strings.Contains(listeners["region-b"], "positive control") ||
+				!strings.Contains(listeners["region-b"], "dialed "+mesh+": control connected, target connected") {
+				t.Errorf("the targets record another listener of catalyst-api: %v", listeners)
+			}
+		})
 	}
 }
 

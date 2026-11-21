@@ -243,6 +243,10 @@ type Dialer struct {
 	Run     string // lower-case identifier of the run; part of every Pod name and the value of DialLabel
 	pods    map[string]dialPod
 	order   []string
+
+	// HostNetwork starts the dial Pods on the host network of their node, with
+	// the cluster DNS: they dial as the node, not as a Pod of their namespace.
+	HostNetwork bool
 }
 
 type dialPod struct{ namespace, name string }
@@ -260,7 +264,7 @@ func (d *Dialer) Start(ctx context.Context, sources []DialSource) error {
 			continue
 		}
 		p := dialPod{namespace: s.Namespace, name: "pol-dial-" + d.Run + "-" + strconv.Itoa(len(d.order)+1)}
-		pod, err := dialPodObject(p, s, d.Run)
+		pod, err := dialPodObject(p, s, d.Run, d.HostNetwork)
 		if err != nil {
 			return err
 		}
@@ -357,28 +361,35 @@ func (d *Dialer) Stop(ctx context.Context) error {
 
 // dialPodObject is the dial Pod as JSON. It runs on the Pod network, as an
 // unprivileged user, with the image of the probe of sec_probe.go, and mounts
-// no token: the policies judge it as any Pod of its namespace.
-func dialPodObject(p dialPod, s DialSource, run string) ([]byte, error) {
+// no token: the policies judge it as any Pod of its namespace. With
+// hostNetwork it runs on the host network of its node instead, resolving
+// through the cluster DNS (ClusterFirstWithHostNet), and the policies judge it
+// as that node.
+func dialPodObject(p dialPod, s DialSource, run string, hostNetwork bool) ([]byte, error) {
 	labels := map[string]string{DialLabel: run}
 	for k, v := range s.Labels {
 		labels[k] = v
 	}
+	spec := map[string]any{
+		"restartPolicy": "Never", "terminationGracePeriodSeconds": 1,
+		"automountServiceAccountToken": false, "enableServiceLinks": false,
+		"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": 65534, "runAsGroup": 65534,
+			"seccompProfile": map[string]any{"type": "RuntimeDefault"}},
+		"containers": []any{map[string]any{
+			"name": "dial", "image": secProbeImage, "command": []string{"sleep", dialPodLife},
+			"securityContext": map[string]any{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true,
+				"capabilities": map[string]any{"drop": []string{"ALL"}}},
+			"resources": map[string]any{"requests": map[string]any{"cpu": "10m", "memory": "16Mi"},
+				"limits": map[string]any{"memory": "64Mi"}},
+		}},
+	}
+	if hostNetwork {
+		spec["hostNetwork"], spec["dnsPolicy"] = true, "ClusterFirstWithHostNet"
+	}
 	return json.Marshal(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{"name": p.name, "namespace": p.namespace, "labels": labels},
-		"spec": map[string]any{
-			"restartPolicy": "Never", "terminationGracePeriodSeconds": 1,
-			"automountServiceAccountToken": false, "enableServiceLinks": false,
-			"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": 65534, "runAsGroup": 65534,
-				"seccompProfile": map[string]any{"type": "RuntimeDefault"}},
-			"containers": []any{map[string]any{
-				"name": "dial", "image": secProbeImage, "command": []string{"sleep", dialPodLife},
-				"securityContext": map[string]any{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true,
-					"capabilities": map[string]any{"drop": []string{"ALL"}}},
-				"resources": map[string]any{"requests": map[string]any{"cpu": "10m", "memory": "16Mi"},
-					"limits": map[string]any{"memory": "64Mi"}},
-			}},
-		},
+		"spec":     spec,
 	})
 }
 
