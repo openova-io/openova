@@ -12271,6 +12271,47 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'As in the body, plus: both Plans carry spec.window in the Sovereign''s own time zone (the key of INF-054), default 23:00 to 00:30, which ends 30 minutes before kured''s default reboot span opens (01:00), the minimum gap check INF-G01 asserts, and both read the sovereign-admin''s setting when it is changed. The ticket quotes the four steps of a new kit slot in place of the git-log instruction.'
+- id: SOV-721
+  title: The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a peer that does not answer
+  area: SOV
+  epic: null
+  type: fix
+  wave: W0
+  size: M
+  lane: SUBSTRATE
+  depends_on: [SOV-139]
+  after: [FND-014, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-323, SOV-335, SOV-338, SOV-342, SEC-127, SEC-150, SEC-152, SEC-154, NET-010, NET-011, NET-012, NET-100, NET-210, SVC-040, CTL-150, AIP-201, INF-135]
+  touches:
+  - infra/providers/huawei/variables.tf
+  - infra/providers/hetzner/variables.tf
+  - infra/providers/local/variables.tf
+  - infra/providers/_shared/k3s-images/v1.31.14+k3s1.txt
+  - infra/providers/_contract/fixtures/single-region.tfvars.json
+  - infra/providers/_contract/fixtures/two-region.tfvars.json
+  - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/api/internal/provisioner/testdata/tfvars-hetzner.golden.json
+  - products/catalyst/bootstrap/api/internal/provisioner/testdata/tfvars-huawei.golden.json
+  - .github/workflows/intent-lock-apiserver.yaml
+  - .github/workflows/test-k3s-bootstrap-flags.yaml
+  - scripts/check-registry-drain.sh
+  - .github/workflows/registry-drain.yaml
+  - tests/registry-drain/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Fresh installs run k3s v1.31.14+k3s1, whose embedded mirror bounds every request to a peer (1 to 2 seconds), so a pull through a peer that accepts a connection and never answers falls through to the registry within a minute instead of being cancelled after 5 minutes; proven by a harness case that reproduces such a peer and by its control on the old version.
 - id: SOV-725
   title: k3s default moves to the 1.32 line
   area: SOV
@@ -12280,7 +12321,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-720]
-  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-136, SOV-144, SOV-149, SOV-335, SEC-040, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [SOV-721, FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -12307,7 +12348,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-725]
-  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-136, SOV-144, SOV-149, SOV-335, SEC-040, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -13048,7 +13089,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [INF-052]
-  after: [INF-054, INF-056, FND-011, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-151, SOV-180, SOV-322, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  after: [INF-054, INF-056, INF-057, FND-011, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-151, SOV-180, SOV-322, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
   touches:
   - platform/keycloak/chart/values.yaml
   - clusters/_template/bootstrap-kit/09-keycloak.yaml
@@ -17122,6 +17163,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The Sovereign kind declares status.network, the network registry in the form the provider modules output and scripts/check-network-registry.py checks, and the required gate check NET-G08 compares that registry with the Cilium configuration of every region.
+- id: NET-103
+  title: 'Gate check NET-G18: full-size transfers between two workers over the node network, in each region and across regions'
+  area: NET
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: []
+  after: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, CTL-151, CTL-320, CMP-010, BSS-060, INF-051, INF-052, INF-056, INF-133]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_network_full_size.go
+  - tests/acceptance/sovereign/internal/suite/check_network_full_size_test.go
+  - tests/acceptance/sovereign/internal/kube/kube.go
+  - tests/acceptance/sovereign/README.md
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [NET-G18]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Gate check NET-G18, required, proves on every install that full-size packets cross the node network between two workers: in each region two probe Pods on the host network read the MTU Cilium runs with against the node interface''s and fetch more than 16 KB from the other worker''s Hubble metrics listener within 5 seconds, both ways, and the first workers of two regions do the same across the regions.'
 - id: NET-110
   title: Cilium base values to target
   area: NET
@@ -17228,6 +17299,33 @@ packages:
   ticket_rev: 7
   dropped: false
   delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with exactly the container restarts the platform makes, and the job summary states PASS or FAIL per case.'
+- id: NET-121
+  title: A cloud-free test moves full-size packets between two workers through the kit's Cilium with node encryption, and fails at MTU 1420
+  area: NET
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: RAILS
+  depends_on: []
+  after: []
+  touches:
+  - tests/hermetic/encrypted-path/encrypted-path-test.sh
+  - .github/workflows/test-encrypted-path-hermetic.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A proof without a cloud that can fail: three k3s nodes with the kit''s Cilium (WireGuard, node encryption, native routing) move a 64 KB file host to host between the two agents within 5 seconds at the MTU the kit renders, and the same at the old pin 1420 does not, which proves the test sees the defect; it runs on every change of the Cilium chart, its slot and the k3s version.'
 - id: NET-125
   title: Mesh status read, and a mode switch, in the API
   area: NET
@@ -31517,7 +31615,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [INF-050, INF-052, INF-053]
-  after: [INF-056, SOV-155, FND-011, FND-014, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-110, SOV-131, SOV-135, SOV-151, SOV-323, SOV-335, SOV-338, SEC-010, SEC-080, SEC-095, SEC-120, SEC-150, SEC-162, NET-011, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-138, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
+  after: [INF-056, SOV-155, INF-057, FND-011, FND-014, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, CLD-090, CLD-103, CLD-104, CLD-105, CLD-115, SOV-030, SOV-110, SOV-131, SOV-135, SOV-151, SOV-323, SOV-335, SOV-338, SEC-010, SEC-080, SEC-095, SEC-120, SEC-150, SEC-162, NET-011, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, SVC-138, CTL-041, CTL-151, CMP-010, BSS-060, INF-133]
   touches:
   - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
   - platform/kured/chart/values.yaml
@@ -31614,6 +31712,34 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Check INF-G01 restarts, in each region, the worker that runs a Ready endpoint of the registry front harbor/harbor (else the first worker by name that runs workloads), touches no node while a container of the region waits on an image, and passes only when every controller whose Pod the drain moved has its Ready Pods back and no container of the region waits on an image.
+- id: INF-057
+  title: Check INF-G01 requires every moved workload back within 180 seconds of leaving the worker
+  area: INF
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [INF-056]
+  after: [FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-157, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, SEC-162, NET-013, NET-097, NET-150, NET-255, CTL-151, CMP-010, BSS-060, INF-133]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
+  - tests/acceptance/sovereign/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Check INF-G01 requires each controller whose Pod the drain moved to have its Ready Pods back within 180 seconds of that Pod leaving the worker, about twice the slowest Pod of a healthy drain, so a stalled image copy fails the check instead of hiding inside the 50-minute limit of the node's restart.
 - id: INF-060
   title: Remove the reboot settings from cloud-init
   area: INF

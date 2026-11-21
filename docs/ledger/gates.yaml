@@ -1920,6 +1920,16 @@ checks:
   proof: running
   asserts: A managed cluster passes the conformance profile of its class.
   delivered_by: NET-322
+- id: NET-G18
+  title: Full-size transfers between workers over the node network
+  owner: NET
+  state: not-built
+  runs_in: [cloud]
+  destructive: false
+  needs: []
+  proof: running
+  asserts: In each region two workers (Ready, schedulable, not control-plane) each run a probe Pod on the host network; on both, the MTU of cilium_host, the MTU Cilium runs with, equals the MTU of the interface that holds the node's address; an HTTP GET of the other worker's Hubble metrics listener (host port 9965) ends with at least 16384 bytes within 5 seconds in both directions, and so does the GET between the first workers of every two regions, both ways; each GET follows the same GET of the control-plane node of the destination's region, and a pair whose control GET fails is not measured and fails.
+  delivered_by: NET-103
 - id: PRD-G01
   title: Knowledge access trimming
   owner: PRD
