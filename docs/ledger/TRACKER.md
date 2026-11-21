@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T07:15:06Z` |
+| Last refreshed | `2026-11-21T07:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T07:16 | [#8588](https://github.com/openova-io/openova/pull/8588) | fix(gate): the zero-change plan check packs the provider con |  |
+| 2026-11-21T07:23 | [#8587](https://github.com/openova-io/openova/pull/8587) | #8570 | fix(cutover): step 08 fails at once when its roll cannot fin |
 | 2026-11-21T07:09 | [#8585](https://github.com/openova-io/openova/pull/8585) | #7087 | docs(ledger): plan update |
 | 2026-11-21T07:06 | [#8584](https://github.com/openova-io/openova/pull/8584) | #3526 | fix(cutover): an Organization written while the cutover runs |
 | 2026-11-21T05:49 | [#8583](https://github.com/openova-io/openova/pull/8583) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T22:50 | [#8552](https://github.com/openova-io/openova/pull/8552) | #8551 | fix(charts): the function tests of bp-openbao, bp-reloader a |
 | 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
 | 2026-11-20T22:49 | [#8549](https://github.com/openova-io/openova/pull/8549) | #7900 | fix(cutover): the prewarm's readiness probe counts a failed  |
-| 2026-11-20T20:52 | [#8548](https://github.com/openova-io/openova/pull/8548) | #7087 | docs(ledger): plan update |
-| 2026-11-20T20:52 | [#8546](https://github.com/openova-io/openova/pull/8546) | #8538 | fix(charts): the registry front, core and registry and the c |
 
 ---
 
