@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T03:45:04Z` |
+| Last refreshed | `2026-11-21T04:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8169](https://github.com/openova-io/openova/issues/8169) | FND-155 The self selection run by a Job on the local provider pack | Other |
 | [#8172](https://github.com/openova-io/openova/issues/8172) | SOV-148 Lab test: first-boot steps from a fetched, checksum-pinned bundle | Other |
 | [#8175](https://github.com/openova-io/openova/issues/8175) | CLD-112 Credential check from the profile; one registry | Other |
 | [#8182](https://github.com/openova-io/openova/issues/8182) | AIP-102 Tool calls passed through; no shared sessions | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
 | [#8560](https://github.com/openova-io/openova/issues/8560) | CLD-116 The wipe removes first what its own destroy cannot remove on the referen | Other |
 | [#8564](https://github.com/openova-io/openova/issues/8564) | SOV-155 A roll of the registry never removes both copies: harbor-registry rolls  | Other |
+| [#8569](https://github.com/openova-io/openova/issues/8569) | SOV-344 The sovereignty proof counts the cloud Workspaces, and the tether list n | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
+| 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
 | 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
 | 2026-11-21T02:30 | [#8563](https://github.com/openova-io/openova/pull/8563) | #7087 | docs(ledger): plan update |
 | 2026-11-21T02:52 | [#8562](https://github.com/openova-io/openova/pull/8562) | #8560 | fix(providers): the wipe removes the bucket, the listeners a |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-20T21:34 | [#8529](https://github.com/openova-io/openova/pull/8529) | #8528 | fix(charts): six function tests wait for their subject in th |
 | 2026-11-20T18:34 | [#8527](https://github.com/openova-io/openova/pull/8527) | #7087 | docs(ledger): plan update |
 | 2026-11-20T18:27 | [#8526](https://github.com/openova-io/openova/pull/8526) | #7087 | docs(ledger): plan update |
-| 2026-11-20T18:43 | [#8525](https://github.com/openova-io/openova/pull/8525) | #8494 | fix(gate): the gate's candidate verification gets the origin |
-| 2026-11-20T17:56 | [#8524](https://github.com/openova-io/openova/pull/8524) | #7087 | docs(ledger): plan update |
 
 ---
 
