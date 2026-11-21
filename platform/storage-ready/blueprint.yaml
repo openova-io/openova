@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-storage-ready
 spec:
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: Storage Ready
     summary: Neutral storage gate of the bootstrap kit. A hook Job waits until the expected StorageClass is the cluster default.
