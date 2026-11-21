@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T00:30:04Z` |
+| Last refreshed | `2026-11-21T00:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
-| [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
 | [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
 | [#8168](https://github.com/openova-io/openova/issues/8168) | AIP-108 Shrink Axon | Other |
 | [#8169](https://github.com/openova-io/openova/issues/8169) | FND-155 The self selection run by a Job on the local provider pack | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8538](https://github.com/openova-io/openova/issues/8538) | SOV-138 No single Pod on the registry's pull path: Harbor's front, core and regi | Other |
 | [#8547](https://github.com/openova-io/openova/issues/8547) | The harbor chart's admin-secret test cannot fail on a broken pipe: six printf |  | Other |
 | [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
+| [#8556](https://github.com/openova-io/openova/issues/8556) | SOV-343 The cutover copies the OpenTofu provider packages into the Sovereign and | Other |
+| [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
 
 ---
 
@@ -315,6 +315,7 @@ flowchart LR
 | 2026-11-20T20:57 | [#8545](https://github.com/openova-io/openova/pull/8545) | #8534 | fix(crossplane): the provider pod installs OpenTofu provider |
 | 2026-11-20T22:49 | [#8544](https://github.com/openova-io/openova/pull/8544) | #8533 | fix(cutover): step 04 keeps the nodes shared registry mirror |
 | 2026-11-20T21:04 | [#8543](https://github.com/openova-io/openova/pull/8543) | #8536 | test(gate): check INF-G01 drains the worker of the registry  |
+| 2026-11-21T00:42 | [#8542](https://github.com/openova-io/openova/pull/8542) | fix(tests): the umbrella chart's allow-list test cannot fail |  |
 | 2026-11-20T20:34 | [#8541](https://github.com/openova-io/openova/pull/8541) | #8532 | fix(cloud-init): the nodes of a region share the images they |
 | 2026-11-20T21:06 | [#8540](https://github.com/openova-io/openova/pull/8540) | fix(tests): three Go tests of the platform API stop failing  |  |
 | 2026-11-20T19:37 | [#8539](https://github.com/openova-io/openova/pull/8539) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
 | 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
 | 2026-11-20T14:24 | [#8514](https://github.com/openova-io/openova/pull/8514) | fix(gate): the Organization isolation check measures the hos |  |
-| 2026-11-20T13:44 | [#8513](https://github.com/openova-io/openova/pull/8513) | #7087 | docs(ledger): plan update |
 
 ---
 
