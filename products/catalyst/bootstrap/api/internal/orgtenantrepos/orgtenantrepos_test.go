@@ -48,7 +48,7 @@ func TestNamesPublicCatalog(t *testing.T) {
 	if !NamesPublicCatalog([]byte(Template)) {
 		t.Error("the template names the public catalog")
 	}
-	local := Render("oci://registry.hw.test/openova-io")
+	local := Render("oci://registry.hw.test/openova-io", TrustSecretName)
 	if NamesPublicCatalog([]byte(local)) {
 		t.Errorf("a rendered pivoted file still reads as public:\n%s", local)
 	}

@@ -64,8 +64,10 @@ type DefaultOrganizationGitOpsWriter struct {
 	// CutoverStatus returns the data of the cutover status ConfigMap, the
 	// registry-pivot fact of the shared HelmRepositories
 	// (orgtenantrepos.RegistryPivoted). nil reads it from the cluster
-	// (cutoverStatusInCluster); tests set it.
+	// (cutoverStatusInCluster); tests set it. HarborTrust is the lookup of the
+	// step-06 trust Secret (orgtenantrepos.File); nil reads it in cluster.
 	CutoverStatus func(context.Context) map[string]string
+	HarborTrust   orgtenantrepos.TrustFunc
 }
 
 // OrganizationChartVersions enumerates the SemVer strings the overlay
@@ -230,7 +232,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	// always current. Without this, Flux fails with "kustomization path
 	// not found" on a fresh Sovereign that has never had a tenant.
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir, w.cutoverStatus(ctx)); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
@@ -260,9 +262,9 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 // canonical kustomize.config.k8s.io/v1beta1 Kustomization. Per #3, this
 // is a pure file write — Flux owns the apply.
 //
-// Issue #889, 2026-05-05. status is the cutover status the shared
-// HelmRepositories' catalog is decided from (orgtenantrepos.Base).
-func writeParentTenantsIndex(parentDir string, status map[string]string) error {
+// Issue #889, 2026-05-05. shared is the shared HelmRepositories file
+// (orgtenantrepos.File).
+func writeParentTenantsIndex(parentDir, shared string) error {
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir parent: %w", err)
 	}
@@ -301,7 +303,7 @@ func writeParentTenantsIndex(parentDir string, status map[string]string) error {
 	// kustomization.yaml's resources list FIRST so source-controller
 	// reconciles them before any tenant HelmChart is requested.
 	hrFileName := orgtenantrepos.FileName
-	if err := writeSharedHelmRepositories(parentDir, status); err != nil {
+	if err := writeSharedHelmRepositories(parentDir, shared); err != nil {
 		return err
 	}
 
@@ -378,7 +380,7 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	// reduced resources list. If no tenants remain, the parent index is
 	// rewritten with `resources: []` (still a valid Kustomization root).
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir, w.cutoverStatus(ctx)); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
@@ -446,13 +448,12 @@ func (w DefaultOrganizationGitOpsWriter) cloneTenantsBranch(ctx context.Context,
 	return repoDir, done, nil
 }
 
-// writeSharedHelmRepositories writes parentDir/helmrepositories.yaml (#893):
-// the six HelmRepositories every per-tenant overlay sourceRefs into, which
-// the bootstrap-kit does not ship, on the catalog orgtenantrepos.Base picks
-// (#5527). The parent kustomization.yaml lists it first, so source-controller
-// has them before any tenant HelmChart is requested.
-func writeSharedHelmRepositories(parentDir string, status map[string]string) error {
-	doc := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, status))
+// writeSharedHelmRepositories writes doc as parentDir/helmrepositories.yaml
+// (#893): the six HelmRepositories every per-tenant overlay sourceRefs into,
+// which the bootstrap-kit does not ship, on the catalog and trust reference
+// orgtenantrepos.File picks (#5527). The parent kustomization.yaml lists it
+// first, so source-controller has them before any tenant HelmChart is requested.
+func writeSharedHelmRepositories(parentDir, doc string) error {
 	if err := os.WriteFile(filepath.Join(parentDir, orgtenantrepos.FileName), []byte(doc), 0o600); err != nil {
 		return fmt.Errorf("write shared helmrepositories: %w", err)
 	}
@@ -484,15 +485,14 @@ func cutoverStatusInCluster(ctx context.Context) (map[string]string, error) {
 }
 
 // RepointSharedHelmRepositories rewrites, on the tenants branch, every
-// clusters/<fqdn>/org-tenants/helmrepositories.yaml that still names the
-// public catalog once the registry is pivoted (status: the cutover status).
-// Such a file was written before the pivot was known to this writer, and step
-// 06 had already moved the objects it describes, or they did not exist yet;
-// Flux applies the rewrite through the Kustomization org-tenants. Returns the
-// pushed commit, or "" when nothing needed a rewrite. Nothing is written
-// before the pivot, nor when per-Org GitOps owns the Organizations (#5425).
+// clusters/<fqdn>/org-tenants/helmrepositories.yaml written before the writer
+// knew of the pivot (status: the cutover status; orgtenantrepos.NeedsRewrite);
+// Flux applies it through the Kustomization org-tenants. Returns the pushed
+// commit, or "" when nothing needed one. Nothing is written while the file is
+// the public catalog, nor when per-Org GitOps owns the Organizations (#5425).
 func (w DefaultOrganizationGitOpsWriter) RepointSharedHelmRepositories(ctx context.Context, status map[string]string) (string, error) {
-	if perOrgGitopsEnabled() || !orgtenantrepos.RegistryPivoted(os.Getenv, status) {
+	doc := orgtenantrepos.File(ctx, os.Getenv, status, w.HarborTrust, w.Log)
+	if perOrgGitopsEnabled() || !orgtenantrepos.RegistryPivoted(os.Getenv, status) || doc == orgtenantrepos.Template {
 		return "", nil
 	}
 	cfg := loadGitOpsConfig()
@@ -511,10 +511,10 @@ func (w DefaultOrganizationGitOpsWriter) RepointSharedHelmRepositories(ctx conte
 		if err != nil {
 			return "", fmt.Errorf("read %s: %w", f, err)
 		}
-		if !orgtenantrepos.NamesPublicCatalog(raw) {
+		if !orgtenantrepos.NeedsRewrite(raw, doc) {
 			continue
 		}
-		if err := writeSharedHelmRepositories(filepath.Dir(f), status); err != nil {
+		if err := writeSharedHelmRepositories(filepath.Dir(f), doc); err != nil {
 			return "", err
 		}
 		rel, err := filepath.Rel(repoDir, f)

@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
+	"sigs.k8s.io/yaml"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -120,8 +121,10 @@ func blockURL(doc, name string) string {
 }
 
 // assertSixOnOwnCatalog checks every one of the six blocks by name, so a block
-// that is missing cannot pass as "no public url left".
-func assertSixOnOwnCatalog(t *testing.T, doc string) {
+// that is missing cannot pass as "no public url left", and checks that each
+// names the trust Secret (orgtenantrepos.TrustSecretName) as source-controller
+// reads it, or none when trust is "" (the Secret is absent).
+func assertSixOnOwnCatalog(t *testing.T, doc, trust string) {
 	t.Helper()
 	if n := hrBlockCount(doc); n != len(sharedRepoNames) {
 		t.Fatalf("want %d HelmRepository blocks, got %d:\n%s", len(sharedRepoNames), n, doc)
@@ -133,6 +136,84 @@ func assertSixOnOwnCatalog(t *testing.T, doc string) {
 	}
 	if strings.Contains(doc, "url: "+orgtenantrepos.GHCRBase) {
 		t.Errorf("a block still names the public catalog:\n%s", doc)
+	}
+	blocks := sharedBlocks(t, doc)
+	for _, name := range sharedRepoNames {
+		b := blocks[name]
+		got := ""
+		if b.Spec.CertSecretRef != nil {
+			got = b.Spec.CertSecretRef.Name
+		}
+		if got != trust {
+			t.Errorf("%s: spec.certSecretRef.name %q, want %q", name, got, trust)
+		}
+		if b.Spec.SecretRef == nil || b.Spec.SecretRef.Name != "ghcr-pull" {
+			t.Errorf("%s: spec.secretRef %+v, want ghcr-pull", name, b.Spec.SecretRef)
+		}
+	}
+}
+
+// sharedBlock is what source-controller reads of one shared HelmRepository.
+type sharedBlock struct {
+	Kind     string `json:"kind"`
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
+	Spec struct {
+		URL       string `json:"url"`
+		SecretRef *struct {
+			Name string `json:"name"`
+		} `json:"secretRef"`
+		CertSecretRef *struct {
+			Name string `json:"name"`
+		} `json:"certSecretRef"`
+	} `json:"spec"`
+}
+
+// sharedBlocks parses doc into its HelmRepositories by name.
+func sharedBlocks(t *testing.T, doc string) map[string]sharedBlock {
+	t.Helper()
+	out := map[string]sharedBlock{}
+	for _, part := range strings.Split(doc, "\n---\n") {
+		var b sharedBlock
+		if err := yaml.Unmarshal([]byte(part), &b); err != nil {
+			t.Fatalf("parse the shared file: %v\n%s", err, part)
+		}
+		if b.Kind == "HelmRepository" {
+			out[b.Metadata.Name] = b
+		}
+	}
+	return out
+}
+
+// assertTrustOnEveryBlock checks that each of the blocks HelmRepositories of
+// doc is off the public catalog and names the trust Secret.
+func assertTrustOnEveryBlock(t *testing.T, doc string, blocks int) {
+	t.Helper()
+	n := 0
+	for name, b := range sharedBlocks(t, doc) {
+		if b.Spec.URL == orgtenantrepos.GHCRBase || b.Spec.CertSecretRef == nil || b.Spec.CertSecretRef.Name != orgtenantrepos.TrustSecretName {
+			t.Errorf("%s: url %q certSecretRef %+v, want the Sovereign's registry and %s", name, b.Spec.URL, b.Spec.CertSecretRef, orgtenantrepos.TrustSecretName)
+			continue
+		}
+		n++
+	}
+	if n != blocks {
+		t.Fatalf("want %d blocks with the trust reference, got %d:\n%s", blocks, n, doc)
+	}
+}
+
+// trustPresent is the lookup of a cluster where step 06 has written the trust
+// Secret; trustAbsent of one where it has not.
+func trustPresent(context.Context) (string, error) { return orgtenantrepos.TrustSecretName, nil }
+
+func trustAbsent(context.Context) (string, error) { return "", nil }
+
+// trustLookupMustNotRun fails the test when the public catalog looks up trust.
+func trustLookupMustNotRun(t *testing.T) orgtenantrepos.TrustFunc {
+	return func(context.Context) (string, error) {
+		t.Error("the trust Secret was looked up for the public catalog")
+		return "", nil
 	}
 }
 
@@ -164,19 +245,33 @@ const emptyTenantsIndex = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Ku
 // An Organization written after the registry pivot and before the engine's Pod
 // is replaced gets the Sovereign's own catalog in all six blocks. On main the
 // writer decided from step 07's issuer pair alone, which this Pod does not
-// carry, and wrote oci://ghcr.io/openova-io six times.
+// carry, and wrote oci://ghcr.io/openova-io six times. Each block names the
+// trust Secret once step 06 has written it (21 Nov: the Organization came after
+// step 06), as step 06 does for every source it pivots; without it the source
+// fails x509 on the registry's LE-staging certificate while step 08 passes it.
+// Before the Secret exists the blocks name none, as step 06 does then.
 func TestOrganizationWrittenAfterPivotBeforePodReplacementGetsOwnCatalog(t *testing.T) {
-	oldEnginePodEnv(t)
-	bare := tenantsRemote(t, map[string]string{
-		"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
-	})
-	w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{
-		"registriesYamlActive": "v2", "currentStep": "catalyst-api-env-patch",
-	})}
-	if _, err := w.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
-		t.Fatalf("WriteTenantOverlay: %v", err)
+	for name, tc := range map[string]struct {
+		lookup orgtenantrepos.TrustFunc
+		want   string
+	}{
+		"after step 06 wrote the trust Secret": {trustPresent, orgtenantrepos.TrustSecretName},
+		"before it (steps 03 to 06)":           {trustAbsent, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			oldEnginePodEnv(t)
+			bare := tenantsRemote(t, map[string]string{
+				"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
+			})
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{
+				"registriesYamlActive": "v2", "currentStep": "catalyst-api-env-patch",
+			}), HarborTrust: tc.lookup}
+			if _, err := w.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
+				t.Fatalf("WriteTenantOverlay: %v", err)
+			}
+			assertSixOnOwnCatalog(t, remoteFile(t, bare, "clusters/"+pivotTestFQDN+"/org-tenants/helmrepositories.yaml"), tc.want)
+		})
 	}
-	assertSixOnOwnCatalog(t, remoteFile(t, bare, "clusters/"+pivotTestFQDN+"/org-tenants/helmrepositories.yaml"))
 }
 
 // An Organization written before the pivot is rewritten after it: the engine's
@@ -193,7 +288,7 @@ func TestSharedHelmRepositoriesWrittenBeforePivotAreRewrittenAfterIt(t *testing.
 		dir + "040755fec9/kustomization.yaml": overlay,
 	})
 	before := remoteCommits(t, bare)
-	w := DefaultOrganizationGitOpsWriter{}
+	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
 	status := map[string]string{"registriesYamlActive": "v2"}
 
 	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
@@ -203,7 +298,7 @@ func TestSharedHelmRepositoriesWrittenBeforePivotAreRewrittenAfterIt(t *testing.
 	if sha == "" || remoteCommits(t, bare) != before+1 {
 		t.Fatalf("want one pushed commit, got sha=%q and %d commits (was %d)", sha, remoteCommits(t, bare), before)
 	}
-	assertSixOnOwnCatalog(t, remoteFile(t, bare, dir+"helmrepositories.yaml"))
+	assertSixOnOwnCatalog(t, remoteFile(t, bare, dir+"helmrepositories.yaml"), orgtenantrepos.TrustSecretName)
 	if got := remoteFile(t, bare, dir+"kustomization.yaml"); got != index {
 		t.Errorf("the parent index changed:\n%s", got)
 	}
@@ -236,7 +331,7 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 				dir + "helmrepositories.yaml": orgtenantrepos.Template,
 			})
 			before := remoteCommits(t, bare)
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status)}
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status), HarborTrust: trustLookupMustNotRun(t)}
 			sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 			if err != nil || sha != "" || remoteCommits(t, bare) != before {
 				t.Fatalf("re-render before the pivot: sha=%q err=%v commits=%d (was %d), want nothing", sha, err, remoteCommits(t, bare), before)
@@ -248,6 +343,42 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 				t.Errorf("an Organization written before the pivot must get the template unchanged:\n%s", got)
 			}
 		})
+	}
+}
+
+// A file written on the Sovereign's registry before step 06 wrote the trust
+// Secret (steps 03 to 06) gets the reference from the re-render before the
+// egress hold, and a second re-render pushes nothing.
+func TestSharedHelmRepositoriesWrittenBeforeTheTrustSecretGetItBeforeTheHold(t *testing.T) {
+	oldEnginePodEnv(t)
+	path := "clusters/" + pivotTestFQDN + "/org-tenants/helmrepositories.yaml"
+	bare := tenantsRemote(t, map[string]string{
+		path: orgtenantrepos.Render("oci://registry."+pivotTestFQDN+"/openova-io", ""),
+	})
+	before := remoteCommits(t, bare)
+	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
+	status := map[string]string{"registriesYamlActive": "v2"}
+	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
+	if err != nil || sha == "" || remoteCommits(t, bare) != before+1 {
+		t.Fatalf("re-render: sha=%q err=%v commits=%d (was %d), want one commit", sha, err, remoteCommits(t, bare), before)
+	}
+	assertSixOnOwnCatalog(t, remoteFile(t, bare, path), orgtenantrepos.TrustSecretName)
+	if again, err := w.RepointSharedHelmRepositories(context.Background(), status); err != nil || again != "" || remoteCommits(t, bare) != before+1 {
+		t.Fatalf("second re-render: sha=%q err=%v, want no commit", again, err)
+	}
+}
+
+// Pivoted without an fqdn the file stays the public catalog, so the re-render
+// has nothing to write and pushes no commit.
+func TestRepointWithoutAnFQDNPushesNothing(t *testing.T) {
+	clearCutoverEnv(t)
+	path := "clusters/" + pivotTestFQDN + "/org-tenants/helmrepositories.yaml"
+	bare := tenantsRemote(t, map[string]string{path: orgtenantrepos.Template})
+	before := remoteCommits(t, bare)
+	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustLookupMustNotRun(t)}
+	sha, err := w.RepointSharedHelmRepositories(context.Background(), map[string]string{"registriesYamlActive": "v2"})
+	if err != nil || sha != "" || remoteCommits(t, bare) != before {
+		t.Fatalf("re-render without an fqdn: sha=%q err=%v commits=%d (was %d), want nothing", sha, err, remoteCommits(t, bare), before)
 	}
 }
 
