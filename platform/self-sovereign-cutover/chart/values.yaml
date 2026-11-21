@@ -509,6 +509,35 @@ harbor:
 #     turning an opaque mid-hold ImagePullBackOff into a fail-fast.
 # A chart that introduces an image from an un-mapped host FAILS the CI
 # guardrail (tests/image-registry-coverage.sh) at authoring time.
+#
+# THE COPY (_helpers.tpl, define offlinemirrorCopy; these rules sit here because a
+# template's comments are stored in every Helm release Secret, #6004).
+# offlinemirror_copy is the ONE way every step writes an image or chart into the
+# local registry (step 03 Phase A, A2 and A5, which the release route runs as its
+# prewarm; the follower prewarm; step 08's self-heal; the day-two pin reconciler):
+# the source's manifest bytes land unchanged or the copy fails (--preserve-digests
+# on every skopeo call). A list copied --multi-arch all (an OCI index or a Docker
+# list, whatever its entries: Docker or OCI manifests, attestations, zstd layers) is
+# copied as each entry by digest, then the list's own bytes by --multi-arch
+# index-only, which skopeo-copy(1) v1.15.2 documents as needing the entries present.
+# Copied whole, skopeo 1.15.2 rewrites the list: it adds
+# io.github.containers.compression.zstd to the entry of each zstd child and so,
+# preserving digests, refuses ("Manifest list must be converted ... Instructed to
+# preserve digests", containers/image v5.30.2 copy/multiple.go:316), measured on
+# docker.io/stalwartlabs/stalwart@sha256:dcf575db... (20 Nov 2026). A single
+# manifest, an unreadable source or a single-platform copy is one call.
+# A list whose top document has a top-level artifactType or subject, or no
+# mediaType, is written after its entries by offlinemirror_put_list: its raw bytes,
+# read once into a file, their sha256 checked against the source digest, by one
+# registry-API PUT /v2/<repo>/manifests/<tag> with the destination's credential;
+# it succeeds only on HTTP 201 with a Docker-Content-Digest equal to that digest.
+# skopeo 1.15.2 (containers/image v5.30.2) drops artifactType and subject when it
+# clones a list and then refuses the same way, so it failed every OpenTofu provider
+# package (SOV-342: an index of artifactType application/vnd.opentofu.provider) in
+# step 03 Phase A5 (21 Nov 2026). Every other list keeps the skopeo path. A list
+# PUT before its entries is refused (400 MANIFEST_BLOB_UNKNOWN), so the entries go
+# first. tests/hermetic/provider-package-copy copies both kinds with the real skopeo
+# into a real registry.
 offlineMirror:
   enabled: true
   # #5194 (Refs #4975 #5191) — step-08 pre-hold completeness SELF-HEAL. A
@@ -4089,7 +4118,8 @@ rebootHold:
 #   mirror its CLI configuration names (SOV-342): the origin, until step 11
 #   moves that address here. Each listed package is copied by the digest the
 #   list names through offlinemirror_copy (each manifest of its index by digest,
-#   then the index, digests preserved), from the origin with the pull credential
+#   then the index's own bytes, by the registry API when skopeo would rewrite
+#   them, 21 Nov 2026; digests preserved), from the origin with the pull credential
 #   of Phase A (step 06 removes the origin's login later), to
 #   <HARBOR_HOST>/localPath/<namespace>/<type>:<version>, up to
 #   PREWARM_COPY_ATTEMPTS times. A tag the registry holds at the listed digest is

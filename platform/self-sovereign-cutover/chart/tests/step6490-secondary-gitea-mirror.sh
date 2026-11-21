@@ -359,6 +359,18 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.no08" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: offlinemirror_copy writes a list with a top-level artifactType or subject,
+    # or no mediaType, by its own bytes through the registry API (offlinemirror_put_list in
+    # _helpers.tpl), in the 03a resolver and the follower prewarm script; not the follower
+    # gitea leg. While origin/main lacks offlinemirror_put_list, those two documents are left
+    # out of BOTH trees; tests/hermetic/provider-package-copy executes the change. The axis
+    # switches itself off once origin/main holds it.
+    if ! grep -q 'offlinemirror_put_list() {' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/(03a-offline-mirror-resolver|secondary-harbor-prewarm-script-configmap)\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nocp"
+        mv "${TMP}/${t}.nocp" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
