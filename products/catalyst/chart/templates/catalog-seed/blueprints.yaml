@@ -3351,7 +3351,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.16
+  version: 0.1.17
   card:
     title: Stalwart (per-Organization)
     summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
@@ -3373,7 +3373,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-stalwart-tenant
-    version: 0.1.16
+    version: 0.1.17
   topology:
     supported: [active-passive, singleton]
     defaults:

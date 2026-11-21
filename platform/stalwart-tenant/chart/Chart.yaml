@@ -222,7 +222,7 @@ name: bp-stalwart-tenant
 #   satisfied and the pod starts in a CRD-less per-Org vcluster instead of the
 #   release failing to render ("no matches for kind Certificate in version
 #   cert-manager.io/v1"). Refs #6483.
-version: 0.1.16
+version: 0.1.17
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
