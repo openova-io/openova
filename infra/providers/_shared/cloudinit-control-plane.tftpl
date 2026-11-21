@@ -806,6 +806,27 @@ runcmd:
   - systemctl enable --now fail2ban || true
 %{ endif ~}
 
+  # ── NET-185: the node's own resolver leaves port 53 to dnsdist ─────────
+  # dnsdist holds host port 53 on every node (POWERDNS_DNSDIST_HOSTPORT), and
+  # Cilium's socket balancer in the host namespace (socketLB.hostNamespaceOnly)
+  # sends a host process's packet for any 127.0.0.0/8 address on port 53 to
+  # that Pod. Through systemd-resolved's stub (127.0.0.53) the node's own
+  # lookups (containerd, kubelet, curl) would reach the Sovereign's
+  # authoritative server and fail whenever its Pod is not running. So, before
+  # k3s starts and only where systemd-resolved runs, the stub stops listening
+  # and /etc/resolv.conf links /run/systemd/resolve/resolv.conf: the network's
+  # own servers. The node resolves through them before Cilium and dnsdist run,
+  # while they start and after. Where systemd-resolved does not run (the local
+  # pack masks it), nothing changes.
+  - |
+    if systemctl is-active -q systemd-resolved; then
+     mkdir -p /etc/systemd/resolved.conf.d
+     printf '[Resolve]\nDNSStubListener=no\n' >/etc/systemd/resolved.conf.d/90-no-stub.conf
+     systemctl restart systemd-resolved
+     ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+     echo "[resolver] stub off: $(grep -c ^nameserver /etc/resolv.conf) servers"
+    else echo "[resolver] systemd-resolved not active: unchanged"; fi
+
   # ── PROVIDER PRELUDE (injected) ───────────────────────────────────────
   # Runs BEFORE k3s. Only hard cloud-dependency setup that must precede the
   # k3s install: private-NIC bring-up (Hetzner netplan), console-less log

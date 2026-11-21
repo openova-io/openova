@@ -98,6 +98,13 @@ CILIUM_CLUSTERMESH_PROXY_PORT: "${clustermesh_proxy_port}"
 # Consumed by the catalyst-api Deployment env (products/catalyst
 # chart) — see clustermesh.go clusterMeshDialPort().
 CLUSTERMESH_APISERVER_DIAL_PORT: "${clustermesh_proxy_port}"
+# NET-185 — the Sovereign's name servers answer on public port 53: dnsdist
+# becomes the DaemonSet with hostPort 53 (UDP and TCP) on every node, reached
+# through the control-plane EIP's 1:1 NAT and the region security group's
+# 53/UDP and 53/TCP rules (main.tf ingress_dns_udp / ingress_dns_tcp). The
+# LB-IPAM anycast VIP on the EIP never receives a packet here (1:1 NAT
+# delivers to the node's private address). hostPort, NEVER a nodePort.
+POWERDNS_DNSDIST_HOSTPORT: "true"
 # #4706 — lockstep w/ the cilium-values hostNetwork block above.
 CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
 # #4706 — console gateway binds 8443/8080 under hostNetwork (two

@@ -7,10 +7,11 @@
 # ServiceAccount gate (jobs and pods: create, get, list, watch, delete; pods/log: get; secrets:
 # create, delete, never read; networkpolicies: create, get, delete), Pod Security restricted, a quota
 # of 4 pods. The namespace's standing NetworkPolicy denies everything but DNS; each run creates its own
-# NetworkPolicy, named as its Job, that lets the Job's Pods reach TCP 6443 and 443 of the addresses of
-# the install under test only (/32 each, given with --targets), and deletes it with the Job. The
-# manifest of the access is scripts/gate-parent-access.yaml. The node's container runtime pulls the
-# images, outside the Pod's network, so every image is named by its digest.
+# NetworkPolicy, named as its Job, that lets the Job's Pods reach TCP 6443 and 443, and port 53 over UDP
+# and TCP (the name servers, check NET-G19), of the addresses of the install under
+# test only (/32 each, given with --targets), and deletes it with the Job. The manifest of the access is
+# scripts/gate-parent-access.yaml. The node's container runtime pulls the images, outside the Pod's
+# network, so every image is named by its digest.
 #
 #   gate-parent-job.sh execution <value>     prints hosted or parent; empty means hosted; else exit 2
 #   gate-parent-job.sh preflight <value>     prints the input preflight without the prefix PREFLIGHT=
@@ -227,7 +228,7 @@ policy_json() { # $1 the run's name, $2 its addresses (as norm_targets prints th
   printf '{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",\n'
   printf ' "metadata": {"name": "%s", "namespace": "%s", "labels": {"app.kubernetes.io/managed-by": "gate-parent-job", "openova.io/gate-run": "%s"}},\n' "$1" "$NS" "${run:-none}"
   printf ' "spec": {"podSelector": {"matchLabels": {"batch.kubernetes.io/job-name": "%s"}}, "policyTypes": ["Egress"],\n' "$1"
-  printf '  "egress": [{"to": [%s], "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}]}]}}\n' "$to"
+  printf '  "egress": [{"to": [%s], "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}, {"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}]}}\n' "$to"
 }
 
 cmd_policy() {
@@ -674,7 +675,7 @@ cmd_run() {
   policy_json "$name" "$targets" > "$RUN_OUT/policy.json"
   pk create -f "$RUN_OUT/policy.json" > /dev/null \
     || die "the NetworkPolicy of the run could not be created: the Role of the gate needs create, get and delete on networkpolicies (scripts/gate-parent-access.yaml)"
-  echo "gate-parent-job: created the NetworkPolicy $name: the Pods of the Job may reach TCP 6443 and 443 of $targets and nothing else but DNS" >&2
+  echo "gate-parent-job: created the NetworkPolicy $name: the Pods of the Job may reach TCP 6443 and 443 and UDP and TCP 53 of $targets and nothing else but DNS" >&2
   pk create -f "$RUN_OUT/secret.json" > /dev/null || die "the Secret of the run could not be created"
   rm -f "$RUN_OUT/secret.json"
   if [ -s "$RUN_OUT/pull.json" ]; then
@@ -1314,13 +1315,13 @@ STUB
   [ $? = 1 ] && grep -q 'console.hw400.omani.works has no IPv4 address' "$T/t3.out"
   ok $? "targets: a console the DNS does not resolve stops before any Job"
 
-  # the run's NetworkPolicy: the addresses in, one exact /32 each out, TCP 6443 and 443 only, the Pods of the run's Job only
+  # the run's NetworkPolicy: the addresses in, one exact /32 each out, TCP 6443 and 443 and UDP and TCP 53 only, the Pods of the run's Job only
   cmd_policy gate-9-1-live-abcdef ' 203.0.113.35, 203.0.113.1,203.0.113.1' > "$T/pol.json"
   jq -e '.kind == "NetworkPolicy" and .metadata.namespace == "acceptance-gate" and .metadata.name == "gate-9-1-live-abcdef"
     and .spec.podSelector == {"matchLabels": {"batch.kubernetes.io/job-name": "gate-9-1-live-abcdef"}} and .spec.policyTypes == ["Egress"]
     and .spec.egress == [{"to": [{"ipBlock": {"cidr": "203.0.113.1/32"}}, {"ipBlock": {"cidr": "203.0.113.35/32"}}],
-                          "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}]}]' "$T/pol.json" > /dev/null
-  ok $? "policy: each address once as an exact /32, TCP 6443 and 443 only, for the Pods of the run's Job only"
+                          "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}, {"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}]' "$T/pol.json" > /dev/null
+  ok $? "policy: each address once as an exact /32, TCP 6443 and 443 and UDP and TCP 53 only, for the Pods of the run's Job only"
   local bad_t rc_t=0
   for bad_t in '' ' , ' '203.0.113.0/24' '0.0.0.0' '203.0.113.256' '127.0.0.1' '224.0.0.1' 'console.hw399.omani.works' '203.0.113.1,*'; do
     ( cmd_policy gate-9-1-live-abcdef "$bad_t" ) > /dev/null 2>&1; [ $? = 2 ] || { echo "not refused: '$bad_t'"; rc_t=1; }
