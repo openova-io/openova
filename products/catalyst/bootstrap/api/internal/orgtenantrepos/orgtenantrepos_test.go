@@ -9,7 +9,13 @@ func envOf(kv map[string]string) func(string) string {
 	return func(k string) string { return kv[k] }
 }
 
-func TestRegistryPivoted(t *testing.T) {
+// usableStatus is the cutover status once step 06 has succeeded.
+var usableStatus = map[string]string{StatusKeyRegistries: "v2", StatusKeySourcesPivoted: "success"}
+
+// The Sovereign's own source is usable only once step 06 wrote the credential
+// and the trust: the registry pivot of step 03 alone is not enough (on main it
+// was, so an Organization written in between got a source that cannot work).
+func TestOwnSourceUsable(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		env    map[string]string
@@ -18,29 +24,36 @@ func TestRegistryPivoted(t *testing.T) {
 	}{
 		{"mothership: nothing", nil, nil, false},
 		{"Sovereign identity alone", map[string]string{"SOVEREIGN_FQDN": "hw.test"}, map[string]string{"registriesYamlActive": "v1"}, false},
-		{"status v2, no step-07 stamp yet", nil, map[string]string{"registriesYamlActive": "v2"}, true},
-		{"status v2 with whitespace", nil, map[string]string{"registriesYamlActive": " v2\n"}, true},
-		{"status rollback", nil, map[string]string{"registriesYamlActive": "rollback"}, false},
-		{"step results are not the fact", nil, map[string]string{"step.registry-pivot.result": "success", "step.helmrepository-patches.result": "success"}, false},
+		{"after step 03, before step 06", nil, map[string]string{"registriesYamlActive": "v2"}, false},
+		{"step 06 running", nil, map[string]string{"registriesYamlActive": "v2", StatusKeySourcesPivoted: "running"}, false},
+		{"step 06 failed", nil, map[string]string{"registriesYamlActive": "v2", StatusKeySourcesPivoted: "failed"}, false},
+		{"step 06 re-run blanked its row", nil, map[string]string{"registriesYamlActive": "v2", StatusKeySourcesPivoted: ""}, false},
+		{"after step 06", nil, usableStatus, true},
+		{"after step 06, with whitespace", nil, map[string]string{"registriesYamlActive": " v2\n", StatusKeySourcesPivoted: "success\n"}, true},
+		{"step 06 result without the registry pivot", nil, map[string]string{"registriesYamlActive": "v1", StatusKeySourcesPivoted: "success"}, false},
+		{"status rollback", nil, map[string]string{"registriesYamlActive": "rollback", StatusKeySourcesPivoted: "success"}, false},
 		{"step-07 pin issuer", map[string]string{"CATALYST_PIN_ISSUER": "https://console.hw.test"}, nil, true},
 		{"step-07 hand-over issuer", map[string]string{"CATALYST_HANDOVER_JWT_ISSUER": "https://console.hw.test"}, nil, true},
 	} {
-		if got := RegistryPivoted(envOf(tc.env), tc.status); got != tc.want {
-			t.Errorf("%s: RegistryPivoted = %v, want %v", tc.name, got, tc.want)
+		if got := OwnSourceUsable(envOf(tc.env), tc.status); got != tc.want {
+			t.Errorf("%s: OwnSourceUsable = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
 
 func TestBaseFromStatus(t *testing.T) {
 	env := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test"})
-	if got := Base(env, map[string]string{"registriesYamlActive": "v2"}); got != "oci://registry.hw.test/openova-io" {
-		t.Errorf("pivoted by status: %q", got)
+	if got := Base(env, usableStatus); got != "oci://registry.hw.test/openova-io" {
+		t.Errorf("usable by status: %q", got)
+	}
+	if got := Base(env, map[string]string{"registriesYamlActive": "v2"}); got != GHCRBase {
+		t.Errorf("pivoted but step 06 not yet: %q", got)
 	}
 	if got := Base(env, map[string]string{"registriesYamlActive": "v1"}); got != GHCRBase {
 		t.Errorf("not pivoted: %q", got)
 	}
-	if got := Base(envOf(nil), map[string]string{"registriesYamlActive": "v2"}); got != GHCRBase {
-		t.Errorf("pivoted without an fqdn must fail safe to the public catalog: %q", got)
+	if got := Base(envOf(nil), usableStatus); got != GHCRBase {
+		t.Errorf("usable without an fqdn must fail safe to the public catalog: %q", got)
 	}
 }
 

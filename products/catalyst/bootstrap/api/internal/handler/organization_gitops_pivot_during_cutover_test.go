@@ -1,6 +1,7 @@
 // organization_gitops_pivot_during_cutover_test.go — an Organization written
-// while the cutover runs gets the Sovereign's own catalog, and what was
-// written before the engine knew is rewritten before the egress hold.
+// while the cutover runs gets the Sovereign's own catalog once step 06 has
+// written its credential and trust, and what was written before is rewritten
+// before the egress hold, within a deadline.
 //
 // Measured 21 Nov 2026 on a two-region install: step 06 moved the existing
 // HelmRepositories (04:03:25-04:06:10); an Organization written at 04:08:19, by
@@ -16,7 +17,10 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	"sigs.k8s.io/yaml"
@@ -204,10 +209,8 @@ func assertTrustOnEveryBlock(t *testing.T, doc string, blocks int) {
 }
 
 // trustPresent is the lookup of a cluster where step 06 has written the trust
-// Secret; trustAbsent of one where it has not.
+// Secret.
 func trustPresent(context.Context) (string, error) { return orgtenantrepos.TrustSecretName, nil }
-
-func trustAbsent(context.Context) (string, error) { return "", nil }
 
 // trustLookupMustNotRun fails the test when the public catalog looks up trust.
 func trustLookupMustNotRun(t *testing.T) orgtenantrepos.TrustFunc {
@@ -242,35 +245,152 @@ func oldEnginePodEnv(t *testing.T) {
 
 const emptyTenantsIndex = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n"
 
-// An Organization written after the registry pivot and before the engine's Pod
-// is replaced gets the Sovereign's own catalog in all six blocks. On main the
-// writer decided from step 07's issuer pair alone, which this Pod does not
-// carry, and wrote oci://ghcr.io/openova-io six times. Each block names the
-// trust Secret once step 06 has written it (21 Nov: the Organization came after
-// step 06), as step 06 does for every source it pivots; without it the source
-// fails x509 on the registry's LE-staging certificate while step 08 passes it.
-// Before the Secret exists the blocks name none, as step 06 does then.
-func TestOrganizationWrittenAfterPivotBeforePodReplacementGetsOwnCatalog(t *testing.T) {
+// afterStep06 is the cutover status once step 06 has written the registry's
+// credential (Phase 0) and trust (Phase 0.5) and succeeded.
+var afterStep06 = map[string]string{"registriesYamlActive": "v2", "step.helmrepository-patches.result": "success", "currentStep": "catalyst-api-env-patch"}
+
+// The source an Organization written at each moment of the cutover gets, and
+// that it can use then: the public catalog until step 06 has written the
+// credential and the trust of the Sovereign's registry (egress stays open
+// until step 08), the Sovereign's own with certSecretRef from then on. On main
+// the two middle moments got the Sovereign's registry, which source-controller
+// can neither authenticate to nor trust before step 06, and a cutover that
+// stopped there left every later Organization on a source that cannot work.
+func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 	for name, tc := range map[string]struct {
-		lookup orgtenantrepos.TrustFunc
-		want   string
+		stamp  bool
+		status map[string]string
+		own    bool
 	}{
-		"after step 06 wrote the trust Secret": {trustPresent, orgtenantrepos.TrustSecretName},
-		"before it (steps 03 to 06)":           {trustAbsent, ""},
+		"before step 03 ends":                        {status: map[string]string{"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"}},
+		"between step 03's end and step 06's phases": {status: map[string]string{"registriesYamlActive": "v2", "currentStep": "helmrepository-patches", "step.helmrepository-patches.result": "running"}},
+		"a cutover stopped after step 03":            {status: map[string]string{"registriesYamlActive": "v2", "failedStep": "registry-pivot", "step.registry-pivot.result": "failed"}},
+		"after step 06":                              {status: afterStep06, own: true},
+		"after step 07 (the new Pod)":                {stamp: true, own: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			oldEnginePodEnv(t)
+			if tc.stamp {
+				t.Setenv("CATALYST_PIN_ISSUER", "https://console."+pivotTestFQDN)
+			}
 			bare := tenantsRemote(t, map[string]string{
 				"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
 			})
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{
-				"registriesYamlActive": "v2", "currentStep": "catalyst-api-env-patch",
-			}), HarborTrust: tc.lookup}
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(tc.status), HarborTrust: trustLookupMustNotRun(t)}
+			if tc.own {
+				w.HarborTrust = trustPresent
+			}
 			if _, err := w.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
 				t.Fatalf("WriteTenantOverlay: %v", err)
 			}
-			assertSixOnOwnCatalog(t, remoteFile(t, bare, "clusters/"+pivotTestFQDN+"/org-tenants/helmrepositories.yaml"), tc.want)
+			got := remoteFile(t, bare, "clusters/"+pivotTestFQDN+"/org-tenants/helmrepositories.yaml")
+			if !tc.own {
+				if got != orgtenantrepos.Template {
+					t.Fatalf("want the public catalog, byte for byte the template:\n%s", got)
+				}
+				return
+			}
+			assertSixOnOwnCatalog(t, got, orgtenantrepos.TrustSecretName)
 		})
+	}
+}
+
+// An Organization written between step 03 and step 06 gets the public catalog,
+// and the re-render before step 08 moves it onto the Sovereign's own with the
+// trust reference once step 06 has succeeded.
+func TestOrganizationWrittenBeforeStep06IsMovedByTheReRenderBeforeStep08(t *testing.T) {
+	oldEnginePodEnv(t)
+	path := "clusters/" + pivotTestFQDN + "/org-tenants/helmrepositories.yaml"
+	bare := tenantsRemote(t, map[string]string{
+		"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
+	})
+	between := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{"registriesYamlActive": "v2"}), HarborTrust: trustLookupMustNotRun(t)}
+	if _, err := between.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
+		t.Fatalf("WriteTenantOverlay: %v", err)
+	}
+	if got := remoteFile(t, bare, path); got != orgtenantrepos.Template {
+		t.Fatalf("written between step 03 and step 06: want the public catalog:\n%s", got)
+	}
+	before := remoteCommits(t, bare)
+	sha, err := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}.RepointSharedHelmRepositories(context.Background(), afterStep06)
+	if err != nil || sha == "" || remoteCommits(t, bare) != before+1 {
+		t.Fatalf("re-render before step 08: sha=%q err=%v commits=%d (was %d), want one commit", sha, err, remoteCommits(t, bare), before)
+	}
+	assertSixOnOwnCatalog(t, remoteFile(t, bare, path), orgtenantrepos.TrustSecretName)
+}
+
+// silentRemote is a Git remote that accepts the connection and never answers.
+func silentRemote(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	return "http://" + ln.Addr().String() + "/openova/openova"
+}
+
+// The re-render before step 08 against a Gitea that never answers returns
+// within its deadline and records the named warning as a cutover event; on
+// main it ran with no deadline and held the cutover there with no event.
+func TestReRenderBeforeStep08AgainstASilentRemoteReturnsWithinItsDeadline(t *testing.T) {
+	oldEnginePodEnv(t)
+	t.Setenv("CATALYST_GITOPS_REPO_URL", silentRemote(t))
+	t.Setenv("CATALYST_GITOPS_BRANCH", "org-tenants")
+	t.Setenv("CATALYST_GITOPS_USER", "gitea_admin")
+	t.Setenv("CATALYST_GITOPS_TOKEN", "test-token")
+	t.Setenv("CATALYST_GITOPS_TMPDIR", t.TempDir())
+	t.Setenv("TENANT_GITOPS_PER_ORG", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("HTTP_PROXY", "")
+	saved := orgTenantRepointDeadline
+	orgTenantRepointDeadline = time.Second
+	t.Cleanup(func() { orgTenantRepointDeadline = saved })
+	_, client := fakeHandlerWithCutover(t, statusCMWith(afterStep06))
+
+	var logged bytes.Buffer
+	var events []cutoverEvent
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(done)
+		repointOrgTenantSources(context.Background(), slog.New(slog.NewTextHandler(&logged, nil)),
+			DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}, &cutoverDeps{core: client, ns: cutoverTestNS},
+			func(ev cutoverEvent) { events = append(events, ev) })
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the re-render against a remote that never answers did not return within 30 s")
+	}
+	if took := time.Since(start); took > orgTenantRepointDeadline+10*time.Second {
+		t.Errorf("returned after %s, want at the deadline (%s)", took, orgTenantRepointDeadline)
+	}
+	if len(events) != 1 || events[0].Level != "warn" || events[0].Step != cutoverStepEgressBlockTest || !strings.Contains(events[0].Message, orgtenantrepos.RepointTimedOut) {
+		t.Fatalf("events %+v, want one warn event of step %s naming %s", events, cutoverStepEgressBlockTest, orgtenantrepos.RepointTimedOut)
+	}
+	if !strings.Contains(logged.String(), orgtenantrepos.RepointTimedOut) {
+		t.Errorf("the warning was not logged: %s", logged.String())
 	}
 }
 
@@ -289,7 +409,7 @@ func TestSharedHelmRepositoriesWrittenBeforePivotAreRewrittenAfterIt(t *testing.
 	})
 	before := remoteCommits(t, bare)
 	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
-	status := map[string]string{"registriesYamlActive": "v2"}
+	status := afterStep06
 
 	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 	if err != nil {
@@ -321,7 +441,9 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 		"no status":             nil,
 		"before harbor-prewarm": {"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"},
 		"rolled back":           {"registriesYamlActive": "rollback"},
-		// A step result alone is not the fact: the engine clears results it re-runs.
+		// The registry pivot without step 06 (no credential, no trust yet).
+		"after step 03, before step 06": {"registriesYamlActive": "v2"},
+		// Step 06's result without the registry pivot is not enough either.
 		"step 06 result only": {"registriesYamlActive": "v1", "step.helmrepository-patches.result": "success"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -346,9 +468,9 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 	}
 }
 
-// A file written on the Sovereign's registry before step 06 wrote the trust
-// Secret (steps 03 to 06) gets the reference from the re-render before the
-// egress hold, and a second re-render pushes nothing.
+// A file on the Sovereign's registry without the trust reference (written by
+// an engine that switched at step 03) gets the reference from the re-render
+// before the egress hold, and a second re-render pushes nothing.
 func TestSharedHelmRepositoriesWrittenBeforeTheTrustSecretGetItBeforeTheHold(t *testing.T) {
 	oldEnginePodEnv(t)
 	path := "clusters/" + pivotTestFQDN + "/org-tenants/helmrepositories.yaml"
@@ -357,7 +479,7 @@ func TestSharedHelmRepositoriesWrittenBeforeTheTrustSecretGetItBeforeTheHold(t *
 	})
 	before := remoteCommits(t, bare)
 	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustPresent}
-	status := map[string]string{"registriesYamlActive": "v2"}
+	status := afterStep06
 	sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 	if err != nil || sha == "" || remoteCommits(t, bare) != before+1 {
 		t.Fatalf("re-render: sha=%q err=%v commits=%d (was %d), want one commit", sha, err, remoteCommits(t, bare), before)
@@ -376,7 +498,7 @@ func TestRepointWithoutAnFQDNPushesNothing(t *testing.T) {
 	bare := tenantsRemote(t, map[string]string{path: orgtenantrepos.Template})
 	before := remoteCommits(t, bare)
 	w := DefaultOrganizationGitOpsWriter{HarborTrust: trustLookupMustNotRun(t)}
-	sha, err := w.RepointSharedHelmRepositories(context.Background(), map[string]string{"registriesYamlActive": "v2"})
+	sha, err := w.RepointSharedHelmRepositories(context.Background(), afterStep06)
 	if err != nil || sha != "" || remoteCommits(t, bare) != before {
 		t.Fatalf("re-render without an fqdn: sha=%q err=%v commits=%d (was %d), want nothing", sha, err, remoteCommits(t, bare), before)
 	}
