@@ -48,7 +48,9 @@ grep -q '^TOFU_ORIGIN_PREFIX=ghcr.io/openova-io/tofu-providers$' "${TMP}/env.txt
 
 # The stubs, as commands (the script runs in its own sh). kubectl answers the list read
 # from ${S}/list and nothing else; curl answers a v2 HEAD from ${S}/reg/<repo>@<ref>;
-# skopeo records its arguments, answers inspect with an index of one manifest, and
+# skopeo records its arguments, answers inspect with an index of one manifest (an ordinary one:
+# a package in the publisher's layout, top-level artifactType, takes offlinemirror_put_list, which
+# tests/hermetic/provider-package-copy runs against real registries with the real skopeo), and
 # stores what a copy wrote.
 mkdir -p "${TMP}/bin"
 cat >"${TMP}/bin/kubectl" <<'K'
@@ -69,7 +71,7 @@ C
 cat >"${TMP}/bin/skopeo" <<'SK'
 #!/bin/sh
 echo "skopeo $*" >>"${S}/skopeo.log"
-case " $* " in *" inspect "*) printf '{"manifests":[{"digest":"sha256:%s"}]}' "$(printf 'c%.0s' $(seq 64))"; exit 0 ;; esac
+case " $* " in *" inspect "*) printf '{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"digest":"sha256:%s"}]}' "$(printf 'c%.0s' $(seq 64))"; exit 0 ;; esac
 for a in "$@"; do s="${d:-}"; d="${a}"; done
 s="${s#docker://}"; d="${d#docker://}"; p="${d#*/}"
 case "${p}" in

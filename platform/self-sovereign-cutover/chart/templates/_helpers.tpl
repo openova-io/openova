@@ -347,20 +347,7 @@ empty string, which that loop iterates zero times — i.e. no exception at all.
 {{- .Values.prewarm.singlePlatform.imageSubstrings | default (list) | join " " -}}
 {{- end -}}
 
-{{- /*
-offlinemirrorCopy — the ONE way every step writes an image or chart into the local registry
-(step 03 Phase A and A2, which the release route runs as its prewarm; the follower prewarm;
-step 08's self-heal; the day-two pin reconciler): the source's manifest bytes land unchanged
-or the copy fails (--preserve-digests on every call). A list copied --multi-arch all (an OCI
-index or a Docker list, whatever its entries: Docker or OCI manifests, attestations, zstd
-layers) is copied as each entry by digest, then the list's own bytes by --multi-arch
-index-only, which skopeo-copy(1) v1.15.2 documents as needing the entries present. Copied
-whole, skopeo 1.15.2 rewrites the list: it adds io.github.containers.compression.zstd to the
-entry of each zstd child and so, preserving digests, refuses ("Manifest list must be converted
-... Instructed to preserve digests", containers/image v5.30.2 copy/multiple.go:316), measured
-on docker.io/stalwartlabs/stalwart@sha256:dcf575db... (20 Nov 2026). A single manifest, an
-unreadable source or a single-platform copy is one call.
-*/}}
+{{- /* offlinemirrorCopy: the rules are above offlineMirror in values.yaml (#6004). */}}
 {{- define "bp-self-sovereign-cutover.offlinemirrorCopy" -}}
 offlinemirror_skopeo_copy() {
   _os_s="$1"; _os_c="$2"; _os_d="$3"; shift 3
@@ -370,11 +357,12 @@ offlinemirror_skopeo_copy() {
     --src-tls-verify=true "docker://${_os_s}" "docker://${_os_d}"
 }
 offlinemirror_copy() {
-  _oc_s="$1"; _oc_c="$2"; _oc_d="$3"; shift 3; _oc_k=""
+  _oc_s="$1"; _oc_c="$2"; _oc_d="$3"; shift 3; _oc_k=""; _oc_p=""
   if [ "$*" = "--multi-arch all" ]; then
     set -- --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" inspect --raw --tls-verify=true
     [ -z "${_oc_c}" ] || set -- "$@" --creds="${_oc_c}"
     _oc_k=$(skopeo "$@" "docker://${_oc_s}" 2>/dev/null) || _oc_k=""
+    _oc_p=$(printf '%s' "${_oc_k}" | jq -r 'select(.manifests and (.artifactType or .subject or .mediaType == null)) | 1' 2>/dev/null) || _oc_p=""
     _oc_k=$(printf '%s' "${_oc_k}" | jq -r '.manifests[]?.digest' 2>/dev/null) || _oc_k=""
     set -- --multi-arch all
   fi
@@ -384,7 +372,25 @@ offlinemirror_copy() {
   for _oc_i in ${_oc_k}; do
     offlinemirror_skopeo_copy "${_oc_sr}@${_oc_i}" "${_oc_c}" "${_oc_dr}@${_oc_i}" --multi-arch all || return $?
   done
-  offlinemirror_skopeo_copy "${_oc_s}" "${_oc_c}" "${_oc_d}" --multi-arch index-only
+  [ -n "${_oc_p}" ] || { offlinemirror_skopeo_copy "${_oc_s}" "${_oc_c}" "${_oc_d}" --multi-arch index-only; return $?; }
+  offlinemirror_put_list "${_oc_s}" "${_oc_c}" "${_oc_d}" "${_oc_dr}"
+}
+offlinemirror_put_list() {
+  _op_s="$1"; _op_c="$2"; _op_d="$3"; _op_dr="$4"; _op_t="${3#"$4"}"; _op_t="${_op_t#[:@]}"; _op_f=$(mktemp) || return 1
+  set -- --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" inspect --raw --tls-verify=true; [ -z "${_op_c}" ] || set -- "$@" --creds="${_op_c}"
+  skopeo "$@" "docker://${_op_s}" >"${_op_f}" 2>/dev/null || { echo "[offlinemirror] cannot read ${_op_s}"; rm -f "${_op_f}"; return 1; }
+  _op_g="sha256:$(sha256sum <"${_op_f}" | awk '{print $1}')"; _op_w="${_op_g}"
+  case "${_op_s}" in *@sha256:*) _op_w="${_op_s##*@}" ;; esac
+  [ "${_op_g}" = "${_op_w}" ] || { echo "[offlinemirror] ${_op_s} served ${_op_g}"; rm -f "${_op_f}"; return 1; }
+  _op_m=$(jq -r '.mediaType // "application/vnd.oci.image.index.v1+json"' <"${_op_f}")
+  _op_x=-k; [ "${PREWARM_DEST_TLS_VERIFY:-false}" != true ] || _op_x=""
+  echo "[offlinemirror] PUT list ${_op_w} to ${_op_d} (skopeo would rewrite it)"
+  _op_r=$(curl -sS ${_op_x} --max-time 120 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" -X PUT -H "Content-Type: ${_op_m}" \
+    --data-binary "@${_op_f}" -D "${_op_f}.h" -o "${_op_f}.b" -w '%{http_code}' "https://${_op_dr%%/*}/v2/${_op_dr#*/}/manifests/${_op_t:-latest}" 2>&1) || true
+  _op_a=$(sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*\([^[:space:]]*\).*/\1/p' "${_op_f}.h" 2>/dev/null)
+  _op_b=$(head -c 300 "${_op_f}.b" 2>/dev/null); rm -f "${_op_f}" "${_op_f}.h" "${_op_f}.b"
+  [ "${_op_r}" = 201 ] && [ "${_op_a}" = "${_op_w}" ] && return 0
+  echo "level=fatal msg=\"writing manifest list ${_op_d}: HTTP ${_op_r}, digest ${_op_a:-none}, want ${_op_w}: ${_op_b}\""; return 1
 }
 {{- end -}}
 

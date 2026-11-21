@@ -1,0 +1,80 @@
+# test-provider-package-copy-hermetic.yaml - step 03 copies the OpenTofu provider packages into a
+# real registry, digest for digest, with the real tool.
+#
+# tests/hermetic/provider-package-copy/provider-package-copy-test.sh packs every package the
+# provider packs list with the publisher's command (tools/guards/cmd/tofu-providers), pushes it with
+# the publisher's ORAS to one registry:2 over TLS, and runs Phase A5 of cutover step 03, cut from
+# the chart's render, with step 03's skopeo in step 03's image against a second one; the case files
+# are uploaded as the artifact provider-package-copy-hermetic. Cases:
+#   copy     every tag serves the listed digest; the index, every manifest and every blob are
+#            byte-equal on both sides;
+#   again    a second run copies nothing;
+#   control  skopeo's own copy of the index, digests preserved, is refused as measured on
+#            21 Nov 2026: if it is not, the test can no longer see the defect and the job fails.
+# Both registries and the copier share one network namespace with no other network: nothing
+# publishes a port and nothing uses a node port. No cluster is read or written.
+#
+# Triggers: a pull request or a push to main that changes the cutover chart (the copy), the
+# publisher (its command, its workflow) or the lists of packages, the test or this workflow;
+# workflow_dispatch runs it on any branch.
+name: test-provider-package-copy-hermetic
+
+on:
+  pull_request:
+    paths:
+      - 'platform/self-sovereign-cutover/**'
+      - 'tools/guards/cmd/tofu-providers/**'
+      - '.github/workflows/mirror-tofu-providers.yaml'
+      - 'infra/providers/*/tofu-providers.txt'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
+      - 'tests/hermetic/provider-package-copy/**'
+      - '.github/workflows/test-provider-package-copy-hermetic.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/self-sovereign-cutover/**'
+      - 'tools/guards/cmd/tofu-providers/**'
+      - '.github/workflows/mirror-tofu-providers.yaml'
+      - 'infra/providers/*/tofu-providers.txt'
+      - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
+      - 'tests/hermetic/provider-package-copy/**'
+      - '.github/workflows/test-provider-package-copy-hermetic.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-provider-package-copy-hermetic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-package-copy-hermetic:
+    name: provider-package-copy-hermetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Phase A5 copies every package into a real registry at the published digests
+        run: bash tests/hermetic/provider-package-copy/provider-package-copy-test.sh
+
+      - name: Upload the case files
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provider-package-copy-hermetic
+          path: ${{ runner.temp }}/provider-package-copy/work/out
+          if-no-files-found: warn
