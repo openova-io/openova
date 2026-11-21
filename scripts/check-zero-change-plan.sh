@@ -6,20 +6,23 @@
 #                             [--kubeconfig <file>] [--namespace <ns>] [--target <pod or deploy/name>]
 #                             [--transcript <file>] [--regenerate-bin <file>]
 #   check-zero-change-plan.sh judge <transcript> <result file>
+#   check-zero-change-plan.sh pack-providers <dir> <out>
 #   check-zero-change-plan.sh --self-test
 #
 # run   Works inside the engine Pod of the parent that provisioned the deployment (kubectl exec;
 #       default namespace catalyst, target deploy/catalyst-api), because only that Pod mounts the
 #       deployment's working directory and record and holds the cloud credentials. It streams in
-#       the module of the deployment's provider, the shared templates and the cloud profiles from
-#       <dir> (the commit under test) and the command tfvars-regenerate built from <dir>; there it
+#       the module of the deployment's provider, the shared templates, the provider contract and
+#       the cloud profiles (pack-providers, below) from <dir> (the commit under test) and the
+#       command tfvars-regenerate built from <dir>; there it
 #         copy        copies the working directory of <id> into a temporary directory, without
 #                     .terraform, and stages the module of <dir> in it the way the engine does
 #                     (the module's *.tf and *.tftpl files, those of seal/, _shared beside it);
 #                     the module files the copy held before are removed first;
 #         regenerate  writes the variables file again from the deployment record with
-#                     tfvars-regenerate, which validates it against the cloud profiles of <dir>
-#                     and prints only the names of the keys that changed;
+#                     tfvars-regenerate, which validates it against the cloud profiles of <dir>,
+#                     checks it against the provider contract of <dir> and prints only the
+#                     names of the keys that changed;
 #         init        tofu init, with the engine's provider plugin cache (at most 15 minutes);
 #         plan        tofu plan -detailed-exitcode -lock=false (at most 30 minutes).
 #       The state and the working directory are never written: every step works on the copy, and
@@ -33,6 +36,11 @@
 #       code 2) is a FAIL that names the counts and lists every planned action; nothing is
 #       subtracted or ignored. A step that did not start or did not finish is a FAIL, and so is a
 #       transcript without any step: a missing measurement is never a pass.
+# pack-providers  Writes to <out> the files of infra/providers/ of <dir> that tfvars-regenerate
+#       reads when it is given -providers <out>; run packs exactly these. The rule is in
+#       pack_providers; the Go test TestZeroChangePlanPack of
+#       products/catalyst/bootstrap/api/cmd/tfvars-regenerate runs the command on <out> alone and
+#       fails on any file it reads that is not there.
 # --self-test  Runs the remote part against a fake engine (a fake kubectl, tofu and
 #       tfvars-regenerate) and judges every kind of transcript; each rule is shown to fail.
 set -euo pipefail
@@ -40,8 +48,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The part that runs inside the engine Pod: POSIX sh, busybox tools. $1 is the deployment id;
-# standard input is a tar of module/, _shared/, providers/ (the cloud profiles) and
-# bin/tfvars-regenerate.
+# standard input is a tar of module/, _shared/, providers/ (the provider contract and the cloud
+# profiles, see pack_providers) and bin/tfvars-regenerate.
 read -r -d '' REMOTE <<'SH' || true
 set -u
 id="$1"
@@ -230,7 +238,30 @@ print("CLD-G12 " + status)
 PY
 }
 
-usage() { echo "usage: check-zero-change-plan.sh run --deployment <id> --candidate <dir> --result <file> [--kubeconfig <file>] [--namespace <ns>] [--target <t>] [--transcript <file>] [--regenerate-bin <file>] | judge <transcript> <result> | --self-test" >&2; exit 2; }
+usage() { echo "usage: check-zero-change-plan.sh run --deployment <id> --candidate <dir> --result <file> [--kubeconfig <file>] [--namespace <ns>] [--target <t>] [--transcript <file>] [--regenerate-bin <file>] | judge <transcript> <result> | pack-providers <dir> <out> | --self-test" >&2; exit 2; }
+
+# pack_providers <dir> <out>: the files of <dir>/infra/providers/ that tfvars-regenerate reads with
+# -providers <out>, the one place that names them. The rule follows the two readers:
+#   - the whole contract directory _contract/: the engine opens its files by name below
+#     ProvidersDir (cloudprofile.schema.json when Validate loads the cloud profiles, contract.json
+#     when WriteTfvars adds the variables of the adapter), so a file added there is carried
+#     without a change here;
+#   - the profile.yaml of every pack: cloudprofile.Load reads one from each directory whose name
+#     does not start with _ or ., and fails on a pack without one, as the engine does.
+# A commit without _contract/ predates the cloud profiles: nothing is written, and the remote part
+# leaves -providers out.
+pack_providers() {
+  local src="$1/infra/providers" out="$2" d name
+  [ -d "$src/_contract" ] || return 0
+  mkdir -p "$out" || return 1
+  cp -R "$src/_contract" "$out/" || return 1
+  for d in "$src"/*/; do
+    d="${d%/}"; name="${d##*/}"
+    case "$name" in _*|.*) continue ;; esac
+    mkdir -p "$out/$name" || return 1
+    cp "$d/profile.yaml" "$out/$name/" || return 1
+  done
+}
 
 run_check() {
   local id="" cand="" result="" kc="${KUBECONFIG:-}" ns=catalyst target=deploy/catalyst-api transcript="" bin=""
@@ -285,16 +316,9 @@ run_check() {
       if [ -d "$cand/infra/providers/_shared" ]; then
         find "$cand/infra/providers/_shared" -maxdepth 1 -type f \( -name '*.tf' -o -name '*.tftpl' \) -exec cp {} "$pack/_shared/" \;
       fi
-      # The cloud profiles that Validate reads: the schema and every pack's profile.yaml.
-      if [ -f "$cand/infra/providers/_contract/cloudprofile.schema.json" ]; then
-        mkdir -p "$pack/providers/_contract"
-        cp "$cand/infra/providers/_contract/cloudprofile.schema.json" "$pack/providers/_contract/"
-        for f in "$cand"/infra/providers/*/profile.yaml; do
-          [ -f "$f" ] || continue
-          f="${f%/profile.yaml}"; mkdir -p "$pack/providers/${f##*/}"; cp "$f/profile.yaml" "$pack/providers/${f##*/}/"
-        done
-      fi
-      if [ -n "$bin" ]; then
+      if ! pack_providers "$cand" "$pack/providers" 2>>"$transcript"; then
+        abort "the provider contract and the cloud profiles of the commit under test could not be packed"; provider=""
+      elif [ -n "$bin" ]; then
         cp "$bin" "$pack/bin/tfvars-regenerate"
       elif ! (cd "$cand/products/catalyst/bootstrap/api" && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" \
                go build -trimpath -ldflags '-s -w' -o "$pack/bin/tfvars-regenerate" ./cmd/tfvars-regenerate) >>"$transcript" 2>&1; then
@@ -328,11 +352,13 @@ self_test() {
   echo 'new' > "$cand/infra/providers/fakecloud/cloudinit-worker.tftpl"; echo 'x' > "$cand/infra/providers/fakecloud/README.md"
   echo 'new' > "$cand/infra/providers/_shared/cloudinit-control-plane.tftpl"
   echo '{}' > "$cand/infra/providers/_contract/cloudprofile.schema.json"
+  echo '{}' > "$cand/infra/providers/_contract/contract.json"
   echo 'metadata: {name: fakecloud}' > "$cand/infra/providers/fakecloud/profile.yaml"
   cat > "$t/regen" <<'EOF'
 #!/bin/sh
 [ "$1" = -record ] && [ -f "$2" ] && [ "$3" = -dir ] && [ -f "$4/tofu.auto.tfvars.json" ] || { echo "bad arguments $*"; exit 2; }
-[ "$5" = -providers ] && [ -f "$6/_contract/cloudprofile.schema.json" ] && [ -f "$6/fakecloud/profile.yaml" ] \
+[ "$5" = -providers ] && [ -f "$6/_contract/cloudprofile.schema.json" ] && [ -f "$6/_contract/contract.json" ] \
+  && [ -f "$6/fakecloud/profile.yaml" ] \
   || { echo "the engine refuses the request of the record: no cloud profiles of the commit under test"; exit 3; }
 [ "${FAKE_REGEN:-ok}" = ok ] || { echo "the engine refuses the request of the record: x is required"; exit 3; }
 echo '{"provider": "fakecloud", "regenerated": true}' > "$4/tofu.auto.tfvars.json"
@@ -460,6 +486,18 @@ PY
   bash "$HERE/check-zero-change-plan.sh" run --deployment "$id" > /dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ]
   ok $? "usage: run without --candidate and --result is refused"
+  # pack-providers alone. That the set is all that tfvars-regenerate reads is the Go test's
+  # (TestZeroChangePlanPack), on the real command and the real tree.
+  mkdir -p "$cand/infra/providers/_contract/fixtures"
+  echo '{}' > "$cand/infra/providers/_contract/fixtures/one.json"; echo x > "$cand/infra/providers/_contract/added.txt"
+  bash "$HERE/check-zero-change-plan.sh" pack-providers "$cand" "$t/packed" > /dev/null 2>&1 \
+    && [ "$(cd "$t/packed" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" = "./_contract/added.txt ./_contract/cloudprofile.schema.json ./_contract/contract.json ./_contract/fixtures/one.json ./fakecloud/profile.yaml " ]
+  ok $? "pack: the whole contract directory, a file added to it among it, and the profile of every pack; nothing of a module"
+  mkdir -p "$cand/infra/providers/noprofile"
+  rc=0
+  bash "$HERE/check-zero-change-plan.sh" pack-providers "$cand" "$t/packed-again" > /dev/null 2>&1 || rc=$?
+  [ "$rc" != 0 ]
+  ok $? "pack: a pack without a profile is refused, as the engine refuses it"
   echo "check-zero-change-plan self-test: $((total - fails))/$total passed"
   [ "$fails" = 0 ]
 }
@@ -467,6 +505,7 @@ PY
 case "${1:-}" in
   run) shift; run_check "$@" ;;
   judge) [ $# = 3 ] || usage; judge "$2" "$3" ;;
+  pack-providers) [ $# = 3 ] || usage; pack_providers "$2" "$3" ;;
   --self-test) self_test ;;
   *) usage ;;
 esac

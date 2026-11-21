@@ -18,8 +18,13 @@
 // not give back is one, and its key is found by writing a probe file with
 // writeTfvars (see credentials). The request is then validated, as Provision
 // validates it, against the cloud profiles of -providers (the providers
-// directory: _contract/cloudprofile.schema.json and <pack>/profile.yaml; by
-// default the engine image's), and provisioner.WriteTfvars writes the file. The values that
+// directory, by default the engine image's), and provisioner.WriteTfvars
+// writes the file, checking the adapter's variables against the module
+// contract of the same directory. Of that directory the command reads
+// _contract/cloudprofile.schema.json, _contract/contract.json and
+// <pack>/profile.yaml; gate check CLD-G12 packs them (pack-providers of
+// scripts/check-zero-change-plan.sh), and TestZeroChangePlanPack fails on a
+// file read that the check does not pack. The values that
 // writeTfvars reads from the environment (the parent address, the repository
 // address, and the branch and the address lists when the kept file has none)
 // come from this process's environment: run the command where the engine runs.
@@ -86,7 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	recordPath := fs.String("record", "", "the deployment record, <id>.json of the deployments directory")
 	dir := fs.String("dir", "", "a copy of the deployment's working directory, holding "+tfvarsName)
-	packs := fs.String("providers", provisioner.ProvidersDir, "the providers directory whose cloud profiles Validate reads")
+	packs := fs.String("providers", provisioner.ProvidersDir, "the providers directory whose cloud profiles and module contract the engine reads")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

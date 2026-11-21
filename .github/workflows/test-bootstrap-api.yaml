@@ -49,12 +49,22 @@ name: Test — Bootstrap API (Go)
 # role that the first-boot template binds to parent-bootstrap (#7938; the
 # template is under infra/providers/_shared/**):
 #   scripts/tests/check-network-registry/valid-two-regions.json
+# The test TestZeroChangePlanPack of cmd/tfvars-regenerate packs the providers
+# directory with gate check CLD-G12 (pack-providers) and runs the command on it
+# alone, so a change to the rule or to the files it packs runs it:
+#   scripts/check-zero-change-plan.sh
+#   infra/providers/_contract/**
+#   infra/providers/*/profile.yaml
 on:
   push:
     paths:
       - 'products/catalyst/bootstrap/api/**'
       # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
       - 'infra/providers/_shared/**'
+      # TestZeroChangePlanPack packs the providers directory with the zero-change plan check.
+      - 'scripts/check-zero-change-plan.sh'
+      - 'infra/providers/_contract/**'
+      - 'infra/providers/*/profile.yaml'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
@@ -78,6 +88,10 @@ on:
       - 'products/catalyst/bootstrap/api/**'
       # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
       - 'infra/providers/_shared/**'
+      # TestZeroChangePlanPack packs the providers directory with the zero-change plan check.
+      - 'scripts/check-zero-change-plan.sh'
+      - 'infra/providers/_contract/**'
+      - 'infra/providers/*/profile.yaml'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
