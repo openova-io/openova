@@ -1,95 +1,11 @@
 {{- /*
 Step 11 — crossplane-provider-pivot (TBD-V24 MISS-3, issue #2034).
 
-Pivots every `pkg.crossplane.io/v1.Provider` CR's `spec.package` host
-literal from `xpkg.upbound.io/...` to `harbor.<SOVEREIGN_FQDN>/
-proxy-xpkg/...` so the Crossplane package manager fetches Provider
-packages from the Sovereign-local Harbor `proxy-xpkg` project, NOT
-from `xpkg.upbound.io`. Without this step, every Provider package
-fetch (initial install, version bump, ProviderRevision reconcile of
-an inactive revision, Pod-restart-with-evicted-cache, any new
-operator-installed Provider) hits `xpkg.upbound.io` directly — a
-direct violation of Principle #11 (no tether to external upstreams
-after handover).
-
-Why Step 04 (containerd registries.yaml.v2 pivot) does NOT catch it
-───────────────────────────────────────────────────────────────────
-Crossplane's package manager uses `github.com/google/go-container
-registry`'s `remote.Image()` DIRECTLY from inside the
-`crossplane-system` controller Pod (see crossplane source
-`internal/xpkg/fetch.go`). It does NOT route fetches through the
-kubelet's CRI containerd client, so the `/etc/containerd/certs.d/`
-and `/etc/rancher/k3s/registries.yaml` mirror config (rewritten by
-Step 04's DaemonSet) is irrelevant to it. The package pull is a
-plain HTTPS dial-out from the Crossplane controller Pod to the
-literal hostname in `spec.package`.
-
-There is no first-class registry-mirror knob on Crossplane v1
-`Provider`/`ProviderRevision`/`Lock`/`Configuration` CRDs and the
-chart's `global.imageRegistry` controls only the controller image,
-not the package URL. The ONLY way to redirect Provider package
-fetches is to rewrite each Provider's `spec.package` host literal.
-
-Patches applied (idempotent merge-patch + Gitea YAML edit)
-──────────────────────────────────────────────────────────
-The bootstrap-kit ships THREE Provider CRs that all carry
-`spec.package = xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0`:
-
-  - clusters/_template/infrastructure/hetzner/provider-hcloud.yaml  (#4212 — moved under hetzner/)
-  - clusters/omantel.omani.works/infrastructure/provider-hcloud.yaml
-  - clusters/otech.omani.works/infrastructure/provider-hcloud.yaml
-
-Each per-Sovereign overlay copy ships only into ITS Sovereign cluster.
-The live K8s patch is therefore scoped per-cluster (only the local
-Sovereign's Provider CR is present at cutover time). The Gitea YAML
-edit fixes ALL infrastructure provider-*.yaml files under
-`clusters/<sov>/infrastructure/` defensively so a fresh prov pulls the
-already-pivoted spec from local Gitea.
-
-Phase inventory
-───────────────
-  Phase 1  Live K8s patch — `kubectl patch provider.pkg.crossplane.io`
-           for every Provider CR (cluster-scoped). Computes the new
-           package literal by replacing the `xpkg.upbound.io` prefix
-           with `harbor.<SOVEREIGN_FQDN>/proxy-xpkg` while preserving
-           the path, and (#5232) replacing the TAG with the
-           `@sha256:<digest>` step-03 Phase A4 minted — Harbor
-           proxy-cache never records tags for pulled-through xpkg
-           artifacts, so only a digest ref serves post-severance.
-           Triggers an immediate Crossplane revision reconcile so the
-           new package is fetched within seconds.
-  Phase 2  Push YAML edit to local Gitea — rewrite every
-           `clusters/<sov>/infrastructure/provider-<name>.yaml` package
-           literal to the SAME digest form (#5232). Without this phase,
-           the bootstrap-kit Kustomization reconcile (every ~1 min from
-           local Gitea) would silently revert Phase 1 back to the
-           upstream URL (or a dead tag-form ref) within minutes.
-
-Idempotency
-───────────
-- Phase 1: a merge-patch with the SAME spec.package literal is a
-  no-op (kubectl emits "no change", resourceVersion unchanged). The
-  step reads the current literal first and SKIPs the patch if
-  already pivoted.
-- Phase 2: the sed pattern targets `xpkg.upbound.io/` so a re-run
-  against a YAML where the literal has been replaced finds no match
-  and exits cleanly. We also guard with a sentinel grep so the git
-  commit is skipped when the diff is empty.
-
-Order rationale: 11 (after Step 10)
-────────────────────────────────────
-Placed at order 11 to run LAST. Functionally it depends on:
-  - Step 02 (harbor-projects) so the `proxy-xpkg` Harbor project
-    exists for the new pulls (chart values.yaml ships proxy-xpkg in
-    the canonical list since chart 0.1.x).
-  - Step 06 Phase-0 (helmrepository-patches) so the ghcr-pull Secret
-    carries auth for `harbor.<sov-fqdn>` (Crossplane fetch uses the
-    same pull-secret machinery via K8sFetcher's pullSecretFromConfig).
-  - Step 04 / containerd is NOT a hard dep (Crossplane bypasses it)
-    but running after Step 04 ensures the rest of the cluster is on
-    the Sovereign-local mirror plane before the Provider re-fetches.
-
-Image phase: post (uses the same alpine/k8s image as Step 10).
+Pivots every Crossplane Provider's spec.package to harbor.<SOVEREIGN_FQDN>/proxy-xpkg by
+digest, live and in the local Gitea, and (SOV-343) the OpenTofu CLI configuration of the
+provider pod to the Sovereign's registry. Its design is written above the key
+crossplaneProviderPivot of values.yaml (a template's comments are stored in every Helm release
+Secret, #6004; those of values.yaml are not).
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -218,6 +134,7 @@ data:
             value: {{ .Values.status.configMapName | quote }}
           - name: LIVE_SETTLE_SECONDS
             value: {{ .Values.crossplaneProviderPivot.liveSettleSeconds | quote }}
+          {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -241,35 +158,7 @@ data:
             echo "[crossplane-provider-pivot] upstream:      ${upstream_prefix}"
             echo "[crossplane-provider-pivot] target prefix: ${target_prefix}"
 
-            {{- /*
-             ---- Phase 0: wire package-pull AUTH (ImageConfig + Secret) ----
-
-             #5204 (Refs #3379). Pivoting spec.package to the local Harbor's
-             `proxy-xpkg` project is NOT sufficient: `proxy-xpkg` is a Harbor
-             PROXY-CACHE project, and Harbor requires an AUTHENTICATED pull
-             from a proxy-cache project even when the project is public
-             (unlike the push-mode offline-mirror projects step 02 creates
-             public:true for anonymous pull). The Crossplane package manager
-             (go-containerregistry remote.Image()) uses its OWN registry-auth
-             path — NOT the node containerd certs.d (step 04) nor the
-             flux-system/ghcr-pull dockerconfigjson (step 06, wired for Flux
-             source-controller). With no credential wired it pulls anonymously
-             and 401s (live hw270: provider-opentofu Installed=False,
-             UnpackingPackage, 401 Unauthorized) — a latent Pillar-5 gap: the
-             existing revision keeps running, but the Sovereign can never
-             upgrade its own Crossplane providers post-severance.
-
-             FIX (Crossplane 1.18 native): create a dockerconfigjson Secret in
-             the Crossplane namespace carrying the SAME admin:<HARBOR password>
-             credential step 02/03/06 use, and an ImageConfig
-             (pkg.crossplane.io/v1beta1) whose matchImages prefixes cover the
-             pivot host `harbor.<fqdn>/proxy-xpkg` AND the canonical
-             `registry.<fqdn>/proxy-xpkg` alias, with
-             spec.registry.authentication.pullSecretRef -> that Secret. The
-             package manager then authenticates every package pull against the
-             local Harbor. Runs BEFORE Phase 1 so the spec.package patch's
-             immediate re-pull already has auth. Idempotent (kubectl apply).
-            */}}
+            {{- /* Phase 0: wire package-pull AUTH (ImageConfig + Secret): word for word above the key crossplaneProviderPivot of values.yaml (#6004). */}}
             registry_host="$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/.*$,,')"
 
             if [ "${PACKAGE_PULL_AUTH_ENABLED}" != "true" ]; then
@@ -333,27 +222,7 @@ data:
               echo "[crossplane-provider-pivot]   OK ImageConfig ${IMAGE_CONFIG_NAME} (matchImages: ${target_host}/${REGISTRY_PATH}, ${registry_host}/${REGISTRY_PATH})"
             fi
 
-            {{- /*
-             ---- Phase 0.5 (#5204): local-artifact verify gate ----
-
-             Rewrite a Provider's spec.package onto the local Harbor ONLY
-             after the registry v2 manifest API confirms the package's digest
-             is durably served locally (#5232 round 2, live hw274 — the
-             multi-arch-aware durability signal; the Harbor artifact-
-             management API records only the per-arch CHILD manifests for a
-             multi-arch package and never exposes the top-level OCI index by
-             its own digest, so a digest-addressed artifact-API probe 404s
-             even when the index IS durable + servable via /v2, exactly
-             containerd/Crossplane's pull path). Step-03 Phase A4 warms every
-             Provider package through proxy-xpkg for exactly this; a miss here
-             means the warm never ran / was skipped for this package (e.g. a
-             Provider created mid-cutover after step-03 enumerated), and
-             pivoting anyway would point spec.package at a ref the local
-             registry cannot serve post-severance. FAIL-LOUD: the offender is
-             named and the step exits 1 so the operator re-triggers the
-             cutover (step-03 re-warms, idempotent) instead of shipping a
-             silently-dangling pivot.
-            */}}
+            {{- /* Phase 0.5 (#5204): local-artifact verify gate: word for word above the key crossplaneProviderPivot of values.yaml (#6004). */}}
             verify_local_pkg_artifact() {
               {{- /*
                $1 = local path project/repo@sha256:<digest> (step-11 always
@@ -403,26 +272,7 @@ data:
             */}}
             rm -f /tmp/xpkg-verify-failed
 
-            {{- /*
-             ---- #5232: digest-addressed pivot refs ----
-
-             Harbor proxy-cache NEVER records TAGS for pulled-through xpkg
-             artifacts (live hw274 dep d51a69f885872a81: manual tag-create
-             401s on proxy projects; a fresh tag manifest GET serves the OCI
-             index but still records no tag — deterministic), so a tag-form
-             local ref genuinely 404s post-severance. Every spec.package
-             pivot below is therefore DIGEST-addressed:
-               registry-path preserved, tag replaced by @sha256:<digest>.
-             Crossplane's package manager accepts digest refs: spec.package
-             is an unrestricted string (pkg.crossplane.io_providers.yaml CRD)
-             parsed by go-containerregistry name.ParseReference (crossplane
-             v1.18.0 internal/controller/pkg/manager/revisioner.go), and the
-             xpkg naming layer treats ":@" as the identifier delimiter set
-             (internal/xpkg/name.go) — digest identifiers are first-class.
-             The ONLY digest mint is step-03 Phase A4's full pull-through +
-             durable verify; there is NO live re-resolve here (a fresh tag
-             GET through the proxy could record a manifest with COLD blobs).
-            */}}
+            {{- /* #5232: digest-addressed pivot refs: word for word above the key crossplaneProviderPivot of values.yaml (#6004). */}}
             xpkg_digest_map_json=$(kubectl get configmap "${XPKG_DIGEST_CM}" -n "${RELEASE_NAMESPACE}" -o json 2>/dev/null) || xpkg_digest_map_json='{}'
             [ -n "${xpkg_digest_map_json}" ] || xpkg_digest_map_json='{}'
             lookup_pkg_digest() {
@@ -621,6 +471,87 @@ data:
               exit 1
             fi
 
+            {{- /* Phase 0.6 (SOV-343): the OpenTofu CLI configuration; the rules are above the key tofuProviders of values.yaml. */}}
+            {{- include "bp-self-sovereign-cutover.tofuProviders" . | nindent 12 }}
+            # tofu-cli-pivot BEGIN
+            tofu_pivot=""
+            tofu_verify_local() {
+              _tv_rc=0; tofu_list_read /tmp/tofu-providers.list || _tv_rc=$?
+              if [ "${_tv_rc}" -eq 2 ]; then
+                echo "[crossplane-provider-pivot] no ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}: no OpenTofu provider mirror, the CLI configuration is not pivoted"
+                return 0
+              fi
+              if [ "${_tv_rc}" -ne 0 ]; then
+                echo "[crossplane-provider-pivot] FATAL: cannot read ConfigMap ${TOFU_NAMESPACE}/${TOFU_LIST_CM}; nothing was rewritten" >&2
+                return 1
+              fi
+              _tv_miss=""; _tv_n=0
+              while IFS= read -r _tv_l; do
+                if ! tofu_list_line "${_tv_l}"; then _tv_miss="${_tv_miss} [the list line '${_tv_l}']"; continue; fi
+                _tv_n=$((_tv_n+1)); _tv_d=$(tofu_local_digest "${_tl_repo}" "${_tl_ver}")
+                [ "${_tv_d}" = "${_tl_dig}" ] \
+                  || _tv_miss="${_tv_miss} ${TOFU_LOCAL_PATH}/${_tl_repo}:${_tl_ver} (serves ${_tv_d:-nothing}, the list names ${_tl_dig})"
+              done </tmp/tofu-providers.list
+              [ "${_tv_n}" -gt 0 ] || _tv_miss="${_tv_miss} [the list names no package]"
+              if [ -n "${_tv_miss}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: not served by the local registry at the listed digest:${_tv_miss}; nothing was rewritten (step 03 Phase A5 copies them: re-trigger the cutover)" >&2
+                return 1
+              fi
+              tofu_pivot=1
+              echo "[crossplane-provider-pivot] ${_tv_n} OpenTofu provider package(s) served by ${registry_host} at their listed digests"
+            }
+            tofu_pivot_clone() {
+              [ -n "${tofu_pivot}" ] || return 0
+              if [ ! -f "${TOFU_CLI_FILE}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: ${TOFU_NAMESPACE}/${TOFU_LIST_CM} lists packages but the clone has no ${TOFU_CLI_FILE}" >&2
+                return 1
+              fi
+              _tp_was=$(cksum <"${TOFU_CLI_FILE}")
+              tofu_cli_pivot_file "${TOFU_CLI_FILE}" "${registry_host}"
+              if ! tofu_cli_local "${TOFU_CLI_FILE}" "${registry_host}"; then
+                echo "[crossplane-provider-pivot] FATAL: ${TOFU_CLI_FILE} names a mirror outside ${registry_host}/${TOFU_LOCAL_PATH} after the rewrite" >&2
+                return 1
+              fi
+              [ "$(cksum <"${TOFU_CLI_FILE}")" != "${_tp_was}" ] || return 0
+              edited=$((edited+1))
+              echo "[crossplane-provider-pivot] rewrote ${TOFU_CLI_FILE}: OpenTofu mirror ${TOFU_ORIGIN_PREFIX} -> ${registry_host}/${TOFU_LOCAL_PATH}"
+            }
+            tofu_settled() {
+              _ts_why=""
+              _ts_ks=$(kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_CLI_CM}" -o 'jsonpath={.metadata.labels.kustomize\.toolkit\.fluxcd\.io/namespace}{"/"}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}' 2>/dev/null || true)
+              if [ "${_ts_ks:-/}" != "/" ] && ! lp_applied "${_ts_ks%%/*}" "${_ts_ks#*/}"; then
+                _ts_why=" kustomization=${_ts_ks}[applied=${_lp_rev:-nothing}]"
+              fi
+              kubectl -n "${TOFU_NAMESPACE}" get configmap "${TOFU_CLI_CM}" -o 'jsonpath={.data.\.tofurc}' >/tmp/tofu-live.tofurc 2>/dev/null || : >/tmp/tofu-live.tofurc
+              tofu_cli_local /tmp/tofu-live.tofurc "${registry_host}" || _ts_why="${_ts_why} configmap=${TOFU_NAMESPACE}/${TOFU_CLI_CM}"
+              kubectl -n "${TOFU_NAMESPACE}" get pods -o json 2>/dev/null | jq -r --arg cm "${TOFU_CLI_CM}" '.items[]
+                | select(.status.phase == "Running" and .metadata.deletionTimestamp == null) | . as $p
+                | [.spec.volumes[]? | select(.configMap.name == $cm) | .name] as $v | .spec.containers[] | . as $c
+                | .volumeMounts[]? | select(.name as $n | any($v[]; . == $n)) | "\($p.metadata.name) \($c.name) \(.mountPath)"' >/tmp/tofu-pods.txt 2>/dev/null || : >/tmp/tofu-pods.txt
+              [ -s /tmp/tofu-pods.txt ] || _ts_why="${_ts_why} pod=[none running mounts ${TOFU_CLI_CM}]"
+              while read -r _ts_p _ts_c _ts_m; do
+                kubectl -n "${TOFU_NAMESPACE}" exec "${_ts_p}" -c "${_ts_c}" -- cat "${_ts_m}/.tofurc" </dev/null >/tmp/tofu-pod.tofurc 2>/dev/null || : >/tmp/tofu-pod.tofurc
+                tofu_cli_local /tmp/tofu-pod.tofurc "${registry_host}" || _ts_why="${_ts_why} pod=${_ts_p}:${_ts_m}/.tofurc"
+              done </tmp/tofu-pods.txt
+              [ -z "${_ts_why}" ]
+            }
+            tofu_wait_live() {
+              [ -n "${tofu_pivot}" ] || return 0
+              _lp_sha=$(git rev-parse HEAD)
+              for _tw_i in $(seq 1 $((LIVE_SETTLE_SECONDS / 10 + 1))); do
+                if tofu_settled; then
+                  echo "[crossplane-provider-pivot] the live OpenTofu CLI configuration and every pod that mounts it name ${registry_host}/${TOFU_LOCAL_PATH} (commit ${_lp_sha})"
+                  return 0
+                fi
+                [ "$(date +%s)" -lt "$((settle_from + LIVE_SETTLE_SECONDS))" ] || break
+                sleep 10
+              done
+              echo "[crossplane-provider-pivot] FATAL: the OpenTofu CLI configuration is not settled on ${registry_host}/${TOFU_LOCAL_PATH} after ${LIVE_SETTLE_SECONDS}s:${_ts_why} — not reporting success" >&2
+              return 1
+            }
+            # tofu-cli-pivot END
+            tofu_verify_local
+
             {{- /*
              ---- Phase 2: push YAML edit to local Gitea ----
 
@@ -693,24 +624,10 @@ data:
             if [ -z "${matches}" ]; then
               echo "[crossplane-provider-pivot] no clusters/*/infrastructure/**/provider-*.yaml present in mirror"
             else
-              {{- /*
-               #5232 — rewrite each file's `package:` literal to the DIGEST
-               form so the bootstrap-kit reconcile from local Gitea
-               re-asserts the SAME digest ref Phase 1 patched live (a
-               tag-form YAML would revert the live patch on the next
-               reconcile AND 404 post-severance). Handles all three source
-               shapes Phase 1 handles: the raw upstream host, the mothership
-               proxy prefix (#4488 Huawei), and a pre-#5232 tag-form local
-               pivot. A ref with NO minted digest (a foreign-Sovereign /
-               _template overlay whose Provider never ran on THIS cluster,
-               or the very-early-handover path where step-03 skipped on the
-               absent CRD) keeps the pre-#5232 host-swap so no upstream-host
-               literal survives; the eventual step re-run upgrades it to the
-               digest form. `,` sed delimiter — the refs never contain
-               commas; the OLD literal has its `.` escaped for -E.
-              */}}
+              {{- /* #5232 — rewrite each file's `package:` literal to the DIGEST: word for word above the key crossplaneProviderPivot of values.yaml (#6004). */}}
               for file in ${matches}; do provider_pivot_file "${file}"; done
             fi
+            tofu_pivot_clone
 
             echo "[crossplane-provider-pivot] sed edited ${edited} files"
             git add clusters
@@ -773,7 +690,9 @@ data:
               echo "[crossplane-provider-pivot] every live Provider reads a pivoted package and its Kustomization has applied commit ${_lp_sha} (#7900)"
             }
             # live-provider-pivot END
+            settle_from=$(date +%s)
             wait_live_provider_pivot
+            tofu_wait_live
 
             echo "[crossplane-provider-pivot] step complete"
         resources:
@@ -848,4 +767,19 @@ data:
         fi
       done
       [ "${_f_changed}" -eq 0 ] || edited=$((edited+1))
+    }
+    {{- /* SOV-343 — the OpenTofu CLI configuration's mirror address; the defaults are for the release stage
+     (values tofuProviders: the rules). */}}
+    : "${TOFU_CLI_FILE:=clusters/_template/infrastructure/providers/base/opentofu-cli-config.yaml}"
+    : "${TOFU_ORIGIN_PREFIX:=ghcr.io/openova-io/tofu-providers}" "${TOFU_LOCAL_PATH:=openova-io/tofu-providers}"
+    tofu_cli_pivot_file() {
+      _tc_o=$(printf '%s' "${TOFU_ORIGIN_PREFIX}" | sed 's/[.]/\\./g')
+      sed -i -E "s,^([[:space:]]*repository_template[[:space:]]*=[[:space:]]*\")${_tc_o}/,\1$2/${TOFU_LOCAL_PATH}/," "$1"
+    }
+    tofu_cli_local() {
+      _tc_t=$(sed -n -E 's/^[[:space:]]*repository_template[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/p' "$1")
+      [ -n "${_tc_t}" ] || return 1
+      for _tc_v in ${_tc_t}; do
+        case "${_tc_v}" in "$2/${TOFU_LOCAL_PATH}/"*) ;; *) return 1 ;; esac
+      done
     }

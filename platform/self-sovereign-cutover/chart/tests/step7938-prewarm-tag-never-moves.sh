@@ -172,8 +172,8 @@ grep -q 'WARNING' "${TMP}/run-c1/out" && fail "an unreadable source was reported
 echo "[step7938-tag] D: every copy carries --preserve-digests"
 [ -s "${TMP}/run-a1/calls" ] && ! grep -q . <<<"$(grep -v -- '--preserve-digests' "${TMP}/run-a1/calls")" \
   && pass "all $(copies a1) copies of run 1 pass --preserve-digests" || fail "a copy without --preserve-digests: $(grep -v -- '--preserve-digests' "${TMP}/run-a1/calls" | head -1 | cut -c1-160)"
-grep -c 'if offlinemirror_copy "' "${TMP}/s03.sh" | grep -qx 2 && grep -q 'copy --insecure-policy --preserve-digests "\$@"' "${TMP}/resolver.sh" \
-  && pass "the chart copy (Phase A2) passes it too: both go through offlinemirror_copy" || fail "the rendered chart copy does not pass --preserve-digests"
+grep -c 'if offlinemirror_copy "' "${TMP}/s03.sh" | grep -qx 3 && grep -q 'copy --insecure-policy --preserve-digests "\$@"' "${TMP}/resolver.sh" \
+  && pass "the chart copy (Phase A2) and the OpenTofu copy (Phase A5, SOV-343) pass it too: all go through offlinemirror_copy" || fail "the rendered chart copy does not pass --preserve-digests"
 
 echo "[step7938-tag] E: the follower's copy into the shared registry follows the same rule"
 # sec <name> <src> <dst>: the REAL follower copy_one; the artifact API answers from ${REG}.

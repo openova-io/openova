@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-21T01:15:04Z` |
+| Last refreshed | `2026-11-21T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
-| [#8168](https://github.com/openova-io/openova/issues/8168) | AIP-108 Shrink Axon | Other |
 | [#8169](https://github.com/openova-io/openova/issues/8169) | FND-155 The self selection run by a Job on the local provider pack | Other |
 | [#8172](https://github.com/openova-io/openova/issues/8172) | SOV-148 Lab test: first-boot steps from a fetched, checksum-pinned bundle | Other |
 | [#8175](https://github.com/openova-io/openova/issues/8175) | CLD-112 Credential check from the profile; one registry | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
 | [#8556](https://github.com/openova-io/openova/issues/8556) | SOV-343 The cutover copies the OpenTofu provider packages into the Sovereign and | Other |
 | [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
+| [#8560](https://github.com/openova-io/openova/issues/8560) | CLD-116 The wipe removes first what its own destroy cannot remove on the referen | Other |
+| [#8564](https://github.com/openova-io/openova/issues/8564) | SOV-155 A roll of the registry never removes both copies: harbor-registry rolls  | Other |
 
 ---
 
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-21T02:30 | [#8563](https://github.com/openova-io/openova/pull/8563) | #7087 | docs(ledger): plan update |
+| 2026-11-21T02:14 | [#8559](https://github.com/openova-io/openova/pull/8559) | #7087 | docs(ledger): plan update |
+| 2026-11-21T02:23 | [#8558](https://github.com/openova-io/openova/pull/8558) | #8556 | fix(cutover): steps 03 and 11 and the day-two reconciler mov |
+| 2026-11-21T01:17 | [#8555](https://github.com/openova-io/openova/pull/8555) | #7087 | docs(ledger): plan update |
+| 2026-11-21T01:16 | [#8554](https://github.com/openova-io/openova/pull/8554) | #8549 | fix(release): a release run that publishes several charts ne |
 | 2026-11-21T01:11 | [#8553](https://github.com/openova-io/openova/pull/8553) | #8515 | feat(gate): a discovery run judges an install at once, witho |
 | 2026-11-20T22:50 | [#8552](https://github.com/openova-io/openova/pull/8552) | #8551 | fix(charts): the function tests of bp-openbao, bp-reloader a |
 | 2026-11-20T22:10 | [#8550](https://github.com/openova-io/openova/pull/8550) | #7087 | docs(ledger): plan update |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-20T18:50 | [#8523](https://github.com/openova-io/openova/pull/8523) | #5488 | fix(cutover): the first step does not fail because the deplo |
 | 2026-11-20T20:42 | [#8522](https://github.com/openova-io/openova/pull/8522) | #8494 | fix(install): the image pre-flight fills a cache entry that  |
 | 2026-11-20T18:02 | [#8521](https://github.com/openova-io/openova/pull/8521) | fix(dragonfly): a cache replica is not restarted because its |  |
-| 2026-11-20T17:20 | [#8520](https://github.com/openova-io/openova/pull/8520) | fix(harbor): the registry's hourly integrity pass is admitte |  |
-| 2026-11-20T15:46 | [#8519](https://github.com/openova-io/openova/pull/8519) | #7087 | docs(ledger): plan update |
-| 2026-11-20T15:18 | [#8518](https://github.com/openova-io/openova/pull/8518) | #8517 | fix(agenity): the workspace keeps its own sign-in on its vol |
-| 2026-11-20T14:22 | [#8516](https://github.com/openova-io/openova/pull/8516) | #7087 | docs(ledger): plan update |
-| 2026-11-20T15:32 | [#8515](https://github.com/openova-io/openova/pull/8515) | fix(gate): a gate run judges an install whose cutover failed |  |
 
 ---
 

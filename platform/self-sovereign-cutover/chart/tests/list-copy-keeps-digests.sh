@@ -78,7 +78,7 @@ for f in resolver.sh sec.sh; do
   grep -B1 -- "--dest-creds=" "${TMP}/${f}" >"${TMP}/${f}.copy"; grep -q -- "copy --insecure-policy --preserve-digests" "${TMP}/${f}.copy" \
     && pass "${f}: the copy function passes --preserve-digests" || fail "${f}: the copy function does not pass --preserve-digests"
 done
-for t in 03-harbor-prewarm-job:2 08-egress-block-test-job:2 12-daytwo-harbor-pin-reconciler:2 secondary-harbor-prewarm-script-configmap:1; do
+for t in 03-harbor-prewarm-job:3 08-egress-block-test-job:2 12-daytwo-harbor-pin-reconciler:3 secondary-harbor-prewarm-script-configmap:1; do
   c=$(render --show-only "templates/${t%%:*}.yaml" | grep -c 'offlinemirror_copy "')
   [ "${c}" = "${t##*:}" ] && pass "${t%%:*}: ${c} copy(ies) through offlinemirror_copy" || fail "${t%%:*}: ${c} copies through offlinemirror_copy, want ${t##*:}"
 done

@@ -22,7 +22,9 @@
 #            deleted when the candidate deletes it, else the candidate's content
 #            with the rewrite applied again. The same holds for a Provider
 #            file whose region side is exactly cutover step 11's package-line
-#            rewrite of the merge base (SOV-522, PROVIDER_PIVOT). Any other
+#            rewrite of the merge base (SOV-522, PROVIDER_PIVOT), and for the
+#            OpenTofu CLI configuration and step 11's mirror address (SOV-343),
+#            applied again when the branch names it. Any other
 #            conflict moves nothing and names each file. DRY_RUN=true reports
 #            and pushes nothing.
 #   check    release/CANDIDATE is still STAGED_SHA and UPSTREAM_BRANCH is still
@@ -112,6 +114,11 @@ if [ -n "${PROVIDER_PIVOT:-}" ] && [ -r "${PROVIDER_PIVOT}" ] && [ -n "${SOVEREI
   lookup_pkg_digest() { :; }
   provider_pivot=1
 fi
+# Step 11's address of the OpenTofu CLI configuration (SOV-343), from the same
+# provider-pivot.sh (one of before has none): TOFU_CLI_FILE names this region's
+# registry (reg) wherever the branch it runs does.
+tofu_pivot=""
+if [ -n "${provider_pivot}" ] && command -v tofu_cli_pivot_file >/dev/null 2>&1; then tofu_pivot=1; fi
 
 # region_pivot: this region's pivot, read from the branch it runs (${before}):
 # cutover step 06 wrote one local chart prefix (and, with a private CA, one
@@ -159,6 +166,7 @@ explained() {
   _in=""
   for _d in "${kit}" ${FOLLOWER_SOURCE_DIRS}; do [ "${1%/*}" != "${_d%/}" ] || _in=1; done
   if [ -z "${_in}" ] && [ -n "${provider_pivot}" ] && provider_pivot_files | grep -qxF -- "$1"; then _in=provider; fi
+  if [ -z "${_in}" ] && [ -n "${tofu_pivot}" ] && [ "$1" = "${TOFU_CLI_FILE}" ]; then _in=tofu; fi
   [ -n "${_in}" ] || return 1
   _base=$(git rev-parse -q --verify ":1:$1") || return 1
   _ours=$(git rev-parse -q --verify ":2:$1") || return 1
@@ -169,6 +177,11 @@ explained() {
     ( edited=0; provider_pivot_file "${_x}/${1##*/}" ) >>"${work}/explain.log" 2>&1 || return 1
     [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ] || return 1
     how=provider; return 0
+  fi
+  if [ "${_in}" = tofu ]; then
+    tofu_cli_pivot_file "${_x}/${1##*/}" "${reg}" >>"${work}/explain.log" 2>&1 || return 1
+    [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ] || return 1
+    how=tofu; return 0
   fi
   ( . "${KIT_REWRITE}"; edited=0; rewrite_kit_tree "${_x}" ) >>"${work}/explain.log" 2>&1 || return 1
   if [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ]; then how=kit; return 0; fi
@@ -285,6 +298,16 @@ $(printf '%s' "${resolved}" | sed 's/^/- /')"
         esac
       done
     done
+    # Step 11's OpenTofu mirror address again (SOV-343) where the branch this
+    # region runs names its registry; fail closed on any other mirror.
+    tofu_files=""
+    if [ -n "${tofu_pivot}" ] && [ -f "${TOFU_CLI_FILE}" ] && git show "${before}:${TOFU_CLI_FILE}" >"${work}/tofu.before" 2>/dev/null \
+        && tofu_cli_local "${work}/tofu.before" "${reg}"; then
+      tofu_cli_pivot_file "${TOFU_CLI_FILE}" "${reg}"
+      tofu_cli_local "${TOFU_CLI_FILE}" "${reg}" \
+        || refuse "${TOFU_CLI_FILE} names a mirror outside ${reg}/${TOFU_LOCAL_PATH} after step 11's rewrite; nothing was pushed"
+      tofu_files="${TOFU_CLI_FILE}"
+    fi
     # Fail closed: a url line still naming the upstream prefix (quoted, or with
     # trailing text the rewrite does not match) would re-tether this region.
     up_re=$(printf '%s' "${UPSTREAM_PREFIX}" | sed 's/[].[*^$\\]/\\&/g')
@@ -293,7 +316,7 @@ $(printf '%s' "${resolved}" | sed 's/^/- /')"
       printf '%s\n' "${left}" | while IFS= read -r l; do report "unpivoted ${l}"; done
       refuse "the merged tree still names ${UPSTREAM_PREFIX} after this region's pivot; nothing was pushed"
     fi
-    git add -A -- ${pivot_paths} ${IMAGE_REGISTRY_SLOT_FILES} ${provider_files}
+    git add -A -- ${pivot_paths} ${IMAGE_REGISTRY_SLOT_FILES} ${provider_files} ${tofu_files}
     # The count is of files the pivot commit changes: rewrite_kit_tree raises
     # ${edited} for every trust re-injection, also one that changes nothing.
     changed=$(git diff --cached --name-only | grep -c . || true)
