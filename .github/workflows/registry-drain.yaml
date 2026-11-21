@@ -1,0 +1,129 @@
+# registry-drain.yaml - the registry survives a drain, a restart and a forced roll with the
+# outside blocked, without a cloud (SOV-139).
+#
+# scripts/check-registry-drain.sh starts three k3s nodes of the kit's version as containers on
+# the runner (one server, two agents), with the pull flags of the kit's server line, the node
+# registry file rendered by the kit's renderer (upstream.Variables.RegistriesYAML) and the
+# functions of cutover step 04, cuts the nodes' route to the outside and runs five cases, each on
+# a cluster of its own:
+#   shared        drain and reboot of the agent that runs the registry: everything comes back
+#   control       the same without --embedded-registry: it must stay stuck
+#   restart       every node stops and starts: everything comes back
+#   roll          cutover step 08's roll of the registry with the kit's strategy: no gap above 10 s
+#   roll-control  the same with Recreate: it must show the gap
+# Every wait of the script is bounded and a hang fails its case by name. No port is published,
+# no NodePort and no hostPort is used.
+#
+# Triggers: a pull request or a push to main that changes a file the script reads: the server
+# template, the k3s image lists, the k3s_version default (infra/providers/local/variables.tf), the
+# renderer of the node registry file (core/controllers/pkg/upstream and its module files), the
+# pivot template, step 08's template, the cutover chart's helpers and values (step 08's budget),
+# bp-harbor's chart, slot 19, the script, its folder or this workflow; workflow_dispatch runs it on
+# any branch.
+name: registry-drain
+
+on:
+  pull_request:
+    paths:
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'infra/providers/_shared/k3s-images/**'
+      - 'infra/providers/local/variables.tf'
+      - 'core/controllers/pkg/upstream/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/_helpers.tpl'
+      - 'platform/self-sovereign-cutover/chart/values.yaml'
+      - 'platform/harbor/chart/**'
+      - 'clusters/_template/bootstrap-kit/19-harbor.yaml'
+      - 'scripts/check-registry-drain.sh'
+      - 'tests/registry-drain/**'
+      - '.github/workflows/registry-drain.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'infra/providers/_shared/k3s-images/**'
+      - 'infra/providers/local/variables.tf'
+      - 'core/controllers/pkg/upstream/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/_helpers.tpl'
+      - 'platform/self-sovereign-cutover/chart/values.yaml'
+      - 'platform/harbor/chart/**'
+      - 'clusters/_template/bootstrap-kit/19-harbor.yaml'
+      - 'scripts/check-registry-drain.sh'
+      - 'tests/registry-drain/**'
+      - '.github/workflows/registry-drain.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-drain-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  registry-drain:
+    name: registry-drain
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # The cases keep their files in $RUNNER_TEMP/registry-drain (the script's default).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Helm (the pin of blueprint-release.yaml)
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Install Go (the renderer of the node registry file builds in core/controllers)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: core/controllers/go.mod
+          cache-dependency-path: core/controllers/go.sum
+
+      - name: Install yq v4.44.3 (the pin of blueprint-release.yaml)
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version | grep -F 'v4.44.3'
+
+      - name: Self-test
+        run: bash scripts/check-registry-drain.sh --self-test
+
+      - name: Case shared
+        if: ${{ !cancelled() }}
+        timeout-minutes: 12
+        run: |
+          bash scripts/check-registry-drain.sh shared
+
+      - name: Case control
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          bash scripts/check-registry-drain.sh control
+
+      - name: Case restart
+        if: ${{ !cancelled() }}
+        timeout-minutes: 12
+        run: |
+          bash scripts/check-registry-drain.sh restart
+
+      - name: Case roll
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          bash scripts/check-registry-drain.sh roll
+
+      - name: Case roll-control
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          bash scripts/check-registry-drain.sh roll-control

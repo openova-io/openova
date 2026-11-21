@@ -1,0 +1,67 @@
+# The stand-in registry of scripts/check-registry-drain.sh (SOV-139). The script sets the copies,
+# the strategy and the spread for each case (for the roll cases those of the kit's
+# harbor-registry, read through platform/harbor/chart/tests/roll-strategy.sh --effective) and
+# adds the labels the spread selects. Every copy runs on an agent and serves the one folder that
+# is bind-mounted into every node (the stand-in for the object store the kit's copies share). It
+# becomes Ready 15 s after it starts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: registry-drain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      registry-drain.test/copy: registry
+  template:
+    metadata:
+      labels:
+        registry-drain.test/copy: registry
+    spec:
+      terminationGracePeriodSeconds: 5
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: registry-drain.test/role
+                    operator: In
+                    values: [agent]
+      containers:
+        - name: registry
+          image: docker.io/library/registry:2.8.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5000"
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /certs/tls.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /certs/tls.key
+          ports:
+            - name: https
+              containerPort: 5000
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: 5000
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+            - name: tls
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: data
+          hostPath:
+            path: /srv/registry-drain
+            type: Directory
+        - name: tls
+          secret:
+            secretName: registry-tls

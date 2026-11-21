@@ -1,0 +1,23 @@
+# The namespace and the Service of the stand-in registry of scripts/check-registry-drain.sh
+# (SOV-139). Every node pins registry.test to the Service's fixed address in /etc/hosts
+# (docker run --add-host), as the kit pins the registry's name on its nodes, and reaches it
+# through kube-proxy. A ClusterIP Service: no NodePort, no hostPort.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: registry-drain
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: registry-drain
+spec:
+  type: ClusterIP
+  clusterIP: 10.43.139.139
+  selector:
+    registry-drain.test/copy: registry
+  ports:
+    - name: https
+      port: 443
+      targetPort: 5000

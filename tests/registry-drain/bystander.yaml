@@ -1,0 +1,37 @@
+# Two Pods of a test image beside the stand-in registry of scripts/check-registry-drain.sh
+# (SOV-139): only the node the registry starts on holds their image, and the registry's folder
+# does not hold it, so after a drain they can take it only from another node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bystander
+  namespace: registry-drain
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      registry-drain.test/copy: bystander
+  template:
+    metadata:
+      labels:
+        registry-drain.test/copy: bystander
+    spec:
+      terminationGracePeriodSeconds: 5
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: registry-drain.test/role
+                    operator: In
+                    values: [agent]
+      initContainers:
+        - name: wait
+          image: docker.io/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command: ["true"]
+      containers:
+        - name: sleep
+          image: docker.io/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "trap 'exit 0' TERM; while true; do sleep 1; done"]
