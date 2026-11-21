@@ -1845,11 +1845,21 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
 #   - egressAddresses: the public IPv4 of every node of the region;
 #   - controlPlaneAccess: adminCIDRs is var.admin_cidrs and
 #     provisionerCIDRs is var.provisioner_cidrs, the sources of port 6443;
-#   - mtu: 1420, the default of the substitution CILIUM_MTU in
-#     clusters/_template/bootstrap-kit/01-cilium.yaml, which no module sets.
+#   - mtu: the MTU given to Cilium, local.node_interface_mtu (gate check
+#     NET-G08 compares it with cilium-config mtu).
 # regionSeparation: "site" when every region has a different location,
 # otherwise "none".
 locals {
+  # The MTU of the node interface of a Hetzner node: the private network the
+  # nodes talk over, whose MTU Hetzner sets to 1450 (not measured on a live
+  # install of this module). It is the one statement of it in this module
+  # and the MTU given to Cilium: provider-substitutes.yaml.tftpl writes it as
+  # CILIUM_MTU, since the default of the kit (1500) is the interface MTU of
+  # Huawei. Cilium takes WireGuard's 80 bytes off itself; a value with that
+  # overhead taken off drops every decrypted host packet above it
+  # (tools/guards/cmd/cilium-mtu holds the two equal).
+  node_interface_mtu = 1450
+
   network_registry_cloud_region = merge(
     { primary = var.region },
     { for k, r in local.secondary_regions : k => r.cloud_region },
@@ -1886,7 +1896,7 @@ locals {
 
   network_registry = {
     podSupernet      = local.pod_supernet
-    mtu              = 1420
+    mtu              = local.node_interface_mtu
     regionSeparation = local.network_registry_separation
     controlPlaneAccess = {
       adminCIDRs       = var.admin_cidrs

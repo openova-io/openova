@@ -50,6 +50,7 @@ data:
   CILIUM_K8S_SERVICE_HOST: kit-value
   CILIUM_LB_IPAM_CIDRS: kit-value
   CILIUM_LB_IPAM_ENABLED: kit-value
+  CILIUM_MTU: kit-value
   CILIUM_NATIVE_ROUTING_CIDR: kit-value
   CLUSTERMESH_APISERVER_DIAL_PORT: kit-value
   CLUSTER_MESH_ID: kit-value

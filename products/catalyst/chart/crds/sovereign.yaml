@@ -318,7 +318,7 @@ spec:
                       description: One IPv4 range that holds every regions[].podCIDR.
                     mtu:
                       type: integer
-                      description: Pod MTU of Cilium.
+                      description: The MTU given to Cilium (cilium-config mtu), the MTU of the node interface; Cilium takes the WireGuard overhead off itself.
                       minimum: 1280
                       maximum: 9000
                     regionSeparation:

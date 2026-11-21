@@ -2021,14 +2021,20 @@ resource "huaweicloud_elb_monitor" "console_http" {
 #   - controlPlaneAccess: adminCIDRs is var.admin_cidrs and
 #     provisionerCIDRs is var.provisioner_cidrs, the two lists that besides
 #     the Sovereign's own addresses reach port 6443 (NET-011);
-#   - mtu: the pod MTU of Cilium: 1420, the default of the substitution
-#     CILIUM_MTU in clusters/_template/bootstrap-kit/01-cilium.yaml, which no
-#     module sets.
+#   - mtu: the MTU given to Cilium, local.node_interface_mtu (gate check
+#     NET-G08 compares it with cilium-config mtu).
 # regionSeparation: "site" when every region has a different cloud region;
 # "zone" when cloud regions repeat but every (cloud region, zone) pair is
 # different; "none" otherwise and for one region.
 locals {
-  network_registry_mtu = 1420
+  # The MTU of the node interface (eth0) of a Huawei node: 1500, measured on
+  # a two-region install on 21 Nov 2026. It is the one statement of it in
+  # this module and the MTU given to Cilium: the default of the substitute
+  # CILIUM_MTU in clusters/_template/bootstrap-kit/01-cilium.yaml, which this
+  # pack does not write. Cilium takes WireGuard's 80 bytes off itself; a
+  # value with that overhead taken off here drops every decrypted host
+  # packet above it (tools/guards/cmd/cilium-mtu).
+  node_interface_mtu = 1500
 
   network_registry_separation = (
     length(var.regions) > 1 && length(distinct([for r in var.regions : r.cloud_region])) == length(var.regions) ? "site" :
@@ -2038,7 +2044,7 @@ locals {
 
   network_registry = {
     podSupernet      = local.pod_supernet
-    mtu              = local.network_registry_mtu
+    mtu              = local.node_interface_mtu
     regionSeparation = local.network_registry_separation
     controlPlaneAccess = {
       adminCIDRs       = var.admin_cidrs

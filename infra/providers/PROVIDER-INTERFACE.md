@@ -115,7 +115,7 @@ The network registry is the record of every address, cluster name and cluster id
 | Field | Type | Meaning |
 |---|---|---|
 | `podSupernet` | IPv4 CIDR | One range that holds every `podCIDR`: `10.42.0.0/15` for one or two regions, `10.40.0.0/13` for three to six |
-| `mtu` | integer, 1280 to 9000 | Pod MTU of Cilium: 1420 |
+| `mtu` | integer, 1280 to 9000 | The MTU given to Cilium (cilium-config `mtu`): the MTU of the node interface, `local.node_interface_mtu` of the module (1500 on Huawei and local, 1450 on Hetzner), never a value with an overhead taken off; Cilium takes the WireGuard overhead (80) off itself, so the pods get `mtu` - 80 |
 | `regionSeparation` | `none`, `zone` or `site` | `site` when every region has a different `cloudRegion`; `zone` when cloud regions repeat but every pair of `cloudRegion` and `az` is different; `none` otherwise and for one region |
 | `controlPlaneAccess.adminCIDRs`, `controlPlaneAccess.provisionerCIDRs` | list of CIDR, may be empty | Sources of the API port: the sovereign-admin source list and the provisioner source list. Empty until the module has these lists |
 | `regions` | list, 1 to 6 entries | One entry per region, in the module's region order |

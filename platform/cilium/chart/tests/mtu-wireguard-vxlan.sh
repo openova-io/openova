@@ -17,23 +17,32 @@
 #
 # FIX (#4656): DROP the VXLAN layer entirely — routingMode: native +
 # ipv4NativeRoutingCIDR + autoDirectNodeRoutes. WireGuard then encapsulates the
-# cross-node pod path ONCE (no VXLAN header to stack), so the correct pod MTU is
-# eth0(1500) − 80 (WireGuard only) = 1420. Nodes are L2-adjacent within a region
-# (same VPC subnet) so autoDirectNodeRoutes installs direct cross-node pod
-# routes with no tunnel; cross-region reach stays ClusterMesh's job.
+# cross-node pod path ONCE (no VXLAN header to stack). Nodes are L2-adjacent
+# within a region (same VPC subnet) so autoDirectNodeRoutes installs direct
+# cross-node pod routes with no tunnel; cross-region reach stays ClusterMesh's job.
+#
+# THE VALUE: cilium.MTU is the MTU of the node interface (1500), never a value
+# with the overhead taken off. Cilium takes WireGuard's 80 bytes off itself
+# (pods and cilium_wg0 get 1420) and gives cilium_net/cilium_host the value,
+# which every decrypted packet for the host passes. #4656 pinned 1420
+# (1500 − 80), so the overhead was taken twice: measured on a two-region Huawei
+# install on 21 Nov 2026, every decrypted host packet above 1420 was dropped
+# (largest do-not-fragment packet worker to worker 1424 bytes, image copies
+# between workers 64 to 257 s for 15 MB); with 1500 the limit was 1500 and the
+# copies took 0.4 to 0.6 s.
 #
 # This test asserts:
 #   1. a render with a native-routing range (the bootstrap-kit slot sets it;
-#      the chart names none, NET-110) emits cilium-config `mtu: "1420"` (the WG-only value)
-#      AND WireGuard encryption is on (the +80 overhead the 1420 accounts for)
-#      AND the datapath IS in native routing (routing-mode: native) with
-#      ipv4-native-routing-cidr set + auto-direct-node-routes on — so the
-#      NO-VXLAN premise the 1420 depends on genuinely holds. If a future edit
-#      reverts to vxlan-tunnel routing while keeping 1420, this flags it.
+#      the chart names none, NET-110) emits cilium-config `mtu: "1500"` (the
+#      node interface MTU) AND WireGuard encryption is on AND the datapath IS
+#      in native routing (routing-mode: native) with ipv4-native-routing-cidr
+#      set + auto-direct-node-routes on — so the NO-VXLAN premise of a
+#      WireGuard-only budget genuinely holds. If a future edit reverts to
+#      vxlan-tunnel routing, this flags it.
 #   2. setting cilium.MTU=0 (the upstream auto-detect default) emits NO `mtu:`
-#      key — proving 1420 is a deliberate override and a regression to 0 is
+#      key — proving the pin is a deliberate override and a regression to 0 is
 #      caught.
-#   3. an operator overlay (cilium.MTU=1450, e.g. a jumbo-frame Sovereign)
+#   3. a pack whose node interface is 1450 (Hetzner writes CILIUM_MTU=1450)
 #      renders that value verbatim — the knob is overridable per-Sovereign.
 #
 # Auto-discovered + run by .github/workflows/blueprint-release.yaml's
@@ -57,37 +66,38 @@ if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
   helm dependency build >/dev/null
 fi
 
-# ── Case 1: default render pins mtu: "1420" with WireGuard on + native ───
-echo "[mtu-wireguard-vxlan] Case 1: default render emits cilium-config mtu: \"1420\" (native routing)"
+# ── Case 1: default render pins mtu: "1500" with WireGuard on + native ───
+echo "[mtu-wireguard-vxlan] Case 1: default render emits cilium-config mtu: \"1500\" (native routing)"
 helm template smoke-cilium . --set cilium.ipv4NativeRoutingCIDR=10.40.0.0/13 > "$TMP/default.yaml"
 
-# The upstream cilium-configmap renders `mtu: "1420"` only when .Values.MTU
+# The upstream cilium-configmap renders `mtu: "1500"` only when .Values.MTU
 # is truthy. Grep the cilium ConfigMap data key.
-if ! grep -qE '^\s*mtu:\s*"1420"\s*$' "$TMP/default.yaml"; then
-  echo "FAIL: default render does NOT pin cilium-config mtu: \"1420\"." >&2
-  echo "      Native routing (no VXLAN) needs MTU = 1500 - 80 (wireguard) = 1420," >&2
-  echo "      else cilium auto-MTU mis-sizes the pod-facing devices (issue #4656)." >&2
+if ! grep -qE '^\s*mtu:\s*"1500"\s*$' "$TMP/default.yaml"; then
+  echo "FAIL: default render does NOT pin cilium-config mtu: \"1500\"." >&2
+  echo "      cilium.MTU is the node interface MTU (1500); Cilium takes WireGuard's" >&2
+  echo "      80 bytes off itself. 1420 took them twice and dropped every decrypted" >&2
+  echo "      host packet above 1420 (measured 21 Nov 2026)." >&2
   echo "      cilium-config mtu line(s) found:" >&2
   grep -nE '^\s*mtu:' "$TMP/default.yaml" >&2 || echo "      (no mtu key rendered at all)" >&2
   exit 1
 fi
 
-# Guard the PREMISE: 1420 (WG-only) is correct ONLY when WireGuard encryption
-# is on (the +80 overhead) AND the datapath is in NATIVE routing (no +50 VXLAN
-# header to stack). If a future edit turns WireGuard off OR reverts to
-# vxlan-tunnel routing, 1420 would be wrong and this test must flag it.
+# Guard the PREMISE: Cilium's own WireGuard-only budget (pods 1500 - 80) is
+# right ONLY when WireGuard encryption is on AND the datapath is in NATIVE
+# routing (no +50 VXLAN header to stack). If a future edit turns WireGuard off
+# OR reverts to vxlan-tunnel routing, this test must flag it.
 if ! grep -qE '^\s*enable-wireguard:\s*"true"\s*$' "$TMP/default.yaml"; then
-  echo "FAIL: default render does NOT enable WireGuard, but MTU is pinned to the" >&2
-  echo "      WireGuard-overhead value 1420. Either re-enable encryption.type=wireguard" >&2
+  echo "FAIL: default render does NOT enable WireGuard, but the MTU budget assumes" >&2
+  echo "      WireGuard node encryption. Either re-enable encryption.type=wireguard" >&2
   echo "      or recompute the MTU (issue #4656)." >&2
   grep -nE 'enable-wireguard|encryption' "$TMP/default.yaml" >&2 || true
   exit 1
 fi
 # routing-mode MUST be native — the #4656 fix that removes the +50 VXLAN header
-# so a single WireGuard encapsulation (MTU−80 = 1420) fits. A revert to
+# so a single WireGuard encapsulation fits. A revert to
 # vxlan-tunnel routing re-introduces the unfixable-by-MTU DF-drop bug.
 if ! grep -qE '^\s*routing-mode:\s*"native"\s*$' "$TMP/default.yaml"; then
-  echo "FAIL: default render is NOT in native routing, but MTU 1420 budgets for a" >&2
+  echo "FAIL: default render is NOT in native routing, but the MTU budgets for a" >&2
   echo "      WireGuard-only (no VXLAN) datapath. VXLAN-over-WireGuard stacks a +50" >&2
   echo "      header that no MTU escapes (#4467 disproven) — keep routing-mode: native" >&2
   echo "      (issue #4656)." >&2
@@ -110,7 +120,7 @@ fi
 echo "  PASS"
 
 # ── Case 2: MTU=0 (auto-detect, the bug) emits NO mtu key ───────────────
-echo "[mtu-wireguard-vxlan] Case 2: MTU=0 (auto-detect) emits no mtu key — proves 1420 is deliberate"
+echo "[mtu-wireguard-vxlan] Case 2: MTU=0 (auto-detect) emits no mtu key — proves the pin is deliberate"
 if ! helm template smoke-cilium . --set cilium.MTU=0 \
      > "$TMP/auto.yaml" 2> "$TMP/auto.err"; then
   echo "FAIL: MTU=0 render failed:" >&2

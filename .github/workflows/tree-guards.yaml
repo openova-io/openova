@@ -478,6 +478,12 @@ jobs:
       - name: 'release-own-tree | A release builds any chart with or without a Chart.lock, and its chart tests judge its own commit'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/release-own-tree
+      - name: 'cilium-mtu | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/cilium-mtu
+      - name: 'cilium-mtu | The MTU every provider pack, the kit and the chart give Cilium is the node interface MTU of the provider, never a subtraction'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/cilium-mtu
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

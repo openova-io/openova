@@ -56,3 +56,7 @@ SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
 # #5086 Hetzner DNS front door: dnsdist hostPort:53 DaemonSet binds
 # node:53 (LB-IPAM anycast VIP dead here). hostPort, NEVER nodePort.
 POWERDNS_DNSDIST_HOSTPORT: "true"
+# The MTU given to Cilium (slot 01): the MTU of the node interface,
+# local.node_interface_mtu of main.tf, as it is. Cilium takes WireGuard's
+# 80 bytes off itself; tools/guards/cmd/cilium-mtu holds the two equal.
+CILIUM_MTU: "1450"

@@ -1,6 +1,6 @@
 {
   "podSupernet": "10.42.0.0/15",
-  "mtu": 1420,
+  "mtu": 1500,
   "regionSeparation": "none",
   "controlPlaneAccess": {
     "adminCIDRs": [],

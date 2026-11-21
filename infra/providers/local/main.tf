@@ -433,9 +433,17 @@ resource "docker_container" "worker" {
 # ── Network registry (contract output network_registry) ──────────────────────
 
 locals {
+  # The MTU of the node interface of a machine of this pack: the Docker
+  # network machines, created with Docker's default MTU, 1500. It is the one
+  # statement of it in this module and the MTU given to Cilium: the default
+  # of the substitute CILIUM_MTU in clusters/_template/bootstrap-kit/
+  # 01-cilium.yaml, which this pack does not write. Cilium takes WireGuard's
+  # 80 bytes off itself (tools/guards/cmd/cilium-mtu).
+  node_interface_mtu = 1500
+
   network_registry = {
     podSupernet      = local.pod_supernet
-    mtu              = 1420
+    mtu              = local.node_interface_mtu
     regionSeparation = "none"
     controlPlaneAccess = {
       adminCIDRs       = []
