@@ -42,6 +42,12 @@ func clearCutoverEnv(t *testing.T) {
 	}
 }
 
+// envBase is the base the process env alone gives (no cutover status, so the
+// strip is never looked up).
+func envBase() string {
+	return orgtenantrepos.Base(os.Getenv, orgtenantrepos.OwnSourceUsable(context.Background(), os.Getenv, nil, nil, nil))
+}
+
 // hrBlockCount returns the number of HelmRepository blocks in the
 // rendered document — the denominator every URL/secretRef count is
 // checked against.
@@ -58,7 +64,7 @@ func TestOrgTenantHelmRepositories_PreCutoverEmitsGHCR(t *testing.T) {
 	clearCutoverEnv(t)
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil), orgtenantrepos.TrustSecretName)
+	got := orgtenantrepos.Render(envBase(), orgtenantrepos.TrustSecretName)
 	if got != orgtenantrepos.Template {
 		t.Fatalf("pre-cutover emission must be byte-identical to the template (zero Flux drift), diff detected:\n%s", got)
 	}
@@ -88,7 +94,7 @@ func TestOrgTenantHelmRepositories_PostCutoverEmitsLocalRegistry(t *testing.T) {
 	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil), orgtenantrepos.TrustSecretName)
+	got := orgtenantrepos.Render(envBase(), orgtenantrepos.TrustSecretName)
 	blocks := hrBlockCount(got)
 	if blocks == 0 {
 		t.Fatal("vacuity check failed: rendered document contains no HelmRepository blocks at all")
@@ -123,7 +129,7 @@ func TestOrgTenantHelmRepositories_HandoverIssuerAloneFlips(t *testing.T) {
 	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
-	got := orgtenantrepos.Base(os.Getenv, nil)
+	got := envBase()
 	want := "oci://registry.hw291.omantel.biz/openova-io"
 	if got != want {
 		t.Fatalf("handover-JWT issuer alone must flip the base: got %q want %q", got, want)
@@ -138,7 +144,7 @@ func TestOrgTenantHelmRepositories_OTECHFQDNSynonym(t *testing.T) {
 	t.Setenv("CATALYST_PIN_ISSUER", "https://console.hw291.omantel.biz")
 	t.Setenv("CATALYST_OTECH_FQDN", "hw291.omantel.biz")
 
-	got := orgtenantrepos.Base(os.Getenv, nil)
+	got := envBase()
 	want := "oci://registry.hw291.omantel.biz/openova-io"
 	if got != want {
 		t.Fatalf("CATALYST_OTECH_FQDN synonym must resolve the host: got %q want %q", got, want)
@@ -153,10 +159,10 @@ func TestOrgTenantHelmRepositories_FactWithoutIdentityFailsSafe(t *testing.T) {
 	clearCutoverEnv(t)
 	t.Setenv("CATALYST_PIN_ISSUER", "https://console.hw291.omantel.biz")
 
-	if got := orgtenantrepos.Base(os.Getenv, nil); got != orgtenantrepos.GHCRBase {
+	if got := envBase(); got != orgtenantrepos.GHCRBase {
 		t.Fatalf("fact without identity must fall back to ghcr, got %q", got)
 	}
-	if doc := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil), orgtenantrepos.TrustSecretName); doc != orgtenantrepos.Template {
+	if doc := orgtenantrepos.Render(envBase(), orgtenantrepos.TrustSecretName); doc != orgtenantrepos.Template {
 		t.Fatalf("fact without identity must emit the unmodified template:\n%s", doc)
 	}
 }
@@ -179,10 +185,10 @@ func TestOrgTenantHelmRepositories_ExplicitOverrideWins(t *testing.T) {
 			// Deliberately NO issuer fact and NO FQDN — the override
 			// alone must flip.
 			t.Setenv("CATALYST_LOCAL_REGISTRY_URL", tc.override)
-			if got := orgtenantrepos.Base(os.Getenv, nil); got != tc.want {
+			if got := envBase(); got != tc.want {
 				t.Fatalf("override %q: got %q want %q", tc.override, got, tc.want)
 			}
-			doc := orgtenantrepos.Render(orgtenantrepos.Base(os.Getenv, nil), "")
+			doc := orgtenantrepos.Render(envBase(), "")
 			blocks := hrBlockCount(doc)
 			if blocks == 0 {
 				t.Fatal("vacuity check failed: no HelmRepository blocks rendered")
@@ -208,7 +214,7 @@ func TestWriteParentTenantsIndex_PostCutoverFileCarriesLocalURL(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
 	parent := filepath.Join(t.TempDir(), "org-tenants")
-	if err := writeParentTenantsIndex(parent, orgtenantrepos.File(context.Background(), os.Getenv, nil, trustPresent, nil)); err != nil {
+	if err := writeParentTenantsIndex(parent, orgtenantrepos.File(context.Background(), os.Getenv, nil, nil, trustPresent, nil)); err != nil {
 		t.Fatalf("writeParentTenantsIndex: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(parent, "helmrepositories.yaml"))
@@ -238,7 +244,7 @@ func TestWriteParentTenantsIndex_PreCutoverFileKeepsGHCR(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "hw291.omantel.biz")
 
 	parent := filepath.Join(t.TempDir(), "org-tenants")
-	if err := writeParentTenantsIndex(parent, orgtenantrepos.File(context.Background(), os.Getenv, nil, trustLookupMustNotRun(t), nil)); err != nil {
+	if err := writeParentTenantsIndex(parent, orgtenantrepos.File(context.Background(), os.Getenv, nil, nil, trustLookupMustNotRun(t), nil)); err != nil {
 		t.Fatalf("writeParentTenantsIndex: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(parent, "helmrepositories.yaml"))

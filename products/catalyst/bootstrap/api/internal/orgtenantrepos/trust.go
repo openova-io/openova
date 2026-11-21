@@ -83,13 +83,13 @@ func TrustInCluster(ctx context.Context) (string, error) {
 	return Trust(ctx, core)
 }
 
-// File is the shared file the writer emits: every block on Base(env, status)
-// and, off the public catalog, with the certSecretRef trust returns (nil:
-// TrustInCluster). The public catalog needs no reference and is never looked
-// up. A lookup error is logged on log (when not nil); the reference it
-// returned is kept.
-func File(ctx context.Context, env func(string) string, status map[string]string, trust TrustFunc, log *slog.Logger) string {
-	base := Base(env, status)
+// File is the shared file the writer emits: every block on Base(env,
+// OwnSourceUsable(ctx, env, status, publicAuth, log)) and, off the public
+// catalog, with the certSecretRef trust returns (nil: TrustInCluster). The
+// public catalog needs no reference and is never looked up. A lookup error is
+// logged on log (when not nil); the reference it returned is kept.
+func File(ctx context.Context, env func(string) string, status map[string]string, publicAuth PublicAuthFunc, trust TrustFunc, log *slog.Logger) string {
+	base := Base(env, OwnSourceUsable(ctx, env, status, publicAuth, log))
 	if base == GHCRBase {
 		return Template
 	}

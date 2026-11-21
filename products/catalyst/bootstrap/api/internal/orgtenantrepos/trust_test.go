@@ -109,27 +109,32 @@ func TestTrustSecretNameIsTheChartDefault(t *testing.T) {
 
 func TestFileLooksUpTrustOnlyOffThePublicCatalog(t *testing.T) {
 	ctx := context.Background()
-	calls := 0
+	calls, strips := 0, 0
 	lookup := func(ref string, err error) TrustFunc {
 		return func(context.Context) (string, error) { calls++; return ref, err }
 	}
+	held, stripped := stripLookup(true, nil, &strips), stripLookup(false, nil, &strips)
 	env := envOf(map[string]string{"SOVEREIGN_FQDN": "hw.test"})
-	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v1"}, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 {
+	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v1"}, held, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 {
 		t.Errorf("not pivoted: want Template and no lookup, got %d lookups:\n%s", calls, got)
 	}
-	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v2"}, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 {
-		t.Errorf("pivoted, step 06 not yet: want Template and no lookup, got %d lookups:\n%s", calls, got)
+	if got := File(ctx, env, map[string]string{StatusKeyRegistries: "v2"}, held, lookup(TrustSecretName, nil), nil); got != Template || calls != 0 || strips != 1 {
+		t.Errorf("pivoted, step 06 before its strip: want Template and no trust lookup, got %d lookups, %d of the strip:\n%s", calls, strips, got)
+	}
+	failedAfterStrip := map[string]string{StatusKeyRegistries: "v2", StatusKeySourcesPivoted: "failed"}
+	if got := File(ctx, env, failedAfterStrip, stripped, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 1 {
+		t.Errorf("step 06 failed after its strip: want the own source with the trust reference, %d lookups:\n%s", calls, got)
 	}
 	pivoted := usableStatus
-	if got := File(ctx, env, pivoted, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 1 {
+	if got := File(ctx, env, pivoted, nil, lookup(TrustSecretName, nil), nil); got != Render(testLocal, TrustSecretName) || calls != 2 {
 		t.Errorf("pivoted, Secret present: %d lookups:\n%s", calls, got)
 	}
-	if got := File(ctx, env, pivoted, lookup("", nil), nil); got != Render(testLocal, "") {
+	if got := File(ctx, env, pivoted, nil, lookup("", nil), nil); got != Render(testLocal, "") {
 		t.Errorf("pivoted, Secret absent:\n%s", got)
 	}
 	var logged bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logged, nil))
-	if got := File(ctx, env, pivoted, lookup(TrustSecretName, errors.New("forbidden")), log); got != Render(testLocal, TrustSecretName) {
+	if got := File(ctx, env, pivoted, nil, lookup(TrustSecretName, errors.New("forbidden")), log); got != Render(testLocal, TrustSecretName) {
 		t.Errorf("lookup error: the reference must be kept:\n%s", got)
 	}
 	if !strings.Contains(logged.String(), "forbidden") {

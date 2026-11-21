@@ -249,6 +249,11 @@ const emptyTenantsIndex = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Ku
 // credential (Phase 0) and trust (Phase 0.5) and succeeded.
 var afterStep06 = map[string]string{"registriesYamlActive": "v2", "step.helmrepository-patches.result": "success", "currentStep": "catalyst-api-env-patch"}
 
+// publicAuthHeld is the lookup of a cluster where step 06 has not stripped the
+// public catalog's auth from ghcr-pull; publicAuthStripped of one where it has.
+func publicAuthHeld(context.Context) (bool, error)     { return true, nil }
+func publicAuthStripped(context.Context) (bool, error) { return false, nil }
+
 // The source an Organization written at each moment of the cutover gets, and
 // that it can use then: the public catalog until step 06 has written the
 // credential and the trust of the Sovereign's registry (egress stays open
@@ -256,17 +261,30 @@ var afterStep06 = map[string]string{"registriesYamlActive": "v2", "step.helmrepo
 // the two middle moments got the Sovereign's registry, which source-controller
 // can neither authenticate to nor trust before step 06, and a cutover that
 // stopped there left every later Organization on a source that cannot work.
+// Once step 06 has stripped the public catalog's auth (Phase 3b) the own source
+// is the only one that works, also when the step then failed (a secondary not
+// reached) or a re-run blanked its row: the public catalog there would fail
+// "no auth config for 'ghcr.io'" on all six shared blocks.
 func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 	for name, tc := range map[string]struct {
-		stamp  bool
-		status map[string]string
-		own    bool
+		stamp    bool
+		status   map[string]string
+		stripped bool
+		own      bool
 	}{
 		"before step 03 ends":                        {status: map[string]string{"registriesYamlActive": "v1", "currentStep": "harbor-prewarm"}},
 		"between step 03's end and step 06's phases": {status: map[string]string{"registriesYamlActive": "v2", "currentStep": "helmrepository-patches", "step.helmrepository-patches.result": "running"}},
 		"a cutover stopped after step 03":            {status: map[string]string{"registriesYamlActive": "v2", "failedStep": "registry-pivot", "step.registry-pivot.result": "failed"}},
-		"after step 06":                              {status: afterStep06, own: true},
-		"after step 07 (the new Pod)":                {stamp: true, own: true},
+		"a cutover stopped in step 06 after its strip": {
+			status:   map[string]string{"registriesYamlActive": "v2", "failedStep": "helmrepository-patches", "step.helmrepository-patches.result": "failed"},
+			stripped: true, own: true,
+		},
+		"a re-run blanked step 06's row after an earlier strip": {
+			status:   map[string]string{"registriesYamlActive": "v2", "currentStep": "harbor-prewarm", "step.helmrepository-patches.result": ""},
+			stripped: true, own: true,
+		},
+		"after step 06":               {status: afterStep06, own: true},
+		"after step 07 (the new Pod)": {stamp: true, own: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			oldEnginePodEnv(t)
@@ -276,7 +294,12 @@ func TestOrganizationGetsTheSourceThatCanBeUsedAtEachMoment(t *testing.T) {
 			bare := tenantsRemote(t, map[string]string{
 				"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
 			})
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(tc.status), HarborTrust: trustLookupMustNotRun(t)}
+			// publicAuthHeld would turn the last two moments to the public
+			// catalog: they must answer without looking the strip up.
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(tc.status), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
+			if tc.stripped {
+				w.PublicAuth = publicAuthStripped
+			}
 			if tc.own {
 				w.HarborTrust = trustPresent
 			}
@@ -304,7 +327,7 @@ func TestOrganizationWrittenBeforeStep06IsMovedByTheReRenderBeforeStep08(t *test
 	bare := tenantsRemote(t, map[string]string{
 		"clusters/" + pivotTestFQDN + "/org-tenants/kustomization.yaml": emptyTenantsIndex,
 	})
-	between := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{"registriesYamlActive": "v2"}), HarborTrust: trustLookupMustNotRun(t)}
+	between := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(map[string]string{"registriesYamlActive": "v2"}), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
 	if _, err := between.WriteTenantOverlay(context.Background(), pivotTestRecord()); err != nil {
 		t.Fatalf("WriteTenantOverlay: %v", err)
 	}
@@ -453,7 +476,7 @@ func TestNothingIsRewrittenOnASovereignThatHasNotPivoted(t *testing.T) {
 				dir + "helmrepositories.yaml": orgtenantrepos.Template,
 			})
 			before := remoteCommits(t, bare)
-			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status), HarborTrust: trustLookupMustNotRun(t)}
+			w := DefaultOrganizationGitOpsWriter{CutoverStatus: cutoverStatusFixed(status), PublicAuth: publicAuthHeld, HarborTrust: trustLookupMustNotRun(t)}
 			sha, err := w.RepointSharedHelmRepositories(context.Background(), status)
 			if err != nil || sha != "" || remoteCommits(t, bare) != before {
 				t.Fatalf("re-render before the pivot: sha=%q err=%v commits=%d (was %d), want nothing", sha, err, remoteCommits(t, bare), before)

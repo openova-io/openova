@@ -61,12 +61,12 @@ type DefaultOrganizationGitOpsWriter struct {
 	// env at startup; the orchestrator caller is expected to provide
 	// non-empty values when wiring.
 	ChartVersions OrganizationChartVersions
-	// CutoverStatus returns the data of the cutover status ConfigMap, the
-	// fact that the shared HelmRepositories can use the Sovereign's registry
-	// (orgtenantrepos.OwnSourceUsable). nil reads it from the cluster
-	// (cutoverStatusInCluster); tests set it. HarborTrust is the lookup of the
-	// step-06 trust Secret (orgtenantrepos.File); nil reads it in cluster.
+	// CutoverStatus returns the data of the cutover status ConfigMap and
+	// PublicAuth reads step 06's strip (orgtenantrepos.OwnSourceUsable);
+	// HarborTrust looks up the step-06 trust Secret (orgtenantrepos.File).
+	// nil reads each in the cluster (cutoverStatusInCluster); tests set them.
 	CutoverStatus func(context.Context) map[string]string
+	PublicAuth    orgtenantrepos.PublicAuthFunc
 	HarborTrust   orgtenantrepos.TrustFunc
 }
 
@@ -232,7 +232,7 @@ func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context,
 	// always current. Without this, Flux fails with "kustomization path
 	// not found" on a fresh Sovereign that has never had a tenant.
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.PublicAuth, w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
@@ -380,7 +380,7 @@ func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context
 	// reduced resources list. If no tenants remain, the parent index is
 	// rewritten with `resources: []` (still a valid Kustomization root).
 	parentDir := filepath.Join(repoDir, "clusters", rec.OTECHFQDN, "org-tenants")
-	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.HarborTrust, w.Log)); err != nil {
+	if err := writeParentTenantsIndex(parentDir, orgtenantrepos.File(ctx, os.Getenv, w.cutoverStatus(ctx), w.PublicAuth, w.HarborTrust, w.Log)); err != nil {
 		return "", fmt.Errorf("write parent index: %w", err)
 	}
 	parentRel := filepath.Join("clusters", rec.OTECHFQDN, "org-tenants", "kustomization.yaml")
@@ -491,8 +491,8 @@ func cutoverStatusInCluster(ctx context.Context) (map[string]string, error) {
 // commit, or "" when nothing needed one. Nothing is written while the file is
 // the public catalog, nor when per-Org GitOps owns the Organizations (#5425).
 func (w DefaultOrganizationGitOpsWriter) RepointSharedHelmRepositories(ctx context.Context, status map[string]string) (string, error) {
-	doc := orgtenantrepos.File(ctx, os.Getenv, status, w.HarborTrust, w.Log)
-	if perOrgGitopsEnabled() || !orgtenantrepos.OwnSourceUsable(os.Getenv, status) || doc == orgtenantrepos.Template {
+	doc := orgtenantrepos.File(ctx, os.Getenv, status, w.PublicAuth, w.HarborTrust, w.Log)
+	if perOrgGitopsEnabled() || !orgtenantrepos.OwnSourceUsable(ctx, os.Getenv, status, w.PublicAuth, w.Log) || doc == orgtenantrepos.Template {
 		return "", nil
 	}
 	cfg := loadGitOpsConfig()

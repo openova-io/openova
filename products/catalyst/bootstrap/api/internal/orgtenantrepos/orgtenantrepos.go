@@ -19,13 +19,18 @@
 // three Pods on OFFENDER bp-agenity, bp-openclaw, bp-stalwart-tenant and
 // bp-wordpress-tenant=oci://ghcr.io/openova-io. OwnSourceUsable therefore also
 // reads the cutover's own status, where the engine records that step 06 gave
-// source-controller the registry's credential and trust, and NeedsRewrite lets
+// source-controller the registry's credential and trust, and the Secret step
+// 06 strips the public catalog's auth from (publicauth.go); NeedsRewrite lets
 // the re-render find a file written before that moment. The blocks on the
 // Sovereign's registry carry the trust reference step 06 gives every source
 // it pivots (trust.go).
 package orgtenantrepos
 
-import "strings"
+import (
+	"context"
+	"log/slog"
+	"strings"
+)
 
 // GHCRBase is the public catalog every block declares before the pivot.
 const GHCRBase = "oci://ghcr.io/openova-io"
@@ -48,9 +53,10 @@ const StatusKeyRegistries = "registriesYamlActive"
 // StatusKeySourcesPivoted is the status row of step 06
 // (helmrepository-patches); the engine writes "success" when the step's Job
 // completes. Its Phase 0 merges the registry's auth into flux-system/ghcr-pull
-// and its Phase 0.5 writes the trust Secret (trust.go), so "success" is the one
-// fact that both exist: before it a block on the Sovereign's registry can
-// neither authenticate to it nor trust its certificate.
+// and its Phase 0.5 writes the trust Secret (trust.go), so "success" says that
+// both exist. Any other value does not say they do not: the step can fail
+// after its Phase 3b strip, and a re-run blanks the row (OwnSourceUsable then
+// reads the strip itself, publicauth.go).
 const StatusKeySourcesPivoted = "step.helmrepository-patches.result"
 
 // Template is the six blocks, on the public catalog.
@@ -147,19 +153,26 @@ spec:
 `
 
 // OwnSourceUsable reports whether source-controller can use the Sovereign's
-// own registry as the blocks' source, from two facts; either one is enough.
+// own registry as the blocks' source, from three facts: the step-07 stamp
+// (the last item) is checked first, then the status, then the strip.
 //
 //   - The cutover status (status, the data of the status ConfigMap; nil when it
 //     could not be read): StatusKeyRegistries is "v2" (step 03 put every chart
 //     there) and StatusKeySourcesPivoted is "success" (step 06 wrote the
-//     credential and the trust). It is read without a new Pod. The registry
-//     alone is not enough: an Organization written between step 03 and step 06
-//     would get a source it can neither authenticate to nor trust, and a cutover
-//     that stops there would leave it so, where the public catalog works until
-//     step 08 blocks egress. The engine blanks the step-06 row when it re-runs
-//     the step (#5437): the answer is then the public catalog until the step
-//     succeeds again, the source that works meanwhile; the re-render before
-//     step 08 (handler repointOrgTenantSources) moves what was written then.
+//     credential and the trust). It is read without a new Pod.
+//   - With StatusKeyRegistries "v2" and the step-06 row anything else (not
+//     reached, running, failed, or blanked by a re-run, #5437, or by a restart
+//     of the engine): the evidence of the strip, publicAuth (nil:
+//     PublicAuthInCluster). Once step 06 has stripped the public catalog's auth
+//     (Phase 3b, after its Phase 0 credential and Phase 0.5 trust) only the
+//     Sovereign's own source works, also when the step failed after the strip.
+//     While the Secret still holds that auth the public catalog works until
+//     step 08 blocks egress, where an Organization written between step 03 and
+//     step 06 would get an own source it can neither authenticate to nor trust;
+//     the re-render before step 08 (handler repointOrgTenantSources) moves it.
+//     A lookup error is logged on log (when not nil) and answers the own
+//     source: a block on it heals once step 06 adds the credential and the
+//     trust, one on the public catalog after the strip does not.
 //   - The issuer pair that step 07 (catalyst-api-env-patch) stamps on the
 //     catalyst-api Deployment, CATALYST_PIN_ISSUER or
 //     CATALYST_HANDOVER_JWT_ISSUER (#5527). It was chosen because nothing else
@@ -171,32 +184,49 @@ spec:
 //     of the hand-over tokens (handoverjwt signer.go) and the image-registry
 //     host of the org-tenant overlay (VClusterImageRegistry, vcluster_registry.go).
 //
-// Neither fact holds on the mothership, which has no cutover.
-func OwnSourceUsable(env func(string) string, status map[string]string) bool {
+// None holds on the mothership, which has no cutover, and the strip is only
+// looked up when the status alone cannot answer.
+func OwnSourceUsable(ctx context.Context, env func(string) string, status map[string]string, publicAuth PublicAuthFunc, log *slog.Logger) bool {
 	if strings.TrimSpace(env("CATALYST_PIN_ISSUER")) != "" ||
 		strings.TrimSpace(env("CATALYST_HANDOVER_JWT_ISSUER")) != "" {
 		return true
 	}
-	return strings.TrimSpace(status[StatusKeyRegistries]) == "v2" &&
-		strings.TrimSpace(status[StatusKeySourcesPivoted]) == "success"
+	if strings.TrimSpace(status[StatusKeyRegistries]) != "v2" {
+		return false
+	}
+	if strings.TrimSpace(status[StatusKeySourcesPivoted]) == "success" {
+		return true
+	}
+	if publicAuth == nil {
+		publicAuth = PublicAuthInCluster
+	}
+	held, err := publicAuth(ctx)
+	if err != nil {
+		if log != nil {
+			log.Warn("org-tenant: the shared HelmRepositories' Secret is unreadable — the blocks take the Sovereign's own registry",
+				"secret", TrustSecretNamespace+"/"+PublicAuthSecretName, "err", err)
+		}
+		return true
+	}
+	return !held
 }
 
 // Base returns the OCI base the six blocks declare.
 //
 //   - CATALYST_LOCAL_REGISTRY_URL, when set, is the base (Inviolable Principle
 //     #4), normalised to oci://<host>/<path> without a trailing slash.
-//   - Usable (OwnSourceUsable): oci://registry.<fqdn>/openova-io, the value
+//   - usable (OwnSourceUsable): oci://registry.<fqdn>/openova-io, the value
 //     step 06 patches the live objects to, so the file and the objects agree.
 //     The fqdn is SOVEREIGN_FQDN, else CATALYST_OTECH_FQDN.
 //   - Otherwise, and when usable without an fqdn: GHCRBase.
-func Base(env func(string) string, status map[string]string) string {
+func Base(env func(string) string, usable bool) string {
 	if v := strings.TrimSpace(env("CATALYST_LOCAL_REGISTRY_URL")); v != "" {
 		if !strings.HasPrefix(v, "oci://") {
 			v = "oci://" + v
 		}
 		return strings.TrimSuffix(v, "/")
 	}
-	if !OwnSourceUsable(env, status) {
+	if !usable {
 		return GHCRBase
 	}
 	fqdn := strings.TrimSpace(env("SOVEREIGN_FQDN"))
