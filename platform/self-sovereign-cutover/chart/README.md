@@ -69,6 +69,10 @@ Tether 9 is moved by step 03 (Phase A5 copies the packages that
 mirror of `crossplane-system/opentofu-cli-config` to the Sovereign's registry).
 Step 08 lints that configuration, live and in the provider pod, before the hold,
 and fails when a cloud Workspace Ready and Synced before the hold is not so in it.
+Before that baseline it waits, at most `egressTest.workspaceSettle.timeoutSeconds`
+(900 s), for the re-sync that step 11's restart of the provider Pod causes; a
+Workspace still not Ready and Synced then is NOT MEASURED: named, counted in the
+step's result line and on the status ConfigMap, never passed.
 
 ### Secondary-region legs (#5359)
 

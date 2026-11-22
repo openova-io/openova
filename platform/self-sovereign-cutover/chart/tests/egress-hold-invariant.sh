@@ -132,6 +132,7 @@ POLICY_APPLIED='${applied}'
 ENFORCE_CIDR_BLOCK='${enforce}'
 DURATION_SECONDS=600
 secondary_kubeconfig_count=1
+ws_tally='cloud Workspaces: 0 of 0 judged'
 $(cat "${block}")" ) 2>&1
 }
 

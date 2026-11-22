@@ -135,6 +135,7 @@ POLICY_APPLIED='$1'
 ENFORCE_CIDR_BLOCK='$2'
 DURATION_SECONDS=600
 secondary_kubeconfig_count=2
+ws_tally='cloud Workspaces: 0 of 0 judged'
 NAMESPACE=catalyst
 STATUS_CONFIGMAP=self-sovereign-cutover-status
 $(cat "${TMP}/tail-local.sh")" >"${TMP}/out.txt" 2>&1
