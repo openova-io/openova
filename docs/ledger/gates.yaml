@@ -458,7 +458,7 @@ checks:
 - id: BSS-G01
   title: Self-service onboarding
   owner: BSS
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
