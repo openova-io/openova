@@ -422,6 +422,11 @@ SELECT ` + costUsageProjection + `, ` + utcDayExpr + `, sum(quantity), count(*):
  WHERE source_id = $1 AND window_start >= $2 AND window_start < $3 AND ` + metricSKUFilter + `
  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9`
 
+// costRollupBuildLock is the first key of the two-key advisory lock a
+// partition build holds (the second is the partition's hash), so it never
+// meets the single-key locks elsewhere in the store.
+const costRollupBuildLock = 6926
+
 // BuildCostRollupPartition rebuilds one partition whole, in one transaction:
 // the old rows go, the aggregate goes in, and the partition is marked built
 // at the version it started from.
@@ -437,6 +442,16 @@ func (s *Store) BuildCostRollupPartition(ctx context.Context, p CostRollupPartit
 		return 0, false, err
 	}
 	defer tx.Rollback()
+	// Builders of ONE partition run one after the other. Every replica runs
+	// a builder and they list the same stale partitions in the same order;
+	// under READ COMMITTED a second builder's DELETE cannot see the rows the
+	// first is inserting, so two concurrent builds both inserted and both
+	// marked the partition fresh — every aggregate row twice. The lock is
+	// per (source, day) and held to the end of the transaction; usage writers
+	// never take it, so the write-during-build race above is unchanged.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($3, hashtext($1::text || '/' || $2::date::text))`, p.SourceID, p.Day, costRollupBuildLock); err != nil {
+		return 0, false, mapErr(err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cost_usage_daily WHERE source_id = $1 AND day = $2`, p.SourceID, p.Day); err != nil {
 		return 0, false, mapErr(err)
 	}

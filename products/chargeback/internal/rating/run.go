@@ -31,6 +31,25 @@ var ErrMixedCurrency = errors.New("mixed currencies")
 // price book: there is nothing to rate against.
 var ErrNoPriceBook = errors.New("no price book assigned to any of the customer's sources")
 
+// ErrBookNotInForce is reported for a customer one of whose sources has usage
+// in the period on a price book whose effective date is after the period's
+// start: no price on that book is in force for the period.
+var ErrBookNotInForce = errors.New("price book not in force for the period")
+
+// bookEffectiveFrom is the first day a book prices, false when the book has
+// no effective date (it prices every period).
+func bookEffectiveFrom(pb store.PriceBook) (time.Time, bool) {
+	if pb.EffectiveFrom == nil {
+		return time.Time{}, false
+	}
+	// The store reads the DATE column as YYYY-MM-DD (datePtr).
+	t, err := time.Parse("2006-01-02", strings.TrimSpace(*pb.EffectiveFrom))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // Rate prices aggregated usage against a price book. Usage for SKUs missing
 // from the book is reported in unpriced and produces no line.
 func Rate(usage []store.RatableUsage, items map[string]store.PriceItem, policy string) ([]store.RatedLine, []string, error) {
@@ -553,6 +572,14 @@ func ratePeriodLines(ctx context.Context, st *store.Store, c store.Customer, fro
 		}
 		if len(rows) == 0 {
 			continue
+		}
+		// A book prices the periods from its effective date on (the console
+		// says so: "leave empty to apply to every period"). A period that
+		// starts before it has no price in force on this book, and rating it
+		// at these prices anyway is what the date exists to prevent: the
+		// customer is reported, not rated.
+		if eff, ok := bookEffectiveFrom(pb); ok && from.Before(eff) {
+			return periodLines{}, fmt.Errorf("%w: source %s is on the price book %q, in force from %s; the period from %s starts before it — assign the book in force for the period", ErrBookNotInForce, src.Label(), pb.Name, eff.Format("2006-01-02"), from.Format("2006-01-02"))
 		}
 		items := map[string]store.PriceItem{}
 		sellsPlans := false

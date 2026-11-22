@@ -135,11 +135,18 @@ type PrepaidPeriod struct {
 // period starting at periodStart on this Source — the plan.<slug> line whose
 // service period starts there — or nil when the period was not paid in
 // advance. A cancelled statement paid nothing.
+//
+// The amount is the LIST amount of that line: the package lines are rated at
+// list and a resell partner's markup is applied after (rating/partners.go),
+// so a partner customer's line carries the retail figure in amount and the
+// list figure in list_amount. Reading the retail figure compared it with a
+// list price — every month an "Upgrade M → M" under a discount, and a real
+// upgrade billed short under a markup.
 func (s *Store) PrepaidFor(ctx context.Context, sourceID string, periodStart time.Time) (*PrepaidPeriod, error) {
 	var p PrepaidPeriod
-	err := s.db.QueryRowContext(ctx, `SELECT l.sku, l.amount::text, st.id FROM rated_lines l JOIN statements st ON st.id = l.statement_id
+	err := s.db.QueryRowContext(ctx, `SELECT l.sku, COALESCE(l.list_amount, l.amount)::text, st.id FROM rated_lines l JOIN statements st ON st.id = l.statement_id
 		WHERE l.source_id = $1 AND l.sku LIKE 'plan.%' AND l.service_period_start = $2::date AND st.period_start < $2::date AND st.status <> $3
-		ORDER BY l.amount DESC LIMIT 1`, sourceID, periodStart.UTC().Format("2006-01-02"), StatusCancelled).Scan(&p.PlanSlug, &p.Amount, &p.StatementID)
+		ORDER BY COALESCE(l.list_amount, l.amount) DESC LIMIT 1`, sourceID, periodStart.UTC().Format("2006-01-02"), StatusCancelled).Scan(&p.PlanSlug, &p.Amount, &p.StatementID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
