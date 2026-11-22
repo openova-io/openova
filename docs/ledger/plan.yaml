@@ -27784,16 +27784,20 @@ packages:
   flips: [BSS-G01]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "r=$(for f in docs/ledger/acceptance/*.json; do echo \"$(grep -m1 '^  \"finished_at\": ' \"$f\" | cut -d'\"' -f4) $f\"; done | sort | tail -n 2 | cut -d' ' -f2); n=0; for f in $r; do n=$((n + $(awk '/^      \"id\": \"BSS-G01\\.8\",$/{s=1} s && /^    }/{s=0} s && /^        \"price_list_state\": \"published\",?$/{c++} END{print c+0}' \"$f\"))); done; echo \"green=$(python3 scripts/acceptance-gate.py verdict --check BSS-G01 2>/dev/null | grep -c ' green  *unexpected pass: PASS in 2 of 2 records') published=$n\""
+    expect: "green=1 published=2"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: BSS-070') && test \"$(awk '/^- id: /{s=($3==\"BSS-G01\")} s && /^  state: /{print $2}' docs/ledger/gates.yaml)\" = required"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: BSS-G01 required after two passing records that both show price_list_state published
+  delivers: Check BSS-G01 is required in the gate manifest, set only when the two newest gate records both pass it and both record price_list_state published.
 - id: BSS-090
   title: The engine's bus client and outbox
   area: BSS
