@@ -2874,18 +2874,20 @@ data:
              verdict to cover EVERY route to an empty POLICY_APPLIED, also one
              written later (measured 2026-08-14).
             */}}
-            {{- /*
-             Last step of the chain: past its verdict it releases kured's install hold in every region
-             (values rebootHold) by writing the ConfigMap slot 04b reads; one line per region (#7922).
-            */}}
+            {{- /* Releases kured's install hold in every region, retried; see values rebootHold. */}}
             reboot_hold_release() {
+              rh_left=""
               for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
                 [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
-                kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
-                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
-                  || { echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"; continue; }
-                echo "[egress-block-test] reboot hold released in region $(basename "${rh_kc:-primary}" .yaml): ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present; bp-kured (interval 1m) applies it within a minute"
+                rh_r=$(basename "${rh_kc:-primary}" .yaml); rh_try=1
+                until kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
+                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1; do
+                  [ "${rh_try}" -lt {{ .Values.rebootHold.releaseAttempts }} ] || { rh_left="${rh_left} ${rh_r}"; continue 2; }
+                  rh_try=$((rh_try + 1)); sleep {{ .Values.rebootHold.releaseRetrySeconds }}
+                done
+                echo "[egress-block-test] reboot hold released in region ${rh_r}: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present"
               done
+              [ -z "${rh_left}" ] || { echo "[egress-block-test] FATAL: the reboot hold is NOT released in region(s):${rh_left}: {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} not written in {{ .Values.rebootHold.releaseAttempts }} tries; cutoverComplete stays false" >&2; exit 1; }
             }
             {{- /* SOV-344 — a region whose Workspaces were not measured is named next to the verdict, never inside it. */}}
             if [ -s /work/ws_not_measured.txt ]; then

@@ -1762,6 +1762,26 @@ images:
 # on demand at trigger time.
 registryPivot:
   enabled: true
+  # THE RULES OF A SWEEP of pivot.sh (the reconcile loop of the template; they
+  # sit here because a template's comments are stored in every Helm release
+  # Secret, #6004):
+  #   - The sweep reads the status ConfigMap once. A read that fails (the API
+  #     away, a 5xx or 429, the --max-time) is no answer: the node keeps the
+  #     state it has, logs a WARN and reads again next sweep. Only a read that
+  #     succeeds can change the state; a ConfigMap without registriesYamlActive
+  #     reads as v1 (the dormant first run). Before this rule a failed read gave
+  #     an empty value, read as v1, and a cut-over node rolled back: install-time
+  #     registry files, /etc/hosts pin removed, dfdaemon upstream back to ghcr.
+  #   - #5007: while v2 is desired, every sweep re-writes the local-registry
+  #     /etc/hosts pin (idempotent; heals a rewritten /etc/hosts and completes the
+  #     pin once the gateway VIP is assigned). On v1/rollback apply_state removes it.
+  #   - #4639: apply_state fires once per state, so v2 is re-applied while the
+  #     read shows dragonflyUpstream != local (the cluster-wide dfdaemon flip
+  #     missed on the first v2 sweep, e.g. the Harbor CA anchor or a patch).
+  #   - #4637: v2 is re-applied while the read shows no v2 ack of THIS node
+  #     (its dfdaemon was not serving on the first sweep, #4649); without it the
+  #     per-node ack wait of step 04 never reaches acks == desired.
+  #   - SOV-132: v2 is re-applied when k3s rewrote the pivoted names (a restart).
   # #4639 (Refs #4637) — Dragonfly P2P registry-pivot. THE GENERIC HAIRPIN KILL.
   #
   # Every node's containerd already mirrors through the node-LOCAL dfdaemon
@@ -4072,8 +4092,15 @@ secondaryRegions:
 # no more). Each value is a plain string, so every Helm version merges it the
 # same way (a null that removes a key of a subchart is not kept by all of them).
 # The ConfigMap is created once and never changed; a re-run of the
-# step finds it and leaves it. The step prints one line per region: released,
-# or a WARNING naming the region whose write failed, which keeps its hold.
+# step finds it and leaves it. The step prints one line per region: released.
+# A region where neither the create nor the read of the ConfigMap succeeds is
+# tried again, releaseAttempts times in all, releaseRetrySeconds apart. A region
+# still not written after the last try is named in a FATAL and the step fails:
+# nothing else writes this ConfigMap and a completed chain never runs the step
+# again, so a release that failed once, with cutoverComplete=true, kept that
+# region's nodes from ever restarting. The failed step is retried like any step.
+# (The release function reboot_hold_release sits in 08-egress-block-test-job.yaml,
+# past the verdict; these comments sit here, #6004.)
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
@@ -4082,6 +4109,8 @@ rebootHold:
   namespace: flux-system
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
+  releaseAttempts: 12
+  releaseRetrySeconds: 10
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
   releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'
 
