@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -133,13 +134,13 @@ var natSpec = providers.ProvisionSpec{
 const natPrefix = "catalyst-hw99-omani-works-3f83959f"
 
 // CLD-G12 (2026-11-21): the first draw of region a is on the blocklist. The
-// address that region a's NAT uses is the import the engine hands to
-// OpenTofu, so the state names it after the install; the refused one is
-// recorded and released before the plan, and nothing is left that no state
-// knows. On main the pre-flight swapped the address after `tofu apply`
-// through the cloud API, and the state kept the deleted one.
+// addresses that region a's NAT and control plane use are the imports the
+// engine hands to OpenTofu, so the state names them after the install; the
+// refused one is recorded and released before the plan, and nothing is left
+// that no state knows. On main the pre-flight swapped the address after `tofu
+// apply` through the cloud API, and the state kept the deleted one.
 func TestChooseNATAddresses_ARefusedDrawIsHeldAndTheImportNamesTheCleanAddress(t *testing.T) {
-	c := newNATCloud(t, "212.72.24.48", "212.72.24.24", "212.72.24.25")
+	c := newNATCloud(t, "212.72.24.48", "212.72.24.24", "212.72.24.25", "212.72.24.26", "212.72.24.27")
 	store := serveNAT(t, c)
 	var msgs []string
 	imports, err := chooseNATAddresses(context.Background(), natSpec, map[string]bool{}, func(m string) { msgs = append(msgs, m) })
@@ -148,7 +149,9 @@ func TestChooseNATAddresses_ARefusedDrawIsHeldAndTheImportNamesTheCleanAddress(t
 	}
 	want := []providers.StateImport{
 		{Address: `huaweicloud_vpc_eip.nat["me-east-215-a"]`, ID: "eip-2", Label: "212.72.24.24"},
-		{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-3", Label: "212.72.24.25"},
+		{Address: `huaweicloud_vpc_eip.cp["me-east-215-a"]`, ID: "eip-3", Label: "212.72.24.25"},
+		{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-4", Label: "212.72.24.26"},
+		{Address: `huaweicloud_vpc_eip.cp["me-east-215-b"]`, ID: "eip-5", Label: "212.72.24.27"},
 	}
 	if !reflect.DeepEqual(imports, want) {
 		t.Fatalf("imports = %+v; want %+v", imports, want)
@@ -162,8 +165,8 @@ func TestChooseNATAddresses_ARefusedDrawIsHeldAndTheImportNamesTheCleanAddress(t
 			t.Errorf("import %+v: the cloud holds %+v; want that EIP under the deployment's name prefix", im, e)
 		}
 	}
-	if len(c.eips) != 3 {
-		t.Errorf("%d EIPs exist after the choice; want the bastion's and the two imported", len(c.eips))
+	if len(c.eips) != 5 {
+		t.Errorf("%d EIPs exist after the choice; want the bastion's and the four imported", len(c.eips))
 	}
 	if !loadPersistedBlocklist(time.Now())["212.72.24.48"] {
 		raw, _ := os.ReadFile(filepath.Clean(store))
@@ -171,63 +174,159 @@ func TestChooseNATAddresses_ARefusedDrawIsHeldAndTheImportNamesTheCleanAddress(t
 	}
 }
 
-// The wipe records every address it released, so right after one the pool
-// hands back up to six refused addresses first. The choice holds them all and
-// never has more EIPs alive than the quota of 10.
-func TestChooseNATAddresses_AfterAWipeStaysWithinTheQuota(t *testing.T) {
-	refused := []string{"212.72.24.1", "212.72.24.2", "212.72.24.3", "212.72.24.4", "212.72.24.5", "212.72.24.6"}
-	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30", "212.72.24.31")...)
+// Where the released addresses go. The pool hands a just-released address to
+// the next allocation, and the next allocations are OpenTofu's, for the EIPs
+// of the module that the pre-flight did not import. Every EIP that a region
+// egresses through (main.tf, egressAddresses) is imported for every region, so
+// a refused address can only land on an EIP that carries no egress (a load
+// balancer's). The review of PR 8611 found the control plane's EIP left to
+// OpenTofu, where it drew the refused address and its cloud-init could not
+// pull from harbor.openova.io.
+func TestChooseNATAddresses_TheReleasedAddressesReachNoEgressEIP(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "..", "..", "infra", "providers", "huawei", "main.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf := string(raw)
+	line := regexp.MustCompile(`egressAddresses\s*=\s*(.*)`).FindStringSubmatch(tf)
+	if line == nil {
+		t.Fatal("main.tf names no egressAddresses")
+	}
+	egress := map[string]bool{}
+	for _, m := range regexp.MustCompile(`huaweicloud_vpc_eip\.(\w+)\[c\]\.address`).FindAllStringSubmatch(line[1], -1) {
+		egress[m[1]] = true
+	}
+	if len(egress) == 0 {
+		t.Fatalf("egressAddresses %q names no EIP of the region", line[0])
+	}
+	var module []string
+	for _, m := range regexp.MustCompile(`resource "huaweicloud_vpc_eip" "(\w+)"`).FindAllStringSubmatch(tf, -1) {
+		module = append(module, m[1])
+	}
+
+	c := newNATCloud(t, "212.72.24.48", "212.72.24.24", "212.72.24.25", "212.72.24.26", "212.72.24.27", "212.72.24.28")
+	serveNAT(t, c)
+	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, importedKind := map[string]bool{}, map[string]bool{}
+	for _, im := range imports {
+		imported[im.Address] = true
+		if m := regexp.MustCompile(`^huaweicloud_vpc_eip\.(\w+)\[`).FindStringSubmatch(im.Address); m != nil {
+			importedKind[m[1]] = true
+		}
+	}
+	for kind := range egress {
+		for _, r := range natSpec.Regions {
+			address := fmt.Sprintf("huaweicloud_vpc_eip.%s[%q]", kind, r.Code)
+			if !imported[address] {
+				t.Errorf("%s is an egress EIP (egressAddresses) and is not imported: OpenTofu allocates it and can draw a released, refused address", address)
+			}
+		}
+	}
+	var leftToTofu []string
+	for _, kind := range module {
+		if !importedKind[kind] {
+			leftToTofu = append(leftToTofu, kind)
+			if egress[kind] {
+				t.Errorf("huaweicloud_vpc_eip.%s is left to OpenTofu and is an egress EIP", kind)
+			}
+		}
+	}
+	if len(c.pool) == 0 || c.pool[0] != "212.72.24.48" {
+		t.Fatalf("the pool hands %v next; want the released 212.72.24.48 first", c.pool)
+	}
+	t.Logf("the released 212.72.24.48 goes to the next of OpenTofu's EIPs: %v", leftToTofu)
+}
+
+// Two regions draw four EIPs; with the bastion's one, the quota of 10 leaves
+// room for five held. Five refused addresses in front of the pool are all
+// held, the four imports are clean, and never more than 10 EIPs exist.
+func TestChooseNATAddresses_FiveRefusedFitTheQuota(t *testing.T) {
+	refused := []string{"212.72.24.1", "212.72.24.2", "212.72.24.3", "212.72.24.4", "212.72.24.5"}
+	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30", "212.72.24.31", "212.72.24.32", "212.72.24.33")...)
 	serveNAT(t, c)
 	t.Setenv("CATALYST_HUAWEI_NAT_EIP_BLOCKLIST", strings.Join(refused, ","))
 	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, nil)
-	if err != nil || len(imports) != 2 || imports[0].Label != "212.72.24.30" || imports[1].Label != "212.72.24.31" {
-		t.Fatalf("imports %+v, %v; want 212.72.24.30 and 212.72.24.31", imports, err)
+	if err != nil || len(imports) != 4 {
+		t.Fatalf("imports %+v, %v; want four", imports, err)
 	}
-	if c.peak > 10 || c.peak != 9 {
-		t.Errorf("at most %d EIPs existed at once; want 9 (bastion 1 + held 6 + chosen 2), never above the quota of 10", c.peak)
+	for i, im := range imports {
+		if want := fmt.Sprintf("212.72.24.%d", 30+i); im.Label != want {
+			t.Errorf("import %d is %s; want %s", i, im.Label, want)
+		}
 	}
-	if len(c.released) != 6 || len(c.eips) != 3 {
-		t.Errorf("released %v, %d left; want the six refused released and three left", c.released, len(c.eips))
+	if c.peak != 10 {
+		t.Errorf("at most %d EIPs existed at once; want 10 (bastion 1 + held 5 + chosen 4), the quota", c.peak)
+	}
+	if !reflect.DeepEqual(c.released, refused) || len(c.eips) != 5 {
+		t.Errorf("released %v, %d left; want the five refused released and five left", c.released, len(c.eips))
 	}
 }
 
-// A pool with more refused addresses than the quota leaves room for: the
-// choice stops at the quota, releases what it held, and the region it could
-// not serve gets no import (OpenTofu allocates it).
+// The hold budget ends at the quota that the quota API reports. The fake's
+// quota is 6: the bastion's EIP and the four to draw leave room for one held.
+// Region a's NAT holds the first refused address and gives up at the second,
+// which stays held in its own room; region a's control plane gives up at the
+// third; region b gets the clean ones. Never more than 6 EIPs exist; without
+// the bound, or with the default quota of 10 instead of the reported one, the
+// fourth allocation is refused by the cloud and the choice fails.
 func TestChooseNATAddresses_TheHoldBudgetEndsAtTheQuota(t *testing.T) {
-	var refused []string
-	for i := 1; i <= 9; i++ {
-		refused = append(refused, fmt.Sprintf("212.72.24.%d", i))
-	}
-	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30")...)
+	refused := []string{"212.72.24.1", "212.72.24.2", "212.72.24.3"}
+	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30", "212.72.24.31", "212.72.24.32")...)
+	c.quota = 6
 	serveNAT(t, c)
 	t.Setenv("CATALYST_HUAWEI_NAT_EIP_BLOCKLIST", strings.Join(refused, ","))
 	var msgs []string
 	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, func(m string) { msgs = append(msgs, m) })
-	if err != nil || len(imports) != 0 {
-		t.Fatalf("imports %+v, %v; want none and no error", imports, err)
+	want := []providers.StateImport{
+		{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-4", Label: "212.72.24.30"},
+		{Address: `huaweicloud_vpc_eip.cp["me-east-215-b"]`, ID: "eip-5", Label: "212.72.24.31"},
 	}
-	if c.peak > 10 {
-		t.Errorf("%d EIPs existed at once; the quota is 10", c.peak)
+	if err != nil || !reflect.DeepEqual(imports, want) {
+		t.Fatalf("imports %+v, %v; want %+v (progress %q)", imports, err, want, msgs)
 	}
-	if len(c.eips) != 1 {
-		t.Errorf("%d EIPs left; want only the bastion's", len(c.eips))
+	if c.peak != 6 {
+		t.Errorf("at most %d EIPs existed at once; want 6, the quota", c.peak)
 	}
-	if !strings.Contains(strings.Join(msgs, "\n"), "OpenTofu allocates it") {
-		t.Errorf("progress %q does not say that OpenTofu allocates the region's NAT EIP", msgs)
+	if !reflect.DeepEqual(c.released, refused) || len(c.eips) != 3 {
+		t.Errorf("released %v, %d left; want the three refused released, the bastion's and the two imports left", c.released, len(c.eips))
+	}
+	if n := strings.Count(strings.Join(msgs, "\n"), "OpenTofu allocates it"); n != 2 {
+		t.Errorf("progress %q says %d times that OpenTofu allocates an EIP; want 2 (region a's NAT and control plane)", msgs, n)
 	}
 }
 
-// A region whose NAT EIP the state holds gets nothing; one whose EIP an
-// earlier attempt (or the module) made keeps it; nothing is allocated twice.
+// A quota with room for the draws and none for a held EIP still draws: each
+// draw has its own room, and clean first draws are imported.
+func TestChooseNATAddresses_NoRoomToHoldStillDraws(t *testing.T) {
+	c := newNATCloud(t, "212.72.24.30", "212.72.24.31", "212.72.24.32", "212.72.24.33")
+	c.quota = 5
+	serveNAT(t, c)
+	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, nil)
+	if err != nil || len(imports) != 4 {
+		t.Fatalf("imports %+v, %v; want four", imports, err)
+	}
+	if c.peak != 5 || len(c.released) != 0 {
+		t.Errorf("peak %d, released %v; want 5 and nothing", c.peak, c.released)
+	}
+}
+
+// An EIP the state holds gets nothing; one an earlier attempt (or the module)
+// made is kept; nothing is allocated twice.
 func TestChooseNATAddresses_KeepsWhatExists(t *testing.T) {
 	c := newNATCloud(t, "212.72.24.40")
 	c.eips["eip-old"] = rawPublicIP{ID: "eip-old", Address: "212.72.24.24", Status: "DOWN", BandwidthName: natPrefix + "-me-east-215-b-nat-preflight-2"}
-	c.order = append(c.order, "eip-old")
+	c.eips["eip-mod"] = rawPublicIP{ID: "eip-mod", Address: "212.72.24.23", Status: "DOWN", BandwidthName: natPrefix + "-me-east-215-b-cp1-bw"}
+	c.order = append(c.order, "eip-old", "eip-mod")
 	serveNAT(t, c)
-	inState := map[string]bool{`huaweicloud_vpc_eip.nat["me-east-215-a"]`: true}
+	inState := map[string]bool{`huaweicloud_vpc_eip.nat["me-east-215-a"]`: true, `huaweicloud_vpc_eip.cp["me-east-215-a"]`: true}
 	imports, err := chooseNATAddresses(context.Background(), natSpec, inState, nil)
-	want := []providers.StateImport{{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-old", Label: "212.72.24.24"}}
+	want := []providers.StateImport{
+		{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-old", Label: "212.72.24.24"},
+		{Address: `huaweicloud_vpc_eip.cp["me-east-215-b"]`, ID: "eip-mod", Label: "212.72.24.23"},
+	}
 	if err != nil || !reflect.DeepEqual(imports, want) {
 		t.Fatalf("imports %+v, %v; want %+v", imports, err, want)
 	}
@@ -468,35 +567,44 @@ func TestEIPBlocklistTTL_MalformedFallsBackToDefault(t *testing.T) {
 	}
 }
 
-// The pre-flight allocates what the module declares: the import of its EIP
-// differs from huaweicloud_vpc_eip.nat in the bandwidth name alone, and the
-// names it reuses are the module's. A change to the module's NAT EIP fails
-// here first.
+// The pre-flight allocates what the module declares: the import of each egress
+// EIP differs from its resource (huaweicloud_vpc_eip.nat, huaweicloud_vpc_eip.cp)
+// in the bandwidth name alone, and the names it reuses are the module's. A
+// change to either resource fails here first.
 func TestChooseNATAddresses_MatchesTheModulesNATEIP(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "..", "..", "infra", "providers", "huawei", "main.tf"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	tf := string(raw)
-	start := strings.Index(tf, "resource \"huaweicloud_vpc_eip\" \"nat\" {")
-	end := strings.Index(tf[max(start, 0):], "\n}\n")
-	if start < 0 || end < 0 {
-		t.Fatal("main.tf has no resource huaweicloud_vpc_eip.nat")
-	}
-	block := strings.Join(strings.Fields(tf[start:start+end]), " ")
-	for _, want := range []string{
-		"for_each = toset(local.region_keys)",
-		fmt.Sprintf("publicip { type = %q }", natEIPType),
-		fmt.Sprintf("name = \"${local.name_prefix}-${each.key}-nat-bw\" size = %d share_type = %q charge_mode = %q }", natBandwidthSize, natBandwidthShare, natBandwidthCharged),
-	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("the module's NAT EIP %q lacks %q", block, want)
+	forEach := map[string]string{"nat": "local.region_keys", "cp": "local.cp_eip_regions"}
+	for _, k := range egressEIPs {
+		start := strings.Index(tf, fmt.Sprintf("resource \"huaweicloud_vpc_eip\" %q {", k.kind))
+		if start < 0 {
+			t.Errorf("main.tf has no resource huaweicloud_vpc_eip.%s", k.kind)
+			continue
+		}
+		end := strings.Index(tf[start:], "\n}\n")
+		if end < 0 {
+			t.Errorf("main.tf: the block of huaweicloud_vpc_eip.%s does not end", k.kind)
+			continue
+		}
+		block := strings.Join(strings.Fields(tf[start:start+end]), " ")
+		for _, want := range []string{
+			fmt.Sprintf("for_each = toset(%s)", forEach[k.kind]),
+			fmt.Sprintf("publicip { type = %q }", natEIPType),
+			fmt.Sprintf("name = \"${local.name_prefix}-${each.key}-%s-bw\" size = %d share_type = %q charge_mode = %q }", k.bw, natBandwidthSize, natBandwidthShare, natBandwidthCharged),
+		} {
+			if !strings.Contains(block, want) {
+				t.Errorf("the module's EIP %q lacks %q", block, want)
+			}
 		}
 	}
 	for _, want := range []string{
 		`fqdn_slug = replace(var.sovereign_fqdn, ".", "-")`,
 		`name_prefix = "catalyst-${local.fqdn_slug}-${substr(var.deployment_id, 0, 8)}"`,
 		`region_keys = [for r in var.regions : r.code]`,
+		`cp_eip_regions = [for r in var.regions : r.code]`,
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(tf), " "), want) {
 			t.Errorf("main.tf lacks %q, from which the pre-flight's names follow", want)

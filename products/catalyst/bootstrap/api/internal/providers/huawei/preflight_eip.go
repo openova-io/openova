@@ -1,16 +1,18 @@
-// The NAT EIP pre-flight: every region's NAT EIP is chosen BEFORE `tofu plan`,
-// so that OpenTofu's state holds the address the NAT gateway uses.
+// The NAT EIP pre-flight: every region's egress EIPs, the NAT gateway's and
+// the primary control plane's, are chosen BEFORE `tofu plan`, so that
+// OpenTofu's state holds the addresses the region egresses through.
 //
 // Why a choice at all (Wave 5.93, #2445): some EIPs of the Huawei me-east-215
 // free pool are refused by third-party IP-reputation lists for Contabo
-// 45.151.123.0/24 (harbor.openova.io), so a region whose NAT EIP is one of
-// them has no egress to harbor and cloudinit stalls. catalyst-api runs on
-// Contabo and cannot probe a Huawei EIP's egress (that needs an ECS behind
-// the EIP), so the choice reads a blocklist (blocklist()): the static seed
+// 45.151.123.0/24 (harbor.openova.io), so a region whose NAT or control-plane
+// EIP is one of them has no egress to harbor and cloudinit stalls.
+// catalyst-api runs on Contabo and cannot probe a Huawei EIP's egress (that
+// needs an ECS behind the EIP), so the choice reads a blocklist (blocklist()): the static seed
 // below, CATALYST_HUAWEI_NAT_EIP_BLOCKLIST=ip1,ip2,..., and the learned store
 // of eip_blocklist_store.go (#3722), into which every refused address is
 // recorded with a TTL. CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true (#3716)
-// refuses every region's first draw as well, to drain a poisoned pool.
+// refuses the first draw of every egress EIP as well, to drain a poisoned
+// pool.
 //
 // Why before the plan: until CLD-G12 (2026-11-21) the choice was a swap right
 // after `tofu apply` — allocate a clean EIP, delete the SNAT rule, create a new
@@ -25,6 +27,13 @@
 // SNAT rule and the security-group rules from it, and the first apply renames
 // its bandwidth to the module's name. After the install a plan shows no change,
 // and the wipe's `tofu destroy` deletes the EIP with the rest.
+//
+// Why the control plane's EIP as well: the refused addresses the choice held
+// are released before the plan, and the pool hands a just-released address to
+// the very next allocation, which is OpenTofu's. The primary control plane
+// egresses through its own EIP (huaweicloud_vpc_eip.cp, main.tf
+// egressAddresses), so it is chosen and imported the same way; what OpenTofu
+// still allocates are the load balancers' EIPs, which carry no egress.
 
 package huawei
 
@@ -79,16 +88,31 @@ func blocklist() map[string]bool {
 	return out
 }
 
-// natEIPResource is the module's resource instance of the NAT EIP of the
-// region with the given code (infra/providers/huawei/main.tf).
-func natEIPResource(code string) string {
-	return fmt.Sprintf("huaweicloud_vpc_eip.nat[%q]", code)
+// egressEIPs are the module's EIPs through which a region reaches the
+// internet, and so harbor.openova.io: the two that egressAddresses names in
+// infra/providers/huawei/main.tf, the NAT gateway's (huaweicloud_vpc_eip.nat,
+// the workers' SNAT) and the primary control plane's (huaweicloud_vpc_eip.cp,
+// bound to it with eip_id, through which its cloud-init pulls). kind is the
+// resource's name and bw the infix of its bandwidth name
+// (<prefix>-<region>-<bw>-bw). The pre-flight chooses both, so the refused
+// addresses it releases before the plan can reach only an EIP that OpenTofu
+// still allocates, a load balancer's (elb_primary, elb_console), which carries
+// no egress.
+var egressEIPs = []struct{ kind, bw string }{{"nat", "nat"}, {"cp", "cp1"}}
+
+// eipTarget is one egress EIP of one region that the state does not hold yet.
+type eipTarget struct{ code, kind, bw string }
+
+// resource is the module's resource instance of the target.
+func (t eipTarget) resource() string {
+	return fmt.Sprintf("huaweicloud_vpc_eip.%s[%q]", t.kind, t.code)
 }
 
-// The bandwidth of the module's NAT EIP (infra/providers/huawei/main.tf,
-// resource huaweicloud_vpc_eip.nat). An allocated EIP carries the same
-// settings, so the import differs from the configuration in the bandwidth's
-// name alone, which the first apply changes in place.
+// The bandwidth of the module's egress EIPs (infra/providers/huawei/main.tf,
+// resources huaweicloud_vpc_eip.nat and huaweicloud_vpc_eip.cp, which differ
+// in the bandwidth's name alone). An allocated EIP carries the same settings,
+// so the import differs from the configuration in the bandwidth's name alone,
+// which the first apply changes in place.
 const (
 	natEIPType          = "5_bgp"
 	natBandwidthSize    = 100
@@ -96,30 +120,33 @@ const (
 	natBandwidthCharged = "traffic"
 )
 
-// chooseNATAddresses gives the NAT EIP of every region of spec that the state
-// does not hold yet (inState) an address that is not on the blocklist, and
-// returns one import per region for the engine (providers.PreflightResult).
+// chooseNATAddresses gives every egress EIP (egressEIPs: the NAT and the
+// primary control plane EIP) of every region of spec that the state does not
+// hold yet (inState) an address that is not on the blocklist, and returns one
+// import per EIP for the engine (providers.PreflightResult).
 //
-// A region whose EIP already exists keeps it: the module's own (bandwidth
-// <prefix>-<region>-nat-bw) or one an earlier attempt of this deployment
-// allocated (<prefix>-<region>-nat-preflight-<n>, not on the blocklist), so a
+// An EIP that already exists is kept: the module's own (bandwidth
+// <prefix>-<region>-<bw>-bw) or one an earlier attempt of this deployment
+// allocated (<prefix>-<region>-<bw>-preflight-<n>, not on the blocklist), so a
 // retried install allocates nothing twice. Otherwise EIPs are allocated with
 // the module's bandwidth settings, one after the other; a refused one is held,
-// so that the pool cannot hand the same address back, until every region has
-// one or the hold budget is spent. The held ones are recorded to the learned
-// blocklist and released before the plan.
+// so that the pool cannot hand the same address back, until every EIP has an
+// address. The held ones are recorded to the learned blocklist and released
+// before the plan. The pool hands a just-released address to the next
+// allocation, and the next allocations are OpenTofu's: since both egress EIPs
+// of every region are imported, those are the load balancers' EIPs only.
 //
 // The hold budget keeps the project within its EIP quota: the EIPs that exist
-// (the listing) plus one per region still to choose plus the held ones never
-// exceed the quota (publicIPQuota; 10 on kom4dc), and at most natMaxHeld are
-// held. It runs before OpenTofu allocates any EIP of the install: the
-// control-plane and load-balancer EIPs come after the held ones are released,
-// so the install ends at its own count (6 for two regions). A wipe records
-// every address it released (provider.go), so right after one the pool hands
-// back up to 6 refused addresses first; for two regions and the bastion's one
-// EIP the worst moment is 1 + 2 + 7 = 10 EIPs, the quota, never above it.
-// A region left without a clean address gets no import, and OpenTofu
-// allocates its NAT EIP as before.
+// (the listing) plus one per EIP still to draw plus the held ones never exceed
+// the quota (publicIPQuota; 10 on kom4dc), and at most natMaxHeld are held.
+// A draw always has its own room; when the draw is refused and the budget is
+// spent, the refused EIP stays held in that room until the release, and that
+// one EIP gets no import, so OpenTofu allocates it (from the released
+// addresses, so its region may not reach harbor.openova.io). For two regions
+// the pre-flight draws four EIPs, so next to the bastion's one five refused
+// fit; right after a wipe the pool may hand back the six addresses the wipe
+// released (provider.go records them all), and then the sixth falls to
+// OpenTofu: the quota leaves no room to step past it.
 //
 // On a failed cloud call every EIP this call allocated is released and the
 // error returned: no address is left that no state knows.
@@ -139,7 +166,7 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 	case len(spec.DeploymentID) < 8 || strings.TrimSpace(spec.SovereignFQDN) == "":
 		return nil, fmt.Errorf("huawei: the NAT EIP pre-flight needs the Sovereign FQDN and a deployment id of at least 8 characters")
 	}
-	var codes []string
+	var targets []eipTarget
 	for _, r := range spec.Regions {
 		code := strings.TrimSpace(r.Code)
 		if code == "" {
@@ -148,13 +175,16 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 		if code == "" {
 			continue
 		}
-		if inState[natEIPResource(code)] {
-			progress(fmt.Sprintf("NAT EIP of region %s: the state holds %s, nothing to choose", code, natEIPResource(code)))
-			continue
+		for _, k := range egressEIPs {
+			t := eipTarget{code: code, kind: k.kind, bw: k.bw}
+			if inState[t.resource()] {
+				progress(fmt.Sprintf("egress EIP %s: the state holds it, nothing to choose", t.resource()))
+				continue
+			}
+			targets = append(targets, t)
 		}
-		codes = append(codes, code)
 	}
-	if len(codes) == 0 {
+	if len(targets) == 0 {
 		return nil, nil
 	}
 	region := regionFromCreds(spec.Creds)
@@ -166,15 +196,24 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 	bl := blocklist()
 	rotateAll := strings.EqualFold(strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL")), "true")
 	if rotateAll {
-		progress("Wave 5.156 (#3716): CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true — refusing the first NAT EIP drawn for every region to drain a poisoned free-pool")
+		progress("Wave 5.156 (#3716): CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true — refusing the first EIP drawn for every egress EIP to drain a poisoned free-pool")
 	}
 	prefix := "catalyst-" + strings.ReplaceAll(strings.TrimSpace(spec.SovereignFQDN), ".", "-") + "-" + spec.DeploymentID[:8]
+	reused := map[int]rawPublicIP{}
+	for i, t := range targets {
+		if e, ok := reusableNATEIP(existing, prefix, t, bl); ok {
+			reused[i] = e
+		}
+	}
 	holdBudget := natMaxHeld
-	if room := publicIPQuota(client, hw, region) - len(existing) - len(codes); room < holdBudget {
-		holdBudget = room
+	if len(reused) < len(targets) {
+		if room := publicIPQuota(client, hw, region) - len(existing) - (len(targets) - len(reused)); room < holdBudget {
+			holdBudget = room
+		}
 	}
 	var imports []providers.StateImport
 	var chosen, held []rawPublicIP
+	gaveUp := 0 // the held EIPs that sit in the room of an EIP left to OpenTofu
 	release := func(list []rawPublicIP) {
 		for _, e := range list {
 			if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
@@ -182,31 +221,32 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 			}
 		}
 	}
-	for _, code := range codes {
-		if e, ok := reusableNATEIP(existing, prefix, code, bl); ok {
-			progress(fmt.Sprintf("NAT EIP of region %s: keeps %s (%s) of an earlier attempt", code, e.Address, e.BandwidthName))
-			imports = append(imports, providers.StateImport{Address: natEIPResource(code), ID: e.ID, Label: e.Address})
+	for i, t := range targets {
+		if e, ok := reused[i]; ok {
+			progress(fmt.Sprintf("egress EIP %s: keeps %s (%s) of an earlier attempt", t.resource(), e.Address, e.BandwidthName))
+			imports = append(imports, providers.StateImport{Address: t.resource(), ID: e.ID, Label: e.Address})
 			continue
 		}
 		for n := 1; ; n++ {
-			if len(held) >= holdBudget {
-				progress(fmt.Sprintf("NAT EIP of region %s: no address off the blocklist within %d held — OpenTofu allocates it", code, holdBudget))
-				break
-			}
-			e, err := allocateNATEIP(client, hw, region, fmt.Sprintf("%s-%s-nat-preflight-%d", prefix, code, n))
+			e, err := allocateNATEIP(client, hw, region, fmt.Sprintf("%s-%s-%s-preflight-%d", prefix, t.code, t.bw, n))
 			if err != nil {
 				release(held)
 				release(chosen)
 				return nil, err
 			}
 			if bl[e.Address] || (rotateAll && n == 1) {
-				progress(fmt.Sprintf("NAT EIP of region %s: %s is refused (blocklist or ROTATE_ALL), holding it and drawing again", code, e.Address))
 				held = append(held, e)
-				continue
+				if len(held)-gaveUp <= holdBudget {
+					progress(fmt.Sprintf("egress EIP %s: %s is refused (blocklist or ROTATE_ALL), holding it and drawing again", t.resource(), e.Address))
+					continue
+				}
+				gaveUp++
+				progress(fmt.Sprintf("egress EIP %s: %s is refused and the EIP quota leaves no room to hold another (%d held) — OpenTofu allocates it, and region %s may not reach harbor.openova.io", t.resource(), e.Address, len(held), t.code))
+				break
 			}
-			progress(fmt.Sprintf("NAT EIP of region %s: %s (%s), for the plan to import as %s", code, e.Address, e.ID, natEIPResource(code)))
+			progress(fmt.Sprintf("egress EIP %s: %s (%s), for the plan to import", t.resource(), e.Address, e.ID))
 			chosen = append(chosen, e)
-			imports = append(imports, providers.StateImport{Address: natEIPResource(code), ID: e.ID, Label: e.Address})
+			imports = append(imports, providers.StateImport{Address: t.resource(), ID: e.ID, Label: e.Address})
 			break
 		}
 	}
@@ -220,24 +260,27 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 		if err := recordPoisonedEIPs(addrs, spec.DeploymentID, time.Now()); err != nil {
 			progress(fmt.Sprintf("Wave 5.157: could not persist learned poison %v (non-fatal): %v", addrs, err))
 		} else {
-			progress(fmt.Sprintf("Wave 5.157 (#3722): recorded %d refused NAT EIP(s) to the learned blocklist", len(addrs)))
+			progress(fmt.Sprintf("Wave 5.157 (#3722): recorded %d refused EIP(s) to the learned blocklist", len(addrs)))
 		}
+		// The pool hands these to OpenTofu's next allocations: the load
+		// balancers' EIPs, and an egress EIP only if one gave up above.
 		release(held)
 	}
 	return imports, nil
 }
 
-// reusableNATEIP returns the EIP of region code that this deployment already
+// reusableNATEIP returns the EIP of target t that this deployment already
 // has: the module's own, or one an earlier attempt allocated that is not on
 // the blocklist.
-func reusableNATEIP(existing []rawPublicIP, prefix, code string, bl map[string]bool) (rawPublicIP, bool) {
+func reusableNATEIP(existing []rawPublicIP, prefix string, t eipTarget, bl map[string]bool) (rawPublicIP, bool) {
+	base := prefix + "-" + t.code + "-" + t.bw
 	for _, e := range existing {
-		if e.BandwidthName == prefix+"-"+code+"-nat-bw" {
+		if e.BandwidthName == base+"-bw" {
 			return e, true
 		}
 	}
 	for _, e := range existing {
-		if strings.HasPrefix(e.BandwidthName, prefix+"-"+code+"-nat-preflight-") && !bl[e.Address] {
+		if strings.HasPrefix(e.BandwidthName, base+"-preflight-") && !bl[e.Address] {
 			return e, true
 		}
 	}

@@ -29,10 +29,11 @@ var (
 )
 
 // Preflight implements providers.Preflighter: first the VPC quota
-// (checkVPCQuota), whose refusal fails the prov; then the NAT EIP of every
-// region (chooseNATAddresses, Wave 5.93 #2445), returned as imports for the
-// engine. A failed NAT choice is reported and does not fail the prov: OpenTofu
-// then allocates the NAT EIPs itself, as it did before the choice existed.
+// (checkVPCQuota), whose refusal fails the prov; then the egress EIPs of every
+// region, the NAT's and the primary control plane's (chooseNATAddresses, Wave
+// 5.93 #2445), returned as imports for the engine. A failed choice is reported
+// and does not fail the prov: OpenTofu then allocates those EIPs itself, as it
+// did before the choice existed.
 func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) (providers.PreflightResult, error) {
 	progress := in.Progress
 	if progress == nil {
@@ -43,7 +44,7 @@ func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) (
 	}
 	imports, err := chooseNAT(ctx, in.Spec, in.InState, progress)
 	if err != nil {
-		progress("NAT EIP pre-flight failed (non-fatal — OpenTofu allocates the NAT EIPs; cloudinit may stall on harbor.openova.io if one is blocklisted): " + err.Error())
+		progress("NAT EIP pre-flight failed (non-fatal — OpenTofu allocates the NAT and control-plane EIPs; cloudinit may stall on harbor.openova.io if one is blocklisted): " + err.Error())
 		return providers.PreflightResult{}, nil
 	}
 	return providers.PreflightResult{Imports: imports}, nil
