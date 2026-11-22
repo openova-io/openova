@@ -391,7 +391,7 @@ func checkoutFromCatalog(t *testing.T, bss *httptest.Server) {
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-legacy", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
 	)).WithArgs("cust-legacy", int64(-100_000_000), "order-payment", "order-legacy").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
@@ -452,7 +452,7 @@ func TestCheckout_PackageM_WithBackup_CreditOnly_PersistsProvenance(t *testing.T
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-bss", time.Now()))
 	// The debit is exactly 10.500, not the rounded-up 11.
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
 	)).WithArgs("cust-bss", int64(-10_500_000), "order-payment", "order-bss").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).

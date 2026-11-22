@@ -135,7 +135,7 @@ func TestCheckout_VoucherCoversFullTotal_SkipsStripe(t *testing.T) {
 	)).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 		AddRow("order-acme-1", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
 	)).WithArgs("cust-acme", int64(-50_000_000), "order-payment", "order-acme-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
@@ -229,7 +229,7 @@ func TestCheckout_PreExistingCreditCoversTotal_SkipsStripe(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 			AddRow("order-acme-2", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
 	)).WithArgs("cust-acme-2", int64(-100_000_000), "order-payment", "order-acme-2").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
@@ -345,11 +345,9 @@ func TestCheckout_VoucherPartialCover_StripeUnconfigured_RollsBackRedemption(t *
 		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
 		WithArgs("cust-t38", "WALK-T38-2138").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Under the customer lock the grant (10) is still unspent (balance 10).
-	expectLockedBalance(mock, "cust-t38", 10_000_000)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger`)).
-		WithArgs("cust-t38", "promo:WALK-T38-2138").
-		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(10)))
+	// Under the customer lock: nothing before the grant and no order since,
+	// so the grant (10) is unspent.
+	expectGrantSurroundings(mock, "cust-t38", "WALK-T38-2138", 0, 0)
 	mock.ExpectExec(regexp.QuoteMeta(
 		`UPDATE promo_codes
 		   SET times_redeemed = GREATEST(times_redeemed - 1, 0)

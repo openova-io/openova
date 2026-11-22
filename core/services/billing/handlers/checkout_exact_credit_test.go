@@ -101,7 +101,7 @@ func expectCreditOnlyCheckout(mock sqlmock.Sqlmock, custID string, lockedBalance
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(orderID, time.Now()))
 	if debitBaisa > 0 {
 		mock.ExpectExec(regexp.QuoteMeta(
-			"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+			"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
 		)).WithArgs(custID, -micro(debitBaisa), "order-payment", orderID).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
@@ -109,6 +109,18 @@ func expectCreditOnlyCheckout(mock sqlmock.Sqlmock, custID string, lockedBalance
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 			AddRow(subID, time.Now(), time.Now()))
 	mock.ExpectCommit()
+}
+
+// expectGrantSurroundings programs the voucher rollback's decision under the
+// customer lock: the balance before the grant and the non-metering movement
+// since (micro-OMR), which decide whether an order spent the grant.
+func expectGrantSurroundings(mock sqlmock.Sqlmock, custID, code string, beforeMicro, afterMicro int64) {
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM customers WHERE id = $1 FOR NO KEY UPDATE`)).
+		WithArgs(custID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(custID))
+	mock.ExpectQuery(regexp.QuoteMeta(`WITH g AS (`)).
+		WithArgs(custID, "promo:"+code).
+		WillReturnRows(sqlmock.NewRows([]string{"before", "after"}).AddRow(beforeMicro, afterMicro))
 }
 
 func expectNoStripe(mock sqlmock.Sqlmock) {
@@ -329,17 +341,15 @@ func TestCheckout_VoucherRollbackKeepsCreditAnotherOrderSpent(t *testing.T) {
 	expectBalanceMicro(mock, "cust-ab", 0) // B already spent the 10
 	expectNoStripe(mock)
 	// The rollback: the redemption row is deleted inside the tx, then the
-	// locked balance (0) shows the grant (10) is spent → the tx is rolled
-	// back and nothing changes.
+	// ledger under the lock shows nothing before the grant and B's 10.000
+	// order since → the grant is spent, the tx is rolled back and nothing
+	// changes.
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
 		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
 		WithArgs("cust-ab", "VCH-RACE-00000001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	expectLockedBalance(mock, "cust-ab", 0)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger`)).
-		WithArgs("cust-ab", "promo:VCH-RACE-00000001").
-		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(10)))
+	expectGrantSurroundings(mock, "cust-ab", "VCH-RACE-00000001", 0, -10_000_000)
 	mock.ExpectRollback()
 
 	rec := postCheckout(t, h, checkoutRequest{
@@ -350,5 +360,62 @@ func TestCheckout_VoucherRollbackKeepsCreditAnotherOrderSpent(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("store interactions (the spent grant must not be deleted): %v", err)
+	}
+}
+
+// TestCheckout_VoucherRollbackRestoresTheVoucherOfACustomerInDebt: the
+// customer owes 0.300 from post-paid metering, redeems a 5 OMR voucher and
+// orders plan L (7.990). 4.700 does not cover it and Stripe is not configured,
+// so the checkout answers 503 and no order exists — the voucher must be given
+// back: nothing was paid since the grant, so the debt from before it is not an
+// order spending it.
+//
+// Fails with a balance rule (balance − grant < 0): 4.700 − 5.000 < 0 kept the
+// redemption, the grant and times_redeemed for an order that never existed,
+// and a retry answered "already redeemed by this customer" (TBD-V9 / #2000).
+func TestCheckout_VoucherRollbackRestoresTheVoucherOfACustomerInDebt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	catalog := fakeCatalogBaisa(t, "plan-l", 7990)
+	defer catalog.Close()
+	h := &Handler{Store: store.New(db), CatalogURL: catalog.URL}
+
+	expectCustomer(mock, "user-d", "cust-debt", "tenant-d")
+	expectRedeem(mock, "cust-debt", "VCH-DEBT-00000001", "VCH-DEBT-00000001", 5, 1)
+	expectBalanceMicro(mock, "cust-debt", 4_700_000) // -0.300 + 5.000
+	expectNoStripe(mock)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(
+		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
+		WithArgs("cust-debt", "VCH-DEBT-00000001").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// -0.300 before the grant, no order since.
+	expectGrantSurroundings(mock, "cust-debt", "VCH-DEBT-00000001", -300_000, 0)
+	mock.ExpectExec(regexp.QuoteMeta(
+		`UPDATE promo_codes
+		   SET times_redeemed = GREATEST(times_redeemed - 1, 0)
+		 WHERE code = $1`)).
+		WithArgs("VCH-DEBT-00000001").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(
+		`DELETE FROM credit_ledger
+		  WHERE customer_id = $1
+		    AND reason = $2
+		    AND order_id IS NULL`)).
+		WithArgs("cust-debt", "promo:VCH-DEBT-00000001").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	rec := postCheckout(t, h, checkoutRequest{
+		PlanID: "plan-l", TenantID: "tenant-d", PromoCode: "VCH-DEBT-00000001",
+	}, "user-d")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 (not covered, no Stripe), got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("store interactions (the voucher of a customer in debt must be rolled back): %v", err)
 	}
 }

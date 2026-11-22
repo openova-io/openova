@@ -353,7 +353,7 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-grow", time.Now()))
 	// The debit is exactly 4.490, not the rounded-up 5.
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)")).
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)")).
 		WithArgs("cust-grow", int64(-4_490_000), "order-payment", "order-grow").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).

@@ -240,8 +240,10 @@ func floorDiv(a, b int64) int64 {
 var ErrCreditInsufficient = errors.New("store: credit balance no longer covers the order")
 
 // ErrPromoCreditSpent is RollbackPromoCodeRedemption's answer when taking the
-// voucher's grant back would push the balance below zero: an order has already
-// spent that credit, so the redemption stands. Nothing was changed.
+// voucher's grant back would leave an order paid with credit that no longer
+// exists: the orders paid since the grant took more than the credit there was
+// before it (grantSpentByOrders), so the redemption stands. Debt from before
+// the grant, or from metering, never triggers it. Nothing was changed.
 var ErrPromoCreditSpent = errors.New("store: the voucher's credit has already been spent by an order")
 
 // promoCodeMatch is the ONE rule a typed voucher code is matched by, at the
@@ -1383,29 +1385,29 @@ func (s *Store) RollbackPromoCodeRedemption(ctx context.Context, customerID, cod
 		return tx.Commit()
 	}
 
-	// 1b. Take the grant back only if it is still unspent. The redeem commits
+	// 1b. Take the grant back only if no order spent it. The redeem commits
 	//     before the checkout settles, so a concurrent checkout of the same
 	//     customer can already have spent this credit; deleting the grant then
-	//     would leave that order paid with credit that no longer exists (a
-	//     negative balance with no record of why). Under the customer lock —
-	//     the one CreditOnlyCheckout takes — the balance cannot move while we
-	//     decide. If the credit is spent the redemption stands, untouched.
+	//     would leave that order paid with credit that no longer exists. Under
+	//     the customer lock — the one CreditOnlyCheckout takes — no order can
+	//     be paid while we decide. If an order spent it the redemption stands,
+	//     untouched.
+	//
+	//     "Spent" is decided on the ledger around the grant, NOT on the
+	//     balance: a balance below the grant is also what a customer in
+	//     post-paid metering debt has (RecordUsage permits a negative
+	//     balance), and refusing then would burn the voucher with no order
+	//     placed (TBD-V9 / #2000).
 	if err := lockCustomer(ctx, tx, customerID); err != nil {
 		return err
 	}
-	balance, err := creditBalanceMicroTx(ctx, tx, customerID)
-	if err != nil {
-		return err
-	}
-	var grant sql.NullInt64
-	if err := tx.QueryRowContext(ctx,
-		`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger
-		  WHERE customer_id = $1 AND reason = $2 AND order_id IS NULL`,
+	var before, after int64
+	if err := tx.QueryRowContext(ctx, grantSurroundingsQuery,
 		customerID, "promo:"+code,
-	).Scan(&grant); err != nil {
+	).Scan(&before, &after); err != nil {
 		return fmt.Errorf("store: rollback read grant: %w", err)
 	}
-	if balance-grant.Int64*1_000_000 < 0 {
+	if grantSpentByOrders(before, after) {
 		return ErrPromoCreditSpent
 	}
 
@@ -1439,6 +1441,48 @@ func (s *Store) RollbackPromoCodeRedemption(ctx context.Context, customerID, cod
 		return fmt.Errorf("store: commit rollback: %w", err)
 	}
 	return nil
+}
+
+// grantSurroundingsQuery reads, in micro-OMR, the two sums that decide whether
+// a voucher grant ($2 = 'promo:<code>', order_id IS NULL) was spent by an
+// order:
+//
+//   - before: every ledger row of the customer created before the grant —
+//     the balance the customer stood at when the voucher was redeemed (debt
+//     included);
+//   - after: every row created at or after the grant, except the grant itself
+//     and metering rows (RecordUsage is the only writer of external_ref):
+//     the orders paid since, and any credit granted since.
+//
+// Metering is left out of "after" because it is post-paid: usage after the
+// grant may take the balance below zero with or without the voucher, so it
+// is not an order spending the grant. Order-payment rows are stamped with
+// clock_timestamp() (CreditOnlyCheckout), which is after the balance read
+// that saw the grant, so an order that spent the grant is always "after" it.
+const grantSurroundingsQuery = `WITH g AS (
+	SELECT MIN(created_at) AS at FROM credit_ledger
+	 WHERE customer_id = $1 AND reason = $2 AND order_id IS NULL
+)
+SELECT
+	COALESCE(CAST(SUM(CASE WHEN l.created_at < g.at
+		THEN CAST(l.amount_omr AS BIGINT) * 1000000 + l.amount_micro_omr END) AS BIGINT), 0),
+	COALESCE(CAST(SUM(CASE WHEN l.created_at >= g.at AND l.external_ref IS NULL
+		AND NOT (l.reason = $2 AND l.order_id IS NULL)
+		THEN CAST(l.amount_omr AS BIGINT) * 1000000 + l.amount_micro_omr END) AS BIGINT), 0)
+  FROM credit_ledger l CROSS JOIN g
+ WHERE l.customer_id = $1`
+
+// grantSpentByOrders reports whether the orders paid since a grant took more
+// than the credit the customer had before it — i.e. some of that spending
+// could only have come from the grant. before is the balance before the grant
+// (a debt counts as no credit, not as spending); after is the non-metering
+// movement since, without the grant (see grantSurroundingsQuery).
+func grantSpentByOrders(before, after int64) bool {
+	available := before
+	if available < 0 {
+		available = 0
+	}
+	return available+after < 0
 }
 
 // ---------------------------------------------------------------------------
@@ -1722,11 +1766,14 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 
 	// 2. Record the exact credit spend against the fresh order. Zero-total
 	//    orders (promo fully covers free plan + free addons) skip this step,
-	//    same as SpendCredit's own no-op path.
+	//    same as SpendCredit's own no-op path. created_at is clock_timestamp(),
+	//    not the default now() (the tx start): this tx may have begun before a
+	//    voucher grant it then spent was committed, and the voucher rollback
+	//    must see this debit as AFTER that grant (grantSurroundingsQuery).
 	if debit > 0 {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)
-			 VALUES ($1, 0, $2, $3, $4)`,
+			`INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)
+			 VALUES ($1, 0, $2, $3, $4, clock_timestamp())`,
 			order.CustomerID, -debit, "order-payment", order.ID,
 		); err != nil {
 			return 0, fmt.Errorf("store: credit-only spend credit: %w", err)

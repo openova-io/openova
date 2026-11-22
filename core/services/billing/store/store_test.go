@@ -539,11 +539,14 @@ func TestRollbackPromoCodeRedemption_UndoesAllThreeSideEffects(t *testing.T) {
 		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
 		WithArgs("cust-1", "WALK-T38-2138").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// 1b. Under the customer lock, the grant (10) is still unspent (balance 10).
-	expectCustomerLock(mock, "cust-1", 10_000_000)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger`)).
+	// 1b. Under the customer lock: nothing before the grant, no order since,
+	//     so the grant (10) is still unspent.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM customers WHERE id = $1 FOR NO KEY UPDATE`)).
+		WithArgs("cust-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("cust-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`WITH g AS (`)).
 		WithArgs("cust-1", "promo:WALK-T38-2138").
-		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(10)))
+		WillReturnRows(sqlmock.NewRows([]string{"before", "after"}).AddRow(int64(0), int64(0)))
 	// 2. UPDATE promo_codes decrements times_redeemed.
 	mock.ExpectExec(regexp.QuoteMeta(
 		`UPDATE promo_codes
@@ -622,6 +625,30 @@ func TestRollbackPromoCodeRedemption_EmptyArgsNoOp(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sqlmock expectations (must not hit DB): %v", err)
+	}
+}
+
+// TestGrantSpentByOrders: a grant counts as spent only when the orders paid
+// since it took more than the credit there was before it. Debt from before
+// the grant (post-paid metering) is no credit, and it is not spending either.
+func TestGrantSpentByOrders(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		before, after int64
+		want          bool
+	}{
+		{"nothing before, nothing since", 0, 0, false},
+		{"debt before, nothing since", -300_000, 0, false},
+		{"debt before, an order since spent the grant", -300_000, -4_700_000, true},
+		{"debt before, a 1.000 order since was paid by the grant", -300_000, -1_000_000, true},
+		{"credit before covers the order since", 2_000_000, -2_000_000, false},
+		{"order since took more than the credit before", 2_000_000, -3_000_000, true},
+		{"a later grant covers the order since", 0, 5_000_000 - 4_000_000, false},
+		{"order since spent exactly the grant", 0, -10_000_000, true},
+	} {
+		if got := grantSpentByOrders(c.before, c.after); got != c.want {
+			t.Errorf("%s: grantSpentByOrders(%d, %d) = %v, want %v", c.name, c.before, c.after, got, c.want)
+		}
 	}
 }
 

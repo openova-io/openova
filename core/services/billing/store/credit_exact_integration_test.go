@@ -129,9 +129,11 @@ func TestIntegration_VoucherCodeMatchesTheSameWayInPreviewAndRedemption(t *testi
 	cust := mkCustomer(t, s, "case")
 	mkPromo(t, s, "VCH-CASE-IT-0001", 5, 1)
 
+	// Errorf, not Fatalf: main's preview handler upper-cased the code before
+	// this lookup, so the defect is at the redemption below — reach it.
 	p, err := s.GetPromoCode(ctx, "vch-case-it-0001")
 	if err != nil || p == nil || p.Code != "VCH-CASE-IT-0001" {
-		t.Fatalf("preview lookup of the lower-case code: got %+v, %v", p, err)
+		t.Errorf("preview lookup of the lower-case code: got %+v, %v", p, err)
 	}
 	stored, err := redeem(ctx, s, cust.ID, "vch-case-it-0001")
 	if err != nil {
@@ -171,6 +173,118 @@ func TestIntegration_VoucherRollbackKeepsCreditAnotherOrderSpent(t *testing.T) {
 	}
 	if got := balanceMicro(t, s, cust.ID); got != 0 {
 		t.Errorf("balance: want 0 (the order paid with the grant), got %d", got)
+	}
+}
+
+// meter writes a post-paid metering row (signed micro-OMR) the way the
+// NewAPI metering path does — it may take the balance below zero.
+func meter(t *testing.T, s *Store, custID, ref string, microOMR int64) {
+	t.Helper()
+	if _, _, _, err := s.RecordUsage(context.Background(), UsageEntry{
+		CustomerID: custID, AmountMicroOMR: microOMR, Reason: "llm-usage", ExternalRef: ref,
+	}); err != nil {
+		t.Fatalf("record usage %s: %v", ref, err)
+	}
+}
+
+// assertVoucherGivenBack checks the three side effects of the redeem are gone:
+// the counter is back, and the customer can redeem the code again.
+func assertVoucherGivenBack(t *testing.T, s *Store, custID, code string) {
+	t.Helper()
+	p, err := s.GetPromoCode(context.Background(), code)
+	if err != nil || p == nil {
+		t.Fatalf("promo %s: %+v, %v", code, p, err)
+	}
+	if p.TimesRedeemed != 0 {
+		t.Errorf("times_redeemed after the rollback: want 0, got %d", p.TimesRedeemed)
+	}
+	if _, err := redeem(context.Background(), s, custID, code); err != nil {
+		t.Errorf("a retry must be able to redeem the code again: %v", err)
+	}
+}
+
+// A customer who owes 0.300 from metering redeems a 5 OMR voucher, and the
+// checkout then fails with no order placed: the voucher is given back and the
+// balance returns to the debt it was. (A balance rule — balance − grant < 0 —
+// refused here, burning the voucher for an order that never existed.)
+func TestIntegration_VoucherRollbackRestoresTheVoucherOfACustomerInDebt(t *testing.T) {
+	s, _, cleanup := freshSchema(t)
+	defer cleanup()
+	ctx := context.Background()
+	cust := mkCustomer(t, s, "debt")
+	meter(t, s, cust.ID, "req-debt-1", -300_000)
+	mkCredit(t, s, cust.ID, "VCH-DEBT-IT-0001", 5)
+
+	if err := s.RollbackPromoCodeRedemption(ctx, cust.ID, "VCH-DEBT-IT-0001"); err != nil {
+		t.Fatalf("rollback of an unspent grant of a customer in debt: %v", err)
+	}
+	if got := balanceMicro(t, s, cust.ID); got != -300_000 {
+		t.Errorf("balance after the rollback: want -300,000 (the debt from before), got %d", got)
+	}
+	assertVoucherGivenBack(t, s, cust.ID, "VCH-DEBT-IT-0001")
+}
+
+// Metering that lands between the redeem and the rollback is post-paid usage,
+// not an order spending the grant: the voucher is still given back.
+func TestIntegration_VoucherRollbackIgnoresMeteringSinceTheGrant(t *testing.T) {
+	s, _, cleanup := freshSchema(t)
+	defer cleanup()
+	ctx := context.Background()
+	cust := mkCustomer(t, s, "metered")
+	mkCredit(t, s, cust.ID, "VCH-METER-IT-001", 5)
+	meter(t, s, cust.ID, "req-metered-1", -1)
+
+	if err := s.RollbackPromoCodeRedemption(ctx, cust.ID, "VCH-METER-IT-001"); err != nil {
+		t.Fatalf("rollback with 1 micro-OMR of metering since the grant: %v", err)
+	}
+	if got := balanceMicro(t, s, cust.ID); got != -1 {
+		t.Errorf("balance after the rollback: want -1 (the metering), got %d", got)
+	}
+	assertVoucherGivenBack(t, s, cust.ID, "VCH-METER-IT-001")
+}
+
+// A customer in debt whose voucher an order then spent: the grant is kept.
+// The debt is not what decides — the order paid since the grant is.
+func TestIntegration_VoucherRollbackKeepsCreditAnOrderSpentForACustomerInDebt(t *testing.T) {
+	s, _, cleanup := freshSchema(t)
+	defer cleanup()
+	ctx := context.Background()
+	cust := mkCustomer(t, s, "debtspent")
+	meter(t, s, cust.ID, "req-debtspent-1", -300_000)
+	mkCredit(t, s, cust.ID, "VCH-DSPENT-IT-01", 5)
+
+	o, sub := creditOnlyOrder(cust.ID, 1_000)
+	if err := checkoutFromCredit(ctx, s, o, sub); err != nil {
+		t.Fatalf("a 1.000 order paid by the grant: %v", err)
+	}
+	err := s.RollbackPromoCodeRedemption(ctx, cust.ID, "VCH-DSPENT-IT-01")
+	if !creditSpent(err) {
+		t.Errorf("rollback of a grant an order spent: want the credit-spent refusal, got %v", err)
+	}
+	if got := balanceMicro(t, s, cust.ID); got != 3_700_000 {
+		t.Errorf("balance: want 3,700,000 (-0.300 + 5.000 - 1.000), got %d", got)
+	}
+}
+
+// Credit there before the grant pays an order placed since: the grant itself
+// is unspent and is given back.
+func TestIntegration_VoucherRollbackGivesBackAGrantEarlierCreditCovered(t *testing.T) {
+	s, _, cleanup := freshSchema(t)
+	defer cleanup()
+	ctx := context.Background()
+	cust := mkCustomer(t, s, "earlier")
+	mkCredit(t, s, cust.ID, "VCH-EARLY-IT-001", 3)
+	mkCredit(t, s, cust.ID, "VCH-LATER-IT-001", 5)
+
+	o, sub := creditOnlyOrder(cust.ID, 2_490)
+	if err := checkoutFromCredit(ctx, s, o, sub); err != nil {
+		t.Fatalf("a 2.490 order: %v", err)
+	}
+	if err := s.RollbackPromoCodeRedemption(ctx, cust.ID, "VCH-LATER-IT-001"); err != nil {
+		t.Fatalf("rollback of a grant the earlier 3.000 covered: %v", err)
+	}
+	if got := balanceMicro(t, s, cust.ID); got != 510_000 {
+		t.Errorf("balance: want 510,000 (3.000 - 2.490), got %d", got)
 	}
 }
 
