@@ -982,8 +982,13 @@ type tenantDeletedData struct {
 //     last resort so the reset primitive (delete) can't be permanently wedged.
 //  4. (Gone: the flux-system kubeconfig copy belongs to the Organization's
 //     boundary tree and bp-reflector; the funnel no longer deletes it.)
-//  5. Emit provision.tenant_removed so the tenant service can hard-delete
-//     the record and the UI can react.
+//  5. Emit provision.tenant_removed — carrying ended_at, the instant the
+//     tenant was cancelled and deleted — so the tenant service can
+//     hard-delete the record and the organization-controller ENDS the
+//     Organization CR this service minted for the tenant (deletes it, which
+//     starts its removal in every region and closes the chargeback customer
+//     at ended_at). The publish is the hand-over, so a failed publish fails
+//     the event and the broker redelivers it.
 func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) error {
 	var data tenantDeletedData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
@@ -1127,10 +1132,35 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 	// belongs to the Organization's boundary tree (Flux prunes it with the
 	// tree) and bp-reflector deletes it when its source in `<slug>` goes.
 
-	h.publishEvent(ctx, "provision.tenant_removed", data.ID, map[string]string{
-		"id":   data.ID,
-		"slug": data.Slug,
+	// 5. Hand the Organization over to its end. The organization-controller
+	// consumes provision.tenant_removed and deletes the Organization CR this
+	// service minted for the tenant (core/controllers/organization/internal/
+	// controller/organization_end.go) — the delete that starts its removal in
+	// EVERY region and closes the chargeback customer at ended_at. Published
+	// strictly AFTER the Git prune above (#4459/R17: nothing left in Git can
+	// re-create what the cascade removes). Before this the teardown stopped at
+	// the Git commit, nobody deleted the CR, and every cancelled marketplace
+	// Organization stayed whole and billed. A failed publish fails the event
+	// so the broker redelivers it (the prune above is idempotent).
+	endedAt := event.Timestamp
+	if endedAt.IsZero() {
+		endedAt = time.Now()
+	}
+	removed, err := events.NewEvent("provision.tenant_removed", "provisioning", data.ID, map[string]string{
+		"id":       data.ID,
+		"slug":     data.Slug,
+		"ended_at": endedAt.UTC().Format(time.RFC3339),
 	})
+	if err != nil {
+		return fmt.Errorf("teardown: build provision.tenant_removed: %w", err)
+	}
+	pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := h.Producer.Publish(pubCtx, topicProvisionEvents, removed); err != nil {
+		slog.Error("teardown: provision.tenant_removed not published — the Organization is not ended until it is; the event is redelivered",
+			"slug", data.Slug, "tenant_id", data.ID, "error", err)
+		return err
+	}
 	slog.Info("teardown: tenant removed", "slug", data.Slug)
 	return nil
 }

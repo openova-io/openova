@@ -53,6 +53,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
@@ -426,7 +427,9 @@ func (r *Reconciler) reconcilePerOrgFlux(ctx context.Context, org *orgapi.Organi
 // teardownPerOrgFlux removes the Organization's region files (each region's
 // Flux then prunes the Org's Flux objects and, through prune:true, the Org's
 // trees), then retires any pre-ADR-0015 API-created copies in this region.
-// Absent-as-success throughout.
+// Absent-as-success throughout. Selectors: the region file is the exact path
+// orgs/<slug>.yaml; an API copy is removed only when it carries
+// openova.io/organization=<slug> (the derived names collide across slugs).
 func (r *Reconciler) teardownPerOrgFlux(ctx context.Context, org *orgapi.Organization) error {
 	if strings.TrimSpace(r.GiteaInClusterURL) == "" {
 		return nil
@@ -468,14 +471,31 @@ func (r *Reconciler) teardownPerOrgFlux(ctx context.Context, org *orgapi.Organiz
 		{fluxKustomizationGVK, kustomizationName},
 		{fluxGitRepositoryGVK, gitRepoName},
 	} {
-		obj := &unstructured.Unstructured{}
-		obj.SetGroupVersionKind(target.gvk)
-		obj.SetNamespace(ns)
-		obj.SetName(target.name)
 		if r.Client == nil {
 			break
 		}
-		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) && !isNoKindMatch(err) {
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(target.gvk)
+		if err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: target.name}, obj); err != nil {
+			if apierrors.IsNotFound(err) || isNoKindMatch(err) {
+				continue
+			}
+			return fmt.Errorf("read per-Org %s %s/%s: %w", target.gvk.Kind, ns, target.name, err)
+		}
+		// The names are derived from the slug and are NOT unique across
+		// Organizations: catalyst-tenant-<slug>-apps of Organization "b-host"
+		// IS catalyst-tenant-b-host-apps, the host-apps Kustomization of
+		// Organization "b" — and deleting a prune:true Kustomization removes
+		// everything it applied. Only an object labelled as THIS
+		// Organization's (every per-Org Flux object carries the label since
+		// #3718) is removed, and only the copy that was read (UID
+		// precondition).
+		if obj.GetLabels()[OrganizationLabel] != slug {
+			continue
+		}
+		uid := obj.GetUID()
+		if err := r.Delete(ctx, obj, client.Preconditions{UID: &uid}); err != nil &&
+			!apierrors.IsNotFound(err) && !apierrors.IsConflict(err) && !isNoKindMatch(err) {
 			return fmt.Errorf("delete per-Org %s %s/%s: %w", target.gvk.Kind, ns, target.name, err)
 		}
 	}

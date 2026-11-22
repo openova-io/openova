@@ -528,6 +528,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// teardowns remove the Gitea Org / Keycloak realm.
 		if err := r.teardownPerOrgFlux(ctx, &org); err != nil {
 			log.Error(err, "per-org-flux teardown")
+			r.reportRemovalIncomplete(ctx, &org, "per-org Flux objects in every region", err)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		// Per-Org tenant-networking teardown (#4459). The console Gateway
@@ -546,6 +547,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// while we clean up.
 		if err := r.teardownTenantNetworking(ctx, &org); err != nil {
 			log.Error(err, "tenant-networking teardown")
+			r.reportRemovalIncomplete(ctx, &org, "console listeners, certificate, route and pool DNS", err)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		// Drop the tenant-networking finalizer once its cascade has run. This
@@ -565,6 +567,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if containsFinalizer(org.Finalizers, IacBootstrapFinalizer) {
 			if err := r.teardownIacBootstrap(ctx, &org); err != nil {
 				log.Error(err, "iac-bootstrap teardown")
+				r.reportRemovalIncomplete(ctx, &org, "IaC repository and robot token", err)
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
 			if removeIacBootstrapFinalizer(&org) {
@@ -583,6 +586,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if containsFinalizer(org.Finalizers, PerOrgRealmFinalizer) {
 			if err := r.teardownPerOrgRealm(ctx, &org); err != nil {
 				log.Error(err, "per-org-realm teardown")
+				r.reportRemovalIncomplete(ctx, &org, "per-Org Keycloak realm", err)
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
 			if removePerOrgRealmFinalizer(&org) {

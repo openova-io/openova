@@ -308,6 +308,31 @@ func (f *fakeRepo) SetCustomerStatus(ctx context.Context, id, status string) err
 	return err
 }
 
+// EndCustomer mirrors the store: the first end instant wins.
+func (f *fakeRepo) EndCustomer(_ context.Context, id string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.customers[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	if c.EndedAt == nil {
+		t := at.UTC()
+		c.EndedAt = &t
+	}
+	c.Status = "suspended"
+	return nil
+}
+
+func (f *fakeRepo) ReopenCustomer(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, ok := f.customers[id]; ok {
+		c.EndedAt = nil
+	}
+	return nil
+}
+
 func (f *fakeRepo) UpsertSource(_ context.Context, customerID, kind, region, projectID string) (store.CostSource, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

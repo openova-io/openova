@@ -96,8 +96,11 @@ func TestIntegrationRollupMigrationMarksEveryExistingDay(t *testing.T) {
 	if _, err := st.PutPriceItems(ctx, book.ID, []store.PriceItem{{SKU: "eip", Unit: "hour", UnitPrice: "0.02"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	cust, err := st.CreateCustomer(ctx, store.CustomerInput{Slug: "acme", Name: "Acme", AdminEmail: "a@acme.example", StartDate: "2026-08-01"})
-	if err != nil {
+	// Raw SQL rather than CreateCustomer: the store's customer read names a
+	// column a LATER migration adds (ended_at, customerend.go), which this
+	// pre-rollup schema cannot have.
+	var cust store.Customer
+	if err := db.QueryRowContext(ctx, `INSERT INTO customers (slug, name, admin_email, start_date) VALUES ('acme', 'Acme', 'a@acme.example', '2026-08-01') RETURNING id`).Scan(&cust.ID); err != nil {
 		t.Fatal(err)
 	}
 	lb, _ := json.Marshal(map[string]any{"name": "1.2.3.4"})

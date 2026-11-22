@@ -728,6 +728,18 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	if src.LastCollectedAt != nil && !src.LastCollectedAt.IsZero() && src.LastCollectedAt.After(from) {
 		from = src.LastCollectedAt.UTC()
 	}
+	// An Organization that ended (its subscription cancelled, its CR deleted
+	// — OrgSync.EndOrganization) is metered up to the instant it ended and
+	// never after: every window below stops at `to`, and once the source's
+	// stamp has reached it nothing more is written, whatever the cluster
+	// still runs while its removal completes.
+	to := now
+	if !internal && cust.EndedAt != nil && cust.EndedAt.Before(to) {
+		to = cust.EndedAt.UTC()
+	}
+	if !from.Before(to) {
+		return 0, nil
+	}
 
 	c.mu.Lock()
 	var tracked []*trackedResource
@@ -772,7 +784,7 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 		// of this math, shared with the cloud collector — splits the hour at
 		// a resize and hands each slice the size that was in force for it.
 		lc := window.Lifecycle{Created: tr.Created, Deleted: tr.Deleted, Flavor: shapeOf(tr), Transitions: tr.Transitions}
-		for _, sl := range window.HourSlices(from, now, lc) {
+		for _, sl := range window.HourSlices(from, to, lc) {
 			for _, line := range platformSKUs(tr, sl.Flavor, limits && !overhead[keys[i]]) {
 				qty := window.Quantity(sl.Hours(), line.factor)
 				if qty <= 0 {
@@ -824,7 +836,7 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	// The internal source has no customer and no plan (cust is zero there).
 	if plan := billablePlan(cust); !internal && plan != "" {
 		lc := window.Lifecycle{Created: planStart(cust)}
-		for _, sl := range window.HourSlices(from, now, lc) {
+		for _, sl := range window.HourSlices(from, to, lc) {
 			qty := window.Quantity(sl.Hours(), 1)
 			if qty <= 0 {
 				continue
@@ -852,21 +864,24 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	if err := flush(); err != nil {
 		return written, err
 	}
-	if err := c.Repo.SetSourceCollected(ctx, src.ID, now); err != nil {
+	if err := c.Repo.SetSourceCollected(ctx, src.ID, to); err != nil {
 		return written, err
 	}
 	c.prune(now)
 	c.metricsReg().Inc("chargeback_platform_usage_records_written_total", "Platform usage records upserted", nil, float64(written))
 	if written > 0 {
-		slog.Info("openova adapter: platform usage emitted", "org", org, "records", written, "window_from", from, "window_to", now)
+		slog.Info("openova adapter: platform usage emitted", "org", org, "records", written, "window_from", from, "window_to", to)
 	}
 	return written, nil
 }
 
-// billablePlan is the plan slug an active customer owes a plan line for; ""
-// when the customer is not active, has no plan, or is on flexi.
+// billablePlan is the plan slug a customer owes a plan line for; "" when the
+// customer has no plan, is on flexi, or is neither active nor ended. An ENDED
+// customer still owes the plan up to the instant it ended — EmitOrg stops
+// every window there — so the last partial hours before the cancellation are
+// billed and nothing after it.
 func billablePlan(cust store.Customer) string {
-	if cust.Status != "active" || !store.PlanBillable(cust.PlanSlug) {
+	if (cust.Status != "active" && cust.EndedAt == nil) || !store.PlanBillable(cust.PlanSlug) {
 		return ""
 	}
 	return cust.PlanSlug

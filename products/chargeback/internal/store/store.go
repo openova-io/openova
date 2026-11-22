@@ -556,6 +556,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// with. Appended at the very END: migrations are positional. Located by
 	// content as MigrationDefaultOffer (defaultoffer.go).
 	defaultOfferMigrationSQL,
+	// An Organization's customer ends with the Organization: the instant it
+	// is metered and billed up to and not after. Appended at the very END:
+	// migrations are positional. Located by content as
+	// MigrationCustomerEnded (customerend.go).
+	customerEndedMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

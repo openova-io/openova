@@ -1,6 +1,10 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgend"
+)
 
 func registerSessionOrganizations(rg chi.Router, d routeDeps) {
 	h := d.h
@@ -22,7 +26,9 @@ func registerSessionOrganizations(rg chi.Router, d routeDeps) {
 	rg.Get("/api/v1/organizations", h.HandleListOrganizations)
 	rg.Get("/api/v1/organizations/{id}", h.HandleGetOrganization)
 	rg.Post("/api/v1/organizations/{id}/reconcile", h.HandleReconcileOrganization)
-	rg.Delete("/api/v1/organizations/{id}", h.HandleDeleteOrganization)
+	// A marketplace Organization has no record in the store the handler
+	// reads: internal/orgend ends it by deleting its Organization CR.
+	rg.Delete("/api/v1/organizations/{id}", orgend.Delete(h.HandleDeleteOrganization, orgend.InCluster, d.log))
 	// Billing enforcement (products/chargeback DESIGN.md §9.7): the
 	// NARROWEST reverse seam from a billing decision to the platform —
 	// stamp spec.suspended on the Organization CR, which the

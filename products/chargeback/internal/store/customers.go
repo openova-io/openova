@@ -23,7 +23,7 @@ const customerColumns = `c.id, c.slug, c.name, c.admin_email, c.kind, c.org_slug
 	(SELECT count(*) FROM cost_sources s WHERE s.customer_id = c.id AND s.layer = 'platform'),
 	(SELECT max(s.last_collected_at) FROM cost_sources s WHERE s.customer_id = c.id),
 	(SELECT to_char(max(st.period_start), 'YYYY-MM') FROM statements st WHERE st.customer_id = c.id),
-	c.party_kind, c.partner_id, COALESCE(pn.name, '')`
+	c.party_kind, c.partner_id, COALESCE(pn.name, ''), c.ended_at`
 
 // customerFrom is the FROM every customer query shares: the partner join
 // gives the directory the partner's name (DESIGN.md §13).
@@ -39,6 +39,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	var platformSuspended, extBalanceAt sql.NullTime
 	var balance, credit string
 	var partner sql.NullString
+	var ended sql.NullTime
 	err := row.Scan(&c.ID, &c.Slug, &c.Name, &c.AdminEmail, &c.Kind, &orgSlug, &pb, &c.BillingMode, &c.Status, &start, &c.PlanSlug,
 		&c.Charging, &c.PaymentModel, &c.PaymentMethod, &c.GatewayName, &c.PORef, &c.PaymentTermsDays, &c.ExternalAccountID,
 		&c.TaxRegistrationNumber, &c.TaxExempt, &c.TaxExemptReason, &taxRate, &c.AutoApplyCredit, &lowBalance, &c.SuspendAtZero,
@@ -46,7 +47,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 		&platformSuspended, &c.SuspensionReason, &c.SuspensionSource, &extBalance, &extBalanceAt, &c.CreatedAt, &c.UpdatedAt,
 		&balance, &credit,
 		&c.SourceCount, &c.VerifiedSourceCount, &c.CloudSourceCount, &c.PlatformSourceCount, &lastCollected, &lastPeriod,
-		&c.PartyKind, &partner, &c.PartnerName)
+		&c.PartyKind, &partner, &c.PartnerName, &ended)
 	if err != nil {
 		return c, mapErr(err)
 	}
@@ -61,6 +62,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	c.PlatformSuspendedAt = timePtr(platformSuspended)
 	c.ExternalBalanceAt = timePtr(extBalanceAt)
 	c.StartDate = datePtr(start)
+	c.EndedAt = timePtr(ended)
 	c.LastCollectedAt = timePtr(lastCollected)
 	c.LastStatementPeriod = strPtr(lastPeriod)
 	c.Collecting = c.Status == "active" && c.VerifiedSourceCount > 0

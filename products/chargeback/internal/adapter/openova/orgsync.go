@@ -39,9 +39,10 @@ const SourceKindPlatform = store.SourceKindPlatform
 // the owner roster (blank-pending when absent), plan_slug from spec.planSlug
 // (DESIGN.md §2.8 "Plan revenue"). spec.costSources[] become cost_sources
 // rows that stay pending until their credential is entered through the
-// engine's API or console; the sync never reads a Kubernetes Secret. A
-// deleted Organization SUSPENDS its customer — history is billing data and is
-// never deleted.
+// engine's API or console; the sync never reads a Kubernetes Secret. An
+// Organization marked for deletion ENDS its customer at the instant it ended
+// (EndOrganization) — metered and billed up to it, never after; history is
+// billing data and is never deleted.
 //
 // The Sovereign's OWN Organization (spec.kind = internal) is NOT a customer
 // (DESIGN.md §2): it gets no customer row; its platform footprint is
@@ -157,8 +158,8 @@ func (s *OrgSync) runInformer(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := s.SuspendOrganization(ctx, u); err != nil {
-				slog.Warn("openova adapter: suspend on organization delete failed", "org", u.GetName(), "error", err)
+			if err := s.EndOrganization(ctx, u); err != nil {
+				slog.Warn("openova adapter: closing the customer of a deleted organization failed", "org", u.GetName(), "error", err)
 				s.metricsReg().Inc("chargeback_adapter_org_sync_total", "Organization sync events by result", map[string]string{"result": "suspend-error"}, 1)
 				return
 			}
@@ -431,6 +432,12 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 	if f.Internal {
 		return s.syncInternalOrganization(ctx, f)
 	}
+	// An Organization marked for deletion has ENDED: its customer closes at
+	// the instant it ended instead of being kept active (and metered and
+	// billed) for as long as its removal runs.
+	if at, ended := orgEndedAt(u); ended {
+		return s.endCustomer(ctx, f, at)
+	}
 	// spec.planSlug sizes the boundary and IS the plan; spec.commerce.
 	// packageSKU is the package the order says it bought. When the two
 	// disagree the plan slug wins and the disagreement is said once per sync
@@ -505,10 +512,19 @@ func (s *OrgSync) SyncOrganization(ctx context.Context, u *unstructured.Unstruct
 				return fmt.Errorf("update customer: %w", err)
 			}
 		}
+		if c.EndedAt != nil {
+			// A live Organization of this slug exists again: the customer's
+			// end is lifted and collection restarts now (below), so the ended
+			// gap is never metered.
+			if err := s.Repo.ReopenCustomer(ctx, c.ID); err != nil {
+				return fmt.Errorf("reopen customer: %w", err)
+			}
+			resumed = true
+		}
 		if c.Status != "active" {
 			// The CR exists (again) — a suspended or pending customer
 			// resumes; its history was kept across the suspension.
-			resumed = c.Status == "suspended"
+			resumed = resumed || c.Status == "suspended"
 			if err := s.Repo.SetCustomerStatus(ctx, c.ID, "active"); err != nil {
 				return fmt.Errorf("reactivate customer: %w", err)
 			}
@@ -862,10 +878,47 @@ func (s *OrgSync) syncCostSource(ctx context.Context, c store.Customer, slug str
 	return nil
 }
 
-// SuspendOrganization marks the customer of a deleted Organization
-// suspended. Deletion never deletes — statements and the usage ledger are
-// billing history. The Sovereign's own Organization has no customer.
-func (s *OrgSync) SuspendOrganization(ctx context.Context, u *unstructured.Unstructured) error {
+// OrganizationEndedAtAnnotation is the instant an Organization ended — the
+// tenant's cancellation — stamped on the CR by the organization-controller
+// just before it deletes the CR of a cancelled marketplace tenant
+// (core/controllers/organization/internal/controller/organization_end.go).
+// The customer is closed at this instant.
+const OrganizationEndedAtAnnotation = "orgs.openova.io/ended-at"
+
+// orgEndedAt reports whether the Organization CR has ended (it is marked for
+// deletion) and the instant it ended: the ended-at annotation when it is
+// present and not after the deletionTimestamp, else the deletionTimestamp.
+func orgEndedAt(u *unstructured.Unstructured) (time.Time, bool) {
+	dt := u.GetDeletionTimestamp()
+	if dt == nil {
+		return time.Time{}, false
+	}
+	if t, ok := annotatedEnd(u); ok && !t.After(dt.Time) {
+		return t, true
+	}
+	return dt.UTC(), true
+}
+
+func annotatedEnd(u *unstructured.Unstructured) (time.Time, bool) {
+	s := strings.TrimSpace(u.GetAnnotations()[OrganizationEndedAtAnnotation])
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
+// EndOrganization closes the customer of an Organization that ended — its CR
+// is marked for deletion or gone — at the instant it ended (orgEndedAt; for
+// a final state that carries neither a deletionTimestamp nor the annotation,
+// the moment the deletion is observed). The customer is metered and billed
+// up to that instant and never after. Deletion never deletes — statements
+// and the usage ledger are billing history. Safe to run twice: the first
+// instant wins. The Sovereign's own Organization has no customer.
+func (s *OrgSync) EndOrganization(ctx context.Context, u *unstructured.Unstructured) error {
 	f, err := readOrg(u)
 	if err != nil {
 		return err
@@ -873,19 +926,29 @@ func (s *OrgSync) SuspendOrganization(ctx context.Context, u *unstructured.Unstr
 	if f.Internal {
 		return nil
 	}
+	at, ok := orgEndedAt(u)
+	if !ok {
+		if at, ok = annotatedEnd(u); !ok {
+			at = s.now()
+		}
+	}
+	return s.endCustomer(ctx, f, at)
+}
+
+func (s *OrgSync) endCustomer(ctx context.Context, f orgFields, at time.Time) error {
 	c, err := s.Repo.GetCustomerBySlug(ctx, f.Slug)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil // never synced; nothing to suspend
+		return nil // never synced; nothing to close
 	}
 	if err != nil {
 		return err
 	}
-	if c.Status == "suspended" {
-		return nil
+	if c.EndedAt != nil && c.Status == "suspended" {
+		return nil // already closed; the first instant stands
 	}
-	if err := s.Repo.SetCustomerStatus(ctx, c.ID, "suspended"); err != nil {
+	if err := s.Repo.EndCustomer(ctx, c.ID, at); err != nil {
 		return err
 	}
-	slog.Info("openova adapter: organization deleted; customer suspended (history kept)", "org", f.Slug, "customer", c.ID)
+	slog.Info("openova adapter: organization ended; customer closed, metered and billed up to the end instant only (history kept)", "org", f.Slug, "customer", c.ID, "ended_at", at.UTC().Format(time.RFC3339))
 	return nil
 }

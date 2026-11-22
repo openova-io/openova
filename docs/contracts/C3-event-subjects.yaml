@@ -23,7 +23,7 @@ subjects:
   - {subject: catalyst.provision.started, envelope: legacy, owner: BSS, producers: [provisioning], consumers: [notification], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.provision.step, envelope: legacy, owner: BSS, producers: [provisioning], consumers: [], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.provision.tenant_failed, envelope: legacy, owner: BSS, producers: [provisioning], consumers: [], payload: core/services/shared/events/events.go, delivery: at-least-once}
-  - {subject: catalyst.provision.tenant_removed, envelope: legacy, owner: BSS, producers: [provisioning], consumers: [tenant], payload: core/services/shared/events/events.go, delivery: at-least-once}
+  - {subject: catalyst.provision.tenant_removed, envelope: legacy, owner: BSS, producers: [provisioning], consumers: [organization-controller, tenant], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.tenant.app_install_requested, envelope: legacy, owner: BSS, producers: [tenant], consumers: [provisioning], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.tenant.app_uninstall_requested, envelope: legacy, owner: BSS, producers: [tenant], consumers: [provisioning], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.tenant.created, envelope: legacy, owner: BSS, producers: [tenant], consumers: [organization-controller, provisioning], payload: core/services/shared/events/events.go, delivery: at-least-once}
