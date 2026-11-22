@@ -35,7 +35,9 @@ import (
 // until GET /api/v1/organizations/{id} says done for both
 // (failed ends the wait). Before it ends, also when a step failed, it deletes
 // every Organization it created with DELETE /api/v1/organizations/{id} and
-// waits until their host namespaces are gone in every region.
+// waits until their host namespaces are gone in every region, and the
+// namespace of its positive control in the regions that created one; it fails
+// naming each namespace that is left and its region.
 //
 // The kubeconfig of an Organization. In every region the vCluster of an
 // Organization writes its kubeconfig into the Secrets vc-vcluster and
@@ -1114,7 +1116,16 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 			return nil
 		})
 	}
+	// What must be gone, per region: the host namespace of every Organization
+	// deleted, in every region, and the namespace of the positive control in
+	// the regions that created it.
 	var gone []string
+	want := map[string][]string{}
+	for _, region := range j.cc.Regions {
+		if j.controls[region.ID] != nil {
+			want[region.ID] = append(want[region.ID], "iso-ctl-"+j.tag)
+		}
+	}
 	for _, o := range j.orgs() {
 		if !o.created {
 			continue
@@ -1139,20 +1150,31 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 			gone = append(gone, o.namespace)
 		}
 	}
-	if len(gone) == 0 {
+	controls := len(want) > 0
+	if len(gone) == 0 && !controls {
 		return
 	}
-	j.step("ISO: the host namespaces "+strings.Join(gone, " and ")+" are gone in every region", func(ev Evidence) error {
+	for _, region := range j.cc.Regions {
+		want[region.ID] = append(want[region.ID], gone...)
+	}
+	name := "ISO: the host namespaces " + strings.Join(gone, " and ") + " are gone in every region"
+	switch {
+	case len(gone) == 0:
+		name = "ISO: the namespace of the positive control is gone in the regions that created it"
+	case controls:
+		name += ", and the namespace of the positive control in the regions that created it"
+	}
+	j.step(name, func(ev Evidence) error {
 		_, err := poll(cctx, j.c.waits.gone, j.c.waits.every, func() (bool, string, error) {
-			var left []string
+			left := []string{}
 			for _, region := range j.cc.Regions {
-				for _, ns := range gone {
+				for _, ns := range want[region.ID] {
 					out, err := j.c.kubectl(region, cctx, nil, "get", "namespace", ns, "--ignore-not-found", "-o", "name")
-					if err != nil {
-						return false, err.Error(), nil
-					}
-					if strings.TrimSpace(string(out)) != "" {
-						left = append(left, ns+" in "+region.ID)
+					switch {
+					case err != nil:
+						left = append(left, "Namespace "+ns+" in "+region.ID+" (not read: "+err.Error()+")")
+					case strings.TrimSpace(string(out)) != "":
+						left = append(left, "Namespace "+ns+" in "+region.ID)
 					}
 				}
 			}

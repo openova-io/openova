@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
@@ -29,6 +30,11 @@ import (
 //     function-test Pod that failed and is kept until the next test run
 //     (helm.sh/hook-delete-policy before-hook-creation,hook-succeeded). A
 //     finished Pod's container that has a digest is judged like any other.
+//     A Pod that has not finished and has a container without a digest yet,
+//     as the Pod of a CronJob seconds after it started, is read again every
+//     digestEvery for up to digestWait (2 minutes) before it is judged as it
+//     was last read; one that is gone by then runs nothing and is listed
+//     (evidence not_judged), and one that finished meanwhile is as above.
 //
 // The check also observes the artifacts of the record: one entry per
 // HelmRelease per region and one per image reference and digest per region.
@@ -45,7 +51,21 @@ const candidateID = "FND-G01"
 // pinsDir is where the candidate pins the chart versions, under RepoRoot.
 const pinsDir = "clusters/_template/bootstrap-kit"
 
-type candidateCheck struct{}
+// candidateCheck is check FND-G01. A zero wait or every is the default.
+type candidateCheck struct{ wait, every time.Duration }
+
+// The bound of the second look at a Pod without an image digest yet.
+const digestWaitDefault, digestEveryDefault = 2 * time.Minute, 5 * time.Second
+
+func (c candidateCheck) digestWait() time.Duration  { return nonZero(c.wait, digestWaitDefault) }
+func (c candidateCheck) digestEvery() time.Duration { return nonZero(c.every, digestEveryDefault) }
+
+func nonZero(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return def
+}
 
 func init() { RegisterCheck(candidateCheck{}) }
 
@@ -55,7 +75,7 @@ func (candidateCheck) ID() string { return candidateID }
 // candidate names.
 type chartPin struct{ Chart, Version string }
 
-func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
+func (chk candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
 	n := 0
 	next := func() string { n++; return candidateID + "." + strconv.Itoa(n) }
 	self := cc.RunIn == RunInSelf
@@ -147,25 +167,28 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 			}
 			return nil
 		})
-		rec.Step(next(), "every container has a digest and one image reference has one digest in region "+region.ID, func(ev Evidence) error {
+		rec.Step(next(), "every container has a digest (a Pod without one yet is read again for up to "+chk.digestWait().String()+") and one image reference has one digest in region "+region.ID, func(ev Evidence) error {
 			pods, err := region.PlatformPods(ctx)
 			if err != nil {
 				complete = false
 				return err
 			}
+			pods, gone, again := chk.settle(ctx, region, pods)
+			ev["read_again"] = again
 			count, noDigest, notJudged := map[[2]string]int{}, []string{}, []string{}
 			containers := 0
 			for _, pod := range pods {
-				digests := map[string]string{}
-				for _, s := range containerStatuses(pod) {
-					digests[s.Str("name")] = imageDigest(s.Str("imageID"))
-				}
+				digests := podDigests(pod)
 				phase := pod.Str("status", "phase")
 				finished := phase == "Succeeded" || phase == "Failed"
 				for _, c := range append(pod.Objects("spec", "initContainers"), pod.Objects("spec", "containers")...) {
 					name := pod.Namespace() + "/" + pod.Name() + "/" + c.Str("name")
 					ref, digest := c.Str("image"), digests[c.Str("name")]
-					if digest == "" && finished {
+					switch {
+					case gone[pod.Namespace()+"/"+pod.Name()]:
+						notJudged = append(notJudged, name+" (Pod gone)")
+						continue
+					case digest == "" && finished:
 						notJudged = append(notJudged, name+" (Pod "+phase+")")
 						continue
 					}
@@ -190,7 +213,7 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 				complete = false
 				return errors.New("no container was found in the platform namespaces: nothing was measured")
 			case len(noDigest) > 0:
-				return fmt.Errorf("%d containers have no image digest: %s", len(noDigest), strings.Join(noDigest, "; "))
+				return fmt.Errorf("%d containers have no image digest: %s (each Pod read again for up to %s)", len(noDigest), strings.Join(noDigest, "; "), chk.digestWait())
 			case len(two) > 0:
 				return fmt.Errorf("%d image references have more than one digest: %s", len(two), strings.Join(two, "; "))
 			}
@@ -221,6 +244,80 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 		return nil
 	})
 	return nil
+}
+
+// podDigests is the image digest of each container of pod, by name.
+func podDigests(pod kube.Object) map[string]string {
+	digests := map[string]string{}
+	for _, s := range containerStatuses(pod) {
+		digests[s.Str("name")] = imageDigest(s.Str("imageID"))
+	}
+	return digests
+}
+
+// waitsForDigest says whether pod has not finished and has a container, init
+// or main, without an image digest yet.
+func waitsForDigest(pod kube.Object) bool {
+	if phase := pod.Str("status", "phase"); phase == "Succeeded" || phase == "Failed" {
+		return false
+	}
+	digests := podDigests(pod)
+	for _, c := range append(pod.Objects("spec", "initContainers"), pod.Objects("spec", "containers")...) {
+		if digests[c.Str("name")] == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// settle reads again, every digestEvery for up to digestWait, each Pod of pods
+// that waits for a digest, until none does. It returns pods with each such Pod
+// as it was last read, the Pods that are gone ("<namespace>/<name>"), and the
+// Pods it read again. A read that fails leaves the Pod as it was read before.
+func (c candidateCheck) settle(ctx context.Context, region kube.Region, pods []kube.Object) ([]kube.Object, map[string]bool, []string) {
+	out, gone, again := append([]kube.Object(nil), pods...), map[string]bool{}, []string{}
+	pending := []int{}
+	for i, p := range out {
+		if waitsForDigest(p) {
+			pending = append(pending, i)
+			again = append(again, p.Namespace()+"/"+p.Name())
+		}
+	}
+	sort.Strings(again)
+	deadline := time.Now().Add(c.digestWait())
+	for len(pending) > 0 && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return out, gone, again
+		case <-time.After(c.digestEvery()):
+		}
+		still := []int{}
+		for _, i := range pending {
+			ns, name := out[i].Namespace(), out[i].Name()
+			list, err := region.GetList(ctx, "pods", ns, "--field-selector", "metadata.name="+name)
+			if err != nil {
+				still = append(still, i)
+				continue
+			}
+			var now kube.Object
+			for _, p := range list {
+				if p.Name() == name && p.Namespace() == ns {
+					now = p
+				}
+			}
+			switch {
+			case now == nil:
+				gone[ns+"/"+name] = true
+			case waitsForDigest(now):
+				out[i] = now
+				still = append(still, i)
+			default:
+				out[i] = now
+			}
+		}
+		pending = still
+	}
+	return out, gone, again
 }
 
 // deployedChartVersion is the chart version of the newest deployed release

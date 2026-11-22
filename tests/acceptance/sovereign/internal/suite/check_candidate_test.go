@@ -157,10 +157,73 @@ func init() {
 	fakeAnswers["candidate-finished-pod-two-digests"] = with("b pods", kubeList(
 		fakePhase("kube-system", "cilium-1", "registry.example/cilium:1.19", digestOne, "Running"),
 		fakePhase("kube-system", "cilium-check", "registry.example/cilium:1.19", digestTwo, "Succeeded")))
+	// The Pod of a CronJob read seconds after it started: no digest yet. Read
+	// again (kubectl get pods -n cnpg-system --field-selector), it has one,
+	// it has none still, it is gone, or it finished without one.
+	cron := func(digest, phase string) obj {
+		return fakePhase("cnpg-system", "backup-29391250-x7k2p", "registry.example/backup:2", digest, phase)
+	}
+	started := with("b pods", kubeList(fakePhase("kube-system", "cilium-1", "registry.example/cilium:1.19", digestOne, "Running"), cron("", "Pending")))
+	again := func(name string, pods ...obj) {
+		fakeAnswers[name] = map[string]string{"b pods cnpg-system": kubeList(pods...)}
+		for k, v := range started {
+			fakeAnswers[name][k] = v
+		}
+	}
+	again("candidate-cron-pod-gets-its-digest", cron(digestOne, "Running"))
+	again("candidate-cron-pod-stays-without-digest", cron("", "Pending"))
+	again("candidate-cron-pod-gone")
+	again("candidate-cron-pod-finished-without-digest", cron("", "Succeeded"))
 	fakeAnswers["candidate-no-containers"] = with("b pods", kubeList())
 	fakeAnswers["candidate-no-releases"] = with("b "+hrResource, kubeList())
 	fakeAnswers["candidate-region-b-unreachable"] = map[string]string{"a " + hrResource: releases,
 		"a namespaces": kubeList(obj{"metadata": kubeMeta("", "acme")}), "a pods": pods}
+}
+
+// fastCandidate is check FND-G01 with a second look of 300 ms.
+var fastCandidate = candidateCheck{wait: 300 * time.Millisecond, every: 20 * time.Millisecond}
+
+// TestCandidatePodWithoutDigestYetIsReadAgain: FND-G01 step 6 of gate run
+// 44952720479 read two Pods of CronJobs seconds after they started and failed
+// on them. A Pod that has not finished and has no digest yet is read again
+// within the bound before it is judged.
+func TestCandidatePodWithoutDigestYetIsReadAgain(t *testing.T) {
+	const pod = "cnpg-system/backup-29391250-x7k2p"
+	r := candidateRun(t, "candidate-cron-pod-gets-its-digest", candidateCommit)
+	if got := r.run.Checks[0]; got.Status != Pass {
+		t.Fatalf("a Pod that has its digest when read again: want PASS, got %+v: %v", got, failedSteps(r))
+	}
+	ev := r.run.Steps[5].Evidence
+	if again, _ := ev["read_again"].([]string); len(again) != 1 || again[0] != pod || ev["containers"] != 4 {
+		t.Errorf("region b: read_again %v, containers %v; want [%s] and 4", ev["read_again"], ev["containers"], pod)
+	}
+	if name := r.run.Steps[5].Name; !strings.Contains(name, "read again for up to 300ms") {
+		t.Errorf("the step does not state its bound: %q", name)
+	}
+	for name, c := range map[string]struct {
+		scenario, notJudged, fail string
+	}{
+		"it has no digest still": {"candidate-cron-pod-stays-without-digest", "",
+			"1 containers have no image digest: " + pod + "/main (each Pod read again for up to 300ms)"},
+		"it is gone":                     {"candidate-cron-pod-gone", pod + "/init (Pod gone)," + pod + "/main (Pod gone)", ""},
+		"it finished without its digest": {"candidate-cron-pod-finished-without-digest", pod + "/main (Pod Succeeded)", ""},
+	} {
+		start := time.Now()
+		r := candidateRun(t, c.scenario, candidateCommit)
+		got := r.run.Checks[0]
+		switch {
+		case c.fail != "" && (got.Status != Fail || !strings.Contains(got.Reason, c.fail)):
+			t.Errorf("%s: want FAIL with %q, got %+v", name, c.fail, got)
+		case c.fail != "" && time.Since(start) < 300*time.Millisecond:
+			t.Errorf("%s: judged after %s, before the bound", name, time.Since(start))
+		case c.fail == "" && got.Status != Pass:
+			t.Errorf("%s: want PASS, got %+v", name, got)
+		case c.fail == "":
+			if nj, _ := r.run.Steps[5].Evidence["not_judged"].([]string); strings.Join(nj, ",") != c.notJudged {
+				t.Errorf("%s: not_judged %v, want %s", name, nj, c.notJudged)
+			}
+		}
+	}
 }
 
 // candidateRun runs the check with the suite built from built and a checkout
@@ -176,7 +239,7 @@ func candidateRun(t *testing.T, scenario, built string) *runner {
 		t.Fatal(err)
 	}
 	t.Setenv("GITHUB_SHA", built)
-	return runCheck(t, scenario, candidateCheck{}, &CheckContext{RepoRoot: root, Candidate: Candidate{Commit: candidateCommit}})
+	return runCheck(t, scenario, fastCandidate, &CheckContext{RepoRoot: root, Candidate: Candidate{Commit: candidateCommit}})
 }
 
 func TestCandidateCheck(t *testing.T) {
@@ -245,7 +308,7 @@ func TestCandidateCheck(t *testing.T) {
 
 	// Without a candidate commit, and without a checkout, the check fails.
 	t.Setenv("GITHUB_SHA", candidateCommit)
-	r = runCheck(t, "candidate-as-pinned", candidateCheck{}, &CheckContext{RepoRoot: t.TempDir()})
+	r = runCheck(t, "candidate-as-pinned", fastCandidate, &CheckContext{RepoRoot: t.TempDir()})
 	if got := failedSteps(r); len(got) < 2 || !strings.Contains(got[0], "the run names no candidate commit") || !strings.Contains(got[1], "no HelmRelease with a chart version was found") {
 		t.Errorf("without a candidate: got %v", got)
 	}
@@ -407,14 +470,14 @@ func TestCandidateSelf(t *testing.T) {
 		{"what runs is what each spec names", "candidate-self-as-applied", []string{}},
 		{"a release runs another version than its spec names", "candidate-self-older-version", []string{behind + "1.4.19 and its spec names 1.4.20"}},
 		{"a release has nothing deployed", "candidate-self-nothing-deployed", []string{behind + "no deployed version and its spec names 1.4.20"}},
-		{"a container without a digest", "candidate-self-no-digest", []string{"1 containers have no image digest: kube-system/cilium-1/main"}},
+		{"a container without a digest", "candidate-self-no-digest", []string{"1 containers have no image digest: kube-system/cilium-1/main (each Pod read again for up to 300ms)"}},
 		{"one reference, two digests", "candidate-self-two-digests", []string{two, two}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv(fakeKubectlEnv, c.scenario)
 			r := &runner{out: io.Discard, run: &Run{Mode: "run"}}
 			m := &Manifest{Checks: []ManifestCheck{entry(candidateID, StateExpectedFail)}}
-			r.runChecks(context.Background(), m, []Check{candidateCheck{}}, &CheckContext{RunIn: RunInSelf, Regions: fakeRegions(t)[:1]}, true)
+			r.runChecks(context.Background(), m, []Check{fastCandidate}, &CheckContext{RunIn: RunInSelf, Regions: fakeRegions(t)[:1]}, true)
 			r.run.Finalize(nil)
 			if got := failedSteps(r); len(r.run.Steps) != 3 || strings.Join(got, "\n") != strings.Join(c.want, "\n") {
 				t.Fatalf("want 3 steps that fail with %q, got %d steps that fail with %q", c.want, len(r.run.Steps), got)
