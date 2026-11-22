@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { render, screen, cleanup, within, waitFor, act } from '@testing-library/react'
 import {
   RouterProvider,
   createRouter,
@@ -25,6 +25,13 @@ import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 import { NotificationProvider } from '@/shared/ui/notifications'
 import { ALL_BLUEPRINTS } from '@/shared/constants/catalog.generated'
 import { resolveApplications } from './applicationCatalog'
+import {
+  CLASS_LABELS,
+  CLASS_ORDER,
+  PLATFORM_CLASS,
+  classOfBlueprint,
+  type BlueprintClass,
+} from '@/shared/constants/classes'
 
 const STATIC_IDS = new Set(resolveApplications(INITIAL_WIZARD_STATE.selectedComponents).map((a) => a.id))
 // An AI service the static component graph does not hold: the live catalog
@@ -115,5 +122,56 @@ describe('CatalogPage — class and lifecycle (contract C1)', () => {
     renderCatalog('/provision/d-1/catalog?unlisted=1')
     const badge = await screen.findByTestId(`sov-catalog-lifecycle-${deprecated?.id}`)
     expect(badge.textContent).toBe('Deprecated')
+  })
+})
+
+// SVC-180 — the grouping test of this page, and the Organization rule.
+describe('CatalogPage — grouped by class (SVC-180)', () => {
+  const sectionClass = (s: HTMLElement) => s.getAttribute('data-testid')!.replace('sov-catalog-class-', '')
+
+  it('groups the cards by class in the class order, each card under its own class', async () => {
+    renderCatalog('/provision/d-1/catalog?unlisted=1')
+    const grid = await screen.findByTestId('sov-catalog-grid')
+    // A sovereign-admin with Show unlisted sees the platform components too,
+    // once the console knows the scope.
+    await within(grid).findByTestId('sov-app-card-bp-cilium')
+    const sections = within(grid).getAllByTestId(/^sov-catalog-class-(?!grid-)[a-z-]+$/)
+    const order = sections.map(sectionClass)
+    expect(order.length).toBeGreaterThan(2)
+    expect(order).toEqual(CLASS_ORDER.filter((c) => order.includes(c)))
+    expect(order).toContain(PLATFORM_CLASS)
+    for (const s of sections) {
+      expect(s.textContent).toContain(CLASS_LABELS[sectionClass(s) as BlueprintClass].plural)
+      const cards = within(s).getAllByTestId(/^sov-app-card-bp-/)
+      expect(cards.length).toBeGreaterThan(0)
+      for (const c of cards) {
+        expect(classOfBlueprint(c.getAttribute('data-testid')!.replace('sov-app-card-', ''))).toBe(sectionClass(s))
+      }
+    }
+  })
+
+  it('an Organization user never sees a platform component, not even with Show unlisted', async () => {
+    let whoami = 0
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/v1/whoami')) {
+        whoami += 1
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ orgScoped: true, org: 'uatco' }),
+        } as unknown as Response)
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ apps: [] }) } as unknown as Response)
+    }) as typeof fetch
+    renderCatalog('/provision/d-1/catalog?unlisted=1')
+    const grid = await screen.findByTestId('sov-catalog-grid')
+    // The scope has answered, so the hiding below is the Organization rule and
+    // not the loading state.
+    await waitFor(() => expect(whoami).toBeGreaterThan(0))
+    await act(async () => {})
+    expect(within(grid).getAllByTestId(/^sov-app-card-bp-/).length).toBeGreaterThan(0)
+    expect(within(grid).queryByTestId('sov-app-card-bp-cilium')).toBeNull()
+    expect(within(grid).queryByTestId(`sov-catalog-class-${PLATFORM_CLASS}`)).toBeNull()
   })
 })

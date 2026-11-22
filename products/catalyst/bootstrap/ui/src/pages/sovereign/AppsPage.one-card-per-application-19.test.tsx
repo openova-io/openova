@@ -56,7 +56,8 @@ import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 
 /**
- * Four Application CRs and one decoy, shaped exactly as the BFF projects them.
+ * Four Application CRs this page shows, one of class platform-component that it
+ * leaves to Resources (SVC-180), and one decoy, shaped exactly as the BFF projects them.
  *
  * `bp-postgres` is deliberately the blueprint of TWO instances (shared-pg and
  * uat-ahs-pg): a blueprint-keyed grid collapses those to one card, an
@@ -74,6 +75,9 @@ const SOVEREIGN_APPS_RESPONSE = {
     { id: 'shared-pg', slug: 'postgres', blueprint: 'bp-postgres', status: 'installed', instance: true, environment: 'prod', topology: 'active-passive', contextCount: 3, bootstrapKit: false, org: 'uatco' },
     { id: 'uat-ahs-pg', slug: 'postgres', blueprint: 'bp-postgres', status: 'installed', instance: true, environment: 'prod', topology: 'active-hot-standby', contextCount: 1, bootstrapKit: false, org: 'uatco' },
     { id: 'spine-gitea', slug: 'gitea', blueprint: 'bp-gitea', status: 'installed', instance: true, environment: 'prod', topology: 'singleton', bootstrapKit: true },
+    // SVC-180 — spine-gitea is of class platform-component, which this page leaves
+    // to Resources; spine-valkey (a data service) is the bootstrap instance shown here.
+    { id: 'spine-valkey', slug: 'valkey', blueprint: 'bp-valkey', status: 'installed', instance: true, environment: 'prod', topology: 'singleton', bootstrapKit: true },
     { id: 'uatco-agenity', slug: 'agenity', blueprint: 'bp-agenity', status: 'installed', instance: true, environment: 'prod', topology: 'singleton', bootstrapKit: false, org: 'uatco' },
     // The decoy — a fanned-out HelmRelease row, not an Application.
     { id: 'bp-cilium', slug: 'cilium', status: 'installed' },
@@ -81,7 +85,7 @@ const SOVEREIGN_APPS_RESPONSE = {
   bootstrapKit: [],
 }
 
-const APPLICATION_CR_IDS = ['shared-pg', 'uat-ahs-pg', 'spine-gitea', 'uatco-agenity']
+const APPLICATION_CR_IDS = ['shared-pg', 'uat-ahs-pg', 'spine-valkey', 'uatco-agenity']
 
 function installFetchMock(body: unknown = SOVEREIGN_APPS_RESPONSE) {
   vi.stubGlobal(
@@ -171,7 +175,7 @@ describe('AppsPage — row 19: the grid renders one card per Application CR', ()
     const ids = (await cards('instance')).map(idOf).sort()
     expect(ids).toEqual([...APPLICATION_CR_IDS].sort())
     // Stated as a number too, because the row is settled by COUNTING: four
-    // Application CRs on the wire, four instance cards on the grid.
+    // Application CRs this page shows, four instance cards on the grid.
     expect(ids.length).toBe(APPLICATION_CR_IDS.length)
   })
 
@@ -196,7 +200,7 @@ describe('AppsPage — row 19: the grid renders one card per Application CR', ()
     const catalogIds = (await cards('catalog')).map(idOf)
     // The three blueprints with live instances must be absent from the catalog
     // remainder, or each would be counted twice.
-    for (const bp of ['bp-postgres', 'bp-gitea', 'bp-agenity']) {
+    for (const bp of ['bp-postgres', 'bp-gitea', 'bp-valkey', 'bp-agenity']) {
       expect(catalogIds, `catalog remainder still offers ${bp}`).not.toContain(bp)
     }
     // ...and the remainder is NOT empty, so the loop above is not passing
@@ -211,8 +215,13 @@ describe('AppsPage — row 19: the grid renders one card per Application CR', ()
     expect(new Set(all).size, `duplicate cards: ${all.join(', ')}`).toBe(all.length)
   })
 
+  it('an Application CR of class platform-component renders no card here (SVC-180)', async () => {
+    await screen.findByTestId('sov-app-card-spine-valkey')
+    expect(screen.queryByTestId('sov-app-card-spine-gitea')).toBeNull()
+  })
+
   it('bootstrap instance cards carry the BOOTSTRAP badge — the second clause', async () => {
-    const spine = await screen.findByTestId('sov-app-card-spine-gitea')
+    const spine = await screen.findByTestId('sov-app-card-spine-valkey')
     expect(spine.textContent).toContain('BOOTSTRAP')
     // And a customer instance does not, or the badge would be decoration
     // rather than a signal.
@@ -229,7 +238,7 @@ describe('AppsPage — row 19: the grid renders one card per Application CR', ()
     installFetchMock({ apps: [{ id: 'bp-cilium', slug: 'cilium', status: 'installed' }], bootstrapKit: [] })
     renderApps()
     await screen.findByTestId('sov-apps-grid')
-    await screen.findByTestId('sov-app-card-bp-cilium')
+    await screen.findByTestId('sov-app-card-bp-valkey')
     expect((await cards('instance')).length).toBe(0)
   })
 })

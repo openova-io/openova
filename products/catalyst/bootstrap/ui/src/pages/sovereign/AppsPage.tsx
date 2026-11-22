@@ -33,7 +33,7 @@
 
 import { StatusBadge, StatusReason } from '@/components/status/StatusBadge'
 import type { ObjectStatus } from '@/lib/objectStatus'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter, Link, useParams, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
@@ -48,6 +48,13 @@ import { readyClaim } from './readyClaim'
 import { resolveApplications, resolveServerApplication, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import {
+  PLATFORM_CLASS,
+  classOfBlueprint,
+  groupByClass,
+  resourcesClassRoute,
+  type BlueprintClass,
+} from '@/shared/constants/classes'
 import { getLaunchURL } from '@/lib/catalog.api'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import type { ApplicationStatus } from './eventReducer'
@@ -86,6 +93,12 @@ export function topologyLabel(value: unknown): string {
 interface AppsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
   disableStream?: boolean
+}
+
+/** SVC-180 — one card of the grid and the class it is grouped under. */
+interface ClassCard {
+  cls: BlueprintClass
+  node: ReactNode
 }
 
 export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
@@ -660,6 +673,15 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     ]),
   )
 
+  // SVC-180 — the rows of class platform-component leave this page: they
+  // are cluster plumbing, and Resources lists them under its class filter.
+  const shownInstances = visibleInstances.filter(
+    (inst) => classOfBlueprint(inst.blueprint) !== PLATFORM_CLASS,
+  )
+  const shownApps = visibleApps.filter((app) => classOfBlueprint(app.id) !== PLATFORM_CLASS)
+  const platformRowsHidden =
+    shownInstances.length < visibleInstances.length || shownApps.length < visibleApps.length
+
   // #4119 — the "Provisioning" pill + "View jobs" link is a sovereign
   // provisioning affordance; never render it for an Org-scoped session.
   const isProvisioning =
@@ -845,13 +867,30 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         </div>
       ) : (
         <>
-        {query.trim() !== '' && visibleInstances.length === 0 && visibleApps.length === 0 ? (
+        {query.trim() !== '' && shownInstances.length === 0 && shownApps.length === 0 ? (
           <div className="empty-state" data-testid="sov-apps-no-match">
             <p className="empty-title">No installed application matches “{query.trim()}”.</p>
             <p className="empty-sub">Search matches an application's id (e.g. bp-cnpg-pair), name, description, family, blueprint or Organization.</p>
           </div>
         ) : null}
-        <div className="apps-grid" data-testid="sov-apps-grid">
+        {platformRowsHidden && !orgScoped ? (
+          <p className="apps-platform-note" data-testid="sov-apps-platform-note">
+            Platform components are listed in{' '}
+            <Link
+              to={resourcesClassRoute(PLATFORM_CLASS) as never}
+              data-testid="sov-apps-platform-link"
+            >
+              Resources
+            </Link>
+            .
+          </p>
+        ) : null}
+        {/*
+          SVC-180 — the cards are grouped by class, in the class order of
+          shared/constants/classes.ts; the rows of class platform-component
+          are not on this page (Resources shows them, see the note above).
+        */}
+        <div className="apps-class-groups" data-testid="sov-apps-grid">
           {/*
             #3370 — instance cards: one card per RUNNING INSTANCE
             (Application CR). `shared-pg · PostgreSQL · singleton ·
@@ -860,7 +899,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             tiles. #3601 — /apps is installed-only, so these always
             render (no tab gate).
           */}
-          {visibleInstances
+          {groupByClass<ClassCard>(
+            [
+          ...shownInstances
             .map((inst) => {
               const comp = findComponent(inst.slug)
               const descriptor: ApplicationDescriptor = {
@@ -875,7 +916,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                 dependencies: [],
                 bootstrapKit: inst.bootstrapKit,
               }
-              return (
+              return { cls: classOfBlueprint(inst.blueprint), node: (
                 <AppCard
                   key={`instance-${inst.id}`}
                   app={descriptor}
@@ -902,9 +943,9 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   // would bury the customer attribution this chip exists for.
                   org={inst.bootstrapKit ? undefined : inst.org}
                 />
-              )
-            })}
-          {visibleApps
+              ) }
+            }),
+          ...shownApps
             .filter(
               (app) =>
                 // #3370 — a blueprint whose instances render their own
@@ -919,7 +960,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               : null
             const environment = environmentById[app.id] ?? UNRESOLVED_APP_ENVIRONMENT
             const externalURL = externalURLById[app.id] ?? ''
-            return (
+            return { cls: classOfBlueprint(app.id), node: (
               <AppCard
                 key={app.id}
                 app={app}
@@ -985,8 +1026,22 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   await refetchLive()
                 }}
               />
-            )
-          })}
+            ) }
+          }),
+            ],
+            (c) => c.cls,
+          ).map((g) => (
+            <section
+              key={g.cls}
+              className="apps-class-group"
+              data-testid={`sov-apps-class-${g.cls}`}
+            >
+              <h2 className="apps-class-title">{g.label.plural} · {g.items.length}</h2>
+              <div className="apps-grid" data-testid={`sov-apps-class-grid-${g.cls}`}>
+                {g.items.map((c) => c.node)}
+              </div>
+            </section>
+          ))}
         </div>
         </>
       )}
@@ -1577,6 +1632,14 @@ const APPS_PAGE_CSS = `
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 0.65rem;
 }
+/* SVC-180 — one section per class, each with its own card grid. */
+.apps-class-groups { display: flex; flex-direction: column; gap: 1.25rem; }
+.apps-class-title {
+  margin: 0 0 0.5rem; font-size: 0.78rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-dim);
+}
+.apps-platform-note { margin: 0 0 0.75rem; font-size: 0.82rem; color: var(--color-text-dim); }
+.apps-platform-note a { color: var(--color-accent); }
 
 .empty-state { margin-top: 3rem; text-align: center; color: var(--color-text-dim); }
 .empty-title { font-size: 1rem; color: var(--color-text-strong); margin: 0 0 0.3rem; font-weight: 600; }

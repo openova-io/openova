@@ -19,7 +19,15 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { resourceDetailHref } from './resource.api'
 import { CLOUD_K8S_TONE_CSS } from './cloudListCss'
 import { REGION_COLUMN } from './k8sColumns'
-import type { K8sListPageProps } from './k8sColumns'
+import type { K8sListColumn, K8sListPageProps } from './k8sColumns'
+import {
+  CLASS_LABELS,
+  CLASS_ORDER,
+  classOfBlueprint,
+  groupByClass,
+  isBlueprintClass,
+  type ClassGroup,
+} from '@/shared/constants/classes'
 
 // Re-export the column types + builders + tone classifiers (#4084) from
 // their new home so existing importers of './K8sListPage' keep working;
@@ -35,6 +43,9 @@ export function K8sListPage({
   tagline,
   columns,
   sortByName = true,
+  blueprintOf,
+  classFilter = null,
+  onClassFilterChange,
 }: K8sListPageProps) {
   // Read from the page-level shared snapshot owned by CloudPage.
   // ONE EventSource per page (subscribing to all kinds) feeds every
@@ -91,10 +102,85 @@ export function K8sListPage({
   // operator must be able to see WHICH region a set came from, since
   // "only region-a is listed" and "the estate only has region-a" are
   // otherwise indistinguishable on a security-posture page.
-  const effectiveColumns = useMemo(
-    () => (rows.some((r) => r.clusterId) ? [...columns, REGION_COLUMN] : columns),
-    [rows, columns],
-  )
+  // SVC-180 — a list whose rows are installed Blueprints groups them by
+  // class, in the console's class order, and keeps only the rows of the
+  // class filter (the `?class=` of the address). null = not class-aware.
+  const groups = useMemo<ClassGroup<K8sObject>[] | null>(() => {
+    if (!blueprintOf) return null
+    const classOf = (o: K8sObject) => classOfBlueprint(blueprintOf(o))
+    const kept = classFilter ? rows.filter((o) => classOf(o) === classFilter) : rows
+    return groupByClass(kept, classOf)
+  }, [rows, blueprintOf, classFilter])
+  const shownRows = groups ? groups.flatMap((g) => g.items) : rows
+
+  const effectiveColumns = useMemo(() => {
+    const out: K8sListColumn[] = [...columns]
+    if (blueprintOf) {
+      out.push({
+        header: 'Class',
+        extract: (o) => CLASS_LABELS[classOfBlueprint(blueprintOf(o))].singular,
+      })
+    }
+    if (rows.some((r) => r.clusterId)) out.push(REGION_COLUMN)
+    return out
+  }, [rows, columns, blueprintOf])
+
+  const renderRow = (obj: K8sObject, i: number) => {
+    const id = obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}/${i}`
+    const name = obj.metadata?.name ?? ''
+    const ns = obj.metadata?.namespace ?? ''
+    const href = name
+      ? resourceDetailHref(cloudBasePath, kind, ns || undefined, name)
+      : null
+    const onRowClick = () => {
+      if (!href || typeof window === 'undefined') return
+      window.location.assign(href)
+    }
+    return (
+      <tr
+        key={id}
+        className={
+          'border-b border-[var(--color-border)] last:border-0 ' +
+          (href ? 'cursor-pointer hover:bg-[var(--color-bg-3)]' : '')
+        }
+        data-testid={`cloud-${kind}-row-${name || i}`}
+        data-region={obj.clusterId ?? ''}
+        onClick={onRowClick}
+        onKeyDown={(e) => {
+          if (!href) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onRowClick()
+          }
+        }}
+        role={href ? 'link' : undefined}
+        tabIndex={href ? 0 : undefined}
+      >
+        {effectiveColumns.map((c) => {
+          const text = c.extract(obj)
+          const tone = c.tone?.(obj)
+          return (
+            <td key={c.header} className="px-3 py-2 text-[var(--color-text)]">
+              {tone ? (
+                // k9s-style status chip (#4084). The text stays
+                // inside the chip so colour is never the only
+                // signal (accessible to colour-blind operators).
+                <span
+                  className="cloud-k8s-tone"
+                  data-tone={tone}
+                  data-testid={`cloud-${kind}-cell-tone`}
+                >
+                  {text}
+                </span>
+              ) : (
+                text
+              )}
+            </td>
+          )
+        })}
+      </tr>
+    )
+  }
 
   return (
     <div data-testid={`cloud-${kind}-list`}>
@@ -102,6 +188,27 @@ export function K8sListPage({
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-[var(--color-text-strong)]">{title}</h2>
         <p className="text-sm text-[var(--color-text-dim)]">{tagline}</p>
+        {blueprintOf ? (
+          <label className="mt-2 inline-flex items-center gap-2 text-sm text-[var(--color-text-dim)]">
+            Class
+            <select
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-2)] px-2 py-1 text-[var(--color-text)]"
+              data-testid={`cloud-${kind}-class-filter`}
+              value={classFilter ?? ''}
+              onChange={(e) => {
+                const next = e.target.value
+                onClassFilterChange?.(isBlueprintClass(next) ? next : null)
+              }}
+            >
+              <option value="">All classes</option>
+              {CLASS_ORDER.map((c) => (
+                <option key={c} value={c}>
+                  {CLASS_LABELS[c].plural}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
       {k8sStatus ==='connecting' && rows.length === 0 ? (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
@@ -114,6 +221,13 @@ export function K8sListPage({
       ) : rows.length === 0 ? (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
           No <code className="font-mono">{kind}</code> objects in this cluster.
+        </div>
+      ) : shownRows.length === 0 && classFilter ? (
+        <div
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]"
+          data-testid={`cloud-${kind}-class-empty`}
+        >
+          No <code className="font-mono">{kind}</code> objects of the class {CLASS_LABELS[classFilter].plural}.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)]">
@@ -128,66 +242,27 @@ export function K8sListPage({
               </tr>
             </thead>
             <tbody>
-              {rows.map((obj, i) => {
-                const id = obj.metadata?.uid ?? `${obj.metadata?.namespace}/${obj.metadata?.name}/${i}`
-                const name = obj.metadata?.name ?? ''
-                const ns = obj.metadata?.namespace ?? ''
-                const href = name
-                  ? resourceDetailHref(cloudBasePath, kind, ns || undefined, name)
-                  : null
-                const onRowClick = () => {
-                  if (!href || typeof window === 'undefined') return
-                  window.location.assign(href)
-                }
-                return (
-                  <tr
-                    key={id}
-                    className={
-                      'border-b border-[var(--color-border)] last:border-0 ' +
-                      (href ? 'cursor-pointer hover:bg-[var(--color-bg-3)]' : '')
-                    }
-                    data-testid={`cloud-${kind}-row-${name || i}`}
-                    data-region={obj.clusterId ?? ''}
-                    onClick={onRowClick}
-                    onKeyDown={(e) => {
-                      if (!href) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onRowClick()
-                      }
-                    }}
-                    role={href ? 'link' : undefined}
-                    tabIndex={href ? 0 : undefined}
-                  >
-                    {effectiveColumns.map((c) => {
-                      const text = c.extract(obj)
-                      const tone = c.tone?.(obj)
-                      return (
-                        <td key={c.header} className="px-3 py-2 text-[var(--color-text)]">
-                          {tone ? (
-                            // k9s-style status chip (#4084). The text stays
-                            // inside the chip so colour is never the only
-                            // signal (accessible to colour-blind operators).
-                            <span
-                              className="cloud-k8s-tone"
-                              data-tone={tone}
-                              data-testid={`cloud-${kind}-cell-tone`}
-                            >
-                              {text}
-                            </span>
-                          ) : (
-                            text
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
+              {groups
+                ? groups.map((g) => [
+                    <tr
+                      key={`class-${g.cls}`}
+                      className="border-b border-[var(--color-border)] bg-[var(--color-bg-3)]"
+                      data-testid={`cloud-${kind}-class-group-${g.cls}`}
+                    >
+                      <th
+                        colSpan={effectiveColumns.length}
+                        className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--color-text-dim)]"
+                      >
+                        {g.label.plural} · {g.items.length}
+                      </th>
+                    </tr>,
+                    ...g.items.map((obj, i) => renderRow(obj, i)),
+                  ])
+                : rows.map((obj, i) => renderRow(obj, i))}
             </tbody>
           </table>
           <div className="px-3 py-2 text-xs text-[var(--color-text-dim)]">
-            {rows.length} {rows.length === 1 ? 'item' : 'items'}
+            {shownRows.length} {shownRows.length === 1 ? 'item' : 'items'}
           </div>
         </div>
       )}

@@ -41,6 +41,7 @@ import {
   writePersistedKind,
   type CloudListKind,
 } from './kinds'
+import { RESOURCES_CLASS_KIND, isBlueprintClass } from '@/shared/constants/classes'
 
 // Re-export so existing call sites that import the type from here keep
 // compiling without churn.
@@ -56,8 +57,11 @@ interface CloudListViewProps {
 export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
   const { deploymentId, data, isLoading } = useCloud()
   const navigate = useNavigate()
-  const search = useSearch({ strict: false }) as { view?: string; kind?: string }
+  const search = useSearch({ strict: false }) as { view?: string; kind?: string; class?: string }
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // SVC-180 — a class filter in the address without a kind opens the list
+  // of installed Blueprints, and the URL canonicalisation below keeps it.
+  const classFilter = isBlueprintClass(search.class) ? search.class : undefined
 
   // Resolve the active kind: explicit override > URL query > persisted
   // localStorage > default. The first time the operator lands on the
@@ -66,10 +70,11 @@ export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
   const activeKind: CloudListKind = useMemo(() => {
     if (kindOverride) return kindOverride
     if (isValidKind(search.kind)) return search.kind
+    if (classFilter) return RESOURCES_CLASS_KIND as CloudListKind
     const persisted = readPersistedKind()
     if (persisted) return persisted
     return DEFAULT_KIND
-  }, [kindOverride, search.kind])
+  }, [kindOverride, search.kind, classFilter])
 
   // Persist the active kind whenever it changes.
   useEffect(() => {
@@ -86,11 +91,13 @@ export function CloudListView({ kindOverride }: CloudListViewProps = {}) {
         ? '/cloud'
         : `/provision/${deploymentId}/cloud`) as never,
       params: { deploymentId } as never,
-      search: { view: 'list', kind: activeKind } as never,
+      search: (classFilter
+        ? { view: 'list', kind: activeKind, class: classFilter }
+        : { view: 'list', kind: activeKind }) as never,
       replace: true,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKind, search.kind, pathname, deploymentId])
+  }, [activeKind, search.kind, classFilter, pathname, deploymentId])
 
   // Setter retained for completeness (test-seam consumers); no
   // visible UI here calls it directly anymore — the chip strip in the

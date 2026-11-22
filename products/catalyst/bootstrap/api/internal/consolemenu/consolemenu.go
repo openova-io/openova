@@ -16,8 +16,10 @@
 //     sovereign-admin switches it on, and an Organization console never
 //     shows it.
 //
-// The list of pages starts empty. A task that adds a console page which no
-// Blueprint delivers adds one line to it; TestPages_TheListIsValid checks
+// The list holds one class view of Resources per Blueprint class (SVC-180):
+// Resources filtered to the installed Blueprints of that class. A task that
+// adds a console page which no Blueprint delivers adds one line to it;
+// TestPages_TheListIsValid checks
 // every line.
 package consolemenu
 
@@ -95,7 +97,19 @@ type Page struct {
 }
 
 // pages is the list of console pages that are menu candidates.
-var pages = []Page{}
+//
+// The class views: identifier page:class-<class>, the plural label and the
+// Resources address of resourcesClassRoute in the console's
+// src/shared/constants/classes.ts (its test reads these lines and fails when
+// a label or a route differs), in the console's class order.
+var pages = []Page{
+	{Name: "class-application", Label: "Applications", Route: "/cloud?view=list&kind=helmreleases&class=application", Order: 60},
+	{Name: "class-data-service", Label: "Data services", Route: "/cloud?view=list&kind=helmreleases&class=data-service", Order: 61},
+	{Name: "class-network-security-service", Label: "Network and security services", Route: "/cloud?view=list&kind=helmreleases&class=network-security-service", Order: 62},
+	{Name: "class-ai-service", Label: "AI services", Route: "/cloud?view=list&kind=helmreleases&class=ai-service", Order: 63},
+	{Name: "class-infrastructure", Label: "Infrastructure", Route: "/cloud?view=list&kind=helmreleases&class=infrastructure", Order: 64},
+	{Name: "class-platform-component", Label: "Platform components", Route: "/cloud?view=list&kind=helmreleases&class=platform-component", Order: 65},
+}
 
 // Pages returns a copy of the list, sorted by name.
 func Pages() []Page {

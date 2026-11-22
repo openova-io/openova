@@ -1,5 +1,6 @@
 import { createRouter, createRoute, createRootRoute, redirect, isRedirect } from '@tanstack/react-router'
 import { IS_SAAS } from '@/shared/constants/env'
+import { isBlueprintClass, type BlueprintClass } from '@/shared/constants/classes'
 import { API_BASE, isCatalystZeroURL } from '@/shared/config/urls'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { setProvisionFlashBanner } from '@/shared/lib/flashBanner'
@@ -985,6 +986,10 @@ interface CloudSearch {
   // Reconciliation lens, not the default Cloud lens. Carried through both
   // cloud routes' validateSearch so CloudPage can seed CloudLensProvider.
   lens?: LensId
+  // class — SVC-180: the class filter of Resources (a Blueprint class of
+  // shared/constants/classes.ts). The lists that carry a Blueprint keep only
+  // the rows of that class; the class views of the left menu open it.
+  class?: BlueprintClass
 }
 
 // `normaliseCloudKind` — canonicalises the raw `kind` URL param to a valid
@@ -1015,6 +1020,7 @@ const provisionCloudRoute = createRoute({
       out.kind = normaliseCloudKind(raw.kind)
     }
     if (isValidLensId(raw.lens)) out.lens = raw.lens
+    if (isBlueprintClass(raw.class)) out.class = raw.class
     return out
   },
 })
@@ -1502,6 +1508,7 @@ const consoleCloudRoute = createRoute({
       out.kind = normaliseCloudKind(raw.kind)
     }
     if (isValidLensId(raw.lens)) out.lens = raw.lens
+    if (isBlueprintClass(raw.class)) out.class = raw.class
     return out
   },
 })

@@ -158,7 +158,9 @@ describe('CatalogPage — live catalog union (#3668)', () => {
   it('still renders the static bootstrap-kit cards alongside the catalog union', async () => {
     renderCatalog('d-1')
     const grid = await screen.findByTestId('sov-catalog-grid')
-    expect(within(grid).getByTestId('sov-app-card-bp-cilium')).toBeTruthy()
+    // SVC-180 — a platform component shows once the console knows the scope
+    // is not an Organization's, so wait for it.
+    expect(await within(grid).findByTestId('sov-app-card-bp-cilium')).toBeTruthy()
     expect(within(grid).getByTestId('sov-app-card-bp-wordpress')).toBeTruthy()
   })
 })

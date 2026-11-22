@@ -30,6 +30,12 @@ import { AppsPage } from './AppsPage'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 import { NotificationProvider } from '@/shared/ui/notifications'
+import {
+  CLASS_ORDER,
+  PLATFORM_CLASS,
+  classOfBlueprint,
+  resourcesClassRoute,
+} from '@/shared/constants/classes'
 
 function renderProvision(deploymentId: string) {
   const rootRoute = createRootRoute({
@@ -148,24 +154,52 @@ describe('AppsPage — card grid (installed only)', () => {
     expect(cards.length).toBeGreaterThan(0)
   })
 
-  it('grid uses the canonical .apps-grid class (auto-fit minmax 360px)', async () => {
+  it('each class section uses the canonical .apps-grid class (auto-fit minmax 360px)', async () => {
     renderProvision('d-1')
     const grid = await screen.findByTestId('sov-apps-grid')
-    expect(grid.className).toContain('apps-grid')
+    const classGrids = within(grid).getAllByTestId(/^sov-apps-class-grid-/)
+    expect(classGrids.length).toBeGreaterThan(0)
+    for (const g of classGrids) expect(g.className.split(' ')).toContain('apps-grid')
+  })
+
+  // SVC-180 — the grouping test of this page.
+  it('groups the cards by class in the class order and leaves platform components to Resources', async () => {
+    renderProvision('d-1')
+    const grid = await screen.findByTestId('sov-apps-grid')
+    const sections = within(grid).getAllByTestId(/^sov-apps-class-(?!grid-)[a-z-]+$/)
+    const order = sections.map((s) => s.getAttribute('data-testid')!.replace('sov-apps-class-', ''))
+    // More than one class, so the order is a real claim.
+    expect(order.length).toBeGreaterThan(1)
+    expect(order).toEqual(CLASS_ORDER.filter((c) => order.includes(c)))
+    expect(order).not.toContain(PLATFORM_CLASS)
+    for (const s of sections) {
+      const cls = s.getAttribute('data-testid')!.replace('sov-apps-class-', '')
+      const cards = within(s).getAllByTestId(/^sov-app-card-bp-/)
+      expect(cards.length).toBeGreaterThan(0)
+      for (const c of cards) {
+        expect(classOfBlueprint(c.getAttribute('data-testid')!.replace('sov-app-card-', ''))).toBe(cls)
+      }
+    }
+    // The bootstrap spine is cluster plumbing: not a card here, and the note
+    // links to its class view of Resources.
+    expect(screen.queryByTestId('sov-app-card-bp-cilium')).toBeNull()
+    expect(screen.getByTestId('sov-apps-platform-link').getAttribute('href')).toBe(
+      resourcesClassRoute(PLATFORM_CLASS),
+    )
   })
 
   it('search filter narrows the visible cards', async () => {
     renderProvision('d-1')
     const before = within(await screen.findByTestId('sov-apps-grid')).getAllByTestId(/^sov-app-card-bp-/)
-    fireEvent.change(screen.getByTestId('sov-search'), { target: { value: 'cilium' } })
+    fireEvent.change(screen.getByTestId('sov-search'), { target: { value: 'valkey' } })
     const after = within(await screen.findByTestId('sov-apps-grid')).getAllByTestId(/^sov-app-card-bp-/)
     expect(after.length).toBeLessThan(before.length)
-    expect(after.some((c) => c.getAttribute('data-testid') === 'sov-app-card-bp-cilium')).toBe(true)
+    expect(after.some((c) => c.getAttribute('data-testid') === 'sov-app-card-bp-valkey')).toBe(true)
   })
 
   it('installed card links to the INSTANCE page /app/$id', async () => {
     renderProvision('d-1')
-    const card = await screen.findByTestId('sov-app-card-bp-cilium')
-    expect(card.getAttribute('href')).toBe('/provision/d-1/app/bp-cilium')
+    const card = await screen.findByTestId('sov-app-card-bp-valkey')
+    expect(card.getAttribute('href')).toBe('/provision/d-1/app/bp-valkey')
   })
 })

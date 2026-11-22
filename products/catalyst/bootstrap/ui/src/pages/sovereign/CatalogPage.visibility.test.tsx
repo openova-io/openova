@@ -150,7 +150,7 @@ describe('CatalogPage — visibility (SVC-030)', () => {
     ]
     renderCatalog('/provision/d-1/catalog')
     const grid = await screen.findByTestId('sov-catalog-grid')
-    expect(within(grid).getByTestId(`sov-app-card-${UNLISTED_STATIC}`)).toBeTruthy()
+    expect(await within(grid).findByTestId(`sov-app-card-${UNLISTED_STATIC}`)).toBeTruthy()
     expect(within(grid).queryByTestId(`sov-app-card-${LISTED_STATIC}`)).toBeNull()
   })
 
@@ -185,7 +185,7 @@ describe('CatalogPage — visibility (SVC-030)', () => {
     const grid = await screen.findByTestId('sov-catalog-grid')
     expect(within(grid).getByTestId('sov-app-card-bp-alpha')).toBeTruthy()
     expect(within(grid).getByTestId('sov-app-card-bp-beta')).toBeTruthy()
-    expect(within(grid).getByTestId(`sov-app-card-${UNLISTED_STATIC}`)).toBeTruthy()
+    expect(await within(grid).findByTestId(`sov-app-card-${UNLISTED_STATIC}`)).toBeTruthy()
     expect(within(grid).getByTestId(`sov-app-card-${LISTED_STATIC}`)).toBeTruthy()
     const toggle = screen.getByTestId('sov-catalog-show-unlisted') as HTMLInputElement
     expect(toggle.checked).toBe(true)

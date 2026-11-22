@@ -243,9 +243,11 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       ? appBlueprint
       : `bp-${appBlueprint}`
     : ''
-  const appShareable =
-    BLUEPRINT_BY_ID[appBlueprintFull]?.shareable === true ||
-    (apiApp?.contexts?.length ?? 0) > 0
+  // SVC-180 — the Connection section renders when the Application's
+  // Blueprint declares itself shareable (spec.shareable), the same
+  // declaration the Contexts tab reads; no wizard family decides it.
+  const appBlueprintShareable = BLUEPRINT_BY_ID[appBlueprintFull]?.shareable === true
+  const appShareable = appBlueprintShareable || (apiApp?.contexts?.length ?? 0) > 0
   const appContexts = apiApp?.contexts ?? []
   const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
@@ -386,14 +388,6 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
       setAppTab(urlTab)
     }
   }, [urlTab])
-
-  // The Connection section renders only for backing-service Applications.
-  const isServiceApp = useMemo(() => {
-    if (!app) return false
-    const c = findComponent(app.bareId)
-    if (!c) return false
-    return c.product === 'data-services' || c.product === 'observability'
-  }, [app])
 
   if (!app) {
     if (needsApiFallback && (apiAppQuery.isPending || apiAppQuery.isFetching)) {
@@ -695,7 +689,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               appExternalURL={appExternalURL}
               appUID={appUID}
               launchKey={launchKey}
-              isServiceApp={isServiceApp}
+              showConnection={appBlueprintShareable}
               compState={compState}
               deps={deps}
               reverseDeps={reverseDeps}
@@ -1084,7 +1078,8 @@ interface OverviewPanelProps {
    * direct externalURL.
    */
   launchKey: string
-  isServiceApp: boolean
+  /** SVC-180 — the Application's Blueprint is shareable (spec.shareable). */
+  showConnection: boolean
   compState:
     | {
         // Aligned with ApplicationState in eventReducer.ts — those three
@@ -1220,7 +1215,7 @@ function OverviewPanel({
   // CR-backed apps and the blueprint/release name for bootstrap-kit HR
   // apps. Binding appUID without using it trips the build's noUnusedLocals.
   launchKey,
-  isServiceApp,
+  showConnection,
   compState,
   deps,
   reverseDeps,
@@ -1448,8 +1443,8 @@ function OverviewPanel({
         <p className="desc">{app.description || app.familyName}</p>
       </section>
 
-      {/* Connection — only for service apps */}
-      {isServiceApp ? (
+      {/* Connection — only when the Blueprint is shareable */}
+      {showConnection ? (
         <section className="section" data-testid="sov-section-connection">
           <h2>Connection</h2>
           <p className="section-hint">
