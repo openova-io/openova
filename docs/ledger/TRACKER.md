@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-22T11:45:02Z` |
+| Last refreshed | `2026-11-22T12:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8213](https://github.com/openova-io/openova/issues/8213) | AIP-105 One owner of the credential | Other |
 | [#8217](https://github.com/openova-io/openova/issues/8217) | CLD-105 Post-apply and apply-error hooks become capability interfaces | Other |
 | [#8223](https://github.com/openova-io/openova/issues/8223) | NET-120 Hermetic two-cluster mesh test | Other |
 | [#8225](https://github.com/openova-io/openova/issues/8225) | CLD-115 The VPC pre-flight becomes the Huawei adapter's Preflighter | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
 | [#8604](https://github.com/openova-io/openova/issues/8604) | SEC-261 Conformance test for External Secrets against OpenBao | Other |
 | [#8607](https://github.com/openova-io/openova/issues/8607) | SVC-180 Screens group by class; the dead branch goes | Other |
+| [#8609](https://github.com/openova-io/openova/issues/8609) | BSS-070 BSS-G01 becomes required | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-22T11:45 | [#8606](https://github.com/openova-io/openova/pull/8606) | #7087 | docs(ledger): plan update |
+| 2026-11-22T11:55 | [#8605](https://github.com/openova-io/openova/pull/8605) | #8604 | test(external-secrets): conformance test of External Secrets |
 | 2026-11-22T11:20 | [#8603](https://github.com/openova-io/openova/pull/8603) | #7087 | docs(ledger): plan update |
 | 2026-11-21T17:50 | [#8600](https://github.com/openova-io/openova/pull/8600) | #7087 | docs(ledger): plan update |
 | 2026-11-21T16:10 | [#8599](https://github.com/openova-io/openova/pull/8599) | fix(gate): check NET-G07 proves the platform's denial in a s |  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T04:50 | [#8571](https://github.com/openova-io/openova/pull/8571) | #8557 | fix(charts): every foundation release has a function test th |
 | 2026-11-21T05:28 | [#8570](https://github.com/openova-io/openova/pull/8570) | #6762 | fix(cutover): the sovereignty proof counts the cloud Workspa |
 | 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
-| 2026-11-21T05:59 | [#8567](https://github.com/openova-io/openova/pull/8567) | #4467 | fix(cilium): the MTU given to Cilium is the node interface's |
-| 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
 
 ---
 
