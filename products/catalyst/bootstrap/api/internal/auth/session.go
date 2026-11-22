@@ -129,6 +129,14 @@ type Claims struct {
 	// (docs/contracts/model-contract.md section 2.1). nil on every other
 	// token. agenttoken.Restrict reads it.
 	ActingPerson *ActingPerson `json:"acting_person,omitempty"`
+
+	// SupportSession and ImpersonatedOrg are the claims support_session and
+	// impersonated_org of a sovereign-admin's "Enter org" support session
+	// (handler/org_enter_org.go, redeemed by handler/auth_handover.go). A
+	// support session acts on the one Organization ImpersonatedOrg names and
+	// on no other; the handler's Organization authorizer reads both.
+	SupportSession  bool   `json:"support_session,omitempty"`
+	ImpersonatedOrg string `json:"impersonated_org,omitempty"`
 }
 
 // ActingPerson is the claim acting_person of an agent token.

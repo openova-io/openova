@@ -49,6 +49,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgmember"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/signinmail"
 )
 
@@ -1046,20 +1047,19 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	// deployment-stream, every Org, cloud view, sovereign DNS/parent-
 	// domain/BSS settings). Live privilege escalation on omantel.biz.
 	//
-	// The trust anchor is the REQUEST HOST: the Cilium Gateway routes the
-	// Org console host to this catalyst-api and sets X-Forwarded-Host to
-	// the real browser host, which a browser on the Org console can never
-	// forge. When the host resolves (via the tenant registry) to a
-	// tenant_kind=org console, the session is FORCED Org-scoped: a
-	// non-sovereign tier (org-admin) + the org slug, NEVER catalyst-admin/
-	// sovereign-admin — regardless of what /sovereign-admins says. The
-	// org slug is also stamped so org-scoped handlers + the console confine
-	// to this one Organization. The API authz gate (OrgScopeGuard) then
-	// 403s any sovereign/other-org endpoint for this session (deny-by-
-	// default outside the Org-safe allowlist), so the confinement holds
-	// even if the SPA is bypassed.
+	// The host only says WHICH Organization's console this is; it grants
+	// nothing (a client can send any X-Forwarded-Host). Only a person on that
+	// Organization's spec.owners gets a session here (orgmember); anyone else
+	// who proves a mailbox is refused. The session is Org-scoped (tier
+	// org-admin + the org slug, never a sovereign tier) and OrgScopeGuard
+	// checks the membership and its role again on every request, so a
+	// removed member loses access within orgmember.TTL.
 	orgClaim := ""
 	if scope, ok := h.resolveOrgScope(r); ok {
+		if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.Org, email); code != 0 {
+			writeJSON(w, code, map[string]string{"error": why, "detail": "this address holds no role in this Organization"})
+			return
+		}
 		sessionTier = orgScopedTier
 		sessionRealmRoles = []string{orgScopedRealmRole}
 		orgClaim = scope.Org

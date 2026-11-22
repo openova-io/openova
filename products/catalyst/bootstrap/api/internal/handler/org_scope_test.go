@@ -210,7 +210,7 @@ func TestOrgScopeGuard_OrgScoped_DeniesSovereignEndpoint(t *testing.T) {
 	// Org-scoped customer session hits the deployments API — must 403.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/4635277cae4ffed9", nil)
 	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
-		&auth.Claims{Email: "demo@openova.io", Tier: orgScopedTier, Org: "demo"}))
+		&auth.Claims{Email: "demo@openova.io", EmailVerified: true, Tier: orgScopedTier, Org: "demo"}))
 	rec := httptest.NewRecorder()
 	guard.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -237,15 +237,17 @@ func TestOrgScopeGuard_OrgScoped_DeniesSovereignEndpoint(t *testing.T) {
 // the deployment-addressed seam 403s, the own-org seam passes.
 func TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes(t *testing.T) {
 	h := &Handler{log: quietLog()}
+	withOrgRecords(h, withOwners(orgCR("acme", "", "", ""), "openova-mcp@acme", "owner"))
 	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
 
 	// The exact claim set mintOrgScopedMCPBearer produces, PLUS a
 	// deployment_id — i.e. the hypothetical "fixed" bearer. It still 403s.
 	orgClaimsWithDeployment := &auth.Claims{
-		Email:        "openova-mcp@acme",
-		Tier:         orgScopedTier,
-		Org:          "acme",
-		DeploymentID: "29b7e14918178f7e",
+		Email:         "openova-mcp@acme",
+		EmailVerified: true,
+		Tier:          orgScopedTier,
+		Org:           "acme",
+		DeploymentID:  "29b7e14918178f7e",
 	}
 
 	for _, path := range []string{
@@ -276,11 +278,12 @@ func TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes(t *t
 
 func TestOrgScopeGuard_OrgScoped_AllowsOwnSurface(t *testing.T) {
 	h := &Handler{log: quietLog()}
+	withOrgRecords(h, withOwners(orgCR("demo", "", "", ""), "demo@openova.io", "owner"))
 	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/whoami", nil)
 	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
-		&auth.Claims{Email: "demo@openova.io", Tier: orgScopedTier, Org: "demo"}))
+		&auth.Claims{Email: "demo@openova.io", EmailVerified: true, Tier: orgScopedTier, Org: "demo"}))
 	rec := httptest.NewRecorder()
 	guard.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -296,8 +299,9 @@ func TestOrgScopeGuard_OrgScoped_AllowsOwnSurface(t *testing.T) {
 // mapping store next to it, and every write, stay denied.
 func TestOrgScopeGuard_OrgScoped_ReadsMergedSidebarOnly(t *testing.T) {
 	h := &Handler{log: quietLog()}
+	withOrgRecords(h, withOwners(orgCR("demo", "", "", ""), "demo@openova.io", "owner"))
 	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
-	claims := &auth.Claims{Email: "demo@openova.io", Tier: orgScopedTier, Org: "demo"}
+	claims := &auth.Claims{Email: "demo@openova.io", EmailVerified: true, Tier: orgScopedTier, Org: "demo"}
 
 	cases := []struct {
 		method, path string

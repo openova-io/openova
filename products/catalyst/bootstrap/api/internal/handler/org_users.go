@@ -62,6 +62,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgmember"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -160,13 +161,10 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 		})
 		return store.TenantRegistration{}, false
 	}
-	// #4110 — cross-org binding. An Org-scoped customer session may only
-	// resolve to its OWN Organization. X-Tenant-Host is a client-supplied
-	// header; a malicious customer could forge a sibling org's host to read
-	// another Organization's users/roles. Bind the resolved tenant to the
-	// session's `org` claim (stamped from the request host at PIN-verify,
-	// which the customer cannot forge). A Sovereign-admin session has no
-	// org claim and is unaffected (it may legitimately operate any Org).
+	// #4110 — cross-org binding. X-Tenant-Host is a client-supplied header, so
+	// it only names the Organization: an Org-scoped session resolves only to its
+	// OWN Organization, and every other session that is not Sovereign staff must
+	// hold a role there that permits the request (orgmember.Gate).
 	//
 	// FAIL CLOSED (#5516). This check used to read
 	// `sessionOrg != "" && resolvedSlug != "" && sessionOrg != resolvedSlug`,
@@ -185,14 +183,14 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 	// the claim it is compared against (slug-from-host, falling back to the
 	// tenant id), so the producer of the claim and this consumer of it can
 	// never disagree about what the Org is called.
+	boundOrg := strings.ToLower(strings.TrimSpace(orgSlugFromHost(host)))
+	if boundOrg == "" {
+		// Same fallback resolveOrgScope uses when the host shape carries
+		// no slug — that IS the value stamped into the session's claim.
+		boundOrg = strings.ToLower(strings.TrimSpace(t.TenantID))
+	}
 	if claims := auth.ClaimsFromContext(r.Context()); claimsAreOrgScoped(claims) {
 		sessionOrg := strings.ToLower(strings.TrimSpace(claims.Org))
-		boundOrg := strings.ToLower(strings.TrimSpace(orgSlugFromHost(host)))
-		if boundOrg == "" {
-			// Same fallback resolveOrgScope uses when the host shape carries
-			// no slug — that IS the value stamped into the session's claim.
-			boundOrg = strings.ToLower(strings.TrimSpace(t.TenantID))
-		}
 		if sessionOrg == "" || boundOrg == "" || sessionOrg != boundOrg {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "org-scope-mismatch",
@@ -200,6 +198,8 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 			})
 			return store.TenantRegistration{}, false
 		}
+	} else if claims != nil && (!applicationInstallCallerAuthorized(claims) || claims.SupportSession) && !orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, boundOrg) {
+		return store.TenantRegistration{}, false
 	}
 	return t, true
 }
