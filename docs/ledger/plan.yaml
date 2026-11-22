@@ -12338,7 +12338,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, CTL-112, FND-032, SOV-435, CLD-175]
-  after: [NET-071, NET-213, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, CTL-223, CTL-233, CTL-355]
+  after: [NET-071, NET-213, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, SVC-180, CTL-223, CTL-233, CTL-355]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/internal/lifecycle/pools.go
@@ -19479,7 +19479,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -21248,22 +21248,51 @@ packages:
   depends_on: [SVC-170, CTL-223]
   after: []
   touches:
+  - products/catalyst/bootstrap/api/internal/consolemenu/consolemenu.go
+  - products/catalyst/bootstrap/api/internal/consolemenu/consolemenu_test.go
+  - products/catalyst/bootstrap/ui/src/app/router.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.every-installed-listed.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.one-card-per-application-19.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.search-matches-ids.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.class.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.visibility.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/classFilter.svc180.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/CloudListView.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/k8sColumns.ts
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/K8sListPage.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/kindsPages.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/useClassFilter.ts
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
+  - products/catalyst/bootstrap/ui/src/shared/constants/classes.test.ts
   - products/catalyst/bootstrap/ui/src/shared/constants/classes.ts
-  - products/catalyst/bootstrap/api/internal/consolemenu/**
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'isServiceApp' products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail.tsx"
+    expect: "5"
+  acceptance:
+  - id: A1
+    run: "! git grep -q -e isServiceApp -- products/catalyst/bootstrap/ui/src && test ! -e products/catalyst/bootstrap/ui/src/pages/sovereign/PlatformPage.tsx"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && go vet ./internal/consolemenu/ && test \"$(NO_COLOR=1 go test -count=1 -run '^(TestPages_TheListIsValid|TestPages_OneClassViewPerClass)$' -v ./internal/consolemenu/ | grep -c -E '^--- PASS: (TestPages_TheListIsValid|TestPages_OneClassViewPerClass) ')\" = 2 && NO_COLOR=1 go test -count=1 -run 'ConsoleUI|Sidebar' ./internal/handler/ > /dev/null"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(NO_COLOR=1 npx vitest run src/shared/constants src/pages/sovereign/AppsPage src/pages/sovereign/CatalogPage src/pages/sovereign/AppDetail src/pages/sovereign/CloudPage src/pages/sovereign/cloud-list --reporter=verbose)\" && test \"$(grep -c -E '^ *✓ .* > (each class view of the left menu carries the plural label and the route of this file|groups the cards by class in the class order and leaves platform components to Resources|groups the cards by class in the class order, each card under its own class|an Organization user never sees a platform component, not even with Show unlisted|groups the HelmReleases by class, in the class order, and lists the platform components|the class filter is in the address, and a reload returns the same view|a class in the address without a kind opens the HelmReleases list and keeps the class|a shareable Blueprint shows the Connection section)( |$)' <<< \"$out\")\" = 8"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Class grouping on Applications and Catalog; Resources groups and filters by class with the filter in the address, and shows the rows of class platform-component; one class view of Resources per class is registered as a menu candidate of source page, off by default; isServiceApp deleted. No Platform page and no fixed menu entry.
+  delivers: The Applications page and the Catalog page group their cards by class from one list of class labels, Resources groups and filters the installed Blueprints by class with the filter in the address and lists the rows of class platform-component that leave the Applications page, one class view of Resources per class is a menu candidate of source page that is off by default, an Organization user never sees a platform component in the Catalog, the Connection section of an Application follows its Blueprint's spec.shareable, and isServiceApp is deleted; no page and no fixed menu entry is added.
 - id: SVC-185
   title: 'Conditional: a Blueprint declaration that pins an Application to its region'
   area: SVC
@@ -24952,7 +24981,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CTL-360]
-  after: [NET-071, SVC-040, CTL-020, CTL-345, CTL-347, CTL-420, BSS-040, AIP-111, INF-040]
+  after: [NET-071, SVC-040, SVC-180, CTL-020, CTL-345, CTL-347, CTL-420, BSS-040, AIP-111, INF-040]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail.tsx
   - pages/sovereign/AppDetail/useResolvedPlacement.ts
@@ -25752,7 +25781,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-020]
-  after: [FND-094, SOV-190, SVC-040]
+  after: [FND-094, SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/lib/compliance.api.ts
@@ -25957,7 +25986,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CTL-360, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/**
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
@@ -25990,7 +26019,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-072, CMP-093, CMP-101]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/widgets/compliance/**
@@ -26320,7 +26349,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-036, CMP-041, CMP-052, CMP-071, CMP-S6, CTL-045, CTL-160]
-  after: [FND-011, SOV-190, SVC-040, CTL-231, CTL-320, CTL-345, BSS-040, AIP-120, AIP-227]
+  after: [FND-011, SOV-190, SVC-040, SVC-180, CTL-231, CTL-320, CTL-345, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -26494,7 +26523,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-081, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionsTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionDrawer.tsx
@@ -26682,7 +26711,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-091, CMP-092, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/security/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/SBOMTab.tsx
@@ -26739,7 +26768,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, CTL-320, AIP-111]
+  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-320, AIP-111]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -26815,7 +26844,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-111, NET-212]
-  after: [FND-011, SOV-190, SVC-040, SVC-041]
+  after: [FND-011, SOV-190, SVC-040, SVC-041, SVC-180]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/continuity.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -26914,7 +26943,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-121, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworksTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
@@ -26978,7 +27007,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, CTL-300, CTL-320, AIP-111, AIP-120]
+  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-300, CTL-320, AIP-111, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -27048,7 +27077,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-091, CMP-101, CMP-111, CTL-150, FND-151]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190, SVC-040, SVC-180]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -30989,7 +31018,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [AIP-226, AIP-227]
-  after: [SOV-190]
+  after: [SOV-190, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/ops/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35103,7 +35132,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [MIG-151, CTL-360, MIG-102]
-  after: [SOV-190]
+  after: [SOV-190, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/sources/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/plans/**
@@ -35132,7 +35161,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-152]
-  after: [SOV-190]
+  after: [SOV-190, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/migrations/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35159,7 +35188,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-147, MIG-153]
-  after: [SOV-190]
+  after: [SOV-190, SVC-180]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/extensions/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35655,7 +35684,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-232, CTL-233]
-  after: [SOV-190, SOV-322, SVC-040, CTL-045, CTL-340, CTL-345, BSS-040, AIP-120, AIP-227]
+  after: [SOV-190, SOV-322, SVC-040, SVC-180, CTL-045, CTL-340, CTL-345, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/shells_issue.go
   - products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go
@@ -36079,7 +36108,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [ACC-121, CTL-360]
-  after: [SOV-190, SEC-103, ACC-050]
+  after: [SOV-190, SEC-103, SVC-180, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/access/
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -36363,7 +36392,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [ACC-122, ACC-203]
-  after: [FND-088, SOV-190, CTL-345, BSS-040, AIP-227]
+  after: [FND-088, SOV-190, SVC-180, CTL-345, BSS-040, AIP-227]
   touches:
   - core/controllers/access/internal/review/action.go
   - core/controllers/access/internal/broker/sessions.go
