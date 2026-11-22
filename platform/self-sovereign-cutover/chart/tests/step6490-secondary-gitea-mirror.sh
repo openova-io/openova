@@ -371,6 +371,18 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.nocp" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: every skopeo download is the one skopeo of values skopeo, sha256 checked
+    # (skopeo_fetch in _helpers.tpl), in EVERY topology: step 03, step 08, the day-two
+    # reconciler and the follower prewarm script change; not the follower gitea leg. While
+    # origin/main lacks skopeo_fetch, those documents are left out of BOTH trees;
+    # tests/hermetic/provider-package-copy fetches with it and executes the version. The axis
+    # switches itself off once origin/main holds it.
+    if ! grep -q 'skopeo_fetch() {' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|12-daytwo-harbor-pin-reconciler|secondary-harbor-prewarm-script-configmap)\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nosk"
+        mv "${TMP}/${t}.nosk" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then

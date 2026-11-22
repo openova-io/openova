@@ -1723,6 +1723,30 @@ imageRegistryPivot:
     # instead of a sweep-induced ImagePullBackOff. Keep ON.
     presenceGate: true
 
+# THE ONE SKOPEO (_helpers.tpl, define skopeoFetch; these rules sit here because a
+# template's comments are stored in every Helm release Secret, #6004). Every site that
+# downloads skopeo reads these three values: step 03 (harbor-prewarm), the follower
+# prewarm, step 08's #5194 self-heal and the day-two reconciler's #5640 image leg (lazily,
+# warm mode only). Each calls skopeo_fetch only when no skopeo is on PATH: it downloads
+# printf(url, version), compares the file's sha256 with sha256 and runs it only if equal;
+# a file of another sha256 is deleted and fetched again. Three attempts, each curl
+# --max-time 600 with -C - so a partial download resumes (#2618: github.com is reached at
+# ~120-360 KB/s from HCS and the 39 MB binary needs 3-5 min). No apk fallback: the steps
+# run as non-root, so apk cannot install, and an apk skopeo would be a second, unpinned
+# version. url: the static builds of lework/skopeo-binary, GitHub release assets
+# (containers/skopeo ships no static binary). sha256: of that asset, computed on download
+# (22 Nov 2026), equal to the release's own skopeo-linux-amd64.sha256.
+# 1.16.1 (containers/image v5.32): skopeo 1.15.2 (v5.30.2) dropped the top-level
+# artifactType and subject of an OCI index when it copied a list, then refused under
+# --preserve-digests (step 03 Phase A5, 21 Nov 2026); v5.32.0 keeps them. The case whole of
+# tests/hermetic/provider-package-copy copies each OpenTofu provider package with skopeo
+# alone and requires equal digests; its control requires 1.15.2 to refuse the same copy.
+# offlinemirror_put_list (#8597) stays unchanged: such a list is still one registry-API PUT of its own bytes.
+skopeo:
+  version: "1.16.1"
+  url: "https://github.com/lework/skopeo-binary/releases/download/v%s/skopeo-linux-amd64"
+  sha256: "8813fb7fcd7a723196ac287683dd929d280f6fe7f0782eace452fe1e3ff2b7eb"
+
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run
 # BEFORE registries.yaml v2 takes effect on the node containerd.
@@ -2908,10 +2932,8 @@ daytwoReconciler:
     # step-03's PREWARM_COPY_ATTEMPTS default; proxy-sourced refs use
     # prewarm.proxyCopyAttempts (single-source with step-03/step-08).
     copyAttempts: 3
-    # The pinned skopeo static build step-03 harbor-prewarm and step-08's #5194
-    # self-heal already download. Fetched LAZILY and ONLY in warm mode, so
-    # detect keeps its zero-external-egress contract literally.
-    skopeoStaticURL: "https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+    # skopeo is the one of the top-level key skopeo, fetched LAZILY and ONLY in
+    # warm mode, so detect keeps its zero-external-egress contract literally.
     # Upper bound on refs probed per cycle, so a Sovereign with hundreds of
     # per-Org workloads cannot make one cycle unbounded. Raise on a large
     # Sovereign; the cycle is idempotent so the remainder is picked up next pass.
