@@ -100,6 +100,9 @@
     "HANDOVER_HOLD_SECONDS": "600",
     "K3S_UPGRADE_CONCURRENCY": "1",
     "K3S_VERSION": "v1.31.8+k3s1",
+    "KURED_END_TIME": "05:00",
+    "KURED_START_TIME": "01:00",
+    "KURED_TIME_ZONE": "",
     "LOCAL_REGISTRY_HOST": "registry.hw.example.com",
     "MAIL_FROM": "",
     "MAIL_MODE": "local",
@@ -129,7 +132,8 @@
     "RELEASE_SYNC_SCHEDULE": "0 3 * * *",
     "RELEASE_VERSION": "",
     "SOVEREIGN_CONSUME": "origin",
-    "SOVEREIGN_MODE": "sovereign"
+    "SOVEREIGN_MODE": "sovereign",
+    "SOVEREIGN_TIME_ZONE": "UTC"
   },
   "wildcard_cert_use_staging": "true",
   "worker_count": 4,
