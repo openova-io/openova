@@ -58,7 +58,7 @@ spec:
     name: openova
   images:
     - name: ghcr.io/openova-io/openova/sovereign-ops
-      newTag: b184ef8
+      newTag: b874b23
   postBuild:
     substitute:
       SOVEREIGN_OBJECT_SLOT: "12b"
