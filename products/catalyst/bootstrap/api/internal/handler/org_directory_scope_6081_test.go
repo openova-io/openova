@@ -32,7 +32,7 @@ import (
 // orgScopedClaims builds the session an Org console mints (tier=org-admin +
 // the Org slug), which is what claimsAreOrgScoped/orgScopeForRequest read.
 func orgScopedClaims(slug string) *auth.Claims {
-	return &auth.Claims{Email: "customer@" + slug, Tier: orgScopedTier, Org: slug}
+	return &auth.Claims{Email: "customer@" + slug, EmailVerified: true, Tier: orgScopedTier, Org: slug}
 }
 
 func withDirClaims(r *http.Request, c *auth.Claims) *http.Request {
@@ -123,6 +123,7 @@ func TestListOrganizations_OrgScopedSessionSeesItsOwnOrg(t *testing.T) {
 // the guard never lets the request through.
 func TestOrgScopeGuard_OrgScoped_ReadsOrganizationsDirectory(t *testing.T) {
 	h := &Handler{log: quietLog()}
+	withOrgRecords(h, withOwners(orgCR("acme", "", "", ""), "customer@acme", "owner"))
 
 	reached := false
 	guard := h.OrgScopeGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

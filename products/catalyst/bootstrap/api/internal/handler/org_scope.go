@@ -46,6 +46,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgmember"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -85,6 +86,13 @@ type orgScope struct {
 	Namespace string
 	// Host is the resolved (lowercased, port-stripped) request host.
 	Host string
+}
+
+// member is the Organization whose membership record decides this scope:
+// found from the tenant registration, never from the host label (Org),
+// which on a BYO console (console.<byo-domain>) need not be the slug.
+func (s orgScope) member() orgmember.Org {
+	return orgmember.Org{Name: s.Org, TenantID: s.TenantID, Namespace: s.Namespace}
 }
 
 // resolveOrgScope reports whether the request arrived on a registered
@@ -395,32 +403,31 @@ func (h *Handler) OrgScopeGuard(next http.Handler) http.Handler {
 			return
 		}
 		claims := auth.ClaimsFromContext(r.Context())
-		// #4110 host-anchor: the REQUEST HOST is the trust anchor, NOT the
-		// session JWT. A request is Org-scoped if EITHER the session was
-		// minted Org-scoped (fresh PIN login on an Org console — claims tier
-		// = org-admin) OR it simply arrived on a tenant_kind=org console host
-		// (resolveOrgScope). The host predicate is what makes this immune to
-		// a STALE / replayed sovereign-admin cookie: an `admin`-tier session
-		// minted before this fix (or forged) that lands on console.<org>.<zone>
-		// is still confined — the gateway sets X-Forwarded-Host to the real
-		// browser host, which an Org-console browser can never forge.
+		// #4110: a request is Org-scoped if EITHER the session was minted
+		// Org-scoped (tier org-admin, or an agent token) OR it arrived on a
+		// tenant_kind=org console host (resolveOrgScope), so a stale or
+		// replayed sovereign-admin cookie on console.<org>.<zone> is confined
+		// too. The Sovereign's OWN console host (tenant_kind=otech) stays a
+		// transparent passthrough for its operators.
 		//
-		// The Sovereign's OWN console host (tenant_kind=otech, e.g.
-		// console.<sov-fqdn>) makes resolveOrgScope return false → the genuine
-		// operator session is a transparent passthrough → ZERO regression.
-		_, hostOrgScoped := h.resolveOrgScope(r)
+		// The host (or, off an Organization host, the session's org claim)
+		// only names the Organization the request is ABOUT; a client can send
+		// any X-Forwarded-Host. Whether the session may act there, and with
+		// which role, is its membership (orgmember.Gate): a member of A on B's
+		// console, or a stranger's PIN session, is refused before any handler.
+		sc, hostOrgScoped := h.resolveOrgScope(r)
 		if !claimsAreOrgScoped(claims) && !hostOrgScoped {
 			next.ServeHTTP(w, r)
 			return
 		}
 		// Org-scoped customer session: deny-by-default outside the allowlist.
-		if requestIsOrgSafe(r.Method, r.URL.Path) {
+		if !requestIsOrgSafe(r.Method, r.URL.Path) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":  "org-scoped-forbidden",
+				"detail": "this Organization session has no access to Sovereign-admin or cross-organization resources",
+			})
+		} else if orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, orgmember.Target(claims, sc.member(), hostOrgScoped)) {
 			next.ServeHTTP(w, r)
-			return
 		}
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error":  "org-scoped-forbidden",
-			"detail": "this Organization session has no access to Sovereign-admin or cross-organization resources",
-		})
 	})
 }

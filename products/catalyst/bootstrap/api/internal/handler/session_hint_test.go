@@ -162,6 +162,7 @@ func TestPinVerify_HintCarriesOrgSlugForOrgScopedSession(t *testing.T) {
 	// HandlePinVerify mint an Org-SCOPED session (resolveOrgScope), which is
 	// the only session shape that has a slug to hand the marketplace.
 	h.tenantRegistry = orgRegistry(t, "console.acme.omantel.biz", "acme")
+	withOrgRecords(h, withOwners(orgCR("acme", "", "", ""), "owner@acme.test", "owner"))
 	h.pinStore.put("owner@acme.test", "123456", "req-1")
 
 	req := httptest.NewRequest(http.MethodPost,

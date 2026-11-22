@@ -55,6 +55,8 @@ func orgHandoverTestSetup(t *testing.T) (*Handler, []byte) {
 		orgJWTSecret:   orgSecret,
 		tenantRegistry: reg,
 	}
+	// The membership record: demo@openova.io is the owner of Organization demo.
+	withOrgRecords(h, withOwners(orgCR("demo", "", "", "7283eb4a"), "demo@openova.io", "owner"))
 	return h, orgSecret
 }
 
@@ -194,6 +196,7 @@ func TestAuthOrgHandover_OnDemandRegistersFunnelOrg(t *testing.T) {
 	h.SetOrganizationDeps(OrganizationDeps{OTECHFQDN: "omantel.biz"})
 	// The Organization CR for the funnel Org DOES exist on the apiserver.
 	h.SetSovereignDepsFactory(orgCRDepsFactory(orgCR("g4wpsso", "omani.works", "", "tnt-g4")))
+	withOrgRecords(h, withOwners(orgCR("g4wpsso", "omani.works", "", "tnt-g4"), "g4wpsso-stranger@omani.works", "owner"))
 
 	token := mintMemberToken(t, orgSecret, "g4wpsso-stranger@omani.works", time.Now().Add(15*time.Minute))
 	req := httptest.NewRequest(http.MethodGet, "/auth/org-handover?token="+token, nil)

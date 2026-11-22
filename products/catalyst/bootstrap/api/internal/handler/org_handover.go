@@ -25,16 +25,13 @@
 // member). auth.ValidateToken even hard-rejects any non-RS256 alg, so a
 // member token can never be a valid catalyst_session on its own.
 //
-// THE FIX (root cause, permanent): this handler accepts the member token,
-// validates it against h.orgJWTSecret, resolves the Org scope from the
-// REQUEST HOST (the trust anchor — the Cilium Gateway routes the Org
-// console host here and sets X-Forwarded-Host, which a browser on the Org
-// console can never forge), then mints an RS256 Org-scoped catalyst_session
-// — byte-for-byte the same shape HandlePinVerify mints for a customer who
-// PIN-logs-in on their Org console (auth.go #4110 Org-scoping). It sets the
-// HttpOnly Secure SameSite=Lax cookie scoped to the request host, stamps
-// `Referrer-Policy: no-referrer` so the (now token-free) URL never leaks,
-// and 302s to a clean /jobs.
+// THE FIX: this handler accepts the member token, validates it against
+// h.orgJWTSecret, takes the Organization from the request host, admits the
+// person only when they are on its spec.owners (orgmember: the host and the
+// token grant nothing on their own), then mints the RS256 Org-scoped
+// catalyst_session HandlePinVerify mints (auth.go #4110), sets it HttpOnly
+// Secure SameSite=Lax on the request host with `Referrer-Policy:
+// no-referrer` so the token-free URL never leaks, and 302s to a clean /jobs.
 //
 // Result: the marketplace redirects to /auth/org-handover?token=<member>
 // (NO refresh_token in the URL — it stays in client storage via
@@ -53,6 +50,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgmember"
 )
 
 // orgHandoverClaims is the subset of the marketplace member-session token
@@ -101,14 +100,11 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 2. Resolve Org scope from the REQUEST HOST (trust anchor) ───────
-	// The session minted here is ALWAYS Org-scoped (tier=org-admin) and is
-	// bound to the Org whose console host the browser walked through. A
-	// handoff that lands on the Sovereign's own front door
-	// (console.<sov-fqdn>) — or any host the tenant registry does not know
-	// as an Org console — is REFUSED: we never mint an Org session on a
-	// non-Org host, and we never escalate a member token to a
-	// sovereign-admin session.
+	// ── 2. Which Organization's console this is (the host names it) ─────
+	// A handoff on a host the tenant registry does not know as an Org
+	// console (e.g. the Sovereign's own console.<sov-fqdn>) is REFUSED: no
+	// Org session on a non-Org host, never a sovereign-admin session from a
+	// member token. The host grants nothing: step 3b checks membership.
 	scope, ok := h.resolveOrgScope(r)
 	if !ok {
 		// On-demand registry sync (the #3376 terminal-step race): a fresh
@@ -159,6 +155,10 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 	}
 	if email == "" {
 		writeAuthError(w, "missing email claim")
+		return
+	}
+	if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.member(), email); code != 0 {
+		writeAuthError(w, why) // 3b. only a member of the Organization gets a session on its console
 		return
 	}
 
