@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-22T16:15:06Z` |
+| Last refreshed | `2026-11-22T16:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8223](https://github.com/openova-io/openova/issues/8223) | NET-120 Hermetic two-cluster mesh test | Other |
-| [#8225](https://github.com/openova-io/openova/issues/8225) | CLD-115 The VPC pre-flight becomes the Huawei adapter's Preflighter | Other |
 | [#8226](https://github.com/openova-io/openova/issues/8226) | SVC-159 The Blueprint files say what the seed says | Other |
 | [#8230](https://github.com/openova-io/openova/issues/8230) | NET-153 Allow-list of the hand-over proof's deny-egress object | Other |
 | [#8232](https://github.com/openova-io/openova/issues/8232) | FND-156 The conformance account exists on every Sovereign | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8607](https://github.com/openova-io/openova/issues/8607) | SVC-180 Screens group by class; the dead branch goes | Other |
 | [#8609](https://github.com/openova-io/openova/issues/8609) | BSS-070 BSS-G01 becomes required | Other |
 | [#8613](https://github.com/openova-io/openova/issues/8613) | PRD-201 bp-bge chart to the serving rules | Other |
+| [#8617](https://github.com/openova-io/openova/issues/8617) | NET-081 One producer of the Organization kubeconfig | Other |
+| [#8618](https://github.com/openova-io/openova/issues/8618) | SEC-060 Keycloak secrets no longer computable | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
 | 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:33 | [#8610](https://github.com/openova-io/openova/pull/8610) | #8607 | refactor(console): screens group by class and the dead branc |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-21T07:14 | [#8580](https://github.com/openova-io/openova/pull/8580) | #8567 | test(cilium): a cloud-free job moves 64 KB between two worke |
 | 2026-11-21T05:10 | [#8579](https://github.com/openova-io/openova/pull/8579) | #7087 | docs(ledger): plan update |
 | 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
-| 2026-11-21T06:39 | [#8575](https://github.com/openova-io/openova/pull/8575) | #8574 | test: a cloud-free harness drains, restarts and rolls the re |
 
 ---
 
