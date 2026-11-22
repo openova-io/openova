@@ -118,8 +118,8 @@ run_seed() { # run_seed <scriptdir> <creddir>
     sh "$1/seed.sh" >>"${TMP}/seed.log" 2>&1
 }
 
-echo "[connection-seed-sql] 1/4 — the producer writes a real connection"
-extract "${TMP}/armed"
+echo "[connection-seed-sql] 1/5 — the producer writes a real connection"
+extract "${TMP}/armed" --set guacamole.database.connections.nodeShell.enabled=true
 q "${ADMIN_DB}" "DROP DATABASE IF EXISTS guac_armed" >/dev/null
 q "${ADMIN_DB}" "CREATE DATABASE guac_armed" >/dev/null
 creds "${TMP}/cred-armed" guac_armed
@@ -157,7 +157,7 @@ leaked="$(q guac_armed "SELECT count(*) FROM guacamole_connection_parameter WHER
 [[ "${leaked}" == "0" ]] && pass "no credential parameter written when no Secret is mounted" \
                          || fail "${leaked} credential parameter(s) written from a chart with no Secret"
 
-echo "[connection-seed-sql] 2/4 — re-running converges instead of duplicating"
+echo "[connection-seed-sql] 2/5 — re-running converges instead of duplicating"
 run_seed "${TMP}/armed" "${TMP}/cred-armed" || { echo "second seed.sh failed:"; tail -30 "${TMP}/seed.log"; exit 1; }
 n2="$(q guac_armed "SELECT count(*) FROM guacamole_connection")"
 p2="$(q guac_armed "SELECT count(*) FROM guacamole_connection_parameter")"
@@ -166,7 +166,7 @@ r2="$(q guac_armed "SELECT count(*) FROM guacamole_connection_permission")"
   && pass "second run: 2 connections / 10 parameters / 2 permissions (no duplicates)" \
   || fail "second run drifted: connections=${n2} parameters=${p2} permissions=${r2}"
 
-echo "[connection-seed-sql] 3/4 — CONTROL: an empty declared set writes NO connection"
+echo "[connection-seed-sql] 3/5 — CONTROL: an empty declared set writes NO connection"
 extract "${TMP}/empty" \
   --set guacamole.database.connections.nodeShell.enabled=false \
   --set guacamole.database.connections.clusterShell.enabled=false \
@@ -183,8 +183,9 @@ gn="$(q guac_empty "SELECT count(*) FROM guacamole_user_group")"
 [[ "${gn}" == "1" ]] && pass "CONTROL is non-vacuous: the same run seeded the admin USER_GROUP" \
                      || fail "CONTROL: admin USER_GROUP count is ${gn} — the script did not really run"
 
-echo "[connection-seed-sql] 4/4 — credentials come from the Secret, never from the chart"
-extract "${TMP}/cred" --set guacamole.database.connections.nodeShell.credentialSecretName=guac-node-key
+echo "[connection-seed-sql] 4/5 — credentials come from the Secret, never from the chart"
+extract "${TMP}/cred" --set guacamole.database.connections.nodeShell.enabled=true \
+  --set guacamole.database.connections.nodeShell.credentialSecretName=guac-node-key
 mkdir -p "${TMP}/mounted/sovereign-node" "${TMP}/mounted/cluster-shell"
 printf '%s' '-----BEGIN OPENSSH PRIVATE KEY-----
 TEST-ONLY-NOT-A-REAL-KEY
@@ -226,6 +227,43 @@ if grep -q 'TEST-ONLY-NOT-A-REAL-KEY' "${TMP}/cred/render.yaml"; then
 else
   pass "the rendered manifests carry the Secret NAME only, never the material"
 fi
+
+echo "[connection-seed-sql] 5/5 — ACC-010: an upgraded database loses the admin grant and the node shell"
+# The default render over a database an earlier revision seeded: rows written by
+# hand give the group ADMINISTER and add sovereign-node; then seed.sh and promote.sh run.
+extract "${TMP}/upgrade"
+q "${ADMIN_DB}" "DROP DATABASE IF EXISTS guac_upgrade" >/dev/null
+q "${ADMIN_DB}" "CREATE DATABASE guac_upgrade" >/dev/null
+creds "${TMP}/cred-upgrade" guac_upgrade
+run_promote() { CRED="${TMP}/cred-upgrade" SCRIPTS_DIR="${TMP}/upgrade" NODE_IP="10.9.8.7" NODE_NAME="cp-1" \
+  sh "${TMP}/upgrade/promote.sh" >>"${TMP}/seed.log" 2>&1; }
+# The per-minute leg can run before the schema exists; it must not fail then.
+run_promote && pass "promote.sh exits 0 on a database without the schema" \
+            || fail "promote.sh fails on a database without the schema: $(tail -3 "${TMP}/seed.log")"
+psql -q -v ON_ERROR_STOP=1 -d guac_upgrade -f "${TMP}/upgrade/001-create-schema.sql" >/dev/null
+# The grant's table is a psql variable: the access guard ACC-GD2 counts every
+# written insert into it under platform/guacamole, and this row is a fixture.
+psql -q -v ON_ERROR_STOP=1 -v perm_table=guacamole_system_permission -d guac_upgrade >/dev/null <<'SQL'
+INSERT INTO guacamole_entity (name, type) VALUES ('sovereign-admins', 'USER_GROUP');
+INSERT INTO guacamole_user_group (entity_id)
+  SELECT entity_id FROM guacamole_entity WHERE name = 'sovereign-admins' AND type = 'USER_GROUP';
+INSERT INTO :"perm_table" (entity_id, permission)
+  SELECT entity_id, 'ADMINISTER' FROM guacamole_entity WHERE name = 'sovereign-admins' AND type = 'USER_GROUP';
+INSERT INTO guacamole_connection (connection_name, protocol) VALUES ('sovereign-node', 'ssh');
+SQL
+counts="SELECT (SELECT count(*) FROM guacamole_system_permission) || '/' || (SELECT count(*) FROM guacamole_connection WHERE connection_name = 'sovereign-node')"
+before="$(q guac_upgrade "${counts}")"
+[[ "${before}" == "1/1" ]] && pass "CONTROL is non-vacuous: before the run there is 1 system permission and 1 sovereign-node" \
+                           || fail "CONTROL: the hand-written rows are '${before}', want 1/1"
+run_seed "${TMP}/upgrade" "${TMP}/cred-upgrade" || { echo "upgrade seed.sh failed:"; tail -30 "${TMP}/seed.log"; exit 1; }
+run_promote || { echo "upgrade promote.sh failed:"; tail -30 "${TMP}/seed.log"; exit 1; }
+after="$(q guac_upgrade "${counts}")"
+[[ "${after}" == "0/0" ]] && pass "no system permission and no sovereign-node connection are left" \
+                          || fail "system permissions/sovereign-node are '${after}' after seed.sh and promote.sh, want 0/0"
+cs="$(q guac_upgrade "SELECT string_agg(c.connection_name || ':' || e.name || ':' || p.permission, ',' ORDER BY c.connection_name) FROM guacamole_connection c JOIN guacamole_connection_permission p USING (connection_id) JOIN guacamole_entity e USING (entity_id)")"
+[[ "${cs}" == "cluster-shell:sovereign-admins:READ" ]] \
+  && pass "cluster-shell exists with one READ permission for the group, and no other connection permission" \
+  || fail "connection permissions are '${cs}', want cluster-shell:sovereign-admins:READ"
 
 if [[ "${fails}" -gt 0 ]]; then
   echo "[connection-seed-sql] ${fails} assertion(s) FAILED"

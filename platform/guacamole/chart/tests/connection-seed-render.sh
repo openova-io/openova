@@ -27,6 +27,8 @@
 # Without the control, this file would also pass for a producer that invents a
 # row, which on a table that holds credentials is worse than the empty list
 # row 115 is about.
+# ACC-010: `sovereign-node` is off by default and the default render removes it;
+# the sovereign-node assertions render with nodeShell.enabled=true.
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -123,19 +125,34 @@ fi
 
 echo "[connection-seed] 2/6 — the produced connection is a real, named target"
 seed_body="$(body "${TMP}/common.sh" seed_connections)"
-if grep -q "ensure_connection 'sovereign-node' 'ssh'" <<<"${seed_body}"; then
-  pass "seed_connections() creates the sovereign-node ssh connection (asserted on the VALUES)"
+# ACC-010: by default the node shell is not seeded, and an earlier one is removed.
+if grep -q "ensure_connection 'sovereign-node'" <<<"${seed_body}"; then
+  fail "the default render still seeds the sovereign-node connection (ACC-010 turns it off)"
 else
-  fail "seed_connections() has no sovereign-node/ssh target"
+  pass "the default render does not seed the sovereign-node connection"
+fi
+if grep -qx "  remove_connection 'sovereign-node'" <<<"${seed_body}"; then
+  pass "the default render removes the sovereign-node connection an earlier revision seeded"
+else
+  fail "the default render does not call remove_connection 'sovereign-node'"
+fi
+render "${TMP}/node.yaml" --set guacamole.database.connections.nodeShell.enabled=true \
+  || { echo "helm template failed:"; cat "${TMP}/node.yaml.err"; exit 1; }
+scripts "${TMP}/node.yaml" common.sh >"${TMP}/node-common.sh"
+node_body="$(body "${TMP}/node-common.sh" seed_connections)"
+if grep -q "ensure_connection 'sovereign-node' 'ssh'" <<<"${node_body}"; then
+  pass "with nodeShell.enabled=true seed_connections() creates the sovereign-node ssh connection (asserted on the VALUES)"
+else
+  fail "with nodeShell.enabled=true seed_connections() has no sovereign-node/ssh target"
 fi
 # The hostname must come from the downward API at run time — a hardcoded
 # address in a public chart would be both wrong and a leak.
-if grep -q 'set_connection_parameter .sovereign-node. .hostname. "\${NODE_IP}"' <<<"${seed_body}"; then
+if grep -q 'set_connection_parameter .sovereign-node. .hostname. "\${NODE_IP}"' <<<"${node_body}"; then
   pass "hostname is \${NODE_IP} (downward API), not a baked address"
 else
   fail "hostname is not sourced from \${NODE_IP}"
 fi
-if grep -q "NODE_IP:-" <<<"${seed_body}" && grep -q 'NOT written' <<<"${seed_body}"; then
+if grep -q "NODE_IP:-" <<<"${node_body}" && grep -q 'NOT written' <<<"${node_body}"; then
   pass "an empty NODE_IP writes no connection (runtime half of the control)"
 else
   fail "no runtime guard on an empty NODE_IP — the producer could write a hostname-less row"
@@ -257,6 +274,7 @@ fi
 
 echo "[connection-seed] 6/6 — credential Secret is mounted, optional, on both legs"
 render "${TMP}/secret.yaml" \
+  --set guacamole.database.connections.nodeShell.enabled=true \
   --set guacamole.database.connections.nodeShell.credentialSecretName=guac-node-key \
   || { echo "helm template failed:"; cat "${TMP}/secret.yaml.err"; exit 1; }
 mounts="$(python3 - "${TMP}/secret.yaml" <<'PY'
@@ -424,7 +442,7 @@ if grep -q 'catalyst.openova.io/component: jdbc-seed' "${TMP}/nocap.yaml"; then
 else
   fail "seed Job VANISHES without the CNPG api-version — the #5991 render-time gate is back"
 fi
-for target in sovereign-node cluster-shell; do
+for target in cluster-shell; do
   if grep -q "${target}" "${TMP}/nocap.yaml"; then
     pass "connection target '${target}' present without the api-version"
   else

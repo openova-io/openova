@@ -151,6 +151,34 @@ else
   fail "vacuity: no enrollment SQL anywhere in the render — the checks above proved nothing"
 fi
 
+# 5. ACC-010: the scripts grant the group no system permission, delete any, and
+#    both legs call drop_admin_permissions. The table name is split so that the
+#    access guard ACC-GD2 does not count this file. The SQL is read with its
+#    white space folded to one space, so a statement over two lines counts too.
+seed_cm="$(awk '
+  function flush() { if (cm && hit) printf "%s", buf; buf = ""; cm = 0; hit = 0 }
+  /^---/ { flush(); next }
+  { buf = buf $0 "\n" }
+  /^kind: ConfigMap$/ { cm = 1 }
+  /^  name: "?[^ ]*-jdbc-seed-scripts"?$/ { hit = 1 }
+  END { flush() }
+' "${TMP}/all.yaml")"
+# leg_lines <key>: the lines of one script of that ConfigMap, without the YAML indent.
+leg_lines() {
+  awk -v key="$1" '$0 ~ "^  " key ": [|]" { on = 1; next } on && /^  [^ ]/ { on = 0 } on { sub(/^    /, ""); print }' <<<"${seed_cm}"
+}
+table="guacamole_system""_permission"
+seed_sql="$(tr -s '[:space:]' ' ' <<<"${seed_cm}")"
+if [ -n "${seed_cm}" ] \
+   && ! grep -q -i -E "insert into ${table}([^A-Za-z0-9_]|\$)" <<<"${seed_sql}" \
+   && grep -q -i -E "delete from ${table}([^A-Za-z0-9_]|\$)" <<<"${seed_sql}" \
+   && grep -q -x 'drop_admin_permissions' <<<"$(leg_lines 'seed[.]sh')" \
+   && grep -q -x 'drop_admin_permissions' <<<"$(leg_lines 'promote[.]sh')"; then
+  pass "the admin group is granted no system permission, and both legs remove any that an earlier revision granted (ACC-010)"
+else
+  fail "the rendered scripts still grant a system permission, or a leg does not call drop_admin_permissions (ACC-010)"
+fi
+
 if [ "${fails}" -ne 0 ]; then
   echo "[admin-enroll] ${fails} failure(s) — SSO permission enrollment is not armed"
   exit 1

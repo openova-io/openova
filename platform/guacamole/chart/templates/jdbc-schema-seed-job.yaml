@@ -9,9 +9,8 @@ bundled JDBC (postgresql) permission store with a SINGLE container (CNPG
 postgres image — has psql) that:
   a. applies 001-create-schema.sql ONCE (idempotent guard: skip if the
      `guacamole_entity` table already exists),
-  b. creates a `<adminGroup>` USER_GROUP entity holding the ADMINISTER
-     (+ CREATE_*) system permissions, so any SSO user whose `groups`
-     claim contains <adminGroup> inherits guacamole admin. We DELIBERATELY
+  b. creates a `<adminGroup>` USER_GROUP entity with NO system permission
+     (ACC-010). We DELIBERATELY
      do NOT seed the default guacadmin/guacadmin password account from
      002-create-admin-user.sql — admin is group-driven via SSO only.
 
@@ -155,10 +154,15 @@ manifest is strictly worse than waiting for the database.
 {{- $connEnabled := true -}}
 {{- if hasKey $conn "enabled" }}{{- $connEnabled = $conn.enabled -}}{{- end -}}
 {{- $targets := list -}}
+{{- /* ACC-010: connections the seeder deletes (nodeShell.enabled false). */ -}}
+{{- $retired := list -}}
 {{- if $connEnabled -}}
 {{- $ns := $conn.nodeShell | default dict -}}
 {{- $nsEnabled := true -}}
 {{- if hasKey $ns "enabled" }}{{- $nsEnabled = $ns.enabled -}}{{- end -}}
+{{- if not $nsEnabled -}}
+{{- $retired = append $retired ($ns.name | default "sovereign-node") -}}
+{{- end -}}
 {{- if $nsEnabled -}}
 {{- $targets = append $targets (dict
       "name" ($ns.name | default "sovereign-node")
@@ -228,6 +232,11 @@ manifest is strictly worse than waiting for the database.
    values would be committed to a public repo, and a quote in a name or value
    would break out of the single-quoted shell word the target block renders. */ -}}
 {{- $credentialParams := list "password" "passphrase" "private-key" "client-key" "client-cert" "secret" "token" "auth-token" -}}
+{{- range $r := $retired -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" $r) -}}
+{{- fail (printf "bp-guacamole: connection name %q is not [A-Za-z0-9._-]{1,64} — the name is rendered into a shell word" $r) -}}
+{{- end -}}
+{{- end -}}
 {{- range $t := $targets -}}
 {{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" $t.name) -}}
 {{- fail (printf "bp-guacamole: connection name %q is not [A-Za-z0-9._-]{1,64} — the name is rendered into a shell word and a Secret mount path" $t.name) -}}
@@ -340,6 +349,18 @@ data:
       cnt="$(printf '%s' "$n" | grep -c . || true)"
       echo "[jdbc-seed] enrolled ${cnt} user(s) into ${ADMIN_GROUP}"
     }
+    # drop_admin_permissions (ACC-010): remove every system permission of
+    # <ADMIN_GROUP>; every user the gate admits is in it. Idempotent.
+    drop_admin_permissions() {
+      if ! $PSQL -c "SELECT to_regclass('public.guacamole_system_permission');" 2>/dev/null | grep -q '^guacamole_system_permission$'; then
+        echo "[jdbc-seed] schema not yet present — permission removal deferred"; return 0
+      fi
+      $PSQL -v agroup="$ADMIN_GROUP" <<'SQL'
+    DELETE FROM guacamole_system_permission WHERE entity_id IN
+      (SELECT entity_id FROM guacamole_entity WHERE name = :'agroup' AND type = 'USER_GROUP');
+    SQL
+      echo "[jdbc-seed] system permissions of ${ADMIN_GROUP} removed"
+    }
     # ── connection producer (#5991 / UAT row 115) ──────────────────────────
     # ensure_connection <name> <protocol>: create the connection if absent and
     # grant the admin USER_GROUP READ on it (what makes it render in ALL
@@ -396,6 +417,15 @@ data:
     DO UPDATE SET parameter_value = EXCLUDED.parameter_value;
     SQL
     }
+    # remove_connection <name> (ACC-010): delete a root-level connection; its
+    # parameters and permissions go with it (ON DELETE CASCADE). Idempotent.
+    remove_connection() {
+      cname="$1"
+      $PSQL -v cname="$cname" <<'SQL'
+    DELETE FROM guacamole_connection WHERE connection_name = :'cname' AND parent_id IS NULL;
+    SQL
+      echo "[jdbc-seed] ${cname}: connection removed if it was present"
+    }
     # load_connection_credentials <name> <dir>: credential material is read
     # HERE, at run time, from a Secret mounted read-only — it is never in
     # values, in this chart, or in the ConfigMap. The mount is optional, so an
@@ -433,6 +463,10 @@ data:
       if ! $PSQL -c "SELECT to_regclass('public.guacamole_connection');" 2>/dev/null | grep -q '^guacamole_connection$'; then
         echo "[jdbc-seed] schema not yet present — connection seeding deferred"; return 0
       fi
+{{- range $r := $retired }}
+      # ── retired: {{ $r }} (ACC-010) ──
+      remove_connection '{{ $r }}'
+{{- end }}
 {{- range $t := $targets }}
       # ── target: {{ $t.name }} ({{ $t.protocol }}) ──
   {{- if $t.hostnameFromNodeIP }}
@@ -474,10 +508,8 @@ data:
       echo "[jdbc-seed] schema applied"
     fi
 
-    # (2) Seed the admin USER_GROUP (idempotent). Members inherit guacamole
-    #     admin (ADMINISTER) + the CREATE_* system permissions. The openid
-    #     extension binds an SSO user into this group when its `groups` claim
-    #     contains the name. NO password account is created — SSO-only admin.
+    # (2) Seed the admin USER_GROUP (idempotent), with NO system permission
+    #     (ACC-010). NO password account is created.
     #     ADMIN_GROUP is exported by common.sh.
     $PSQL <<SQL
     INSERT INTO guacamole_entity (name, type)
@@ -490,25 +522,9 @@ data:
     SELECT entity_id FROM guacamole_entity
     WHERE name = '${ADMIN_GROUP}' AND type = 'USER_GROUP'
       AND entity_id NOT IN (SELECT entity_id FROM guacamole_user_group);
-
-    INSERT INTO guacamole_system_permission (entity_id, permission)
-    SELECT e.entity_id, p.permission::guacamole_system_permission_type
-    FROM (VALUES
-      ('CREATE_CONNECTION'),
-      ('CREATE_CONNECTION_GROUP'),
-      ('CREATE_SHARING_PROFILE'),
-      ('CREATE_USER'),
-      ('CREATE_USER_GROUP'),
-      ('ADMINISTER')
-    ) AS p(permission)
-    JOIN guacamole_entity e ON e.name = '${ADMIN_GROUP}' AND e.type = 'USER_GROUP'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM guacamole_system_permission sp
-      WHERE sp.entity_id = e.entity_id
-        AND sp.permission = p.permission::guacamole_system_permission_type
-    );
     SQL
-    echo "[jdbc-seed] admin USER_GROUP '${ADMIN_GROUP}' ensured with ADMINISTER"
+    drop_admin_permissions
+    echo "[jdbc-seed] admin USER_GROUP '${ADMIN_GROUP}' ensured without system permissions"
 
     # (3) Enroll any already-present SSO-auto-created USER into the admin group
     #     (catch-up for owners who logged in before this seed ran). The
@@ -523,6 +539,7 @@ data:
   promote.sh: |
     . "${SCRIPTS_DIR:-/scripts}/common.sh"
     wait_for_db
+    drop_admin_permissions
     enroll_admins
     seed_connections
   # Verbatim Apache Guacamole 1.5.5 PostgreSQL schema, vendored into the chart

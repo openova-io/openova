@@ -238,6 +238,10 @@ spec:
             - --redirect-url=https://{{ $hostname }}/oauth2/callback
             - --upstream={{ $inst.upstream }}
             - --email-domain=*
+            {{- /* ACC-010: one --allowed-group per allowedGroups entry; none admits every realm user. */}}
+            {{- range $g := ($inst.allowedGroups | default list) }}
+            - --allowed-group={{ $g }}
+            {{- end }}
             - --scope=openid profile email groups
 {{- if $internalRealm }}
             # #3844 — skip discovery against the public EIP (unhairpinnable
