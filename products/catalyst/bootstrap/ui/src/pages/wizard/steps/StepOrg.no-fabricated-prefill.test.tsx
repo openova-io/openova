@@ -44,8 +44,10 @@ afterEach(() => {
   window.localStorage.clear()
 })
 
+// The profile selects. The time zone select (INF-054) is left out: it holds the
+// browser's zone on purpose, a proposal the operator can see and change.
 function selects(): HTMLSelectElement[] {
-  return Array.from(document.querySelectorAll('select'))
+  return Array.from(document.querySelectorAll('select:not([name="sovereignTimeZone"])'))
 }
 function textInputs(): HTMLInputElement[] {
   return Array.from(document.querySelectorAll('input[type="text"]'))

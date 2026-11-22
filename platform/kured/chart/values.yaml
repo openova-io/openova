@@ -9,8 +9,12 @@ kured:
     rebootSentinel: /var/run/reboot-required  # --reboot-sentinel: the file unattended upgrades write
     period: 30m                               # --period: a node-local file check, no call to any service; see "A drain that cannot finish"
     concurrency: 1                            # --concurrency: one node at a time per cluster
-    startTime: "00:30"                        # --start-time: the reboot span opens
-    endTime: "22:00"                          # --end-time: the reboot span closes; the hours left are the upgrade window
+    # The reboot span: a night span, never the working day. The kit slot reads
+    # it from the Sovereign's variables document (KURED_START_TIME,
+    # KURED_END_TIME, KURED_TIME_ZONE) with these values as fallback, and the
+    # time zone as the Sovereign's own (SOVEREIGN_TIME_ZONE).
+    startTime: "01:00"                        # --start-time: the reboot span opens
+    endTime: "05:00"                          # --end-time: the reboot span closes
     timeZone: UTC                             # --time-zone
     rebootDays: [su, mo, tu, we, th, fr, sa]  # --reboot-days: every day
     drainTimeout: 10m                         # --drain-timeout: a node that cannot drain is not rebooted; see "A drain that cannot finish"

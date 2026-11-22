@@ -133,27 +133,15 @@ def variables_doc(fqdn, parent_fqdn, api_url):
     """The variables document (contract C5) a child gets: provisioner.go childVariables,
     upstream.Served. Every key the code can fill for a child holds its longest form;
     ORIGIN_REGISTRY_CA_B64, ORIGIN_PROXY_ENDPOINTS_JSON and the MAIL_* values stay
-    empty because upstream.Served clears them for every child."""
+    empty because upstream.Served clears them for every child. A key not named below
+    has the default of the contract, as upstream.Served gives it."""
     parent_registry = "registry." + parent_fqdn
-    return {
-        "SOVEREIGN_MODE": "sovereign",
-        "SOVEREIGN_CONSUME": "origin",
-        "HANDOVER_AUTO": "true",
-        "HANDOVER_HOLD_SECONDS": "600",
+    schema = json.load(open(os.path.join(REPO, "docs", "contracts", "c5-upstream-variables.schema.json")))["properties"]
+    return {k: p["default"] for k, p in schema.items() if "default" in p} | {
         "REGISTRY_HOST": parent_registry,
         "REGISTRY_SCHEME": "https",
         "LOCAL_REGISTRY_HOST": "registry." + fqdn,
         "ORIGIN_REGISTRY_HOST": parent_registry,
-        "ORIGIN_REGISTRY_SCHEME": "https",
-        "ORIGIN_REGISTRY_CA_B64": "",
-        "ORIGIN_PROXY_ENDPOINTS_JSON": "{}",
-        "REGISTRY_PULL_SECRET": "ghcr-pull",
-        "REGISTRY_PATH_CHARTS": "openova-io",
-        "REGISTRY_PATH_RELEASE": "openova-io/release",
-        "REGISTRY_PATH_PROVIDER_PACKS": "openova-io/provider-packs",
-        "REGISTRY_PATH_XPKG": "proxy-xpkg",
-        "REGISTRY_PATH_TOFU_PROVIDERS": "tofu-providers",
-        "REGISTRY_PATH_NODE_ARTIFACTS": "node-artifacts",
         "REGISTRY_PATH_VULN_DB": "proxy-vulndb/proxy-vulndb/aquasecurity/trivy-db",
         "REGISTRY_PROXY_PROJECTS_JSON": json.dumps({
             "docker.io": "proxy-dockerhub", "gcr.io": "proxy-gcr", "ghcr.io": "proxy-ghcr",
@@ -164,24 +152,13 @@ def variables_doc(fqdn, parent_fqdn, api_url):
             ("-----BEGIN PUBLIC KEY-----\n" + filler("cosign", 64, ALNUM) + "\n" + filler("cosign2", 60, ALNUM)
              + "==\n-----END PUBLIC KEY-----\n").encode()).decode(),
         "RELEASE_CHANNEL": "candidate",
-        "RELEASE_VERSION": "",
-        "RELEASE_AUTO": "false",
-        "RELEASE_SYNC_SCHEDULE": "0 3 * * *",
         "ORIGIN_PARENT_FQDN": parent_fqdn,
         "ORIGIN_PARENT_API_URL": api_url,
         "DNS_MODE": "upstream-managed",
-        "DNS_UPSTREAM_API_URL": "",
         "MAIL_MODE": "local",
-        "MAIL_RELAY_HOST": "",
-        "MAIL_RELAY_PORT": "587",
-        "MAIL_FROM": "",
-        "MAIL_RELAY_SECRET": "",
         "K3S_VERSION": "v1.31.8+k3s1",
-        "K3S_UPGRADE_CONCURRENCY": "1",
         "CLOUD_CREDENTIAL_MODE": "supplied",
-        "CLOUD_CREDENTIAL_ROTATION_SCHEDULE": "0 2 1 * *",
-        "CLOUD_CREDENTIAL_ROTATION_NONCE": "",
-        "GITOPS_REPO_URL": "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack",
+        "SOVEREIGN_TIME_ZONE": "America/Argentina/ComodRivadavia",  # the longest name of the IANA time zone database
     }
 
 

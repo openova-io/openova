@@ -124,6 +124,10 @@ export interface WizardState {
   /** When sovereignDomainMode in ('byo-manual','byo-api'), the full domain
    *  the customer brings (e.g. 'acme.com' or 'sovereign.acme-bank.com'). */
   sovereignByoDomain: string
+  /** The Sovereign's own IANA time zone (INF-054); '' until the operator picks
+   *  one, and the wizard then proposes the browser's (browserTimeZone). The
+   *  Sovereign restarts its nodes between 01:00 and 05:00 in it by default. */
+  sovereignTimeZone: string
   /** When sovereignDomainMode='byo-api', the registrar adapter to use. */
   registrarType: RegistrarType | null
   /**
@@ -536,6 +540,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   sovereignPoolDomain: SOVEREIGN_POOL_DOMAINS[0]!.id,
   sovereignSubdomain: '',
   sovereignByoDomain: '',
+  sovereignTimeZone: '',
   registrarType: null,
   registrarToken: '',
   registrarTokenValidated: false,
@@ -649,4 +654,30 @@ export function isValidDomain(domain: string): boolean {
   if (!d || d.length > 253) return false
   // Each label same rule as subdomain; at least 2 labels for a public domain
   return d.split('.').every(isValidSubdomain) && d.split('.').length >= 2
+}
+
+/** The time zones step 1 of the wizard offers for the Sovereign (INF-054):
+ *  UTC and the browser's IANA list, sorted. */
+export function offeredTimeZones(): string[] {
+  let listed: string[] = []
+  try {
+    listed = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
+  } catch {
+    listed = []
+  }
+  return Array.from(new Set(['UTC', ...listed])).sort()
+}
+
+/** The browser's IANA time zone, the wizard's proposal for the Sovereign's own
+ *  time zone (INF-054), only when the list of offeredTimeZones holds it; else
+ *  UTC, so that the request never carries a zone the person did not pick and
+ *  the list does not offer. */
+export function browserTimeZone(): string {
+  let zone = ''
+  try {
+    zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  } catch {
+    zone = ''
+  }
+  return zone !== '' && offeredTimeZones().includes(zone) ? zone : 'UTC'
 }
