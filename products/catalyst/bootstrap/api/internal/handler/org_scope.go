@@ -88,6 +88,13 @@ type orgScope struct {
 	Host string
 }
 
+// member is the Organization whose membership record decides this scope:
+// found from the tenant registration, never from the host label (Org),
+// which on a BYO console (console.<byo-domain>) need not be the slug.
+func (s orgScope) member() orgmember.Org {
+	return orgmember.Org{Name: s.Org, TenantID: s.TenantID, Namespace: s.Namespace}
+}
+
 // resolveOrgScope reports whether the request arrived on a registered
 // Organization console host (tenant_kind=org) and, if so, returns the Org
 // scope. The second return is false for the Sovereign's own front door
@@ -419,7 +426,7 @@ func (h *Handler) OrgScopeGuard(next http.Handler) http.Handler {
 				"error":  "org-scoped-forbidden",
 				"detail": "this Organization session has no access to Sovereign-admin or cross-organization resources",
 			})
-		} else if orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, orgmember.Target(claims, sc.Org, hostOrgScoped)) {
+		} else if orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, orgmember.Target(claims, sc.member(), hostOrgScoped)) {
 			next.ServeHTTP(w, r)
 		}
 	})

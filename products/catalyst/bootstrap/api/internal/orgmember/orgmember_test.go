@@ -51,9 +51,45 @@ func TestRoleOf_ReadsSpecOwnersBySlugOrSubdomain(t *testing.T) {
 		{"other", "owner@acme.test", ""}, // no such Organization
 	}
 	for _, c := range cases {
-		got, err := m.RoleOf(context.Background(), c.org, c.email)
+		got, err := m.RoleOf(context.Background(), Named(c.org), c.email)
 		if err != nil || got != c.want {
 			t.Errorf("RoleOf(%s, %s) = %q, %v; want %q", c.org, c.email, got, err, c.want)
+		}
+	}
+}
+
+func labelled(obj *unstructured.Unstructured, tenant string) *unstructured.Unstructured {
+	obj.SetLabels(map[string]string{TenantLabel: tenant})
+	return obj
+}
+
+// TestRoleOf_RegisteredOrgIsFoundByItsTenantNeverItsHostLabel: the console of
+// a BYO-domain Organization (acme-corp at console.acme.com) carries the host
+// label "acme", which is another Organization's slug. Its registration, not
+// the label, decides whose spec.owners is read.
+func TestRoleOf_RegisteredOrgIsFoundByItsTenantNeverItsHostLabel(t *testing.T) {
+	m, _ := members(t,
+		labelled(org("acme", "", "o@acme.test", "owner"), "tnt-acme"),
+		labelled(org("acme-corp", "", "c@corp.test", "owner"), "tnt-corp"),
+		org("legacy", "", "l@legacy.test", "admin"),
+	)
+	byo := Org{Name: "acme", TenantID: "tnt-corp", Namespace: "acme-corp"}
+	cases := []struct {
+		name  string
+		org   Org
+		email string
+		want  string
+	}{
+		{"owner of the BYO Organization", byo, "c@corp.test", Owner},
+		{"owner of the Organization the host label names", byo, "o@acme.test", ""},
+		{"unlabelled Organization named by its namespace", Org{Name: "legacy", TenantID: "legacy", Namespace: "legacy"}, "l@legacy.test", Admin},
+		{"namespace names an Organization of another tenant", Org{Name: "acme", TenantID: "tnt-x", Namespace: "acme"}, "o@acme.test", ""},
+		{"no Organization for the registration", Org{Name: "acme", TenantID: "tnt-none"}, "o@acme.test", ""},
+	}
+	for _, c := range cases {
+		got, err := m.RoleOf(context.Background(), c.org, c.email)
+		if err != nil || got != c.want {
+			t.Errorf("%s: RoleOf(%+v, %s) = %q, %v; want %q", c.name, c.org, c.email, got, err, c.want)
 		}
 	}
 }
@@ -63,7 +99,7 @@ func TestRoleOf_CachesForTTLAndNeverCachesErrors(t *testing.T) {
 	now := time.Unix(1000, 0)
 	m.now = func() time.Time { return now }
 	for i := 0; i < 3; i++ {
-		if r, _ := m.RoleOf(context.Background(), "acme", "o@acme.test"); r != Owner {
+		if r, _ := m.RoleOf(context.Background(), Named("acme"), "o@acme.test"); r != Owner {
 			t.Fatalf("want owner, got %q", r)
 		}
 	}
@@ -71,13 +107,13 @@ func TestRoleOf_CachesForTTLAndNeverCachesErrors(t *testing.T) {
 		t.Fatalf("want one read within TTL, got %d", *reads)
 	}
 	now = now.Add(TTL + time.Second)
-	_, _ = m.RoleOf(context.Background(), "acme", "o@acme.test")
+	_, _ = m.RoleOf(context.Background(), Named("acme"), "o@acme.test")
 	if *reads != 2 {
 		t.Fatalf("want a fresh read after TTL, got %d", *reads)
 	}
 
 	broken := For(&struct{ int }{1}, func() (dynamic.Interface, error) { return nil, errors.New("apiserver down") })
-	if _, err := broken.RoleOf(context.Background(), "acme", "o@acme.test"); err == nil {
+	if _, err := broken.RoleOf(context.Background(), Named("acme"), "o@acme.test"); err == nil {
 		t.Fatal("an unreadable record must be an error, never a role")
 	}
 }
@@ -100,7 +136,7 @@ func TestRoleFor_SessionKinds(t *testing.T) {
 		{"support session of a", &auth.Claims{SupportSession: true, ImpersonatedOrg: "a", Tier: "owner"}, ""},
 	}
 	for _, c := range cases {
-		got, err := m.RoleFor(context.Background(), c.c, "b")
+		got, err := m.RoleFor(context.Background(), c.c, Named("b"))
 		if err != nil || got != c.want {
 			t.Errorf("%s: got %q, %v; want %q", c.name, got, err, c.want)
 		}
@@ -126,7 +162,7 @@ func TestGate_AgentTokenWritesAreRestrictsToDecide(t *testing.T) {
 	for _, c := range cases {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/org/applications", nil)
-		ok := m.Gate(rec, req, c.c, c.org)
+		ok := m.Gate(rec, req, c.c, Named(c.org))
 		got := rec.Code
 		if ok {
 			got = http.StatusOK

@@ -157,7 +157,7 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, "missing email claim")
 		return
 	}
-	if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.Org, email); code != 0 {
+	if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.member(), email); code != 0 {
 		writeAuthError(w, why) // 3b. only a member of the Organization gets a session on its console
 		return
 	}

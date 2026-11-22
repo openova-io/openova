@@ -1056,7 +1056,7 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	// removed member loses access within orgmember.TTL.
 	orgClaim := ""
 	if scope, ok := h.resolveOrgScope(r); ok {
-		if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.Org, email); code != 0 {
+		if code, why := orgmember.For(h, h.dynamicClientOrFallback).Refusal(r.Context(), scope.member(), email); code != 0 {
 			writeJSON(w, code, map[string]string{"error": why, "detail": "this address holds no role in this Organization"})
 			return
 		}

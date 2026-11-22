@@ -56,7 +56,7 @@ func orgHandoverTestSetup(t *testing.T) (*Handler, []byte) {
 		tenantRegistry: reg,
 	}
 	// The membership record: demo@openova.io is the owner of Organization demo.
-	withOrgRecords(h, withOwners(orgCR("demo", "", "", ""), "demo@openova.io", "owner"))
+	withOrgRecords(h, withOwners(orgCR("demo", "", "", "7283eb4a"), "demo@openova.io", "owner"))
 	return h, orgSecret
 }
 

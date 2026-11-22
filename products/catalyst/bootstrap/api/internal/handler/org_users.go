@@ -191,14 +191,19 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 	}
 	if claims := auth.ClaimsFromContext(r.Context()); claimsAreOrgScoped(claims) {
 		sessionOrg := strings.ToLower(strings.TrimSpace(claims.Org))
-		if sessionOrg == "" || boundOrg == "" || sessionOrg != boundOrg {
+		// The claim is a host label, which two Organizations can share (a
+		// BYO console.acme.com and a pool console.acme.<zone>), so on an
+		// Organization console the header must also name that console's own
+		// registration.
+		sc, onOrgHost := h.resolveOrgScope(r)
+		if sessionOrg == "" || boundOrg == "" || sessionOrg != boundOrg || (onOrgHost && sc.TenantID != t.TenantID) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "org-scope-mismatch",
 				"detail": "this Organization session may only access its own Organization",
 			})
 			return store.TenantRegistration{}, false
 		}
-	} else if claims != nil && (!applicationInstallCallerAuthorized(claims) || claims.SupportSession) && !orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, boundOrg) {
+	} else if claims != nil && (!applicationInstallCallerAuthorized(claims) || claims.SupportSession) && !orgmember.For(h, h.dynamicClientOrFallback).Gate(w, r, claims, orgmember.Org{Name: boundOrg, TenantID: t.TenantID, Namespace: t.OrganizationNamespace}) {
 		return store.TenantRegistration{}, false
 	}
 	return t, true

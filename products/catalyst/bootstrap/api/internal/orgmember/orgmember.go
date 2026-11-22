@@ -42,6 +42,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
@@ -95,18 +96,60 @@ func For(owner any, dyn func() (dynamic.Interface, error)) *Members {
 	return m.(*Members)
 }
 
+// TenantLabel is the label every door that creates an Organization object
+// stamps with the tenant id its console host is registered under
+// (handler/org_tenant_org_cr.go ensureOrganizationCR,
+// core/services/provisioning/handlers/organization_create.go); the tenant
+// registry reconcile reads it back (handler.tenantRegistrationFromOrgCR).
+const TenantLabel = "openova.io/tenant-id"
+
+// Org names the Organization a request is about.
+//
+// Name is what a session minted for that Organization carries in its org
+// claim: the label of the console host (console.<label>.<zone>) or, when the
+// host carries none, the tenant id. RoleFor compares it with the claim.
+//
+// TenantID and Namespace are the tenant registration the console host
+// resolves to (store.TenantRegistration). When a request names its
+// Organization by host they are set, and they, never Name, find the
+// membership record: the console of a BYO-domain Organization is
+// console.<byo-domain>, whose label is chosen apart from the slug and may be
+// another Organization's slug. Without a registration (a session's own org
+// claim off an Organization host) Name finds it.
+type Org struct {
+	Name      string
+	TenantID  string
+	Namespace string
+}
+
+// Named is the Organization a session's org claim names, with no
+// registration.
+func Named(name string) Org { return Org{Name: name} }
+
+func (o Org) normalized() Org {
+	return Org{Name: norm(o.Name), TenantID: strings.TrimSpace(o.TenantID), Namespace: norm(o.Namespace)}
+}
+
+func (o Org) registered() bool { return o.TenantID != "" || o.Namespace != "" }
+
 // RoleOf returns the role email holds in Organization org, read from
 // spec.owners: "" when the Organization does not list that person or does
-// not exist. org may be the object's name (the slug) or, when no object has
-// that name, its spec.tenantPublic.subdomain (the console host label). An
-// error means the record could not be read; callers refuse on it.
-func (m *Members) RoleOf(ctx context.Context, org, email string) (string, error) {
-	org = norm(org)
+// not exist. A registered org is the object labelled TenantLabel=TenantID,
+// else the unlabelled object named Namespace or TenantID (the slug: both
+// registration writers set the namespace to it, and the registry reconcile
+// falls back to it as the tenant id). An unregistered org is the object
+// named Name or, when none is, the one whose spec.tenantPublic.subdomain it
+// is. An error means the record could not be read; callers refuse on it.
+func (m *Members) RoleOf(ctx context.Context, org Org, email string) (string, error) {
+	org = org.normalized()
 	email = norm(email)
-	if org == "" || email == "" {
+	if (org.Name == "" && !org.registered()) || email == "" {
 		return "", nil
 	}
-	key := org + "\x00" + email
+	key := "name\x00" + org.Name + "\x00" + email
+	if org.registered() {
+		key = "tenant\x00" + org.TenantID + "\x00" + org.Namespace + "\x00" + email
+	}
 	now := m.now()
 	m.mu.Lock()
 	if e, ok := m.cache[key]; ok && now.Before(e.expires) {
@@ -120,12 +163,17 @@ func (m *Members) RoleOf(ctx context.Context, org, email string) (string, error)
 		return "", fmt.Errorf("no client reads Organization objects: %v", err)
 	}
 	res := dyn.Resource(organizations)
-	obj, err := res.Get(ctx, org, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		obj, err = bySubdomain(ctx, res, org)
+	var obj *unstructured.Unstructured
+	if org.registered() {
+		obj, err = byRegistration(ctx, res, org)
+	} else {
+		obj, err = res.Get(ctx, org.Name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			obj, err = bySubdomain(ctx, res, org.Name)
+		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("the Organization %s could not be read: %v", org, err)
+		return "", fmt.Errorf("the Organization %s could not be read: %v", org.Name, err)
 	}
 	role := ""
 	if obj != nil {
@@ -138,6 +186,40 @@ func (m *Members) RoleOf(ctx context.Context, org, email string) (string, error)
 	m.cache[key] = entry{role: role, expires: now.Add(TTL)}
 	m.mu.Unlock()
 	return role, nil
+}
+
+// byRegistration finds the Organization a tenant registration names; (nil,
+// nil) when none does. An object labelled for another tenant is never it.
+func byRegistration(ctx context.Context, res dynamic.NamespaceableResourceInterface, org Org) (*unstructured.Unstructured, error) {
+	if org.TenantID != "" && len(validation.IsValidLabelValue(org.TenantID)) == 0 {
+		list, err := res.List(ctx, metav1.ListOptions{LabelSelector: TenantLabel + "=" + org.TenantID})
+		if err != nil {
+			return nil, err
+		}
+		switch len(list.Items) {
+		case 0:
+		case 1:
+			return &list.Items[0], nil
+		default:
+			return nil, fmt.Errorf("%d Organizations carry %s=%s", len(list.Items), TenantLabel, org.TenantID)
+		}
+	}
+	for _, name := range []string{org.Namespace, norm(org.TenantID)} {
+		if name == "" {
+			continue
+		}
+		obj, err := res.Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(obj.GetLabels()[TenantLabel]) == "" {
+			return obj, nil
+		}
+	}
+	return nil, nil
 }
 
 // bySubdomain finds the Organization whose spec.tenantPublic.subdomain is
@@ -202,8 +284,12 @@ func isAgent(c *auth.Claims) bool {
 //     in its own the role its email holds there now;
 //   - every other session (a PIN session of the Sovereign console, a Keycloak
 //     token) holds the role its verified email holds in spec.owners.
-func (m *Members) RoleFor(ctx context.Context, c *auth.Claims, org string) (string, error) {
-	org = norm(org)
+//
+// The claims are compared with target.Name; the record is the one RoleOf
+// finds for target (by its registration when it has one).
+func (m *Members) RoleFor(ctx context.Context, c *auth.Claims, target Org) (string, error) {
+	target = target.normalized()
+	org := target.Name
 	if c == nil || org == "" {
 		return "", nil
 	}
@@ -224,7 +310,7 @@ func (m *Members) RoleFor(ctx context.Context, c *auth.Claims, org string) (stri
 	case !c.EmailVerified:
 		return "", nil
 	}
-	return m.RoleOf(ctx, org, c.Email)
+	return m.RoleOf(ctx, target, c.Email)
 }
 
 // installPaths are the Organization's own surfaces that create or change
@@ -264,13 +350,13 @@ func MayDo(role, method, path string) bool {
 }
 
 // Target returns the Organization a request is about: the Organization of the
-// console host when the request arrived on one, else the session's own org
-// claim.
-func Target(c *auth.Claims, hostOrg string, onOrgHost bool) string {
+// console host (with its registration) when the request arrived on one, else
+// the session's own org claim.
+func Target(c *auth.Claims, host Org, onOrgHost bool) Org {
 	if onOrgHost || c == nil {
-		return norm(hostOrg)
+		return host.normalized()
 	}
-	return norm(c.Org)
+	return Named(norm(c.Org))
 }
 
 // Gate answers whether the session of c may make request r on Organization
@@ -278,7 +364,7 @@ func Target(c *auth.Claims, hostOrg string, onOrgHost bool) string {
 // org-membership-unavailable when the record cannot be read (fail closed),
 // 403 not-an-organization-member when the session holds no role there, 403
 // org-role-forbidden when its role does not permit the request.
-func (m *Members) Gate(w http.ResponseWriter, r *http.Request, c *auth.Claims, org string) bool {
+func (m *Members) Gate(w http.ResponseWriter, r *http.Request, c *auth.Claims, org Org) bool {
 	role, err := m.RoleFor(r.Context(), c, org)
 	switch {
 	case err != nil:
@@ -301,7 +387,7 @@ func (m *Members) Gate(w http.ResponseWriter, r *http.Request, c *auth.Claims, o
 // given a session on Organization org's console: (0, "") when they hold a
 // role there; otherwise the status and reason a sign-in door answers with,
 // 503 when the record cannot be read and 403 when they are not a member.
-func (m *Members) Refusal(ctx context.Context, org, email string) (int, string) {
+func (m *Members) Refusal(ctx context.Context, org Org, email string) (int, string) {
 	role, err := m.RoleOf(ctx, org, email)
 	switch {
 	case err != nil:

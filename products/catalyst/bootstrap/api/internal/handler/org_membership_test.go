@@ -222,6 +222,102 @@ func TestPinVerify_OrgConsole_NonMemberRefused(t *testing.T) {
 	}
 }
 
+// byoHandler serves two Organizations whose consoles share the host label
+// "acme": alice owns acme (pool console console.acme.omani.homes), carol owns
+// acme-corp, whose BYO console is console.acme.com (deriveConsoleHost). Both
+// registrations are shaped as the Organization pipeline writes them
+// (TenantID = the Organization's openova.io/tenant-id label, namespace = its
+// slug).
+func byoHandler(t *testing.T) *Handler {
+	t.Helper()
+	reg, err := store.NewTenantRegistry(t.TempDir())
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	for _, r := range []store.TenantRegistration{
+		{Host: "console.acme.omani.homes", TenantID: "tnt-acme", TenantKind: store.TenantKindOrg, OrganizationNamespace: "acme"},
+		{Host: "console.acme.com", TenantID: "tnt-corp", TenantKind: store.TenantKindOrg, OrganizationNamespace: "acme-corp"},
+	} {
+		if err := reg.Put(r); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+	}
+	h := testPinSetup(t)
+	h.tenantRegistry = reg
+	withOrgRecords(h,
+		withOwners(orgCR("acme", "omani.homes", "", "tnt-acme"), "alice@acme.example", "owner"),
+		withOwners(orgCR("acme-corp", "", "", "tnt-corp"), "carol@corp.example", "owner"),
+	)
+	return h
+}
+
+// TestBYOConsole_MembershipIsTheRegisteredOrganizations: on a BYO console the
+// membership read is the Organization the host is registered to, not the one
+// its label names. Before the repair carol was refused a session on her own
+// console and alice was admitted to it.
+func TestBYOConsole_MembershipIsTheRegisteredOrganizations(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "omantel.biz")
+	t.Setenv("CATALYST_SESSION_COOKIE_DOMAIN", "")
+	h := byoHandler(t)
+
+	pin := func(email string) *httptest.ResponseRecorder {
+		h.pinStore.put(email, "123456", "req-"+email)
+		req := httptest.NewRequest(http.MethodPost, "http://console.acme.com/api/v1/auth/pin/verify",
+			strings.NewReader(`{"email":"`+email+`","pin":"123456","requestId":"req-`+email+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-Host", "console.acme.com")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		w := httptest.NewRecorder()
+		h.HandlePinVerify(w, req)
+		return w
+	}
+	if w := pin("carol@corp.example"); w.Code != http.StatusOK || findCookie(w.Result().Cookies(), "catalyst_session") == nil {
+		t.Fatalf("the owner of acme-corp signing in on its console: want 200 and a session, got %d body=%s", w.Code, w.Body.String())
+	}
+	if w := pin("alice@acme.example"); w.Code != http.StatusForbidden {
+		t.Fatalf("the owner of acme signing in on acme-corp's console: want 403, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// Sessions minted on console.acme.com carry its host label as org claim.
+	carol := &auth.Claims{Email: "carol@corp.example", EmailVerified: true, Tier: orgScopedTier, Org: "acme"}
+	alice := &auth.Claims{Email: "alice@acme.example", EmailVerified: true, Tier: orgScopedTier, Org: "acme"}
+	for _, c := range []struct {
+		name   string
+		claims *auth.Claims
+		host   string
+		want   int
+	}{
+		{"owner of acme-corp on its console", carol, "console.acme.com", http.StatusOK},
+		{"owner of acme on acme-corp's console", alice, "console.acme.com", http.StatusForbidden},
+		{"owner of acme on its own console", alice, "console.acme.omani.homes", http.StatusOK},
+	} {
+		reached := false
+		guard := h.OrgScopeGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			reached = true
+			w.WriteHeader(http.StatusOK)
+		}))
+		rec := httptest.NewRecorder()
+		guard.ServeHTTP(rec, claimsReq(http.MethodPost, "/api/v1/org/users", c.host, c.claims))
+		if rec.Code != c.want || reached != (c.want == http.StatusOK) {
+			t.Fatalf("%s: want %d, got %d (handler reached=%v) body=%s", c.name, c.want, rec.Code, reached, rec.Body.String())
+		}
+	}
+
+	// carol's session names acme's console in X-Tenant-Host: the label
+	// matches her claim, the registration does not.
+	for _, c := range []struct {
+		tenantHost string
+		ok         bool
+	}{{"console.acme.com", true}, {"console.acme.omani.homes", false}} {
+		req := claimsReq(http.MethodPost, "/api/v1/org/users", "console.acme.com", carol)
+		req.Header.Set("X-Tenant-Host", c.tenantHost)
+		rec := httptest.NewRecorder()
+		if _, ok := h.resolveOrganization(rec, req); ok != c.ok || (!ok && rec.Code != http.StatusForbidden) {
+			t.Fatalf("carol on console.acme.com, X-Tenant-Host %s: want resolved=%v, got %v status=%d body=%s", c.tenantHost, c.ok, ok, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 // withOrgRecords wires the client orgmember reads Organization objects
 // through (Handler.dynamicClientOrFallback) to a fake cluster holding orgs.
 func withOrgRecords(h *Handler, orgs ...*unstructured.Unstructured) {
