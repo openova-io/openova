@@ -15481,16 +15481,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'version: \"0.10.7\"' platform/external-secrets/chart/Chart.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "bash tests/e2e/eso-openbao-conformance.sh --self-test"
+  - id: A2
+    run: "w=.github/workflows/test-eso-openbao-conformance.yaml; grep -qxF \"        run: bash tests/e2e/eso-openbao-conformance.sh\" \"$w\" && test \"$(grep -cxF \"      - 'platform/external-secrets/chart/**'\" \"$w\")\" -eq 2 && test \"$(grep -cxF \"      - 'platform/openbao/chart/values.yaml'\" \"$w\")\" -eq 2"
+  - id: A3
+    run: "f=tests/e2e/eso-openbao-conformance.sh; test -f \"$f\" && ! grep -nE \"0\\.10\\.7|2\\.7\\.2\" \"$f\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Five-behaviour conformance test on kind.
+  delivers: tests/e2e/eso-openbao-conformance.sh asserts on a kind cluster, each with a negative control, the five behaviours of External Secrets the platform uses, for the External Secrets chart and the OpenBao image the repository pins; the workflow test-eso-openbao-conformance runs it on every pull request and push to main that changes either pin.
 - id: SEC-262
   title: External Secrets to 0.16.2 and every manifest to the v1 API
   area: SEC
@@ -15588,7 +15596,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
