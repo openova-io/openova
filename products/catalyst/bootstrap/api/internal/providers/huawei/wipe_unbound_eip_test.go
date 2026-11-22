@@ -1,11 +1,14 @@
-// #4636 — regression guard for the UNBOUND / nameless EIP wipe leak.
+// #4636, revised 22 November 2026 — the wipe's leftover check counts the
+// addresses of the wiped deployment, the pre-flight's NAT addresses included,
+// and never an address that carries no identity or another's.
 //
 // Found live wiping dep 8fd457a8 / omantel.biz on kom4dc: an UNBOUND, DOWN
 // EIP (212.72.24.36) with no catalyst-<stem>- bandwidth name slipped past
-// listEIPsByNamePrefix and verifyZeroOrphans → wipe falsely reported
-// verifiedZeroOrphans:true → orphan EIP leaked → publicIp quota leak (the
-// #4614 reap class). These tests assert the project-wide unbound sweep
-// catches such an orphan while NEVER flagging the bastion EIP.
+// listEIPsByNamePrefix and verifyZeroOrphans. The project-wide unbound
+// sweep that answered it also released other installs' fresh addresses and
+// is withdrawn (wipe_unbound_eip.go); the addresses the engine itself
+// allocates outside the module, the pre-flight's, carry the deployment's
+// identity and are counted.
 
 package huawei
 
@@ -48,47 +51,31 @@ func fakeHCSPublicIPs(t *testing.T, publicipsBody string) func() {
 }
 
 // publicIPsFixture: (a) the bastion EIP — BOUND, literal sacred IP;
-// (b) a BOUND catalyst EIP (in-use, name-matched, has a port);
-// (c) an UNBOUND nameless orphan — the 212.72.24.36 leak shape (DOWN,
-// no port_id, no catalyst- bandwidth name).
+// (b) a BOUND EIP of the deployment (5b413990 of t99.omani.works);
+// (c) the deployment's unbound NAT address the pre-flight allocated;
+// (d) an UNBOUND nameless address — the 212.72.24.36 shape;
+// (e) an unbound address of another install, not bound yet.
 const publicIPsFixture = `{"publicips":[
   {"id":"eip-bastion","public_ip_address":"212.72.24.20","status":"ACTIVE","port_id":"port-bastion","bandwidth_name":"bastion-openova-bw"},
   {"id":"eip-catalyst-bound","public_ip_address":"212.72.24.40","status":"ACTIVE","port_id":"port-cp-1","bandwidth_name":"catalyst-t99-omani-works-5b413990-cp-bw"},
-  {"id":"eip-orphan","public_ip_address":"212.72.24.36","status":"DOWN","port_id":"","bandwidth_name":""}
+  {"id":"eip-rotated","public_ip_address":"212.72.24.41","status":"DOWN","port_id":"","bandwidth_name":"catalyst-5b413990-nat-preflight-1"},
+  {"id":"eip-orphan","public_ip_address":"212.72.24.36","status":"DOWN","port_id":"","bandwidth_name":""},
+  {"id":"eip-other","public_ip_address":"212.72.24.42","status":"DOWN","port_id":"","bandwidth_name":"catalyst-t98-omani-works-0c0c0c0c-nat-bw"}
 ]}`
 
-// TestListUnboundOrphanEIPs_OnlyOrphan asserts the project-wide sweep
-// returns EXACTLY the unbound nameless orphan: the bastion (bound + sacred
-// IP) and the bound catalyst EIP are both excluded.
-func TestListUnboundOrphanEIPs_OnlyOrphan(t *testing.T) {
-	restore := fakeHCSPublicIPs(t, publicIPsFixture)
-	defer restore()
-
-	hw := hwCreds{AccessKey: "ak", SecretKey: "sk", ProjectID: "proj"}
-	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": "me-east-215"}})
-
-	got, err := listUnboundOrphanEIPs(context.Background(), client, hw, "me-east-215")
+// t99Scope is the selector of deployment 5b413990 of t99.omani.works.
+func t99Scope(t *testing.T) deploymentScope {
+	s, err := newDeploymentScope("t99.omani.works", "5b413990aa")
 	if err != nil {
-		t.Fatalf("listUnboundOrphanEIPs: %v", err)
+		t.Fatal(err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("got %d orphan EIP(s) %+v, want exactly 1 (the unbound nameless orphan)", len(got), got)
-	}
-	if got[0].Address != "212.72.24.36" || got[0].ID != "eip-orphan" {
-		t.Fatalf("orphan = %+v, want {ID:eip-orphan Address:212.72.24.36}", got[0])
-	}
-	for _, e := range got {
-		if e.Address == bastionEIPAddress {
-			t.Fatalf("bastion EIP %s was flagged as an orphan — HARD bastion-protection violated", e.Address)
-		}
-	}
+	return s
 }
 
-// TestVerifyZeroOrphans_FlagsUnboundEIP wires the sweep through the real
-// verifyZeroOrphans path: the unbound nameless orphan must land in
-// ResidualOrphans["floating_ips"] and flip VerifiedZeroOrphans=false,
-// while the bastion EIP is NEVER recorded.
-func TestVerifyZeroOrphans_FlagsUnboundEIP(t *testing.T) {
+// TestVerifyZeroOrphans_CountsOnlyTheDeploymentsAddresses: the two
+// addresses of the deployment are its residuals; the nameless address, the
+// other install's and the bastion's are not.
+func TestVerifyZeroOrphans_CountsOnlyTheDeploymentsAddresses(t *testing.T) {
 	restore := fakeHCSPublicIPs(t, publicIPsFixture)
 	defer restore()
 
@@ -96,23 +83,11 @@ func TestVerifyZeroOrphans_FlagsUnboundEIP(t *testing.T) {
 	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": "me-east-215"}})
 	out := &providers.WipeResult{}
 
-	verifyZeroOrphans(context.Background(), client, hw, "me-east-215", "t99.omani.works", func(string) {}, out)
+	verifyZeroOrphans(context.Background(), client, hw, "me-east-215", t99Scope(t), func(string) {}, out)
 
-	if out.VerifiedZeroOrphans {
-		t.Fatalf("VerifiedZeroOrphans=true, but an unbound orphan EIP (212.72.24.36) survived — the wipe-contract gate must FAIL")
-	}
-	fips := out.ResidualOrphans["floating_ips"]
-	found := false
-	for _, a := range fips {
-		if a == bastionEIPAddress {
-			t.Fatalf("bastion EIP %s recorded as a residual orphan — HARD bastion-protection violated", a)
-		}
-		if a == "212.72.24.36" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("residual floating_ips = %v, want it to include the unbound orphan 212.72.24.36", fips)
+	got := strings.Join(out.ResidualOrphans["floating_ips"], ",")
+	if out.VerifiedZeroOrphans || got != "212.72.24.40,212.72.24.41" {
+		t.Fatalf("VerifiedZeroOrphans %v, residual floating_ips %q; want false and the deployment's two addresses 212.72.24.40,212.72.24.41", out.VerifiedZeroOrphans, got)
 	}
 }
 
@@ -130,7 +105,7 @@ func TestVerifyZeroOrphans_CleanProjectPasses(t *testing.T) {
 	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": "me-east-215"}})
 	out := &providers.WipeResult{}
 
-	verifyZeroOrphans(context.Background(), client, hw, "me-east-215", "t99.omani.works", func(string) {}, out)
+	verifyZeroOrphans(context.Background(), client, hw, "me-east-215", t99Scope(t), func(string) {}, out)
 
 	if !out.VerifiedZeroOrphans {
 		t.Fatalf("VerifiedZeroOrphans=false on a clean (bastion-only) project; residuals=%v — bastion must never be flagged", out.ResidualOrphans)

@@ -42,6 +42,7 @@ type beforeDestroyCloud struct {
 	client                            *http.Client
 	hw                                hwCreds
 	region, sovereignFQDN, deployment string
+	scope                             deploymentScope // the selector of every call below (deployment_scope.go)
 	progress                          func(msg string)
 }
 
@@ -143,7 +144,7 @@ func removeBucketBeforeDestroy(ctx context.Context, c beforeDestroyCloud) ([]str
 // balancers one at a time: each reads as gone, or its wait has ended, before
 // the next is touched.
 func removeListenersBeforeDestroy(ctx context.Context, c beforeDestroyCloud) ([]string, error) {
-	lbs, err := listELBsByName(ctx, c.client, c.hw, c.region, c.sovereignFQDN)
+	lbs, err := listELBsByName(ctx, c.client, c.hw, c.region, c.scope.owns)
 	if err != nil {
 		return nil, fmt.Errorf("list load balancers: %w", err)
 	}
@@ -205,7 +206,7 @@ func removeListener(ctx context.Context, c beforeDestroyCloud, url string) error
 // removeNATRulesBeforeDestroy removes every SNAT and DNAT rule of the
 // Sovereign's NAT gateways, until each gateway lists none.
 func removeNATRulesBeforeDestroy(ctx context.Context, c beforeDestroyCloud) ([]string, error) {
-	nats, err := listNATsByName(ctx, c.client, c.hw, c.region, c.sovereignFQDN)
+	nats, err := listNATsByName(ctx, c.client, c.hw, c.region, c.scope)
 	if err != nil {
 		return nil, fmt.Errorf("list NAT gateways: %w", err)
 	}
