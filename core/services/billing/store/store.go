@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -204,6 +205,84 @@ func BaisaToOMR(baisa int64) float64 {
 // legacy integer-OMR order totals into the baisa column.
 func OMRToBaisa(omr int) int64 {
 	return int64(omr) * 1000
+}
+
+// MicroOMRPerBaisa is the credit ledger's exact unit (amount_micro_omr) per
+// baisa: 1 OMR = 1,000 baisa = 1,000,000 micro-OMR.
+const MicroOMRPerBaisa = 1000
+
+// MicroOMRToBaisa converts a micro-OMR amount to whole baisa, rounding toward
+// minus infinity, so a balance is never reported as covering more than it
+// holds (a sub-baisa metering remainder is not spendable baisa).
+func MicroOMRToBaisa(micro int64) int64 {
+	return floorDiv(micro, MicroOMRPerBaisa)
+}
+
+// MicroOMRToWholeOMR is the whole-OMR display view of a micro-OMR amount,
+// rounded toward minus infinity (never shows more credit than is held).
+func MicroOMRToWholeOMR(micro int64) int {
+	return int(floorDiv(micro, 1_000_000))
+}
+
+// floorDiv divides rounding toward minus infinity (Go's / truncates toward
+// zero, which would round a negative balance UP).
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
+}
+
+// ErrCreditInsufficient is CreditOnlyCheckout's answer when, under the
+// customer's lock, the balance no longer covers the order: another checkout
+// spent the same credit first. Nothing was written.
+var ErrCreditInsufficient = errors.New("store: credit balance no longer covers the order")
+
+// ErrPromoCreditSpent is RollbackPromoCodeRedemption's answer when taking the
+// voucher's grant back would push the balance below zero: an order has already
+// spent that credit, so the redemption stands. Nothing was changed.
+var ErrPromoCreditSpent = errors.New("store: the voucher's credit has already been spent by an order")
+
+// promoCodeMatch is the ONE rule a typed voucher code is matched by, at the
+// public preview (GetPromoCode) and at redemption (RedeemPromoCode) alike:
+// letter case is ignored, and when two stored codes differ only in case the
+// live, exactly-typed one wins. Issue stores codes upper-cased; the legacy
+// admin upsert stores them as typed — both are found the same way everywhere.
+const promoCodeMatch = `upper(code) = upper($1)`
+
+// promoCodePreference orders the rows promoCodeMatch selects (see there).
+const promoCodePreference = `ORDER BY (deleted_at IS NULL) DESC, (code = $1) DESC LIMIT 1`
+
+// lockCustomer takes the row lock that serialises every spend and every
+// voucher take-back of one customer's credit (one ledger per customer, shared
+// by all of the customer's Organizations). Held until tx ends. NO KEY UPDATE,
+// not UPDATE: it still excludes every other spend, but not the KEY SHARE lock
+// a foreign-key insert against the customer takes (a redeem's ledger grant),
+// so it can neither block nor deadlock with one.
+func lockCustomer(ctx context.Context, tx *sql.Tx, customerID string) error {
+	var id string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM customers WHERE id = $1 FOR NO KEY UPDATE`, customerID,
+	).Scan(&id); err != nil {
+		return fmt.Errorf("store: lock customer %s: %w", customerID, err)
+	}
+	return nil
+}
+
+// creditBalanceMicroTx is GetCreditBalanceMicroOMR read inside tx (after
+// lockCustomer, so no other spend of this customer can interleave).
+func creditBalanceMicroTx(ctx context.Context, tx *sql.Tx, customerID string) (int64, error) {
+	var balance sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000
+		                + CAST(SUM(amount_micro_omr) AS BIGINT), 0)
+		 FROM credit_ledger WHERE customer_id = $1`,
+		customerID,
+	).Scan(&balance); err != nil {
+		return 0, fmt.Errorf("store: credit balance micro (locked): %w", err)
+	}
+	return balance.Int64, nil
 }
 
 // RevenueSummary holds aggregate billing metrics.
@@ -1050,12 +1129,14 @@ func (s *Store) UpdateSettings(ctx context.Context, st *Settings) error {
 // dedicated admin-scope method (none exists yet — add when the need appears).
 // #91: filtering `deleted_at IS NULL` here means every non-admin lookup
 // (redemption, checkout UI, public Stripe coupons) ignores tombstones.
+// The code is matched by promoCodeMatch — the same rule RedeemPromoCode
+// applies — so the preview never promises a voucher the checkout refuses.
 func (s *Store) GetPromoCode(ctx context.Context, code string) (*PromoCode, error) {
 	var p PromoCode
 	var deletedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx,
 		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
-		 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`, code,
+		 FROM promo_codes WHERE `+promoCodeMatch+` AND deleted_at IS NULL `+promoCodePreference, code,
 	).Scan(&p.Code, &p.CreditOMR, &p.Description, &p.PlanTier, &p.Active, &p.MaxRedemptions, &p.TimesRedeemed, &p.CreatedAt, &deletedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1166,38 +1247,42 @@ func (s *Store) DeletePromoCode(ctx context.Context, code string) error {
 
 // RedeemPromoCode atomically applies a promo code to a customer, recording
 // the redemption and adding credit to the ledger. Returns the credit amount
-// granted, or 0 with an error if the code is invalid, inactive, already
-// redeemed by this customer, or over its redemption cap.
-func (s *Store) RedeemPromoCode(ctx context.Context, customerID, code string) (int, error) {
+// granted and the code as STORED (the typed code is matched by
+// promoCodeMatch, so 'vch-abc' redeems 'VCH-ABC'; every later reference — the
+// rollback, the order row — must use the stored form). Returns 0 with an
+// error if the code is invalid, inactive, already redeemed by this customer,
+// or over its redemption cap.
+func (s *Store) RedeemPromoCode(ctx context.Context, customerID, typed string) (int, string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("store: begin redeem tx: %w", err)
+		return 0, "", fmt.Errorf("store: begin redeem tx: %w", err)
 	}
 	defer tx.Rollback()
 
+	var code string
 	var credit, maxRedemptions, timesRedeemed int
 	var active bool
 	var deletedAt sql.NullTime
 	err = tx.QueryRowContext(ctx,
-		`SELECT credit_omr, active, max_redemptions, times_redeemed, deleted_at
-		 FROM promo_codes WHERE code = $1 FOR UPDATE`, code,
-	).Scan(&credit, &active, &maxRedemptions, &timesRedeemed, &deletedAt)
+		`SELECT code, credit_omr, active, max_redemptions, times_redeemed, deleted_at
+		 FROM promo_codes WHERE `+promoCodeMatch+` `+promoCodePreference+` FOR UPDATE`, typed,
+	).Scan(&code, &credit, &active, &maxRedemptions, &timesRedeemed, &deletedAt)
 	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("promo code not found")
+		return 0, "", fmt.Errorf("promo code not found")
 	}
 	if err != nil {
-		return 0, fmt.Errorf("store: lock promo: %w", err)
+		return 0, "", fmt.Errorf("store: lock promo: %w", err)
 	}
 	// #91 — soft-deleted codes are indistinguishable from non-existent ones at
 	// the API level. Do not leak the tombstone via a more specific error.
 	if deletedAt.Valid {
-		return 0, fmt.Errorf("promo code not found")
+		return 0, "", fmt.Errorf("promo code not found")
 	}
 	if !active {
-		return 0, fmt.Errorf("promo code is not active")
+		return 0, "", fmt.Errorf("promo code is not active")
 	}
 	if maxRedemptions > 0 && timesRedeemed >= maxRedemptions {
-		return 0, fmt.Errorf("promo code has reached its redemption limit")
+		return 0, "", fmt.Errorf("promo code has reached its redemption limit")
 	}
 
 	// Check customer has not already redeemed this code.
@@ -1207,37 +1292,37 @@ func (s *Store) RedeemPromoCode(ctx context.Context, customerID, code string) (i
 		customerID, code,
 	).Scan(&already)
 	if err != nil {
-		return 0, fmt.Errorf("store: check redemption: %w", err)
+		return 0, "", fmt.Errorf("store: check redemption: %w", err)
 	}
 	if already > 0 {
-		return 0, fmt.Errorf("promo code already redeemed by this customer")
+		return 0, "", fmt.Errorf("promo code already redeemed by this customer")
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO promo_redemptions (customer_id, code) VALUES ($1, $2)`,
 		customerID, code,
 	); err != nil {
-		return 0, fmt.Errorf("store: record redemption: %w", err)
+		return 0, "", fmt.Errorf("store: record redemption: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE promo_codes SET times_redeemed = times_redeemed + 1 WHERE code = $1`,
 		code,
 	); err != nil {
-		return 0, fmt.Errorf("store: increment redemptions: %w", err)
+		return 0, "", fmt.Errorf("store: increment redemptions: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO credit_ledger (customer_id, amount_omr, reason) VALUES ($1, $2, $3)`,
 		customerID, credit, "promo:"+code,
 	); err != nil {
-		return 0, fmt.Errorf("store: add credit: %w", err)
+		return 0, "", fmt.Errorf("store: add credit: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("store: commit redeem: %w", err)
+		return 0, "", fmt.Errorf("store: commit redeem: %w", err)
 	}
-	return credit, nil
+	return credit, code, nil
 }
 
 // RollbackPromoCodeRedemption is the compensating action for RedeemPromoCode.
@@ -1298,6 +1383,32 @@ func (s *Store) RollbackPromoCodeRedemption(ctx context.Context, customerID, cod
 		return tx.Commit()
 	}
 
+	// 1b. Take the grant back only if it is still unspent. The redeem commits
+	//     before the checkout settles, so a concurrent checkout of the same
+	//     customer can already have spent this credit; deleting the grant then
+	//     would leave that order paid with credit that no longer exists (a
+	//     negative balance with no record of why). Under the customer lock —
+	//     the one CreditOnlyCheckout takes — the balance cannot move while we
+	//     decide. If the credit is spent the redemption stands, untouched.
+	if err := lockCustomer(ctx, tx, customerID); err != nil {
+		return err
+	}
+	balance, err := creditBalanceMicroTx(ctx, tx, customerID)
+	if err != nil {
+		return err
+	}
+	var grant sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger
+		  WHERE customer_id = $1 AND reason = $2 AND order_id IS NULL`,
+		customerID, "promo:"+code,
+	).Scan(&grant); err != nil {
+		return fmt.Errorf("store: rollback read grant: %w", err)
+	}
+	if balance-grant.Int64*1_000_000 < 0 {
+		return ErrPromoCreditSpent
+	}
+
 	// 2. Decrement times_redeemed. The GREATEST(...,0) guard ensures we never
 	//    drive the counter negative in the event of a race where a parallel
 	//    rollback already ran.
@@ -1334,31 +1445,23 @@ func (s *Store) RollbackPromoCodeRedemption(ctx context.Context, customerID, cod
 // Credit Ledger
 // ---------------------------------------------------------------------------
 
-// GetCreditBalance returns a customer's current credit balance in OMR.
+// GetCreditBalance returns a customer's current credit balance in WHOLE OMR,
+// rounded toward minus infinity — a display view only. No money decision is
+// made on it: checkout settles against GetCreditBalanceMicroOMR, because a
+// credit-paid order is debited exactly (amount_micro_omr) and 2.510 OMR of
+// credit must cover a 2.490 order.
 //
 // #798 — sub-baisa metering rows store their value in amount_micro_omr
-// (1 OMR = 1,000,000 micro-OMR). The whole-OMR view returned here MUST
-// reflect the running total of both shapes, so we project the micro-OMR
-// rows down to whole OMR with truncation toward zero (negative spends
-// stay negative). For accounting precision use GetCreditBalanceMicroOMR.
-//
-// The CAST(... AS BIGINT) wrapper is required because Postgres returns
-// SUM(int) + SUM(bigint)/integer as `numeric`, which lib/pq presents as
-// a `[]uint8` decimal string that does not Scan directly into int64.
-// Casting at the SQL layer keeps the Go scan target uniform across
-// pre-#798 rows (whose only column was amount_omr) and post-#798 rows.
+// (1 OMR = 1,000,000 micro-OMR); this view is the floor of the exact sum of
+// both columns. (It used to add CAST(SUM(micro)/1e6 AS BIGINT), which
+// Postgres ROUNDS, so a 2.490 debit read as 2 and the view overstated the
+// balance.)
 func (s *Store) GetCreditBalance(ctx context.Context, customerID string) (int, error) {
-	var balance sql.NullInt64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)
-		                + CAST(SUM(amount_micro_omr) / 1000000 AS BIGINT), 0)
-		 FROM credit_ledger WHERE customer_id = $1`,
-		customerID,
-	).Scan(&balance)
+	micro, err := s.GetCreditBalanceMicroOMR(ctx, customerID)
 	if err != nil {
 		return 0, fmt.Errorf("store: credit balance: %w", err)
 	}
-	return int(balance.Int64), nil
+	return MicroOMRToWholeOMR(micro), nil
 }
 
 // GetCreditBalanceMicroOMR returns the canonical balance in micro-OMR
@@ -1386,11 +1489,20 @@ func (s *Store) GetCreditBalanceMicroOMR(ctx context.Context, customerID string)
 
 // CreditEntry is a single row of the credit ledger.
 type CreditEntry struct {
-	ID        string    `json:"id"`
-	AmountOMR int       `json:"amount_omr"`
-	Reason    string    `json:"reason"`
-	OrderID   string    `json:"order_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string `json:"id"`
+	AmountOMR int    `json:"amount_omr"`
+	// AmountMicroOMR is the row's exact part (amount_micro_omr): a
+	// credit-paid order's debit and metering usage live here, not in
+	// AmountOMR. The row's value is AmountOMR×1,000,000 + AmountMicroOMR.
+	AmountMicroOMR int64     `json:"amount_micro_omr"`
+	Reason         string    `json:"reason"`
+	OrderID        string    `json:"order_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// AmountBaisa is the row's exact value in baisa (both columns).
+func (e CreditEntry) AmountBaisa() int64 {
+	return MicroOMRToBaisa(int64(e.AmountOMR)*1_000_000 + e.AmountMicroOMR)
 }
 
 // ListCreditEntries returns the most recent credit ledger entries for a customer.
@@ -1399,7 +1511,7 @@ func (s *Store) ListCreditEntries(ctx context.Context, customerID string, limit 
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, amount_omr, reason, COALESCE(order_id, ''), created_at
+		`SELECT id, amount_omr, amount_micro_omr, reason, COALESCE(order_id, ''), created_at
 		 FROM credit_ledger WHERE customer_id = $1
 		 ORDER BY created_at DESC LIMIT $2`,
 		customerID, limit,
@@ -1412,7 +1524,7 @@ func (s *Store) ListCreditEntries(ctx context.Context, customerID string, limit 
 	entries := []CreditEntry{}
 	for rows.Next() {
 		var e CreditEntry
-		if err := rows.Scan(&e.ID, &e.AmountOMR, &e.Reason, &e.OrderID, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.AmountOMR, &e.AmountMicroOMR, &e.Reason, &e.OrderID, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan credit entry: %w", err)
 		}
 		entries = append(entries, e)
@@ -1530,10 +1642,10 @@ func (s *Store) SpendCredit(ctx context.Context, customerID, orderID string, amo
 	return nil
 }
 
-// CreditOnlyCheckout atomically performs the three DB writes that a
-// credit-settled checkout requires: INSERT orders, INSERT credit_ledger (when
-// the order had a non-zero total), INSERT subscriptions — all inside a single
-// transaction. Either all three land or none do (#92).
+// CreditOnlyCheckout atomically performs the writes that a credit-settled
+// checkout requires: INSERT orders, INSERT credit_ledger (when the order had a
+// non-zero total), INSERT subscriptions — all inside a single transaction.
+// Either all land or none do (#92).
 //
 // Before this existed, handlers.Checkout called CreateOrder, SpendCredit, and
 // CreateSubscription sequentially with no shared tx. If the third write
@@ -1545,12 +1657,19 @@ func (s *Store) SpendCredit(ctx context.Context, customerID, orderID string, amo
 // the caller can emit the standard "order.completed" + "subscription.created"
 // events with real IDs after Commit.
 //
-// Amounts follow the same convention as CreateOrder: AmountBaisa is
-// authoritative, AmountOMR derived. The ledger write uses whole OMR (matching
-// SpendCredit) to keep the existing credit_ledger schema stable.
-func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subscription) error {
+// The debit is EXACT: -AmountBaisa, written to amount_micro_omr. It used to
+// be -AmountOMR, the total rounded UP to whole OMR, so a 2.490 order took
+// 3.000 of credit while the order, the receipt and the BSS prepaid amount
+// said 2.490.
+//
+// The spend is made under the customer's row lock, and the balance is read
+// again under it: a checkout that read the balance before another checkout
+// spent the same credit gets ErrCreditInsufficient and writes nothing, so one
+// credit can never pay two orders. Returns the balance after the debit, in
+// micro-OMR.
+func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subscription) (int64, error) {
 	if order == nil || sub == nil {
-		return fmt.Errorf("store: credit-only checkout: order and subscription are required")
+		return 0, fmt.Errorf("store: credit-only checkout: order and subscription are required")
 	}
 	if order.Apps == nil {
 		order.Apps = json.RawMessage(`[]`)
@@ -1564,9 +1683,23 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: begin credit-only tx: %w", err)
+		return 0, fmt.Errorf("store: begin credit-only tx: %w", err)
 	}
 	defer tx.Rollback()
+
+	// 0. Serialise against every other spend of this customer's credit, then
+	//    decide on the balance as it is NOW, not as the caller read it.
+	if err := lockCustomer(ctx, tx, order.CustomerID); err != nil {
+		return 0, err
+	}
+	balance, err := creditBalanceMicroTx(ctx, tx, order.CustomerID)
+	if err != nil {
+		return 0, err
+	}
+	debit := order.AmountBaisa * MicroOMRPerBaisa
+	if debit > 0 && balance < debit {
+		return 0, ErrCreditInsufficient
+	}
 
 	order.PriceSource = orderPriceSource(order.PriceSource)
 	order.AddonLines = orderAddonLines(order.AddonLines)
@@ -1584,19 +1717,19 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 		nilIfEmpty(order.PackageSKU), order.PriceSource, order.AddonLines,
 		order.OverageMode, nilIfEmptyJSON(order.GrowCeiling), nilIfEmpty(order.SpendLimitMonth), order.PrepaidBaisa,
 	).Scan(&order.ID, &order.CreatedAt); err != nil {
-		return fmt.Errorf("store: credit-only create order: %w", err)
+		return 0, fmt.Errorf("store: credit-only create order: %w", err)
 	}
 
-	// 2. Record the credit spend against the fresh order. Zero-total orders
-	//    (promo fully covers free plan + free addons) skip this step, same as
-	//    SpendCredit's own no-op path.
-	if order.AmountOMR > 0 {
+	// 2. Record the exact credit spend against the fresh order. Zero-total
+	//    orders (promo fully covers free plan + free addons) skip this step,
+	//    same as SpendCredit's own no-op path.
+	if debit > 0 {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)
-			 VALUES ($1, $2, $3, $4)`,
-			order.CustomerID, -order.AmountOMR, "order-payment", order.ID,
+			`INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)
+			 VALUES ($1, 0, $2, $3, $4)`,
+			order.CustomerID, -debit, "order-payment", order.ID,
 		); err != nil {
-			return fmt.Errorf("store: credit-only spend credit: %w", err)
+			return 0, fmt.Errorf("store: credit-only spend credit: %w", err)
 		}
 	}
 
@@ -1609,13 +1742,13 @@ func (s *Store) CreditOnlyCheckout(ctx context.Context, order *Order, sub *Subsc
 		sub.CustomerID, sub.TenantID, nilIfEmpty(sub.StripeSubscriptionID), sub.PlanID, sub.Status,
 		nilTimeIfZero(sub.CurrentPeriodStart), nilTimeIfZero(sub.CurrentPeriodEnd),
 	).Scan(&sub.ID, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
-		return fmt.Errorf("store: credit-only create subscription: %w", err)
+		return 0, fmt.Errorf("store: credit-only create subscription: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("store: commit credit-only checkout: %w", err)
+		return 0, fmt.Errorf("store: commit credit-only checkout: %w", err)
 	}
-	return nil
+	return balance - debit, nil
 }
 
 // ---------------------------------------------------------------------------

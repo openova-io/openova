@@ -191,7 +191,7 @@ func TestVoucherLifecycle_IssueRedeemAndCreditApplied(t *testing.T) {
 	}
 
 	// 3. Customer redeems voucher.
-	credit, err := s.RedeemPromoCode(ctx, cust.ID, "WELCOME50")
+	credit, _, err := s.RedeemPromoCode(ctx, cust.ID, "WELCOME50")
 	if err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
@@ -247,10 +247,10 @@ func TestVoucherLifecycle_DoubleRedemptionBlocked(t *testing.T) {
 	cust := mkCustomer(t, s, "beta")
 	mkPromo(t, s, "ONCE", 25, 0)
 
-	if _, err := s.RedeemPromoCode(ctx, cust.ID, "ONCE"); err != nil {
+	if _, _, err := s.RedeemPromoCode(ctx, cust.ID, "ONCE"); err != nil {
 		t.Fatalf("first redeem: %v", err)
 	}
-	_, err := s.RedeemPromoCode(ctx, cust.ID, "ONCE")
+	_, _, err := s.RedeemPromoCode(ctx, cust.ID, "ONCE")
 	if err == nil {
 		t.Fatal("expected second redemption to fail, got nil")
 	}
@@ -288,7 +288,7 @@ func TestVoucherLifecycle_RedemptionCapEnforcedUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(c *Customer) {
 			defer wg.Done()
-			_, err := s.RedeemPromoCode(ctx, c.ID, "LIMITED")
+			_, _, err := s.RedeemPromoCode(ctx, c.ID, "LIMITED")
 			results <- err
 		}(custs[i])
 	}
@@ -328,7 +328,7 @@ func TestVoucherLifecycle_SoftDeletedCodeRejected(t *testing.T) {
 		t.Fatalf("delete promo: %v", err)
 	}
 
-	_, err := s.RedeemPromoCode(ctx, cust.ID, "RETIRED")
+	_, _, err := s.RedeemPromoCode(ctx, cust.ID, "RETIRED")
 	if err == nil {
 		t.Fatal("expected error redeeming soft-deleted promo")
 	}
@@ -362,7 +362,7 @@ func TestVoucherLifecycle_InactiveCodeRejected(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	_, err := s.RedeemPromoCode(ctx, cust.ID, "PAUSED")
+	_, _, err := s.RedeemPromoCode(ctx, cust.ID, "PAUSED")
 	if err == nil {
 		t.Fatal("expected error redeeming inactive promo")
 	}
@@ -385,7 +385,7 @@ func TestVoucherLifecycle_DifferentCustomersIndependent(t *testing.T) {
 	mkPromo(t, s, "TWO", 15, 0)
 
 	for _, c := range []*Customer{cust1, cust2} {
-		credit, err := s.RedeemPromoCode(ctx, c.ID, "TWO")
+		credit, _, err := s.RedeemPromoCode(ctx, c.ID, "TWO")
 		if err != nil {
 			t.Fatalf("redeem for %s: %v", c.UserID, err)
 		}
@@ -422,7 +422,7 @@ func TestVoucherLifecycle_OrgPathPrerequisitesMet(t *testing.T) {
 	cust := mkCustomer(t, s, "zeta")
 	mkPromo(t, s, "ORGSEED", 100, 0)
 
-	if _, err := s.RedeemPromoCode(ctx, cust.ID, "ORGSEED"); err != nil {
+	if _, _, err := s.RedeemPromoCode(ctx, cust.ID, "ORGSEED"); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 

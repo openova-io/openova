@@ -96,11 +96,11 @@ func TestCheckout_VoucherCoversFullTotal_SkipsStripe(t *testing.T) {
 	// 3. RedeemPromoCode — full transaction.
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT credit_omr, active, max_redemptions, times_redeemed, deleted_at",
+		"SELECT code, credit_omr, active, max_redemptions, times_redeemed, deleted_at",
 	)).WithArgs("WELCOME50").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at",
-		}).AddRow(50, true, 0, 0, nil))
+			"code", "credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at",
+		}).AddRow("WELCOME50", 50, true, 0, 0, nil))
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COUNT(*) FROM promo_redemptions",
 	)).WithArgs("cust-acme", "WELCOME50").
@@ -123,19 +123,20 @@ func TestCheckout_VoucherCoversFullTotal_SkipsStripe(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-acme").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(50)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(50_000_000)))
 
 	// 5. CreditOnlyCheckout — the short-circuit path. Order INSERT,
 	//    credit-spend ledger row, subscription INSERT, COMMIT. NO
 	//    settings probe and NO Stripe call.
 	mock.ExpectBegin()
+	expectLockedBalance(mock, "cust-acme", 50_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"INSERT INTO orders",
 	)).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 		AddRow("order-acme-1", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)",
-	)).WithArgs("cust-acme", -50, "order-payment", "order-acme-1").
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+	)).WithArgs("cust-acme", int64(-50_000_000), "order-payment", "order-acme-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"INSERT INTO subscriptions",
@@ -219,16 +220,17 @@ func TestCheckout_PreExistingCreditCoversTotal_SkipsStripe(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-acme-2").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(200)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(200_000_000)))
 
 	// CreditOnlyCheckout.
 	mock.ExpectBegin()
+	expectLockedBalance(mock, "cust-acme-2", 200_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO orders")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).
 			AddRow("order-acme-2", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)",
-	)).WithArgs("cust-acme-2", -100, "order-payment", "order-acme-2").
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id)",
+	)).WithArgs("cust-acme-2", int64(-100_000_000), "order-payment", "order-acme-2").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -300,11 +302,11 @@ func TestCheckout_VoucherPartialCover_StripeUnconfigured_RollsBackRedemption(t *
 	// 2. RedeemPromoCode — credit=10 (voucher does NOT cover the 50 OMR plan).
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT credit_omr, active, max_redemptions, times_redeemed, deleted_at",
+		"SELECT code, credit_omr, active, max_redemptions, times_redeemed, deleted_at",
 	)).WithArgs("WALK-T38-2138").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at",
-		}).AddRow(10, true, 1, 0, nil))
+			"code", "credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at",
+		}).AddRow("WALK-T38-2138", 10, true, 1, 0, nil))
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COUNT(*) FROM promo_redemptions",
 	)).WithArgs("cust-t38", "WALK-T38-2138").
@@ -327,7 +329,7 @@ func TestCheckout_VoucherPartialCover_StripeUnconfigured_RollsBackRedemption(t *
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-t38").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(10)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(10_000_000)))
 
 	// 4. GetSettings → StripeSecretKey empty (the t38 walk scenario).
 	mock.ExpectQuery(regexp.QuoteMeta(
@@ -343,6 +345,11 @@ func TestCheckout_VoucherPartialCover_StripeUnconfigured_RollsBackRedemption(t *
 		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
 		WithArgs("cust-t38", "WALK-T38-2138").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Under the customer lock the grant (10) is still unspent (balance 10).
+	expectLockedBalance(mock, "cust-t38", 10_000_000)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT CAST(SUM(amount_omr) AS BIGINT) FROM credit_ledger`)).
+		WithArgs("cust-t38", "promo:WALK-T38-2138").
+		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(int64(10)))
 	mock.ExpectExec(regexp.QuoteMeta(
 		`UPDATE promo_codes
 		   SET times_redeemed = GREATEST(times_redeemed - 1, 0)
