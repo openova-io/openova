@@ -290,6 +290,7 @@ type orgConsoleTLSNames struct {
 	CertName     string // org-wildcard-tls-<slug>-<parent-dashed> (== secretName)
 	HTTPSName    string // console-https-<slug> — listener name
 	HTTPName     string // console-http-<slug>  — listener name
+	Namespace    string // the Org's namespace (spec.slug), the one Org namespace whose routes the pair admits
 }
 
 // orgConsoleTLSNamesFor computes the deterministic per-Org names from a
@@ -309,7 +310,21 @@ func orgConsoleTLSNamesFor(subdomain, parentDomain string) orgConsoleTLSNames {
 		CertName:     "org-wildcard-tls-" + slug + "-" + parentDashed,
 		HTTPSName:    "console-https-" + slug,
 		HTTPName:     "console-http-" + slug,
+		Namespace:    slug,
 	}
+}
+
+// orgListenerAllowedRoutes admits the HTTPRoutes of the Org's namespace (its
+// vCluster syncs its Applications' routes there) and of its console route's
+// namespace, never `from: All`. The catalyst-api twin (org_console_tls.go)
+// writes the same values in the same order, so neither rewrites the other.
+func orgListenerAllowedRoutes(orgNamespace, routeNamespace string) map[string]any {
+	return map[string]any{"namespaces": map[string]any{
+		"from": "Selector",
+		"selector": map[string]any{"matchExpressions": []any{map[string]any{
+			"key": "kubernetes.io/metadata.name", "operator": "In", "values": []any{orgNamespace, routeNamespace},
+		}}},
+	}}
 }
 
 // reconcileTenantConsoleTLS issues the per-pool wildcard Certificate and
@@ -334,6 +349,11 @@ func (r *Reconciler) reconcileTenantConsoleTLS(ctx context.Context, org *orgapi.
 	names, ok := orgConsoleTLSNamesForOrg(org)
 	if !ok {
 		return false, nil
+	}
+	// The listener pair admits the routes of the Org's namespace, which is
+	// its slug even when its public subdomain differs.
+	if ns := strings.ToLower(strings.TrimSpace(org.Spec.Slug)); ns != "" {
+		names.Namespace = ns
 	}
 
 	certChanged, err := r.reconcileOrgWildcardCert(ctx, org, names)
@@ -502,13 +522,11 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Clie
 
 	desired := map[string]map[string]any{
 		httpsName: {
-			"name":     httpsName,
-			"hostname": hostname,
-			"port":     httpsPort,
-			"protocol": "HTTPS",
-			"allowedRoutes": map[string]any{
-				"namespaces": map[string]any{"from": "All"},
-			},
+			"name":          httpsName,
+			"hostname":      hostname,
+			"port":          httpsPort,
+			"protocol":      "HTTPS",
+			"allowedRoutes": orgListenerAllowedRoutes(names.Namespace, r.consoleRouteNamespace()),
 			"tls": map[string]any{
 				"mode": "Terminate",
 				"certificateRefs": []any{
@@ -521,13 +539,11 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Clie
 			},
 		},
 		httpName: {
-			"name":     httpName,
-			"hostname": hostname,
-			"port":     httpPort,
-			"protocol": "HTTP",
-			"allowedRoutes": map[string]any{
-				"namespaces": map[string]any{"from": "All"},
-			},
+			"name":          httpName,
+			"hostname":      hostname,
+			"port":          httpPort,
+			"protocol":      "HTTP",
+			"allowedRoutes": orgListenerAllowedRoutes(names.Namespace, r.consoleRouteNamespace()),
 		},
 	}
 

@@ -232,6 +232,8 @@ func orgConsoleTLSRecordFromOrgCR(obj *unstructured.Unstructured, sovereignFQDN 
 		ParentDomain:   parentDomain,
 		OTECHFQDN:      sovereignFQDN,
 		CompanyName:    strings.TrimSpace(nestedString(obj.Object, "spec", "displayName")),
+		// The namespace that the Org's listener admits: its slug, also when its subdomain differs.
+		TenantNamespace: slug,
 	}
 	// Single decision point: the emitter's own resolver decides whether this
 	// Org gets a surface, so the reconcile loop can never accept an Org the

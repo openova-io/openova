@@ -935,6 +935,8 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 	// per-Org wildcard from the apex host. Any other port pair is dead
 	// (the ELB only forwards to the apex ports).
 	httpsPort, httpPort := consoleApexListenerPorts(ctx, dyn)
+	allowed := map[string]any{"namespaces": map[string]any{"from": "Selector", "selector": map[string]any{"matchExpressions": []any{
+		map[string]any{"key": "kubernetes.io/metadata.name", "operator": "In", "values": []any{rec.TenantNamespace, catalystConsoleNamespace}}}}}}
 	// Apply object carries ONLY the two per-Org listeners. SSA's name-keyed
 	// merge adds them to the existing listener set without touching the apex
 	// console-https/console-http pair owned by kustomize-controller.
@@ -959,18 +961,14 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 								map[string]any{"kind": "Secret", "name": names.CertName},
 							},
 						},
-						"allowedRoutes": map[string]any{
-							"namespaces": map[string]any{"from": "All"},
-						},
+						"allowedRoutes": allowed,
 					},
 					map[string]any{
-						"name":     names.HTTPName,
-						"port":     httpPort,
-						"protocol": "HTTP",
-						"hostname": names.WildcardHost,
-						"allowedRoutes": map[string]any{
-							"namespaces": map[string]any{"from": "All"},
-						},
+						"name":          names.HTTPName,
+						"port":          httpPort,
+						"protocol":      "HTTP",
+						"hostname":      names.WildcardHost,
+						"allowedRoutes": allowed,
 					},
 				},
 			},

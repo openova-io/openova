@@ -1850,12 +1850,13 @@ checks:
 - id: NET-G11
   title: Route admission by owner
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Route admission by owner
+  implementation: tests/acceptance/sovereign/internal/suite/check_route_admission.go
   delivered_by: NET-191
 - id: NET-G12
   title: Region separation stated
