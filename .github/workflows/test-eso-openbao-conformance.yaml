@@ -1,0 +1,80 @@
+name: Test — External Secrets against OpenBao (conformance)
+
+# SEC-261. The behaviours of External Secrets that the platform uses, against a
+# real OpenBao, on a throwaway kind cluster: tests/e2e/eso-openbao-conformance.sh.
+# OpenBao is the image tag platform/openbao/chart/values.yaml pins; External
+# Secrets is the upstream chart platform/external-secrets/chart/Chart.yaml pins,
+# installed from the archive `helm dependency build` vendors (the chart's own
+# artefact, really pulled). Five behaviours, each with a negative control:
+# ExternalSecret read; PushSecret with a generator and IfNotExists; PushSecret
+# to a JWT-authenticated store; deletionPolicy Delete; a namespaced store with
+# serviceAccountRef. An upgrade of External Secrets (SEC-262, SEC-263) keeps
+# this green on its pull request and on main.
+#
+# No Service of type NodePort: OpenBao is a ClusterIP Service, and the test
+# reaches it with kubectl exec.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/external-secrets/chart/**'
+      - 'platform/openbao/chart/values.yaml'
+      - 'tests/e2e/eso-openbao-conformance.sh'
+      - '.github/workflows/test-eso-openbao-conformance.yaml'
+  pull_request:
+    paths:
+      - 'platform/external-secrets/chart/**'
+      - 'platform/openbao/chart/values.yaml'
+      - 'tests/e2e/eso-openbao-conformance.sh'
+      - '.github/workflows/test-eso-openbao-conformance.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      KIND_VERSION: v0.29.0
+      KIND_NODE_IMAGE: kindest/node:v1.33.1
+      CLUSTER: eso-conformance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Lint and self-test of the script (offline; every helper can fail)
+        run: |
+          set -euo pipefail
+          shellcheck -S warning tests/e2e/eso-openbao-conformance.sh
+          bash tests/e2e/eso-openbao-conformance.sh --self-test
+
+      - name: Tools (kind ${{ env.KIND_VERSION }}, kubectl, helm)
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          if ! grep -q "${KIND_VERSION}" <<<"$(kind version 2>/dev/null || true)"; then
+            curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/kind" "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+            sudo install -m 0755 "$RUNNER_TEMP/kind" /usr/local/bin/kind
+          fi
+          kind version; kubectl version --client; helm version --short
+
+      - name: Kind cluster
+        timeout-minutes: 6
+        run: kind create cluster --name "$CLUSTER" --image "$KIND_NODE_IMAGE" --wait 120s
+
+      - name: Vendor the External Secrets chart that bp-external-secrets pins (retried)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do
+            timeout 90 helm dependency build platform/external-secrets/chart && exit 0
+            echo "helm dependency build attempt $i failed; retrying"; sleep $((i * 5))
+          done
+          exit 1
+
+      - name: Conformance (five behaviours)
+        timeout-minutes: 15
+        run: bash tests/e2e/eso-openbao-conformance.sh
