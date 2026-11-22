@@ -377,8 +377,9 @@ func checkoutFromCatalog(t *testing.T, bss *httptest.Server) {
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-legacy").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(200)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(200_000_000)))
 	mock.ExpectBegin()
+	expectLockedBalance(mock, "cust-legacy", 200_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO orders")).
 		WithArgs("cust-legacy", "org-legacy", "plan-pro",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), "single-region",
@@ -390,8 +391,8 @@ func checkoutFromCatalog(t *testing.T, bss *httptest.Server) {
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-legacy", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)",
-	)).WithArgs("cust-legacy", -100, "order-payment", "order-legacy").
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
+	)).WithArgs("cust-legacy", int64(-100_000_000), "order-payment", "order-legacy").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("sub-legacy", time.Now(), time.Now()))
@@ -435,8 +436,9 @@ func TestCheckout_PackageM_WithBackup_CreditOnly_PersistsProvenance(t *testing.T
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-bss").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(11)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(11_000_000)))
 	mock.ExpectBegin()
+	expectLockedBalance(mock, "cust-bss", 11_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO orders")).
 		WithArgs("cust-bss", "org-bss", "m",
 			sqlmock.AnyArg(), jsonArg{`["addon.backup"]`}, "single-region",
@@ -448,9 +450,10 @@ func TestCheckout_PackageM_WithBackup_CreditOnly_PersistsProvenance(t *testing.T
 			int64(10500), // prepaid_baisa: M 9.000 + backup 1.500 = 10.500 (#6971)
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-bss", time.Now()))
+	// The debit is exactly 10.500, not the rounded-up 11.
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)",
-	)).WithArgs("cust-bss", -11, "order-payment", "order-bss").
+		"INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)",
+	)).WithArgs("cust-bss", int64(-10_500_000), "order-payment", "order-bss").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("sub-bss", time.Now(), time.Now()))
@@ -502,7 +505,7 @@ func TestCheckout_CreditShortByBaisa_IsNotCovered(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)",
 	)).WithArgs("cust-short").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(10)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(10_000_000)))
 	mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT stripe_secret_key, stripe_webhook_secret, stripe_public_key, updated_at",
 	)).WillReturnRows(sqlmock.NewRows([]string{

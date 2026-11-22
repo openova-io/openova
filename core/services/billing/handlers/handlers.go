@@ -223,6 +223,9 @@ type checkoutResponse struct {
 	OrderID       string `json:"order_id,omitempty"`
 	PaidByCredit  bool   `json:"paid_by_credit,omitempty"`
 	CreditBalance int    `json:"credit_balance,omitempty"`
+	// CreditBalanceBaisa is the exact balance left after a credit-paid
+	// order (CreditBalance is its whole-OMR floor, kept for older readers).
+	CreditBalanceBaisa int64 `json:"credit_balance_baisa,omitempty"`
 	// The priced lines the order row persisted (#6971) — price_source,
 	// package_sku, lines, amount_baisa — so the receipt shows what was billed.
 	*QuoteResponse
@@ -313,11 +316,18 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		respond.JSON(w, status, body)
 		return
 	}
-	// totalOMR is the whole-OMR view the credit ledger settles in (see
-	// pricedOrder.WholeOMR for the rounding rule); priced.TotalBaisa is the
-	// exact total the order row and the response carry.
+	// totalOMR is only the legacy whole-OMR view kept on the order row's
+	// amount_omr column (pricedOrder.WholeOMR rounds UP). No money moves by
+	// it: the credit check and the debit use priced.TotalBaisa, the exact
+	// total the order row, the receipt and the BSS prepaid amount carry.
 	totalOMR := priced.WholeOMR()
 	quote := priced.response(req.PlanID)
+
+	// The voucher as typed; RedeemPromoCode matches it the same way the
+	// public preview does (letter case ignored) and hands back the code as
+	// stored, which every later reference — the rollback, the order row —
+	// uses from then on.
+	promoCode := strings.TrimSpace(req.PromoCode)
 
 	// Redeem promo code → credit (if one was provided and valid). Runs only
 	// after the total has been computed successfully, so a catalog failure
@@ -338,36 +348,50 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		if !voucherRedeemed {
 			return
 		}
-		if err := h.Store.RollbackPromoCodeRedemption(ctx, cust.ID, req.PromoCode); err != nil {
+		if err := h.Store.RollbackPromoCodeRedemption(ctx, cust.ID, promoCode); err != nil {
+			if errors.Is(err, store.ErrPromoCreditSpent) {
+				// Another order of this customer already spent the grant;
+				// the redemption stands (taking it back would leave that
+				// order paid with credit that no longer exists).
+				slog.Info("checkout: voucher kept — its credit was spent by another order",
+					"customer_id", cust.ID, "code", promoCode, "reason", reason)
+				return
+			}
 			slog.Warn("checkout: voucher rollback failed — manual reconciliation may be needed",
-				"customer_id", cust.ID, "code", req.PromoCode, "reason", reason, "error", err)
+				"customer_id", cust.ID, "code", promoCode, "reason", reason, "error", err)
 			return
 		}
 		slog.Info("checkout: voucher redemption rolled back",
-			"customer_id", cust.ID, "code", req.PromoCode, "reason", reason)
+			"customer_id", cust.ID, "code", promoCode, "reason", reason)
 	}
-	if req.PromoCode != "" {
-		credit, redeemErr := h.Store.RedeemPromoCode(ctx, cust.ID, req.PromoCode)
+	if promoCode != "" {
+		credit, stored, redeemErr := h.Store.RedeemPromoCode(ctx, cust.ID, promoCode)
 		if redeemErr != nil {
 			slog.Info("checkout: promo not redeemed",
-				"customer_id", cust.ID, "code", req.PromoCode, "reason", redeemErr.Error())
+				"customer_id", cust.ID, "code", promoCode, "reason", redeemErr.Error())
 			// Invalid promo is not fatal — surface as error to user.
 			respond.Error(w, http.StatusBadRequest, "invalid promo code: "+redeemErr.Error())
 			return
 		}
+		promoCode = stored
 		voucherRedeemed = true
 		slog.Info("checkout: promo redeemed",
-			"customer_id", cust.ID, "code", req.PromoCode, "credit_omr", credit)
+			"customer_id", cust.ID, "code", promoCode, "credit_omr", credit)
 	}
 
-	// Check available credit balance.
-	creditBalance, err := h.Store.GetCreditBalance(ctx, cust.ID)
+	// Check available credit balance — exactly, in micro-OMR (the ledger's
+	// exact unit), floored to whole baisa.
+	balanceMicro, err := h.Store.GetCreditBalanceMicroOMR(ctx, cust.ID)
 	if err != nil {
 		slog.Error("checkout: credit balance", "error", err)
 		rollbackVoucher("get-credit-balance-failed")
 		respond.Error(w, http.StatusInternalServerError, "failed to check credit balance")
 		return
 	}
+	creditBaisa := store.MicroOMRToBaisa(balanceMicro)
+	// creditBalance is the whole-OMR view the Stripe leg (out of scope here)
+	// still reports; floored, never rounded up.
+	creditBalance := store.MicroOMRToWholeOMR(balanceMicro)
 
 	appsJSON, _ := json.Marshal(req.Apps)
 	addonsJSON, _ := json.Marshal(req.Addons)
@@ -387,15 +411,16 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	// vice-versa).
 	//
 	// #6971 — compared in baisa: a BSS-priced order can carry a sub-OMR total
-	// (plan M + backup = 10.500) and the whole-OMR ledger balance covers it
-	// only when balance × 1000 ≥ total.
-	remainingBaisa := priced.TotalBaisa - store.OMRToBaisa(creditBalance)
+	// (plan M + backup = 10.500). The balance is the exact ledger sum, so
+	// 2.510 of credit covers a 2.490 order. CreditOnlyCheckout re-checks it
+	// under the customer's lock — this read is only the routing decision.
+	remainingBaisa := priced.TotalBaisa - creditBaisa
 	if remainingBaisa <= 0 {
 		order := &store.Order{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 			Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 			AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "completed",
-			PromoCode:   req.PromoCode,
+			PromoCode:   promoCode,
 			PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 			OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
 			PrepaidBaisa: priced.PrepaidBaisa,
@@ -403,7 +428,18 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		sub := &store.Subscription{
 			CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID, Status: "active",
 		}
-		if err := h.Store.CreditOnlyCheckout(ctx, order, sub); err != nil {
+		afterMicro, err := h.Store.CreditOnlyCheckout(ctx, order, sub)
+		if errors.Is(err, store.ErrCreditInsufficient) {
+			// A concurrent checkout of this customer spent the credit between
+			// the read above and the lock; nothing was written.
+			slog.Warn("checkout: credit spent by a concurrent checkout — order not placed",
+				"customer_id", cust.ID, "total_baisa", priced.TotalBaisa)
+			rollbackVoucher("credit-spent-concurrently")
+			respond.Error(w, http.StatusConflict,
+				"your credit balance changed while this order was being placed; no order was created and nothing was charged — please review the total and try again")
+			return
+		}
+		if err != nil {
 			slog.Error("checkout: credit-only checkout", "error", err)
 			rollbackVoucher("credit-only-checkout-failed")
 			respond.Error(w, http.StatusInternalServerError, "failed to complete credit-only checkout")
@@ -415,12 +451,14 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 
 		slog.Info("checkout: settled from credit (no Stripe)",
 			"customer_id", cust.ID, "order_id", order.ID,
-			"total_omr", totalOMR, "credit_omr", creditBalance,
-			"promo_code", req.PromoCode)
+			"total_baisa", priced.TotalBaisa, "credit_baisa", creditBaisa,
+			"promo_code", promoCode)
 
 		respond.OK(w, checkoutResponse{
-			OrderID: order.ID, PaidByCredit: true, CreditBalance: creditBalance - totalOMR,
-			QuoteResponse: quote,
+			OrderID: order.ID, PaidByCredit: true,
+			CreditBalance:      store.MicroOMRToWholeOMR(afterMicro),
+			CreditBalanceBaisa: store.MicroOMRToBaisa(afterMicro),
+			QuoteResponse:      quote,
 		})
 		return
 	}
@@ -450,7 +488,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		CustomerID: cust.ID, TenantID: req.TenantID, PlanID: req.PlanID,
 		Apps: appsJSON, Addons: addonsJSON, Topology: topology,
 		AmountOMR: totalOMR, AmountBaisa: priced.TotalBaisa, Status: "pending",
-		PromoCode:   req.PromoCode,
+		PromoCode:   promoCode,
 		PriceSource: priced.PriceSource, PackageSKU: priced.PackageSKU, AddonLines: priced.linesJSON(),
 		OverageMode: priced.OverageMode, GrowCeiling: priced.growCeilingJSON(), SpendLimitMonth: priced.SpendLimitMonth,
 		PrepaidBaisa: priced.PrepaidBaisa,
@@ -885,7 +923,9 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	bal, err := h.Store.GetCreditBalance(ctx, cust.ID)
+	// Exact: a credit-paid order is debited in amount_micro_omr, so the
+	// whole-OMR column alone no longer holds the balance.
+	balMicro, err := h.Store.GetCreditBalanceMicroOMR(ctx, cust.ID)
 	if err != nil {
 		respond.Error(w, http.StatusInternalServerError, "failed to get balance")
 		return
@@ -896,8 +936,9 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		entries = nil
 	}
 	// #85 — emit per-entry amount_baisa alongside the legacy amount_omr so UI
-	// clients can normalize to the canonical unit. The credit_ledger currently
-	// stores only whole OMR; multiplying by 1000 is safe (no precision loss).
+	// clients can normalize to the canonical unit. amount_baisa is exact (both
+	// ledger columns); amount_omr is its whole-OMR part for older readers
+	// (truncated toward zero; the storefront reads amount_baisa).
 	type legacyEntry struct {
 		ID          string    `json:"id"`
 		AmountOMR   int       `json:"amount_omr"`
@@ -910,16 +951,16 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		view = append(view, legacyEntry{
 			ID:          e.ID,
-			AmountOMR:   e.AmountOMR,
-			AmountBaisa: store.OMRToBaisa(e.AmountOMR),
+			AmountOMR:   int(e.AmountBaisa() / 1000),
+			AmountBaisa: e.AmountBaisa(),
 			Reason:      e.Reason,
 			OrderID:     e.OrderID,
 			CreatedAt:   e.CreatedAt,
 		})
 	}
 	respond.OK(w, map[string]any{
-		"credit_omr":   bal,
-		"credit_baisa": store.OMRToBaisa(bal),
+		"credit_omr":   store.MicroOMRToWholeOMR(balMicro),
+		"credit_baisa": store.MicroOMRToBaisa(balMicro),
 		"entries":      view,
 	})
 }

@@ -43,8 +43,8 @@ func TestRedeemVoucherPreview_404OnUnknownCode(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(
 		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
-			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
-	)).WithArgs("DOES-NOT-EXIST").WillReturnError(sql.ErrNoRows)
+			 FROM promo_codes WHERE upper(code) = upper($1) AND deleted_at IS NULL`,
+	)).WithArgs("does-not-exist").WillReturnError(sql.ErrNoRows)
 
 	h := &Handler{Store: store.New(db)}
 
@@ -78,8 +78,8 @@ func TestRedeemVoucherPreview_200OnValidCode(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(
 		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
-			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
-	)).WithArgs("LAUNCH-50").WillReturnRows(rows)
+			 FROM promo_codes WHERE upper(code) = upper($1) AND deleted_at IS NULL`,
+	)).WithArgs("launch-50").WillReturnRows(rows)
 
 	h := &Handler{Store: store.New(db)}
 	body, _ := json.Marshal(map[string]string{"code": "launch-50"}) // case-insensitive
@@ -133,7 +133,7 @@ func TestRedeemVoucherPreview_410OnCappedCode(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(
 		`SELECT code, credit_omr, description, plan_tier, active, max_redemptions, times_redeemed, created_at, deleted_at
-			 FROM promo_codes WHERE code = $1 AND deleted_at IS NULL`,
+			 FROM promo_codes WHERE upper(code) = upper($1) AND deleted_at IS NULL`,
 	)).WithArgs("CAPPED").WillReturnRows(rows)
 
 	h := &Handler{Store: store.New(db)}

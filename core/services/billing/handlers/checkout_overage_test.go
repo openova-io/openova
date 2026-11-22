@@ -339,8 +339,9 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 	expectCustomer(mock, "user-grow", "cust-grow", tenantID)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT)")).
 		WithArgs("cust-grow").
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(5)))
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(5_000_000)))
 	mock.ExpectBegin()
+	expectLockedBalance(mock, "cust-grow", 5_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO orders")).
 		WithArgs("cust-grow", tenantID, "m",
 			sqlmock.AnyArg(), sqlmock.AnyArg(), "active-hot-standby",
@@ -351,8 +352,9 @@ func TestCheckout_Grow_CreditOnly_PersistsOverageAndHandsItOver(t *testing.T) {
 			int64(4490), // prepaid_baisa: M 4.490; the grow-only DR standby is 0 upfront
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-grow", time.Now()))
-	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO credit_ledger (customer_id, amount_omr, reason, order_id)")).
-		WithArgs("cust-grow", -5, "order-payment", "order-grow").
+	// The debit is exactly 4.490, not the rounded-up 5.
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO credit_ledger (customer_id, amount_omr, amount_micro_omr, reason, order_id, created_at)")).
+		WithArgs("cust-grow", int64(-4_490_000), "order-payment", "order-grow").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO subscriptions")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("sub-grow", time.Now(), time.Now()))

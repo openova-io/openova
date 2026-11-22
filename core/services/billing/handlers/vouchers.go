@@ -88,8 +88,8 @@ func (h *Handler) IssueVoucher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Normalize the code to uppercase to match the admin UI's convention
-	// (BillingPage.svelte uppercases on save). Public redemption is also
-	// case-insensitive — see RedeemVoucherPreview.
+	// (BillingPage.svelte uppercases on save). The preview and the checkout
+	// both match a typed code case-insensitively (store.promoCodeMatch).
 	p.Code = strings.ToUpper(strings.TrimSpace(p.Code))
 	// #5223 (UAT row 72) — plan_tier is a catalog plan slug (s/m/l/xl…);
 	// normalise to lowercase to match catalog Plan.Slug. Empty = credit-only
@@ -337,7 +337,10 @@ func (h *Handler) RedeemVoucherPreview(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
+	// Matched by the store's one rule (letter case ignored) — the same rule
+	// the checkout redeems by, so a code this preview accepts is the code the
+	// checkout takes.
+	code := strings.TrimSpace(req.Code)
 	if code == "" {
 		respond.Error(w, http.StatusBadRequest, "code is required")
 		return

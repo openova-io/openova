@@ -344,15 +344,15 @@ func TestRedeemPromoCode_SoftDeletedRejected(t *testing.T) {
 	mock.ExpectBegin()
 	deletedAt := time.Now().Add(-time.Hour)
 	mock.ExpectQuery(regexp.QuoteMeta(
-		`SELECT credit_omr, active, max_redemptions, times_redeemed, deleted_at
-		 FROM promo_codes WHERE code = $1 FOR UPDATE`)).
+		`SELECT code, credit_omr, active, max_redemptions, times_redeemed, deleted_at
+		 FROM promo_codes WHERE upper(code) = upper($1)`)).
 		WithArgs("RETIRED").
-		WillReturnRows(sqlmock.NewRows([]string{"credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at"}).
-			AddRow(10, true, 100, 5, deletedAt))
+		WillReturnRows(sqlmock.NewRows([]string{"code", "credit_omr", "active", "max_redemptions", "times_redeemed", "deleted_at"}).
+			AddRow("RETIRED", 10, true, 100, 5, deletedAt))
 	// The UPDATE incrementing times_redeemed must NOT happen.
 	mock.ExpectRollback()
 
-	credit, err := s.RedeemPromoCode(context.Background(), "cust-id", "RETIRED")
+	credit, _, err := s.RedeemPromoCode(context.Background(), "cust-id", "RETIRED")
 	if err == nil {
 		t.Fatal("expected error for soft-deleted promo, got nil")
 	}
@@ -379,6 +379,7 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 	s := New(db)
 
 	mock.ExpectBegin()
+	expectCustomerLock(mock, "cust", 100_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO orders`)).
 		WithArgs(
 			"cust", "tenant", "plan",
@@ -392,8 +393,9 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 			int64(0), // prepaid_baisa (#6971)
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-id", time.Now()))
+	// The debit is exactly 9.000, in amount_micro_omr.
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO credit_ledger`)).
-		WithArgs("cust", -9, "order-payment", "order-id").
+		WithArgs("cust", int64(-9_000_000), "order-payment", "order-id").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO subscriptions`)).
 		WithArgs("cust", "tenant", sqlmock.AnyArg(), "plan", "active", sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -403,7 +405,7 @@ func TestCreditOnlyCheckout_CommitsAllThreeWrites(t *testing.T) {
 
 	order := &Order{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", AmountOMR: 9, Status: "completed"}
 	sub := &Subscription{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", Status: "active"}
-	if err := s.CreditOnlyCheckout(context.Background(), order, sub); err != nil {
+	if _, err := s.CreditOnlyCheckout(context.Background(), order, sub); err != nil {
 		t.Fatalf("CreditOnlyCheckout: %v", err)
 	}
 	if order.ID != "order-id" {
@@ -431,6 +433,7 @@ func TestCreditOnlyCheckout_RollsBackOnSubscriptionFailure(t *testing.T) {
 	s := New(db)
 
 	mock.ExpectBegin()
+	expectCustomerLock(mock, "cust", 100_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO orders`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-id", time.Now()))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO credit_ledger`)).
@@ -442,7 +445,7 @@ func TestCreditOnlyCheckout_RollsBackOnSubscriptionFailure(t *testing.T) {
 
 	order := &Order{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", AmountOMR: 12, Status: "completed"}
 	sub := &Subscription{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", Status: "active"}
-	err = s.CreditOnlyCheckout(context.Background(), order, sub)
+	_, err = s.CreditOnlyCheckout(context.Background(), order, sub)
 	if err == nil {
 		t.Fatal("expected error when subscription insert fails, got nil")
 	}
@@ -463,6 +466,7 @@ func TestCreditOnlyCheckout_ZeroTotalSkipsLedger(t *testing.T) {
 	s := New(db)
 
 	mock.ExpectBegin()
+	expectCustomerLock(mock, "cust", 100_000_000)
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO orders`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("order-id", time.Now()))
 	// No ledger insert expected for AmountOMR = 0.
@@ -473,7 +477,7 @@ func TestCreditOnlyCheckout_ZeroTotalSkipsLedger(t *testing.T) {
 
 	order := &Order{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", AmountOMR: 0, Status: "completed"}
 	sub := &Subscription{CustomerID: "cust", TenantID: "tenant", PlanID: "plan", Status: "active"}
-	if err := s.CreditOnlyCheckout(context.Background(), order, sub); err != nil {
+	if _, err := s.CreditOnlyCheckout(context.Background(), order, sub); err != nil {
 		t.Fatalf("CreditOnlyCheckout: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -535,6 +539,14 @@ func TestRollbackPromoCodeRedemption_UndoesAllThreeSideEffects(t *testing.T) {
 		`DELETE FROM promo_redemptions WHERE customer_id = $1 AND code = $2`)).
 		WithArgs("cust-1", "WALK-T38-2138").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 1b. Under the customer lock: nothing before the grant, no order since,
+	//     so the grant (10) is still unspent.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM customers WHERE id = $1 FOR NO KEY UPDATE`)).
+		WithArgs("cust-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("cust-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`WITH g AS (`)).
+		WithArgs("cust-1", "promo:WALK-T38-2138").
+		WillReturnRows(sqlmock.NewRows([]string{"before", "after"}).AddRow(int64(0), int64(0)))
 	// 2. UPDATE promo_codes decrements times_redeemed.
 	mock.ExpectExec(regexp.QuoteMeta(
 		`UPDATE promo_codes
@@ -614,4 +626,39 @@ func TestRollbackPromoCodeRedemption_EmptyArgsNoOp(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sqlmock expectations (must not hit DB): %v", err)
 	}
+}
+
+// TestGrantSpentByOrders: a grant counts as spent only when the orders paid
+// since it took more than the credit there was before it. Debt from before
+// the grant (post-paid metering) is no credit, and it is not spending either.
+func TestGrantSpentByOrders(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		before, after int64
+		want          bool
+	}{
+		{"nothing before, nothing since", 0, 0, false},
+		{"debt before, nothing since", -300_000, 0, false},
+		{"debt before, an order since spent the grant", -300_000, -4_700_000, true},
+		{"debt before, a 1.000 order since was paid by the grant", -300_000, -1_000_000, true},
+		{"credit before covers the order since", 2_000_000, -2_000_000, false},
+		{"order since took more than the credit before", 2_000_000, -3_000_000, true},
+		{"a later grant covers the order since", 0, 5_000_000 - 4_000_000, false},
+		{"order since spent exactly the grant", 0, -10_000_000, true},
+	} {
+		if got := grantSpentByOrders(c.before, c.after); got != c.want {
+			t.Errorf("%s: grantSpentByOrders(%d, %d) = %v, want %v", c.name, c.before, c.after, got, c.want)
+		}
+	}
+}
+
+// expectCustomerLock programs the customer row lock that serialises every
+// spend of one customer's credit, and the exact balance read under it.
+func expectCustomerLock(mock sqlmock.Sqlmock, custID string, balanceMicro int64) {
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id FROM customers WHERE id = $1 FOR NO KEY UPDATE`)).
+		WithArgs(custID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(custID))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(CAST(SUM(amount_omr) AS BIGINT) * 1000000`)).
+		WithArgs(custID).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(balanceMicro))
 }
