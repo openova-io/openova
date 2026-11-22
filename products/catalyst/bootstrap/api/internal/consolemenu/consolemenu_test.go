@@ -103,3 +103,35 @@ func TestHasPage(t *testing.T) {
 		}
 	}
 }
+
+// TestPages_OneClassViewPerClass: the list holds exactly one class view of
+// Resources per Blueprint class, each off by default, with the identifier
+// page:class-<class> and the Resources address filtered to that class.
+func TestPages_OneClassViewPerClass(t *testing.T) {
+	classes := []string{"application", "data-service", "network-security-service", "ai-service", "infrastructure", "platform-component"}
+	entries := PageEntries(Pages())
+	byID := make(map[string]Entry, len(entries))
+	for _, e := range entries {
+		if strings.HasPrefix(e.ID, PageIDPrefix+"class-") {
+			byID[e.ID] = e
+		}
+	}
+	if len(byID) != len(classes) {
+		t.Fatalf("class views = %d, want one per class (%d): %v", len(byID), len(classes), byID)
+	}
+	for _, c := range classes {
+		e, ok := byID[PageIDPrefix+"class-"+c]
+		if !ok {
+			t.Fatalf("no class view for class %s", c)
+		}
+		if e.Enabled || e.DefaultEnabled {
+			t.Fatalf("class view %s is on by default", e.ID)
+		}
+		if e.Source != SourcePage {
+			t.Fatalf("class view %s has source %q, want %q", e.ID, e.Source, SourcePage)
+		}
+		if want := "/cloud?view=list&kind=helmreleases&class=" + c; e.Route != want || e.DefaultRoute != want {
+			t.Fatalf("class view %s route = %q, want %q", e.ID, e.Route, want)
+		}
+	}
+}

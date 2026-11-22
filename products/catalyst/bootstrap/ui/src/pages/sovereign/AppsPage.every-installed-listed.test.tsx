@@ -80,6 +80,10 @@ const SOVEREIGN_APPS_RESPONSE = {
     { id: 'bp-cnpg-pair', slug: 'cnpg-pair', title: 'CNPG Cluster-Pair (Active-Hotstandby DR)', status: 'installed', bootstrapKit: false },
     { id: 'bp-chargeback', slug: 'chargeback', title: 'Chargeback', status: 'installed', bootstrapKit: false },
     { id: 'bp-wordpress-tenant', slug: 'wordpress-tenant', title: 'WordPress', status: 'installing', bootstrapKit: false },
+    // SVC-180 — bp-cnpg-pair and bp-chargeback are of class platform-component,
+    // which this page leaves to Resources; bp-agenity (an AI service) is the
+    // installed, not-selected row of another class that must still be listed.
+    { id: 'bp-agenity', slug: 'agenity', title: 'Agenity Agents (per Organization)', status: 'installed', bootstrapKit: false },
     { id: 'bp-keda', slug: 'keda', title: 'KEDA', status: 'available', bootstrapKit: false },
   ],
   bootstrapKit: [],
@@ -149,25 +153,35 @@ afterEach(() => {
 })
 
 describe('AppsPage — every server-installed Application is listed (hw307 gap)', () => {
-  it('control — the grid renders the bootstrap spine', async () => {
+  it('control — the grid renders, and the bootstrap spine is left to Resources', async () => {
     await screen.findByTestId('sov-apps-grid')
-    await screen.findByTestId('sov-app-card-bp-cilium')
+    await screen.findByTestId('sov-app-card-bp-agenity')
+    expect(screen.queryByTestId('sov-app-card-bp-cilium')).toBeNull()
+    expect(screen.getByTestId('sov-apps-platform-link')).toBeTruthy()
   })
 
-  it.each(['bp-cnpg-pair', 'bp-chargeback', 'bp-wordpress-tenant'])(
+  it.each(['bp-agenity', 'bp-wordpress-tenant'])(
     '%s — installed on the server, not in the wizard selection — renders a card',
     async (id) => {
       expect(await screen.findByTestId(`sov-app-card-${id}`)).toBeTruthy()
     },
   )
 
+  it.each(['bp-cnpg-pair', 'bp-chargeback'])(
+    '%s — installed, of class platform-component — renders no card here (Resources lists it)',
+    async (id) => {
+      await screen.findByTestId('sov-app-card-bp-agenity')
+      expect(screen.queryByTestId(`sov-app-card-${id}`)).toBeNull()
+    },
+  )
+
   it('the server title is used when the component catalog has no entry', async () => {
-    const card = await screen.findByTestId('sov-app-card-bp-cnpg-pair')
-    expect(within(card).getByText(/CNPG Cluster-Pair|cnpg-pair/i)).toBeTruthy()
+    const card = await screen.findByTestId('sov-app-card-bp-agenity')
+    expect(within(card).getByText(/Agenity Agents \(per Organization\)/)).toBeTruthy()
   })
 
   it('an AVAILABLE (not installed) catalog item is NOT listed as installed', async () => {
-    await screen.findByTestId('sov-app-card-bp-cnpg-pair')
+    await screen.findByTestId('sov-app-card-bp-agenity')
     expect(screen.queryByTestId('sov-app-card-bp-keda')).toBeNull()
   })
 })

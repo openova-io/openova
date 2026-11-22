@@ -65,6 +65,7 @@ import {
   type CloudListKind,
 } from './cloud-list/kinds'
 import { deriveKindCounts } from './cloud-list/kindCounts'
+import { RESOURCES_CLASS_KIND, isBlueprintClass } from '@/shared/constants/classes'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { CloudLensProvider } from '@/widgets/architecture-graph/useCloudLens'
 import type { LensId } from '@/widgets/architecture-graph/presets'
@@ -214,7 +215,13 @@ export function CloudPage({
     // closed-set-validated this against LENSES, so we thread it straight
     // into CloudLensProvider as the initial chip-set.
     lens?: LensId
+    // SVC-180 — the class filter (`?class=`), validated by the route.
+    class?: string
   }
+  // SVC-180 — a class in the address opens the list view (a class view of
+  // the left menu is that address) and travels with every view, kind and
+  // Sovereign switch below, so a reload returns the same view.
+  const classFilter = isBlueprintClass(search.class) ? search.class : undefined
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,
@@ -348,8 +355,9 @@ export function CloudPage({
   const activeView: CloudView = useMemo(() => {
     if (viewOverride) return viewOverride
     if (isValidView(search.view)) return search.view
+    if (classFilter) return 'list'
     return DEFAULT_VIEW
-  }, [viewOverride, search.view])
+  }, [viewOverride, search.view, classFilter])
 
   // Persist + URL-canonicalise on every change.
   useEffect(() => {
@@ -363,10 +371,11 @@ export function CloudPage({
     // For graph view we don't carry kind; for list view we let the
     // list view itself populate kind on mount (avoids a double-nav
     // when the persisted kind is read client-side).
-    const next: { view: CloudView; kind?: string } = { view: activeView }
+    const next: { view: CloudView; kind?: string; class?: string } = { view: activeView }
     if (activeView === 'list' && typeof search.kind === 'string') {
       next.kind = search.kind
     }
+    if (activeView === 'list' && classFilter) next.class = classFilter
     navigate({
       to: cloudPath(deploymentId) as never,
       params: { deploymentId } as never,
@@ -374,14 +383,15 @@ export function CloudPage({
       replace: true,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, search.view, search.kind, pathname, deploymentId, viewOverride])
+  }, [activeView, search.view, search.kind, classFilter, pathname, deploymentId, viewOverride])
 
   function setView(next: CloudView) {
     if (next === activeView) return
-    const target: { view: CloudView; kind?: string } = { view: next }
+    const target: { view: CloudView; kind?: string; class?: string } = { view: next }
     if (next === 'list' && typeof search.kind === 'string') {
       target.kind = search.kind
     }
+    if (next === 'list' && classFilter) target.class = classFilter
     navigate({
       to: cloudPath(deploymentId) as never,
       params: { deploymentId } as never,
@@ -394,10 +404,11 @@ export function CloudPage({
     if (nextId === deploymentId) return
     // Preserve the active view (and active kind if list) when the
     // operator switches Sovereigns.
-    const target: { view: CloudView; kind?: string } = { view: activeView }
+    const target: { view: CloudView; kind?: string; class?: string } = { view: activeView }
     if (activeView === 'list' && typeof search.kind === 'string') {
       target.kind = search.kind
     }
+    if (activeView === 'list' && classFilter) target.class = classFilter
     navigate({
       to: cloudPath(nextId) as never,
       params: { deploymentId: nextId } as never,
@@ -412,8 +423,9 @@ export function CloudPage({
    * EXACTLY as before, now including the reconciler kinds. */
   const activeKind: CloudListKind = useMemo(() => {
     if (isValidKind(search.kind)) return search.kind
+    if (classFilter) return RESOURCES_CLASS_KIND as CloudListKind
     return readPersistedKind() ?? DEFAULT_KIND
-  }, [search.kind])
+  }, [search.kind, classFilter])
 
   // Per-kind count map for the chip badges. Built dynamically from the
   // KIND_IDS catalogue (never a hardcoded seed — that maintenance trap
@@ -436,12 +448,14 @@ export function CloudPage({
       navigate({
         to: cloudPath(deploymentId) as never,
         params: { deploymentId } as never,
-        search: { view: 'list', kind: next } as never,
+        search: (classFilter
+          ? { view: 'list', kind: next, class: classFilter }
+          : { view: 'list', kind: next }) as never,
         replace: false,
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [navigate, deploymentId],
+    [navigate, deploymentId, classFilter],
   )
 
   /* ── Fullscreen ─────────────────────────────────────────────── */

@@ -389,3 +389,20 @@ describe('AppDetail — #3090 instance page (no class content; Open button)', ()
     }
   })
 })
+
+// SVC-180 — the Connection section follows the Blueprint's own declaration
+// (spec.shareable), the one the Contexts tab reads, and no wizard family.
+describe('AppDetail — Connection section (SVC-180)', () => {
+  it('a shareable Blueprint shows the Connection section', async () => {
+    renderDetail('d-1', 'bp-valkey')
+    const panel = await screen.findByTestId('app-tab-overview-panel')
+    expect(within(panel).getByTestId('sov-section-connection')).toBeTruthy()
+  })
+
+  it('a Blueprint that is not shareable shows none', async () => {
+    renderDetail('d-1', 'bp-cilium')
+    const panel = await screen.findByTestId('app-tab-overview-panel')
+    expect(within(panel).getByTestId('sov-section-about')).toBeTruthy()
+    expect(within(panel).queryByTestId('sov-section-connection')).toBeNull()
+  })
+})

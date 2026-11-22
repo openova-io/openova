@@ -30,7 +30,9 @@ import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
 const BODY = {
   apps: [
     { id: 'bp-cilium', slug: 'cilium', status: 'installed' },
-    { id: 'bp-cnpg-pair', slug: 'cnpg-pair', title: 'CNPG Cluster-Pair (Active-Hotstandby DR)', status: 'installed', bootstrapKit: false },
+    // SVC-180 — the hw307 row was bp-cnpg-pair, a platform component this page now
+    // leaves to Resources; the same id-versus-title case on an application row.
+    { id: 'bp-wordpress-tenant', slug: 'wordpress-tenant', title: 'WordPress Site (Managed Hosting)', status: 'installed', bootstrapKit: false },
     { id: 'shared-pg', slug: 'postgres', blueprint: 'bp-postgres', status: 'installed', instance: true, environment: 'prod', topology: 'active-passive', contextCount: 1, bootstrapKit: false, org: 'uatco' },
   ],
   bootstrapKit: [],
@@ -53,7 +55,7 @@ function renderApps() {
 }
 
 async function search(q: string) {
-  await screen.findByTestId('sov-app-card-bp-cnpg-pair')
+  await screen.findByTestId('sov-app-card-bp-wordpress-tenant')
   const input = screen.getByPlaceholderText(/Search your/)
   fireEvent.change(input, { target: { value: q } })
 }
@@ -69,9 +71,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('AppsPage search matches ids, not only titles', () => {
-  it.each(['bp-cnpg', 'cnpg-pair', 'BP-CNPG-PAIR', 'Cluster-Pair'])('"%s" finds bp-cnpg-pair', async (q) => {
+  it.each(['bp-wordpress', 'wordpress-tenant', 'BP-WORDPRESS-TENANT', 'Managed Hosting'])('"%s" finds bp-wordpress-tenant', async (q) => {
     await search(q)
-    expect(screen.queryByTestId('sov-app-card-bp-cnpg-pair')).not.toBeNull()
+    expect(screen.queryByTestId('sov-app-card-bp-wordpress-tenant')).not.toBeNull()
     expect(screen.queryByTestId('sov-apps-no-match')).toBeNull()
   })
 
@@ -83,6 +85,6 @@ describe('AppsPage search matches ids, not only titles', () => {
   it('a query matching nothing says so instead of rendering a blank grid', async () => {
     await search('no-such-app-xyz')
     expect(screen.getByTestId('sov-apps-no-match').textContent).toContain('no-such-app-xyz')
-    expect(screen.queryByTestId('sov-app-card-bp-cnpg-pair')).toBeNull()
+    expect(screen.queryByTestId('sov-app-card-bp-wordpress-tenant')).toBeNull()
   })
 })

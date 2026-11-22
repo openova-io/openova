@@ -23,8 +23,11 @@ import {
   colReadyCount,
   colPodRestarts,
   colPodPhase,
+  applicationBlueprint,
+  helmReleaseBlueprint,
   type CellTone,
 } from './k8sColumns'
+import { useClassFilter } from './useClassFilter'
 
 /** Pod READY column — `<ready containers>/<total containers>`, coloured by
  *  readiness. k9s shows this as the headline health signal. */
@@ -795,9 +798,15 @@ export function ClusterPolicyReportsListPage() {
  * ────────────────────────────────────────────────────────────────── */
 
 export function HelmReleasesListPage() {
+  // SVC-180 — one HelmRelease per installed Blueprint: grouped and filtered
+  // by class, the filter in the address (`?class=`).
+  const classFilter = useClassFilter()
   return (
     <K8sListPage
       kind="helmrelease"
+      blueprintOf={helmReleaseBlueprint}
+      classFilter={classFilter.value}
+      onClassFilterChange={classFilter.set}
       title="HelmReleases"
       tagline="Flux HelmReleases — one per installed Blueprint. Target namespace / chart / revision / reconcile state."
       columns={[
@@ -1017,9 +1026,15 @@ export function CnpgDatabasesListPage() {
 }
 
 export function ApplicationsListPage() {
+  // SVC-180 — grouped and filtered by the class of each Application's
+  // Blueprint, the filter in the address (`?class=`).
+  const classFilter = useClassFilter()
   return (
     <K8sListPage
       kind="application"
+      blueprintOf={applicationBlueprint}
+      classFilter={classFilter.value}
+      onClassFilterChange={classFilter.set}
       title="Applications"
       tagline="Catalyst Application CRs — installed Blueprints per Environment. Blueprint / reconcile state."
       columns={[

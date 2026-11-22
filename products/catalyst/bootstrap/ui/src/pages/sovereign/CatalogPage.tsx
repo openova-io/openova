@@ -35,19 +35,16 @@ import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
 import { listApps, type CommerceApp } from '@/lib/commerce.api'
 import { useCatalog } from '@/lib/useCatalog'
 import type { CatalogItem } from '@/lib/catalog.api'
-import { BLUEPRINT_BY_ID, type BlueprintClass } from '@/shared/constants/catalog.generated'
+import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import {
+  CLASS_LABELS,
+  PLATFORM_CLASS,
+  classOfBlueprint,
+  groupByClass,
+} from '@/shared/constants/classes'
+import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 
 const DEFAULT_APP_ENVIRONMENT = 'dev'
-
-/** Contract C1 — the screen label of each class (spec.class). */
-const CLASS_LABEL: Record<BlueprintClass, string> = {
-  application: 'Applications',
-  'data-service': 'Data services',
-  'network-security-service': 'Network and security services',
-  'ai-service': 'AI services',
-  infrastructure: 'Infrastructure',
-  'platform-component': 'Platform components',
-}
 
 /** Contract C1 — the badge of a lifecycle (spec.lifecycle); supported shows none. */
 const LIFECYCLE_BADGE: Record<string, string> = { experimental: 'Experimental', deprecated: 'Deprecated' }
@@ -75,14 +72,14 @@ function catalogItemToDescriptor(it: CatalogItem): ApplicationDescriptor | null 
   // Contract C1 — the chip is the Blueprint's class: spec.class of its file, as
   // the build-time catalogue carries it. A Blueprint it does not know is an
   // application, the class's default.
-  const cls = BLUEPRINT_BY_ID[id]?.class ?? 'application'
+  const cls = classOfBlueprint(id)
   return {
     id,
     bareId,
     title: card.title || bareId,
     description: card.summary ?? card.description ?? card.tagline ?? '',
     familyId: cls,
-    familyName: CLASS_LABEL[cls],
+    familyName: CLASS_LABELS[cls].plural,
     tier: 'optional',
     logoUrl: null,
     dependencies: [],
@@ -306,10 +303,17 @@ export function CatalogPage() {
     } as never)
   }
 
-  const shownApps = useMemo<ApplicationDescriptor[]>(
-    () => (showUnlisted ? catalogApps : catalogApps.filter((a) => isListed(a.id, liveVisibilityById))),
-    [catalogApps, showUnlisted, liveVisibilityById],
-  )
+  // SVC-180 — an Organization user never sees a platform component, not
+  // even with Show unlisted; while the scope is still loading the console
+  // does not yet know, so it hides them too.
+  const { orgScoped, loading: scopeLoading } = useConsoleScope()
+  const hidePlatform = orgScoped || scopeLoading
+  const shownApps = useMemo<ApplicationDescriptor[]>(() => {
+    const visible = showUnlisted
+      ? catalogApps
+      : catalogApps.filter((a) => isListed(a.id, liveVisibilityById))
+    return hidePlatform ? visible.filter((a) => classOfBlueprint(a.id) !== PLATFORM_CLASS) : visible
+  }, [catalogApps, showUnlisted, liveVisibilityById, hidePlatform])
 
   const [query, setQuery] = useState('')
 
@@ -368,8 +372,18 @@ export function CatalogPage() {
           </p>
         </div>
       ) : (
-        <div className="apps-grid" data-testid="sov-catalog-grid">
-          {visibleApps.map((app) => {
+        // SVC-180 — the cards are grouped by class, in the class order of
+        // shared/constants/classes.ts.
+        <div className="catalog-class-groups" data-testid="sov-catalog-grid">
+          {groupByClass(visibleApps, (a) => classOfBlueprint(a.id)).map((g) => (
+            <section
+              key={g.cls}
+              className="catalog-class-group"
+              data-testid={`sov-catalog-class-${g.cls}`}
+            >
+              <h2 className="catalog-class-title">{g.label.plural} · {g.items.length}</h2>
+              <div className="apps-grid" data-testid={`sov-catalog-class-grid-${g.cls}`}>
+          {g.items.map((app) => {
             const slug = app.id.replace(/^bp-/, '')
             const published = Object.prototype.hasOwnProperty.call(publishedBySlug, slug)
               ? publishedBySlug[slug]
@@ -451,6 +465,9 @@ export function CatalogPage() {
               </div>
             )
           })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
@@ -496,6 +513,12 @@ const CATALOG_PAGE_CSS = `
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 0.65rem;
+}
+/* SVC-180 — one section per class, each with its own card grid. */
+.catalog-class-groups { display: flex; flex-direction: column; gap: 1.25rem; }
+.catalog-class-title {
+  margin: 0 0 0.5rem; font-size: 0.78rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-dim);
 }
 /* Contract C1 — the lifecycle badge sits in the card's top-right corner. */
 .catalog-card { position: relative; }

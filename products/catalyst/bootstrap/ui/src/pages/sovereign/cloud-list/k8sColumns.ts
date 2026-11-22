@@ -15,6 +15,7 @@
  */
 
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import type { BlueprintClass } from '@/shared/constants/classes'
 
 /**
  * Status TONE for a cell (#4084 — k9s-style colour coding). The list must
@@ -95,6 +96,41 @@ export interface K8sListPageProps {
   columns: K8sListColumn[]
   /** When true, items are sorted by namespace then name. Default true. */
   sortByName?: boolean
+  /** SVC-180 — the Blueprint a row installs, for the lists whose rows are
+   *  installed Blueprints (HelmReleases, Applications). When given, the
+   *  list groups its rows by class (shared/constants/classes.ts), adds a
+   *  Class column and a class filter, and keeps only the rows of
+   *  `classFilter`. */
+  blueprintOf?: (obj: K8sObject) => string | null
+  /** SVC-180 — the class filter, read from the address (`?class=`) by the
+   *  caller; null shows every class. Used only with `blueprintOf`. */
+  classFilter?: BlueprintClass | null
+  /** SVC-180 — writes a new class filter to the address; null clears it. */
+  onClassFilterChange?: (next: BlueprintClass | null) => void
+}
+
+/* ── The Blueprint of a row (SVC-180) ─────────────────────────────── */
+
+/** The Blueprint a HelmRelease installs: its chart when that is a
+ *  Blueprint chart (bp-<name>), else its own name when that is one. */
+export function helmReleaseBlueprint(o: K8sObject): string | null {
+  const chart = (
+    (o.spec as Record<string, unknown> | undefined)?.['chart'] as Record<string, unknown> | undefined
+  )?.['spec'] as Record<string, unknown> | undefined
+  const chartName = chart?.['chart']
+  if (typeof chartName === 'string' && chartName.startsWith('bp-')) return chartName
+  const name = o.metadata?.name ?? ''
+  return name.startsWith('bp-') ? name : null
+}
+
+/** The Blueprint an Application CR installs (spec.blueprint, or the
+ *  older spec.blueprintRef.name). */
+export function applicationBlueprint(o: K8sObject): string | null {
+  const spec = o.spec as Record<string, unknown> | undefined
+  const direct = spec?.['blueprint']
+  if (typeof direct === 'string' && direct !== '') return direct
+  const ref = (spec?.['blueprintRef'] as Record<string, unknown> | undefined)?.['name']
+  return typeof ref === 'string' && ref !== '' ? ref : null
 }
 
 /* ── Common column extractors ──────────────────────────────────── */
