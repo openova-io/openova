@@ -141,6 +141,10 @@ func (p provisioningPostconditions) message() string {
 //     status is, from the operator's side, indistinguishable from one that was
 //     never configured — so it must be named in status, loudly, the same way
 //     an absent one is.
+//  6. The boundary (vCluster HelmRelease Ready, LimitRange, ResourceQuotas)
+//     in every OTHER region (verifyBoundaryInOtherRegions): each region
+//     applies it through its own Flux, so the host region's copy proves
+//     nothing about theirs.
 //
 // The namespace itself is NOT re-probed here — vclusterReadiness already gates
 // on it and verifyProvisioned is only consulted once that returned ready, so a
@@ -193,6 +197,16 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 		}
 	}
 
+	// Every region this Sovereign has, resolved ONCE per pass: the boundary
+	// (6) and the console edge (3-5) are both read back in each of them.
+	res := r.consoleRegionTargets(ctx)
+
+	// 6 — the boundary in every OTHER region. Checks 1 + 2 above and
+	// vclusterReadiness read through r.Client, which is this controller's own
+	// region only; each other region receives the same ./vcluster tree through
+	// its OWN Flux from its OWN Gitea, and that delivery can fail there alone.
+	verifyBoundaryInOtherRegions(ctx, org, res, &out)
+
 	// 3 — the console edge. Only meaningful for an Org that engages the
 	// tenant-networking up-path; an Org with no pool parentDomain is reached
 	// via the Sovereign-wide `*.<sovFQDN>` wildcard and authors no listener.
@@ -212,7 +226,6 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 	// artifact (no credential exists, so the listener can never land there),
 	// while an UNREACHABLE one is only a requeue (an apiserver blip must not
 	// red-flag every Organization on the Sovereign at once).
-	res := r.consoleRegionTargets(ctx)
 	for _, u := range res.Unwired {
 		out.Missing = append(out.Missing, fmt.Sprintf(
 			"console Gateway listeners %s/%s in every region — %s (the console ELB pool forwards customer TLS to every region's nodes, so a region with no listener resets the handshake for %q on the share of connections it receives)",
@@ -285,6 +298,92 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 		}
 	}
 	return out
+}
+
+// verifyBoundaryInOtherRegions reads the Organization's boundary back in every
+// region other than this controller's own: the vCluster HelmRelease
+// `<slug>/vcluster` Ready, the LimitRange, and (for a plan that renders one)
+// both ResourceQuotas. Before it, Ready=True was decided from the host region
+// alone, so an Organization whose boundary never landed in region B (its
+// git-sync kept the last state, its Kustomization or HelmRelease failed there)
+// read Ready on every surface and was found missing only at a failover.
+//
+// The discipline is the console listeners' (#5246, #6107): an UNWIRED or
+// UNREACHABLE region is Missing (this pass read nothing there, so the boundary
+// is unproven in it), a NotFound is Missing, and so is any other read error in
+// a wired region (a timeout, a Forbidden, no HelmRelease kind there): a
+// boundary this pass could not read in a region it knows exists is unproven
+// there, and Ready from the host region alone is a verdict from absent
+// evidence. Missing requeues, so a blip clears on the next pass. The
+// denominator failing (Undecidable: the region set itself could not be read)
+// is Unverifiable, logged and requeued, never Missing — the listener checks'
+// anti-over-correction rule — and it is reported here for EVERY Organization,
+// including one with no pool domain, which never reaches the listener checks.
+// On a single-region Sovereign res carries the host only and this adds
+// nothing.
+func verifyBoundaryInOtherRegions(ctx context.Context, org *orgapi.Organization, res consoleRegionResolution, out *provisioningPostconditions) {
+	slug := strings.TrimSpace(org.Spec.Slug)
+	for _, u := range res.Undecidable {
+		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+			"the boundary of %s (vCluster, LimitRange, ResourceQuota) in every region — %s (no region beyond this one was read this pass)",
+			slug, u))
+	}
+	for _, u := range res.Unwired {
+		out.Missing = append(out.Missing, fmt.Sprintf(
+			"the boundary of %s (vCluster, LimitRange, ResourceQuota) in every region — %s (each region applies it through its own Flux, so a region this controller holds no credential for is a region where it is unproven)",
+			slug, u))
+	}
+	for _, u := range res.Unreachable {
+		out.Missing = append(out.Missing, fmt.Sprintf(
+			"the boundary of %s (vCluster, LimitRange, ResourceQuota) in every region — %s (unreached: this pass read nothing there; requeueing clears it if the region merely blipped)",
+			slug, u))
+	}
+	for _, tgt := range res.Targets {
+		if tgt.Host {
+			continue // read above through r.Client
+		}
+		region := "region " + tgt.Region
+
+		hr := &unstructured.Unstructured{}
+		hr.SetGroupVersionKind(helmReleaseGVK)
+		switch err := tgt.Client.Get(ctx, client.ObjectKey{Namespace: slug, Name: "vcluster"}, hr); {
+		case apierrors.IsNotFound(err):
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"vCluster HelmRelease %s/vcluster in %s (that region's Flux never applied the Organization's ./vcluster tree — it has no boundary there)",
+				slug, region))
+		case err != nil:
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"vCluster HelmRelease %s/vcluster in %s, unread: %s (this pass could not read the boundary there, so it is unproven in that region; requeueing clears it once the read succeeds)",
+				slug, region, err))
+		case !helmReleaseReady(hr):
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"a Ready vCluster HelmRelease %s/vcluster in %s (present but not Ready there)", slug, region))
+		}
+
+		type probe struct {
+			kind, name string
+			obj        client.Object
+		}
+		probes := []probe{{"LimitRange", gitops.BoundaryLimitRangeName, &corev1.LimitRange{}}}
+		if gitops.PlanRendersResourceQuota(org.Spec.PlanSlug) {
+			probes = append(probes,
+				probe{"ResourceQuota", gitops.BoundaryResourceQuotaName, &corev1.ResourceQuota{}},
+				probe{"ResourceQuota", gitops.PlatformResourceQuotaName, &corev1.ResourceQuota{}})
+		}
+		for _, p := range probes {
+			switch err := tgt.Client.Get(ctx, client.ObjectKey{Namespace: slug, Name: p.name}, p.obj); {
+			case err == nil:
+			case apierrors.IsNotFound(err):
+				out.Missing = append(out.Missing, fmt.Sprintf(
+					"%s %s/%s in %s (the plan boundary the customer pays for is not on the namespace in that region)",
+					p.kind, slug, p.name, region))
+			default:
+				out.Missing = append(out.Missing, fmt.Sprintf(
+					"%s %s/%s in %s, unread: %s (this pass could not read the boundary there, so it is unproven in that region; requeueing clears it once the read succeeds)",
+					p.kind, slug, p.name, region, err))
+			}
+		}
+	}
 }
 
 // consoleListenerReadback is one probe of the shared console Gateway, across

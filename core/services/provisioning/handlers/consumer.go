@@ -324,6 +324,11 @@ func isGiteaNotReadyError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// The order's own Organization does not hold the name yet (absent, being
+	// removed, unreadable): the same race one step earlier.
+	if errors.Is(err, errOrganizationNotYetOwn) {
+		return true
+	}
 	s := err.Error()
 	return strings.Contains(s, "user redirect does not exist") ||
 		strings.Contains(s, "user does not exist") ||
@@ -679,6 +684,14 @@ func (h *Handler) perOrgBranch() string {
 // onto them before re-pushing with fresh per-file SHA preconditions.
 func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeData, action, planSlug string, appSlugs []string, _ string) error {
 	slug := data.TenantSlug
+	// `<slug>/catalyst-tenant` is the repo of whichever Organization holds the
+	// name. Commit only into this tenant's own: another tenant's is a
+	// permanent refusal; absent, being removed or unreadable is retried like
+	// the Gitea-not-ready race (isGiteaNotReadyError), so the cart lands once
+	// the order's own Organization exists.
+	if err := h.checkOwnOrganization(slug, data.TenantID); err != nil {
+		return fmt.Errorf("day-2 %s on %s refused: %w", action, slug, err)
+	}
 	repoClient := h.GitHubClient.WithRepo(slug, h.perOrgRepoName())
 	// The per-Org repo tracks `main`, NOT the global GitBranch (`org-tenants`
 	// on a Sovereign). Commit to the branch the org-controller's per-Org Flux
@@ -1617,6 +1630,20 @@ func (h *Handler) runProvisioningWorkflow(provisionID, tenantID, subdomain, plan
 	// s/free/"" because those Orgs had no vcluster; that arm no longer exists.)
 	vcStepIdx := stepIdx
 	h.markStep(ctx, provisionID, vcStepIdx, prov.Steps[vcStepIdx].Name, "running")
+	// Everything from here on is keyed by the slug alone: the vCluster wait,
+	// provision.completed and the spec.tenantPublic PATCH. On a Sovereign the
+	// slug names an Organization, and a reused name can still be the previous
+	// customer's. Prove it is THIS order's before any of them runs.
+	if h.PerOrgGitops {
+		if err := h.awaitOwnOrganization(subdomain, tenantID, ownOrganizationWaitTimeout); err != nil {
+			slog.Error("order timeline: the Organization is not this order's — failing the order",
+				"provision_id", provisionID, "tenant", subdomain, "error", err)
+			msg := ownOrganizationFailureMessage(subdomain, err)
+			h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, msg)
+			h.failProvision(ctx, provisionID, tenantID, vcStepIdx, msg)
+			return
+		}
+	}
 	if err := h.waitForHelmRelease(ctx, hostNS, "vcluster", 10*time.Minute); err != nil {
 		h.failStep(ctx, provisionID, tenantID, vcStepIdx, prov.Steps[vcStepIdx].Name, err.Error())
 		h.failProvision(ctx, provisionID, tenantID, vcStepIdx, fmt.Sprintf("vcluster not ready: %s", err))
