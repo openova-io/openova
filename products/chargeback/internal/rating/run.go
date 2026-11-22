@@ -326,6 +326,13 @@ type rateDetail struct {
 	// reading of the rule table — an expired exemption certificate, a
 	// reverse-charge finding (DESIGN.md §17).
 	taxAudit []string
+	// skipNotInForce leaves a Source whose book is not in force for the
+	// period unrated, its id in notInForce, instead of failing the customer:
+	// the spend-limit evaluator's mode (AccruedOverage), so one book's date
+	// never switches off the limits of the customer's other Sources. The
+	// statement run never sets it.
+	skipNotInForce bool
+	notInForce     []string
 }
 
 // rateCustomer rates one customer: its usage grouped per source, each
@@ -579,6 +586,10 @@ func ratePeriodLines(ctx context.Context, st *store.Store, c store.Customer, fro
 		// at these prices anyway is what the date exists to prevent: the
 		// customer is reported, not rated.
 		if eff, ok := bookEffectiveFrom(pb); ok && from.Before(eff) {
+			if detail.skipNotInForce {
+				detail.notInForce = append(detail.notInForce, src.ID)
+				continue
+			}
 			return periodLines{}, fmt.Errorf("%w: source %s is on the price book %q, in force from %s; the period from %s starts before it — assign the book in force for the period", ErrBookNotInForce, src.Label(), pb.Name, eff.Format("2006-01-02"), from.Format("2006-01-02"))
 		}
 		items := map[string]store.PriceItem{}
