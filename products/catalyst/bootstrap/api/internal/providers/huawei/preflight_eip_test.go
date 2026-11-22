@@ -3,71 +3,263 @@ package huawei
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
-// TestRotateBlocklistedNATEIPs_PassesAccessKeyThrough is the regression
-// guard for #3716. The original RotateBlocklistedNATEIPs built a
-// providers.ProviderCreds{Raw} map keyed with the OpenTofu *tfvars*
-// names (`huawei_access_key` etc.) and handed it to
-// credsFromProviderCreds(), which reads the BARE signing keys
-// (`access_key`/`secret_key`/`project_id`). The key-name mismatch made
-// the function fail with "huawei: access_key is required" on EVERY
-// Huawei prov — even when a valid access_key WAS supplied — so the
-// poisoned-EIP self-heal never ran and hw151–154 wedged with no egress
-// to harbor.openova.io.
-//
-// We cannot point endpointFor() at an httptest server without a wider
-// refactor, so we assert the contract at the creds boundary:
-//   - a SUPPLIED access_key must NOT yield "access_key is required"
-//     (the call proceeds to the HTTP layer and fails there on DNS/dial,
-//     which is a DIFFERENT error) — this is exactly what the bug broke;
-//   - an EMPTY access_key MUST yield "access_key is required".
-func TestRotateBlocklistedNATEIPs_PassesAccessKeyThrough(t *testing.T) {
-	// Short ctx so the real signed request to nat.<region>.kom4dc
-	// .nationalcloud.om (which does not resolve from CI) fails fast
-	// instead of hanging on the httpTimeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+// natCloud is a fake of the EIP API that the NAT EIP pre-flight calls: the
+// listing, the publicIp quota, allocation (from pool, in order) and release.
+// It counts the EIPs that exist at once, the bastion's among them.
+type natCloud struct {
+	t        *testing.T
+	mu       sync.Mutex
+	pool     []string // the addresses the next allocations return, in order
+	quota    int
+	eips     map[string]rawPublicIP // by id
+	order    []string               // ids in allocation order
+	released []string               // addresses, in order
+	peak     int
+	failPost bool
+	n        int
+}
 
-	t.Run("supplied access_key is not reported missing", func(t *testing.T) {
-		_, err := RotateBlocklistedNATEIPs(ctx, "huawei", "deadbeefcafef00d", "t99.omani.works",
-			"AKIA-test-key", "secret-key-of-decent-length-32chrs", "0123456789abcdef0123456789abcdef",
-			"me-east-215", nil)
-		if err == nil {
-			// A nil error would mean the HTTP call somehow succeeded — not
-			// expected from CI, but it definitively proves the creds were
-			// accepted, so it satisfies the regression guard.
+func newNATCloud(t *testing.T, pool ...string) *natCloud {
+	c := &natCloud{t: t, pool: pool, quota: 10, eips: map[string]rawPublicIP{}}
+	c.eips["eip-bastion"] = rawPublicIP{ID: "eip-bastion", Address: bastionEIPAddress, Status: "ACTIVE", PortID: "port-bastion", BandwidthName: "bastion-openova-bw"}
+	c.order = append(c.order, "eip-bastion")
+	c.peak = 1
+	return c
+}
+
+func (c *natCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	p := r.URL.Path
+	switch {
+	case r.Method == http.MethodGet && strings.HasSuffix(p, "/quotas"):
+		_, _ = fmt.Fprintf(w, `{"quotas":{"resources":[{"type":"publicIp","used":%d,"quota":%d}]}}`, len(c.eips), c.quota)
+	case r.Method == http.MethodGet && strings.HasSuffix(p, "/publicips"):
+		list := []rawPublicIP{}
+		for _, id := range c.order {
+			if e, ok := c.eips[id]; ok {
+				list = append(list, e)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"publicips": list})
+	case r.Method == http.MethodPost && strings.HasSuffix(p, "/publicips"):
+		raw, _ := io.ReadAll(r.Body)
+		var req struct {
+			PublicIP struct {
+				Type string `json:"type"`
+			} `json:"publicip"`
+			Bandwidth struct {
+				Name       string `json:"name"`
+				Size       int    `json:"size"`
+				ShareType  string `json:"share_type"`
+				ChargeMode string `json:"charge_mode"`
+			} `json:"bandwidth"`
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			c.t.Errorf("allocation body %s: %v", raw, err)
+		}
+		if req.PublicIP.Type != "5_bgp" || req.Bandwidth.Size != 100 || req.Bandwidth.ShareType != "PER" || req.Bandwidth.ChargeMode != "traffic" {
+			c.t.Errorf("allocation %s does not carry the module's NAT EIP settings (5_bgp, 100, PER, traffic)", raw)
+		}
+		if c.failPost || len(c.eips) >= c.quota || len(c.pool) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":"VPC.0501","message":"quota exceeded"}`))
 			return
 		}
-		if strings.Contains(err.Error(), "access_key is required") {
-			t.Fatalf("#3716 regression: valid access_key reported as missing — creds wiring broken: %v", err)
+		c.n++
+		e := rawPublicIP{ID: fmt.Sprintf("eip-%d", c.n), Address: c.pool[0], Status: "DOWN", BandwidthName: req.Bandwidth.Name}
+		c.pool = c.pool[1:]
+		c.eips[e.ID] = e
+		c.order = append(c.order, e.ID)
+		if len(c.eips) > c.peak {
+			c.peak = len(c.eips)
 		}
-		if strings.Contains(err.Error(), "secret_key is required") ||
-			strings.Contains(err.Error(), "project_id is required") {
-			t.Fatalf("#3716 regression: valid creds reported as missing: %v", err)
+		_ = json.NewEncoder(w).Encode(map[string]any{"publicip": map[string]string{"id": e.ID, "public_ip_address": e.Address}})
+	case r.Method == http.MethodDelete && strings.Contains(p, "/publicips/"):
+		id := p[strings.LastIndex(p, "/")+1:]
+		e, ok := c.eips[id]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
-	})
+		delete(c.eips, id)
+		c.released = append(c.released, e.Address)
+		// A released address goes back to the front of the pool, as the
+		// kom4dc pool hands a just-released EIP to the next allocation.
+		c.pool = append([]string{e.Address}, c.pool...)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		c.t.Errorf("unexpected %s %s", r.Method, p)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
 
-	t.Run("empty access_key fails closed", func(t *testing.T) {
-		_, err := RotateBlocklistedNATEIPs(ctx, "huawei", "deadbeefcafef00d", "t99.omani.works",
-			"", "secret-key", "project-id", "me-east-215", nil)
-		if err == nil || !strings.Contains(err.Error(), "access_key is required") {
-			t.Fatalf("empty access_key must fail with 'access_key is required', got: %v", err)
-		}
-	})
+// serveNAT points the package at the fake and isolates the learned store.
+func serveNAT(t *testing.T, c *natCloud) string {
+	t.Helper()
+	srv := httptest.NewTLSServer(c)
+	orig := endpointFor
+	endpointFor = func(string, string) string { return srv.URL }
+	t.Cleanup(func() { endpointFor = orig; srv.Close() })
+	store := filepath.Join(t.TempDir(), "nat-eip-blocklist.json")
+	t.Setenv("CATALYST_HUAWEI_NAT_EIP_STATE", store)
+	t.Setenv("CATALYST_HUAWEI_NAT_EIP_BLOCKLIST", "")
+	t.Setenv("CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL", "")
+	return store
+}
 
-	t.Run("empty secret_key fails closed", func(t *testing.T) {
-		_, err := RotateBlocklistedNATEIPs(ctx, "huawei", "deadbeefcafef00d", "t99.omani.works",
-			"AKIA-test-key", "", "project-id", "me-east-215", nil)
-		if err == nil || !strings.Contains(err.Error(), "secret_key is required") {
-			t.Fatalf("empty secret_key must fail with 'secret_key is required', got: %v", err)
+var natSpec = providers.ProvisionSpec{
+	DeploymentID: "3f83959f21abc560", SovereignFQDN: "hw99.omani.works",
+	Creds:   providers.ProviderCreds{Raw: map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P", "region": "me-east-215"}},
+	Regions: []providers.RegionSpec{{Code: "me-east-215-a"}, {Code: "me-east-215-b"}},
+}
+
+const natPrefix = "catalyst-hw99-omani-works-3f83959f"
+
+// CLD-G12 (2026-11-21): the first draw of region a is on the blocklist. The
+// address that region a's NAT uses is the import the engine hands to
+// OpenTofu, so the state names it after the install; the refused one is
+// recorded and released before the plan, and nothing is left that no state
+// knows. On main the pre-flight swapped the address after `tofu apply`
+// through the cloud API, and the state kept the deleted one.
+func TestChooseNATAddresses_ARefusedDrawIsHeldAndTheImportNamesTheCleanAddress(t *testing.T) {
+	c := newNATCloud(t, "212.72.24.48", "212.72.24.24", "212.72.24.25")
+	store := serveNAT(t, c)
+	var msgs []string
+	imports, err := chooseNATAddresses(context.Background(), natSpec, map[string]bool{}, func(m string) { msgs = append(msgs, m) })
+	if err != nil {
+		t.Fatalf("chooseNATAddresses: %v (progress %q)", err, msgs)
+	}
+	want := []providers.StateImport{
+		{Address: `huaweicloud_vpc_eip.nat["me-east-215-a"]`, ID: "eip-2", Label: "212.72.24.24"},
+		{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-3", Label: "212.72.24.25"},
+	}
+	if !reflect.DeepEqual(imports, want) {
+		t.Fatalf("imports = %+v; want %+v", imports, want)
+	}
+	if !reflect.DeepEqual(c.released, []string{"212.72.24.48"}) {
+		t.Errorf("released %v; want only the refused 212.72.24.48", c.released)
+	}
+	for _, im := range imports {
+		e, ok := c.eips[im.ID]
+		if !ok || e.Address != im.Label || !strings.HasPrefix(e.BandwidthName, natPrefix+"-") {
+			t.Errorf("import %+v: the cloud holds %+v; want that EIP under the deployment's name prefix", im, e)
 		}
-	})
+	}
+	if len(c.eips) != 3 {
+		t.Errorf("%d EIPs exist after the choice; want the bastion's and the two imported", len(c.eips))
+	}
+	if !loadPersistedBlocklist(time.Now())["212.72.24.48"] {
+		raw, _ := os.ReadFile(filepath.Clean(store))
+		t.Errorf("the refused address is not in the learned blocklist: %s", raw)
+	}
+}
+
+// The wipe records every address it released, so right after one the pool
+// hands back up to six refused addresses first. The choice holds them all and
+// never has more EIPs alive than the quota of 10.
+func TestChooseNATAddresses_AfterAWipeStaysWithinTheQuota(t *testing.T) {
+	refused := []string{"212.72.24.1", "212.72.24.2", "212.72.24.3", "212.72.24.4", "212.72.24.5", "212.72.24.6"}
+	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30", "212.72.24.31")...)
+	serveNAT(t, c)
+	t.Setenv("CATALYST_HUAWEI_NAT_EIP_BLOCKLIST", strings.Join(refused, ","))
+	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, nil)
+	if err != nil || len(imports) != 2 || imports[0].Label != "212.72.24.30" || imports[1].Label != "212.72.24.31" {
+		t.Fatalf("imports %+v, %v; want 212.72.24.30 and 212.72.24.31", imports, err)
+	}
+	if c.peak > 10 || c.peak != 9 {
+		t.Errorf("at most %d EIPs existed at once; want 9 (bastion 1 + held 6 + chosen 2), never above the quota of 10", c.peak)
+	}
+	if len(c.released) != 6 || len(c.eips) != 3 {
+		t.Errorf("released %v, %d left; want the six refused released and three left", c.released, len(c.eips))
+	}
+}
+
+// A pool with more refused addresses than the quota leaves room for: the
+// choice stops at the quota, releases what it held, and the region it could
+// not serve gets no import (OpenTofu allocates it).
+func TestChooseNATAddresses_TheHoldBudgetEndsAtTheQuota(t *testing.T) {
+	var refused []string
+	for i := 1; i <= 9; i++ {
+		refused = append(refused, fmt.Sprintf("212.72.24.%d", i))
+	}
+	c := newNATCloud(t, append(append([]string{}, refused...), "212.72.24.30")...)
+	serveNAT(t, c)
+	t.Setenv("CATALYST_HUAWEI_NAT_EIP_BLOCKLIST", strings.Join(refused, ","))
+	var msgs []string
+	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, func(m string) { msgs = append(msgs, m) })
+	if err != nil || len(imports) != 0 {
+		t.Fatalf("imports %+v, %v; want none and no error", imports, err)
+	}
+	if c.peak > 10 {
+		t.Errorf("%d EIPs existed at once; the quota is 10", c.peak)
+	}
+	if len(c.eips) != 1 {
+		t.Errorf("%d EIPs left; want only the bastion's", len(c.eips))
+	}
+	if !strings.Contains(strings.Join(msgs, "\n"), "OpenTofu allocates it") {
+		t.Errorf("progress %q does not say that OpenTofu allocates the region's NAT EIP", msgs)
+	}
+}
+
+// A region whose NAT EIP the state holds gets nothing; one whose EIP an
+// earlier attempt (or the module) made keeps it; nothing is allocated twice.
+func TestChooseNATAddresses_KeepsWhatExists(t *testing.T) {
+	c := newNATCloud(t, "212.72.24.40")
+	c.eips["eip-old"] = rawPublicIP{ID: "eip-old", Address: "212.72.24.24", Status: "DOWN", BandwidthName: natPrefix + "-me-east-215-b-nat-preflight-2"}
+	c.order = append(c.order, "eip-old")
+	serveNAT(t, c)
+	inState := map[string]bool{`huaweicloud_vpc_eip.nat["me-east-215-a"]`: true}
+	imports, err := chooseNATAddresses(context.Background(), natSpec, inState, nil)
+	want := []providers.StateImport{{Address: `huaweicloud_vpc_eip.nat["me-east-215-b"]`, ID: "eip-old", Label: "212.72.24.24"}}
+	if err != nil || !reflect.DeepEqual(imports, want) {
+		t.Fatalf("imports %+v, %v; want %+v", imports, err, want)
+	}
+	if c.n != 0 || len(c.released) != 0 {
+		t.Errorf("%d allocated, %v released; want nothing", c.n, c.released)
+	}
+}
+
+// A failed allocation releases every EIP the call made and returns the error.
+func TestChooseNATAddresses_AFailureLeavesNothing(t *testing.T) {
+	c := newNATCloud(t, "212.72.24.48", "212.72.24.24")
+	serveNAT(t, c)
+	imports, err := chooseNATAddresses(context.Background(), natSpec, nil, nil)
+	if err == nil || imports != nil {
+		t.Fatalf("imports %+v, %v; want the allocation error", imports, err)
+	}
+	if len(c.eips) != 1 {
+		t.Errorf("%d EIPs left; want only the bastion's", len(c.eips))
+	}
+}
+
+// #3716: the signing credentials are the bare keys of the credentials map; a
+// missing one fails before any cloud call.
+func TestChooseNATAddresses_NeedsTheCredentials(t *testing.T) {
+	for key, want := range map[string]string{"access_key": "access_key is required", "secret_key": "secret_key is required", "project_id": "project_id is required"} {
+		spec := natSpec
+		spec.Creds = providers.ProviderCreds{Raw: map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P"}}
+		delete(spec.Creds.Raw, key)
+		if _, err := chooseNATAddresses(context.Background(), spec, nil, nil); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("without %s: %v; want %q", key, err, want)
+		}
+	}
 }
 
 // TestPreflightBlocklist_SeedAndEnvMerge guards the blocklist() helper —
@@ -273,5 +465,41 @@ func TestEIPBlocklistTTL_MalformedFallsBackToDefault(t *testing.T) {
 	t.Setenv("CATALYST_HUAWEI_NAT_EIP_TTL", "48h")
 	if got := eipBlocklistTTL(); got != 48*time.Hour {
 		t.Fatalf("valid TTL 48h not honoured, got %v", got)
+	}
+}
+
+// The pre-flight allocates what the module declares: the import of its EIP
+// differs from huaweicloud_vpc_eip.nat in the bandwidth name alone, and the
+// names it reuses are the module's. A change to the module's NAT EIP fails
+// here first.
+func TestChooseNATAddresses_MatchesTheModulesNATEIP(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "..", "..", "infra", "providers", "huawei", "main.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf := string(raw)
+	start := strings.Index(tf, "resource \"huaweicloud_vpc_eip\" \"nat\" {")
+	end := strings.Index(tf[max(start, 0):], "\n}\n")
+	if start < 0 || end < 0 {
+		t.Fatal("main.tf has no resource huaweicloud_vpc_eip.nat")
+	}
+	block := strings.Join(strings.Fields(tf[start:start+end]), " ")
+	for _, want := range []string{
+		"for_each = toset(local.region_keys)",
+		fmt.Sprintf("publicip { type = %q }", natEIPType),
+		fmt.Sprintf("name = \"${local.name_prefix}-${each.key}-nat-bw\" size = %d share_type = %q charge_mode = %q }", natBandwidthSize, natBandwidthShare, natBandwidthCharged),
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the module's NAT EIP %q lacks %q", block, want)
+		}
+	}
+	for _, want := range []string{
+		`fqdn_slug = replace(var.sovereign_fqdn, ".", "-")`,
+		`name_prefix = "catalyst-${local.fqdn_slug}-${substr(var.deployment_id, 0, 8)}"`,
+		`region_keys = [for r in var.regions : r.code]`,
+	} {
+		if !strings.Contains(strings.Join(strings.Fields(tf), " "), want) {
+			t.Errorf("main.tf lacks %q, from which the pre-flight's names follow", want)
+		}
 	}
 }

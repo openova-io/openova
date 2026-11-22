@@ -5,10 +5,10 @@
 //
 // THE LEAK THIS CLOSES
 // ====================
-// RotateBlocklistedNATEIPs (preflight_eip.go) drains the Huawei
-// free-pool DURING one prov: allocateCleanEIP HOLDs poisoned EIPs so a
-// clean one is returned, then RELEASES every held EIP + the old SNAT
-// EIP at the end (deleteEIP). Releasing a poisoned EIP returns it to the
+// chooseNATAddresses (preflight_eip.go) drains the Huawei
+// free-pool DURING one prov: it HOLDs poisoned EIPs so a
+// clean one is returned, then RELEASES every held EIP
+// at the end (deleteEIP). Releasing a poisoned EIP returns it to the
 // HCS free-pool — but it stays reputation-blocklisted / un-routable to
 // harbor.openova.io (45.151.123.50) "for hours". The very NEXT prov's
 // fresh allocate() can draw that same just-released poison. The static
@@ -19,8 +19,8 @@
 //
 // THE FIX
 // =======
-// Every EIP RotateBlocklistedNATEIPs rotates away from (the old SNAT EIP
-// + every held reject) is RECORDED to a JSON store on the
+// Every EIP chooseNATAddresses refuses (every held reject)
+// is RECORDED to a JSON store on the
 // catalyst-api-deployments PVC before it is released. blocklist() then
 // merges seed ∪ env ∪ this store, so prov N's poison becomes prov N+1's
 // auto-avoid set — with NO operator env var and NO flux suspend. The

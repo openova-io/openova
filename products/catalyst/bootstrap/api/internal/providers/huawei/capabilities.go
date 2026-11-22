@@ -1,7 +1,9 @@
 // capabilities.go — the optional capabilities of this adapter that the
 // provisioning engine calls through providers.As: Preflighter before
-// `tofu init`, PostApplier after `tofu apply`, ApplyErrorClassifier on a
-// failed `tofu apply`. They replace the engine's former hook variables.
+// `tofu init`, ApplyErrorClassifier on a failed `tofu apply`. They replace the
+// engine's former hook variables. The adapter has no PostApplier: the NAT EIP
+// it used to swap after `tofu apply` is chosen before the plan now
+// (preflight_eip.go), so that the state holds it.
 
 package huawei
 
@@ -15,19 +17,39 @@ import (
 
 var (
 	_ providers.Preflighter          = (*Provider)(nil)
-	_ providers.PostApplier          = (*Provider)(nil)
 	_ providers.ApplyErrorClassifier = (*Provider)(nil)
 )
 
 // The cloud calls of the capabilities. Package variables only so a test can
 // stand in for the cloud API; production never reassigns them.
 var (
-	vpcQuota      = (*Provider).VPCQuota
-	sweepVPCs     = (*Provider).SweepOrphanVPCs
-	rotateNATEIPs = RotateBlocklistedNATEIPs
+	vpcQuota  = (*Provider).VPCQuota
+	sweepVPCs = (*Provider).SweepOrphanVPCs
+	chooseNAT = chooseNATAddresses
 )
 
-// Preflight implements providers.Preflighter: the HCS VPC-quota pre-flight
+// Preflight implements providers.Preflighter: first the VPC quota
+// (checkVPCQuota), whose refusal fails the prov; then the NAT EIP of every
+// region (chooseNATAddresses, Wave 5.93 #2445), returned as imports for the
+// engine. A failed NAT choice is reported and does not fail the prov: OpenTofu
+// then allocates the NAT EIPs itself, as it did before the choice existed.
+func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) (providers.PreflightResult, error) {
+	progress := in.Progress
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if err := p.checkVPCQuota(ctx, in, progress); err != nil {
+		return providers.PreflightResult{}, err
+	}
+	imports, err := chooseNAT(ctx, in.Spec, in.InState, progress)
+	if err != nil {
+		progress("NAT EIP pre-flight failed (non-fatal — OpenTofu allocates the NAT EIPs; cloudinit may stall on harbor.openova.io if one is blocklisted): " + err.Error())
+		return providers.PreflightResult{}, nil
+	}
+	return providers.PreflightResult{Imports: imports}, nil
+}
+
+// checkVPCQuota is the HCS VPC-quota pre-flight
 // (G68 #2617, #4431, #6225). The project has a hard cap on VPCs (Kom4DC
 // me-east-215 default 5; the raise endpoint is not tenant-facing), and a prov
 // needs one VPC per region. Over the cap, the cause is almost always
@@ -36,11 +58,7 @@ var (
 // prefixes of in.ProtectedIDs are never touched, #4614) and the quota is read
 // again. The check is best-effort: a quota-API failure lets the prov proceed,
 // and `tofu apply` decides. vpcPreflightRefuses holds the verdict.
-func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) error {
-	progress := in.Progress
-	if progress == nil {
-		progress = func(string) {}
-	}
+func (p *Provider) checkVPCQuota(ctx context.Context, in providers.PreflightInput, progress func(string)) error {
 	creds := in.Spec.Creds
 	ak, sk, projectID := creds.Get("access_key"), creds.Get("secret_key"), creds.Get("project_id")
 	region := strings.TrimSpace(creds.Get("region"))
@@ -78,26 +96,6 @@ func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) e
 		return fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", eff.used, eff.limit, needed)
 	}
 	return nil
-}
-
-// PostApply implements providers.PostApplier: Wave 5.93 (#2445) rotates any
-// NAT EIP that the free pool assigned from the blocklist, before cloud-init
-// pulls from harbor.openova.io. A failed rotation is reported and does not
-// fail the prov.
-func (p *Provider) PostApply(ctx context.Context, in providers.PostApplyInput) (providers.PostApplyResult, error) {
-	progress := in.Progress
-	if progress == nil {
-		progress = func(string) {}
-	}
-	s := in.Spec
-	rotated, err := rotateNATEIPs(ctx, Name, s.DeploymentID, s.SovereignFQDN,
-		s.Creds.Get("access_key"), s.Creds.Get("secret_key"), s.Creds.Get("project_id"), s.Creds.Get("region"), progress)
-	if err != nil {
-		progress("EIP pre-flight check failed (non-fatal — cloudinit may stall on harbor.openova.io if a blocklisted EIP is in play): " + err.Error())
-	} else if rotated > 0 {
-		progress(fmt.Sprintf("Wave 5.93: rotated %d blocklisted NAT EIPs before Phase 1", rotated))
-	}
-	return providers.PostApplyResult{}, nil
 }
 
 // ClassifyApplyError implements providers.ApplyErrorClassifier: the HCS
