@@ -2052,3 +2052,101 @@ run "region_separation_one_region_none" {
     error_message = "NET-210: one region must give region_separation none."
   }
 }
+
+# ── The follower's registry is served what cutover step 03 copies into the primary's ──
+# Step 03 (Phase A5) copies the OpenTofu provider packages into the primary region's
+# Harbor only. With the defaults that is enough: both regions' Harbor use the one
+# ClusterMesh write alias of shared-pg and keep no database of their own, both use the one
+# bucket, endpoint and region, and the follower boots as a secondary region whose root
+# deletes infrastructure-providers, the layer of the package list and of its consumers.
+# The chart test platform/self-sovereign-cutover/chart/tests/follower-region-gets-the-provider-packages.sh
+# checks the rest of the chain (slot 19, flux-system/object-storage, the roots).
+run "follower_harbor_shares_the_primarys_registry_store" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_flux_bootstrap_by_region["me-east-215-a"], "SOVEREIGN_REGION_ROLE: \"primary\"") && strcontains(local.cp_flux_bootstrap_by_region["me-east-215-a"], "path: ./clusters/_template/root/multi-region-primary\n")
+    error_message = "The primary region must boot with the role primary and the root multi-region-primary."
+  }
+  assert {
+    condition     = strcontains(local.cp_flux_bootstrap_by_region["me-east-215-b"], "SOVEREIGN_REGION_ROLE: \"secondary\"") && strcontains(local.cp_flux_bootstrap_by_region["me-east-215-b"], "path: ./clusters/_template/root/multi-region-follower-secondary\n")
+    error_message = "The follower region must boot with the role secondary and the root multi-region-follower-secondary, which deletes infrastructure-providers: with any other role it runs the Workspaces and needs the provider packages that step 03 copies in the primary only."
+  }
+  assert {
+    condition = alltrue([for r in ["me-east-215-a", "me-east-215-b"] :
+      strcontains(local.cp_flux_bootstrap_by_region[r], "SOVEREIGN_HARBOR_PG_HOST: \"shared-pg-mesh-rw.shared-data.svc.cluster.local\"")
+      && strcontains(local.cp_flux_bootstrap_by_region[r], "SOVEREIGN_HARBOR_PG_OWN_CLUSTER: \"false\"")
+    ])
+    error_message = "With the defaults, both regions' Harbor must use the ClusterMesh write alias shared-pg-mesh-rw and no database of their own: otherwise the follower's Harbor holds no record of what step 03 copies."
+  }
+  assert {
+    condition = (
+      length(regexall("\n *OBJECT_STORAGE_(?:ENDPOINT|REGION|BUCKET)=[^\n]+", local.cp_cloud_init_by_region["me-east-215-a"])) == 3
+      && regexall("\n *OBJECT_STORAGE_(?:ENDPOINT|REGION|BUCKET)=[^\n]+", local.cp_cloud_init_by_region["me-east-215-a"]) == regexall("\n *OBJECT_STORAGE_(?:ENDPOINT|REGION|BUCKET)=[^\n]+", local.cp_cloud_init_by_region["me-east-215-b"])
+    )
+    error_message = "Both regions must seed the same object-storage endpoint, region and bucket: otherwise the follower's Harbor stores its blobs elsewhere."
+  }
+}
+
+# enable_shared_pg = "false" is a supported input (catalyst-api lets an explicit
+# enableSharedPostgres false win). Then each region's Harbor has a database of its own and
+# the follower's Harbor holds nothing step 03 copied. The follower needs none of it: it
+# still boots as a secondary region, and its root deletes infrastructure-providers.
+run "follower_harbor_own_database_when_shared_pg_is_off" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+    enable_shared_pg = "false"
+  }
+
+  assert {
+    condition = alltrue([for r in ["me-east-215-a", "me-east-215-b"] :
+      strcontains(local.cp_flux_bootstrap_by_region[r], "SOVEREIGN_HARBOR_PG_HOST: \"harbor-pg-rw.harbor.svc.cluster.local\"")
+      && strcontains(local.cp_flux_bootstrap_by_region[r], "SOVEREIGN_HARBOR_PG_OWN_CLUSTER: \"true\"")
+    ])
+    error_message = "With enable_shared_pg false each region's Harbor is expected to have a database of its own (harbor-pg-rw); if that changed, update this run and the chart test follower-region-gets-the-provider-packages.sh."
+  }
+  assert {
+    condition     = strcontains(local.cp_flux_bootstrap_by_region["me-east-215-b"], "SOVEREIGN_REGION_ROLE: \"secondary\"") && strcontains(local.cp_flux_bootstrap_by_region["me-east-215-b"], "path: ./clusters/_template/root/multi-region-follower-secondary\n")
+    error_message = "With enable_shared_pg false the follower's Harbor holds nothing step 03 copied, so the follower must still boot as a secondary region with the root multi-region-follower-secondary, which deletes infrastructure-providers."
+  }
+}

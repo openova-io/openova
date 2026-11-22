@@ -1,36 +1,52 @@
 #!/usr/bin/env bash
 # follower-region-gets-the-provider-packages — why step 03 copies the OpenTofu provider
-# packages in the primary region only, and the guarantee that makes that enough.
+# packages in the primary region only, and the guarantees that make that enough.
 #
 # Step 03, Phase A5 copies every package the ConfigMap crossplane-system/opentofu-providers
 # lists into the registry (offlinemirror_copy). The follower's prewarm script
 # (secondary-harbor-prewarm-script-configmap.yaml) has no such leg and the follower has no
-# such ConfigMap. On a real two-region install the packages were served by both regions.
-# That is by construction, not by luck:
+# such ConfigMap. For a pack whose kit has a Harbor that is enough, for two reasons; the
+# first holds in every configuration, the second only with the default enable_shared_pg:
 #
-#   DB     every region's Harbor uses ONE database. Cloud-init gives each region the same
-#          SOVEREIGN_HARBOR_PG_HOST, the ClusterMesh write alias shared-pg-mesh-rw (the value
-#          catalyst-api re-stamps on followers, clustermesh.go), and
-#          SOVEREIGN_HARBOR_PG_OWN_CLUSTER=false, so no region renders a harbor-pg of its own.
-#          The alias follows the writable member, so a promotion of shared-pg keeps the
-#          records (platform/postgres/chart/tests/postgres-render.sh tests the alias).
-#   STORE  every region's Harbor uses ONE object store: each provider pack gives every
-#          region's render the same bucket, endpoint and region, and slot 19 reads them from
-#          flux-system/object-storage with storage type s3.
-#   LIST   the list rides in the Flux Kustomization infrastructure-providers together with
-#          its consumers (provider-opentofu, the CLI configuration, the Workspaces' layer).
-#          Every primary-role root applies it; every secondary-role root deletes it. No code
-#          rewrites a region's role: Continuum moves Application placements and the D8 data
-#          pairs (ADR-0015; shared-pg and the harbor slot are not moved), and the control plane
-#          stays in the primary region (docs/ARCHITECTURE.md §10.7). A follower runs no
-#          Workspace, so it needs no list.
+#   LIST   the follower needs no package. The list rides in the Flux Kustomization
+#          infrastructure-providers together with its consumers (provider-opentofu, the CLI
+#          configuration, the Workspaces' layer). Every primary-role root applies it, every
+#          secondary-role root deletes it, and the follower region boots with the role
+#          secondary and a secondary-role root (RENDER). No code rewrites a region's role:
+#          Continuum moves Application placements and the D8 data pairs (ADR-0015; shared-pg
+#          and the harbor slot are not moved), and the control plane stays in the primary
+#          region (docs/ARCHITECTURE.md §10.7). A follower runs no Workspace.
+#   SHARE  with enable_shared_pg "true" (the default of every pack's variables.tf and of
+#          catalyst-api's request) the follower's Harbor serves the packages anyway: every
+#          region's Harbor uses ONE database, the ClusterMesh write alias shared-pg-mesh-rw
+#          (the value catalyst-api re-stamps on followers, clustermesh.go) with no harbor-pg
+#          of its own, and ONE object store (the same bucket, endpoint and region, which
+#          slot 19 reads from flux-system/object-storage with storage type s3). With
+#          enable_shared_pg "false", a supported input, each region's Harbor has a database
+#          of its own and the follower's holds nothing step 03 copied: LIST alone carries it.
 #
-# So a package copied once into the primary's Harbor is a record in the one database and blobs
-# in the one bucket: the follower's Harbor serves it too. Each part below is computed for the
-# primary and the follower of a two-region Sovereign from the files that configure them, and a
-# mutant per part switches the sharing off and must turn that part red. If this test fails,
-# the follower's registry no longer holds what step 03 copies: give the follower's prewarm
-# script the Phase A5 leg (the same offlinemirror_copy, and the list) or restore the sharing.
+# What checks what:
+#   RENDER (tofu test, not this script) each pack's real two-region render, from the pack's
+#          own expressions: the follower's role and root, Harbor's database seams for both
+#          values of enable_shared_pg, the object-storage seed of both regions. Runs
+#          follower_harbor_shares_the_primarys_registry_store and
+#          follower_harbor_own_database_when_shared_pg_is_off in
+#          infra/providers/<pack>/tests/multi_region.tftest.hcl (workflow infra-<pack>-tofu).
+#          This script checks that every pack whose kit has a Harbor carries both runs, and
+#          names the packs whose kit leaves out bp-harbor (no registry in any region).
+#   DB     the template turns enable_shared_pg into Harbor's seams in a two-region render,
+#          the alias equals clustermesh.go's, slot 19 turns the seams into the database host
+#          and a harbor-pg of its own or none.
+#   STORE  flux-system/object-storage carries the seeded values, slot 19 reads them, type s3.
+#   LIST   as above, from the root folders.
+# A control run of every part on the unmutated mirror comes first; then a mutant per part
+# switches one guarantee off and must turn that part red with its own failure line. If this
+# test fails, the follower's registry may lack what step 03 copies while the follower needs
+# it: give the follower's prewarm script the Phase A5 leg (the same offlinemirror_copy, and
+# the list) or restore what failed.
+#
+# CI: .github/workflows/test-follower-region-provider-packages.yaml runs this script on a
+# change to any file it reads; chart-tests-pr runs it on a change to the chart.
 #
 # Usage: bash tests/follower-region-gets-the-provider-packages.sh [CHART_DIR]
 # REPO_ROOT (env) overrides where clusters/, infra/ and products/ are read from.
@@ -40,44 +56,18 @@ set -uo pipefail
 CHART_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
 CHART_DIR="$(cd "${CHART_DIR}" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "${CHART_DIR}/../../.." && pwd)}"
-PACKS="huawei hetzner local"
 TPL=infra/providers/_shared/cloudinit-control-plane.tftpl
 SLOT=clusters/_template/bootstrap-kit/19-harbor.yaml
 OBJ=clusters/_template/bootstrap-secrets/object-storage.yaml
 MESH_GO=products/catalyst/bootstrap/api/internal/handler/clustermesh.go
 LAYER=clusters/_template/root/base-primary/infrastructure-providers.yaml
+RUNS="follower_harbor_shares_the_primarys_registry_store follower_harbor_own_database_when_shared_pg_is_off"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 FAILURES=0
 fail() { echo "  FAIL — $*"; FAILURES=$((FAILURES + 1)); }
 pass() { echo "  ok   — $*"; }
 command -v yq >/dev/null 2>&1 || { echo "yq is required"; exit 1; }
-
-# The arguments of every render of the shared template in a pack's main.tf, one per line:
-# <call>\t<loop variables or ->\t<name>\t<expression on one line>.
-ARGS_AWK='
-function opens(s,   t) { t = s; return gsub(/[[({]/, "", t) }
-function closes(s,   t) { t = s; return gsub(/[])}]/, "", t) }
-function flush() { if (name != "") printf "%d\t%s\t%s\t%s\n", call, loops, name, expr; name = "" }
-{
-  line = $0; sub(/^[ \t]+/, "", line)
-  if (!inside) {
-    if (index($0, "../_shared/cloudinit-control-plane.tftpl\", {")) {
-      call++; inside = 1; depth = opens($0) - closes($0); base = depth; name = ""; loops = "-"
-      src = $0; if (src !~ /for [A-Za-z_]/) src = prev
-      if (match(src, /for [A-Za-z_][A-Za-z0-9_]*(, *[A-Za-z_][A-Za-z0-9_]*)? in /)) { loops = substr(src, RSTART + 4, RLENGTH - 8); gsub(/ /, "", loops) }
-    }
-    if (line != "" && line !~ /^#/) prev = $0
-    next
-  }
-  if (line ~ /^#/ || line == "") next
-  at = depth; depth += opens($0) - closes($0)
-  if (depth < base) { flush(); inside = 0; next }
-  if (at == base && match(line, /^[a-z_][a-z0-9_]* *= */)) { flush(); name = substr(line, 1, RLENGTH); sub(/ *= *$/, "", name); expr = substr(line, RLENGTH + 1) }
-  else if (name != "") expr = expr " " line
-  sub(/ +#.*$/, "", expr)
-}
-END { if (inside) exit 2 }'
 
 # Evaluates EXPR (a template expression) with <name>\t<value> bindings: string literals, bound
 # names, == !=, ?:, parentheses, base64encode(x) kept as x. Anything else is exit 3.
@@ -133,7 +123,6 @@ BEGIN { while ((getline l < BF) > 0) { i = index(l, "\t"); val[substr(l, 1, i - 
   print out s
 }'
 
-render_args() { awk "${ARGS_AWK}" "$1"; }
 evaluate() { awk -v EXPR="$1" "${EVAL_AWK}" "$2"; }
 flux_subst() { awk -v BF="$2" "${SUBST_AWK}" "$1"; }
 # The expression of KEY in the template: `KEY: "${...}"` or `KEY=${...}`, exactly one line.
@@ -143,98 +132,72 @@ key_expr() {
     index($0, k "=${") { s = $0; sub(/^[^$]*\$\{/, "", s); sub(/\}[ \t]*$/, "", s); print s; n++ }
     END { exit n == 1 ? 0 : 4 }' "$1"
 }
-# The expression of argument NAME in render CALL of an args file.
-arg_of() { awk -F'\t' -v c="$2" -v n="$3" '$1 == c && $3 == n { print $4; f = 1 } END { exit f ? 0 : 4 }' "$1"; }
-loops_of() { awk -F'\t' -v c="$2" '$1 == c { print $2; exit }' "$1"; }
-# The value of EXPR in region INSTANCE of a render: each loop variable becomes <var>#<instance>,
-# so an expression that reads the loop variable differs between regions.
-region_value() {
-  awk -v e="$1" -v l="$2" -v i="$3" 'BEGIN {
-    n = split(l, vs, ","); for (j = 1; j <= n; j++) { if (vs[j] == "-") continue; o = ""; s = e
-      while (match(s, "(^|[^A-Za-z0-9_.])" vs[j] "([^A-Za-z0-9_]|$)")) { pre = substr(s, RSTART, RLENGTH); k = index(pre, vs[j]); o = o substr(s, 1, RSTART - 1) substr(pre, 1, k - 1) vs[j] "#" i substr(pre, k + length(vs[j])); s = substr(s, RSTART + RLENGTH) }
-      e = o s }
-    print e }'
-}
-# The string default of variable NAME in a variables.tf.
-var_default() {
-  awk -v n="$2" '$0 ~ "^variable \"" n "\"" { f = 1; next } f && /^}/ { exit } f && /^ *default *= *"/ { s = $0; sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); print s; exit }' "$1"
-}
-# The primary's and the follower's render of a pack: "<call> <instance>" twice. One looped
-# render: its instances 0 and 1. Two renders: the unlooped one, then the looped one's instance 1.
-regions_of() {
-  local calls; calls=$(cut -f1 "$1" | sort -u | wc -l); calls=$((calls))
-  if [ "${calls}" = 1 ] && [ "$(loops_of "$1" 1)" != "-" ]; then echo "1 0"; echo "1 1"; return 0; fi
-  if [ "${calls}" = 2 ] && [ "$(loops_of "$1" 1)" = "-" ] && [ "$(loops_of "$1" 2)" != "-" ]; then echo "1 0"; echo "2 1"; return 0; fi
-  return 1
-}
-# Region values of NAME in a pack: prints "<primary>\n<follower>".
-pair_of() { # $1=args file $2=name
-  local c i e
-  while read -r c i; do
-    e=$(arg_of "$1" "${c}" "$2") || return 1
-    region_value "${e}" "$(loops_of "$1" "${c}")" "${i}"
-  done < <(regions_of "$1")
+# Every provider pack under ROOT: a folder whose main.tf renders the shared template.
+packs() {
+  local d
+  for d in "$1"/infra/providers/*/; do
+    d="${d%/}"
+    grep -qF '../_shared/cloudinit-control-plane.tftpl", {' "${d}/main.tf" 2>/dev/null && basename "${d}"
+  done
+  return 0
 }
 
-# ── DB: one Harbor database for every region ─────────────────────────────────────────────
-check_db() { # $1=root  ->  prints ok/FAIL lines; returns 1 on any failure
-  local root="$1" bad=0 mesh pack args pe pf ep sp role host own b p
+# ── RENDER: every pack whose kit has a Harbor has its two-region render evaluated by tofu ──
+check_render() {
+  local root="$1" bad=0 pack ex at t r miss all
+  all=$(packs "${root}")
+  [ -n "${all}" ] || { echo "  FAIL — RENDER: no folder under infra/providers renders ${TPL}"; return 1; }
+  for pack in ${all}; do
+    ex="infra/providers/${pack}/kit-exclude.txt"; at=""
+    [ -f "${root}/${ex}" ] && at=$(grep -n -x 'bp-harbor' "${root}/${ex}" | head -1 | cut -d: -f1)
+    if [ -n "${at}" ]; then
+      echo "  info — RENDER ${pack}: its kit leaves out bp-harbor (${ex}:${at}): no region has a registry, so step 03 copies into none and no follower is served by one"
+      continue
+    fi
+    t="infra/providers/${pack}/tests/multi_region.tftest.hcl"; miss=""
+    for r in ${RUNS}; do grep -qx "run \"${r}\" {" "${root}/${t}" 2>/dev/null || miss="${miss} ${r}"; done
+    if [ -n "${miss}" ]; then echo "  FAIL — RENDER ${pack}: its kit has a Harbor, but ${t} has no run${miss}: nothing evaluates the follower's role and root, Harbor's database and the object store of this pack's render"; bad=1
+    else echo "  ok   — RENDER ${pack}: its kit has a Harbor, and ${t} evaluates the follower's role and root, Harbor's database and the object store (runs ${RUNS// / and })"; fi
+  done
+  return "${bad}"
+}
+
+# ── DB: the seams of Harbor's database in a two-region render, and what slot 19 makes of them ──
+check_db() { # $1=root  ->  prints the lines; returns 1 on any failure
+  local root="$1" bad=0 mesh shared role b host own p pown
   mesh=$(sed -n 's/^[[:space:]]*clusterMeshSharedPGMeshRWHost[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${root}/${MESH_GO}")
   [ -n "${mesh}" ] || { echo "  FAIL — DB: ${MESH_GO} names no clusterMeshSharedPGMeshRWHost"; return 1; }
-  for pack in ${PACKS}; do
-    args="${TMP}/args.${pack}.$$"; render_args "${root}/infra/providers/${pack}/main.tf" >"${args}" || { echo "  FAIL — DB ${pack}: the render arguments cannot be read"; bad=1; continue; }
-    regions_of "${args}" >/dev/null || { echo "  FAIL — DB ${pack}: no primary and follower render found"; bad=1; continue; }
-    for b in enable_shared_pg replica_region_canonical_label; do
-      pe=""; pf=""; { read -r pe; read -r pf; } < <(pair_of "${args}" "${b}")
-      if [ -z "${pe:-}" ] || [ "${pe}" != "${pf}" ]; then echo "  FAIL — DB ${pack}: ${b} differs between the primary's render (${pe:-none}) and the follower's (${pf:-none})"; bad=1; fi
-    done
-    ep=$(arg_of "${args}" 1 enable_shared_pg)
-    case "${ep}" in
-      var.*) sp=$(var_default "${root}/infra/providers/${pack}/variables.tf" "${ep#var.}") ;;
-      \"*\") sp=${ep//\"/} ;;
-      *) sp="" ;;
-    esac
-    [ -n "${sp}" ] || { echo "  FAIL — DB ${pack}: enable_shared_pg (${ep}) has no default this test can read"; bad=1; continue; }
+  for shared in true false; do
     for role in primary secondary; do
-      b="${TMP}/bind.${pack}.${role}.$$"
-      printf 'enable_shared_pg\t%s\nreplica_region_canonical_label\t%s\nsovereign_region_role\t%s\n' "${sp}" "the follower's label" "${role}" >"${b}"
-      host=$(evaluate "$(key_expr "${root}/${TPL}" SOVEREIGN_HARBOR_PG_HOST)" "${b}" 2>&1) || { echo "  FAIL — DB ${pack} ${role}: SOVEREIGN_HARBOR_PG_HOST ${host}"; bad=1; continue; }
-      own=$(evaluate "$(key_expr "${root}/${TPL}" SOVEREIGN_HARBOR_PG_OWN_CLUSTER)" "${b}" 2>&1) || { echo "  FAIL — DB ${pack} ${role}: SOVEREIGN_HARBOR_PG_OWN_CLUSTER ${own}"; bad=1; continue; }
-      if [ "${host}" != "${mesh}" ] || [ "${own}" != "false" ]; then
-        echo "  FAIL — DB ${pack} ${role}: Harbor's database is ${host} (own cluster ${own}), not the one write alias ${mesh}: this region's Harbor keeps records of its own"; bad=1; continue
-      fi
+      # A two-region render: its replica label is not empty. Which label, role and
+      # enable_shared_pg each pack passes to each region is the RENDER runs' part.
+      b="${TMP}/bind.${shared}.${role}.$$"
+      printf 'enable_shared_pg\t%s\nreplica_region_canonical_label\t%s\nsovereign_region_role\t%s\n' "${shared}" "two-region" "${role}" >"${b}"
+      host=$(evaluate "$(key_expr "${root}/${TPL}" SOVEREIGN_HARBOR_PG_HOST)" "${b}" 2>&1) || { echo "  FAIL — DB enable_shared_pg=${shared} ${role}: SOVEREIGN_HARBOR_PG_HOST ${host}"; bad=1; continue; }
+      own=$(evaluate "$(key_expr "${root}/${TPL}" SOVEREIGN_HARBOR_PG_OWN_CLUSTER)" "${b}" 2>&1) || { echo "  FAIL — DB enable_shared_pg=${shared} ${role}: SOVEREIGN_HARBOR_PG_OWN_CLUSTER ${own}"; bad=1; continue; }
       printf 'SOVEREIGN_HARBOR_PG_HOST\t%s\nSOVEREIGN_HARBOR_PG_OWN_CLUSTER\t%s\n' "${host}" "${own}" >"${b}.sub"
       flux_subst "${root}/${SLOT}" "${b}.sub" >"${b}.yaml"
       p=$(yq 'select(.kind == "HelmRelease") | .spec.values.harbor.database.external.host' "${b}.yaml" 2>/dev/null)
-      own=$(yq 'select(.kind == "HelmRelease") | .spec.values.postgres.cluster.enabled' "${b}.yaml" 2>/dev/null)
-      if [ "${p}" != "${mesh}" ] || [ "${own}" != "false" ]; then
-        echo "  FAIL — DB ${pack} ${role}: slot 19 renders the database host ${p:-none} and a harbor-pg of its own=${own:-none}, not ${mesh} and false"; bad=1; continue
+      pown=$(yq 'select(.kind == "HelmRelease") | .spec.values.postgres.cluster.enabled' "${b}.yaml" 2>/dev/null)
+      if [ "${p}" != "${host}" ] || [ "${pown}" != "${own}" ]; then
+        echo "  FAIL — DB enable_shared_pg=${shared} ${role}: slot 19 renders the database host ${p:-none} and a harbor-pg of its own=${pown:-none}, not the seams ${host} and ${own}"; bad=1; continue
       fi
-      echo "  ok   — DB ${pack} ${role}: Harbor's database is ${mesh}, no harbor-pg of its own (cloud-init + slot 19)"
+      if [ "${shared}" = true ]; then
+        if [ "${host}" != "${mesh}" ] || [ "${own}" != "false" ]; then
+          echo "  FAIL — DB enable_shared_pg=true ${role}: Harbor's database is ${host} (own cluster ${own}), not the one write alias ${mesh}: this region's Harbor keeps records of its own"; bad=1; continue
+        fi
+        echo "  ok   — DB enable_shared_pg=true ${role}: Harbor's database is ${mesh}, no harbor-pg of its own (template + slot 19)"
+      else
+        echo "  info — DB enable_shared_pg=false ${role}: Harbor's database is ${host}, a harbor-pg of its own=${own} (template + slot 19): the follower's Harbor holds nothing step 03 copied; LIST alone carries the guarantee"
+      fi
     done
   done
   return "${bad}"
 }
 
-# ── STORE: one object store for every region ─────────────────────────────────────────────
+# ── STORE: slot 19 stores blobs in the bucket that flux-system/object-storage carries ──
 check_store() {
-  local root="$1" bad=0 pack args n pe pf key v t k want b0 b1 r0 r1
-  for pack in ${PACKS}; do
-    args="${TMP}/sargs.${pack}.$$"; render_args "${root}/infra/providers/${pack}/main.tf" >"${args}" || { echo "  FAIL — STORE ${pack}: the render arguments cannot be read"; bad=1; continue; }
-    regions_of "${args}" >/dev/null || { echo "  FAIL — STORE ${pack}: no primary and follower render found"; bad=1; continue; }
-    b0="${TMP}/sb0.${pack}.$$"; b1="${TMP}/sb1.${pack}.$$"; : >"${b0}"; : >"${b1}"
-    for n in object_storage_bucket_name object_storage_endpoint object_storage_region; do
-      pe=""; pf=""; { read -r pe; read -r pf; } < <(pair_of "${args}" "${n}")
-      printf '%s\t%s\n' "${n}" "${pe:-}" >>"${b0}"; printf '%s\t%s\n' "${n}" "${pf:-}" >>"${b1}"
-    done
-    for key in OBJECT_STORAGE_BUCKET OBJECT_STORAGE_ENDPOINT OBJECT_STORAGE_REGION; do
-      v=$(key_expr "${root}/${TPL}" "${key}") || { echo "  FAIL — STORE: the template has no single ${key} line"; bad=1; continue; }
-      r0=$(evaluate "${v}" "${b0}" 2>&1) || { echo "  FAIL — STORE ${pack}: ${key} ${r0}"; bad=1; continue; }
-      r1=$(evaluate "${v}" "${b1}" 2>&1) || { echo "  FAIL — STORE ${pack}: ${key} ${r1}"; bad=1; continue; }
-      if [ -z "${r0}" ] || [ "${r0}" != "${r1}" ]; then echo "  FAIL — STORE ${pack}: ${key} is '${r0}' in the primary and '${r1}' in the follower: the follower's Harbor stores its blobs elsewhere"; bad=1
-      else echo "  ok   — STORE ${pack}: ${key} is the same in both regions (${r0})"; fi
-    done
-  done
+  local root="$1" bad=0 t k want
   for k in bucket endpoint region; do
     t=$(yq ".data[\"s3-${k}\"]" "${root}/${OBJ}")
     want="\${OBJECT_STORAGE_$(printf '%s' "${k}" | tr '[:lower:]' '[:upper:]')}"
@@ -247,7 +210,7 @@ check_store() {
     t=$(yq "select(.kind == \"HelmRelease\") | .spec.valuesFrom[] | select(.kind == \"Secret\" and .name == \"object-storage\" and .valuesKey == \"$1\") | .targetPath" "${root}/${SLOT}")
     [ "${t}" = "harbor.persistence.imageChartStorage.s3.$2" ] || { echo "  FAIL — STORE: slot 19 does not read object-storage $1 into harbor.persistence.imageChartStorage.s3.$2 (reads '${t}')"; bad=1; }
   done
-  [ "${bad}" = 0 ] && echo "  ok   — STORE: slot 19 stores blobs in the s3 bucket of flux-system/object-storage"
+  [ "${bad}" = 0 ] && echo "  ok   — STORE: slot 19 stores blobs in the s3 bucket of flux-system/object-storage, which carries the seeded bucket, endpoint and region"
   return "${bad}"
 }
 
@@ -301,48 +264,76 @@ check_list() {
   return "${bad}"
 }
 
-echo "[follower-packages] the follower's Harbor serves what step 03 copies into the primary's"
-check_db "${REPO_ROOT}" || FAILURES=$((FAILURES + 1))
-check_store "${REPO_ROOT}" || FAILURES=$((FAILURES + 1))
-check_list "${REPO_ROOT}" || FAILURES=$((FAILURES + 1))
+PARTS="check_render check_db check_store check_list"
+echo "[follower-packages] the follower's Harbor serves what step 03 copies into the primary's, or the follower needs none of it"
+for c in ${PARTS}; do "${c}" "${REPO_ROOT}" || FAILURES=$((FAILURES + 1)); done
 
-# ── Mutants: each switches the sharing off one way and must turn its part red ─────────────
-mirror() { # $1=dest: the files the three parts read, copied from REPO_ROOT
-  local p
-  for p in "${TPL}" "${SLOT}" "${OBJ}" "${MESH_GO}" infra/providers/huawei infra/providers/hetzner infra/providers/local \
-           clusters/_template/root clusters/_template/infrastructure/providers; do
+# ── Control, then mutants: each switches one guarantee off and must turn its part red ──
+mirror() { # $1=dest: the files the four parts read, copied from REPO_ROOT
+  local p pack
+  for p in "${TPL}" "${SLOT}" "${OBJ}" "${MESH_GO}" clusters/_template/root clusters/_template/infrastructure/providers; do
     mkdir -p "$1/$(dirname "${p}")"; cp -R "${REPO_ROOT}/${p}" "$1/${p}"
   done
   for p in "${REPO_ROOT}"/clusters/_template/providers/*/root; do
     mkdir -p "$1/${p#"${REPO_ROOT}"/}"; cp -R "${p}/." "$1/${p#"${REPO_ROOT}"/}/"
   done
+  for pack in $(packs "${REPO_ROOT}"); do
+    for p in main.tf kit-exclude.txt tests/multi_region.tftest.hcl; do
+      [ -f "${REPO_ROOT}/infra/providers/${pack}/${p}" ] || continue
+      mkdir -p "$1/infra/providers/${pack}/$(dirname "${p}")"; cp "${REPO_ROOT}/infra/providers/${pack}/${p}" "$1/infra/providers/${pack}/${p}"
+    done
+  done
 }
-mutant() { # $1=label $2=check $3=file (relative) $4=sed program
+control() { # every part green on the unmutated mirror, else no mutant's red means anything
+  local m="${TMP}/control" c
+  mirror "${m}"
+  for c in ${PARTS}; do
+    if ! "${c}" "${m}" >"${m}.${c}.out" 2>&1; then
+      fail "control: ${c#check_} is red on the unmutated mirror (the mirror misses a file the part reads), so the mutants are not run"; sed 's/^/      /' "${m}.${c}.out"; return 1
+    fi
+  done
+  pass "control: every part is green on the unmutated mirror"
+}
+mutant() { # $1=label $2=check $3=file (relative) $4=sed program $5=the start of the FAIL line it must cause
   local m="${TMP}/m$((++MUT))"
   mirror "${m}"
   sed -i "$4" "${m}/$3"
   if cmp -s "${REPO_ROOT}/$3" "${m}/$3"; then fail "mutant '$1' changed nothing in $3 (the mutant is stale)"; return; fi
-  if "$2" "${m}" >"${m}.out" 2>&1; then fail "mutant '$1' stays green: ${2#check_} cannot see it"; sed 's/^/      /' "${m}.out"
-  else pass "mutant '$1' turns ${2#check_} red: $(grep -m1 'FAIL' "${m}.out" | sed 's/^  FAIL — //')"; fi
+  if "$2" "${m}" >"${m}.out" 2>&1; then fail "mutant '$1' stays green: ${2#check_} cannot see it"; sed 's/^/      /' "${m}.out"; return; fi
+  if grep -qF -- "  FAIL — $5" "${m}.out"; then pass "mutant '$1' turns ${2#check_} red where it aims: $(grep -m1 -F -- "  FAIL — $5" "${m}.out" | sed 's/^  FAIL — //')"
+  else fail "mutant '$1' turns ${2#check_} red, but not with a line starting '$5'"; sed 's/^/      /' "${m}.out"; fi
 }
 MUT=0
-echo "[follower-packages] mutants"
-mutant "the follower's Harbor gets a database of its own" check_db "${TPL}" \
-  's|SOVEREIGN_HARBOR_PG_HOST: "\${\(.*\)}"$|SOVEREIGN_HARBOR_PG_HOST: "${sovereign_region_role == "secondary" ? "harbor-pg-rw.harbor.svc.cluster.local" : (\1)}"|'
-mutant "shared-pg off by default (huawei)" check_db infra/providers/huawei/variables.tf \
-  '/^variable "enable_shared_pg"/,/^}/ s/default *= *"true"/default = "false"/'
-mutant "slot 19 ignores the host seam" check_db "${SLOT}" \
-  's|host: \${SOVEREIGN_HARBOR_PG_HOST:=harbor-pg-rw.harbor.svc.cluster.local}|host: harbor-pg-rw.harbor.svc.cluster.local|'
-mutant "a bucket per region (huawei)" check_store infra/providers/huawei/main.tf \
-  's|object_storage_bucket_name = var.obs_bucket_name|object_storage_bucket_name = "${var.obs_bucket_name}-${r.code}"|'
-mutant "the follower's render names another endpoint (hetzner)" check_store infra/providers/hetzner/main.tf \
-  '/k => replace(templatefile/,/^  }$/ s|object_storage_endpoint    = local.object_storage_endpoint|object_storage_endpoint    = local.follower_object_storage_endpoint|'
-mutant "registry blobs on a volume per region" check_store "${SLOT}" \
-  's|^          type: s3$|          type: filesystem|'
-mutant "a follower root applies the provider layer" check_list clusters/_template/root/multi-region-follower-secondary/kustomization.yaml \
-  '/name: infrastructure-providers/d'
-mutant "the list leaves the provider layer" check_list clusters/_template/infrastructure/providers/base/kustomization.yaml \
-  '/^  - opentofu-providers.yaml$/d'
+echo "[follower-packages] control and mutants"
+if control; then
+  mutant "the follower's Harbor gets a database of its own" check_db "${TPL}" \
+    's|SOVEREIGN_HARBOR_PG_HOST: "\${\(.*\)}"$|SOVEREIGN_HARBOR_PG_HOST: "${sovereign_region_role == "secondary" ? "harbor-pg-rw.harbor.svc.cluster.local" : (\1)}"|' \
+    "DB enable_shared_pg=true secondary: Harbor's database is harbor-pg-rw"
+  mutant "slot 19 ignores the host seam" check_db "${SLOT}" \
+    's|host: \${SOVEREIGN_HARBOR_PG_HOST:=harbor-pg-rw.harbor.svc.cluster.local}|host: harbor-pg-rw.harbor.svc.cluster.local|' \
+    "DB enable_shared_pg=true primary: slot 19 renders the database host harbor-pg-rw"
+  mutant "catalyst-api re-stamps followers with another host" check_db "${MESH_GO}" \
+    's|^\([[:space:]]*clusterMeshSharedPGMeshRWHost[[:space:]]*=[[:space:]]*"\)shared-pg-mesh-rw|\1shared-pg-mesh-rw-b|' \
+    "DB enable_shared_pg=true primary: Harbor's database is shared-pg-mesh-rw.shared-data.svc.cluster.local (own cluster false), not the one write alias shared-pg-mesh-rw-b"
+  mutant "registry blobs on a volume per region" check_store "${SLOT}" \
+    's|^          type: s3$|          type: filesystem|' \
+    "STORE: slot 19 storage type is 'filesystem'"
+  mutant "object-storage names a bucket of another seed key" check_store "${OBJ}" \
+    's|s3-bucket: "\${OBJECT_STORAGE_BUCKET}"|s3-bucket: "${OBJECT_STORAGE_REGION_BUCKET}"|' \
+    "STORE: ${OBJ} s3-bucket"
+  mutant "a follower root applies the provider layer" check_list clusters/_template/root/multi-region-follower-secondary/kustomization.yaml \
+    '/name: infrastructure-providers/d' \
+    "LIST: clusters/_template/root/multi-region-follower-secondary (secondary) applies infrastructure-providers: yes"
+  mutant "the list leaves the provider layer" check_list clusters/_template/infrastructure/providers/base/kustomization.yaml \
+    '/^  - opentofu-providers.yaml$/d' \
+    "LIST: infrastructure-providers ("
+  mutant "the local kit gains a Harbor" check_render infra/providers/local/kit-exclude.txt \
+    '/^bp-harbor$/d' \
+    "RENDER local: its kit has a Harbor"
+  mutant "the huawei pack drops its shared-pg-off run" check_render infra/providers/huawei/tests/multi_region.tftest.hcl \
+    's|^run "follower_harbor_own_database_when_shared_pg_is_off" {|run "renamed" {|' \
+    "RENDER huawei: its kit has a Harbor"
+fi
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "[follower-packages] FAILED: ${FAILURES}"; exit 1; fi
