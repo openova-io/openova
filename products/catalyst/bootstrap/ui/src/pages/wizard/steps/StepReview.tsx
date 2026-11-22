@@ -58,13 +58,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useSession } from '@/shared/lib/useSession'
 import { PinSignInModal } from '@/widgets/auth/PinSignInModal'
 import { StepShell, useStepNav } from './_shared'
-import {
-  GROUPS,
-  findComponent,
-  ALL_COMPONENTS,
-  isMandatory,
-  type ComponentEntry,
-} from './componentGroups'
+import { RINGS } from './componentGroups.generated'
 import {
   CONTROL_PLANE_OVERHEAD,
   recommendedWorkers,
@@ -72,7 +66,6 @@ import {
   workerCapacity,
   type ComponentFootprint,
 } from './componentFootprints'
-import { getLogoToneStyle } from './logoTone'
 
 /* ── Provider logos ──────────────────────────────────────────────── */
 const PROVIDER_LOGOS: Record<CloudProvider, React.ReactNode> = {
@@ -227,169 +220,6 @@ function FieldGrid({
       }}
     >
       {children}
-    </div>
-  )
-}
-
-/* ── Per-component mini card (one card per selected component) ────
-   Pixel-mirrors the canonical `.stack-card` on
-   https://marketplace.openova.io/review/ — the Organization marketplace's review
-   surface. Same horizontal flex layout, same 40×40 logo tile, same
-   semibold name + low-key category pill + single-line description. The
-   review is the launch-confirmation surface and inherits the marketplace
-   "compact card grid" review aesthetic verbatim. Wizard tokens map to
-   the marketplace tokens 1:1 (light theme):
-
-     marketplace `--color-bg`           → wizard `--wiz-bg-input`
-     marketplace `--color-border`       → wizard `--wiz-border`
-     marketplace `--color-text-strong`  → wizard `--wiz-text-hi`
-     marketplace `--color-text-dim`     → wizard `--wiz-text-md` (desc),
-                                                  `--wiz-text-sub` (cat)
-
-   Tier (M/R/O) is intentionally NOT shown — the canonical stack-card has
-   no tier indicator; the Components step prior to Review already enforces
-   tier semantics, and the review's job is to mirror the marketplace card
-   shape exactly. The category pill renders `entry.groupName` (PILOT,
-   SPINE, …) which is the wizard equivalent of `app.category`. */
-
-function LetterFallback({ entry }: { entry: ComponentEntry }) {
-  const letter = (entry.name[0] ?? '?').toUpperCase()
-  const tone = getLogoToneStyle(entry.id)
-  return (
-    <span
-      aria-hidden
-      style={{
-        // .stack-icon equivalent — same 40×40, 10px-radius pill so the
-        // logo column geometry is identical whether or not the component
-        // has a vendored SVG. Per-brand surface (see logoTone.ts) so the
-        // letter-mark fallback inherits the same tile colour the
-        // `<img>` tiles use elsewhere on the wizard and marketplace.
-        width: 40,
-        height: 40,
-        borderRadius: 10,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        color: tone.text,
-        fontSize: 14,
-        fontWeight: 700,
-        background: tone.background,
-        border: `1px solid ${tone.border}`,
-      }}
-    >
-      {letter}
-    </span>
-  )
-}
-
-function ComponentMiniCard({ entry }: { entry: ComponentEntry }) {
-  const tone = getLogoToneStyle(entry.id)
-  return (
-    <div
-      data-testid={`review-component-${entry.id}`}
-      data-component-id={entry.id}
-      data-tier={entry.tier}
-      data-product={entry.product}
-      style={{
-        // .stack-card — display:flex; align-items:flex-start; gap:0.65rem;
-        // padding:0.65rem; background:var(--color-bg); border-radius:8px;
-        // border:1px solid var(--color-border); transition:border-color 0.15s.
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '0.65rem',
-        padding: '0.65rem',
-        background: 'var(--wiz-bg-input)',
-        borderRadius: 8,
-        border: '1px solid var(--wiz-border)',
-        color: 'inherit',
-        textDecoration: 'none',
-        transition: 'border-color 0.15s',
-        minWidth: 0,
-      }}
-    >
-      {entry.logoUrl ? (
-        <span
-          aria-hidden
-          style={{
-            // .stack-logo — 40×40, 10px radius, flex-shrink:0. Per-brand
-            // surface (see logoTone.ts) — each tile uses the brand's own
-            // canonical surface colour (Alloy on Grafana orange, FerretDB
-            // on its navy, Temporal on its blue, …). Mirrors how each
-            // project displays its mark on its own homepage.
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            background: tone.background,
-            border: `1px solid ${tone.border}`,
-            overflow: 'hidden',
-            padding: 4,
-            boxSizing: 'border-box',
-          }}
-        >
-          <img
-            src={entry.logoUrl}
-            alt=""
-            loading="lazy"
-            data-testid={`review-component-logo-${entry.id}`}
-            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-          />
-        </span>
-      ) : (
-        <LetterFallback entry={entry} />
-      )}
-      {/* .stack-body — flex:1; min-width:0. */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <span
-          style={{
-            // .stack-name — 0.82rem / 600 / line-height:1.2 / 0.4rem
-            // right margin to give the cat pill breathing room.
-            color: 'var(--wiz-text-hi)',
-            fontSize: '0.82rem',
-            fontWeight: 600,
-            lineHeight: 1.2,
-            marginRight: '0.4rem',
-          }}
-          title={entry.name}
-        >
-          {entry.name}
-        </span>
-        <span
-          style={{
-            // .stack-cat — 0.62rem / capitalize / 0.08rem 0.35rem padding
-            // / 3px radius / color-mix(border 50%, transparent) bg.
-            color: 'var(--wiz-text-sub)',
-            fontSize: '0.62rem',
-            textTransform: 'capitalize',
-            background: 'color-mix(in srgb, var(--wiz-border) 50%, transparent)',
-            padding: '0.08rem 0.35rem',
-            borderRadius: 3,
-          }}
-        >
-          {entry.groupName}
-        </span>
-        <p
-          style={{
-            // .stack-desc — 0.72rem / line-height:1.4 / margin-top:0.2rem
-            // / single-line clamp via -webkit-box (matches the canonical
-            // -webkit-line-clamp: 1 rule on the marketplace card).
-            margin: '0.2rem 0 0',
-            color: 'var(--wiz-text-md)',
-            fontSize: '0.72rem',
-            lineHeight: 1.4,
-            display: '-webkit-box',
-            WebkitLineClamp: 1,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {entry.desc}
-        </p>
-      </div>
     </div>
   )
 }
@@ -624,60 +454,24 @@ export function StepReview() {
     workerCount: 0,
   }
 
-  // Component totals for the section header.
-  const totalComponents = Object.values(store.componentGroups).reduce((s, ids) => s + ids.length, 0)
-
-  // Per-component card data — every selected component id, materialised
-  // through the catalog so we can render logo + family chip + tier badge.
-  // GROUPS-ordered so visually the cards group by family without us
-  // having to manually section them.
-  const selectedComponentEntries: ComponentEntry[] = (() => {
-    const out: ComponentEntry[] = []
-    const seen = new Set<string>()
-    for (const g of GROUPS) {
-      const ids = store.componentGroups[g.id] ?? []
-      for (const id of ids) {
-        if (seen.has(id)) continue
-        seen.add(id)
-        const entry = findComponent(id)
-        if (entry) out.push(entry)
-      }
-    }
-    return out
-  })()
+  // Every release of every ring is installed (the kit list generated by
+  // tools/guards/cmd/kit-rings); the wizard selects nothing.
+  const totalReleases = RINGS.reduce((n, ring) => n + ring.releases.length, 0)
 
   /* ── Footprint estimate (issue #767) ─────────────────────────────
-     Two rollups feed the StepReview "Footprint estimate" Section:
-
-       1. BOOTSTRAP-KIT BASELINE — sum of footprints across every
-          mandatory-tier component in the catalog (post-transitive
-          promotion). This is the floor every Sovereign carries
-          regardless of operator selection — bp-cilium, bp-cert-
-          manager, bp-flux, bp-crossplane, bp-openbao, bp-keycloak,
-          bp-cnpg, etc.
-
-       2. SELECTED COMPONENTS DELTA — sum of footprints across every
-          recommended/optional component the operator actively picked
-          (i.e. component ids in the wizard store's componentGroups
-          map that are NOT mandatory).
-
-     The TOTAL footprint = baseline + delta + control-plane overhead
-     (k3s itself). We compute that against the OPERATOR'S worker SKU
-     for Region 1 to derive a "minimum workers" recommendation that
+     The kit footprint is the sum of the footprints of every kit release
+     of every ring (COMPONENT_FOOTPRINTS is keyed by the Blueprint name
+     without its bp- prefix). The TOTAL footprint = kit + control-plane
+     overhead (k3s itself). We compute that against the OPERATOR'S worker
+     SKU for Region 1 to derive a "minimum workers" recommendation that
      surfaces a WARN row when the operator picked fewer workers than
      the rollup needs. */
-  const selectedIds = new Set<string>()
-  for (const ids of Object.values(store.componentGroups)) {
-    for (const id of ids) selectedIds.add(id)
-  }
-  const mandatoryIds = ALL_COMPONENTS.filter(c => isMandatory(c.id)).map(c => c.id)
-  const baselineFootprint: ComponentFootprint = sumFootprints(mandatoryIds)
-  const selectedDeltaIds = [...selectedIds].filter(id => !isMandatory(id))
-  const selectedDeltaFootprint: ComponentFootprint = sumFootprints(selectedDeltaIds)
+  const baselineFootprint: ComponentFootprint = sumFootprints(
+    RINGS.flatMap(ring => ring.releases.map(r => r.blueprint.replace(/^bp-/, ''))),
+  )
   const totalFootprint: ComponentFootprint = {
-    ramMb: baselineFootprint.ramMb + selectedDeltaFootprint.ramMb + CONTROL_PLANE_OVERHEAD.ramMb,
-    cpuMilli:
-      baselineFootprint.cpuMilli + selectedDeltaFootprint.cpuMilli + CONTROL_PLANE_OVERHEAD.cpuMilli,
+    ramMb: baselineFootprint.ramMb + CONTROL_PLANE_OVERHEAD.ramMb,
+    cpuMilli: baselineFootprint.cpuMilli + CONTROL_PLANE_OVERHEAD.cpuMilli,
   }
   // Per-worker capacity for Region 1's chosen worker SKU. When the
   // operator hasn't picked a worker SKU yet we fall back to a sensible
@@ -691,11 +485,10 @@ export function StepReview() {
     : workerCapacity(4, 8)
   const recommendedWorkerCount = recommendedWorkers(perWorkerCapacity, {
     // The recommendation accounts for the work that lands on workers —
-    // i.e. baseline + selected delta. The CP overhead lives on the
-    // control-plane node, not workers, so it's excluded from the
-    // worker-pool sizing math.
-    ramMb: baselineFootprint.ramMb + selectedDeltaFootprint.ramMb,
-    cpuMilli: baselineFootprint.cpuMilli + selectedDeltaFootprint.cpuMilli,
+    // i.e. the kit. The CP overhead lives on the control-plane node,
+    // not workers, so it's excluded from the worker-pool sizing math.
+    ramMb: baselineFootprint.ramMb,
+    cpuMilli: baselineFootprint.cpuMilli,
   })
   const operatorWorkerCount = regionRows[0]?.workerCount ?? 0
   const workerShortfall = operatorWorkerCount > 0 && operatorWorkerCount < recommendedWorkerCount
@@ -1060,20 +853,6 @@ export function StepReview() {
               }
             />
             <Field
-              label="Selected components add"
-              value={
-                <span data-testid="review-footprint-selected">
-                  <strong style={{ color: 'var(--wiz-text-md)' }}>
-                    {formatRam(selectedDeltaFootprint.ramMb)}
-                  </strong>{' '}
-                  RAM ·{' '}
-                  <strong style={{ color: 'var(--wiz-text-md)' }}>
-                    {formatCpu(selectedDeltaFootprint.cpuMilli)}
-                  </strong>
-                </span>
-              }
-            />
-            <Field
               label="Control-plane overhead"
               value={
                 <span data-testid="review-footprint-cp-overhead">
@@ -1159,7 +938,7 @@ export function StepReview() {
             1fr)` columns the marketplace ships, collapsing to a single
             column under 700px. */}
         <Section
-          title={`Components · ${totalComponents} selected`}
+          title={`Components · ${totalReleases} in ${RINGS.length} rings`}
           testId="review-section-components"
           bodyPadding="0.85rem 1rem"
         >
@@ -1167,23 +946,25 @@ export function StepReview() {
             data-testid="review-component-cards"
             className="review-stack-grid"
             style={{
-              // .stack-grid — repeat(2, 1fr); gap: 0.5rem. The
-              // single-column collapse is handled by the matching
-              // <style> below so we do not need a JS media-query.
+              // Two columns; the single-column collapse is handled by the
+              // matching <style> below so we do not need a JS media-query.
               display: 'grid',
               gridTemplateColumns: 'repeat(2, 1fr)',
               gap: '0.5rem',
             }}
           >
-            {selectedComponentEntries.length > 0 ? (
-              selectedComponentEntries.map(entry => (
-                <ComponentMiniCard key={entry.id} entry={entry} />
-              ))
-            ) : (
-              <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>
-                No components selected — return to the Components step.
-              </span>
-            )}
+            {RINGS.map(ring => (
+              <div
+                key={ring.name}
+                data-testid={`review-ring-${ring.name}`}
+                style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}
+              >
+                <strong style={{ color: 'var(--wiz-text-hi)' }}>{ring.title}</strong>
+                {' · '}
+                {ring.releases.length}
+                {ring.required ? ' · required' : ''}
+              </div>
+            ))}
           </div>
           <style>{`
             @media (max-width: 700px) {

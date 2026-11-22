@@ -422,6 +422,9 @@ jobs:
       - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, places on a Sovereign'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1
+      - name: 'kit-rings | The wizard ring list is the one the kit and the catalogue give (run cd tools/guards && go run ./cmd/kit-rings and commit)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/kit-rings --check
       - name: 'no-hand-marks | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/no-hand-marks
