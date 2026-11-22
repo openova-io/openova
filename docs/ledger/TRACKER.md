@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-22T11:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-22T11:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-22T11:20 | [#8603](https://github.com/openova-io/openova/pull/8603) | #7087 | docs(ledger): plan update |
 | 2026-11-21T17:50 | [#8600](https://github.com/openova-io/openova/pull/8600) | #7087 | docs(ledger): plan update |
 | 2026-11-21T16:10 | [#8599](https://github.com/openova-io/openova/pull/8599) | fix(gate): check NET-G07 proves the platform's denial in a s |  |
 | 2026-11-21T16:12 | [#8598](https://github.com/openova-io/openova/pull/8598) | #6837 | fix(providers): the reference cloud's balancer members carry |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-21T03:56 | [#8568](https://github.com/openova-io/openova/pull/8568) | #7087 | docs(ledger): plan update |
 | 2026-11-21T05:59 | [#8567](https://github.com/openova-io/openova/pull/8567) | #4467 | fix(cilium): the MTU given to Cilium is the node interface's |
 | 2026-11-21T03:47 | [#8566](https://github.com/openova-io/openova/pull/8566) | #7087 | docs(ledger): plan update |
-| 2026-11-21T03:15 | [#8565](https://github.com/openova-io/openova/pull/8565) | #5022 | fix(charts): a roll of the registry keeps its copies, harbor |
 
 ---
 
