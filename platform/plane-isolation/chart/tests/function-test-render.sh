@@ -23,9 +23,13 @@ helm template plane-isolation . --namespace catalyst-system --set renderUncondit
 python3 "$CHECK" --chart bp-plane-isolation --release plane-isolation < "$TMP/default.yaml"
 helm template plane-isolation . --namespace catalyst-system --api-versions cilium.io/v2 --show-only "$TEST" > "$TMP/default-test.yaml"
 sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
-grep -q -F 'value: "http://keycloak.keycloak.svc.cluster.local:80/"' "$TMP/default-test.yaml" || fail "the test does not connect to the keycloak Service"
+grep -A1 -F -- '- name: TARGET_PORT' "$TMP/default-test.yaml" | grep -q -F 'value: "7800"' || fail "the test does not probe Keycloak's cluster transport, Pod port 7800 (8080, the issuer, is open to every source by design)"
 grep -q -F 'resourceNames: ["keycloak"]' "$TMP/default-test.yaml" || fail "the test Role is not limited to the Endpoints keycloak"
 grep -q -F 'kind: CiliumNetworkPolicy' "$TMP/default-test.yaml" || fail "no egress policy for the test Pod"
+# helm-controller keys a release's test results by hook name, and Helm keeps the CiliumNetworkPolicy after the Pod: under
+# the Pod's name the policy's "Succeeded" overwrote the Pod's "Failed" (hw307, 21 Nov 2026). On 0.1.19 this fails.
+[ "$(yq 'select(.kind == "CiliumNetworkPolicy") | .metadata.name' "$TMP/default-test.yaml")" = "plane-isolation-function-test-egress" ] || fail "the test's CiliumNetworkPolicy is not named plane-isolation-function-test-egress: under the Pod's name its result hides the Pod's"
+[ "$(yq 'select(.kind == "CiliumNetworkPolicy") | .metadata.namespace' "$TMP/default-test.yaml")" = "default" ] || fail "the test's CiliumNetworkPolicy is not in the namespace default"
 grep -q -F '28|7) ;;' "$TMP/default-test.yaml" || fail "the test does not demand that the connection is not made"
 python3 - "$TMP/default.yaml" <<'PY' || fail "the chart renders no default-deny for keycloak that keeps the namespace default out"
 import sys, yaml
@@ -38,7 +42,7 @@ sys.exit(1)
 PY
 python3 - "$TMP/default.yaml" <<'PY' || fail "the test Pod is not in the namespace default, or its Role is not in keycloak"
 import sys, yaml
-want = {("Pod", "default"), ("ServiceAccount", "default"), ("CiliumNetworkPolicy", "default"), ("Role", "keycloak"), ("RoleBinding", "keycloak")}
+want = {("Pod", "default"), ("ServiceAccount", "default"), ("Role", "keycloak"), ("RoleBinding", "keycloak")}
 got = set()
 for d in yaml.safe_load_all(open(sys.argv[1])):
     if d and d["metadata"].get("name") == "plane-isolation-function-test":
@@ -101,12 +105,21 @@ printf '10.42.0.7'
 EOF
 stub curl <<'EOF'
 #!/bin/sh
-# The connection is made when $CONNECT is yes (HTTP 200); else it times out (curl exit code 28).
-if [ "$CONNECT" = yes ]; then printf 200; exit 0; fi
-printf 000; echo "curl: (28) Connection timed out after 5001 milliseconds" >&2; exit 28
+# Writes curl's time_connect. $CONNECT: yes, the connection is made and the port, not HTTP, closes it (exit code 52, as
+# Keycloak's cluster transport does); http, the connection is made and answers HTTP 200 (exit code 0); refused (exit code
+# 7); reset, a connection that fails after it was made (exit code 56); else none is made within 5 seconds (exit code 28).
+# The address dialled must be the ready one.
+case "$*" in *"http://10.42.0.7:7800/"*) ;; *) echo "curl: dialled $*" >&2; printf 0.000000; exit 3 ;; esac
+case "$CONNECT" in
+  yes) printf 0.001042; echo "curl: (52) Empty reply from server" >&2; exit 52 ;;
+  http) printf 0.000917; exit 0 ;;
+  refused) printf 0.000000; echo "curl: (7) Failed to connect to 10.42.0.7 port 7800: Connection refused" >&2; exit 7 ;;
+  reset) printf 0.000880; echo "curl: (56) Recv failure: Connection reset by peer" >&2; exit 56 ;;
+esac
+printf 0.000000; echo "curl: (28) Connection timed out after 5001 milliseconds" >&2; exit 28
 EOF
 mkdir -p "$TMP/etc"; printf 'a.b.c' > "$TMP/etc/token"; printf 'default' > "$TMP/etc/namespace"
-T='TARGET_URL=http://keycloak.keycloak.svc.cluster.local:80/'
+T='TARGET_PORT=7800'
 pod_script "$TMP/default-test.yaml" > "$TMP/run.sh"
 runs pass "the test does not wait for a target whose Endpoints appear after 3 reads" MISSING=3 SECONDS=0 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
 runs fail "the test passes while the target never has a ready address" MISSING=1000000 SECONDS=239 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
@@ -116,6 +129,11 @@ runs pass "under T 1800 the test does not wait for a target whose Endpoints appe
 runs fail "under T 1800 the test passes while the target never has a ready address" MISSING=1000000 SECONDS=1739 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
 grep -q -F 'the Service keycloak/keycloak has no ready address within 1740 seconds' "$TMP/run.out" || fail "under T 1800 the failure does not name the target and the wait of 1740 seconds"
 runs fail "the test passes when a Pod outside the allow-list reaches the target" MISSING=0 SECONDS=0 CONNECT=yes TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
-grep -q -F 'the namespace keycloak is not isolated' "$TMP/run.out" || fail "a reached target does not fail as not isolated"
+grep -q -F 'connected to keycloak.keycloak Pod 10.42.0.7 port 7800 (curl exit code 52): the namespace keycloak is not isolated' "$TMP/run.out" || fail "a reached cluster transport does not fail as not isolated"
+runs fail "the test passes when a Pod outside the allow-list gets an HTTP answer" MISSING=0 SECONDS=0 CONNECT=http TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F 'the namespace keycloak is not isolated' "$TMP/run.out" || fail "an HTTP answer does not fail as not isolated"
+runs fail "the test passes when a connection is made and then reset" MISSING=0 SECONDS=0 CONNECT=reset TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F 'the namespace keycloak is not isolated' "$TMP/run.out" || fail "a connection made then reset does not fail as not isolated"
+runs pass "the test fails when the connection is refused" MISSING=0 SECONDS=0 CONNECT=refused TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
 
 echo "function-test-render: all cases passed"

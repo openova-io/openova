@@ -26,7 +26,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 04b | 04b-bp-kured.yaml | bp-kured | kured | kube-system | bp-kured | bp-cilium | - | same |
 | 05a | 05a-reflector.yaml | bp-reflector | reflector | reflector | bp-reflector | bp-cert-manager | - | same |
 | 06 | 06-bp-dragonfly.yaml | bp-dragonfly | dragonfly | dragonfly | bp-dragonfly | bp-cilium | - | same |
-| 07 | 07-nats-jetstream.yaml | bp-nats-jetstream | nats-jetstream | nats-system | bp-nats-jetstream | - | - | same |
+| 07 | 07-nats-jetstream.yaml | bp-nats-jetstream | nats-jetstream | nats-system | bp-nats-jetstream | storage-ready | - | same |
 | 08 | 08-openbao.yaml | bp-openbao | openbao | openbao | bp-openbao | bp-gateway-api, bp-cnpg | - | same |
 | 09 | 09-keycloak.yaml | bp-keycloak | keycloak | keycloak | bp-keycloak | bp-cert-manager, bp-gateway-api, bp-postgres-shared | - | same |
 | 10 | 10-gitea.yaml | bp-gitea | gitea | gitea | bp-gitea | bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared | - | same |
@@ -39,7 +39,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 13b | 13b-bp-sso-bridge.yaml | bp-sso-bridge | sso-bridge | sso-bridge | bp-sso-bridge | bp-keycloak, bp-openbao | - | same |
 | 13c | 13c-bp-oidc-gate.yaml | bp-oidc-gate | oidc-gate | oidc-gate | bp-oidc-gate | bp-cilium, bp-keycloak, bp-external-secrets-stores | - | same |
 | 13d | 13d-bp-openova-mcp.yaml | bp-openova-mcp | openova-mcp | catalyst-system | bp-openova-mcp | bp-catalyst-platform, bp-keycloak | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
-| 13e | 13e-bp-catalyst-secondary-edge-routes.yaml | bp-catalyst-secondary-edge | catalyst-secondary-edge | catalyst-system | bp-catalyst-edge-routes | bp-gateway-api | `suspend=${SECONDARY_EDGE_SUSPEND:=true}` | same |
+| 13e | 13e-bp-catalyst-secondary-edge-routes.yaml | bp-catalyst-secondary-edge | catalyst-secondary-edge | catalyst-system | bp-catalyst-edge-routes | bp-gateway-api, bp-cert-manager, bp-sovereign-tls-vars | `suspend=${SECONDARY_EDGE_SUSPEND:=true}` | same |
 | 13f | 13f-bp-chargeback.yaml | bp-chargeback | chargeback | chargeback | bp-chargeback | bp-cnpg, bp-catalyst-platform | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
 | 14 | 14-crossplane-claims.yaml | bp-crossplane-claims | crossplane-claims | crossplane-system | bp-crossplane-claims | bp-crossplane | - | same |
 | 15 | 15-external-secrets.yaml | bp-external-secrets | external-secrets | external-secrets-system | bp-external-secrets | bp-cert-manager | - | same |
@@ -50,7 +50,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 16b | 16b-bp-cnpg-pair.yaml | bp-cnpg-pair | cnpg-pair | cnpg | bp-cnpg-pair | bp-cnpg | `values.cnpgPair.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:-false}` | same |
 | 16c | 16c-bp-postgres-shared-b.yaml | bp-postgres-shared-b | shared-pg-b | shared-data | bp-postgres | bp-cnpg, bp-reflector | `values.enabled=${SOVEREIGN_ENABLE_SHARED_PG:=false}` | same |
 | 16d | 16d-bp-postgres-shared-c.yaml | bp-postgres-shared-c | shared-pg-c | shared-data | bp-postgres | bp-cnpg, bp-reflector | `values.enabled=${SOVEREIGN_ENABLE_SHARED_PG:=false}` | same |
-| 17 | 17-valkey.yaml | bp-valkey | valkey | valkey | bp-valkey | bp-flux | - | same |
+| 17 | 17-valkey.yaml | bp-valkey | valkey | valkey | bp-valkey | bp-flux, storage-ready | - | same |
 | 18 | 18-seaweedfs.yaml | bp-seaweedfs | seaweedfs | seaweedfs | bp-seaweedfs | bp-flux, bp-cert-manager | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:-false}` | same |
 | 19 | 19-harbor.yaml | bp-harbor | harbor | harbor | bp-harbor | bp-cnpg, bp-cert-manager, bp-gateway-api, bp-external-secrets, bp-postgres-shared | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |
 | 06a | 06a-bp-self-sovereign-cutover.yaml | bp-self-sovereign-cutover | self-sovereign-cutover | catalyst | bp-self-sovereign-cutover | bp-gitea, bp-harbor, bp-dragonfly | `suspend=${SECONDARY_HR_SUSPEND:=false}` | same |
