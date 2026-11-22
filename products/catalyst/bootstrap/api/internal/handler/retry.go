@@ -5,8 +5,8 @@
 //
 //  1. Phase 0 phases (tofu-init, tofu-plan, tofu-apply, tofu-output,
 //     flux-bootstrap) — catalyst-api owns the OpenTofu workdir, so it
-//     re-runs `tofu apply` against it (idempotent; Phase 0 IS the
-//     catalyst-api's job per docs/SOVEREIGN-PROVISIONING.md §3).
+//     runs the first run's path again, runProvisioning: Phase 0 then the
+//     Phase-1 watch (Phase 0 IS the catalyst-api's job, SOVEREIGN-PROVISIONING.md §3).
 //  2. Phase 1 bootstrap-kit phases (cilium … bp-catalyst-platform) — Flux
 //     HelmReleases on the NEW Sovereign. catalyst-api MUST NOT exec
 //     kubectl/helm there (INVIOLABLE-PRINCIPLES.md #3, Lesson #24); Flux
@@ -21,7 +21,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,8 +103,8 @@ func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 	}
 	dep := val.(*Deployment)
 
-	dep.mu.Lock()
-	stillRunning := dep.Status == "provisioning" || dep.Status == "tofu-applying"
+	dep.mu.Lock() // also in flight: a run or a watch of this process (done open, or a watch started)
+	stillRunning := dep.Status == "provisioning" || dep.Status == "tofu-applying" || !dep.isDone() || dep.phase1Started && dep.Status == "phase1-watching"
 	dep.mu.Unlock()
 	if stillRunning {
 		writeJSON(w, http.StatusConflict, map[string]string{
@@ -130,41 +129,47 @@ func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// retryPhase0 re-drives the OpenTofu workflow against the deployment's
-// existing workdir. The retry runs the FULL phase 0 sequence (init →
-// plan → apply → output → flux-bootstrap) because OpenTofu's plan/apply
-// model is "the whole stack converges to declared state," not "re-run
-// only this step." Idempotency means failed-on-apply with a transient
-// error (e.g. Hetzner rate-limit) becomes a successful apply on retry.
+// retryPhase0 runs the FULL phase 0 sequence (init → plan → apply → output →
+// flux-bootstrap) again, because OpenTofu converges the whole stack to its
+// declared state. It is runProvisioning, the code path of the first run: the
+// same deployment id and working directory, the same 180-minute bound, the same
+// post-apply chain and the same Phase-1 watch, which alone flips the record to
+// ready. The previous run's Phase-1 verdict is cleared so this run's watch judges
+// it, and phase1Started is cleared because no watch runs (RetryPhase refused one).
 func (h *Handler) retryPhase0(w http.ResponseWriter, dep *Deployment, phase string) {
 	// Re-open the events channel + done signal — the originals were closed
-	// when runProvisioning returned. The wizard's SSE client reconnects
-	// to /logs which reads from this fresh channel and replays the buffer
-	// (which still carries the previous attempt's events plus the retry
-	// banner). Buffer eviction at EventBufferCap prevents unbounded growth
-	// across many retries.
+	// when the previous run returned. The wizard's SSE client reconnects to
+	// /logs, which reads this fresh channel and replays the buffer.
 	dep.mu.Lock()
 	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.done = make(chan struct{})
 	dep.Status = "provisioning"
 	dep.Error = ""
 	dep.FinishedAt = time.Time{}
+	dep.phase1Started = false
+	dep.Result.ClearPhase1()
 	dep.mu.Unlock()
 
-	// Persist the retry-init state — a Pod restart between this point
-	// and the first goroutine emit otherwise leaves the on-disk record
-	// at "failed" from the previous run, so the wizard's Retry click
-	// would silently no-op from the user's view.
-	h.persistDeployment(dep)
-
-	go h.runProvisioningRetry(dep, phase)
+	// The banner is recorded and persisted with the retry-init state, so a Pod
+	// restart before the run's first event does not leave the previous "failed".
+	recorded := h.recordEventAndPersist(dep, provisioner.Event{
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Phase:   phase,
+		Level:   "info",
+		Message: fmt.Sprintf("Retry initiated for phase %q — Phase 0 runs again in the deployment's working directory (`tofu apply` converges the existing state), then the Phase-1 watch, as on the first run.", phase),
+	})
+	select {
+	case dep.eventsCh <- recorded:
+	default:
+	}
+	go h.runProvisioning(dep)
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"id":        dep.ID,
 		"status":    "provisioning",
 		"phase":     phase,
 		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", dep.ID),
-		"message":   fmt.Sprintf("Phase 0 retry accepted — re-running tofu apply against the existing workdir (idempotent). Reopen the SSE stream to follow progress."),
+		"message":   "Phase 0 retry accepted — re-running Phase 0 and then the Phase-1 watch, as on the first run. Reopen the SSE stream to follow progress.",
 	})
 }
 
@@ -269,9 +274,7 @@ func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, r *http.Request, dep
 	}
 
 	dep.Result.KubeconfigPath = kubeconfigPath
-	dep.Result.Phase1Outcome = ""
-	dep.Result.Phase1FinishedAt = nil
-	dep.Result.ComponentStates = nil
+	dep.Result.ClearPhase1()
 	dep.Status = "phase1-watching"
 	dep.Error = ""
 	dep.FinishedAt = time.Time{}
@@ -340,99 +343,6 @@ func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, r *http.Request, dep
 		"streamURL": fmt.Sprintf("/api/v1/deployments/%s/logs", dep.ID),
 		"message":   "Phase-1 re-watch accepted — no tofu, no cloud writes. Reopen the SSE stream to follow convergence; the record flips to ready and the handover fires when every component is installed.",
 	})
-}
-
-// runProvisioningRetry mirrors runProvisioning but re-uses the existing
-// deployment workdir (no fresh fqdn check, no fresh tofu init if .terraform/
-// already exists). The provisioner.Provision call itself is idempotent
-// against an existing workdir.
-func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
-	// Tee — same pattern as runProvisioning so the durable event buffer
-	// captures the retry's events too. This is what makes a reconnect to
-	// /logs after a retry has finished still render the full retry history.
-	producer := make(chan provisioner.Event, 256)
-	teeDone := make(chan struct{})
-	go func() {
-		defer close(teeDone)
-		for ev := range producer {
-			// Same persistence story as runProvisioning — every retry
-			// event lands on disk so a Pod restart mid-retry still has
-			// the full history (original attempt + retry banner +
-			// whatever the retry produced before the kill).
-			recorded := h.recordEventAndPersist(dep, ev)
-			select {
-			case dep.eventsCh <- recorded:
-			default:
-			}
-		}
-		close(dep.eventsCh)
-	}()
-
-	prov := provisioner.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	producer <- provisioner.Event{
-		Time:    time.Now().UTC().Format(time.RFC3339),
-		Phase:   retriedPhase,
-		Level:   "info",
-		Message: fmt.Sprintf("Retry initiated for phase %q — running `tofu apply` against existing workdir (idempotent).", retriedPhase),
-	}
-
-	result, err := prov.Provision(ctx, dep.Request, producer)
-	close(producer)
-	<-teeDone
-
-	if err != nil {
-		dep.mu.Lock()
-		dep.FinishedAt = time.Now()
-		dep.Status = "failed"
-		dep.Error = err.Error()
-		dep.mu.Unlock()
-		h.log.Error("retry provision failed", "id", dep.ID, "phase", retriedPhase, "err", err)
-		h.persistDeployment(dep)
-		close(dep.done)
-		return
-	}
-
-	// #5381 — a retry MUST run the SAME post-apply chain as
-	// runProvisioning. Before this, retryPhase0 set Status="ready"
-	// straight off a successful Provision() and never called
-	// commitPDMWithRetry / upsertSovereignParentZoneRecordsFromResult /
-	// runPhase1Watch. Those live only in runProvisioning, so the
-	// operator's "Retry phase" button could stamp a deployment READY
-	// with **no DNS records committed and no Phase-1 watch** — a green
-	// wizard pill over a Sovereign whose console FQDN does not resolve
-	// (observed on hw289: console./api./hw289.omani.works all NXDOMAIN
-	// while the record claimed a terminal status). Marking ready without
-	// the DNS commit is the same fabricated-verdict class as the #5381
-	// region-truncation bug this ticket fixed; both make the control
-	// plane lie about a Sovereign's real state.
-	//
-	// Order mirrors runProvisioning exactly: PDM commit (pool-allocated
-	// FQDNs) → parent-zone A records (BYO parent shapes, best-effort) →
-	// Phase-1 HelmRelease watch, which is what actually flips Status to
-	// ready once components converge. We deliberately do NOT set
-	// Status="ready" here: runPhase1Watch owns that transition, so a
-	// retry can no longer out-run its own convergence proof.
-	dep.mu.Lock()
-	dep.Result = result
-	dep.mu.Unlock()
-
-	h.commitPDMWithRetry(dep, result)
-	h.upsertSovereignParentZoneRecordsFromResult(context.Background(), dep, result)
-
-	h.log.Info("retry provision complete — running post-apply chain (PDM commit + phase-1 watch)",
-		"id", dep.ID, "phase", retriedPhase)
-
-	h.runPhase1Watch(dep)
-
-	dep.mu.Lock()
-	dep.FinishedAt = time.Now()
-	dep.mu.Unlock()
-	// Terminal persist for the retry, before done closes: as in runProvisioning.
-	h.persistDeployment(dep)
-	close(dep.done)
 }
 
 // validatePhaseID — exported helper for tests.

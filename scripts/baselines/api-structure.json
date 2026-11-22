@@ -176,10 +176,10 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 95295
+      "products/catalyst/bootstrap/api/internal/handler": 95210
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 616
+      "products/catalyst/bootstrap/api/internal/handler": 615
     },
     "main_lines": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 926

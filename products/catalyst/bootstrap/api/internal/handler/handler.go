@@ -316,6 +316,8 @@ type Handler struct {
 	fluxCRDProbePollInterval time.Duration
 	// phase1RegionGateBudget — test override of crossregion.BudgetEnv (#7902).
 	phase1RegionGateBudget time.Duration
+	// provision — test override of Phase 0 in runProvisioning; nil is provisioner.New().Provision.
+	provision func(context.Context, provisioner.Request, chan<- provisioner.Event) (*provisioner.Result, error)
 
 	// phase1StorageGate — test-only override for the #3971 default-
 	// StorageClass durability gate run at the end of markPhase1Done.

@@ -814,6 +814,13 @@ type Request struct {
 	// value into the redacted request.
 	DeploymentID string `json:"-"`
 
+	// FromRecord — the request was rebuilt from the deployment's stored
+	// record after an engine restart (handler fromRecord), so it holds no
+	// credential and not every field. Provision then applies the variables
+	// file of the deployment's working directory again instead of writing a
+	// new one from this request (stageTfvars).
+	FromRecord bool `json:"-"`
+
 	// KubeconfigBearerToken — 32-byte cryptographic-random token
 	// generated at CreateDeployment time, stamped here by the handler
 	// before tfvars are written. The plaintext value flows ONLY into
@@ -2235,9 +2242,9 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	}
 
 	// Write tofu.auto.tfvars.json — OpenTofu auto-loads any *.auto.tfvars.json
-	// in the working directory at apply time.
-	if err := writeTfvars(deployDir, req); err != nil {
-		return nil, fmt.Errorf("write tfvars: %w", err)
+	// in the working directory at apply time — or keep the applied one (rerun.go).
+	if err := stageTfvars(deployDir, req); err != nil {
+		return nil, err
 	}
 
 	// The adapter's checks before `tofu init` (providers.Preflighter): a limit
