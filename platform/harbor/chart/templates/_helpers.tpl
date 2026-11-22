@@ -15,6 +15,19 @@ catalyst.openova.io/blueprint: bp-harbor
 catalyst.openova.io/component: harbor
 {{- end -}}
 
+{{/* The upstream subchart's harbor.fullname, the prefix of its object names. */}}
+{{- define "bp-harbor.upstreamFullname" -}}
+{{- $h := .Values.harbor | default dict -}}
+{{- $app := default "harbor" $h.nameOverride -}}
+{{- if $h.fullnameOverride -}}
+{{- $h.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else if contains $app .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $app | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "bp-harbor.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "bp-harbor.fullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

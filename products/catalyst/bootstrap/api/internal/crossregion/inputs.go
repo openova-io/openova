@@ -87,6 +87,15 @@ var CopiedSecrets = []CopiedSecret{
 	// the key once, from a subPath mount; when the copy changes, bp-reloader
 	// rolls it (its pod template names this Secret).
 	{Namespace: "harbor", Name: "harbor-token-key"},
+	// The same balancer, for a blob upload and a CSRF token. The registry
+	// signs the state of a chunked upload with REGISTRY_HTTP_SECRET and the
+	// core signs its CSRF cookie with CSRF_KEY; with a value per region an
+	// upload begun in one region is refused in the other (BLOB_UPLOAD_INVALID)
+	// and so is a write whose token the other region issued (403). The primary
+	// writes both once and keeps them
+	// (platform/harbor/chart/templates/shared-keys-secret.yaml); a follower
+	// writes none, and its registry and core cannot start before this copy.
+	{Namespace: "harbor", Name: "harbor-shared-keys"},
 }
 
 // Follower is one follower region as the orchestrator reaches it.

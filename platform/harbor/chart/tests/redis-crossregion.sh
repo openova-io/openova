@@ -26,15 +26,26 @@
 #      global services by name+namespace) but does NOT export
 #      (service.cilium.io/shared=false) — the standby must never land a
 #      session of its own that the active region could pick up.
-#   4. SECONDARY: `harbor.redis.type: external` at the mesh Service removes the
-#      duplicate redis StatefulSet AND repoints every consumer's _REDIS_URL_*
+#   4. SECONDARY: `harbor.redis.type: external` at the mesh Service removes
+#      upstream's serving redis AND repoints every consumer's _REDIS_URL_*
 #      at it. This is what the bootstrap-kit slot wires from
-#      SOVEREIGN_HARBOR_REDIS_{TYPE,ADDR}.
+#      SOVEREIGN_HARBOR_REDIS_{TYPE,ADDR}. The one redis StatefulSet left is
+#      the standby of templates/redis-standby.yaml (cases 6-8).
 #   5. Cross-region CiliumNetworkPolicies render ONLY when peerClusters is
 #      non-empty, and carry the peer-cluster identity selector on 6379.
 #      (A k8s NetworkPolicy can never admit a ClusterMesh peer — Cilium
 #      AND-injects the LOCAL cluster label into every selector it derives, so
 #      the harbor-default-deny cannot express this. Same class as #4846/#4854.)
+#   6. SECONDARY: after the primary region is lost the follower's Harbor still
+#      has a Redis. Its standby is a local backend of the mesh Service, and it
+#      keeps upstream's StatefulSet identity (name, serviceName, selector,
+#      claim templates), so it keeps the volume upstream's copy wrote instead
+#      of leaving it behind.
+#   7. `harbor-redis-primary` reaches the primary's redis only: the primary
+#      exports its redis Pod; a follower selects no Pod of its own render.
+#   8. The standby's readiness, run against stand-ins for redis-cli: NotReady
+#      and its clients dropped while the primary answers PONG; Ready when the
+#      primary is silent and the local redis answers; NotReady when neither.
 
 set -euo pipefail
 
@@ -51,7 +62,7 @@ set -euo pipefail
 #
 # Same defect class as the openbao eso-push-policy-render.sh fix (#5370). The
 # cure is to remove the pipe entirely: write once to a temp file, grep the file.
-_m_tmp="$(mktemp)"; trap 'rm -f "$_m_tmp"' EXIT
+_m_tmp="$(mktemp)"; trap 'rm -rf "$_m_tmp" "$_m_tmp".*' EXIT
 # has <text> <grep-args...> — true when the pattern matches, no pipe involved.
 has() { local text="$1"; shift; printf '%s\n' "$text" > "$_m_tmp"; grep "$@" "$_m_tmp"; }
 
@@ -116,8 +127,9 @@ sec_full=$(render \
   --set crossRegion.enabled=true --set crossRegion.role=secondary \
   --set harbor.redis.type=external \
   --set harbor.redis.external.addr=harbor-redis-mesh.harbor.svc.cluster.local:6379)
-if has "$sec_full" -qE '^kind: StatefulSet' && has "$sec_full" -q 'name: harbor-redis$'; then
-  echo "FAIL: the secondary still renders its OWN harbor-redis StatefulSet — the session store is still split."
+printf '%s\n' "$sec_full" > "$_m_tmp.sec"
+if [ "$(yq ea -N 'select(.kind == "StatefulSet" and .metadata.name == "smoke-harbor-redis") | .spec.template.spec.containers[0].readinessProbe | has("tcpSocket")' "$_m_tmp.sec")" = true ]; then
+  echo "FAIL: the secondary still renders upstream's SERVING harbor-redis StatefulSet — the session store is still split."
   exit 1
 fi
 has "$sec_full" -q 'redis://harbor-redis-mesh.harbor.svc.cluster.local:6379/0' || {
@@ -156,5 +168,73 @@ has "$cnp" -q 'port: "6379"' || {
 has "$cnp" -q 'key: k8s:io.kubernetes.pod.namespace' || {
   echo "FAIL: the namespace key is not referenced — Cilium will AND-inject namespace=harbor and narrow the rule"; exit 1; }
 echo "[bp-harbor] Case 5: PASS"
+
+# sts <render file> <label> <value>: the redis StatefulSet that carries the label.
+sts() { L="$2" V="$3" yq ea -N 'select(.kind == "StatefulSet" and .metadata.name == "smoke-harbor-redis" and .metadata.labels[strenv(L)] == strenv(V))' "$1"; }
+render --set crossRegion.enabled=true --set crossRegion.role=primary > "$_m_tmp.pri"
+identity='{"serviceName": .spec.serviceName, "selector": .spec.selector, "claims": .spec.volumeClaimTemplates}'
+
+echo "[bp-harbor] Case 6: the follower keeps a standby redis with upstream's identity"
+sts "$_m_tmp.sec" catalyst.openova.io/subcomponent harbor-redis-standby > "$_m_tmp.standby"
+[ -s "$_m_tmp.standby" ] || {
+  echo "FAIL: the follower renders no redis of its own: when the primary region is lost its Harbor dials a mesh Service with no backend left"; exit 1; }
+sts "$_m_tmp.pri" chart harbor > "$_m_tmp.upstream"
+[ -s "$_m_tmp.upstream" ] || { echo "FAIL: the primary render holds no upstream redis StatefulSet"; exit 1; }
+[ "$(yq -o=json -I=0 "$identity" "$_m_tmp.standby")" = "$(yq -o=json -I=0 "$identity" "$_m_tmp.upstream")" ] || {
+  echo "FAIL: the standby's StatefulSet identity differs from upstream's: the flip cannot keep the volume upstream's copy wrote"
+  echo "  standby:  $(yq -o=json -I=0 "$identity" "$_m_tmp.standby")"
+  echo "  upstream: $(yq -o=json -I=0 "$identity" "$_m_tmp.upstream")"
+  exit 1; }
+yq ea -N 'select(.kind == "Service" and .metadata.name == "harbor-redis-mesh") | .spec.selector | to_entries | .[] | .key + "=" + .value' "$_m_tmp.sec" > "$_m_tmp.meshsel"
+[ -s "$_m_tmp.meshsel" ] || { echo "FAIL: the follower render holds no harbor-redis-mesh Service"; exit 1; }
+while IFS= read -r kv; do
+  [ "$(K="${kv%%=*}" yq '.spec.template.metadata.labels[strenv(K)]' "$_m_tmp.standby")" = "${kv#*=}" ] || {
+    echo "FAIL: the standby's Pod does not carry ${kv} of harbor-redis-mesh's selector: it can never become the follower's local backend"; exit 1; }
+done < "$_m_tmp.meshsel"
+echo "[bp-harbor] Case 6: PASS"
+
+echo "[bp-harbor] Case 7: harbor-redis-primary reaches the primary's redis only"
+p_sel=$(yq ea -N 'select(.kind == "Service" and .metadata.name == "harbor-redis-primary") | .spec.selector | to_entries | map(.key + "=" + .value) | join(",")' "$_m_tmp.pri")
+[ "$p_sel" = "app=harbor,release=smoke,component=redis" ] || { echo "FAIL: the primary's harbor-redis-primary selects '${p_sel}', not its redis Pod"; exit 1; }
+[ "$(yq ea -N 'select(.kind == "Service" and .metadata.name == "harbor-redis-primary") | .metadata.annotations["service.cilium.io/global"] + "/" + .metadata.annotations["service.cilium.io/shared"]' "$_m_tmp.pri")" = true/true ] || {
+  echo "FAIL: the primary's harbor-redis-primary is not a shared global Service"; exit 1; }
+yq ea -N 'select(.kind == "Service" and .metadata.name == "harbor-redis-primary")' "$_m_tmp.sec" > "$_m_tmp.fsvc"
+[ "$(yq '.metadata.annotations["service.cilium.io/global"] + "/" + .metadata.annotations["service.cilium.io/shared"]' "$_m_tmp.fsvc")" = true/false ] || {
+  echo "FAIL: the follower's harbor-redis-primary is not a global Service that keeps its own backends"; exit 1; }
+yq '.spec.selector | to_entries | .[] | .key + "=" + .value' "$_m_tmp.fsvc" > "$_m_tmp.fsel"
+yq ea -N '.spec.template.metadata.labels // {} | to_entries | map(.key + "=" + .value) | join(" ")' "$_m_tmp.sec" | while IFS= read -r labels; do
+  [ -n "$labels" ] || continue
+  miss=0
+  while IFS= read -r kv; do case " $labels " in *" $kv "*) ;; *) miss=1 ;; esac; done < "$_m_tmp.fsel"
+  [ "$miss" = 1 ] || { echo "FAIL: the follower's harbor-redis-primary selects a Pod of its own render (${labels}): the standby would probe itself"; exit 1; }
+done
+echo "[bp-harbor] Case 7: PASS"
+
+echo "[bp-harbor] Case 8: the standby is Ready only while the primary's redis is silent"
+mkdir "$_m_tmp.bin"
+yq '.spec.template.spec.containers[0].readinessProbe.exec.command[2]' "$_m_tmp.standby" > "$_m_tmp.probe"
+cat > "$_m_tmp.bin/timeout" <<'EOF'
+#!/bin/sh
+shift
+exec "$@"
+EOF
+cat > "$_m_tmp.bin/redis-cli" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$CALLS"
+case "$2" in 127.0.0.1) a="$LOCAL" ;; *) a="$PRIMARY" ;; esac
+case "$*" in *" ping") [ -n "$a" ] && echo "$a" || exit 1 ;; esac
+EOF
+chmod +x "$_m_tmp.bin/timeout" "$_m_tmp.bin/redis-cli"
+# probe <primary answer> <local answer>: the probe's exit code.
+probe() { : > "$_m_tmp.calls"; rc=0; CALLS="$_m_tmp.calls" PRIMARY="$1" LOCAL="$2" PATH="$_m_tmp.bin:$PATH" sh "$_m_tmp.probe" || rc=$?; echo "$rc"; }
+[ "$(probe PONG PONG)" != 0 ] || { echo "FAIL: the standby is Ready while the primary's redis answers: the follower would split the sessions"; exit 1; }
+grep -q -x -F -e '-h 127.0.0.1 -p 6379 client kill type normal' "$_m_tmp.calls" || {
+  echo "FAIL: stepping down, the standby keeps its clients: their pooled connections stay on the standby"; exit 1; }
+grep -q -F -e '-h harbor-redis-primary -p 6379 ping' "$_m_tmp.calls" || { echo "FAIL: the probe does not ask harbor-redis-primary"; exit 1; }
+[ "$(probe '' PONG)" = 0 ] || { echo "FAIL: the primary's redis is silent and the standby stays NotReady: the follower's Harbor has no Redis"; exit 1; }
+[ "$(probe '' '')" != 0 ] || { echo "FAIL: the standby is Ready while its own redis does not answer"; exit 1; }
+[ "$(yq '.spec.template.spec.containers[0].readinessProbe.successThreshold' "$_m_tmp.standby")" -ge 2 ] || {
+  echo "FAIL: one silent probe makes the standby Ready: a short gap of the primary would split the sessions"; exit 1; }
+echo "[bp-harbor] Case 8: PASS"
 
 echo "[bp-harbor] All cross-region redis wiring cases PASS"

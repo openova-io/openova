@@ -69,3 +69,20 @@ func TestInputSync_OneRegistryTokenKeyForTheSovereign(t *testing.T) {
 		}
 	})
 }
+
+// TestInputSync_OneUploadSecretAndCSRFKeyForTheSovereign: the registry's
+// public name sends one client's requests to both regions, so a blob upload
+// begun in one region continues in the other, and a CSRF token one region
+// issued is checked by the other. The follower must hold the primary's
+// REGISTRY_HTTP_SECRET and CSRF_KEY; its chart writes neither.
+func TestInputSync_OneUploadSecretAndCSRFKeyForTheSovereign(t *testing.T) {
+	ctx := context.Background()
+	primary, follower := kfake.NewSimpleClientset(), kfake.NewSimpleClientset()
+	seedSecret(t, primary, "harbor", "harbor-shared-keys", map[string]string{"REGISTRY_HTTP_SECRET": "primary-upload", "CSRF_KEY": "primary-csrf"})
+	newSync(primary, follower, fakeRegion(t), &Deliveries{}).Run(ctx)
+	for key, want := range map[string]string{"REGISTRY_HTTP_SECRET": "primary-upload", "CSRF_KEY": "primary-csrf"} {
+		if got, ok := secretValue(t, follower, "harbor", "harbor-shared-keys", key); !ok || got != want {
+			t.Errorf("follower harbor/harbor-shared-keys %s = %q (present %v), want the primary's %q: an upload or a write that crosses regions is refused", key, got, ok, want)
+		}
+	}
+}
