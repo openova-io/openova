@@ -35471,21 +35471,21 @@ packages:
   - id: A1
     run: "test \"$(bash platform/oidc-gate/chart/tests/allowed-groups-render.sh platform/oidc-gate/chart | tail -1)\" = \"[bp-oidc-gate ACC-010 allowedGroups] All cases PASS\""
   - id: A2
-    run: "test \"$(bash platform/guacamole/chart/tests/admin-enroll-render.sh platform/guacamole/chart | tail -1)\" = \"[admin-enroll] all assertions passed — enrollment armed on both legs, schedule live\" && test \"$(bash platform/guacamole/chart/tests/connection-seed-render.sh platform/guacamole/chart | tail -1)\" = \"[connection-seed] all assertions passed\""
+    run: "test \"$(bash platform/guacamole/chart/tests/admin-enroll-render.sh platform/guacamole/chart | grep -c -x -F -e '  ok   — the admin group is granted no system permission, and both legs remove any that an earlier revision granted (ACC-010)' -e '[admin-enroll] all assertions passed — enrollment armed on both legs, schedule live')\" = 2 && test \"$(bash platform/guacamole/chart/tests/connection-seed-render.sh platform/guacamole/chart | grep -c -x -F -e '  ok   — the default render does not seed the sovereign-node connection' -e '  ok   — the default render removes the sovereign-node connection an earlier revision seeded' -e '[connection-seed] all assertions passed')\" = 3"
   - id: A3
-    run: "python3 -c \"import yaml; kit = 'clusters/_template/bootstrap-kit/'; hr = lambda f: [d for d in yaml.safe_load_all(open(kit + f)) if d and d.get('kind') == 'HelmRelease'][0]['spec']['values']; g = {i['name']: i for i in hr('13c-bp-oidc-gate.yaml')['instances']}; assert g['guacamole'].get('allowedGroups') == ['sovereign-admins'], g['guacamole']; assert [n for n in g if 'allowedGroups' in g[n]] == ['guacamole'], list(g); assert hr('51-bp-k8s-ws-proxy.yaml')['k8sWsProxy'].get('allowedNamespaces') == ['catalyst-system']; v = yaml.safe_load(open('platform/guacamole/chart/values.yaml'))['guacamole']['database']['connections']['nodeShell']; assert v['enabled'] is False and v['name'] == 'sovereign-node', v\""
+    run: "test \"$(awk '/^ +- name: /{n=$3} /^ +allowedGroups:/{print n, $2}' clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml)\" = \"guacamole [sovereign-admins]\" && test \"$(awk '/^    k8sWsProxy:$/{k=1;next} k && /^    [^ ]/{k=0} k && /^      allowedNamespaces:/{print $2}' clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml)\" = \"[catalyst-system]\" && test \"$(awk '/^      nodeShell:$/{s=1;next} s && /^      [^ ]/{s=0} s && /^        (enabled|name):/{printf \"%s%s \", $1, $2}' platform/guacamole/chart/values.yaml)\" = \"enabled:false name:sovereign-node \""
   - id: A4
-    run: "(cd tests/acceptance/sovereign && go vet ./... && go test ./... -count=1 && test \"$(go test ./internal/suite/ -count=1 -v -run '^TestAccessGateCheck$' | grep -c '^--- PASS: TestAccessGateCheck')\" = 1)"
+    run: "(cd tests/acceptance/sovereign && go vet ./... && go test ./... -count=1 && test \"$(NO_COLOR=1 go test ./internal/suite/ -count=1 -v -run '^TestAccessGateCheck$' | grep -c '^--- PASS: TestAccessGateCheck')\" = 1)"
   - id: A5
-    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: ACC-010') && python3 -c \"import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}['ACC-G01']; assert c['state'] == 'required' and c.get('implementation') == 'tests/acceptance/sovereign/internal/suite/check_acc_g01.go', c\""
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: ACC-010') && test \"$(awk '/^- id: /{i=$3} i == \"ACC-G01\" && /^  (state|implementation):/{printf \"%s \", $2}' docs/ledger/gates.yaml)\" = \"required tests/acceptance/sovereign/internal/suite/check_acc_g01.go \""
   - id: A6
-    run: "bash scripts/check-access-guards.sh && python3 -c \"import json; c = json.load(open('scripts/baselines/access.json'))['counts']['ACC-GD2']; assert 'platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml' not in c, c\""
+    run: "bash scripts/check-access-guards.sh && test \"$(sed -n '/^    \"ACC-GD2\": {$/,/^    }/p' scripts/baselines/access.json | grep -c -F 'platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml')\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The access gateway's sign-in gate admits only members of sovereign-admins, the gateway's enrolled group holds no system permission, the node shell connection is no longer seeded, the exec proxy execs only into namespace catalyst-system, and the required gate check ACC-G01 fails any region where one of these does not hold.
 - id: ACC-020
