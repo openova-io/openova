@@ -26,11 +26,13 @@
 //     controller (in core/controllers/organization) then fans out the
 //     vCluster + Keycloak group + Gitea org + UserAccess CRs.
 //
-// Idempotency: 409 AlreadyExists is treated as benign (the same
-// tenant.created may redeliver via NATS-JetStream replay or Kafka
-// consumer-group rebalance). 404 cannot happen on a Create — anything
-// non-201/non-409 is a hard error and surfaces as a provisioning error
-// event for the UI.
+// Idempotency: 409 AlreadyExists is benign only when the existing
+// Organization is this tenant's (the same tenant.created may redeliver via
+// NATS-JetStream replay). A name held by another tenant's Organization is
+// refused; one held by an Organization being removed is redelivered until
+// the name is free (organizationAlreadyExists). 400/422 (the Organization
+// kind refuses the object) and 404 (no CRD) are permanent and surface as a
+// provisioning error event; anything else is redelivered.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob flows through env →
 // Handler field → CR — no hardcoded parent domain / tier / billing
@@ -67,9 +69,9 @@ type tenantCreatedPayload = events.TenantCreatedPayload
 // reconciles into the vCluster / Keycloak group / Gitea org triplet.
 //
 // Returning a non-nil error triggers a Nak on the broker so redelivery
-// retries the create — important for transient apiserver outages. The
-// 409 AlreadyExists short-circuit covers the redelivery happy path
-// where the CR already exists.
+// retries the create — important for transient apiserver outages. A 409
+// AlreadyExists is acked only when the existing CR is this tenant's (the
+// redelivery happy path); see organizationAlreadyExists.
 func (h *Handler) handleTenantCreated(ctx context.Context, event *events.Event) error {
 	var data tenantCreatedPayload
 	if err := json.Unmarshal(event.Data, &data); err != nil {
@@ -137,7 +139,17 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 	// the catalog, and only a genuinely-unknown value falls back to a LOGGED "s"
 	// default. Before #4473 the funnel slug fell through to "s" unconditionally,
 	// downgrading every paid funnel Org to the S boundary.
-	planSlug := h.resolvePlanSlug(ctx, data.PlanID)
+	//
+	// The plan is written ONCE, here, and nothing corrects spec.planSlug later
+	// (resolveTenantPlanSlug trusts it as authoritative). So a catalog that
+	// cannot answer is a reason to redeliver, never to stamp a guessed "s" on a
+	// paid Organization.
+	planSlug, err := h.resolveCreationPlanSlug(ctx, data.PlanID, data.PackageSKU)
+	if err != nil {
+		slog.Warn("tenant.created consumer: plan not resolvable yet — redelivering instead of guessing",
+			"slug", slug, "tenant_id", data.ID, "plan_id", data.PlanID, "error", err)
+		return err
+	}
 	billingMode := strings.TrimSpace(data.BillingMode)
 	if billingMode == "" {
 		billingMode = "real"
@@ -203,13 +215,13 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 
 	path := "/apis/orgs.openova.io/v1/organizations"
 	if _, err := h.k8sRequest("POST", path, payload); err != nil {
-		// 409 AlreadyExists — same tenant.created redelivered; the
-		// controller already has the CR and is reconciling.
+		// 409 AlreadyExists — an Organization of this name exists. That is a
+		// redelivery ONLY when it is this tenant's: a reused name (the
+		// previous customer's Organization still present, or still
+		// Terminating) must never be acked as one.
 		if strings.Contains(err.Error(), "status 409") ||
 			strings.Contains(err.Error(), "AlreadyExists") {
-			slog.Info("tenant.created consumer: Organization CR already exists — idempotent ack",
-				"slug", slug, "tenant_id", data.ID)
-			return nil
+			return h.organizationAlreadyExists(ctx, data.ID, slug)
 		}
 		// 404 on Create implies the CRD itself is missing — operator
 		// misconfiguration. Publish the error event and ACK (returning
@@ -218,6 +230,16 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		if strings.Contains(err.Error(), "status 404") {
 			return h.failOrgCreate(ctx, data.ID, slug,
 				fmt.Sprintf("Organization CRD missing on cluster — install organization-controller chart: %v", err))
+		}
+		// 400 / 422 — the apiserver refused the object itself (the
+		// Organization kind's schema: a reserved slug, a name over its
+		// maxLength). The same object can never be accepted, so a
+		// redelivery only burns MaxDeliver and then drops the paid order
+		// with no failure event. Report it and ACK.
+		if strings.Contains(err.Error(), "status 422") ||
+			strings.Contains(err.Error(), "status 400") {
+			return h.failOrgCreate(ctx, data.ID, slug,
+				fmt.Sprintf("the Organization was refused by the cluster and can never be created as requested: %v", err))
 		}
 		// Anything else (5xx, network, 401) — return non-nil so the
 		// broker redelivers. Log loud so operators see the stall.
@@ -354,6 +376,127 @@ func resolveOrgParentDomain(appsParentDomain string, poolDomains []string, paylo
 		return primary
 	}
 	return pick
+}
+
+// orgOwnership is whose Organization an existing `<slug>` CR is, as seen by
+// one tenant.
+type orgOwnership int
+
+const (
+	// orgOwnedByTenant — labelled with this tenant's id and not being removed.
+	orgOwnedByTenant orgOwnership = iota
+	// orgTerminating — being removed (metadata.deletionTimestamp set),
+	// whoever owned it. The name frees itself once its finalizers finish.
+	orgTerminating
+	// orgOwnedByOther — another tenant's Organization (or one that carries no
+	// tenant label at all): never this order's.
+	orgOwnedByOther
+	// orgUnreadable — the body is not an Organization.
+	orgUnreadable
+)
+
+// organizationOwnership decides whose Organization the CR in body is, from the
+// `openova.io/tenant-id` label createOrganizationCR (and the catalyst-api door)
+// stamps on every Organization it mints, and from metadata.deletionTimestamp.
+// Pure, so both the creation path and the provisioning timeline ask one
+// question.
+func organizationOwnership(body []byte, tenantID string) orgOwnership {
+	var org struct {
+		Metadata struct {
+			Labels            map[string]string `json:"labels"`
+			DeletionTimestamp *string           `json:"deletionTimestamp"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(body, &org); err != nil {
+		return orgUnreadable
+	}
+	if org.Metadata.DeletionTimestamp != nil && strings.TrimSpace(*org.Metadata.DeletionTimestamp) != "" {
+		return orgTerminating
+	}
+	owner := strings.TrimSpace(org.Metadata.Labels["openova.io/tenant-id"])
+	if owner == "" || owner != strings.TrimSpace(tenantID) {
+		return orgOwnedByOther
+	}
+	return orgOwnedByTenant
+}
+
+// organizationAlreadyExists handles a 409 on the Organization POST by reading
+// the existing CR and asking whose it is:
+//
+//   - this tenant's: the same tenant.created redelivered — ack.
+//   - Terminating: the previous holder of the name is being removed —
+//     redeliver (non-nil), so this order creates ITS OWN Organization once the
+//     name is free, instead of being acked onto one that is about to vanish.
+//   - another tenant's: refuse loudly (provision.org_create_failed) and ack.
+//     Acking it as a redelivery is what bound a new customer to the previous
+//     customer's Organization, its vCluster, its repo and its owner roster.
+//
+// A read failure is transient: redeliver.
+func (h *Handler) organizationAlreadyExists(ctx context.Context, tenantID, slug string) error {
+	body, err := h.k8sGet("/apis/orgs.openova.io/v1/organizations/" + slug)
+	if err != nil {
+		// 404 here means it vanished between the POST and this read; the
+		// redelivery will create it.
+		return fmt.Errorf("the Organization %s exists but could not be read to check whose it is: %w", slug, err)
+	}
+	switch organizationOwnership(body, tenantID) {
+	case orgOwnedByTenant:
+		slog.Info("tenant.created consumer: this tenant's Organization CR already exists — idempotent ack",
+			"slug", slug, "tenant_id", tenantID)
+		return nil
+	case orgTerminating:
+		slog.Warn("tenant.created consumer: the name is held by an Organization being removed — redelivering until it is gone",
+			"slug", slug, "tenant_id", tenantID)
+		return fmt.Errorf("the Organization %s is being removed; this order's Organization is created once it is gone", slug)
+	case orgOwnedByOther:
+		slog.Error("tenant.created consumer: the name belongs to another tenant's Organization — refusing the order",
+			"slug", slug, "tenant_id", tenantID, "existing_body_bytes", len(body))
+		return h.failOrgCreate(ctx, tenantID, slug,
+			fmt.Sprintf("the name %q is held by another Organization — this order was not bound to it", slug))
+	default:
+		return fmt.Errorf("the Organization %s exists but its object could not be decoded", slug)
+	}
+}
+
+// resolveCreationPlanSlug resolves the plan the Organization is created with.
+// Unlike resolvePlanSlug it does not turn a catalog that could not answer into
+// "s": the creation path writes spec.planSlug once and every later reader
+// trusts it, so a guess here is a paid Organization capped at S for good.
+// When the catalog could not answer, the order's own BSS package sku
+// ("plan.<slug>", the form the storefront and BSS write) names the paid plan;
+// only an order carrying neither returns an error (the event is redelivered).
+//
+// Two cases keep the historical, logged "s": no catalog configured (a
+// redelivery cannot change that) and a catalog that ANSWERED without the plan
+// (a real answer, not an outage).
+func (h *Handler) resolveCreationPlanSlug(ctx context.Context, planID, packageSKU string) (string, error) {
+	if strings.TrimSpace(h.CatalogURL) == "" {
+		return h.resolvePlanSlug(ctx, planID), nil
+	}
+	slug, reachable := h.lookupPlanSlug(ctx, planID)
+	if !reachable {
+		if s, ok := planSlugFromPackageSKU(packageSKU); ok {
+			slog.Warn("tenant.created consumer: catalog could not resolve plan_id — the plan is taken from the order's package sku",
+				"plan_id", planID, "package_sku", packageSKU, "plan", s)
+			return s, nil
+		}
+		return "", fmt.Errorf("catalog %s could not resolve plan_id %q and the order carries no package sku naming the plan", h.CatalogURL, planID)
+	}
+	if _, known := isKnownPlanSlug(planID); !known && slug == "s" {
+		slog.Warn("tenant.created consumer: the catalog does not know plan_id — the Organization is created at plan 's'",
+			"plan_id", planID)
+	}
+	return slug, nil
+}
+
+// planSlugFromPackageSKU reads the plan out of a BSS package sku: "plan.l" →
+// "l". Only the "plan." prefix and a canonical plan slug are accepted.
+func planSlugFromPackageSKU(sku string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(sku)), "plan.")
+	if !ok {
+		return "", false
+	}
+	return isKnownPlanSlug(rest)
 }
 
 // failOrgCreate logs + publishes a `provision.org_create_failed` event

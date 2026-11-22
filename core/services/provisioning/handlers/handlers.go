@@ -123,6 +123,11 @@ type Handler struct {
 	// gitops branch so the funnel's own N concurrent cart-app installs cannot
 	// contend for one branch head (#5387). Zero value is ready to use.
 	perOrgCommits perOrgCommitGate
+
+	// k8sDo, when set, answers every in-cluster API request in place of the
+	// apiserver. Tests only: nil in production, where k8sRequest dials the
+	// apiserver with the Pod's service-account token.
+	k8sDo func(method, path string, body []byte) ([]byte, error)
 }
 
 // VerifyCommitTargetSafe re-runs the issue #944 cross-cluster pollution
@@ -983,6 +988,9 @@ func (h *Handler) k8sPatchRemoveFinalizers(path string) error {
 }
 
 func (h *Handler) k8sRequest(method, path string, body []byte) ([]byte, error) {
+	if h.k8sDo != nil {
+		return h.k8sDo(method, path, body)
+	}
 	host := os.Getenv("KUBERNETES_SERVICE_HOST")
 	port := os.Getenv("KUBERNETES_SERVICE_PORT")
 	if host == "" || port == "" {

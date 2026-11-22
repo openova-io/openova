@@ -106,7 +106,7 @@ func newRegionScheme(t *testing.T) *runtime.Scheme {
 	if err := clientgoscheme.AddToScheme(s); err != nil {
 		t.Fatalf("add clientgo scheme: %v", err)
 	}
-	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK} {
+	for _, gvk := range []schema.GroupVersionKind{certificateGVK, gatewayGVK, helmReleaseGVK} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -266,6 +266,10 @@ func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListen
 	// Peer region: apex pair on 9443/9080 — deliberately DIFFERENT from the
 	// host so the per-Org port must be derived from the region being written.
 	peer := newRegionCluster(t, regionListeners)
+	// The peer region's own copy of the boundary, delivered by its own Flux —
+	// seeded so the listener assertions stay the only thing moving the
+	// verdict; the boundary's own region tests remove pieces of it.
+	seedRegionBoundary(t, peer, org)
 
 	if withBridge {
 		bridge := &corev1.Secret{
@@ -293,6 +297,34 @@ func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListen
 	}
 
 	return multiRegionFixture{r: r, org: org, names: names, region: peer}
+}
+
+// seedRegionBoundary writes, into one region's cluster, the boundary the
+// organization-controller's ./vcluster tree delivers there: the vCluster
+// HelmRelease (Ready), the LimitRange and the plan's ResourceQuotas.
+func seedRegionBoundary(t *testing.T, c client.Client, org *orgapi.Organization) {
+	t.Helper()
+	ctx := context.Background()
+	slug := org.Spec.Slug
+	hr := &unstructured.Unstructured{}
+	hr.SetGroupVersionKind(helmReleaseGVK)
+	hr.SetNamespace(slug)
+	hr.SetName("vcluster")
+	hr.Object["status"] = map[string]any{"conditions": []any{
+		map[string]any{"type": "Ready", "status": "True", "reason": "InstallSucceeded"},
+	}}
+	objs := []client.Object{hr,
+		&corev1.LimitRange{ObjectMeta: metav1.ObjectMeta{Name: gitops.BoundaryLimitRangeName, Namespace: slug}}}
+	if gitops.PlanRendersResourceQuota(org.Spec.PlanSlug) {
+		objs = append(objs,
+			&corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: gitops.BoundaryResourceQuotaName, Namespace: slug}},
+			&corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: gitops.PlatformResourceQuotaName, Namespace: slug}})
+	}
+	for _, o := range objs {
+		if err := c.Create(ctx, o); err != nil {
+			t.Fatalf("seed region boundary %T %s: %v", o, o.GetName(), err)
+		}
+	}
 }
 
 // seedHostGatewayStatus publishes status.listeners on the host Gateway so the
