@@ -189,12 +189,17 @@ repoints every consumer. Ships alongside identity-based CiliumNetworkPolicies,
 because a plain NetworkPolicy can never admit a ClusterMesh peer (Cilium
 AND-injects the local cluster label into every selector it derives).
 
-**Failover:** on an active-region kill the standby loses this Redis — it already
-loses its Postgres the same way, so Harbor's control plane needs
-`bp-continuum`'s switchover either way (see `blueprint.yaml`
-`topology.perTopology.active-hot-standby.switchover`). The Redis anchor rides
-the same substitute seam as `SOVEREIGN_HARBOR_PG_HOST`, so a switchover
-repoints it exactly the way it repoints the database.
+**Failover:** on an active-region kill the follower's database comes back by
+itself (bp-postgres promotes the replica and `shared-pg-mesh-rw` follows it), and
+nothing repoints a substitute: Harbor gets no Continuum (ADR-0015). So the
+follower keeps a standby Redis (`templates/redis-standby.yaml`): upstream's own
+StatefulSet, with the same name and volume claim, so the flip to `external`
+keeps its volume. It is Ready only while `harbor-redis-primary` (a global
+Service that reaches the primary's Redis only) does not answer within 3 s,
+three probes in a row. Ready, it is the local backend `harbor-redis-mesh`
+prefers; when the primary answers again it steps down and drops its clients.
+Sessions and queued jobs written during the outage stay in the standby and are
+not carried back.
 
 A **single-region** Sovereign never reaches the ClusterMesh gate: no global
 Service, no policy, `redis.type: internal` — identical to the pre-#5406 render.
@@ -268,9 +273,10 @@ waited on the front.
 - The cluster DNS is on the same path (the components and every caller of the
   registry resolve through it); bp-kured holds k3s's CoreDNS at two copies with
   a budget of its own (`platform/kured/chart/templates/coredns-availability.yaml`).
-- Kept single: Harbor's redis, one StatefulSet with a ReadWriteOnce volume in
-  the primary region that the other region reaches over the mesh (#5406); two
-  unreplicated copies would split the sessions. `harbor-jobservice` and
+- Kept single: Harbor's redis, one serving StatefulSet with a ReadWriteOnce
+  volume in the primary region that the other region reaches over the mesh
+  (#5406); two serving copies would split the sessions. The follower's standby
+  serves only while the primary's does not answer. `harbor-jobservice` and
   `harbor-portal` are not on the pull path and keep one copy.
 - Cost, by the requests in `values.yaml`: 64 MiB (nginx), 256 MiB (core) and
   320 MiB (registry and registryctl) more per region.

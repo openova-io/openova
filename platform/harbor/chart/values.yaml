@@ -330,6 +330,10 @@ harbor:
     # the same Secret as secretName above.
     podAnnotations:
       secret.reloader.stakater.com/reload: "harbor-token-key"
+    # The CSRF key, one for the Sovereign: templates/shared-keys-secret.yaml.
+    # Must name the same Secret as registry.existingSecret.
+    existingXsrfSecret: "harbor-shared-keys"
+    existingXsrfSecretKey: CSRF_KEY
 
   jobservice:
     image:
@@ -349,6 +353,10 @@ harbor:
     loggerSweeperDuration: 14
 
   registry:
+    # The upload-state secret, one for the Sovereign: the primary region writes
+    # it, a follower receives the primary's (templates/shared-keys-secret.yaml).
+    existingSecret: "harbor-shared-keys"
+    existingSecretKey: REGISTRY_HTTP_SECRET
     registry:
       image:
         repository: harbor.openova.io/proxy-dockerhub/goharbor/registry-photon
@@ -869,7 +877,10 @@ tokenKey:
 # `harbor.redis.external.addr: <meshServiceName>:6379` from the slot (driven
 # by the SOVEREIGN_HARBOR_REDIS_* substitutes catalyst-api stamps at the same
 # post-mesh gate that stamps SOVEREIGN_HARBOR_PG_HOST), so upstream renders no
-# local redis there and every dial crosses the mesh to the active region.
+# local redis there and every dial crosses the mesh to the active region. The
+# follower keeps a standby redis instead (templates/redis-standby.yaml): Ready,
+# and so a backend of the mesh Service, only while the primary's redis does not
+# answer, which is what keeps its Harbor running after the primary is lost.
 crossRegion:
   # Render the ClusterMesh global Service + the cross-region CiliumNetworkPolicies.
   enabled: false
@@ -890,6 +901,9 @@ crossRegion:
     # same idiom bp-openbao's openbao-active-mesh and bp-cnpg-pair's
     # *-primary-mesh Services use.
     affinity: local
+    # Global Service that reaches the primary's redis only; the follower's
+    # standby probes it to know whether to serve.
+    primaryServiceName: harbor-redis-primary
     port: 6379
     # Selector for the upstream goharbor internal-redis Pod
     # (charts/harbor/templates/redis/service.yaml → harbor.matchLabels +

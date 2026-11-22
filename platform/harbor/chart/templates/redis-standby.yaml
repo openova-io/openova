@@ -1,0 +1,175 @@
+{{- /*
+The follower's Redis after the primary region is lost (#5406 follow-up).
+
+A follower's Harbor dials `harbor-redis-mesh` (redis-mesh-service.yaml), whose
+only backend was the primary's Redis. When the primary region is lost nothing
+pointed it anywhere else: its database comes back on the follower (bp-postgres
+promotes the replica and `shared-pg-mesh-rw` follows it) while Redis did not,
+and harbor-core and harbor-jobservice cannot start without one. The flip to
+`redis.type: external` also left the follower's own Redis volume behind.
+
+So a follower keeps one standby Redis that serves nothing while the primary's
+answers:
+
+  - `harbor-redis-primary`, a global Service on both regions, reaches the
+    primary's Redis only: on a follower its selector carries a label no Pod
+    has.
+  - The standby is upstream's own Redis StatefulSet (the same name, selector
+    and volume claim, so it keeps the volume upstream's copy wrote). It is
+    Ready only while the primary's Redis does not answer within 3 s and the
+    local one does, three probes in a row (30 s). Ready, it becomes the local
+    backend of `harbor-redis-mesh`, which prefers a local backend. When the
+    primary answers again it is NotReady at the next probe and drops its
+    client connections, so every dial goes back to the primary.
+
+Rendered on a follower whose Harbor dials the mesh (`harbor.redis.type:
+external`). The primary and a single-region Sovereign run upstream's Redis
+unchanged; tests/redis-crossregion.sh judges both.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if $cr.enabled -}}
+{{- $h := .Values.harbor | default dict -}}
+{{- $redis := $cr.redis | default dict -}}
+{{- $isPrimary := ne ($cr.role | default "primary") "secondary" -}}
+{{- $app := default "harbor" $h.nameOverride -}}
+{{- $full := include "bp-harbor.upstreamFullname" . -}}
+{{- $primarySvc := $redis.primaryServiceName | default "harbor-redis-primary" -}}
+{{- $port := $redis.port | default 6379 -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $primarySvc }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    catalyst.openova.io/subcomponent: harbor-redis-primary
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: {{ ternary "true" "false" $isPrimary | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ $app | quote }}
+    release: {{ .Release.Name | quote }}
+    component: redis
+    {{- if not $isPrimary }}
+    catalyst.openova.io/mesh-backends: remote-only
+    {{- end }}
+  ports:
+    - name: redis
+      port: {{ $port }}
+      targetPort: 6379
+      protocol: TCP
+{{- if and (not $isPrimary) (eq (dig "redis" "type" "internal" $h) "external") }}
+{{- $pvc := dig "persistence" "persistentVolumeClaim" "redis" dict $h }}
+{{- $persist := dig "persistence" "enabled" true $h }}
+{{- $img := dig "redis" "internal" "image" dict $h }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $full }}-redis
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    catalyst.openova.io/subcomponent: harbor-redis-standby
+spec:
+  replicas: 1
+  serviceName: {{ $full }}-redis
+  selector:
+    matchLabels:
+      release: {{ .Release.Name }}
+      app: {{ $app | quote }}
+      component: redis
+  template:
+    metadata:
+      labels:
+        release: {{ .Release.Name }}
+        app: {{ $app | quote }}
+        component: redis
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: redis
+          image: "{{ $img.repository }}:{{ $img.tag }}"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 300
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  if [ "$(timeout 3 redis-cli -h {{ $primarySvc }} -p {{ $port }} ping 2>/dev/null)" = PONG ]; then
+                    redis-cli -h 127.0.0.1 -p 6379 client kill type normal >/dev/null 2>&1
+                    exit 1
+                  fi
+                  [ "$(redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null)" = PONG ]
+            periodSeconds: 10
+            timeoutSeconds: 8
+            successThreshold: 3
+            failureThreshold: 1
+          {{- with (dig "redis" "internal" "resources" dict $h) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redis
+              subPath: {{ $pvc.subPath | quote }}
+      {{- if not $persist }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- else if $pvc.existingClaim }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $pvc.existingClaim }}
+      {{- end }}
+  {{- if and $persist (not $pvc.existingClaim) }}
+  {{- /* Byte for byte upstream's claim (chart = the subchart's name): a
+       StatefulSet's claim templates cannot change, and the claim keeps its
+       volume. */}}
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+        labels:
+          heritage: {{ .Release.Service }}
+          release: {{ .Release.Name }}
+          chart: harbor
+          app: {{ $app | quote }}
+        annotations:
+        {{- range $k, $v := $pvc.annotations }}
+          {{ $k }}: {{ $v | quote }}
+        {{- end }}
+      spec:
+        accessModes: [{{ $pvc.accessMode | quote }}]
+        {{- if $pvc.storageClass }}
+        storageClassName: {{ ternary "" $pvc.storageClass (eq "-" $pvc.storageClass) | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pvc.size | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
