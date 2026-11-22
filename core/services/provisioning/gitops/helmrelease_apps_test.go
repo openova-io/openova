@@ -150,38 +150,33 @@ func TestFunnelCart_HRApps_NoDeploymentNoHostIngress(t *testing.T) {
 	}
 }
 
-// TestFunnelCart_HRApps_KubeConfigEveryPlan — the HR-level kubeConfig follows
-// the apps-sync: every Organization is vCluster-backed (#4292), so on EVERY
-// plan the HR installs the chart INTO the Org vcluster via the
-// tenant-<slug>-kubeconfig mirror. The s/free/"" subtest is the inverse of the
-// former host-namespace assertion for those plans.
+// TestFunnelCart_HRApps_KubeConfigEveryPlan — the HR-level kubeConfig is a
+// property of the app, never of the plan. The customer-scope stalwart-mail
+// installs the chart INTO the Org vcluster via the tenant-<slug>-kubeconfig
+// mirror on EVERY plan (#4292); the platform stack (openclaw, and the newapi
+// it implies) installs on the host `<slug>` namespace on every plan, with no
+// kubeConfig (hostPlacedHelmReleaseApps).
 func TestFunnelCart_HRApps_KubeConfigEveryPlan(t *testing.T) {
-	t.Run("plan m", func(t *testing.T) {
-		out := cartOrgFor(t, "acme", "m", []string{"openclaw", "stalwart-mail"})
-		for _, f := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
+	for _, plan := range []string{"m", "s", "free", ""} {
+		out := cartOrgFor(t, "acme", plan, []string{"openclaw", "stalwart-mail"})
+		body := out[testBasePath+"/acme/app-stalwart-mail.yaml"]
+		if !strings.Contains(body, "kubeConfig:") {
+			t.Errorf("plan=%q app-stalwart-mail.yaml MUST carry an HR-level kubeConfig — the customer's apps install INTO the vCluster (#4292):\n%s", plan, body)
+		}
+		if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
+			t.Errorf("plan=%q app-stalwart-mail.yaml kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", plan, body)
+		}
+		for _, f := range []string{"app-openclaw.yaml", "app-newapi.yaml"} {
 			body := out[testBasePath+"/acme/"+f]
-			if !strings.Contains(body, "kubeConfig:") {
-				t.Errorf("plan m %s MUST carry an HR-level kubeConfig so the host helm-controller installs INTO the vcluster:\n%s", f, body)
+			if body == "" {
+				t.Errorf("plan=%q %s missing", plan, f)
+				continue
 			}
-			if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
-				t.Errorf("plan m %s kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", f, body)
-			}
-		}
-	})
-	t.Run("plans s/free/empty carry the same mirror as m", func(t *testing.T) {
-		for _, plan := range []string{"s", "free", ""} {
-			out := cartOrgFor(t, "acme", plan, []string{"openclaw", "stalwart-mail"})
-			for _, f := range []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"} {
-				body := out[testBasePath+"/acme/"+f]
-				if !strings.Contains(body, "kubeConfig:") {
-					t.Errorf("plan=%q %s MUST carry an HR-level kubeConfig — every Organization is vCluster-backed (#4292):\n%s", plan, f, body)
-				}
-				if !strings.Contains(body, "name: tenant-acme-kubeconfig") {
-					t.Errorf("plan=%q %s kubeConfig must reference the tenant-<slug>-kubeconfig mirror:\n%s", plan, f, body)
-				}
+			if strings.Contains(body, "kubeConfig:") || strings.Contains(body, "tenant-acme-kubeconfig") {
+				t.Errorf("plan=%q %s MUST NOT carry a kubeConfig — the platform stack installs on the host namespace:\n%s", plan, f, body)
 			}
 		}
-	})
+	}
 }
 
 // TestFunnelCart_HRApps_HostnamesUseParentDomain — the public hostnames are

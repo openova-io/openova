@@ -843,9 +843,9 @@ func (h *Handler) waitForHelmRelease(ctx context.Context, namespace, name string
 // Every Organization's apps run inside its vCluster (#4292), and the vCluster
 // syncer surfaces each pod on the host ns as
 // `<pod>-x-<inner-ns>-x-<vcluster-name>` — inner ns is the Org slug (#4290),
-// vcluster release is "vcluster". That synced shape is the ONLY shape an
-// Organization app pod has on the host; there is no plan whose apps run
-// natively in the host `<slug>` ns any more.
+// vcluster release is "vcluster". That synced shape is the shape of every
+// Organization app pod on the host except the per-Organization platform
+// stack, which installs on the host (orgAppPodMatches, below, takes both).
 //
 // appPodNameMatches is that matcher: it accepts a pod only when it IS a
 // synced pod AND the INNER name (the name the pod has inside the vcluster)
@@ -870,6 +870,42 @@ func appPodNameMatches(podName, appSlug string) bool {
 	return synced && strings.HasPrefix(inner, appSlug+"-")
 }
 
+// vclusterManagedByLabel is the label the vCluster syncer stamps on every pod
+// it writes into the host namespace (the label the Organization's
+// platform-scope Policy and fence select on, core/controllers/organization/
+// internal/gitops platform_scope.go and manifests.go).
+const vclusterManagedByLabel = "vcluster.loft.sh/managed-by"
+
+// orgAppPodMatches is the ONE matcher the install and uninstall waits use for
+// an Organization app pod in the host namespace.
+//
+// An app of the per-Organization platform stack (gitops.
+// HelmReleaseAppInstallsOnHost: newapi, openclaw, agenity) installs on the
+// host `<slug>` ns, so its pods are native: `<release>-bp-<app>-…`, where the
+// release name is the app slug (generateOpenClawHR releaseName: openclaw).
+// Such a pod matches when the syncer did not write it and its name is the
+// slug or starts with `<slug>-`. The label decides "not synced", not the name:
+// a synced pod whose name is longer than 63 characters is cut and hashed by
+// the syncer (`openclaw-bp-openclaw-controller-6cb87f5f8c-r577l-x-g-dbc85157d1`,
+// hw307 2026-11-22) and so carries no `-x-vcluster` tail, but it still
+// carries the label. Before this, the wait for openclaw matched only the
+// synced shape: it could match neither the cut synced name nor a host pod,
+// and so ran its full 10 minutes whatever the pod did.
+//
+// Every other app runs inside the vCluster and matches appPodNameMatches.
+func orgAppPodMatches(podName string, labels map[string]string, appSlug string) bool {
+	if !gitops.HelmReleaseAppInstallsOnHost(appSlug) {
+		return appPodNameMatches(podName, appSlug)
+	}
+	if labels[vclusterManagedByLabel] != "" {
+		return false
+	}
+	if _, synced := vclusterInnerPodName(podName); synced {
+		return false
+	}
+	return podName == appSlug || strings.HasPrefix(podName, appSlug+"-")
+}
+
 func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -878,7 +914,8 @@ func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug str
 			var podList struct {
 				Items []struct {
 					Metadata struct {
-						Name string `json:"name"`
+						Name   string            `json:"name"`
+						Labels map[string]string `json:"labels"`
 					} `json:"metadata"`
 					Status struct {
 						Phase      string `json:"phase"`
@@ -892,7 +929,7 @@ func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug str
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
 					name := pod.Metadata.Name
-					if !appPodNameMatches(name, appSlug) {
+					if !orgAppPodMatches(name, pod.Metadata.Labels, appSlug) {
 						continue
 					}
 					if pod.Status.Phase != "Running" {

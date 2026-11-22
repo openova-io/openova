@@ -666,16 +666,26 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 
 	// HelmRelease-shaped per-Org apps (openclaw #4272, stalwart-mail #4307) —
 	// emitted as HOST files (helm-controller runs on the host, NOT inside the
-	// per-Org vcluster, #3055) and installed INTO the Org vCluster through the
-	// SAME HR-level kubeConfig mechanism the bp-cnpg-pair replica uses: the
-	// flux-system `tenant-<slug>-kubeconfig` mirror. Every Organization is
-	// vCluster-backed (#4292), so the mirror is unconditional — there is no
-	// plan for which the HR installs straight into the host `<slug>` ns. Each
-	// HR ships its own bp-* HelmRepository so a fresh funnel Org resolves the
-	// sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw / orgTenantBPStalwart
-	// overlays so a cart Org gets the SAME releases the BSS door emits.
-	hrKubeSecret := fmt.Sprintf("tenant-%s-kubeconfig", slug)
+	// per-Org vcluster, #3055). Where each one installs is the same on every
+	// plan:
+	//   - the per-Organization platform stack (newapi, openclaw, agenity)
+	//     installs on the host `<slug>` ns, no kubeConfig: the APIs its charts
+	//     need (CNPG, Cilium, a route the host gateway sees) are served there
+	//     and not in the vCluster (hostPlacedHelmReleaseApps has the measured
+	//     failure and the design it follows);
+	//   - the customer-scope app (stalwart-mail) installs INTO the Org vCluster
+	//     through the SAME HR-level kubeConfig mechanism the bp-cnpg-pair
+	//     replica uses: the flux-system `tenant-<slug>-kubeconfig` mirror.
+	// Each HR ships its own bp-* HelmRepository so a fresh funnel Org resolves
+	// the sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw /
+	// orgTenantBPStalwart overlays so a cart Org gets the SAME releases the
+	// BSS door emits.
+	vclusterKubeSecret := fmt.Sprintf("tenant-%s-kubeconfig", slug)
 	for _, a := range helmReleaseAppsFor(appSlugs) {
+		hrKubeSecret := vclusterKubeSecret
+		if HelmReleaseAppInstallsOnHost(a) {
+			hrKubeSecret = ""
+		}
 		hostFiles[fmt.Sprintf("app-%s.yaml", a)] = generateHelmReleaseApp(a, helmReleaseAppOpts{
 			slug:         slug,
 			parentDomain: g.parentDomain(),

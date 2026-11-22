@@ -342,13 +342,12 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// Every Organization's apps run inside its vCluster (#4292) and surface on
-	// the host ns as synced `<pod>-x-<slug>-x-vcluster` pods — the one shape
-	// appPodNameMatches accepts. The plan is not consulted here: it used to
-	// pick between a synced and a native pod-name shape, and the native arm no
-	// longer exists. (The manifests were already committed authoritatively by
-	// applyTenantChange, which still resolves the plan for QoS and fails
-	// closed on a guess.)
+	// The customer's apps run inside its vCluster (#4292) and surface on the
+	// host ns as synced `<pod>-x-<slug>-x-vcluster` pods; the platform stack
+	// (newapi, openclaw, agenity) runs natively on the host. orgAppPodMatches
+	// takes each in its shape, by app, never by plan. (The manifests were
+	// already committed authoritatively by applyTenantChange, which still
+	// resolves the plan for QoS and fails closed on a guess.)
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
@@ -922,9 +921,10 @@ func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string)
 // waitForVclusterAppGone is the inverse of waitForVclusterApp — it waits
 // until no pod matching the app slug exists in the host namespace.
 //
-// It reuses appPodNameMatches so the install and uninstall waits agree on
+// It reuses orgAppPodMatches so the install and uninstall waits agree on
 // what an Organization app pod looks like: the synced
-// `<pod>-x-<slug>-x-vcluster` shape, for every plan (#4292). #4293 MINOR-4
+// `<pod>-x-<slug>-x-vcluster` shape for an app in the vCluster, the native
+// shape for the platform stack on the host. #4293 MINOR-4
 // was this wait hardcoding a different literal than the install side and
 // reporting "gone" on the first poll for a pod it simply could not see; one
 // shared matcher is what prevents that class of drift.
@@ -936,14 +936,15 @@ func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug
 			var podList struct {
 				Items []struct {
 					Metadata struct {
-						Name string `json:"name"`
+						Name   string            `json:"name"`
+						Labels map[string]string `json:"labels"`
 					} `json:"metadata"`
 				} `json:"items"`
 			}
 			found := false
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
-					if appPodNameMatches(pod.Metadata.Name, appSlug) {
+					if orgAppPodMatches(pod.Metadata.Name, pod.Metadata.Labels, appSlug) {
 						found = true
 						break
 					}
