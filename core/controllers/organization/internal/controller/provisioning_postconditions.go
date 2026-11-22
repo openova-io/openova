@@ -310,12 +310,24 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 //
 // The discipline is the console listeners' (#5246, #6107): an UNWIRED or
 // UNREACHABLE region is Missing (this pass read nothing there, so the boundary
-// is unproven in it), a NotFound is Missing, any other read error is
-// Unverifiable, and the denominator failing (Undecidable) stays with the
-// listener checks. On a single-region Sovereign res carries the host only and
-// this adds nothing.
+// is unproven in it), a NotFound is Missing, and so is any other read error in
+// a wired region (a timeout, a Forbidden, no HelmRelease kind there): a
+// boundary this pass could not read in a region it knows exists is unproven
+// there, and Ready from the host region alone is a verdict from absent
+// evidence. Missing requeues, so a blip clears on the next pass. The
+// denominator failing (Undecidable: the region set itself could not be read)
+// is Unverifiable, logged and requeued, never Missing — the listener checks'
+// anti-over-correction rule — and it is reported here for EVERY Organization,
+// including one with no pool domain, which never reaches the listener checks.
+// On a single-region Sovereign res carries the host only and this adds
+// nothing.
 func verifyBoundaryInOtherRegions(ctx context.Context, org *orgapi.Organization, res consoleRegionResolution, out *provisioningPostconditions) {
 	slug := strings.TrimSpace(org.Spec.Slug)
+	for _, u := range res.Undecidable {
+		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+			"the boundary of %s (vCluster, LimitRange, ResourceQuota) in every region — %s (no region beyond this one was read this pass)",
+			slug, u))
+	}
 	for _, u := range res.Unwired {
 		out.Missing = append(out.Missing, fmt.Sprintf(
 			"the boundary of %s (vCluster, LimitRange, ResourceQuota) in every region — %s (each region applies it through its own Flux, so a region this controller holds no credential for is a region where it is unproven)",
@@ -340,8 +352,9 @@ func verifyBoundaryInOtherRegions(ctx context.Context, org *orgapi.Organization,
 				"vCluster HelmRelease %s/vcluster in %s (that region's Flux never applied the Organization's ./vcluster tree — it has no boundary there)",
 				slug, region))
 		case err != nil:
-			out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
-				"vCluster HelmRelease %s/vcluster in %s: %s", slug, region, err))
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"vCluster HelmRelease %s/vcluster in %s, unread: %s (this pass could not read the boundary there, so it is unproven in that region; requeueing clears it once the read succeeds)",
+				slug, region, err))
 		case !helmReleaseReady(hr):
 			out.Missing = append(out.Missing, fmt.Sprintf(
 				"a Ready vCluster HelmRelease %s/vcluster in %s (present but not Ready there)", slug, region))
@@ -365,8 +378,9 @@ func verifyBoundaryInOtherRegions(ctx context.Context, org *orgapi.Organization,
 					"%s %s/%s in %s (the plan boundary the customer pays for is not on the namespace in that region)",
 					p.kind, slug, p.name, region))
 			default:
-				out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
-					"%s %s/%s in %s: %s", p.kind, slug, p.name, region, err))
+				out.Missing = append(out.Missing, fmt.Sprintf(
+					"%s %s/%s in %s, unread: %s (this pass could not read the boundary there, so it is unproven in that region; requeueing clears it once the read succeeds)",
+					p.kind, slug, p.name, region, err))
 			}
 		}
 	}

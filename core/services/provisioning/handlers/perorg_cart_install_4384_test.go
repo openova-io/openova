@@ -92,6 +92,7 @@ func TestApplyTenantChangePerOrg_CommitsToPerOrgRepo_4384(t *testing.T) {
 		GitHubClient: ghclient.NewClientWithAPIURL("token", "openova", "openova", srv.URL),
 		GitBranch:    "main",
 		PerOrgGitops: true,
+		k8sDo:        ownOrganizationAPI(ownTenantID),
 		// Authoritative plan resolution via the stub catalog (so the #4293
 		// fail-closed gate passes without a live Org CR).
 		CatalogURL: srv.URL,
@@ -99,6 +100,7 @@ func TestApplyTenantChangePerOrg_CommitsToPerOrgRepo_4384(t *testing.T) {
 
 	// Drive the day-2 install path directly (applyTenantChange → per-Org branch).
 	err := h.applyTenantChange(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "g6wpwalk",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},

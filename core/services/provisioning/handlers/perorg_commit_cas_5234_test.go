@@ -167,10 +167,12 @@ func TestApplyTenantChangePerOrg_RebuildsMergeAgainstNewHeadOnRetry_5234(t *test
 		GitHubClient: ghclient.NewClientWithAPIURL("token", "openova", "openova", srv.URL),
 		GitBranch:    "main",
 		PerOrgGitops: true,
+		k8sDo:        ownOrganizationAPI(ownTenantID),
 		CatalogURL:   srv.URL,
 	}
 
 	err := h.applyTenantChange(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "g274cas",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},

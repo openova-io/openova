@@ -286,7 +286,7 @@ func (m *MultiSubscriber) runNATS(ctx context.Context, handler func(*Event) erro
 			return fmt.Errorf("events: create consumer %s on %s: %w", durable, subj, err)
 		}
 		cc, err := cons.Consume(func(msg jetstream.Msg) {
-			handleNATSMsg(ctx, msg, handler, m.group, subj)
+			handleNATSMsg(ctx, msg, handler, m.group, subj, m.maxDeliver)
 		})
 		if err != nil {
 			for _, started := range startedCtxs {
@@ -315,7 +315,7 @@ func (m *MultiSubscriber) runNATS(ctx context.Context, handler func(*Event) erro
 // so transient downstream blips don't hot-loop; success acks. Malformed
 // payloads are ack'd-skipped (logged at ERROR) so the consumer never
 // hot-loops on a poison pill.
-func handleNATSMsg(ctx context.Context, msg jetstream.Msg, handler func(*Event) error, group, subject string) {
+func handleNATSMsg(ctx context.Context, msg jetstream.Msg, handler func(*Event) error, group, subject string, maxDeliver int) {
 	var event Event
 	if err := json.Unmarshal(msg.Data(), &event); err != nil {
 		slog.Error("multi-subscriber: malformed NATS envelope — ack to skip",
@@ -324,6 +324,7 @@ func handleNATSMsg(ctx context.Context, msg jetstream.Msg, handler func(*Event) 
 		_ = msg.Ack()
 		return
 	}
+	markFinalDelivery(&event, msg, maxDeliver)
 
 	hctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
@@ -399,6 +400,35 @@ func (m *MultiSubscriber) Close() {
 		cc.Stop()
 	}
 	m.consumeCtxs = nil
+}
+
+// MetaFinalDelivery is set to "true" in Event.Metadata when the subscriber
+// hands the handler the LAST delivery its consumer allows (NumDelivered has
+// reached MaxDeliver). A non-nil return on that delivery is not redelivered:
+// JetStream drops the message. A handler that answers "not yet" by returning
+// an error (it waits for a condition to clear) must decide on this one.
+const MetaFinalDelivery = "openova.io/final-delivery"
+
+// IsFinalDelivery reports whether e arrived on its last allowed delivery.
+// False for an Event that did not come through the JetStream subscriber.
+func IsFinalDelivery(e *Event) bool {
+	return e != nil && e.Metadata[MetaFinalDelivery] == "true"
+}
+
+// markFinalDelivery stamps MetaFinalDelivery on event when msg is its last
+// allowed delivery. Unreadable metadata stamps nothing: the handler then
+// behaves as on any other delivery. The key is the subscriber's alone: a value
+// carried in by the published envelope is dropped first.
+func markFinalDelivery(event *Event, msg jetstream.Msg, maxDeliver int) {
+	delete(event.Metadata, MetaFinalDelivery)
+	md, err := msg.Metadata()
+	if err != nil || md == nil || maxDeliver <= 0 || md.NumDelivered < uint64(maxDeliver) {
+		return
+	}
+	if event.Metadata == nil {
+		event.Metadata = map[string]string{}
+	}
+	event.Metadata[MetaFinalDelivery] = "true"
 }
 
 // maxDeliverEnv overrides the bounded JetStream redelivery ceiling per

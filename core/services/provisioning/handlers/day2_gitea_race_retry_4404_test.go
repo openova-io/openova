@@ -74,6 +74,7 @@ func newHandlerForRaceTest(t *testing.T, apiURL string) *Handler {
 		GitHubClient: ghclient.NewClientWithAPIURL("token", "s3376walk", "catalyst-tenant", apiURL),
 		GitBranch:    "main",
 		PerOrgGitops: true,
+		k8sDo:        ownOrganizationAPI(ownTenantID),
 		CatalogURL:   apiURL,
 	}
 }
@@ -89,6 +90,7 @@ func TestCommitInstall_RetriesWhileGiteaRepoNotReady_4404(t *testing.T) {
 	h := newHandlerForRaceTest(t, srv.URL)
 
 	err := h.commitInstallWithGiteaReadyRetry(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "s3376walk",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},
@@ -124,6 +126,7 @@ func TestCommitInstall_ExhaustsRetriesThenFails_4404(t *testing.T) {
 	h := newHandlerForRaceTest(t, srv.URL)
 
 	err := h.commitInstallWithGiteaReadyRetry(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "s3376walk",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},
@@ -200,6 +203,7 @@ func TestCommitInstall_WidenedBudgetSurvivesManyMisses_4404(t *testing.T) {
 	h := newHandlerForRaceTest(t, srv.URL)
 
 	err := h.commitInstallWithGiteaReadyRetry(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "s3376walk",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},

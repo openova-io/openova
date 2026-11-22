@@ -10,6 +10,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -94,7 +95,7 @@ func TestVerifyProvisioned_RegionBVClusterNotReadyIsNotProvisioned(t *testing.T)
 func TestVerifyProvisioned_RegionBWithoutQuotaIsNotProvisioned(t *testing.T) {
 	f := convergedTwoRegionFixture(t)
 	if !gitops.PlanRendersResourceQuota(f.org.Spec.PlanSlug) {
-		t.Skipf("plan %q renders no ResourceQuota", f.org.Spec.PlanSlug)
+		t.Fatalf("fixture: plan %q renders no ResourceQuota, so this test would assert nothing", f.org.Spec.PlanSlug)
 	}
 	rq := &corev1.ResourceQuota{}
 	rq.SetNamespace(f.org.Spec.Slug)
@@ -136,5 +137,63 @@ func TestVerifyProvisioned_UnwiredRegionHoldsBoundaryBack(t *testing.T) {
 	single.org.Spec.TenantPublic.ParentDomain = ""
 	if sgot := single.r.verifyProvisioned(context.Background(), single.org); !sgot.complete() {
 		t.Fatalf("control: a single-region Organization reads NOT provisioned. missing=%v", sgot.Missing)
+	}
+}
+
+// Region B is wired but its boundary cannot be READ this pass (a timeout; a
+// Forbidden or a missing HelmRelease kind reads the same): nothing proves the
+// boundary there, so Ready is held back, for an Organization with no pool
+// domain too. It used to land in Unverifiable, and complete() is
+// len(Missing)==0, so Ready=True was decided from the host region alone.
+func TestVerifyProvisioned_UnreadableBoundaryInRegionBHoldsReadyBack(t *testing.T) {
+	for _, name := range []string{"vcluster", gitops.BoundaryLimitRangeName} {
+		t.Run(name, func(t *testing.T) {
+			f := newMultiRegionFixture(t, true, true, regionGatewayListeners(9443, 9080))
+			f.org.Spec.TenantPublic.ParentDomain = ""
+			f.r.RegionClientBuilder = func([]byte) (client.Client, error) {
+				return errOnGetClient{Client: f.region, failNS: f.org.Spec.Slug, failName: name,
+					err: errors.New("etcdserver: request timed out")}, nil
+			}
+			got := f.r.verifyProvisioned(context.Background(), f.org)
+			assertNotProvisionedNaming(t, got, f.org.Spec.Slug+"/"+name, "request timed out")
+		})
+	}
+
+	// CONTROL — the same fixture with region B readable is complete, so the
+	// read error above is what holds Ready back.
+	f := newMultiRegionFixture(t, true, true, regionGatewayListeners(9443, 9080))
+	f.org.Spec.TenantPublic.ParentDomain = ""
+	if got := f.r.verifyProvisioned(context.Background(), f.org); !got.complete() {
+		t.Fatalf("control: a readable region B reads NOT provisioned. missing=%v", got.Missing)
+	}
+}
+
+// The region set itself cannot be read (the ClusterMesh witness errors): no
+// region beyond this one is read. That is reported (Unverifiable: logged and
+// requeued) for an Organization with no pool domain as well — it never
+// reaches the listener checks, so before this nothing was said at all — and
+// it does not hold Ready back (the anti-over-correction rule of #6107).
+func TestVerifyProvisioned_UndecidableRegionsAreReportedForEveryOrganization(t *testing.T) {
+	f := newMultiRegionFixture(t, false, false, regionGatewayListeners(9443, 9080))
+	f.org.Spec.TenantPublic.ParentDomain = ""
+	f.r.ConfiguredRegions = "hw-me-east-215-a-rtz-prod"
+	f.r.Client = errOnGetClient{
+		Client:   f.r.Client,
+		failNS:   consoleClusterMeshSecretDefaultNamespace,
+		failName: consoleClusterMeshSecretDefaultName,
+		err:      errors.New("etcdserver: request timed out"),
+	}
+	got := f.r.verifyProvisioned(context.Background(), f.org)
+	found := false
+	for _, u := range got.Unverifiable {
+		if strings.Contains(u, "boundary of "+f.org.Spec.Slug) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an unreadable region set was not reported for an Organization with no pool domain: unverifiable=%v", got.Unverifiable)
+	}
+	if !got.complete() {
+		t.Fatalf("an unreadable witness held the Organization back as if an artifact were absent: missing=%v", got.Missing)
 	}
 }

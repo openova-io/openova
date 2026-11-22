@@ -165,6 +165,7 @@ func newPerOrgRaceHandler(t *testing.T, srvURL string) *Handler {
 		GitHubClient: ghclient.NewClientWithAPIURL("token", "openova", "openova", srvURL),
 		GitBranch:    "main",
 		PerOrgGitops: true,
+		k8sDo:        ownOrganizationAPI(ownTenantID),
 		CatalogURL:   srvURL,
 	}
 }
@@ -196,6 +197,7 @@ func TestApplyTenantChangePerOrg_SerialisesConcurrentCartInstalls_5387(t *testin
 			defer wg.Done()
 			<-start // release all three at once — the funnel's fan-out
 			errs[i] = h.applyTenantChange(context.Background(), appChangeData{
+				TenantID:   ownTenantID,
 				TenantSlug: "w5387",
 				AppSlug:    app,
 				Apps:       cart,
@@ -281,6 +283,7 @@ func TestApplyTenantChangePerOrg_RecoversFromGiteaPushOutOfDate_5387(t *testing.
 
 	h := newPerOrgRaceHandler(t, srv.URL)
 	err := h.applyTenantChange(context.Background(), appChangeData{
+		TenantID:   ownTenantID,
 		TenantSlug: "w5387b",
 		AppSlug:    "wordpress",
 		Apps:       []string{"wordpress"},

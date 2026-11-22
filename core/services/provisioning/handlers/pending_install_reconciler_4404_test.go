@@ -98,6 +98,7 @@ func newHandlerForReconcileTest(t *testing.T, apiURL string) *Handler {
 		GitHubClient: ghclient.NewClientWithAPIURL("token", "s3376walk", "catalyst-tenant", apiURL),
 		GitBranch:    "main",
 		PerOrgGitops: true,
+		k8sDo:        ownOrganizationAPI("tid-1"),
 		CatalogURL:   apiURL,
 		Producer:     &noopPublisher{},
 	}

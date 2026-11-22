@@ -33,6 +33,23 @@ type fakeAPIServer struct {
 	gets  map[string]fakeAPIResponse
 	post  fakeAPIResponse
 	posts []string
+	reqs  []string // every request, "METHOD path"
+}
+
+// setGet replaces the answer to GET path (the object changed between reads).
+func (f *fakeAPIServer) setGet(path string, r fakeAPIResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gets == nil {
+		f.gets = map[string]fakeAPIResponse{}
+	}
+	f.gets[path] = r
+}
+
+func (f *fakeAPIServer) requests() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.reqs...)
 }
 
 type fakeAPIResponse struct {
@@ -43,6 +60,7 @@ type fakeAPIResponse struct {
 func (f *fakeAPIServer) do(method, path string, body []byte) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, method+" "+path)
 	var r fakeAPIResponse
 	switch method {
 	case http.MethodPost:

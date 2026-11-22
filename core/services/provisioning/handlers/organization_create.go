@@ -30,7 +30,8 @@
 // Organization is this tenant's (the same tenant.created may redeliver via
 // NATS-JetStream replay). A name held by another tenant's Organization is
 // refused; one held by an Organization being removed is redelivered until
-// the name is free (organizationAlreadyExists). 400/422 (the Organization
+// the name is free, and reported on the last delivery
+// (organizationAlreadyExists). 400/422 (the Organization
 // kind refuses the object) and 404 (no CRD) are permanent and surface as a
 // provisioning error event; anything else is redelivered.
 //
@@ -89,7 +90,7 @@ func (h *Handler) handleTenantCreated(ctx context.Context, event *events.Event) 
 		})
 		return nil
 	}
-	return h.createOrganizationCR(ctx, data)
+	return h.createOrganizationCROnDelivery(ctx, data, events.IsFinalDelivery(event))
 }
 
 // createOrganizationCR builds the Organization CR from the decoded
@@ -99,6 +100,19 @@ func (h *Handler) handleTenantCreated(ctx context.Context, event *events.Event) 
 // Apiserver failures other than 409 return non-nil so the broker
 // redelivers.
 func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPayload) error {
+	return h.createOrganizationCROnDelivery(ctx, data, false)
+}
+
+// createOrganizationCROnDelivery is createOrganizationCR for one delivery of
+// tenant.created. final is the last delivery JetStream allows
+// (events.IsFinalDelivery): an error returned on it is never redelivered, so
+// the two waits below that answer "not yet" decide on it instead — a catalog
+// that still cannot name the plan creates the Organization at the logged "s"
+// (the floor before the wait existed), and a name still held by an
+// Organization being removed is reported. Either way the order's timeline,
+// which waits for its own Organization (awaitOwnOrganization), ends the order
+// visibly with provision.failed if no Organization of its own appears.
+func (h *Handler) createOrganizationCROnDelivery(ctx context.Context, data tenantCreatedPayload, final bool) error {
 	slug := strings.TrimSpace(data.Slug)
 	if !validTenantSlug(slug) {
 		return h.failOrgCreate(ctx, data.ID, slug,
@@ -145,7 +159,14 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 	// cannot answer is a reason to redeliver, never to stamp a guessed "s" on a
 	// paid Organization.
 	planSlug, err := h.resolveCreationPlanSlug(ctx, data.PlanID, data.PackageSKU)
-	if err != nil {
+	switch {
+	case err != nil && final:
+		// The last delivery: a redelivery is not coming, and acking with no
+		// Organization drops the paid order. Create it at the logged "s".
+		slog.Error("tenant.created consumer: plan still not resolvable on the last delivery — creating the Organization at plan 's'",
+			"slug", slug, "tenant_id", data.ID, "plan_id", data.PlanID, "error", err)
+		planSlug = "s"
+	case err != nil:
 		slog.Warn("tenant.created consumer: plan not resolvable yet — redelivering instead of guessing",
 			"slug", slug, "tenant_id", data.ID, "plan_id", data.PlanID, "error", err)
 		return err
@@ -221,7 +242,7 @@ func (h *Handler) createOrganizationCR(ctx context.Context, data tenantCreatedPa
 		// Terminating) must never be acked as one.
 		if strings.Contains(err.Error(), "status 409") ||
 			strings.Contains(err.Error(), "AlreadyExists") {
-			return h.organizationAlreadyExists(ctx, data.ID, slug)
+			return h.organizationAlreadyExists(ctx, data.ID, slug, final)
 		}
 		// 404 on Create implies the CRD itself is missing — operator
 		// misconfiguration. Publish the error event and ACK (returning
@@ -398,7 +419,8 @@ const (
 // organizationOwnership decides whose Organization the CR in body is, from the
 // `openova.io/tenant-id` label createOrganizationCR (and the catalyst-api door)
 // stamps on every Organization it mints, and from metadata.deletionTimestamp.
-// Pure, so both the creation path and the provisioning timeline ask one
+// Pure, so the creation path (organizationAlreadyExists), the order's timeline
+// and the per-Org commit path (both through checkOwnOrganization) ask one
 // question.
 func organizationOwnership(body []byte, tenantID string) orgOwnership {
 	var org struct {
@@ -431,13 +453,23 @@ func organizationOwnership(body []byte, tenantID string) orgOwnership {
 //     Acking it as a redelivery is what bound a new customer to the previous
 //     customer's Organization, its vCluster, its repo and its owner roster.
 //
-// A read failure is transient: redeliver.
-func (h *Handler) organizationAlreadyExists(ctx context.Context, tenantID, slug string) error {
+// A read failure is transient: redeliver. On the final delivery (no
+// redelivery is coming) a Terminating or unreadable holder is reported and
+// acked instead of being returned into a drop; the order's timeline then fails
+// the order when no Organization of its own appears.
+func (h *Handler) organizationAlreadyExists(ctx context.Context, tenantID, slug string, final bool) error {
+	notYet := func(err error) error {
+		if final {
+			return h.failOrgCreate(ctx, tenantID, slug,
+				fmt.Sprintf("no Organization could be created for this order by its last delivery: %v", err))
+		}
+		return err
+	}
 	body, err := h.k8sGet("/apis/orgs.openova.io/v1/organizations/" + slug)
 	if err != nil {
 		// 404 here means it vanished between the POST and this read; the
 		// redelivery will create it.
-		return fmt.Errorf("the Organization %s exists but could not be read to check whose it is: %w", slug, err)
+		return notYet(fmt.Errorf("the Organization %s exists but could not be read to check whose it is: %w", slug, err))
 	}
 	switch organizationOwnership(body, tenantID) {
 	case orgOwnedByTenant:
@@ -446,15 +478,15 @@ func (h *Handler) organizationAlreadyExists(ctx context.Context, tenantID, slug 
 		return nil
 	case orgTerminating:
 		slog.Warn("tenant.created consumer: the name is held by an Organization being removed — redelivering until it is gone",
-			"slug", slug, "tenant_id", tenantID)
-		return fmt.Errorf("the Organization %s is being removed; this order's Organization is created once it is gone", slug)
+			"slug", slug, "tenant_id", tenantID, "final_delivery", final)
+		return notYet(fmt.Errorf("the Organization %s is being removed; this order's Organization is created once it is gone", slug))
 	case orgOwnedByOther:
 		slog.Error("tenant.created consumer: the name belongs to another tenant's Organization — refusing the order",
 			"slug", slug, "tenant_id", tenantID, "existing_body_bytes", len(body))
 		return h.failOrgCreate(ctx, tenantID, slug,
 			fmt.Sprintf("the name %q is held by another Organization — this order was not bound to it", slug))
 	default:
-		return fmt.Errorf("the Organization %s exists but its object could not be decoded", slug)
+		return notYet(fmt.Errorf("the Organization %s exists but its object could not be decoded", slug))
 	}
 }
 
