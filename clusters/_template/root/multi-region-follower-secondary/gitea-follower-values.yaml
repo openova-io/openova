@@ -1,0 +1,21 @@
+# The values bootstrap-kit slot 10 (bp-gitea) reads in a FOLLOWER region
+# (valuesFrom, optional). The regions' Giteas share ONE database, so one
+# gitea_admin row: the writer region's bp-gitea owns its password. With no
+# existingSecret here, this region's release generates no admin Secret and its
+# Gitea init neither creates nor changes the admin user. This root applies the
+# ConfigMap before it creates the bootstrap-kit Kustomization, so slot 10 never
+# renders in this region without it. Kept identical in every
+# multi-region-follower-* root (platform/gitea/chart/tests/one-admin-password-writer.sh).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bp-gitea-follower-values
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: gitea-follower-values
+data:
+  values.yaml: |
+    gitea:
+      gitea:
+        admin:
+          existingSecret: ""

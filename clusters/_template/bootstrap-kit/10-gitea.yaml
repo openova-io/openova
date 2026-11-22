@@ -221,6 +221,22 @@ spec:
     timeout: 30m
     remediation:
       retries: 3
+  # ONE WRITER of the Git service admin password. The regions' Giteas share
+  # ONE database (one gitea_admin row); the bp-gitea release of the WRITER
+  # region owns the password (the chart's admin-secret.yaml generates it, its
+  # init applies it) and every other component reads it. A follower region's
+  # root Kustomization (clusters/_template/root/multi-region-follower-*)
+  # creates this ConfigMap before this Kustomization runs; its values
+  # (gitea.gitea.admin.existingSecret "") make the follower release generate
+  # no admin Secret and its init create or change no admin user. Absent in
+  # the writer region and on a single-region Sovereign: the chart's default
+  # (owner). spec.values below sets no gitea.gitea.admin key, so it cannot
+  # override these values.
+  valuesFrom:
+    - kind: ConfigMap
+      name: bp-gitea-follower-values
+      valuesKey: values.yaml
+      optional: true
   values:
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for gitea (the canonical

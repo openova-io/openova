@@ -61,11 +61,48 @@ installs). The claimRef NAME is the durable join key: vCluster syncer-mangled
 namespaces differ, but the claim name is stable. We additionally prefer a PV
 carrying this chart's git-data label when present, but match on claimRef.name
 alone so PVs created before this chart existed are still recoverable.
+
+WHICH DATABASE (cases 3 and 4)
+==============================
+Own cluster (postgres.cluster.enabled true): the chart itself creates the
+gitea-pg Cluster, so no gitea-pg pod means a fresh prov; the guard execs psql
+in that pod.
+
+Shared database (postgres.cluster.enabled false, the Sovereign default): the
+database exists before this chart and lives elsewhere (shared-pg in
+shared-data, or the writer region across ClusterMesh), so the absence of a
+local gitea-pg pod says nothing. The init container `db-probe` (psql of the
+postgres.cluster image) connects exactly as Gitea does — host, database, user
+and SSL mode of gitea.gitea.config.database, password from the same Secret as
+GITEA__database__PASSWD — and writes one word to PROBE_FILE: the repository
+count, `absent` (no Gitea schema yet: fresh), or `unreachable`. A database the
+probe cannot reach is NOT a fresh install: the guard refuses (unless
+failOnDbDiskDrift=false) instead of reporting one.
+
+Follower region of the shared database (platformRepos.writerRegionId set and
+not this region): the database holds the writer's repositories while this
+region's disk starts empty and is filled by region-git-sync (ADR-0015 D1), so
+there is no drift verdict to give and no probe is rendered.
 */ -}}
 {{- if .Values.gitDataMigration.enabled }}
 {{- $claim := .Values.gitDataMigration.claimName | default "gitea-shared-storage" }}
 {{- $pgCluster := .Values.postgres.cluster.name | default "gitea-pg" }}
 {{- $pgDatabase := .Values.postgres.cluster.database | default "gitea" }}
+{{- $dbMode := ternary "shared" "own-cluster" (eq (toString .Values.postgres.cluster.enabled) "false") }}
+{{- $pr := .Values.platformRepos | default dict }}
+{{- $follower := and (eq $dbMode "shared") $pr.writerRegionId (ne (toString $pr.regionId) (toString $pr.writerRegionId)) }}
+{{- $probe := and (eq $dbMode "shared") (not $follower) }}
+{{- $db := .Values.gitea.gitea.config.database | default dict }}
+{{- $hostPort := splitList ":" (toString ($db.HOST | default "")) }}
+{{- $pgPort := "5432" }}
+{{- if gt (len $hostPort) 1 }}{{- $pgPort = index $hostPort 1 }}{{- end }}
+{{- $passwd := dict }}
+{{- range (.Values.gitea.gitea.additionalConfigFromEnvs | default list) }}
+{{- if eq (toString .name) "GITEA__database__PASSWD" }}{{- $passwd = . }}{{- end }}
+{{- end }}
+{{- if and $probe (not $passwd.valueFrom) }}
+{{- fail "gitDataMigration: a shared database needs gitea.gitea.additionalConfigFromEnvs GITEA__database__PASSWD with valueFrom (the guard reads the password Gitea reads)" }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -201,6 +238,79 @@ spec:
         # guard to stage the PVC manifest it kubectl-applies.
         - name: tmp
           emptyDir: {}
+      {{- if $probe }}
+      initContainers:
+        # Shared database: count the repositories through Gitea's own
+        # connection (see WHICH DATABASE above). Always exits 0; the verdict
+        # is the guard's.
+        - name: db-probe
+          image: {{ printf "%s:%s" .Values.postgres.cluster.imageName (toString .Values.postgres.cluster.pgVersion) | quote }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: HOME
+              value: /tmp
+            - name: PROBE_FILE
+              value: /tmp/db-probe
+            - name: ATTEMPTS
+              value: "30"
+            - name: INTERVAL
+              value: "10"
+            - name: PGHOST
+              value: {{ index $hostPort 0 | quote }}
+            - name: PGPORT
+              value: {{ $pgPort | quote }}
+            - name: PGDATABASE
+              value: {{ $db.NAME | default "gitea" | quote }}
+            - name: PGUSER
+              value: {{ $db.USER | default "gitea" | quote }}
+            - name: PGSSLMODE
+              value: {{ $db.SSL_MODE | default "disable" | quote }}
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGPASSWORD
+              valueFrom:
+                {{- toYaml $passwd.valueFrom | nindent 16 }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              out=unreachable
+              i=0
+              while [ "${i}" -lt "${ATTEMPTS}" ]; do
+                i=$((i + 1))
+                has="$(psql -X -tA -v ON_ERROR_STOP=1 -c "SELECT to_regclass('repository') IS NOT NULL" 2>"${PROBE_FILE}.err")"
+                if [ $? -eq 0 ]; then
+                  if [ "${has}" = "t" ]; then
+                    n="$(psql -X -tA -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM repository" 2>>"${PROBE_FILE}.err")"
+                    if [ $? -eq 0 ] && [ -n "${n}" ]; then out="${n}"; fi
+                  else
+                    out=absent
+                  fi
+                  break
+                fi
+                echo "[gitdata-guard] database ${PGHOST}:${PGPORT}/${PGDATABASE} not answering (${i}/${ATTEMPTS}): $(tail -n 1 "${PROBE_FILE}.err" 2>/dev/null)"
+                [ "${i}" -lt "${ATTEMPTS}" ] && sleep "${INTERVAL}"
+              done
+              printf '%s\n' "${out}" > "${PROBE_FILE}"
+              echo "[gitdata-guard] database ${PGHOST}:${PGPORT}/${PGDATABASE} repositories: ${out}"
+              exit 0
+      {{- end }}
       containers:
         - name: guard
           # #4369: harbor-proxy form so the cluster-wide Kyverno harbor-proxy-pull
@@ -238,6 +348,12 @@ spec:
               value: {{ .Values.gitDataMigration.failOnDbDiskDrift | default true | quote }}
             - name: RELEASE_NAME
               value: {{ .Release.Name | quote }}
+            - name: DB_MODE
+              value: {{ $dbMode | quote }}
+            - name: FOLLOWER_REGION
+              value: {{ if $follower }}"true"{{ else }}"false"{{ end }}
+            - name: PROBE_FILE
+              value: /tmp/db-probe
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -332,42 +448,72 @@ spec:
 
               # ── no adoptable PV: discriminate FRESH prov (case 4) from
               #    DB↔disk DRIFT (case 3) by probing the metadata DB repo count ──
-              echo "[gitdata-guard] no adoptable PV — probing metadata DB to tell a fresh prov from a data-loss drift."
-              REPO_COUNT="unknown"
-              PG_POD="$(kubectl get pods -n "${NS}" \
-                -l "cnpg.io/cluster=${PG_CLUSTER},role=primary" \
-                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-              if [ -z "${PG_POD}" ]; then
-                # role label vary by CNPG version; fall back to any cluster pod.
-                PG_POD="$(kubectl get pods -n "${NS}" \
-                  -l "cnpg.io/cluster=${PG_CLUSTER}" \
-                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+              if [ "${FOLLOWER_REGION}" = "true" ]; then
+                # Follower region of the shared database: the writer's repos are
+                # in the database and region-git-sync fills this disk from the
+                # writer, so an empty disk here is the designed state.
+                echo "[gitdata-guard] follower region of a shared database — this disk is filled from the writer region by region-git-sync; no drift verdict. OK."
+                exit 0
               fi
-              if [ -n "${PG_POD}" ]; then
-                echo "[gitdata-guard] probing repo count via ${NS}/${PG_POD} (db=${PG_DATABASE})."
-                # `repository` is gitea's core metadata table. psql is present in
-                # the CNPG image; we exec as the in-pod postgres superuser (local
-                # peer auth) so no DB password is needed in this Job.
-                set +e
-                # Capture psql output WITHOUT a pipe so $? is kubectl-exec's real
-                # exit (a `| tr` would make $? reflect tr, masking a probe failure
-                # as success). Strip whitespace after, in the same shell.
-                RAW="$(kubectl exec -n "${NS}" "${PG_POD}" -c postgres -- \
-                  psql -tAX -U postgres -d "${PG_DATABASE}" \
-                  -c "SELECT count(*) FROM repository;" 2>/dev/null)"
-                RC=$?
-                REPO_COUNT="$(printf '%s' "${RAW}" | tr -d '[:space:]')"
-                set -e
-                if [ "${RC}" -ne 0 ] || [ -z "${REPO_COUNT}" ]; then
-                  # DB unreachable / table absent → treat as fresh (case 4). A
-                  # genuinely populated DB whose pod is up will answer; an absent
-                  # table means initdb hasn't run a gitea schema yet.
-                  echo "[gitdata-guard] repo-count probe inconclusive (rc=${RC}) — treating as fresh DB."
-                  REPO_COUNT="0"
+              echo "[gitdata-guard] no adoptable PV — probing metadata DB (${DB_MODE}) to tell a fresh prov from a data-loss drift."
+              REPO_COUNT="unknown"
+              if [ "${DB_MODE}" = "shared" ]; then
+                # The db-probe init container counted the repositories through
+                # Gitea's own connection. `absent` = no Gitea schema (fresh).
+                PROBE="$(tr -d '[:space:]' < "${PROBE_FILE}" 2>/dev/null || true)"
+                case "${PROBE}" in
+                  absent) REPO_COUNT="0" ;;
+                  ''|*[!0-9]*) REPO_COUNT="unknown" ;;
+                  *) REPO_COUNT="${PROBE}" ;;
+                esac
+                echo "[gitdata-guard] shared database probe: ${PROBE:-<none>}"
+                if [ "${REPO_COUNT}" = "unknown" ]; then
+                  if [ "${FAIL_ON_DRIFT}" = "true" ]; then
+                    echo "[gitdata-guard] ❌ the shared database did not answer: a fresh install cannot be told from one with repositories."
+                    echo "[gitdata-guard] Refusing to boot gitea on an EMPTY git-data volume; the install retries once the database answers (or set gitDataMigration.failOnDbDiskDrift=false)."
+                    exit 1
+                  fi
+                  echo "[gitdata-guard] ⚠️ shared database unreachable but failOnDbDiskDrift=false — allowing empty boot per operator override."
+                  exit 0
                 fi
               else
-                echo "[gitdata-guard] no CNPG pod for cluster ${PG_CLUSTER} in ${NS} — DB not yet provisioned, treating as fresh prov."
-                REPO_COUNT="0"
+                # Own cluster: this chart creates the gitea-pg Cluster, so no pod
+                # means the database does not exist yet (a fresh prov).
+                PG_POD="$(kubectl get pods -n "${NS}" \
+                  -l "cnpg.io/cluster=${PG_CLUSTER},role=primary" \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+                if [ -z "${PG_POD}" ]; then
+                  # role label vary by CNPG version; fall back to any cluster pod.
+                  PG_POD="$(kubectl get pods -n "${NS}" \
+                    -l "cnpg.io/cluster=${PG_CLUSTER}" \
+                    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+                fi
+                if [ -n "${PG_POD}" ]; then
+                  echo "[gitdata-guard] probing repo count via ${NS}/${PG_POD} (db=${PG_DATABASE})."
+                  # `repository` is gitea's core metadata table. psql is present in
+                  # the CNPG image; we exec as the in-pod postgres superuser (local
+                  # peer auth) so no DB password is needed in this Job.
+                  set +e
+                  # Capture psql output WITHOUT a pipe so $? is kubectl-exec's real
+                  # exit (a `| tr` would make $? reflect tr, masking a probe failure
+                  # as success). Strip whitespace after, in the same shell.
+                  RAW="$(kubectl exec -n "${NS}" "${PG_POD}" -c postgres -- \
+                    psql -tAX -U postgres -d "${PG_DATABASE}" \
+                    -c "SELECT count(*) FROM repository;" 2>/dev/null)"
+                  RC=$?
+                  REPO_COUNT="$(printf '%s' "${RAW}" | tr -d '[:space:]')"
+                  set -e
+                  if [ "${RC}" -ne 0 ] || [ -z "${REPO_COUNT}" ]; then
+                    # DB unreachable / table absent → treat as fresh (case 4). A
+                    # genuinely populated DB whose pod is up will answer; an absent
+                    # table means initdb hasn't run a gitea schema yet.
+                    echo "[gitdata-guard] repo-count probe inconclusive (rc=${RC}) — treating as fresh DB."
+                    REPO_COUNT="0"
+                  fi
+                else
+                  echo "[gitdata-guard] no CNPG pod for cluster ${PG_CLUSTER} in ${NS} — DB not yet provisioned, treating as fresh prov."
+                  REPO_COUNT="0"
+                fi
               fi
               echo "[gitdata-guard] metadata DB repository count = ${REPO_COUNT}"
 
