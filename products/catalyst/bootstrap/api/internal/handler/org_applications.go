@@ -47,8 +47,10 @@ package handler
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -56,6 +58,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/appmanage"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
 )
 
@@ -98,7 +101,7 @@ func (h *Handler) HandleOrgApplicationInstall(w http.ResponseWriter, r *http.Req
 	// and enforces the #4110 cross-org binding: an Org-scoped session may
 	// only ever resolve its OWN Org (a forged X-Tenant-Host for a sibling
 	// Org is 403 org-scope-mismatch).
-	tenant, ok := h.resolveOrganization(w, r)
+	tenant, ok := h.ResolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -116,7 +119,7 @@ func (h *Handler) HandleOrgApplicationInstall(w http.ResponseWriter, r *http.Req
 	// → the in-cluster client (sovereignDynamicClient), so the synthesized
 	// self id is sufficient. This mirrors HandleSovereignSelf's id-resolution
 	// ladder so the org path uses the same single self-registered cluster.
-	depID := h.selfDeploymentID(r)
+	depID := h.SelfDeploymentID(r)
 	dep, found := h.lookupDeploymentForInfra(depID)
 	if !found {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -158,12 +161,12 @@ func (h *Handler) HandleOrgApplicationInstall(w http.ResponseWriter, r *http.Req
 	h.installApplicationCore(w, r, dep, depID, body)
 }
 
-// selfDeploymentID resolves the local Sovereign's deployment id for an
+// SelfDeploymentID resolves the local Sovereign's deployment id for an
 // org-scoped request, mirroring HandleSovereignSelf's ladder: the explicit
 // self-id env, then the session cookie claims, then a stable id synthesized
 // from SOVEREIGN_FQDN. Any non-empty value resolves to the in-cluster client
 // on a Sovereign chroot.
-func (h *Handler) selfDeploymentID(r *http.Request) string {
+func (h *Handler) SelfDeploymentID(r *http.Request) string {
 	if id := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID")); id != "" {
 		return id
 	}
@@ -208,7 +211,7 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 	// the #4110 own-org binding: an Org session can only ever resolve its OWN
 	// Org (a forged sibling host is 403 org-scope-mismatch). Returns the real
 	// `org-<uuid>` namespace.
-	tenant, ok := h.resolveOrganization(w, r)
+	tenant, ok := h.ResolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -309,6 +312,7 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 		// agenity route's backendRef uses). First hit in urlByKey wins.
 		urlKeys []string
 		chart   string
+		owner   string // #5429 — the Application whose leg this is (catalyst.openova.io/app)
 	}
 	hrByName := map[string]orgHR{}
 	if hrs, err := deps.dyn.Resource(helmReleaseGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
@@ -327,6 +331,7 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 				ready:   helmReleaseReady(hr),
 				urlKeys: []string{rel, rel + "-" + chart, rel + "-bp-" + strings.TrimPrefix(chart, "bp-"), name},
 				chart:   chart,
+				owner:   strings.ToLower(strings.TrimSpace(hr.GetLabels()[labelCatalystApp])),
 			}
 		}
 	}
@@ -383,10 +388,7 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 			bpFull, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")
 			slug := strings.TrimPrefix(bpFull, "bp-")
 			phase, _, _ := unstructured.NestedString(app.Object, "status", "phase")
-			status := "installing"
-			if strings.EqualFold(phase, "Ready") {
-				status = "installed"
-			}
+			status := appmanage.CardStatus(phase)
 			env, _, _ := unstructured.NestedString(app.Object, "spec", "environmentRef")
 			if env == "" {
 				env = defaultSovereignEnvironment
@@ -398,6 +400,16 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 					externalURL = resolveOpenURL(hr.urlKeys)
 				}
 			}
+			// #5429 (as on the Sovereign grid) — the HelmReleases the controller
+			// rendered for this Application (<app>-<cluster>) are its legs: no
+			// second card, and the Open link of the first fronted leg.
+			for _, hrName := range slices.Sorted(maps.Keys(hrByName)) {
+				if hr := hrByName[hrName]; hr.owner != "" && hr.owner == strings.ToLower(app.GetName()) {
+					adopted[hrName] = true
+					externalURL = firstNonEmpty(externalURL, resolveOpenURL(hr.urlKeys))
+				}
+			}
+			appStatus := statusOf(app) // ADR-0015 D7 — the Ready reason and message, verbatim
 			// #4897 — spec.placement is dual-form (legacy posture STRING or the
 			// object {mode, regions, …}). readTopology reads .mode for the
 			// object form, so an active-hot-standby instance created via
@@ -406,15 +418,16 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 			// "" → the sov-app-topology-<name> badge was absent.
 			topology := readTopology(app)
 			rows = append(rows, sovereignAppItem{
-				ID:          app.GetName(),
-				Slug:        slug,
-				Title:       app.GetName(),
-				Status:      status,
-				Environment: env,
-				ExternalURL: externalURL,
-				Instance:    true,
-				Blueprint:   bpFull,
-				Topology:    topology,
+				ID:           app.GetName(),
+				Slug:         slug,
+				Title:        app.GetName(),
+				Status:       status,
+				Environment:  env,
+				ExternalURL:  externalURL,
+				Instance:     true,
+				Blueprint:    bpFull,
+				Topology:     topology,
+				ObjectStatus: &appStatus,
 			})
 		}
 	}
