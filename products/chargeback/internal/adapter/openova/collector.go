@@ -397,8 +397,8 @@ func resourceKey(kind, namespace, name, uid string) string {
 }
 
 // ObservePod tracks a pod in an Organization namespace. A pod that ran to
-// completion (Succeeded/Failed) stops billing at the moment it is observed
-// finished — its requests are no longer scheduled entitlement. The
+// completion (Succeeded/Failed) stops billing at the moment it finished
+// (podFinishedAt) — its requests are no longer scheduled entitlement. The
 // Organization's vCluster control plane and its platform stack are not tracked
 // at all (see isVClusterControlPlane, isPlatformStack): they are overhead, not
 // the customer's usage.
@@ -439,8 +439,8 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 	key := resourceKey("pod", pod.Namespace, pod.Name, string(pod.UID))
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	tr, ok := c.res[key]
-	if !ok {
+	tr, tracked := c.res[key]
+	if !tracked {
 		tr = &trackedResource{Org: org, Namespace: pod.Namespace, Name: pod.Name, Kind: "pod", Created: pod.CreationTimestamp.Time.UTC()}
 		if tr.Created.IsZero() {
 			tr.Created = c.now()
@@ -454,13 +454,61 @@ func (c *PlatformCollector) ObservePod(pod *corev1.Pod) {
 	if pod.DeletionTimestamp != nil {
 		tr.Deleted = pod.DeletionTimestamp.Time.UTC()
 	} else if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		if tr.Deleted.IsZero() {
-			tr.Deleted = c.now()
+		// A finished pod bills to the moment it FINISHED, read off the pod
+		// itself — never to the moment this replica happened to see it. The
+		// object outlives its run (a CronJob's kept history, a Job without a
+		// TTL, an evicted pod), and once pruned it is observed again on every
+		// informer resync and after every restart: stamping it with c.now()
+		// then billed a pod that stopped days ago for the hours since the
+		// last collection, again and again.
+		if fin := podFinishedAt(pod); !fin.IsZero() {
+			if now := c.now(); fin.After(now) {
+				fin = now
+			}
+			tr.Deleted = fin
+		} else if tr.Deleted.IsZero() {
+			if tracked {
+				// Seen running by this collector and now finished, with no
+				// finish time on the object: it stopped by now.
+				tr.Deleted = c.now()
+			} else {
+				// First seen already finished, with nothing on the object
+				// saying when: no evidence it ran inside any window this
+				// collector emits, so it bills nothing.
+				tr.Deleted = tr.Created
+			}
 		}
 	} else {
 		tr.Deleted = time.Time{}
 	}
 	c.dirty[org] = true
+}
+
+// podFinishedAt is when a finished pod stopped running, from the pod object
+// alone so every replica and every restart reads the same instant: the
+// latest container termination, else the latest condition transition (the
+// kubelet flips Ready to false when the pod completes or is evicted). Zero
+// when the object carries neither.
+func podFinishedAt(pod *corev1.Pod) time.Time {
+	var fin time.Time
+	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
+		for _, cs := range statuses {
+			if t := cs.State.Terminated; t != nil && t.FinishedAt.After(fin) {
+				fin = t.FinishedAt.Time
+			}
+		}
+	}
+	if fin.IsZero() {
+		for _, cond := range pod.Status.Conditions {
+			if cond.LastTransitionTime.After(fin) {
+				fin = cond.LastTransitionTime.Time
+			}
+		}
+	}
+	if fin.IsZero() {
+		return time.Time{}
+	}
+	return fin.UTC()
 }
 
 // ObservePodDeleted closes a pod's billing window.

@@ -106,16 +106,22 @@ func ClipToSpendLimit(src store.CostSource, lines []store.RatedLine, currency st
 // AccruedOverage rates [from, now) of one customer exactly as the statement
 // run rates a period, up to the terms, and returns each grow Source's usage
 // above its package so far — what the spend-limit evaluator compares with
-// the limit. Only Sources in grow mode with a spend limit are in the map.
+// the limit. Only Sources in grow mode with a spend limit are in the map. A
+// Source whose book is not in force for the period has no price to accrue
+// at and is left out; the customer's other Sources are rated as usual.
 func AccruedOverage(ctx context.Context, st *store.Store, c store.Customer, from, now time.Time) (map[string]*big.Rat, error) {
-	var detail rateDetail
+	detail := rateDetail{skipNotInForce: true}
 	pl, err := ratePeriodLines(ctx, st, c, from, now, &detail)
 	if err != nil {
 		return nil, err
 	}
+	notInForce := map[string]bool{}
+	for _, id := range detail.notInForce {
+		notInForce[id] = true
+	}
 	out := map[string]*big.Rat{}
 	for _, src := range pl.sources {
-		if src.OverageMode != store.OverageModeGrow || src.SpendLimitMonth == nil {
+		if notInForce[src.ID] || src.OverageMode != store.OverageModeGrow || src.SpendLimitMonth == nil {
 			continue
 		}
 		used, err := OverageOf(src.ID, pl.lines)

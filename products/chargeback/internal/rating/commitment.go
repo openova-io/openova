@@ -135,6 +135,15 @@ func Commitment(in CommitmentInput) ([]store.RatedLine, []string, error) {
 		committed, committedSlug = a, in.Prepaid.PlanSlug
 	}
 	for _, sp := range in.Timeline {
+		// A span on the package already paid for N bills nothing: the Source
+		// did not move (DESIGN §22.11 — an upgrade line is for a Source that
+		// moved to a dearer package). Its price in today's book is not what
+		// was paid when the book changed since the advance line was written,
+		// and comparing the two billed a prepaid month again as "Upgrade
+		// M → M".
+		if committedSlug != "" && sp.Slug == committedSlug {
+			continue
+		}
 		price, ok, err := monthly(sp.Slug)
 		if err != nil {
 			return nil, nil, fmt.Errorf("plan %s: %w", sp.Slug, err)

@@ -234,3 +234,49 @@ func TestCommitmentReportsAnUnpricedPlan(t *testing.T) {
 		t.Fatalf("lines %+v unpriced %v err %v", lines, unpriced, err)
 	}
 }
+
+// A month paid in advance is not billed again when the book's price of the
+// package changed after it was paid. October's statement carried November's
+// M at 4.490; during November the sovereign-admin raised M to 4.990 (annual
+// 59.88). November's statement carries December in advance at 4.990 and
+// NOTHING for November: the Source stayed on M, there was no upgrade. On
+// main the frozen 4.490 was compared with today's 4.990 and an "Upgrade M →
+// M" line of 0.500 billed the prepaid month again.
+func TestRaisedPackagePriceDoesNotBillAPrepaidMonthAgain(t *testing.T) {
+	in := commitIn(day(2026, 11, 1), span("m", day(2026, 11, 1), day(2026, 12, 1)))
+	raised := store.Decimal("59.88")
+	m := in.Items["plan.m"]
+	m.AnnualPrice = &raised
+	in.Items["plan.m"] = m
+	in.Prepaid = &store.PrepaidPeriod{PlanSlug: "m", Amount: "4.490000"}
+	lines, _, err := Commitment(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkLines(t, lines, []wantLine{
+		{"plan.m", "1", "month", "4.99000000", "4.990000", "2026-12-01", "2026-12-31", "M package — December 2026, billed in advance"},
+	})
+
+	// A real upgrade after the raise still bills what L costs above what was
+	// PAID for November (DESIGN §22.11, max(0, monthly(span) − paid)): L
+	// 7.990 − the 4.490 paid = 3.500, for the 360 of 720 hours on L.
+	in.Timeline = []store.PlanSpan{span("m", day(2026, 11, 1), day(2026, 11, 16)), span("l", day(2026, 11, 16), day(2026, 12, 1))}
+	lines, _, err = Commitment(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkLines(t, lines, []wantLine{
+		{"plan.l", "360.000000", "hour", "0.00486111", "1.750000", "2026-11-16", "2026-11-30", "Upgrade M → L — 16 to 30 November 2026, 360 of 720 hours at the 3.500 monthly difference"},
+		{"plan.l", "1", "month", "7.99000000", "7.990000", "2026-12-01", "2026-12-31", "L package — December 2026, billed in advance"},
+	})
+
+	// Back on M after L: L was paid, nothing more for November.
+	in.Timeline = []store.PlanSpan{span("m", day(2026, 11, 1), day(2026, 11, 10)), span("l", day(2026, 11, 10), day(2026, 11, 16)), span("m", day(2026, 11, 16), day(2026, 12, 1))}
+	lines, _, err = Commitment(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0].SKU != "plan.l" || lines[1].Description != "M package — December 2026, billed in advance" {
+		t.Fatalf("lines %+v, want the upgrade to L once and December in advance at M", lines)
+	}
+}
