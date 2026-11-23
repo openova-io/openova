@@ -67,7 +67,20 @@ gitea:
       # upstream openova/openova mirror into the local Gitea (issue #830
       # Bug 2). Sharing the contract here means there is exactly ONE
       # source of truth for the admin credentials on the Sovereign.
+      #
+      # ONE WRITER (multi-region): the regions' Giteas share ONE database, so
+      # there is one `gitea_admin` row. Its password is owned by the bp-gitea
+      # release of the WRITER region: templates/admin-secret.yaml generates it
+      # there and that region's init applies it. A follower region's root
+      # (clusters/_template/root/multi-region-follower-*) hands slot 10 the
+      # values `existingSecret: ""`, so a follower release neither generates
+      # the Secret nor runs the init's create/change-password step.
       existingSecret: gitea-admin-secret
+      # No baked password. The upstream default `r8sA8CPHD9!bt6d` would be
+      # written to the admin row by any release that runs without
+      # existingSecret (a follower region): empty here means such a release
+      # sets no admin password at all.
+      password: ""
     config:
       APP_NAME: Catalyst Gitea
       server:
@@ -280,6 +293,10 @@ gitea:
 # Per-Sovereign overrides are operationally meaningful only when the
 # operator has a documented reason to fork the username (default
 # gitea_admin matches the upstream chart's expected admin login).
+#
+# Rendered only when gitea.gitea.admin.existingSecret is set: the release
+# whose Gitea applies the password is the one that generates it. A follower
+# region (existingSecret "") renders no admin Secret.
 giteaAdmin:
   secretName: "gitea-admin-secret"
   username: "gitea_admin"
@@ -298,6 +315,8 @@ giteaAdmin:
 # repository of `repos` in it (private, first commit on main) when Gitea is
 # installed. It runs in the writer region only: bootstrap-kit slot 10 fills
 # regionId and writerRegionId; an empty writerRegionId means one region.
+# The git-data guard reads the same two ids (a follower region of a shared
+# database gives no drift verdict).
 platformRepos:
   enabled: true
   image: "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
@@ -644,6 +663,18 @@ bootstrapOwned:
 #      (a genuinely FRESH prov)                           → NO-OP: the chart
 #      provisions a fresh PVC normally. This is the only case where an empty
 #      git-data volume is correct.
+#
+# Which database. Own cluster (postgres.cluster.enabled true): the guard execs
+# psql in this chart's gitea-pg pod; no pod means the chart has not created
+# the database yet, a fresh prov. SHARED database (postgres.cluster.enabled
+# false, the Sovereign default): the database exists before this chart, so
+# "no local pod" says nothing. An init container (the postgres.cluster image,
+# psql) connects the way Gitea does — gitea.gitea.config.database HOST/NAME/
+# USER/SSL_MODE and the GITEA__database__PASSWD Secret — and counts the
+# repositories; a database it cannot reach is NOT a fresh install (the guard
+# fails unless failOnDbDiskDrift=false). A follower region of the shared
+# database (platformRepos.writerRegionId set and not this region) gives no
+# drift verdict: its disk is filled from the writer by region-git-sync.
 gitDataMigration:
   # Master switch. Default ON — the guard is a no-op on a fresh prov (case 4)
   # and only acts when prior state exists, so it is always safe to leave on.
