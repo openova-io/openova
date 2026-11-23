@@ -104,7 +104,8 @@ path "{{ .kv }}/metadata/catalyst/*" {
 }
 {{ end -}}
 
-{{- /* #3375 DoD-8 snapshot SAVE endpoint only. */ -}}
+{{- /* The snapshot SAVE endpoint only: what the backup CronJob may do
+(templates/backup-snapshot.yaml, SEC-180). */ -}}
 {{- define "openbao.policy.openbao-snapshot" -}}
 path "sys/storage/raft/snapshot" {
   capabilities = ["read"]
@@ -283,6 +284,8 @@ openbao.configOps — the ordered desired state as JSON
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
 {{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin") -}}
+{{- $bk := .Values.backup | default dict -}}
+{{- if $bk.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 
 {{- /* role: name, sa (one name or a list), ns (one or a list), policies, ttl,
 maxTTL, aud (the audience a service-account token must carry; none = any). */ -}}
@@ -301,6 +304,11 @@ maxTTL, aud (the audience a service-account token must carry; none = any). */ -}
   (dict "name" "workload" "sa" "*" "ns" "*" "policies" (list "workload") "ttl" "15m" "max" "1h" "aud" "openbao")
   (dict "name" "eso-ns" "sa" "eso-reader" "ns" "*" "policies" (list "eso-ns") "ttl" "15m" "max" "1h")
   (dict "name" "tofu-state-mint" "sa" "eso-reader" "ns" "crossplane-system" "policies" (list "eso-ns" "tofu-state-mint") "ttl" "15m" "max" "1h")) -}}
+{{- /* SEC-180: the backup CronJob (templates/backup-snapshot.yaml), with a token
+for audience openbao; rendered with it, when backup.enabled. */ -}}
+{{- if $bk.enabled -}}
+{{- $roles = append $roles (dict "name" "openbao-snapshot" "sa" "openbao-backup" "ns" $ns "policies" (list "openbao-snapshot") "ttl" "15m" "max" "15m" "aud" "openbao") -}}
+{{- end -}}
 {{- /* tofu-state and tofu-state-backup bind the service accounts of
 stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ -}}
 {{- range $role, $ids := dict "tofu-state" ($sk.jobIdentities | default list) "tofu-state-backup" ($sk.backupIdentities | default list) -}}

@@ -1,0 +1,200 @@
+{{- /*
+openbao-backup — a raft snapshot of OpenBao to object storage (SEC-180).
+Every backup.schedule the job logs in as auth role openbao-snapshot (service
+account openbao-backup, audience openbao; its policy reads only
+sys/storage/raft/snapshot, templates/_config.tpl), reads one snapshot, puts it
+at s3://<bucket>/<prefix><peerTrust.selfRegion>/<UTC time>.snap, reads its size
+back, and only then deletes this region's snapshots older than retentionDays.
+The bucket Secret is mounted as files; the key pair and the token reach curl
+on its standard input. tests/backup-render.sh runs this script; restoring is
+docs/RUNBOOKS.md §2.18. Rendered when backup.enabled and kubernetesAuth.enabled.
+*/ -}}
+{{- $b := .Values.backup | default dict -}}
+{{- $kAuth := .Values.kubernetesAuth | default dict -}}
+{{- if and $b.enabled $kAuth.enabled }}
+{{- $baoAddr := .Values.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
+{{- $region := (.Values.peerTrust | default dict).selfRegion | default "" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-backup
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-backup
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-backup-script
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-backup
+data:
+  backup.sh: |
+    #!/bin/sh
+    # openbao-backup (SEC-180): one raft snapshot of OpenBao to object storage.
+    set -eu
+    die() { echo "openbao-backup: FATAL: $*" >&2; exit 1; }
+    say() { echo "openbao-backup: $*"; }
+    [ -n "${BUCKET:-}" ] || die "backup.bucket is empty"
+    [ -n "${REGION:-}" ] || die "peerTrust.selfRegion is empty: the snapshot would have no region path"
+    case "${RETENTION_DAYS:-}" in ''|*[!0-9]*) die "backup.retentionDays is not a whole number: '${RETENTION_DAYS:-}'" ;; esac
+    for k in s3-endpoint s3-region s3-access-key s3-secret-key; do
+      [ -s "${BUCKET_DIR}/${k}" ] || die "key ${k} is missing or empty in Secret ${BUCKET_CREDENTIALS}"
+    done
+    ENDPOINT="$(cat "${BUCKET_DIR}/s3-endpoint")"; ENDPOINT="${ENDPOINT%/}"
+    S3_REGION="$(cat "${BUCKET_DIR}/s3-region")"
+    URL="${ENDPOINT}/${BUCKET}"
+    DIR="${PREFIX}${REGION}"
+    # s3 <curl args>: one request signed with AWS signature version 4.
+    s3() {
+      printf 'user = "%s:%s"\n' "$(cat "${BUCKET_DIR}/s3-access-key")" "$(cat "${BUCKET_DIR}/s3-secret-key")" \
+        | curl -sS --fail-with-body -K - --aws-sigv4 "aws:amz:${S3_REGION}:s3" "$@"
+    }
+    # bao <curl args>: one request with this run's OpenBao token.
+    bao() { printf 'header = "X-Vault-Token: %s"\n' "${TOKEN}" | curl -sS --fail-with-body -K - "$@"; }
+
+    # 1. Log in as role openbao-snapshot; the token is revoked when the run ends.
+    TOKEN="$(printf '{"role":"%s","jwt":"%s"}' "${BAO_ROLE}" "$(cat "${JWT_FILE}")" \
+      | curl -sS --fail-with-body --data @- "${BAO_ADDR}/v1/auth/${BAO_K8S_AUTH_PATH}/login" \
+      | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
+    [ -n "${TOKEN}" ] || die "login as ${BAO_ROLE} on auth/${BAO_K8S_AUTH_PATH} refused"
+    trap 'bao -X POST "${BAO_ADDR}/v1/auth/token/revoke-self" >/dev/null 2>&1 || true; rm -f "${WORK_DIR}/openbao.snap"' EXIT
+
+    # 2. Read one snapshot.
+    SNAP="${WORK_DIR}/openbao.snap"
+    bao -o "${SNAP}" "${BAO_ADDR}/v1/sys/storage/raft/snapshot" || die "reading sys/storage/raft/snapshot failed"
+    SIZE="$(wc -c < "${SNAP}" | tr -d ' ')"
+    [ "${SIZE}" -gt 0 ] || die "the snapshot is empty"
+
+    # 3. Put it and read its size back.
+    OBJ="${DIR}/$(date -u +%Y%m%dT%H%M%SZ).snap"
+    s3 -T "${SNAP}" "${URL}/${OBJ}" >/dev/null || die "putting s3://${BUCKET}/${OBJ} failed"
+    GOT="$(s3 -I "${URL}/${OBJ}" | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ll]ength: *//p')"
+    [ "${GOT}" = "${SIZE}" ] || die "s3://${BUCKET}/${OBJ} reads back ${GOT:-no} bytes, ${SIZE} were put"
+    say "put s3://${BUCKET}/${OBJ} (${SIZE} bytes)"
+
+    # 4. Delete this region's snapshots older than RETENTION_DAYS. Only a name
+    # this job writes is ever deleted. A listing holds at most 1000 names in
+    # ascending order, so the oldest go first and a backlog clears over runs.
+    CUT="$(date -u -d "@$(( $(date +%s) - RETENTION_DAYS * 86400 ))" +%Y%m%d%H%M%S)"
+    QDIR="$(printf '%s/' "${DIR}" | sed 's|/|%2F|g')"
+    s3 "${URL}?list-type=2&prefix=${QDIR}" > "${WORK_DIR}/list.xml" || die "listing s3://${BUCKET}/${DIR}/ failed"
+    grep -o '<Key>[^<]*</Key>' "${WORK_DIR}/list.xml" | sed 's|</*Key>||g' > "${WORK_DIR}/names" || true
+    DELETED=0
+    while read -r k; do
+      n="${k#"${DIR}/"}"
+      [ "${n}" != "${k}" ] || continue
+      case "${n}" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z.snap) ;;
+        *) continue ;;
+      esac
+      t="${n#*T}"
+      [ "${n%%T*}${t%Z.snap}" -lt "${CUT}" ] || continue
+      s3 -X DELETE "${URL}/${k}" >/dev/null || die "deleting s3://${BUCKET}/${k} failed"
+      DELETED=$((DELETED + 1))
+    done < "${WORK_DIR}/names"
+    say "deleted ${DELETED} snapshot(s) older than ${RETENTION_DAYS} days under s3://${BUCKET}/${DIR}/"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openbao-backup
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-backup
+spec:
+  schedule: {{ $b.schedule | default "17 */6 * * *" | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        # The Job is not an object of the release: Kyverno flux-managed reads this.
+        app.kubernetes.io/managed-by: flux
+        app.kubernetes.io/name: openbao-backup
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-openbao
+            app.kubernetes.io/name: openbao-backup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: openbao-backup
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: {{ $b.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh"]
+              args: ["/etc/openbao-backup/script/backup.sh"]
+              env:
+                - {name: BAO_ADDR, value: {{ $baoAddr | quote }}}
+                - {name: BAO_K8S_AUTH_PATH, value: {{ include "openbao.configLoginMount" . | quote }}}
+                - {name: BAO_ROLE, value: openbao-snapshot}
+                - {name: JWT_FILE, value: /var/run/secrets/openbao/jwt}
+                - {name: BUCKET, value: {{ $b.bucket | default "" | quote }}}
+                - {name: BUCKET_CREDENTIALS, value: {{ $b.bucketSecretName | default "object-storage" | quote }}}
+                - {name: BUCKET_DIR, value: /etc/openbao-backup/bucket}
+                - {name: PREFIX, value: {{ $b.prefix | default "openbao/" | quote }}}
+                - {name: REGION, value: {{ $region | quote }}}
+                - {name: RETENTION_DAYS, value: {{ $b.retentionDays | default 30 | quote }}}
+                - {name: WORK_DIR, value: /work}
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "128Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - {name: script, mountPath: /etc/openbao-backup/script, readOnly: true}
+                - {name: bucket, mountPath: /etc/openbao-backup/bucket, readOnly: true}
+                - {name: jwt, mountPath: /var/run/secrets/openbao, readOnly: true}
+                - {name: work, mountPath: /work}
+          volumes:
+            - name: script
+              configMap:
+                name: openbao-backup-script
+                defaultMode: 0555
+            - name: bucket
+              secret:
+                secretName: {{ $b.bucketSecretName | default "object-storage" | quote }}
+                items:
+                  - {key: s3-endpoint, path: s3-endpoint}
+                  - {key: s3-region, path: s3-region}
+                  - {key: s3-access-key, path: s3-access-key}
+                  - {key: s3-secret-key, path: s3-secret-key}
+            - name: jwt
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      path: jwt
+                      audience: openbao
+                      expirationSeconds: 600
+            - name: work
+              emptyDir:
+                sizeLimit: 2Gi
+{{- end }}

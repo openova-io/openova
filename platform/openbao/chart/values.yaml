@@ -269,6 +269,23 @@ stateKey:
   # no role; the human group sovereign-admins carries the policy.
   backupIdentities: []
 
+# ── Snapshot backup to object storage (SEC-180) ──────────────────────────
+# CronJob openbao-backup (templates/backup-snapshot.yaml) puts one raft snapshot
+# at s3://<bucket>/<prefix><peerTrust.selfRegion>/<UTC time>.snap, then deletes
+# this region's snapshots older than retentionDays. It logs in as auth role
+# openbao-snapshot, whose policy reads only sys/storage/raft/snapshot. Secret
+# bucketSecretName, in the release namespace, carries the keys of the
+# object-storage Secret: s3-endpoint (a URL), s3-region, s3-access-key,
+# s3-secret-key. Restoring: docs/RUNBOOKS.md §2.18. The kit switches it on.
+backup:
+  enabled: false
+  schedule: "17 */6 * * *"
+  bucket: ""
+  bucketSecretName: object-storage
+  prefix: openbao/
+  retentionDays: 30
+  image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support
 # with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
