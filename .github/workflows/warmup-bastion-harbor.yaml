@@ -39,9 +39,19 @@
 # values.yaml, quoted or not) and the just-pushed catalyst SHA tags passed by
 # catalyst-build. A run started by hand warms the list of one ref.
 #
-# Mirrors the sovereignty-cutover 03-harbor-prewarm Job's skopeo flags + retry
-# discipline (--insecure-policy, --retry-times 5, --command-timeout, parallel
-# fan-out, OUTER per-image retry).
+# The copy IS the copy of the sovereignty-cutover 03-harbor-prewarm Job: its
+# skopeo (skopeo_fetch, the one pinned version of values skopeo) and its copy
+# function offlinemirror_copy (--multi-arch all, --preserve-digests: a list is
+# copied entry by entry, then its own bytes), cut from the chart's render by
+# scripts/cutover-copy-functions.sh, with the same parallel fan-out and OUTER
+# per-image retry. Until 24 Nov 2026 this file ran its own `skopeo copy` at the
+# default --multi-arch system: it wrote the linux/amd64 child of each list under
+# the tag, so a node that pulled before the cutover ran
+# catalyst-api:4166721@sha256:3097ff33... (the child) and, after the cutover,
+# the Sovereign's registry (step 03) served the list sha256:82264606... (ghcr's
+# digest) for the same tag; the gate records of 23 Nov could not pair.
+# tests/hermetic/provider-package-copy (case warmup) runs this copy_one with
+# real skopeo against two registries.
 #
 # PREREQUISITES (PROVISIONED 2026-06-22, #4049 — already live):
 #   - CI secret `BASTION_HARBOR_ROBOT_TOKEN` — the secret for the dedicated PUSH
@@ -125,6 +135,9 @@ jobs:
       PREWARM_PARALLELISM: '6'
       PREWARM_COPY_ATTEMPTS: '3'
       PREWARM_SKOPEO_TIMEOUT: '1200s'
+      # offlinemirror_copy verifies the destination's certificate (the public
+      # front door), as this copy always did.
+      PREWARM_DEST_TLS_VERIFY: 'true'
     steps:
       - name: Checkout openova (public source — the catalyst + component charts)
         uses: actions/checkout@v4
@@ -139,14 +152,16 @@ jobs:
           go-version-file: openova-src/tools/guards/go.mod
           cache: false
 
-      - name: Install skopeo + helm
+      - name: Install helm, then step 03's copy functions and skopeo
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          skopeo --version
           helm version --short
+          sh openova-src/scripts/cutover-copy-functions.sh openova-src/platform/self-sovereign-cutover/chart >"${RUNNER_TEMP}/copy-functions.sh"
+          mkdir -p "${RUNNER_TEMP}/skopeo"
+          sh -c '. "$1"; skopeo_fetch "$2" "[warmup]"' sh "${RUNNER_TEMP}/copy-functions.sh" "${RUNNER_TEMP}/skopeo"
+          echo "${RUNNER_TEMP}/skopeo" >>"${GITHUB_PATH}"
+          "${RUNNER_TEMP}/skopeo/skopeo" --version
 
       - name: Guard — warmup secret present
         run: |
@@ -247,13 +262,17 @@ jobs:
 
           cpdir="/tmp/warmup-copies"; rm -rf "${cpdir}"; mkdir -p "${cpdir}"
 
-          # copy_one — mirrors the cutover 03-harbor-prewarm copy_one EXACTLY:
-          # ghcr.io/openova-io/openova/X:tag → HARBOR_HOST/openova-io/openova/X:tag
+          # Step 03's copy functions (the step before cut them from the render).
+          . "${RUNNER_TEMP}/copy-functions.sh"
+
+          # copy_one — ghcr.io/openova-io/openova/X:tag → HARBOR_HOST/openova-io/openova/X:tag
           # (drop the `ghcr.io/` prefix, keep the rest identical → lands under the
-          # hosted `openova-io` project the registries.yaml rewrite targets). OUTER
-          # per-image retry loop (PREWARM_COPY_ATTEMPTS) wraps the inner
-          # --retry-times 5, with a global --command-timeout so a stalled
-          # connection can't hang forever. Branch on skopeo's REAL exit status.
+          # hosted `openova-io` project the registries.yaml rewrite targets) with
+          # step 03's offlinemirror_copy --multi-arch all: the tag keeps ghcr's
+          # digest, the list with every entry. OUTER per-image retry loop
+          # (PREWARM_COPY_ATTEMPTS) wraps the inner --retry-times 5, with a global
+          # --command-timeout so a stalled connection can't hang forever. Branch on
+          # the copy's REAL exit status.
           copy_one() {
             up="$1"
             lref="${HARBOR_HOST}/${up#ghcr.io/}"
@@ -261,14 +280,7 @@ jobs:
             attempt=1; rc=1; : >"${cpdir}/${slug}.log"
             while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
               echo "[warmup] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
-              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-                --insecure-policy \
-                --retry-times 5 \
-                --src-creds="${GHCR_USER}:${GHCR_PAT}" \
-                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --dest-tls-verify=true \
-                --src-tls-verify=true \
-                "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+              if offlinemirror_copy "${up}" "${GHCR_USER}:${GHCR_PAT}" "${lref}" --multi-arch all >>"${cpdir}/${slug}.log" 2>&1; then
                 rc=0; break
               else
                 rc=$?

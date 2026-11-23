@@ -80,12 +80,11 @@
 // the node map rewrites ghcr.io/openova-io/openova/<name> to the hosted project
 // path openova-io/openova/<name>. What a node pulls is the linux/amd64 image
 // manifest: the child when the tag holds an index, else the manifest itself.
-// That is also what the warm-up writes: .github/workflows/warmup-bastion-harbor.yaml
-// copies with `skopeo copy` at its default (--multi-arch system, on an amd64
-// runner), which writes an index's linux/amd64 child, unchanged, under the tag,
-// so the origin's tag carries the digest of ghcr's child, never that of ghcr's
-// index. An origin that holds the whole index (a copy with --all) passes when
-// its linux/amd64 child is ghcr's and is served. Exit 0 every image is there;
+// The warm-up (.github/workflows/warmup-bastion-harbor.yaml) copies with cutover
+// step 03's copy function (--multi-arch all, --preserve-digests) since 24 Nov
+// 2026, so the origin's tag carries ghcr's index; a tag it wrote before then
+// with `skopeo copy` at its default carries ghcr's linux/amd64 child. Both pass
+// when the linux/amd64 child is ghcr's and is served. Exit 0 every image is there;
 // 1 at least one is missing or carries another image (each is named); 2 a
 // registry could not be read, so nothing is concluded.
 package main

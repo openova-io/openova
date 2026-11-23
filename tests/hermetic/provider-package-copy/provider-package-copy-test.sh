@@ -38,8 +38,22 @@
 #             every blob are byte-equal on both sides. With skopeo 1.15.2 it fails;
 #   control   the same whole copy with skopeo 1.15.2 is refused with the measured line: the
 #             packages have the shape that failed. If it is not refused the test can no longer
-#             see the defect: it fails and says so.
-# Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole.
+#             see the defect: it fails and says so;
+#   warmup    the copy of .github/workflows/warmup-bastion-harbor.yaml (into the parent's hosted
+#             project, the registry every node pulls first-party images from until the cutover):
+#             its copy_one, cut from the workflow, with the functions the workflow sources
+#             (scripts/cutover-copy-functions.sh) and the skopeo they fetch, copies a list of the
+#             shape docker/build-push-action pushes (a linux/amd64 image and its attestation
+#             manifest) from ghcr.io (a skopeo first on PATH sends ghcr.io to the first registry):
+#             the tag serves the list's digest, the list, both manifests and every blob are
+#             byte-equal. The workflow fetches that skopeo and has no skopeo of its own;
+#   warmup-control  skopeo at its default (--multi-arch system), the warm-up's copy before
+#             24 Nov 2026, writes the linux/amd64 child under the tag, not the list: the list has
+#             the shape that gave one tag two digests (gate records of 23 Nov 2026,
+#             catalyst-api:4166721 at 3097ff33..., the child, and 82264606..., ghcr's list).
+# Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole;
+# with the warm-up workflow of main before 24 Nov 2026 the case warmup fails (the tag serves the
+# child).
 #
 # Usage: bash tests/hermetic/provider-package-copy/provider-package-copy-test.sh [CHART_DIR]
 # PPC_DIR (default RUNNER_TEMP/provider-package-copy) holds bin/, work/ and results.txt.
@@ -112,6 +126,26 @@ for f in tofu_list_read tofu_list_line tofu_local_digest src_creds_for offlinemi
 done
 TOFU_LOCAL_PATH=$(awk '$0 ~ /- name: TOFU_LOCAL_PATH$/ {getline; sub(/^ *value: */, ""); gsub(/"/, ""); print; exit}' "${W}/pod.yaml")
 [ -n "${TOFU_LOCAL_PATH}" ] || die "step 03 sets no TOFU_LOCAL_PATH"
+
+# ---- the warm-up's copy (case warmup): the functions its workflow sources, then its copy_one.
+WARMUP_WF="${ROOT}/.github/workflows/warmup-bastion-harbor.yaml"
+sh "${ROOT}/scripts/cutover-copy-functions.sh" "${CHART_DIR}" >"${W}/warmup.sh" || die "scripts/cutover-copy-functions.sh found no copy functions in the render"
+awk '/^ *copy_one\(\) \{$/ {f = 1; p = substr($0, 1, index($0, "c") - 1)} f {print substr($0, length(p) + 1)} f && $0 == p "}" {exit}' "${WARMUP_WF}" >>"${W}/warmup.sh"
+grep -q '^copy_one() {$' "${W}/warmup.sh" || die "${WARMUP_WF} has no copy_one: nothing to run"
+WARMUP_TLS=$(sed -n "s/^ *PREWARM_DEST_TLS_VERIFY: *'\([a-z]*\)'.*/\1/p" "${WARMUP_WF}" | head -n 1)
+cat >"${W}/warmup-env.sh" <<ENV
+export HARBOR_HOST=localhost:5002 HARBOR_USERNAME=admin HARBOR_PASSWORD=pw GHCR_USER=bot GHCR_PAT=tok
+export PREWARM_COPY_ATTEMPTS=1 PREWARM_SKOPEO_TIMEOUT=120s PREWARM_DEST_TLS_VERIFY="${WARMUP_TLS}" cpdir=/tmp/ppc-warmup-copies
+ENV
+{
+  if grep -q 'scripts/cutover-copy-functions.sh' "${WARMUP_WF}" && grep -q 'skopeo_fetch "' "${WARMUP_WF}"; then
+    echo "ok   — warmup: the workflow sources step 03's copy functions and fetches step 03's skopeo with skopeo_fetch"
+  else
+    echo "FAIL — warmup: ${WARMUP_WF##*/} does not source scripts/cutover-copy-functions.sh and fetch skopeo with skopeo_fetch"
+  fi
+  if grep -qE 'apt-get install.*skopeo' "${WARMUP_WF}"; then echo "FAIL — warmup: ${WARMUP_WF##*/} installs a skopeo of its own (apt), a second version"
+  else echo "ok   — warmup: the workflow installs no skopeo of its own"; fi
+} >"${W}/out/case-warmup-workflow.txt"
 
 # ---- the tools: ORAS checked against the publisher's checksum, step 03's skopeo, the publisher's command.
 if [ ! -x "${BIN}/oras-${ORAS_VERSION}" ]; then
