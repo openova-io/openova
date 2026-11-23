@@ -176,6 +176,14 @@ type: application
 #   (clusters/<fqdn>/regions/<r>/platform/<app>.yaml, lease under
 #   clusters/<fqdn>/continuum/transitions/) and moved by the same phase
 #   machine. Values unchanged (the controller image follows the deploy-bot).
+# next release (the release writer sets the version line, FND-011): a region
+#   move and a node drain take turns. While a transition of its region runs,
+#   Continuum holds the reboot agent's own lock (kured's lock annotation on
+#   DaemonSet kube-system/kured, TTL 5m, renewed); a Failed move keeps it at
+#   most waitSeconds after it failed. RBAC gains a Role in the agent's
+#   namespace (daemonsets get+patch, resourceNames [kured]) and nodes
+#   get/list/watch; values continuum.rebootAgent.{hold,namespace,
+#   holdTTLSeconds,waitSeconds} become REBOOT_* env.
 version: 0.2.6
 appVersion: "0.1.0"
 home: https://openova.io

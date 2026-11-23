@@ -17,6 +17,18 @@
 //	traffic-on    — (traffic followed the chart's rendering)  new region serving: HelmRelease Ready, DB
 //	              (restored last, bottom-up)                  primary Ready, Application Serving not False
 //
+// Two things outside a transition can break a phase, and both are handled
+// here, level-triggered like the rest:
+//
+//   - a demotion that does not complete (the old primary's instance restarts
+//     while CNPG applies it and comes back as a standby with no token) is
+//     issued again: traffic-off is run a second time (Demotion);
+//   - a move and the reboot agent (kured) take turns: a move does not start
+//     until each region of the move holds its reboot agent, and no step runs
+//     while that agent drains a node of those regions, each wait bounded by
+//     Policy.RebootWait (gate.go). The hold itself is taken by each region's
+//     controller (internal/reboot).
+//
 // The machine is PURE: given the group, the persisted transition record, the
 // region files and the native observations it returns at most ONE commit and
 // the updated record. The caller (internal/controller) owns I/O, the lease and
@@ -138,6 +150,108 @@ type Policy struct {
 	// PhaseTimeout is how long one wait may run before the phase reports
 	// failed.
 	PhaseTimeout time.Duration
+	// RebootWait bounds how long a move waits for the reboot agent of a
+	// region of the move (a node it drains, or the hold it does not yet
+	// keep). Past it the move goes on and says so. 0 = DefaultRebootWait.
+	RebootWait time.Duration
+}
+
+// DefaultRebootWait covers one drain of the reboot agent as bp-kured
+// configures it: --drain-timeout 10m + --lock-release-delay 5m, plus 5m for
+// the node's restart.
+const DefaultRebootWait = 20 * time.Minute
+
+// Re-issuing a demotion that did not complete (see Demotion).
+const (
+	// DemotionLostAfter is how long the old primary must be seen running no
+	// primary, publishing no token and not switching before the demotion is
+	// issued again: CNPG publishes the token within seconds of a demotion it
+	// carries out, so a minute of that state means it will never come.
+	DemotionLostAfter = time.Minute
+	// ReissueAttempts bounds how often one member's demotion is issued again
+	// within one transition.
+	ReissueAttempts = 3
+)
+
+// Reasons of the Interrupted condition: what, outside the transition, holds
+// it up, and what the machine does about it.
+const (
+	// ReasonNodeDraining — the reboot agent drains a node of a region of the
+	// move; the next step waits (at most Policy.RebootWait).
+	ReasonNodeDraining = "NodeDraining"
+	// ReasonRebootHoldPending — a region of the move does not hold its reboot
+	// agent yet; the move does not start (at most Policy.RebootWait).
+	ReasonRebootHoldPending = "RebootHoldPending"
+	// ReasonRebootAgentUnknown — the reboot agent of a region of the move
+	// could not be read; the next step waits (at most Policy.RebootWait).
+	ReasonRebootAgentUnknown = "RebootAgentUnknown"
+	// ReasonRebootWaitExceeded — the wait for the reboot agent reached its
+	// bound; the move goes on.
+	ReasonRebootWaitExceeded = "RebootWaitExceeded"
+	// ReasonDemotionInterrupted — the old primary came back as a standby
+	// without a demotion token; the demotion is issued again.
+	ReasonDemotionInterrupted = "DemotionInterrupted"
+	// ReasonDemotionReissueExhausted — the demotion was issued again
+	// ReissueAttempts times without a token; nothing more is re-issued.
+	ReasonDemotionReissueExhausted = "DemotionReissueExhausted"
+)
+
+// Reasons of the RebootAgentHeld condition: whether a move holds the reboot
+// agent of a region of it (HoldOf).
+const (
+	// ReasonHeldForMove — a move of the region is in progress and can still
+	// act: the region's reboot agent is held, kured starts no drain there.
+	ReasonHeldForMove = "HeldForMove"
+	// ReasonReleasedFailedMove — the move has been Failed for longer than
+	// Policy.RebootWait: the hold is released, and taken again only if the
+	// move acts again (it is still evaluated).
+	ReasonReleasedFailedMove = "ReleasedFailedMove"
+	// ReasonReleasedReissueExhausted — the demotion was issued again
+	// ReissueAttempts times without a token and nothing more is re-issued:
+	// the hold is released.
+	ReasonReleasedReissueExhausted = "ReleasedReissueExhausted"
+)
+
+// RebootHold says whether a move holds the reboot agent of one region of it,
+// and why.
+type RebootHold struct {
+	Held    bool
+	Reason  string
+	Message string
+}
+
+// Interruption is a named reason that holds a transition up from outside it.
+type Interruption struct {
+	Reason  string `json:"reason"`
+	Message string `json:"message"`
+}
+
+// Demotion is the state of one member's demotion that did not complete and is
+// issued again (the traffic-off phase run a second time).
+//
+// CNPG demotes a running primary and publishes status.demotionToken. An old
+// primary whose instance STARTS inside a replica cluster (its Pod re-created
+// while the demotion was being applied — a node drain) is demoted at once by
+// the instance manager and publishes no token (cloudnative-pg 1.29
+// internal/management/controller/instance_startup.go); the operator then sees
+// no primary instance and starts no transition (pkg/reconciler/
+// replicaclusterswitch, containsPrimaryInstance). The token only a running
+// primary's demotion yields is then never published. The machine restores the
+// old primary in the old primary's file, waits until its Cluster runs a
+// primary again, and commits the demotion once more.
+type Demotion struct {
+	// LostSince — when the old primary was first seen running no primary
+	// with no token and no switch in progress.
+	LostSince string `json:"lostSince,omitempty"`
+	// Attempts — how often the demotion was issued again.
+	Attempts int `json:"attempts,omitempty"`
+	// Restoring — the old primary's file names the old primary again; the
+	// demotion is committed once more when its Cluster runs a primary.
+	Restoring bool `json:"restoring,omitempty"`
+	// Exhausted — the demotion was issued again ReissueAttempts times and the
+	// old primary is still seen without a primary and without a token:
+	// nothing more is re-issued (cleared when that state ends).
+	Exhausted bool `json:"exhausted,omitempty"`
 }
 
 // DBStatus is a member's CNPG Cluster in one region, read from the Cluster's
@@ -155,6 +269,39 @@ type DBStatus struct {
 	// contract charts installed by a bootstrap-kit slot, whose HelmRelease
 	// receives the contract through valuesFrom.
 	TopologyPrimary string `json:"topologyPrimary,omitempty"`
+	// RunningPrimary — whether an instance of the Cluster runs PostgreSQL as
+	// a primary, from status.instancesReportedState[].isPrimary (the
+	// operator's own reading of each instance; standby.signal absent). True
+	// when one does, False when the instances are reported and none does,
+	// Unknown when none is reported.
+	RunningPrimary Tri `json:"runningPrimary"`
+	// Switching — status.switchReplicaClusterStatus.inProgress: CNPG is
+	// demoting the Cluster (fenced, waiting for the shutdown to read the
+	// token).
+	Switching bool `json:"switching,omitempty"`
+}
+
+// RebootStatus is a region's reboot agent (kured), read by that region from
+// kured's own objects: the lock annotation of its DaemonSet and its nodes.
+type RebootStatus struct {
+	// Agent — the reboot agent's DaemonSet exists in the region.
+	Agent bool `json:"agent"`
+	// Holdable — kured takes one lock (--concurrency=1), so one live lock
+	// that names no node stops every drain.
+	Holdable bool `json:"holdable,omitempty"`
+	// Holder is the nodeID of kured's live lock ("" = free).
+	Holder string `json:"holder,omitempty"`
+	// Held — no drain can start: the live lock names no node of the region
+	// (this region's Continuum, the install hold, a person's manual hold).
+	Held bool `json:"held,omitempty"`
+	// Draining are the nodes kured holds its lock for and has cordoned.
+	Draining []string `json:"draining,omitempty"`
+	// Unknown — the agent could not be read (its DaemonSet or the nodes: a
+	// refusal, a timeout, a 5xx), so whether it exists, holds or drains is
+	// not known. It is not "no agent": a move waits on it (Message says why).
+	Unknown bool `json:"unknown,omitempty"`
+	// Message says why the agent could not be read or held.
+	Message string `json:"message,omitempty"`
 }
 
 // MemberStatus is one member in one region, as that region observes it.
@@ -184,6 +331,9 @@ type RegionView struct {
 	LastSeen time.Time
 	// Members by Member.Key().
 	Members map[string]MemberStatus
+	// Reboot is the region's reboot agent (nil = not reported: a region
+	// whose Continuum predates the report, or a reader without the agent).
+	Reboot *RebootStatus
 }
 
 // FileView is one member's region file as it stands in Git.
@@ -229,10 +379,25 @@ type Record struct {
 	// so data-primary can commit it even if the old region vanishes after
 	// publishing it.
 	Tokens map[string]string `json:"tokens,omitempty"`
+	// Demotions: member key → its demotion issued again (see Demotion).
+	Demotions map[string]Demotion `json:"demotions,omitempty"`
+	// RebootWaitSince — when the move began waiting for a region's reboot
+	// agent (cleared when the wait ends).
+	RebootWaitSince string `json:"rebootWaitSince,omitempty"`
+	// GateHeld: step id → seconds the reboot gate held the step after it had
+	// begun, for waits that ended. The step's phase deadline moves by that
+	// much: its clock does not run while it only waits for the reboot agent.
+	GateHeld map[string]int64 `json:"gateHeld,omitempty"`
+	// FailedSince — when the move was first reported Failed (cleared when it
+	// is not). A Failed move holds the reboot agent at most Policy.RebootWait
+	// past it (HoldOf).
+	FailedSince string `json:"failedSince,omitempty"`
 	// Outcome / Message of the last evaluation.
-	Outcome  string     `json:"outcome,omitempty"`
-	Message  string     `json:"message,omitempty"`
-	Activity []Activity `json:"activity"`
+	Outcome string `json:"outcome,omitempty"`
+	Message string `json:"message,omitempty"`
+	// Interruption of the last evaluation (nil = none).
+	Interruption *Interruption `json:"interruption,omitempty"`
+	Activity     []Activity    `json:"activity"`
 }
 
 // Commit is one region-file write the caller performs.
@@ -258,4 +423,7 @@ type Result struct {
 	Committed string
 	// Desired is the primary the group's members declare.
 	Desired string
+	// Interruption names what outside the transition holds it up (nil =
+	// nothing).
+	Interruption *Interruption
 }

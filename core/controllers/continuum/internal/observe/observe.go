@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,6 +76,39 @@ func (t Target) Key() string { return t.Namespace + "/" + t.App }
 type Observer struct {
 	Dyn    dynamic.Interface
 	Region string
+	// Reboot reads the region's reboot agent for the peers (nil = not
+	// reported).
+	Reboot RebootReader
+
+	// A peer asks once per group per tick; the agent is read once per
+	// rebootReadEvery and the read is shared.
+	mu         sync.Mutex
+	rebootAt   time.Time
+	rebootLast *transition.RebootStatus
+}
+
+// RebootReader reads a region's reboot agent (internal/reboot.Agent).
+type RebootReader interface {
+	Read(ctx context.Context, now time.Time) transition.RebootStatus
+}
+
+// rebootReadEvery is shorter than a tick (10 s), so each tick of a peer sees
+// a read made after its previous tick.
+const rebootReadEvery = 5 * time.Second
+
+func (o *Observer) reboot(ctx context.Context) *transition.RebootStatus {
+	if o.Reboot == nil {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	now := time.Now().UTC()
+	if o.rebootLast == nil || now.Sub(o.rebootAt) >= rebootReadEvery {
+		s := o.Reboot.Read(ctx, now)
+		o.rebootLast, o.rebootAt = &s, now
+	}
+	out := *o.rebootLast
+	return &out
 }
 
 // Observe returns the native status of every target in this region.
@@ -220,6 +254,18 @@ func DBStatusOf(c *unstructured.Unstructured) transition.DBStatus {
 	d.DemotionToken, _, _ = unstructured.NestedString(c.Object, "status", "demotionToken")
 	d.LastPromotionToken, _, _ = unstructured.NestedString(c.Object, "status", "lastPromotionToken")
 	d.TopologyPrimary = c.GetAnnotations()[AnnotationTopologyPrimary]
+	// The operator's own reading of each instance (isPrimary: no
+	// standby.signal in its data directory) — the same test CNPG uses to
+	// decide whether there is a primary to demote.
+	if reported, ok, _ := unstructured.NestedMap(c.Object, "status", "instancesReportedState"); ok && len(reported) > 0 {
+		d.RunningPrimary = transition.False
+		for _, v := range reported {
+			if s, ok := v.(map[string]interface{}); ok && s["isPrimary"] == true {
+				d.RunningPrimary = transition.True
+			}
+		}
+	}
+	d.Switching, _, _ = unstructured.NestedBool(c.Object, "status", "switchReplicaClusterStatus", "inProgress")
 	return d
 }
 
@@ -259,6 +305,9 @@ type Response struct {
 	Region     string                             `json:"region"`
 	ObservedAt string                             `json:"observedAt"`
 	Members    map[string]transition.MemberStatus `json:"members"`
+	// Reboot is the region's reboot agent (absent from a Continuum that
+	// predates it).
+	Reboot *transition.RebootStatus `json:"reboot,omitempty"`
 }
 
 // Handler serves this region's observations. Query:
@@ -271,7 +320,7 @@ func Handler(o *Observer) http.Handler {
 			return
 		}
 		targets := ParseTargets(r.URL.Query().Get("members"))
-		resp := Response{Region: o.Region, ObservedAt: time.Now().UTC().Format(time.RFC3339), Members: o.Observe(r.Context(), targets)}
+		resp := Response{Region: o.Region, ObservedAt: time.Now().UTC().Format(time.RFC3339), Members: o.Observe(r.Context(), targets), Reboot: o.reboot(r.Context())}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	})
@@ -321,8 +370,9 @@ type Peers struct {
 	URLFor func(region string) string
 }
 
-// Fetch reads region's observations of targets.
-func (p Peers) Fetch(ctx context.Context, region string, targets []Target) (map[string]transition.MemberStatus, error) {
+// Fetch reads region's observations of targets, and its reboot agent (nil
+// when the region does not report it).
+func (p Peers) Fetch(ctx context.Context, region string, targets []Target) (map[string]transition.MemberStatus, *transition.RebootStatus, error) {
 	hc := p.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 5 * time.Second}
@@ -330,24 +380,24 @@ func (p Peers) Fetch(ctx context.Context, region string, targets []Target) (map[
 	u := strings.TrimRight(p.URLFor(region), "/") + "/v1/observations?members=" + url.QueryEscape(EncodeTargets(targets))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("observations from %s: HTTP %d", region, resp.StatusCode)
+		return nil, nil, fmt.Errorf("observations from %s: HTTP %d", region, resp.StatusCode)
 	}
 	var body Response
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("observations from %s: %w", region, err)
+		return nil, nil, fmt.Errorf("observations from %s: %w", region, err)
 	}
 	if body.Region != region {
-		return nil, fmt.Errorf("observations: asked %s, answered by %s", region, body.Region)
+		return nil, nil, fmt.Errorf("observations: asked %s, answered by %s", region, body.Region)
 	}
-	return body.Members, nil
+	return body.Members, body.Reboot, nil
 }
 
 // ClusterHandler serves this region's view of ONE CNPG Cluster by name:
