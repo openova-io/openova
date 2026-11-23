@@ -267,14 +267,20 @@ spec:
         # namespace (never "*") so tenant/Org LB Services can never
         # co-locate onto the sovereign EIP by annotation hijack.
         lbipam.cilium.io/sharing-cross-namespace: "kube-system"
+      # The Service selects the dnsdist Pods (templates/anycast-endpoint.yaml),
+      # which listen on 53 (dnsdist setLocal 0.0.0.0:53, container ports
+      # dns-udp / dns-tcp). 5353 is the port of the authoritative server
+      # behind dnsdist: as a targetPort here it sent every public query to a
+      # port nothing listens on (UDP timed out, TCP was reset; NET-G19 on
+      # hw307, 23 November 2026). Named ports follow the container.
       ports:
         - name: dns-udp
           port: 53
-          targetPort: 5353
+          targetPort: dns-udp
           protocol: UDP
         - name: dns-tcp
           port: 53
-          targetPort: 5353
+          targetPort: dns-tcp
           protocol: TCP
     # ─── Multi-zone bootstrap (issue #827, parent epic #825) ───────────
     # The Sovereign creates one PowerDNS zone per parent domain at Helm
