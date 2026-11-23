@@ -152,15 +152,10 @@ type Deployment struct {
 
 	retries retrycall.Log // the retry calls of the deployment, gate check FND-G02 (internal/retrycall)
 
-	// phase1Started gates the at-most-once launch of the Phase-1
-	// helmwatch goroutine. Two callers race to start it:
-	//   - runProvisioning, after `tofu apply` finishes
-	//   - PutKubeconfig, after cloud-init posts back the kubeconfig
-	// In the typical happy path cloud-init reaches healthz before
-	// `tofu apply` returns (the LB reconcile is the slowest part of
-	// Phase 0), so PutKubeconfig wins. A guard ensures the loser is
-	// a no-op rather than racing two informers against the same
-	// HelmRelease list.
+	// phase1Started gates the at-most-once launch of the Phase-1 watch of a
+	// run: runProvisioning starts it once Phase 0 succeeded, and PutKubeconfig
+	// (only while the record is phase1-watching) must not start a second one.
+	// A Phase-0 retry clears it: a new run gets its own watch.
 	phase1Started bool
 
 	// jobsBridge — per-deployment helmwatch → Job/Execution/LogLine
@@ -436,6 +431,9 @@ func fromRecord(rec store.Record) *Deployment {
 		OwnerEmail:           rec.OwnerEmail,
 	}
 	dep.retries.Set(rec.RetryCalls, rec.RetryCallsSent)
+	// The id lives on the record only (json:"-"): without it a Phase-0 retry ran in
+	// a working directory keyed by the FQDN, with empty state. FromRecord: see stageTfvars.
+	dep.Request.DeploymentID, dep.Request.FromRecord = rec.ID, true
 
 	// Kubeconfig file lost across restart → mark as failed. If the
 	// record claims a path but the file is missing, the helmwatch
@@ -643,7 +641,8 @@ func (h *Handler) restoreFromStore() {
 			// NOT block the rest of the rehydration loop (other
 			// deployments need to land in sync.Map quickly so /events
 			// poll works).
-			if dep.Status == "failed" && rec.PDMReservationToken != "" &&
+			// A record with Phase-0 outputs was interrupted in a retry: its name stays.
+			if dep.Status == "failed" && rec.PDMReservationToken != "" && !dep.Result.HasPhase0Outputs() &&
 				rec.PDMPoolDomain != "" && rec.PDMSubdomain != "" &&
 				dep.AdoptedAt == nil && h.pdm != nil {
 				// Tracked on orphanReleaseWG so callers can join the
@@ -836,7 +835,7 @@ func (h *Handler) releaseOrphanedReservation(deploymentID, poolDomain, subdomain
 //     #830 Bug 3). Phase 0 already committed its tofu state, the
 //     Sovereign cluster is healthy, and the new Pod re-attaches the
 //     helmwatch informer to continue streaming per-component events.
-//   - Terminal states ("ready", "failed", "adopted") with
+//   - Terminal states ("ready", "adopted") with
 //     Phase1FinishedAt == nil — contract-violation residual; resume is
 //     the safer-default action because the helmwatch is idempotent
 //     (it just observes HelmRelease.status — no patches/applies).
@@ -856,8 +855,9 @@ func (h *Handler) shouldResumePhase1(dep *Deployment, rec store.Record) bool {
 	// the previous Pod, Hetzner resources are orphaned).
 	// "phase1-watching" is NOT in this set per issue #830 Bug 3 — the
 	// watcher IS resumable, and resuming is the whole point of the
-	// durable-watcher fix.
-	if isPhase0InFlightStatus(rec.Status) {
+	// durable-watcher fix. A failed or partial-failure record whose Phase 1
+	// never finished failed in Phase 0: that verdict stands, no watch replaces it.
+	if isPhase0InFlightStatus(rec.Status) || rec.Status == "failed" || rec.Status == "partial-failure" {
 		return false
 	}
 	// #3153: resolve the kubeconfig path with a CONVENTIONAL fallback.
@@ -2164,7 +2164,10 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		}
 	}()
 
-	prov := provisioner.New()
+	provision := h.provision
+	if provision == nil {
+		provision = provisioner.New().Provision
+	}
 	// Wave 5.137 (hw30 #13 fix-forward 2026-05-27): bump Provision
 	// timeout 30m→180m. Wave 5.132/5.133 added a 6-attempt × exponential-
 	// backoff retry loop for HCS Common.0021 transient failures
@@ -2177,11 +2180,11 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	// retry mechanism working correctly. 180m gives the loop full room
 	// to exhaust (max ~125 min) plus 55 min Phase-1 Helm-watch + safety
 	// margin. CATALYST_PHASE1_WATCH_TIMEOUT is independent (120m,
-	// runProvisioning path) and has its own ceiling.
+	// runProvisioning path) and has its own ceiling. A Phase-0 retry runs here too.
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Minute)
 	defer cancel()
 
-	result, err := prov.Provision(ctx, dep.Request, producer)
+	result, err := provision(ctx, dep.Request, producer)
 	close(producer)
 	<-teeDone
 
@@ -2231,8 +2234,10 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		}
 	}
 
-	// Capture Phase-0 outcome under the lock.
+	// Capture Phase-0 outcome under the lock. The result is merged onto the
+	// record's (provisioner.MergePhase0), never replacing what other writers stamped.
 	dep.mu.Lock()
+	earlierOutputs := dep.Result.HasPhase0Outputs() // an earlier run committed (or released) the pool name
 	switch {
 	case isPartialFailure:
 		// G117 #2840 — operator-actionable terminal state. Renders a
@@ -2243,7 +2248,7 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		dep.FinishedAt = time.Now()
 		dep.Status = "partial-failure"
 		dep.Error = err.Error()
-		dep.Result = result
+		dep.Result = provisioner.MergePhase0(dep.Result, result)
 		h.log.Error("partial-region materialisation — Pillar 2+3 violated, operator action required",
 			"id", dep.ID,
 			"sovereignFQDN", result.SovereignFQDN,
@@ -2258,7 +2263,7 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		h.log.Error("provision failed", "id", dep.ID, "err", err)
 	default:
 		dep.Status = "phase1-watching"
-		dep.Result = result
+		dep.Result = provisioner.MergePhase0(dep.Result, result)
 		h.log.Info("phase 0 complete; phase 1 watch starting",
 			"id", dep.ID,
 			"sovereignFQDN", result.SovereignFQDN,
@@ -2292,7 +2297,8 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 	//      attempt as an event. See pdm/client.go:CommitWithRetry.
 	//
 	// On Phase-0 failure (no LB IP), Release is called instead so the
-	// reservation TTL doesn't have to expire to free the name.
+	// reservation TTL doesn't have to expire to free the name — only when
+	// no earlier run reached its outputs: a failed retry frees no live name.
 	//
 	// G117 #2840 — partial-failure ALSO releases the PDM reservation
 	// and skips the parent-zone write. The Sovereign's topology promise
@@ -2311,7 +2317,7 @@ func (h *Handler) runProvisioning(dep *Deployment) {
 		// continue on failure so the Sovereign still reaches
 		// phase1-watching even if PowerDNS is briefly unavailable.
 		h.upsertSovereignParentZoneRecordsFromResult(context.Background(), dep, result)
-	} else {
+	} else if !earlierOutputs {
 		h.releasePDMReservation(dep)
 	}
 

@@ -192,27 +192,20 @@ const fluxCRDProbeBudgetEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_BUDGET"
 const fluxCRDProbePollIntervalEnv = "CATALYST_PHASE1_FLUX_CRD_PROBE_POLL_INTERVAL"
 
 // DefaultFluxCRDProbeBudget — production default for the Flux-CRD-
-// presence probe budget (#5042).
-//
-// 15 minutes, NOT less — the original 5m default rested on an inverted
-// premise ("flux lands before the kubeconfig is even PUT back"). Since the
-// #3129 PUT-early invariant (cloudinit-control-plane.tftpl header), the
-// kubeconfig PUT-back runs RIGHT AFTER the k3s apiserver is healthy, and
-// flux-install only runs AFTER gateway-api CRDs + the helm binary download +
-// the cilium helm install + the FULL cilium DaemonSet rollout across every
-// node in the region. On a healthy Huawei 6-node region that is ~6-9 minutes
-// of legitimate bootstrap AFTER the kubeconfig arrives. hw255 (#5012
-// recurrence, dep 5762118f63abef96, 2026-07-15): region-b PUT ~04:13 UTC,
-// flux CRDs landed ~04:21 UTC — a healthy 8-minute gap that the 5m budget
-// classified as a positive flux-CRD-absent, permanently freezing the region's
-// census at 0/0 degraded while it actually converged to 58/65 HRs Ready.
-// 15 minutes still terminates a genuine #5042 wedge ~8x faster than the 120m
-// WatchTimeout it exists to shortcut.
-//
-// The probe is CONSERVATIVE — it only classifies OutcomeFluxCRDsAbsent
-// on a POSITIVE "CRD absent + apiserver answered" observation at
-// budget end, never on a transient probe error (see probeFluxCRDAbsent).
-const DefaultFluxCRDProbeBudget = 15 * time.Minute
+// presence probe budget (#5042). The parent may not give up before first
+// boot does: since the #3129 PUT-early invariant the kubeconfig PUT runs right
+// after the apiserver is healthy, and first boot then allows itself, by its own
+// bounded waits alone (cloudinit-control-plane.tftpl), about 34 minutes before
+// the Flux CRD exists — the gateway-api CRD wait, the cilium rollout (5 × 240s
+// plus pauses), the CoreDNS wait and the flux-install loop (sleeps n × 10s for
+// n = 1..10) — plus its downloads (the template puts the flux leg alone at ~20
+// minutes worst case). The former 15 minutes failed a healthy slow boot
+// (hw255 converged 8 minutes after its PUT, past the 5m default before it).
+// TestFluxCRDProbeBudget_OutlastsFirstBoot derives the waits from the
+// template. 45 minutes still ends a genuine #5042 wedge long before the 120m
+// WatchTimeout. The probe classifies only on a POSITIVE "CRD absent +
+// apiserver answered" observation at budget end (see probeFluxCRDAbsent).
+const DefaultFluxCRDProbeBudget = 45 * time.Minute
 
 // DefaultFluxCRDProbePollInterval — production default for the Flux-
 // CRD-presence probe poll cadence (#5042).

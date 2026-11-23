@@ -33,11 +33,9 @@
 //     persistDeployment is called so a Pod restart between PUT and
 //     the helmwatch goroutine launching still finds the path on
 //     disk.
-//   - The helmwatch goroutine is then kicked off via
-//     `runPhase1Watch` so the per-component SSE events start flowing
-//     to the wizard. The phase1Started guard on Deployment ensures
-//     runProvisioning's later (synchronous) call is a no-op so we
-//     don't run two informers.
+//   - On a phase1-watching record `runPhase1Watch` is then kicked off;
+//     the phase1Started guard makes it a no-op beside a running watch.
+//     While Phase 0 runs, runProvisioning's own watch reads the path.
 //
 // Failure modes:
 //
@@ -657,9 +655,7 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		// new outcome cleanly when the relaunched watch finishes,
 		// and clear phase1Started so the goroutine below isn't
 		// short-circuited by the at-most-once guard.
-		dep.Result.Phase1Outcome = ""
-		dep.Result.Phase1FinishedAt = nil
-		dep.Result.ComponentStates = nil
+		dep.Result.ClearPhase1()
 		dep.Status = "phase1-watching"
 		dep.Error = ""
 		dep.FinishedAt = time.Time{}
@@ -675,6 +671,10 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		dep.done = make(chan struct{})
 		relaunchAfterTerminalKubeconfigMissing = true
 	}
+	// Only a phase1-watching record gets a watch from here. While Phase 0 runs the
+	// path is only stamped (runProvisioning's watch reads it), and a Phase-0 failure
+	// is not judged again by a watch: before this, that watch could end it 'ready'.
+	launchWatch := dep.Status == "phase1-watching"
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
 
@@ -712,6 +712,10 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		// step for every Sovereign after the founder's one-time edit.
 		anthropicSeedOutcome := h.seedSovereignAnthropicCredentials(r.Context(), dep, string(body))
 		h.emitSovereignAnthropicSeedEvent(dep, anthropicSeedOutcome)
+		if !launchWatch {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 
 		// Launch the helmwatch goroutine in the background.
 		//
