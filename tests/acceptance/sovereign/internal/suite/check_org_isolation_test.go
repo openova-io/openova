@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -722,12 +724,154 @@ func TestPortForward(t *testing.T) {
 	if d := time.Since(start); d > 10*time.Second {
 		t.Errorf("stop took %s", d)
 	}
-	if b, _ := os.ReadFile(filepath.Clean(argsFile)); strings.TrimSpace(string(b)) != "--kubeconfig k.yaml -n iso-a-x port-forward service/vcluster :443" {
+	if b, _ := os.ReadFile(filepath.Clean(argsFile)); strings.TrimSpace(string(b)) != "--kubeconfig k.yaml -n iso-a-x port-forward --address 127.0.0.1 service/vcluster :443" {
 		t.Errorf("kubectl got %q", b)
 	}
 	region.Kubectl = filepath.Join(dir, "fails")
 	if _, _, err := portForward(context.Background(), region, "iso-a-x", isoVClusterName, 443); err == nil ||
 		!strings.Contains(err.Error(), `ended before it printed its local address: error: services "vcluster" not found`) {
 		t.Errorf("a kubectl that ends first: %v", err)
+	}
+}
+
+// TestPortForwardStartsAgain: a kubectl port-forward that ends before stop
+// (on hw307 each forward ended after a dial ran through it) starts again on
+// the same local address, until stop.
+func TestPortForwardStartsAgain(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	// The first kubectl prints its address and ends as kubectl does after an
+	// error of one forwarded connection; every later one keeps running.
+	hostFile(t, dir, "forwards", 0o700, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"+
+		"echo 'Forwarding from 127.0.0.1:43123 -> 8443'\n"+
+		"if [ \"$(wc -l < "+calls+")\" -eq 1 ]; then echo 'error: lost connection to pod' >&2; exit 1; fi\n"+
+		"exec sleep 60\n"))
+	region := kube.Region{ID: "region-a", Kubeconfig: "k.yaml", Kubectl: filepath.Join(dir, "forwards")}
+	addr, stop, err := portForward(context.Background(), region, "iso-a-x", isoVClusterName, 443)
+	if err != nil || addr != "127.0.0.1:43123" {
+		t.Fatalf("want 127.0.0.1:43123, got %q, %v", addr, err)
+	}
+	var lines []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		b, _ := os.ReadFile(filepath.Clean(calls))
+		if lines = strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) >= 2 {
+			break
+		}
+	}
+	start := time.Now()
+	stop()
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("stop took %s", d)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want the forward started twice, got %d: %q", len(lines), lines)
+	}
+	if want := "--kubeconfig k.yaml -n iso-a-x port-forward --address 127.0.0.1 service/vcluster 43123:443"; lines[1] != want {
+		t.Errorf("the second kubectl got %q, want %q (the same local address)", lines[1], want)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if b, _ := os.ReadFile(filepath.Clean(calls)); strings.Count(string(b), "\n") != 2 {
+		t.Errorf("the forward started again after stop: %q", b)
+	}
+}
+
+// TestPortForwardStartsAgainAfterMoreOutput: kubectl prints a line on stdout
+// for every forwarded connection after its address line. The forward must read
+// them all (also a line longer than the scanner's limit), or kubectl's exit is
+// never seen and the forward never starts again.
+func TestPortForwardStartsAgainAfterMoreOutput(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	// The first kubectl prints its address, 2000 "Handling connection" lines
+	// (about 64 KiB, more than a pipe holds) and one 70 KiB line, then ends.
+	hostFile(t, dir, "forwards", 0o700, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"+
+		"echo 'Forwarding from 127.0.0.1:43123 -> 8443'\n"+
+		"if [ \"$(wc -l < "+calls+")\" -eq 1 ]; then\n"+
+		"  i=0; while [ $i -lt 2000 ]; do echo 'Handling connection for 43123 ...............'; i=$((i+1)); done\n"+
+		"  head -c 71680 /dev/zero | tr '\\0' x; echo\n"+
+		"  echo 'error: lost connection to pod' >&2; exit 1\n"+
+		"fi\n"+
+		"exec sleep 60\n"))
+	region := kube.Region{ID: "region-a", Kubeconfig: "k.yaml", Kubectl: filepath.Join(dir, "forwards")}
+	addr, stop, err := portForward(context.Background(), region, "iso-a-x", isoVClusterName, 443)
+	if err != nil || addr != "127.0.0.1:43123" {
+		t.Fatalf("want 127.0.0.1:43123, got %q, %v", addr, err)
+	}
+	defer func() {
+		stopped := make(chan struct{})
+		go func() { stop(); close(stopped) }()
+		select {
+		case <-stopped:
+		case <-time.After(5 * time.Second):
+			t.Error("stop did not return: the end of kubectl was never seen")
+		}
+	}()
+	var lines []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		b, _ := os.ReadFile(filepath.Clean(calls))
+		if lines = strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) >= 2 {
+			break
+		}
+	}
+	if len(lines) != 2 || !strings.HasSuffix(lines[1], " 43123:443") {
+		t.Fatalf("want the forward started again on 43123 after kubectl wrote more output and ended, got %q", lines)
+	}
+}
+
+// TestVCKubectlSendsARefusedCallAgain: a call that the port forward refused
+// is sent again with the same input once the forward listens; any other
+// error is returned at once, a refusal on the API path (it reached the
+// vCluster) too, and a forward that keeps refusing ends the retries.
+func TestVCKubectlSendsARefusedCallAgain(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	local := ln.Addr().String()
+	// Every real error carries the arguments, so the local address too
+	// (kube.Region.once).
+	prefix := fmt.Sprintf("[iso-a@a] kubectl --server https://%s --tls-server-name vcluster.iso-a-x exec -i p -- <redacted>: exit status 1: ", local)
+	refused := errors.New(prefix + "The connection to the server " + local + " was refused - did you specify the right host or port?")
+	dialRefused := errors.New(prefix + `Get "https://` + local + `/api?timeout=32s": dial tcp ` + local + ": connect: connection refused")
+	for name, tc := range map[string]struct {
+		answers []error
+		calls   int
+		err     string
+	}{
+		"refused once, then served":      {[]error{refused, nil}, 2, ""},
+		"dial refused once, then served": {[]error{dialRefused, nil}, 2, ""},
+		"another error":                  {[]error{errors.New(prefix + `pods "x" not found`)}, 1, "not found"},
+		"refused by the product":         {[]error{errors.New(prefix + "error dialing backend: dial tcp 10.42.0.7:10250: connect: connection refused"), nil}, 1, "10.42.0.7:10250"},
+		"refused every time":             {[]error{refused, refused, refused, refused, refused}, isoForwardRetries + 1, "was refused"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stdins []string
+			n := 0
+			kubectl := func(_ kube.Region, _ context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+				b, _ := io.ReadAll(stdin)
+				stdins = append(stdins, string(b))
+				if args[1] != "https://"+local || args[3] != "vcluster.iso-a-x" {
+					t.Errorf("not the server of the forward: %v", args[:4])
+				}
+				err := tc.answers[n]
+				n++
+				return []byte("out"), err
+			}
+			j := &isoJourney{c: orgIsolationCheck{kubectl: kubectl}}
+			v := &isoVC{server: "https://" + local, sni: "vcluster.iso-a-x"}
+			_, err := j.vcKubectl(v)(kube.Region{}, context.Background(), strings.NewReader("the dial script"), "exec", "-i", "p")
+			if n != tc.calls {
+				t.Errorf("want %d calls, got %d", tc.calls, n)
+			}
+			for _, s := range stdins {
+				if s != "the dial script" {
+					t.Errorf("a call got the input %q", s)
+				}
+			}
+			if (tc.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.err)) {
+				t.Errorf("want error %q, got %v", tc.err, err)
+			}
+		})
 	}
 }
