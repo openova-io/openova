@@ -1,0 +1,12 @@
+{
+  "schema": "openova.io/gates/v1",
+  "checks": [
+    {"id": "SELF-G01", "state": "required", "runs_in": ["cloud"], "implementation": "products/catalyst/bootstrap/ui/e2e/gate/self-test/pass"},
+    {"id": "SELF-G02", "state": "expected-fail", "runs_in": ["cloud"], "implementation": "products/catalyst/bootstrap/ui/e2e/gate/self-test/fail/"},
+    {"id": "SELF-G03", "state": "not-built", "runs_in": ["cloud"], "implementation": "products/catalyst/bootstrap/ui/e2e/gate/self-test/pass"},
+    {"id": "SELF-G04", "state": "required", "runs_in": ["local"], "implementation": "products/catalyst/bootstrap/ui/e2e/gate/self-test/pass"},
+    {"id": "SELF-G05", "state": "required", "runs_in": ["cloud"], "implementation": "tests/acceptance/sovereign/internal/suite/journeys.go"},
+    {"id": "SELF-G06", "state": "required", "runs_in": ["cloud"], "implementation": "products/catalyst/bootstrap/ui/e2e/gate/"},
+    {"id": "SELF-G07", "state": "required", "runs_in": ["cloud"]}
+  ]
+}
