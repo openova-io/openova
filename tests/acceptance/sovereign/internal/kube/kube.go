@@ -2,7 +2,9 @@
 //
 // The suite reads cluster state to prove WHERE an object actually lives: the
 // region is the kubeconfig that returned it, never a label on the object. The
-// verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup), and
+// verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup, and
+// `cat` of catalyst-api's session signer when the console session is renewed,
+// suite/signin.go, kept in memory only), and
 // `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks CMP-G01,
 // SEC-G01, SEC-G02, SEC-G07, CTL-G04, CTL-G07, INF-G01, INF-G02, NET-G06, NET-G10 and NET-G18 only. It never patches — every other mutation of the
 // Sovereign goes through the console API the way a sovereign-admin would.

@@ -123,6 +123,8 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		B: kube.Region{Kubeconfig: cfg.KubeconfigB},
 	}
 	r.api.ReadOnly = cfg.ReadOnly
+	// The session outlives no long run: an answer HTTP 401 renews it once (signin.go).
+	r.api.Renew = ownerRenewal(func() []kube.Region { return []kube.Region{r.A, r.B} }, cfg.Session, kube.Region.Run)
 	if previousID != "" {
 		r.run.Provision = &Provision{PreviousWipe: &PreviousWipe{PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}}
 	}

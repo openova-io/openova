@@ -17,8 +17,8 @@
 # Two cases, each on fresh machines:
 #   kit      the slot as it is: CILIUM_MTU unset, Cilium gets the slot's default;
 #   control  the same with CILIUM_MTU=1420, the value the kit had before it gave Cilium the interface
-#            MTU: cilium_host and cilium_net get 1420 and the receiving kernel drops every decrypted
-#            host packet above that. control proves that the test sees the defect.
+#            MTU: cilium_host and cilium_net get 1420 and the receiving kernel drops the decrypted
+#            host packets above that. control proves that the test sees the defect.
 # Each case asserts, in this order:
 #   render    the rendered cilium-config enables WireGuard, node encryption, native routing and
 #             kube-proxy replacement, at the case's mtu;
@@ -26,13 +26,23 @@
 #   devices   on each agent: the node interface has the network's MTU, cilium_host the case's,
 #             cilium_wg0 the case's less 80, and Cilium reports node encryption enabled;
 #   path      a 512-byte answer arrives host to host between the agents, both ways, within 120 s;
-#   transfer  host to host between the agents over the node network, both ways, 3 fetches of a
+#   transfer  host to host between the agents over the node network, both ways, 5 fetches of a
 #             65,536-byte answer, each given 5 seconds (busybox wget under timeout);
 #   wireguard the bytes of those fetches came in through cilium_wg0 of the receiving agent.
-# kit passes when all 6 fetches deliver 65,536 bytes in time and each receiving cilium_wg0 took in
-# at least 3 x 65,536 bytes. control passes when none of the 6 completes while each receiving
-# cilium_wg0 took in at least 3 x 1,500 bytes: full-size packets came through WireGuard and were not
-# delivered. A case whose render, up, devices or path fails is an ERROR, never a pass of control.
+# kit passes when all 10 fetches deliver 65,536 bytes in time and each receiving cilium_wg0 took in
+# at least 5 x 65,536 bytes. control passes when at most half of the 10 complete (CONTROL_AT_MOST)
+# while each receiving cilium_wg0 took in at least 5 x 1,500 bytes: full-size packets came through
+# WireGuard and most fetches were not delivered. A control in which most fetches complete fails:
+# then MTU 1420 no longer shows the defect and the test proves nothing. A case whose render, up,
+# devices or path fails is an ERROR, never a pass of control.
+# Why at most half and not none: at 1420 the path is broken but not dead. In CI on 21 and 22
+# November 2026 (11 cases at 1420, 9 at the slot's MTU) 1 of 66 fetches at 1420 completed and each
+# of the other 65 stopped after a whole number of full 1,448-byte segments (0 to 32 of the 46 an
+# answer needs): full-size packets pass now and then in a batch, a single one is dropped, and a
+# fetch stalls at its first lost one; at the slot's MTU 54 of 54 completed in at most 0.03 s. With
+# p = 1/66 per fetch, "none of 6" failed 1 run in 11 (1 - (1 - p)^6 = 8.8 %), while more than 5 of 10
+# completing has the odds 2.4e-9 (1.9e-5 at p = 0.070, the 95 % upper bound of 1 in 66); and a path
+# as healthy as the kit's passes control only when 5 of its 10 fetches miss 5 s, met in 0.03 s.
 # The servers are busybox inetd on the agents' host network: no port is published, no Service is
 # made, and no node port is used.
 #
@@ -76,7 +86,9 @@ PORT=18121
 SIZE=65536
 SMALL=512
 FETCH_LIMIT=5
-TRIES=3
+TRIES=5
+# control passes when at most this many of its 2 x TRIES fetches complete: half; most fails it.
+CONTROL_AT_MOST=$TRIES
 UP_LIMIT=600
 PATH_LIMIT=120
 
@@ -157,7 +169,7 @@ verdict() {
   fi
   case "$c" in
     kit) if [ "$complete" -eq "$n" ] && [ "$wg" -ge $((TRIES * SIZE)) ]; then echo PASS; else echo FAIL; fi ;;
-    control) if [ "$complete" -eq 0 ] && [ "$wg" -ge $((TRIES * NET_MTU)) ]; then echo PASS; else echo FAIL; fi ;;
+    control) if [ "$complete" -le "$CONTROL_AT_MOST" ] && [ "$wg" -ge $((TRIES * NET_MTU)) ]; then echo PASS; else echo FAIL; fi ;;
     *) echo ERROR ;;
   esac
 }
@@ -197,16 +209,27 @@ self_test() {
   sed 's/routing-mode: "native"/routing-mode: "tunnel"/' "$t/cfg" > "$t/cfg3"
   ok "$(config_ok "$t/cfg3" 1500 > /dev/null && echo yes || echo no)" no "config_ok fails on tunnel routing"
 
-  ok "$(verdict kit yes yes yes yes 6 196608)" PASS "kit passes when all fetches arrive through WireGuard"
-  ok "$(verdict kit yes yes yes yes 5 196608)" FAIL "kit fails when one fetch did not arrive"
-  ok "$(verdict kit yes yes yes yes 6 1000)" FAIL "kit fails when the bytes did not come through WireGuard"
-  ok "$(verdict control yes yes yes yes 0 4500)" PASS "control passes when no fetch arrives and WireGuard took full-size packets"
-  ok "$(verdict control yes yes yes yes 1 4500)" FAIL "control fails when a fetch arrived: the test cannot see the defect"
+  local n=$((2 * TRIES)) kwg=$((TRIES * SIZE)) cwg=$((TRIES * NET_MTU)) k both=0
+  ok "$(verdict kit yes yes yes yes "$n" "$kwg")" PASS "kit passes when all fetches arrive through WireGuard"
+  ok "$(verdict kit yes yes yes yes $((n - 1)) "$kwg")" FAIL "kit fails when one fetch did not arrive"
+  ok "$(verdict kit yes yes yes yes "$CONTROL_AT_MOST" "$kwg")" FAIL "kit fails when only as many arrive as control allows"
+  ok "$(verdict kit yes yes yes yes "$n" 1000)" FAIL "kit fails when the bytes did not come through WireGuard"
+  ok "$(verdict control yes yes yes yes 0 "$cwg")" PASS "control passes when no fetch arrives and WireGuard took full-size packets"
+  ok "$(verdict control yes yes yes yes 1 154064)" PASS "control passes when 1 fetch arrived (CI run 45016653078): the path is broken, not dead"
+  ok "$(verdict control yes yes yes yes "$CONTROL_AT_MOST" "$cwg")" PASS "control passes when half the fetches arrive"
+  ok "$(verdict control yes yes yes yes $((CONTROL_AT_MOST + 1)) "$cwg")" FAIL "control fails when most fetches arrive: MTU 1420 no longer shows the defect"
+  ok "$(verdict control yes yes yes yes "$n" "$kwg")" FAIL "control fails when every fetch arrives: the test cannot see the defect"
   ok "$(verdict control yes yes yes yes 0 100)" FAIL "control fails when nothing came through WireGuard"
-  ok "$(verdict control yes yes yes no 0 4500)" ERROR "a case whose path is down is an error, not a pass of control"
-  ok "$(verdict control yes yes no yes 0 4500)" ERROR "a case whose devices are wrong is an error"
-  ok "$(verdict control yes no yes yes 0 4500)" ERROR "a case whose nodes are not up is an error"
-  ok "$(verdict control no yes yes yes 0 4500)" ERROR "a case whose render is wrong is an error"
+  ok "$(verdict control yes yes yes yes 1 100)" FAIL "control fails when 1 fetch arrived and nothing came through WireGuard"
+  for k in $(seq 0 "$n"); do
+    [ "$(verdict kit yes yes yes yes "$k" "$kwg")" = PASS ] && [ "$(verdict control yes yes yes yes "$k" "$kwg")" = PASS ] && both=$((both + 1))
+  done
+  ok "$both" 0 "no count of complete fetches passes both kit and control"
+  ok "$([ $((2 * CONTROL_AT_MOST)) -le "$n" ] && echo yes || echo no)" yes "control allows at most half of the fetches"
+  ok "$(verdict control yes yes yes no 0 "$cwg")" ERROR "a case whose path is down is an error, not a pass of control"
+  ok "$(verdict control yes yes no yes 0 "$cwg")" ERROR "a case whose devices are wrong is an error"
+  ok "$(verdict control yes no yes yes 0 "$cwg")" ERROR "a case whose nodes are not up is an error"
+  ok "$(verdict control no yes yes yes 0 "$cwg")" ERROR "a case whose render is wrong is an error"
 
   ok "$(slot_mtu "$SLOT" | grep -c -E '^[0-9]+$')" 1 "the slot of this tree has one default of CILIUM_MTU"
   ok "$(k3s_version "$K3S_VARS" | grep -c -E '^v[0-9]+\.[0-9]+\.[0-9]+\+k3s[0-9]+$')" 1 "the local pack of this tree has one k3s version"
@@ -434,7 +457,7 @@ run_case() {
   mkdir -p "$RES/$CASE"
   f="$RES/case-$CASE.txt"
   : > "$f"
-  if [ "$CASE" = control ]; then mtu=$CONTROL_MTU; expect="none arrives"; else mtu=${EPT_KIT_MTU:-$(slot_mtu "$SLOT")}; fi
+  if [ "$CASE" = control ]; then mtu=$CONTROL_MTU; expect="at most $CONTROL_AT_MOST arrive"; else mtu=${EPT_KIT_MTU:-$(slot_mtu "$SLOT")}; fi
   echo "case=$CASE mtu=$mtu network_mtu=$NET_MTU k3s=$K3S_VERSION kit_mtu_set=${EPT_KIT_MTU:+yes}" >> "$f"
   if render "$CASE" "$CP_IP" "$WORK/manifest-$CASE.yaml" 2>> "$f" && out=$(config_ok "$WORK/manifest-$CASE.yaml" "$mtu"); then
     render=yes

@@ -11,17 +11,40 @@ import "context"
 
 // Preflighter runs before `tofu plan`. Replaces VPCQuotaHook and VPCReclaimHook.
 type Preflighter interface {
-	Preflight(ctx context.Context, in PreflightInput) error
+	Preflight(ctx context.Context, in PreflightInput) (PreflightResult, error)
 }
 
 // PreflightInput is the input of Preflighter.Preflight.
 type PreflightInput struct {
 	Spec         ProvisionSpec
 	ProtectedIDs map[string]struct{} // 8-character deployment-id prefixes that must not be touched
-	Progress     func(msg string)
+	// InState holds the resource instance addresses that the deployment's
+	// OpenTofu state already holds; empty on a new install. An adapter
+	// creates no object for an address in it: the state owns that one.
+	InState  map[string]bool
+	Progress func(msg string)
+}
+
+// PreflightResult is the result of Preflighter.Preflight.
+type PreflightResult struct {
+	// Imports are the objects the adapter created in the cloud before the
+	// plan, for resources of the module to own. The engine imports each
+	// into the state before `tofu plan`, so the plan uses the object instead
+	// of creating its own, and the state knows every object of the install.
+	Imports []StateImport
+}
+
+// StateImport is one object for `tofu import`.
+type StateImport struct {
+	Address string `json:"address"` // the module's resource instance address
+	ID      string `json:"id"`      // the cloud's id of the object
+	Label   string `json:"label"`   // what the object is (an IP address, a name), never a secret
 }
 
 // PostApplier runs after a successful `tofu apply`. Replaces NATEIPPreflightHook.
+// An object that a PostApply step creates or replaces in the cloud is not in
+// the state; such a step must return ReapplyNeeded instead, or the object
+// must be made before the plan (PreflightResult.Imports).
 type PostApplier interface {
 	PostApply(ctx context.Context, in PostApplyInput) (PostApplyResult, error)
 }

@@ -427,6 +427,12 @@ data:
         log "created Keycloak Client ${cid} (kc-id=${kc_id})"
       fi
 
+      # A failed read of the client secret is no secret: OpenBao keeps the
+      # sso/<cid> it holds (an empty one would reach every consumer's Secret).
+      if [ -z "${secret}" ]; then
+        warn "client ${cid}: no client secret read from Keycloak; OpenBao keeps sso/${cid}, retry next tick"
+        return 1
+      fi
       printf '%s\n' "${secret}" > "/tmp/${cid}.secret"
       printf '%s\n' "${kc_id}" > "/tmp/${cid}.kc-id"
       printf '%s\n' "${issuer}" > "/tmp/${cid}.issuer"
@@ -1103,15 +1109,6 @@ data:
             "  data:"; printf '%s' "${es_data_yaml}"; } \
             | kubectl --request-timeout=15s apply -f - >/dev/null 2>&1; then
             log "app-registration[${cid}]: applied ExternalSecret ${es_ns}/${es_name} (${es_summary}from sso/${realm}/${cid})"
-            # #3374-cleanup-race (2026-06-19): record this clientId in the
-            # app-registration keep-list so the main loop's cleanup_orphans
-            # does NOT treat the ES we just applied (labelled managed=true,
-            # client-id=${cid}) as an orphan. current_cids is built only
-            # from the HR-discovery loop, so without this the app-reg ES is
-            # created here then deleted ~3s later in the same tick. Append
-            # only on successful apply — a failed/deferred apply leaves the
-            # cid out, so a genuinely-gone declaration is still swept.
-            APP_REG_ES_CIDS="${APP_REG_ES_CIDS} ${cid}"
           else
             warn "app-registration[${cid}]: ExternalSecret apply ${es_ns}/${es_name} failed (CRD not ready yet? retry next tick)"
           fi
@@ -1137,15 +1134,22 @@ data:
       # consuming Secret absent most of the time (SSO token-exchange
       # intermittently broken). Reset here, not at loop top, so the global
       # is fresh per tick regardless of early returns.
+      #
+      # A ConfigMap that declares externalSecret.json keeps its ExternalSecret
+      # whether or not this tick's upsert succeeded (a Keycloak or OpenBao
+      # hiccup is no removal); only a declaration that is gone is swept. A
+      # listing that FAILS returns 1: the main loop then sweeps nothing.
       APP_REG_ES_CIDS=""
       local cms
       cms="$(kubectl --request-timeout=15s get configmaps -A \
         -l 'sso.openova.io/app-registration' \
-        -o json 2>/dev/null | jq -c '.items[]?' || true)"
+        -o json 2>/dev/null | jq -c '.items[]?')" \
+        || { warn "app-registration: listing the ConfigMaps failed; no ExternalSecret is swept this tick"; return 1; }
       [ -z "${cms}" ] && return 0
       local count=0
       while IFS= read -r cm; do
         [ -z "${cm}" ] && continue
+        APP_REG_ES_CIDS="${APP_REG_ES_CIDS} $(printf '%s' "${cm}" | jq -r 'select((.data["externalSecret.json"] // "") != "") | .metadata.labels["sso.openova.io/app-registration"] // empty')"
         upsert_per_org_client "${cm}" || true
         count=$(( count + 1 ))
       done <<< "${cms}"
@@ -1227,11 +1231,18 @@ data:
       # actually emit: explicit enabled==true OR a non-empty
       # sso.sovereignFqdn (the 6 Tier-1+ slots: openbao, gitea, harbor,
       # grafana, sandbox, powerdns-admin).
+      #
+      # A FAILED listing is no listing: it is not "no sso-capable HR". The
+      # tick then reconciles nothing from it and the orphan sweep is skipped
+      # (sweep_ok=0); only a listing that succeeds may lead to a removal.
+      sweep_ok=1
       hrs_json="$(k_retry get hr -A -o json \
-        | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))' || true)"
+        | jq -c '.items[] | select((.spec.values.sso // {}) | (.enabled == true) or ((.sovereignFqdn // "") != ""))')" \
+        || { sweep_ok=0; hrs_json=""; warn "tick: listing the HelmReleases failed; no ExternalSecret is swept this tick"; }
       discovered=$(printf '%s' "${hrs_json}" | grep -c . || true)
       log "tick: discovered ${discovered} sso-capable HR(s)"
-      current_cids=""
+      # Every listed client id is kept, also those the tick budget defers.
+      current_cids=" $(printf '%s\n' "${hrs_json}" | jq -r '.metadata.name | sub("^bp-"; "")' | tr '\n' ' ')"
       reconciled_count=0
       while IFS= read -r hr; do
         [ -z "${hr}" ] && continue
@@ -1250,7 +1261,6 @@ data:
         touch /tmp/sso-bridge-last-tick
         name="$(printf '%s' "${hr}" | jq -r '.metadata.name')"
         cid="${name#bp-}"
-        current_cids="${current_cids} ${cid}"
         reconcile_one "${hr}" "${op_email}" "${fqdn}" || true
       done <<< "${hrs_json}"
 
@@ -1271,7 +1281,7 @@ data:
       # resolves it. MUST run AFTER reconcile_per_org_realms so the
       # per-Org realms exist before we POST clients into them.
       log "tick: phase app-registrations"
-      reconcile_app_registrations || true
+      reconcile_app_registrations || sweep_ok=0
 
       # #3374-cleanup-race (2026-06-19): the orphan sweep keeps any ES whose
       # client-id is in the union of (a) the HR-discovery clientIds
@@ -1284,7 +1294,8 @@ data:
       # them. Uninstall semantics are preserved: when an app-registration
       # ConfigMap is removed, its cid drops out of BOTH sets next tick and
       # the orphan ES is correctly swept.
-      cleanup_orphans "${current_cids}${APP_REG_ES_CIDS}" || true
+      if [ "${sweep_ok}" = 1 ]; then cleanup_orphans "${current_cids}${APP_REG_ES_CIDS}" || true
+      else warn "tick: orphan sweep skipped: a listing failed, so nothing is known to be gone"; fi
 
       tick_done="$(date +%s)"
       log "tick complete in $(( tick_done - tick_started ))s (discovered=${discovered:-0} reconciled=${reconciled_count:-0} managed=${current_cids:-none})"

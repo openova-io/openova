@@ -226,19 +226,13 @@ func readFrames(body io.Reader, emit func(data string)) error {
 // sends the data of its frames to a channel. The request has no time limit:
 // it lives until ctx ends. The channel is closed when the body ends.
 func openStream(ctx context.Context, c *api.Client, path string) (<-chan string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: c.Session})
 	client := &http.Client{} // no Timeout: it would end the stream
 	if c.HTTP != nil {
 		client.Transport = c.HTTP.Transport
 	}
-	res, err := client.Do(req)
+	res, err := c.Stream(ctx, client, path) // an answer HTTP 401 renews the session once
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", path, err)
+		return nil, err
 	}
 	if kind := res.Header.Get("Content-Type"); res.StatusCode != http.StatusOK || !strings.HasPrefix(kind, "text/event-stream") {
 		_ = res.Body.Close()

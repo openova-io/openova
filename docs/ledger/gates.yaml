@@ -2194,7 +2194,7 @@ checks:
   needs: []
   proof: running
   asserts: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
-  delivered_by: SEC-180
+  delivered_by: SEC-181
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
   owner: SEC
