@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T10:15:03Z` |
+| Last refreshed | `2026-11-23T10:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T10:23 | [#8656](https://github.com/openova-io/openova/pull/8656) | #8655 | feat(secrets-lib): a library chart for namespaced stores and |
 | 2026-11-23T09:53 | [#8654](https://github.com/openova-io/openova/pull/8654) | #7087 | docs(ledger): plan update |
 | 2026-11-23T08:44 | [#8653](https://github.com/openova-io/openova/pull/8653) | #7087 | docs(ledger): plan update |
 | 2026-11-23T08:24 | [#8652](https://github.com/openova-io/openova/pull/8652) | #8651 | feat(openbao): a six-hourly raft snapshot of OpenBao to obje |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-22T11:20 | [#8603](https://github.com/openova-io/openova/pull/8603) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:02 | [#8602](https://github.com/openova-io/openova/pull/8602) | #8601 | fix(kured): the node maintenance window is a setting of the  |
 | 2026-11-21T17:50 | [#8600](https://github.com/openova-io/openova/pull/8600) | #7087 | docs(ledger): plan update |
-| 2026-11-21T16:10 | [#8599](https://github.com/openova-io/openova/pull/8599) | fix(gate): check NET-G07 proves the platform's denial in a s |  |
 
 ---
 
