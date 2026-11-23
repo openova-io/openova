@@ -237,8 +237,10 @@ spec:
     # via the VIP path (below) and the tofu `dns` LB :53->node:53 forward is
     # inert. hostPortMode flips dnsdist to a hostPort:53 DaemonSet that binds
     # node:53 directly (§854-clean — hostPort, NEVER a NodePort). The Hetzner
-    # cloud-init sets POWERDNS_DNSDIST_HOSTPORT=true; on Huawei/kom4dc the var
-    # is UNSET → default false → the LB-IPAM anycast path stays UNTOUCHED.
+    # cloud-init sets POWERDNS_DNSDIST_HOSTPORT=true, and so does Huawei since
+    # NET-185 (infra/providers/huawei/provider-substitutes.yaml.tftpl): the
+    # EIP's 1:1 NAT delivers to the node, never to the LB-IPAM VIP. Where the
+    # var is UNSET → default false → the LB-IPAM anycast path stays UNTOUCHED.
     dnsdist:
       hostPortMode: ${POWERDNS_DNSDIST_HOSTPORT:=false}
     # DNS-01 wildcard cert: expose PowerDNS :53 as a Cilium LB-IPAM
@@ -267,14 +269,20 @@ spec:
         # namespace (never "*") so tenant/Org LB Services can never
         # co-locate onto the sovereign EIP by annotation hijack.
         lbipam.cilium.io/sharing-cross-namespace: "kube-system"
+      # The Service selects the dnsdist Pods (templates/anycast-endpoint.yaml),
+      # which listen on 53 (dnsdist setLocal 0.0.0.0:53, container ports
+      # dns-udp / dns-tcp). 5353 is the port of the authoritative server
+      # behind dnsdist, not a port of the selected Pods, so the named ports
+      # follow the container, as the chart default does. Where hostPortMode
+      # is on (above) the public queries do not pass this Service.
       ports:
         - name: dns-udp
           port: 53
-          targetPort: 5353
+          targetPort: dns-udp
           protocol: UDP
         - name: dns-tcp
           port: 53
-          targetPort: 5353
+          targetPort: dns-tcp
           protocol: TCP
     # ─── Multi-zone bootstrap (issue #827, parent epic #825) ───────────
     # The Sovereign creates one PowerDNS zone per parent domain at Helm
