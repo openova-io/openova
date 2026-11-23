@@ -6,6 +6,7 @@ package provisioner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,16 +37,29 @@ func TestProvision_RecordRequestReappliesItsVariablesFile(t *testing.T) {
 	req := cpsRequest()
 	req.DeploymentID, req.FromRecord = "rec-1", true
 	file := filepath.Clean(filepath.Join(p.WorkDir, "rec-1", "tofu.auto.tfvars.json"))
-	applied := []byte(`{"deployment_id":"rec-1","kubeconfig_bearer_token":"the applied one"}`)
+	// Applied before SOV-131: no module input `variables`. A kept file of an
+	// older contract is upgraded as before a destroy, its values held.
+	old := []byte(`{"deployment_id":"rec-1","catalyst_api_url":"https://console.openova.io/sovereign","kubeconfig_bearer_token":"the applied one"}`)
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatalf("mkdir workdir: %v", err)
 	}
-	if err := os.WriteFile(file, applied, 0o600); err != nil {
+	if err := os.WriteFile(file, old, 0o600); err != nil {
 		t.Fatalf("write the applied file: %v", err)
 	}
 	if err := run(req); err == nil {
 		t.Fatalf("Provision with a cancelled context returned no error")
 	}
+	applied, _ := os.ReadFile(file)
+	var kept struct {
+		Token     string            `json:"kubeconfig_bearer_token"`
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal(applied, &kept); err != nil || kept.Token != "the applied one" || kept.Variables == nil {
+		t.Fatalf("a rebuilt request must re-apply the kept file, upgraded to the module contract (err %v):\n%s", err, applied)
+	}
+	checkVariablesDocument(t, "kept file", kept.Variables, req.SovereignFQDN)
+	// A kept file of the current contract is applied as it is.
+	_ = run(req)
 	if got, _ := os.ReadFile(file); !bytes.Equal(got, applied) {
 		t.Fatalf("a request rebuilt from the record rewrote the variables file the deployment was applied with:\n%s", got)
 	}
@@ -67,20 +81,26 @@ func TestProvision_RecordRequestReappliesItsVariablesFile(t *testing.T) {
 	}
 }
 
-func TestMergePhase0_KeepsTheFieldsOtherWritersOwn(t *testing.T) {
+// Only the kubeconfig path, which an upload stamps while Phase 0 runs, is kept;
+// what an earlier run's Phase-1 watch and handover wrote is dropped, so this
+// run's watch and handover write it again (fireHandover fires only while
+// HandoverFiredAt is nil).
+func TestMergePhase0_KeepsOnlyTheUploadedKubeconfigPath(t *testing.T) {
 	at := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
-	prev := &Result{SovereignFQDN: "hw307.omani.works", KubeconfigPath: "/var/lib/catalyst/kubeconfigs/d.yaml", Phase1Substate: "watching", HandoverFiredAt: &at}
+	prev := &Result{SovereignFQDN: "hw307.omani.works", ConsoleURL: "https://console.hw307.omani.works", KubeconfigPath: "/var/lib/catalyst/kubeconfigs/d.yaml",
+		Phase1Substate: "watcher-watching", Phase1Outcome: "ready", HandoverFiredAt: &at, HandoverCompletedAt: &at, HandoverURL: "https://console.hw307.omani.works/auth/handover?token=old",
+		Regions: []RegionHealth{{Region: "b"}}, SecondaryDegraded: true, SecondaryFluxCRDAbsentRegions: []string{"b"}, ConsoleDegraded: true, ConsoleDegradedDetail: "404"}
 	fresh := &Result{SovereignFQDN: "hw307.omani.works", ControlPlaneIP: "192.0.2.10", ConsoleURL: "https://console.hw307.omani.works"}
 	want := *fresh
-	want.KubeconfigPath, want.Phase1Substate, want.HandoverFiredAt = prev.KubeconfigPath, prev.Phase1Substate, prev.HandoverFiredAt
+	want.KubeconfigPath = prev.KubeconfigPath
 	if got := MergePhase0(prev, fresh); !reflect.DeepEqual(*got, want) {
 		t.Fatalf("MergePhase0:\n got %+v\nwant %+v", *got, want)
 	}
 	if prev.ControlPlaneIP != "" || fresh.KubeconfigPath != "" {
 		t.Fatalf("MergePhase0 changed its inputs")
 	}
-	if MergePhase0(nil, fresh) != fresh || MergePhase0(prev, nil) != nil {
-		t.Fatalf("a nil side must return fresh")
+	if MergePhase0(nil, fresh) != fresh || MergePhase0(prev, nil) != prev {
+		t.Fatalf("a nil side must return the other side")
 	}
 	if !fresh.HasPhase0Outputs() || (&Result{KubeconfigPath: "/k"}).HasPhase0Outputs() || (*Result)(nil).HasPhase0Outputs() {
 		t.Fatalf("HasPhase0Outputs must tell a Provision result from an upload's minimal one")

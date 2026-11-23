@@ -4,14 +4,13 @@ package provisioner
 // its first run: the same deployment id, the same working directory, the same
 // bounds and the same follow-up phases. This file holds what that needs from
 // the provisioner. A request rebuilt from a stored record re-applies the
-// variables file it was applied with, and the writers of one record's result
-// merge their fields instead of replacing each other.
+// variables file it was applied with, and a Phase-0 result keeps the one field
+// another writer stamps while Phase 0 runs.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 )
 
 // stageTfvars writes tofu.auto.tfvars.json into deployDir from req. A request
@@ -20,7 +19,9 @@ import (
 // the deployment was applied with. The working directory keeps that file, and
 // the run applies it again: it is what the full request writes. Without such a
 // file nothing was applied for the deployment, and the record alone cannot
-// reproduce its request.
+// reproduce its request. A kept file may be of an older module contract, so it
+// is brought to the current one first, as before a destroy (SOV-131, SOV-338,
+// CLD-090); held values stay.
 func stageTfvars(deployDir string, req Request) error {
 	if !req.FromRecord {
 		if err := writeTfvars(deployDir, req); err != nil {
@@ -28,28 +29,38 @@ func stageTfvars(deployDir string, req Request) error {
 		}
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(deployDir, "tofu.auto.tfvars.json")); err != nil {
+	path := filepath.Join(deployDir, "tofu.auto.tfvars.json")
+	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("deployment %s: the request was rebuilt from its stored record, which holds no credential and not every field, and the working directory holds no variables file the deployment was applied with (%v); nothing can be applied again from the record alone — start a new deployment", req.DeploymentID, err)
+	}
+	if err := addVariablesIfMissing(path, req); err != nil {
+		return fmt.Errorf("add variables to tfvars: %w", err)
+	}
+	if err := addCloudRegionIfMissing(path, req); err != nil {
+		return fmt.Errorf("add cloud_region to tfvars: %w", err)
 	}
 	return nil
 }
 
 // MergePhase0 returns the record's result after a Phase-0 run: fresh, the
-// result Provision returned, with every field that fresh leaves unset taken
-// from prev, the result the record held. A kubeconfig upload stamps
-// KubeconfigPath while Phase 0 still runs, and the Phase-1 watch and the
-// handover write fields that Provision never writes; Phase 0 must not drop
-// them. A nil prev or fresh returns fresh.
+// result Provision returned, with the kubeconfig path of prev, the result the
+// record held, when fresh has none. The path is the one field another writer
+// stamps while Phase 0 runs (PutKubeconfig), and a run that converges existing
+// state gets no new upload. Every other field of prev was written by an earlier
+// run's Phase-1 watch or handover (verdict, census, degraded flags, handover
+// URL and times) and is dropped, as a replaced result dropped it: this run's
+// watch and handover write them again. A nil prev returns fresh; a nil fresh
+// returns prev.
 func MergePhase0(prev, fresh *Result) *Result {
 	if prev == nil || fresh == nil {
+		if fresh == nil {
+			return prev
+		}
 		return fresh
 	}
 	out := *fresh
-	o, p := reflect.ValueOf(&out).Elem(), reflect.ValueOf(prev).Elem()
-	for i := 0; i < o.NumField(); i++ {
-		if o.Field(i).IsZero() {
-			o.Field(i).Set(p.Field(i))
-		}
+	if out.KubeconfigPath == "" {
+		out.KubeconfigPath = prev.KubeconfigPath
 	}
 	return &out
 }

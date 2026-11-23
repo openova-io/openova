@@ -279,8 +279,42 @@ func TestShouldResumePhase1_Phase0FailureStands(t *testing.T) {
 	}
 }
 
-// A failed retry releases no pool name that an earlier run committed; a first
-// run's failure still releases its reservation.
+// A Phase-0 retry is a new run: the previous run's Phase-1 census, degraded
+// flags and handover do not survive into it. Region b's Flux CRD was absent
+// on the previous run; this run's probe sees nothing absent, so only the merge
+// could carry ["b"] over. With HandoverFiredAt nil, fireHandover fires for it.
+func TestRetryPhase0_DropsThePreviousRunsWatchAndHandover(t *testing.T) {
+	stub := &phase0Stub{result: phase0Result("p0-fresh")}
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	wireRerun(h, stub)
+	dep := makeTimedOutDeployment(t, h, "p0-fresh", true)
+	at := time.Now().Add(-time.Hour)
+	dep.Result.SecondaryFluxCRDAbsentRegions, dep.Result.SecondaryDegraded = []string{"b"}, true
+	dep.Result.HandoverFiredAt, dep.Result.HandoverCompletedAt, dep.Result.HandoverURL = &at, &at, "https://console.hw307.p0-fresh.example/auth/handover?token=old"
+	dep.Result.ConsoleDegraded, dep.Result.ConsoleDegradedDetail = true, "HTTP 404"
+
+	if rr, _ := postRetryPhase(t, h, dep.ID, "tofu-apply"); rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d %s", rr.Code, rr.Body.String())
+	}
+	awaitRun(t, dep)
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	r := dep.Result
+	if dep.Status != "ready" {
+		t.Fatalf("after the retry: status %q (error %q), want ready", dep.Status, dep.Error)
+	}
+	if len(r.SecondaryFluxCRDAbsentRegions) != 0 || r.SecondaryDegraded || r.ConsoleDegraded || r.ConsoleDegradedDetail != "" {
+		t.Errorf("the previous run's census survived: fluxCRDAbsent %v, secondaryDegraded %v, consoleDegraded %v %q", r.SecondaryFluxCRDAbsentRegions, r.SecondaryDegraded, r.ConsoleDegraded, r.ConsoleDegradedDetail)
+	}
+	if r.HandoverFiredAt != nil || r.HandoverCompletedAt != nil || r.HandoverURL != "" {
+		t.Errorf("the previous run's handover survived (this run cannot fire one): fired %v, completed %v, url %q", r.HandoverFiredAt, r.HandoverCompletedAt, r.HandoverURL)
+	}
+}
+
+// The release on a Phase-0 failure in runProvisioning, which a retry now runs
+// (the old retry path never released, so this guards the new path): a failed
+// retry releases no pool name that an earlier run committed; a first run's
+// failure still releases its reservation.
 func TestPhase0Failure_ReleasesOnlyAReservationNoRunCommitted(t *testing.T) {
 	pdmc := &fakePDM{}
 	stub := &phase0Stub{err: errors.New("tofu apply: VPC.2003")}
@@ -302,6 +336,34 @@ func TestPhase0Failure_ReleasesOnlyAReservationNoRunCommitted(t *testing.T) {
 	h.runProvisioning(first)
 	if got := pdmc.snapshotReleases(); len(got) != 1 || got[0].sub != "hw308" {
 		t.Fatalf("a first run's failure must release its reservation, got %+v", got)
+	}
+}
+
+// Defect 5 as it was: a retry interrupted by an engine restart is restored as
+// failed, and the restore released the pool name the earlier Phase 0 had
+// committed. A record whose Phase 0 reached its outputs keeps its name (an
+// interrupted first run, without outputs, still releases:
+// TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot).
+func TestRestore_InterruptedRetryKeepsTheCommittedName(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	rec := store.Record{ID: "p0-interrupted", Status: "provisioning", StartedAt: time.Now().UTC(),
+		PDMReservationToken: "tok", PDMPoolDomain: "omani.works", PDMSubdomain: "hw309",
+		Request: store.RedactedRequest{SovereignFQDN: "hw309.omani.works", SovereignDomainMode: "pool"},
+		Result:  &provisioner.Result{SovereignFQDN: "hw309.omani.works", ConsoleURL: "https://console.hw309.omani.works"}}
+	if err := st.Save(rec); err != nil {
+		t.Fatalf("seed record: %v", err)
+	}
+	pdmc := &fakePDM{}
+	h := NewWithStore(silentLogger(), pdmc, st)
+	h.WaitOrphanReleases()
+	if got := pdmc.snapshotReleases(); len(got) != 0 {
+		t.Fatalf("the restore of an interrupted retry released the committed name: %+v", got)
+	}
+	if val, ok := h.deployments.Load(rec.ID); !ok || val.(*Deployment).Status != "failed" {
+		t.Fatalf("the interrupted retry must be restored as failed")
 	}
 }
 
