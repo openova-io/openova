@@ -23,6 +23,11 @@
 #   5  long Application name, shortened HelmRelease name    -> keep (the label matches)
 #   6  a Secret without the seed labels, or with the
 #      component label only                                 -> not selected, kept
+#   7  HelmRelease gone (deleted while suspended) but the
+#      Certificate that writes the Secret is still there    -> keep (deleting it
+#      would only make cert-manager issue it again)
+#   (3 also holds a Certificate of another Secret in org-c and one of gamma's
+#   Secret name in another namespace: neither keeps gamma's seed.)
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
@@ -83,4 +88,11 @@ results:
     resources:
       - org-c/gamma-db-app
       - org-c/legacy-db-replication-ca-seed
+    result: fail
+  # 7
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-f/zeta-db-replication-ca-seed
     result: fail

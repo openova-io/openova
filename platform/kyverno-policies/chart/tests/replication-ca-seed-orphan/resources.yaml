@@ -79,3 +79,13 @@ metadata:
   labels:
     catalyst.openova.io/component: replication-ca-seed
 type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: zeta-db-replication-ca-seed
+  namespace: org-f
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: zeta
+type: kubernetes.io/tls

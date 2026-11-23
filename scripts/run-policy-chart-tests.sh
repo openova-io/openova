@@ -32,6 +32,7 @@ SHELL_TESTS=(
   bootstrap-window.sh
   crossplane-runtime-suite-current.sh
   replication-ca-seed-orphan-current.sh
+  replication-ca-seed-orphan-watchdog.sh
 )
 
 # step <label> <command...>

@@ -7,7 +7,7 @@
 #      templates/cleanup/replication-ca-seed-orphan.yaml;
 #   C2 the render of templates/rbac-cleanup-replication-ca-seed.yaml is a
 #      ClusterRole aggregated to the cleanup controller that grants exactly
-#      list + delete on Secrets and list on HelmReleases;
+#      list + delete on Secrets and list on HelmReleases and Certificates;
 #   C3 the schedule runs at least every 2 minutes (the check waits 10);
 #   C4 enabled=false renders neither the policy nor the ClusterRole.
 #
@@ -42,7 +42,7 @@ if ! ls "$CHART"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
   helm dependency build "$CHART" >/dev/null
 fi
 
-WANT_RULES='[{"apiGroups":[""],"resources":["secrets"],"verbs":["list","delete"]},{"apiGroups":["helm.toolkit.fluxcd.io"],"resources":["helmreleases"],"verbs":["list"]}]'
+WANT_RULES='[{"apiGroups":[""],"resources":["secrets"],"verbs":["list","delete"]},{"apiGroups":["helm.toolkit.fluxcd.io"],"resources":["helmreleases"],"verbs":["list"]},{"apiGroups":["cert-manager.io"],"resources":["certificates"],"verbs":["list"]}]'
 
 # check_copy <chart> <suite dir>: C1.
 check_copy() {
@@ -74,7 +74,7 @@ check_rbac() {
     echo "$TAG FAIL C2: rules are $rules, want exactly $WANT_RULES"
     return 1
   fi
-  echo "$TAG PASS C2: the cleanup controller gets list + delete on Secrets and list on HelmReleases, nothing more"
+  echo "$TAG PASS C2: the cleanup controller gets list + delete on Secrets and list on HelmReleases and Certificates, nothing more"
 }
 
 # check_schedule: C3, on the C1 render.

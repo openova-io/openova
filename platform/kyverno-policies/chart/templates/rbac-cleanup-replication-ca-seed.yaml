@@ -2,8 +2,9 @@
 The cleanup controller's right for the DeletingPolicy
 replication-ca-seed-orphan (templates/cleanup/, check FND-G12). The deleting
 controller lists the labelled Secrets and deletes the orphaned ones; the
-policy's condition lists the HelmReleases of the Secret's namespace. The
-upstream cleanup ClusterRole grants neither.
+policy's conditions list the HelmReleases and the cert-manager Certificates
+of the Secret's namespace. The upstream cleanup ClusterRole grants none of
+these.
 
 Aggregated into that ClusterRole through the label the upstream chart selects
 (rbac.kyverno.io/aggregate-to-cleanup-controller), like
@@ -11,7 +12,7 @@ rbac-cilium-read.yaml, so it survives a Kyverno upgrade. The narrowest form
 RBAC allows: a Role cannot follow the Organization namespaces that appear at
 run time, and RBAC cannot select by label, so it is a ClusterRole with list +
 delete on Secrets (no get, watch, create, update or patch) and list on
-HelmReleases. Rendered only with the policy.
+HelmReleases and Certificates. Rendered only with the policy.
 */ -}}
 {{- if .Values.cleanupPolicies.replicationCaSeedOrphan.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -29,5 +30,8 @@ rules:
     verbs: ["list", "delete"]
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
+    verbs: ["list"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
     verbs: ["list"]
 {{- end }}

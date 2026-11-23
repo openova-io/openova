@@ -23,13 +23,27 @@ per-region path of application_controller.go). The HelmRelease's own name is
 `<app>-<cluster>`, shortened with a hash for long names, so it is never used.
 
 A Secret so labelled is deleted ONLY when no HelmRelease carrying its
-Application's label exists in the Secret's namespace:
+Application's label exists in the Secret's namespace AND no cert-manager
+Certificate in that namespace writes it (spec.secretName == the Secret):
   - a HelmRelease being deleted (deletionTimestamp set) still exists: keep;
     the next run deletes once it is gone;
-  - an error reading the HelmReleases (no right, no CRD, API down) makes the
-    condition an error, and the controller deletes nothing on an error: keep;
+  - a HelmRelease deleted while suspended: helm-controller skips the
+    uninstall, so the Certificate stays. Deleting its Secret would only make
+    cert-manager issue a new one (a new CA key and CertificateRequest) every
+    run without end, so the Secret stays while its Certificate does;
+  - an error reading the HelmReleases or the Certificates (no right, no CRD,
+    API down) makes that condition an error, and the controller deletes
+    nothing on an error: keep. A false condition wins over an error in the
+    other one (dpol compiler/policy.go match), so a live Application, which
+    has both, needs both reads to fail before the run reports an error;
   - another Application's HelmRelease in the same namespace keeps only that
     Application's Secret: the condition compares the label, not the namespace.
+
+A run that ends in an error is retried 10 times over about 5 s and then
+dropped from the cleanup controller's queue for good (Kyverno v1.18.0
+deleting/controller.go:283-306, utils/controller/run.go:77-85). The
+watchdog CronJob (replication-ca-seed-orphan-watchdog.yaml) restarts the
+cleanup controller when the policy has not run for watchdog.staleAfterSeconds.
 
 WHY A DeletingPolicy (NOT A ClusterCleanupPolicy)
 ================================================
@@ -73,8 +87,9 @@ metadata:
     policies.kyverno.io/description: >-
       Deletes a Secret labelled catalyst.openova.io/component=replication-ca-seed
       once no Flux HelmRelease labelled with its catalyst.openova.io/app value
-      exists in the Secret's namespace. A HelmRelease being deleted, or an error
-      reading HelmReleases, keeps the Secret.
+      and no cert-manager Certificate writing it exist in the Secret's
+      namespace. A HelmRelease being deleted, a Certificate still present, or
+      an error reading either keeps the Secret.
 spec:
   schedule: {{ $p.schedule | quote }}
   matchConstraints:
@@ -100,6 +115,12 @@ spec:
         dyn(resource.List("helm.toolkit.fluxcd.io/v2", "helmreleases",
         object.metadata.namespace,
         {"catalyst.openova.io/app": variables.application}).items)
+    # Every Certificate of the namespace (the seed Certificate carries no
+    # label the Secret could name); the condition matches spec.secretName.
+    - name: certificates
+      expression: >-
+        dyn(resource.List("cert-manager.io/v1", "certificates",
+        object.metadata.namespace).items)
   conditions:
     - name: no-helmrelease-of-its-application
       expression: >-
@@ -107,4 +128,9 @@ spec:
         !(has(hr.metadata.labels) &&
         "catalyst.openova.io/app" in hr.metadata.labels &&
         hr.metadata.labels["catalyst.openova.io/app"] == variables.application))
+    - name: no-certificate-writes-it
+      expression: >-
+        variables.certificates.all(c,
+        !(has(c.spec) && has(c.spec.secretName) &&
+        c.spec.secretName == object.metadata.name))
 {{- end }}

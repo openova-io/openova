@@ -14,8 +14,9 @@ metadata:
     policies.kyverno.io/description: >-
       Deletes a Secret labelled catalyst.openova.io/component=replication-ca-seed
       once no Flux HelmRelease labelled with its catalyst.openova.io/app value
-      exists in the Secret's namespace. A HelmRelease being deleted, or an error
-      reading HelmReleases, keeps the Secret.
+      and no cert-manager Certificate writing it exist in the Secret's
+      namespace. A HelmRelease being deleted, a Certificate still present, or
+      an error reading either keeps the Secret.
 spec:
   schedule: "*/2 * * * *"
   matchConstraints:
@@ -41,6 +42,12 @@ spec:
         dyn(resource.List("helm.toolkit.fluxcd.io/v2", "helmreleases",
         object.metadata.namespace,
         {"catalyst.openova.io/app": variables.application}).items)
+    # Every Certificate of the namespace (the seed Certificate carries no
+    # label the Secret could name); the condition matches spec.secretName.
+    - name: certificates
+      expression: >-
+        dyn(resource.List("cert-manager.io/v1", "certificates",
+        object.metadata.namespace).items)
   conditions:
     - name: no-helmrelease-of-its-application
       expression: >-
@@ -48,3 +55,8 @@ spec:
         !(has(hr.metadata.labels) &&
         "catalyst.openova.io/app" in hr.metadata.labels &&
         hr.metadata.labels["catalyst.openova.io/app"] == variables.application))
+    - name: no-certificate-writes-it
+      expression: >-
+        variables.certificates.all(c,
+        !(has(c.spec) && has(c.spec.secretName) &&
+        c.spec.secretName == object.metadata.name))

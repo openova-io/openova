@@ -54,3 +54,37 @@ spec:
         namespace: org-e
         labels:
           catalyst.openova.io/app: marketing-site-of-the-acme-trading-company-in-muscat-oman-2
+    # The Certificates the policy's second resource.List sees, per namespace.
+    # org-a: alpha's seed Certificate (installed).
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: alpha-db-replication-ca-seed
+        namespace: org-a
+      spec:
+        secretName: alpha-db-replication-ca-seed
+    # org-c: a Certificate that writes another Secret does not keep gamma's
+    # seed; gamma's own name in ANOTHER namespace does not either.
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: gamma-site-tls
+        namespace: org-c
+      spec:
+        secretName: gamma-site-tls
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: gamma-db-replication-ca-seed
+        namespace: org-other
+      spec:
+        secretName: gamma-db-replication-ca-seed
+    # org-f: zeta's HelmRelease was deleted while suspended, so helm-controller
+    # skipped the uninstall and the seed Certificate is still there.
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: zeta-db-replication-ca-seed
+        namespace: org-f
+      spec:
+        secretName: zeta-db-replication-ca-seed
