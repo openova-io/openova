@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T08:30:05Z` |
+| Last refreshed | `2026-11-23T08:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T08:44 | [#8653](https://github.com/openova-io/openova/pull/8653) | #7087 | docs(ledger): plan update |
 | 2026-11-23T08:24 | [#8652](https://github.com/openova-io/openova/pull/8652) | #8651 | feat(openbao): a six-hourly raft snapshot of OpenBao to obje |
 | 2026-11-23T07:19 | [#8650](https://github.com/openova-io/openova/pull/8650) | #7087 | docs(ledger): plan update |
 | 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-21T17:50 | [#8600](https://github.com/openova-io/openova/pull/8600) | #7087 | docs(ledger): plan update |
 | 2026-11-21T16:10 | [#8599](https://github.com/openova-io/openova/pull/8599) | fix(gate): check NET-G07 proves the platform's denial in a s |  |
 | 2026-11-21T16:12 | [#8598](https://github.com/openova-io/openova/pull/8598) | #6837 | fix(providers): the reference cloud's balancer members carry |
-| 2026-11-21T13:56 | [#8597](https://github.com/openova-io/openova/pull/8597) | #8558 | fix(cutover): step 03 copies the OpenTofu provider packages  |
 
 ---
 
