@@ -16,9 +16,11 @@
 #       openbao-config-admin;
 #   C3  config-admin SCOPE: configuration surfaces only — no secret data (kv
 #       mount), no sys/raw, sys/seal, sys/unseal, sys/generate-root,
-#       sys/rekey, sys/storage, auth/token, sys/leases, no bare `*`, no delete,
-#       sys/mounts read-only, sys/mounts/secret create + update and no other
-#       sys/mounts/ path; it can rewrite its own policy, not its own role;
+#       sys/rekey, sys/storage, auth/token (but token roles), sys/leases, no
+#       transit path but key configuration, no bare `*`, no delete,
+#       sys/mounts read-only, sys/mounts/secret, mounted and transit create +
+#       update (SEC-190) and no other sys/mounts/ path; it can rewrite its
+#       own policy, not its own role;
 #   C4  no Job renders, and the self-initialisation block is rendered;
 #   C5  policies are written before any role (ordering, #5829);
 #   C6  the reconciler logs in on the mount the role is bound on;
@@ -57,10 +59,10 @@ def check_scope(hcl):
     pc = caps(hcl)
     if not pc: out.append("C3 config-admin policy is empty / unparsable")
     for p, c in pc.items():
-        if p == "*" or (p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")) and p != "sys/mounts/secret"):
+        if p == "*" or (p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")) and p not in ("sys/mounts/secret", "sys/mounts/mounted", "sys/mounts/transit", "auth/token/roles/*")):
             out.append(f"C3 config-admin reaches forbidden path {p}")
         if "delete" in c: out.append(f"C3 config-admin may delete {p}")
-        if not p.startswith(("sys/policies/acl/", "sys/policy/", "sys/auth", "sys/mounts", "auth/+/", "identity/oidc/")):
+        if not p.startswith(("sys/policies/acl/", "sys/policy/", "sys/auth", "sys/mounts", "auth/+/", "identity/oidc/", "transit/keys/", "auth/token/roles/")):
             out.append(f"C3 config-admin path outside the configuration surfaces: {p}")
     if pc.get("sys/mounts") != ["read"]: out.append(f"C3 sys/mounts must be read-only, got {pc.get('sys/mounts')}")
     if pc.get("sys/mounts/secret") != ["create", "update"]: out.append(f"C3 sys/mounts/secret must be create + update, got {pc.get('sys/mounts/secret')}")

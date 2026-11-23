@@ -874,6 +874,23 @@ A rotation is not a work package. Its branch is `release-key-rotation/<YYYY-MM-D
 
 From step 3 on, never set the old secrets again. If the rotation pull request fails in the merge queue, the hold stays until a corrected rotation pull request has merged. A run of a commit older than the rotation fails at its verify step, because that commit holds the old public half. Do not run it again.
 
+### 2.17 Offline backup of the state key
+
+The infrastructure state of a Sovereign is encrypted with the transit key `transit/keys/tofu-state` of its OpenBao (`stateKey` in `platform/openbao/chart/values.yaml`). If the store is lost, the state can be read again only with a backup of that key. bp-openbao creates the key exportable and with a plaintext backup allowed, both for good, and only policy `tofu-state-backup` may read `transit/backup/tofu-state`. The group `sovereign-admins` carries that policy, and so do the service accounts listed in `stateKey.backupIdentities`.
+
+The sovereign-admin takes the backup once, after the Sovereign is handed over. Custody is the sovereign-admin's: no copy is kept on the Sovereign or by the provisioning service.
+
+1. Sign in to OpenBao (`BAO_ADDR=https://<gateway.host>`, `bao login -method=oidc`) as a member of `sovereign-admins`, and take the backup as a wrapped response. The answer is a single-use wrapping token that lives one hour, not the key:
+   ```sh
+   bao read -wrap-ttl=1h -field=wrapping_token transit/backup/tofu-state > tofu-state.wrap
+   ```
+2. Carry `tofu-state.wrap` to the custody machine outside the Sovereign. There, with `BAO_ADDR` set to the same address, unwrap it. Only this machine ever holds the backup in the clear:
+   ```sh
+   BAO_TOKEN="$(cat tofu-state.wrap)" bao unwrap -field=backup > tofu-state.backup
+   ```
+
+Store `tofu-state.backup` offline under the sovereign-admin's custody and delete `tofu-state.wrap`. If step 2 answers that the wrapping token is not valid although it is less than one hour old, someone else unwrapped it: treat the key as disclosed, report it, and take a new backup once the key has been rotated. A gate environment takes its backup the same way with its own service account, listed in `stateKey.backupIdentities`. Restoring the key is part of the Sovereign lifecycle and is not done by hand.
+
 ---
 
 ## §3 — Blueprint authoring
