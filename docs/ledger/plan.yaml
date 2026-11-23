@@ -295,7 +295,7 @@ epics:
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
-  packages: [CMP-073, CMP-071, CMP-076, CMP-072, CMP-074]
+  packages: [CMP-073, CMP-071, CMP-072, CMP-076, CMP-074]
 - id: CMP-080
   title: 'Epic: decisions (waivers and remediation requests)'
   wave: W2
@@ -1716,7 +1716,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-080, FND-091]
-  after: [NET-033, FND-120, FND-064, FND-027, FND-029, FND-104, CLD-076, CLD-141, SOV-151, SOV-344, SEC-104, SEC-126, SEC-190, NET-040, NET-055, SVC-137, SVC-220, CTL-041, CTL-347, BSS-040]
+  after: [NET-033, FND-120, FND-064, FND-027, FND-029, FND-104, CLD-076, CLD-141, SOV-151, SOV-344, SEC-104, SEC-126, SEC-180, SEC-190, NET-040, NET-055, SVC-137, SVC-220, CTL-041, CTL-347, BSS-040]
   touches:
   - scripts/sovereign-dod-verify.sh
   - scripts/sovereign-3x-zero-touch-cycle.sh
@@ -2547,7 +2547,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-064, SOV-225]
-  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, SEC-190, SVC-137, CMP-020]
+  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-190, SVC-137, CMP-020]
   touches:
   - .github/workflows/release-key-resign.yaml
   - .github/workflows/tree-guards.yaml
@@ -4068,7 +4068,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-120, FND-078]
-  after: [FND-064, FND-027, FND-029, CLD-076, SEC-126, SEC-190, NET-185, SVC-137]
+  after: [FND-064, FND-027, FND-029, CLD-076, SEC-126, SEC-180, SEC-190, NET-185, SVC-137]
   touches:
   - .github/workflows/release-train.yaml
   - scripts/sovereign-lifecycle.sh
@@ -4160,7 +4160,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-141, SOV-225, FND-062, FND-064, FND-065]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-190, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SEC-190, SVC-137]
   touches:
   - .github/workflows/release-train.yaml
   - docs/RUNBOOKS.md
@@ -11971,7 +11971,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, SEC-190, SOV-080, SOV-420]
-  after: [FND-027, FND-029, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-076, SOV-175, SEC-010, SEC-060, SEC-126, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-076, SOV-175, SEC-010, SEC-060, SEC-126, SEC-180, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/restore/**
   - tests/hermetic/handover/assert/
@@ -12222,7 +12222,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, SOV-520]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-190, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SEC-190, SVC-137]
   touches:
   - core/cmd/sovereign-ops/internal/bundle/**
   - docs/RUNBOOKS.md
@@ -12437,7 +12437,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-720]
-  after: [SOV-721, FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-060, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, SEC-190, NET-012, NET-020, NET-100, NET-110, NET-185, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [SOV-721, FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-060, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, SEC-180, SEC-190, NET-012, NET-020, NET-100, NET-110, NET-185, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -12464,7 +12464,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [SOV-725]
-  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-060, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, SEC-190, NET-012, NET-020, NET-100, NET-110, NET-185, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
+  after: [FND-027, FND-029, CLD-023, CLD-076, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, CLD-134, SOV-144, SOV-149, SOV-335, SEC-040, SEC-060, SEC-126, SEC-150, SEC-152, SEC-153, SEC-154, SEC-180, SEC-190, NET-012, NET-020, NET-100, NET-110, NET-185, NET-210, SVC-137, SVC-159, SVC-160, SVC-170, AIP-201, INF-055, INF-060]
   touches:
   - infra/providers/*/variables.tf
   - docs/RUNBOOKS.md
@@ -12700,7 +12700,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-435, SOV-440]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SVC-137]
   touches:
   - core/cmd/sovereign-ops/internal/restore/decommission.go
   - docs/RUNBOOKS.md
@@ -12729,7 +12729,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [SOV-820]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SVC-137]
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -12755,7 +12755,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [SOV-920]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SVC-137]
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -14395,7 +14395,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-135, SEC-162, SEC-152]
-  after: [FND-011, CLD-023, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-342, SEC-060, SEC-153, SEC-154, SEC-190, NET-020, NET-100, NET-110, NET-185, SVC-040, SVC-041, AIP-201, INF-060]
+  after: [FND-011, CLD-023, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-342, SEC-060, SEC-153, SEC-154, SEC-180, SEC-190, NET-020, NET-100, NET-110, NET-185, SVC-040, SVC-041, AIP-201, INF-060]
   touches:
   - infra/providers/huawei/seal/main.tf
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -14540,7 +14540,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [SEC-130, SEC-162, SOV-720, SOV-726]
-  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-190, SVC-137]
+  after: [FND-027, FND-029, CLD-076, SEC-126, SEC-180, SEC-190, SVC-137]
   touches:
   - docs/RUNBOOKS.md
   - scripts/sec-migrate-existing-sovereign.sh
@@ -14568,27 +14568,35 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-162]
-  after: [SEC-190, FND-011, FND-027, FND-029, FND-064, FND-072, CLD-076, SEC-073, SEC-080, SEC-126, SVC-040, SVC-041, SVC-060, SVC-070, SVC-137]
+  after: [SEC-190, FND-011]
   touches:
-  - platform/openbao/chart/templates/backup-snapshot.yaml
-  - platform/openbao/chart/templates/_config.tpl
-  - platform/openbao/chart/values.yaml
-  - platform/openbao/chart/tests/backup-render.sh
   - docs/RUNBOOKS.md
+  - platform/openbao/chart/templates/_config.tpl
+  - platform/openbao/chart/templates/backup-snapshot.yaml
+  - platform/openbao/chart/tests/backup-render.sh
+  - platform/openbao/chart/values.yaml
   resources: []
   flips: []
   implements: []
   proven_by: SEC-181
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls platform/openbao/chart/templates | grep -c -x -F backup-snapshot.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "out=\"$(NO_COLOR=1 bash platform/openbao/chart/tests/backup-render.sh platform/openbao/chart)\" && test \"$(grep -c -E '^  PASS  B[1-5] ' <<<\"$out\")\" = 5"
+  - id: A2
+    run: "bash platform/openbao/chart/tests/config-desired-render.sh platform/openbao/chart"
+  - id: A3
+    run: "f=docs/RUNBOOKS.md && grep -q -x -F '### 2.18 Restore OpenBao' $f && grep -q -F 'bao operator raft snapshot restore -force /tmp/restore.snap' $f"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A six-hourly raft snapshot of OpenBao uploaded to object storage by a CronJob with its own identity, whose policy reads only the snapshot endpoint, and the bucket key read from a Secret; off by default, switched on in the kit by SEC-181, which proves the restore.
+  delivers: A six-hourly raft snapshot of OpenBao is put into object storage by CronJob openbao-backup with its own service account, whose policy reads only the snapshot endpoint, and with the bucket key read from a mounted Secret; it deletes only its own region's snapshots older than 30 days, is off by default and is switched on in the kit by SEC-181, which proves the restore.
 - id: SEC-181
   title: 'OpenBao restore drill: a known key is read back from a restored snapshot'
   area: SEC
@@ -14675,7 +14683,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-190, SEC-211]
-  after: [FND-011, SEC-080, SVC-040, SVC-041]
+  after: [FND-011, SEC-080, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -14704,7 +14712,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-080, SEC-095, SEC-190]
-  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-060, SEC-096, SEC-153, SEC-154, SEC-211, SVC-040, SVC-041]
+  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-060, SEC-096, SEC-153, SEC-154, SEC-180, SEC-211, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/config-desired-render.sh
@@ -14765,7 +14773,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-080, SEC-140, SEC-190]
-  after: [FND-011, SEC-090, SEC-154, SVC-040, SVC-041]
+  after: [FND-011, SEC-090, SEC-154, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/secrets-lib/chart/**
   - platform/secrets-lib/README.md
@@ -15550,7 +15558,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-120, SEC-190]
-  after: [FND-011, SOV-151, SEC-080, SEC-211, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-211, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -15860,7 +15868,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-213, SEC-231, SEC-280]
-  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SVC-040, SVC-041]
+  after: [FND-011, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -15924,7 +15932,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-161, SEC-190, SEC-250]
-  after: [FND-011, SEC-080, SVC-040, SVC-041]
+  after: [FND-011, SEC-080, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -15952,7 +15960,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211]
-  after: [FND-011, SOV-151, SEC-080, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
@@ -17769,7 +17777,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, NET-120, SEC-250]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/values.yaml
   - docs/ledger/gates.yaml
@@ -25357,7 +25365,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SOV-343, SEC-010, SEC-060, SEC-126, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SOV-343, SEC-010, SEC-060, SEC-126, SEC-180, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - tests/acceptance/sovereign/**
@@ -25388,7 +25396,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141, CTL-041]
-  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-154, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-126, SEC-152, SEC-153, SEC-154, SEC-190, NET-020, NET-110, NET-185, SVC-040, SVC-041, SVC-137, SVC-161, SVC-220, AIP-201, INF-060]
+  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-154, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-126, SEC-152, SEC-153, SEC-154, SEC-180, SEC-190, NET-020, NET-110, NET-185, SVC-040, SVC-041, SVC-137, SVC-161, SVC-220, AIP-201, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
@@ -32700,7 +32708,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-132, INF-135, NET-150, SEC-190, SEC-211, SVC-275, INF-133]
-  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, NET-030, NET-040, CTL-041, CTL-346, INF-050]
+  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, SEC-180, NET-030, NET-040, CTL-041, CTL-346, INF-050]
   touches:
   - clusters/_template/bootstrap-kit/36-bp-machine-operations.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -33144,7 +33152,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [INF-160, SEC-190, SEC-310]
-  after: [FND-011, SEC-080]
+  after: [FND-011, SEC-080, SEC-180]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -33349,7 +33357,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-330, INF-455, SEC-190]
-  after: [FND-011, CTL-231, CTL-345, BSS-040, AIP-120, AIP-227, INF-140]
+  after: [FND-011, SEC-180, CTL-231, CTL-345, BSS-040, AIP-120, AIP-227, INF-140]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/operations/enrol.go
   - products/machine-runner/content/playbooks/enrol.yml
@@ -33722,7 +33730,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [INF-515]
-  after: [CLD-076, SEC-126, SVC-137]
+  after: [CLD-076, SEC-126, SEC-180, SVC-137]
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -35485,7 +35493,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [MIG-133, MIG-144]
-  after: [CLD-076, SOV-010, SEC-110, SEC-126, SVC-137, SVC-162, BSS-020]
+  after: [CLD-076, SOV-010, SEC-110, SEC-126, SEC-180, SVC-137, SVC-162, BSS-020]
   touches:
   - docs/RUNBOOKS.md
   - docs/STATUS.md
@@ -35994,7 +36002,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [ACC-030, ACC-103, SEC-190, SEC-211, SEC-250]
-  after: [FND-011, SEC-080]
+  after: [FND-011, SEC-080, SEC-180]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -36305,7 +36313,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-020, ACC-030, ACC-112, SEC-310]
-  after: [FND-011, CLD-076, SEC-080, SEC-126, SVC-137]
+  after: [FND-011, CLD-076, SEC-080, SEC-126, SEC-180, SVC-137]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go
@@ -36405,7 +36413,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [ACC-133, CMP-121]
-  after: [CLD-076, SEC-126, SVC-137]
+  after: [CLD-076, SEC-126, SEC-180, SVC-137]
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -36726,7 +36734,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-221]
-  after: [FND-011]
+  after: [FND-011, SEC-180]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go
@@ -38725,7 +38733,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-190, SEC-250]
-  after: [FND-011, SEC-080, SVC-040, SVC-041]
+  after: [FND-011, SEC-080, SEC-180, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/policy-templates-render.sh
@@ -38962,7 +38970,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [PRD-510, SEC-190]
-  after: [FND-011]
+  after: [FND-011, SEC-180]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/policy-templates-render.sh
