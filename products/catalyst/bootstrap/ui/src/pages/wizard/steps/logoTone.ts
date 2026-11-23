@@ -102,8 +102,6 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   kyverno:      { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#0095D5' },
   // Trivy — Aqua trident purple wordmark on white ; trivy README uses purple wordmark on white.
   trivy:        { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#1904DA' },
-  // Syft + Grype — Anchore navy ; anchore.com hero uses navy `#0F1837` with cyan accent. Vendored PNG is white-on-dark.
-  'syft-grype': { background: '#0F1837', border: 'rgba(255,255,255,0.10)', text: '#3FA9F5' },
   // Sigstore — canonical cream surface with deep-blue mark ; sigstore.dev exposes `--c-egg-white #f6f0eb` as its surface and the CNCF artwork repo (sigstore/community/artwork/sigstore/icons/cream) ships `#faf7ef` cream as the brand backplate for the dark-blue mark `#2e2f71`. The vendored sigstore.svg is monochrome navy on transparent; the previous navy backplate rendered the mark invisible. Pairing the navy mark with the canonical cream surface restores brand fidelity (sigstore brand = navy + red signature on cream).
   sigstore:     { background: '#FAF7EF', border: 'rgba(15,23,42,0.10)', text: '#2E2F71' },
   // Keycloak — Keycloak grey-key wordmark on white ; keycloak.org uses grey/red key on white. Vendored SVG fills include `#4D4D4D` and `#E0E0E0`.
