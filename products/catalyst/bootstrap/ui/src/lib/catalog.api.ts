@@ -115,6 +115,49 @@ function applicationsBase(sovereignId: string): string {
   return `${API_BASE}/v1/sovereigns/${encodeURIComponent(sovereignId)}/applications`
 }
 
+/**
+ * Who reads or changes one Application. A Sovereign session uses
+ * /sovereigns/{id}/applications/{name}; an Organization session
+ * (useConsoleScope().orgScoped — console.<org>.<pool>) is refused there
+ * by the API's OrgScopeGuard and manages its OWN Applications under
+ * /org/applications/{name}, where the API fixes the namespace to the
+ * caller's Organization (so no ?namespace= is sent).
+ */
+export interface ApplicationScope {
+  orgScoped?: boolean
+}
+
+/** URL of one Application's route: `suffix` is '' | '/status' | '/upgrade/preview' | … */
+export function applicationUrl(
+  sovereignId: string,
+  name: string,
+  suffix: string,
+  params: URLSearchParams,
+  scope: ApplicationScope = {},
+): string {
+  if (scope.orgScoped) {
+    params.delete('namespace')
+    const qs = params.toString()
+    return `${API_BASE}/v1/org/applications/${encodeURIComponent(name)}${suffix}${qs ? '?' + qs : ''}`
+  }
+  const qs = params.toString()
+  return `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${suffix}${qs ? '?' + qs : ''}`
+}
+
+/**
+ * Request headers of one Application's route. The Organization route
+ * resolves the caller's own Organization from X-Tenant-Host (the API answers
+ * 400 tenant-required without it), so an Organization session sends the
+ * page's host, as the Apps grid (AppsPage) and org.api.ts do.
+ */
+export function applicationHeaders(
+  headers: Record<string, string>,
+  scope: ApplicationScope = {},
+): Record<string, string> {
+  if (!scope.orgScoped) return headers
+  return { ...headers, 'X-Tenant-Host': typeof window !== 'undefined' ? window.location.host : '' }
+}
+
 /* ── REST calls (catalog read) ───────────────────────────────────── */
 
 export async function listCatalog(opts: { org?: string } = {}): Promise<CatalogListResponse> {
@@ -478,12 +521,12 @@ export async function getApplication(
   sovereignId: string,
   name: string,
   namespace?: string,
+  scope: ApplicationScope = {},
 ): Promise<ApplicationDetailResponse | null> {
   const params = new URLSearchParams()
   if (namespace) params.set('namespace', namespace)
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  const url = applicationUrl(sovereignId, name, '', params, scope)
+  const res = await authedFetch(url, { headers: applicationHeaders({ Accept: 'application/json' }, scope) })
   if (res.status === 404) return null
   if (!res.ok) {
     throw new Error(`getApplication: HTTP ${res.status}`)
@@ -527,12 +570,12 @@ export async function getApplicationStatus(
   sovereignId: string,
   name: string,
   namespace?: string,
+  scope: ApplicationScope = {},
 ): Promise<ApplicationStatusResponse> {
   const params = new URLSearchParams()
   if (namespace) params.set('namespace', namespace)
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/status${qs ? '?' + qs : ''}`
-  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  const url = applicationUrl(sovereignId, name, '/status', params, scope)
+  const res = await authedFetch(url, { headers: applicationHeaders({ Accept: 'application/json' }, scope) })
   if (!res.ok) {
     throw new Error(`status: HTTP ${res.status}`)
   }
@@ -628,26 +671,34 @@ export interface ApplicationUpdateResponse {
   status?: Record<string, unknown>
 }
 
+/**
+ * DELETE answer. `status` is "uninstalling" (HTTP 202, deleted:false —
+ * the application-controller still holds the object while it removes it
+ * from every region; read the status route for progress), "deleted"
+ * (HTTP 200, the object is gone) or "already-deleted".
+ */
 export interface ApplicationDeleteResponse {
   name: string
   namespace: string
   message: string
+  status?: 'uninstalling' | 'deleted' | 'already-deleted'
+  deleted?: boolean
+  phase?: string
 }
 
 export async function updateApplication(
   sovereignId: string,
   name: string,
   body: ApplicationUpdateRequest,
-  opts: { namespace?: string; force?: boolean } = {},
+  opts: { namespace?: string; force?: boolean } & ApplicationScope = {},
 ): Promise<ApplicationUpdateResponse> {
   const params = new URLSearchParams()
   if (opts.namespace) params.set('namespace', opts.namespace)
   if (opts.force) params.set('force', 'true')
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
+  const url = applicationUrl(sovereignId, name, '', params, opts)
   const res = await authedFetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -660,15 +711,14 @@ export async function updateApplication(
 export async function deleteApplication(
   sovereignId: string,
   name: string,
-  opts: { namespace?: string } = {},
+  opts: { namespace?: string } & ApplicationScope = {},
 ): Promise<ApplicationDeleteResponse> {
   const params = new URLSearchParams()
   if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`
+  const url = applicationUrl(sovereignId, name, '', params, opts)
   const res = await authedFetch(url, {
     method: 'DELETE',
-    headers: { Accept: 'application/json' },
+    headers: applicationHeaders({ Accept: 'application/json' }, opts),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -693,15 +743,14 @@ export async function previewTopologyChange(
   sovereignId: string,
   name: string,
   body: ApplicationChangePreviewRequest,
-  opts: { namespace?: string } = {},
+  opts: { namespace?: string } & ApplicationScope = {},
 ): Promise<ApplicationPreviewResponse> {
   const params = new URLSearchParams()
   if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/topology/preview${qs ? '?' + qs : ''}`
+  const url = applicationUrl(sovereignId, name, '/topology/preview', params, opts)
   const res = await authedFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -716,16 +765,15 @@ export async function previewUpgrade(
   name: string,
   targetVersion: string,
   body: ApplicationChangePreviewRequest = {},
-  opts: { namespace?: string } = {},
+  opts: { namespace?: string } & ApplicationScope = {},
 ): Promise<ApplicationPreviewResponse> {
   const params = new URLSearchParams()
   params.set('targetVersion', targetVersion)
   if (opts.namespace) params.set('namespace', opts.namespace)
-  const qs = params.toString()
-  const url = `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/upgrade/preview?${qs}`
+  const url = applicationUrl(sovereignId, name, '/upgrade/preview', params, opts)
   const res = await authedFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {

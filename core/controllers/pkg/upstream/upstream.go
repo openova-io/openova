@@ -16,6 +16,8 @@
 // the hours in which kured may restart a node, in KURED_TIME_ZONE; an empty
 // KURED_TIME_ZONE (the default) is SOVEREIGN_TIME_ZONE, the Sovereign's own
 // IANA time zone (default UTC), which the parent writes from the request.
+// FromMap refuses a zone name that the IANA database (embedded with
+// time/tzdata) does not hold.
 //
 // The cross-field rules of the contract:
 //
@@ -51,6 +53,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+	_ "time/tzdata" // a reader's image may hold no zoneinfo files: FromMap checks the zone names against this copy
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	corev1 "k8s.io/api/core/v1"
@@ -283,6 +287,14 @@ func FromMap(data map[string]string) (Variables, error) {
 	if err := c.schema.Validate(instance); err != nil {
 		return Variables{}, fmt.Errorf("schema: %s", schemaMessage(err))
 	}
+	for _, k := range []string{"SOVEREIGN_TIME_ZONE", "KURED_TIME_ZONE"} {
+		if zone, _ := instance[k].(string); zone != "" && !knownZone(zone) {
+			problems = append(problems, fmt.Sprintf("%s: %q is not a time zone of the IANA database", k, zone))
+		}
+	}
+	if len(problems) > 0 {
+		return Variables{}, fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
 	full := map[string]string{}
 	for k, v := range c.defaults {
 		full[k] = v
@@ -291,6 +303,15 @@ func FromMap(data map[string]string) (Variables, error) {
 		full[k] = v.(string)
 	}
 	return decode(full)
+}
+
+// knownZone reports whether name is a zone of the IANA database, the check
+// the parent's Request.Validate makes of the request's sovereignTimeZone: the
+// schema checks only the shape of a name, and kured would be started with a
+// name such as Asia/Nowhere. Local, the machine's own zone, is not a name.
+func knownZone(name string) bool {
+	_, err := time.LoadLocation(name)
+	return err == nil && name != "Local"
 }
 
 // schemaMessage flattens a validation error to its leaf messages, one per problem.

@@ -226,7 +226,7 @@ func HoldOf(outcome string, r *Record, region string, wait time.Duration, now ti
 	}
 	if r.Outcome == OutcomeFailed {
 		since, ok := parseTS(r.FailedSince)
-		if ok && now.Sub(since) > wait {
+		if !ok || now.Sub(since) > wait {
 			return &RebootHold{Reason: ReasonReleasedFailedMove, Message: fmt.Sprintf(
 				"%s has been Failed since %s, longer than %s (rebootAgent.waitSeconds): the reboot agent of region %s is released so that its nodes restart for their updates; the move is still evaluated and holds it again if it acts",
 				move, r.FailedSince, wait, region)}

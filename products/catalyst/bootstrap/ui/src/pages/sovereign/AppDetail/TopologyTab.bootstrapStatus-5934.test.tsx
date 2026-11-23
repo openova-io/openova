@@ -131,7 +131,7 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
     await waitFor(() => {
       expect(getApplicationStatus).toHaveBeenCalled()
     })
-    expect(getApplicationStatus).toHaveBeenCalledWith('test-sov', 'bp-keycloak', 'flux-system')
+    expect(getApplicationStatus).toHaveBeenCalledWith('test-sov', 'bp-keycloak', 'flux-system', { orgScoped: false })
   })
 
   // A Degraded component must read Degraded. A fix that pinned the chip to a
@@ -222,7 +222,7 @@ describe('TopologyTab — bootstrap component status (#5934, UAT rows 67 + 69)',
     await waitFor(() => {
       expect(screen.getByTestId('topology-tab-object-status-badge').textContent).toBe('Ready')
     })
-    expect(getApplicationStatus).toHaveBeenCalledWith('test-sov', 'wordpress', 'qa-omantel')
+    expect(getApplicationStatus).toHaveBeenCalledWith('test-sov', 'wordpress', 'qa-omantel', { orgScoped: false })
     expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()
   })
 

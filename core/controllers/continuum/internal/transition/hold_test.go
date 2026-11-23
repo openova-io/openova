@@ -32,6 +32,7 @@ func TestHoldOf_IsBounded(t *testing.T) {
 		{"in progress", rec(OutcomeTransitioning, 0), "b", "", true, ReasonHeldForMove},
 		{"failed within the bound", rec(OutcomeFailed, wait), "a", "", true, ReasonHeldForMove},
 		{"failed past the bound", rec(OutcomeFailed, wait+time.Second), "a", "", false, ReasonReleasedFailedMove},
+		{"failed, no failedSince (an older image acts)", &Record{ID: "b-to-a-1", From: "b", To: "a", Outcome: OutcomeFailed}, "a", "", false, ReasonReleasedFailedMove},
 		// The record is still in flight, but this evaluation walks it no more.
 		{"in flight, re-targeted back (Converged)", rec(OutcomeTransitioning, 0), "a", OutcomeConverged, false, ""},
 		{"in flight, no file committed (Pending)", rec(OutcomeTransitioning, 0), "b", OutcomePending, false, ""},

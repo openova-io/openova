@@ -279,6 +279,45 @@ func TestRebootWait_IsBounded(t *testing.T) {
 	}
 }
 
+// A move waits at its start for a drain, is re-targeted back (or is Blocked),
+// and is asked for again past the bound of that wait, while the reboot agent
+// drains another node of its region: the record left in flight is resumed,
+// and it waits again, counted from now, not from the wait of before.
+func TestAMoveAskedForAgainAfterItStoppedWalking_WaitsAgainForADrain(t *testing.T) {
+	for _, stop := range []string{OutcomeConverged, OutcomeBlocked} {
+		w, g := failback(t)
+		w.reboot["a"] = held("continuum-a")
+		w.reboot["b"] = &RebootStatus{Agent: true, Holdable: true, Holder: "wb1", Draining: []string{"wb1"}}
+		res := Plan(g, nil, w.view(), policy)
+		if res.Commit != nil || res.Interruption == nil || res.Interruption.Reason != ReasonNodeDraining {
+			t.Fatalf("%s: the move must wait at its start: %+v %+v", stop, res.Commit, res.Interruption)
+		}
+		rec := res.Record
+		w.now = w.now.Add(time.Minute)
+		if stop == OutcomeConverged {
+			w.setDesired("b") // re-targeted back: every file names b
+		} else {
+			k := g.Members[0].Key() // a's file declares b, b's file declares a
+			f := w.files[k]["a"]
+			f.Desired = "b"
+			w.files[k]["a"] = f
+		}
+		res = Plan(g, rec, w.view(), policy)
+		if res.Outcome != stop || res.Commit != nil || res.Record == nil || res.Record.Outcome != OutcomeTransitioning {
+			t.Fatalf("%s: want the record left in flight: %s %+v %+v", stop, res.Outcome, res.Commit, res.Record)
+		}
+		rec = res.Record // what the lease keeps
+		w.now = w.now.Add(DefaultRebootWait + 10*time.Minute)
+		w.setDesired("a")
+		w.reboot["b"] = &RebootStatus{Agent: true, Holdable: true, Holder: "wb2", Draining: []string{"wb2"}}
+		res = Plan(g, rec, w.view(), policy)
+		if res.Commit != nil || res.Interruption == nil || res.Interruption.Reason != ReasonNodeDraining || res.Record.RebootWaitSince != ts(w.now) {
+			t.Fatalf("%s: asked for again while node wb2 of b is drained, the move must wait from now: commit=%+v %+v since=%s",
+				stop, res.Commit, res.Interruption, res.Record.RebootWaitSince)
+		}
+	}
+}
+
 func TestRegionLossMove_DoesNotWaitForTheRebootAgent(t *testing.T) {
 	m := Member{Name: "dr-wp", Namespace: "acme", App: "wp", Stateful: true, Regions: []string{"a", "b"}}
 	w := newWorld(t, []string{"a", "b"}, []Member{m}, "a")

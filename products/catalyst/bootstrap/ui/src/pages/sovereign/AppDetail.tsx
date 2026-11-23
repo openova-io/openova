@@ -76,6 +76,7 @@ import {
 import { ResourcesTab } from './AppDetail/ResourcesTab'
 import { LogsTab } from './AppDetail/LogsTab'
 import { SettingsTab } from './AppDetail/SettingsTab'
+import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { EndpointsTab } from './AppDetail/EndpointsTab'
 
 /**
@@ -123,6 +124,10 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   }
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = params.deploymentId ?? resolvedId ?? ''
+  // An Organization session (console.<org>.<pool>) reads and manages its
+  // own Application through /org/applications/{name}: the API refuses the
+  // Sovereign application routes for it (OrgScopeGuard).
+  const { orgScoped } = useConsoleScope()
   const componentId = params.componentId ?? ''
   const urlTab = params.tab
   const store = useWizardStore()
@@ -187,8 +192,8 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   // The synthesisedApp path remains gated on `!wizardApp` below.
   const needsApiFallback = !wizardApp && !!deploymentId && !!componentId
   const apiAppQuery = useQuery({
-    queryKey: ['sov-application', deploymentId, componentId],
-    queryFn: async () => getApplication(deploymentId, componentId),
+    queryKey: ['sov-application', deploymentId, componentId, orgScoped],
+    queryFn: async () => getApplication(deploymentId, componentId, undefined, { orgScoped }),
     enabled: !!deploymentId && !!componentId,
     staleTime: 30_000,
     refetchInterval: 30_000,
@@ -293,6 +298,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
     sovereignId: deploymentId,
     applicationName: componentId,
     namespace: appNamespace,
+    orgScoped,
     isBootstrap: appIsBootstrap,
   })
   const appPlacement: string =
@@ -708,6 +714,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               sovereignId={deploymentId}
               applicationName={componentId}
               namespace={appNamespace}
+              orgScoped={orgScoped}
               callerTier={callerTier}
               isBootstrap={appIsBootstrap}
             />
@@ -745,6 +752,7 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
               sovereignId={deploymentId}
               applicationName={componentId}
               namespace={appNamespace}
+              orgScoped={orgScoped}
             />
           </div>
         ) : appTab === 'members' ? (

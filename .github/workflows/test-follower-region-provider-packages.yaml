@@ -1,0 +1,84 @@
+# test-follower-region-provider-packages.yaml - the follower region is served, or needs none of,
+# the OpenTofu provider packages that cutover step 03 copies into the primary region's registry.
+#
+# platform/self-sovereign-cutover/chart/tests/follower-region-gets-the-provider-packages.sh reads
+# files outside the chart: the shared control-plane template, the provider packs' main.tf,
+# kit-exclude.txt and tests/multi_region.tftest.hcl, bootstrap-kit slot 19, the object-storage
+# bootstrap secret, the root folders, the provider layer and the ClusterMesh handler of
+# catalyst-api. chart-tests-pr runs it only when the chart changes, so a change to one of those
+# files would merge without it. This workflow runs it on every change to them. The per-region
+# render it relies on is evaluated by the packs' own tofu runs (infra-huawei-tofu,
+# infra-hetzner-tofu), which already trigger on the packs and on the shared template.
+#
+# yq: the version blueprint-release.yaml installs, read from that file (chart-tests-pr.yaml
+# lines 5-34 explain why a second literal is not kept here). No cluster is read or written.
+name: test-follower-region-provider-packages
+
+on:
+  pull_request:
+    paths:
+      - 'platform/self-sovereign-cutover/chart/tests/follower-region-gets-the-provider-packages.sh'
+      - 'platform/self-sovereign-cutover/chart/values.yaml'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'infra/providers/*/main.tf'
+      - 'infra/providers/*/kit-exclude.txt'
+      - 'infra/providers/*/tests/multi_region.tftest.hcl'
+      - 'clusters/_template/bootstrap-kit/19-harbor.yaml'
+      - 'clusters/_template/bootstrap-secrets/object-storage.yaml'
+      - 'clusters/_template/root/**'
+      - 'clusters/_template/providers/*/root/**'
+      - 'clusters/_template/infrastructure/providers/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/clustermesh.go'
+      - '.github/workflows/test-follower-region-provider-packages.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/self-sovereign-cutover/chart/tests/follower-region-gets-the-provider-packages.sh'
+      - 'platform/self-sovereign-cutover/chart/values.yaml'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'infra/providers/*/main.tf'
+      - 'infra/providers/*/kit-exclude.txt'
+      - 'infra/providers/*/tests/multi_region.tftest.hcl'
+      - 'clusters/_template/bootstrap-kit/19-harbor.yaml'
+      - 'clusters/_template/bootstrap-secrets/object-storage.yaml'
+      - 'clusters/_template/root/**'
+      - 'clusters/_template/providers/*/root/**'
+      - 'clusters/_template/infrastructure/providers/**'
+      - 'products/catalyst/bootstrap/api/internal/handler/clustermesh.go'
+      - '.github/workflows/test-follower-region-provider-packages.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-follower-region-provider-packages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  follower-region-provider-packages:
+    name: follower-region-provider-packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install yq (the version blueprint-release.yaml installs)
+        run: |
+          set -euo pipefail
+          RELEASE_WF=.github/workflows/blueprint-release.yaml
+          yq_versions=$(grep -oE 'yq/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/yq_linux_amd64' "$RELEASE_WF" \
+                        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -u)
+          yq_count=$(printf '%s\n' "$yq_versions" | grep -c . || true)
+          if [ "$yq_count" -ne 1 ]; then
+            echo "::error title=yq pin unreadable::Expected exactly ONE yq version in $RELEASE_WF, found ${yq_count}: ${yq_versions:-<none>}."
+            exit 1
+          fi
+          sudo wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${yq_versions}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+          yq --version | grep -qF "$yq_versions" || { echo "::error title=yq pin not honoured::Installed yq does not report $yq_versions."; exit 1; }
+          echo "yq in PATH: $(yq --version)"
+
+      - name: The follower region is served the provider packages, or needs none
+        run: bash platform/self-sovereign-cutover/chart/tests/follower-region-gets-the-provider-packages.sh

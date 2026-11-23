@@ -32,6 +32,12 @@ export interface UpgradeDialogProps {
   applicationName: string
   /** Org namespace. */
   namespace?: string
+  /**
+   * An Organization session (useConsoleScope().orgScoped): preview and
+   * upgrade through /org/applications/{name} — the Sovereign route
+   * refuses it.
+   */
+  orgScoped?: boolean
   /** Current Blueprint name. */
   blueprintName: string
   /** Current Blueprint version. */
@@ -48,6 +54,7 @@ export function UpgradeDialog({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   blueprintName,
   currentVersion,
   onUpgraded,
@@ -90,7 +97,7 @@ export function UpgradeDialog({
     setBusy('preview')
     setError(null)
     try {
-      const resp = await previewUpgrade(sovereignId, applicationName, target, {}, { namespace })
+      const resp = await previewUpgrade(sovereignId, applicationName, target, {}, { namespace, orgScoped })
       setPreview(resp)
     } catch (e) {
       setError((e as Error).message)
@@ -113,7 +120,7 @@ export function UpgradeDialog({
         sovereignId,
         applicationName,
         { blueprintRef: { name: blueprintName, version: target } },
-        { namespace },
+        { namespace, orgScoped },
       )
       onUpgraded?.(target)
       onClose()

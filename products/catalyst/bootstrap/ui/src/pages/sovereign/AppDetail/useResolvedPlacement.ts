@@ -92,6 +92,8 @@ export interface UseResolvedPlacementOptions {
   sovereignId: string
   applicationName: string
   namespace?: string
+  /** An Organization session: read the status through /org/applications/{name}. */
+  orgScoped?: boolean
   /** Test seam — pre-fill data, skip the status poll. */
   initialApp?: ApplicationStatus
   /** Test seam — skip every network call. */
@@ -119,6 +121,7 @@ export function useResolvedPlacement({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   initialApp,
   disableNetwork = false,
   isBootstrap = false,
@@ -139,8 +142,8 @@ export function useResolvedPlacement({
   // error-aware interval below). One 404 per mount, never a loop.
   const statusEnabled = !initialApp && !!sovereignId && !!applicationName
   const statusQ = useQuery({
-    queryKey: ['application-status', sovereignId, applicationName, namespace, refreshTick],
-    queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace),
+    queryKey: ['application-status', sovereignId, applicationName, namespace, refreshTick, orgScoped],
+    queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace, { orgScoped }),
     enabled: statusEnabled,
     refetchInterval: (query) => (query.state.status === 'error' ? false : 10_000),
     retry: false,

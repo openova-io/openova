@@ -104,11 +104,11 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	for _, m := range g.Members {
 		d, why := desiredOf(m, v)
 		if why != "" {
-			res.Outcome, res.Message, res.Record = OutcomeBlocked, why, rec
+			res.Outcome, res.Message, res.Record = OutcomeBlocked, why, paused(rec, v, p)
 			return res
 		}
 		if desired != "" && d != desired {
-			res.Outcome, res.Record = OutcomeBlocked, rec
+			res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 			res.Message = fmt.Sprintf("members of the group declare different primaries (%s wants %s, another member wants %s); a group moves together — set the same Primary on every member", m.App, d, desired)
 			return res
 		}
@@ -137,7 +137,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	}
 	res.Committed = committed
 	if !anyFile {
-		res.Outcome, res.Message, res.Record = OutcomePending, "no region files committed yet — nothing to move", rec
+		res.Outcome, res.Message, res.Record = OutcomePending, "no region files committed yet — nothing to move", paused(rec, v, p)
 		return res
 	}
 
@@ -155,7 +155,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 		// Steady state — unless the primary's region is lost.
 		if l, d := lost(v, desired, p); l {
 			if !p.AutoPromoteOnRegionLoss {
-				res.Outcome, res.Record = OutcomeBlocked, rec
+				res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 				res.Message = fmt.Sprintf("primary region %s unreachable for %s; autoPromoteOnRegionLoss=false — nothing committed (restore the region, or change Primary in placement)", desired, d.Round(time.Second))
 				return res
 			}
@@ -167,13 +167,13 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 				}
 			}
 			if survivor == "" {
-				res.Outcome, res.Record = OutcomeBlocked, rec
+				res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 				res.Message = fmt.Sprintf("primary region %s lost and no other region of the placement is reachable", desired)
 				return res
 			}
 			rec = &Record{ID: fmt.Sprintf("%s-to-%s-%d", desired, survivor, v.Now.Unix()), From: desired, To: survivor, StartedAt: ts(v.Now), LossMode: true}
 		} else {
-			res.Outcome, res.Message, res.Record = OutcomeConverged, "every region file names "+desired, rec
+			res.Outcome, res.Message, res.Record = OutcomeConverged, "every region file names "+desired, paused(rec, v, p)
 			return res
 		}
 	default:
@@ -190,7 +190,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 			}
 		}
 		if from == "" {
-			res.Outcome, res.Record = OutcomeBlocked, rec
+			res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 			res.Message = "region files disagree on the primary and no transition record explains it — fix the files in Git"
 			return res
 		}
@@ -310,6 +310,29 @@ func (r *Record) settle(outcome, msg string, now time.Time) {
 	case r.FailedSince == "":
 		r.FailedSince = ts(now)
 	}
+}
+
+// paused is the record Plan returns when it does not walk rec this
+// evaluation (the group is Blocked or Pending, or the move was re-targeted
+// back). A wait for the reboot agent ends here: it is credited to the step it
+// held, and RebootWaitSince and the wait's Interruption are cleared. The lease
+// keeps an in-flight record, so the move can be resumed later; its next wait
+// then counts its bound from when it begins, not from a wait of before.
+func paused(rec *Record, v View, p Policy) *Record {
+	if rec == nil || rec.RebootWaitSince == "" {
+		return rec
+	}
+	c := rec.clone()
+	since := c.RebootWaitSince
+	c.RebootWaitSince, c.Interruption = "", nil
+	ev := evaluator{rec: c, v: v, p: p}
+	for _, a := range c.Activity {
+		if a.State != StateSucceeded {
+			ev.endGateHold(a, since)
+			break
+		}
+	}
+	return c
 }
 
 func (r *Record) clone() *Record {
