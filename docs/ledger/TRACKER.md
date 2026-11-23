@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T05:30:07Z` |
+| Last refreshed | `2026-11-23T05:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,10 +311,12 @@ flowchart LR
 | 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
 | 2026-11-23T04:05 | [#8644](https://github.com/openova-io/openova/pull/8644) | #8580 | fix(ci): the encrypted-path test's control case proves the d |
 | 2026-11-23T05:29 | [#8643](https://github.com/openova-io/openova/pull/8643) | #5429 | fix(applications): a customer can upgrade, remove and read t |
+| 2026-11-23T05:45 | [#8642](https://github.com/openova-io/openova/pull/8642) | fix(charts): the function tests of the messaging service, th |  |
 | 2026-11-23T04:03 | [#8641](https://github.com/openova-io/openova/pull/8641) | #6004 | fix(platform): a failed read is never taken as 'nothing ther |
 | 2026-11-23T04:14 | [#8640](https://github.com/openova-io/openova/pull/8640) | #4636 | fix(provisioner): a wipe, a sweep and an install's reclaim t |
 | 2026-11-23T04:03 | [#8635](https://github.com/openova-io/openova/pull/8635) | fix(gate): the acceptance suite renews its sign-in in a long |  |
 | 2026-11-23T04:59 | [#8630](https://github.com/openova-io/openova/pull/8630) | fix(cutover): one skopeo version, 1.16.1, at every download  |  |
+| 2026-11-23T05:37 | [#8626](https://github.com/openova-io/openova/pull/8626) | test(cutover): the follower region needs no provider package |  |
 | 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
 | 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T10:34 | [#8592](https://github.com/openova-io/openova/pull/8592) | #8584 | fix(cutover): an Organization gets the Sovereign's own chart |
 | 2026-11-21T08:04 | [#8591](https://github.com/openova-io/openova/pull/8591) | #8567 | fix(organization): the smallest plan's quota holds what ever |
 | 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
-| 2026-11-21T07:39 | [#8589](https://github.com/openova-io/openova/pull/8589) | #5646 | fix(organization): the mirror of an Organization's kubeconfi |
-| 2026-11-21T07:16 | [#8588](https://github.com/openova-io/openova/pull/8588) | fix(gate): the zero-change plan check packs the provider con |  |
 
 ---
 
