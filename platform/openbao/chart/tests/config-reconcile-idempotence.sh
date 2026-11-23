@@ -6,8 +6,8 @@
 # mounts — against a fake OpenBao HTTP API, with the chart's own rendered
 # desired state (region A of a two-region registry):
 #
-#   I1  tick 1 applies EVERY manifest op; the jwt mount and the kv secrets
-#       mount are enabled once;
+#   I1  tick 1 applies EVERY manifest op; the jwt mount and the secrets
+#       mounts secret, mounted and transit (SEC-190) are enabled once;
 #   I2  tick 2 is idempotent: no auth or secrets mount is re-enabled, the
 #       stored state is byte-identical to tick 1, the login token is reused
 #       (one login);
@@ -16,7 +16,8 @@
 #   I4  login refused (role not bound yet) ⇒ zero writes, tick pending;
 #   I5  a failed POLICY write ends the tick before any role is written;
 #   I6  every AUTH_ACCESSOR_KUBERNETES in a payload is posted as the accessor
-#       of the login mount; every other payload is posted byte-identical;
+#       of the login mount (also in the policies of SEC-190); a payload
+#       without it is posted byte-identical;
 #   I7  no accessor for the login mount ⇒ the tick ends non-zero with
 #       "WARN: no accessor for kubernetes" and that payload is not posted.
 #
@@ -144,11 +145,11 @@ smounts = [o[1] for o in man if o[0] == "secrets-mount"]
 assert set(s["state"]) == writes, (sorted(writes - set(s["state"])), sorted(set(s["state"]) - writes))
 assert mounts <= set(s["mounts"]), s["mounts"]
 assert [l for l in s["log"] if l[0] == "mount"] == [["mount", "sys/auth/" + m[:-1]] for m in sorted(mounts)], s["log"]
-assert smounts == ["sys/mounts/secret"], smounts
+assert smounts == ["sys/mounts/secret", "sys/mounts/mounted", "sys/mounts/transit"], smounts
 assert "secret/" in s["smounts"], s["smounts"]
-assert [l for l in s["log"] if l[0] == "smount"] == [["smount", "sys/mounts/secret"]], s["log"]
+assert [l for l in s["log"] if l[0] == "smount"] == [["smount", m] for m in smounts], s["log"]
 PYEOF
-  then pass "I1 tick 1 applies all ${OPS} ops (auth mount and kv mount enabled once)"; else bad "I1 tick 1 did not apply the full desired state"; fi
+  then pass "I1 tick 1 applies all ${OPS} ops (auth mount and the three secrets mounts enabled once)"; else bad "I1 tick 1 did not apply the full desired state"; fi
 else bad "I1 tick 1 did not converge"; fi
 ctl '{}'
 if run "$TMP/desired-up" 2; then
@@ -160,7 +161,7 @@ assert s1["state"] == s2["state"], "state differs after a second tick"
 assert s1["mounts"] == s2["mounts"]
 assert sum(1 for l in s2["log"] if l[0] == "mount") == sum(1 for l in s1["log"] if l[0] == "mount"), "a mount was re-enabled"
 assert s1["smounts"] == s2["smounts"]
-assert sum(1 for l in s2["log"] if l[0] == "smount") == sum(1 for l in s1["log"] if l[0] == "smount") == 1, "a secrets mount was re-enabled"
+assert sum(1 for l in s2["log"] if l[0] == "smount") == sum(1 for l in s1["log"] if l[0] == "smount") == 3, "a secrets mount was re-enabled"
 assert sum(1 for l in s2["log"] if l[0] == "login") == 1, "token not reused across ticks"
 assert sum(1 for l in s2["log"] if l[0] == "write") == 2 * sum(1 for l in s1["log"] if l[0] == "write")
 PYEOF
@@ -214,8 +215,8 @@ s=json.load(sys.stdin)["state"]; d=sys.argv[1]
 t=s["sys/policies/acl/accessor-test"]
 assert t.count("auth_kubernetes_f00d")==2 and "AUTH_ACCESSOR_KUBERNETES" not in t, t
 for k, v in s.items():
-    if k != "sys/policies/acl/accessor-test": assert v == open(os.path.join(d, k.replace("/", ".") + ".json")).read(), k
-' "$TMP/desired-acc"; then pass "I6 the accessor is substituted in the payload that names it; every other payload is posted unchanged"
+    if k != "sys/policies/acl/accessor-test": assert v == open(os.path.join(d, k.replace("/", ".") + ".json")).read().replace("AUTH_ACCESSOR_KUBERNETES", "auth_kubernetes_f00d"), k
+' "$TMP/desired-acc"; then pass "I6 the accessor is substituted in every payload that names it; a payload without it is posted unchanged"
   else bad "I6 accessor substitution"; fi
 else bad "I6 a tick with an accessor payload did not converge"; fi
 ctl '{"no_k8s": true}'

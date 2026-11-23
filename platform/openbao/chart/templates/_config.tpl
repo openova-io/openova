@@ -13,7 +13,8 @@ What the store writes itself, once, on its first start (the initialize block
 of templates/seal-config.yaml): the kubernetes auth mount and its config (the
 reconciler logs in through it), and the openbao-config-admin policy and role
 (openbao.configAdminPolicy below; the policy is also the first op, so a later
-chart version changes it). The kv mount is the secrets-mount op below.
+chart version changes it). The kv mount and the mounts of `engines` (SEC-190)
+are secrets-mount ops below.
 
 Ops, applied in order (policies before the roles that name them, #5829):
   write <api-path>          POST the payload (idempotent on every path used)
@@ -127,6 +128,90 @@ path "{{ .kv }}/metadata/{{ .apps }}/*" {
 }
 {{ end -}}
 
+{{- /* SEC-190 — the policies of the generic roles. NS and SA (.ns, .sa) are
+the identity templates of the caller's Kubernetes service account; the
+reconciler puts the accessor of its login mount in place of
+AUTH_ACCESSOR_KUBERNETES. One policy serves every namespace: never one per
+namespace. A pod reads its own service account's subtree and its namespace's
+shared subtree of mounted/. */ -}}
+{{- define "openbao.policy.workload" -}}
+path "mounted/data/{{ .ns }}/sa/{{ .sa }}/*" {
+  capabilities = ["read"]
+}
+path "mounted/data/{{ .ns }}/shared/*" {
+  capabilities = ["read"]
+}
+{{ end -}}
+
+{{- /* The namespace's External Secrets identity: creates values below its own
+namespace of mounted/ (never reads one back) and keeps its own namespace of
+the apps prefix. */ -}}
+{{- define "openbao.policy.eso-ns" -}}
+path "mounted/data/{{ .ns }}/*" {
+  capabilities = ["create"]
+}
+path "mounted/metadata/{{ .ns }}/*" {
+  capabilities = ["read", "delete"]
+}
+path "{{ .kv }}/data/{{ .apps }}/{{ .ns }}/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "{{ .kv }}/metadata/{{ .apps }}/{{ .ns }}/*" {
+  capabilities = ["read", "list", "delete"]
+}
+{{ end -}}
+
+{{- /* The state key: what a minted token, or a Job that logs in itself, may do. */ -}}
+{{- define "openbao.policy.tofu-state" -}}
+path "transit/datakey/plaintext/{{ .key }}" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/{{ .key }}" {
+  capabilities = ["update"]
+}
+{{ end -}}
+
+{{- /* The one offline backup of the state key (docs/RUNBOOKS.md §2.17). */ -}}
+{{- define "openbao.policy.tofu-state-backup" -}}
+path "transit/backup/{{ .key }}" {
+  capabilities = ["read"]
+}
+{{ end -}}
+
+{{- /* External Secrets in crossplane-system mints the state token. */ -}}
+{{- define "openbao.policy.tofu-state-mint" -}}
+path "auth/token/create/tofu-state" {
+  capabilities = ["update"]
+}
+{{ end -}}
+
+{{- /* The human administrators (groups sovereign-admins and sovereign-ops,
+templates/sso-configure-deployment.yaml): read-mostly, no value of any
+mount, no seal, no policy write. Break-glass is cluster administration. */ -}}
+{{- define "openbao.policy.sovereign-admin" -}}
+path "{{ .kv }}/metadata/*" {
+  capabilities = ["read", "list"]
+}
+path "mounted/metadata/*" {
+  capabilities = ["read", "list"]
+}
+path "sys/mounts" {
+  capabilities = ["read"]
+}
+path "sys/auth" {
+  capabilities = ["read"]
+}
+path "sys/policies/acl/*" {
+  capabilities = ["read", "list"]
+}
+path "sys/leases/lookup/*" {
+  capabilities = ["read", "list", "sudo"]
+}
+path "sys/leases/revoke/*" {
+  capabilities = ["update"]
+}
+{{ end -}}
+
 {{- /*
 openbao.configAdminPolicy — the reconciler's own grant, written by the
 self-initialisation (the only privileged writer). Configuration surfaces
@@ -134,7 +219,10 @@ only: policies, auth mounts + their roles/config, identity OIDC. No secret
 data, no sys/raw, no seal, no token creation, no delete. It may rewrite its
 own policy (the first op of the desired state) but not its own role (the
 exact-path read-only entry wins over the wildcard), and it may enable only the
-kv mount. It CAN write any policy and bind any role, so it is a privileged
+kv mount and the mounts of `engines` (SEC-190). It creates and configures
+transit keys and writes token roles (the state key and token role tofu-state,
+SEC-190), but cannot use a key, back one up or create a token. It CAN write
+any policy and bind any role, so it is a privileged
 writer by composition — that is what a declarative config owner is; the
 narrowing keeps it off data and seal, and its only input is this chart.
 */ -}}
@@ -146,6 +234,12 @@ path "sys/auth" { capabilities = ["read"] }
 path "sys/auth/*" { capabilities = ["create", "read", "update", "sudo"] }
 path "sys/mounts" { capabilities = ["read"] }
 path "sys/mounts/{{ $kv }}" { capabilities = ["create", "update"] }
+{{- range $name, $_ := (.Values.engines | default dict) }}
+path "sys/mounts/{{ $name }}" { capabilities = ["create", "update"] }
+{{- end }}
+path "transit/keys/*" { capabilities = ["create", "update", "read"] }
+path "transit/keys/+/config" { capabilities = ["create", "update"] }
+path "auth/token/roles/*" { capabilities = ["create", "update", "read"] }
 path "auth/+/role/*" { capabilities = ["create", "read", "update", "list"] }
 path "auth/+/role/openbao-config-admin" { capabilities = ["read"] }
 path "auth/+/config" { capabilities = ["create", "read", "update"] }
@@ -176,14 +270,22 @@ openbao.configOps — the ordered desired state as JSON
 {{- $aud := $cfg.audience | default "openbao-peer-push" -}}
 {{- $apps := $cfg.kvPathPrefix | default "openova/apps" | trimSuffix "/" -}}
 {{- $pt := include "openbao.peerTrust" . | fromJson -}}
-{{- $ctx := dict "kv" $kv "apps" $apps "aud" $aud -}}
+{{- $engines := .Values.engines | default dict -}}
+{{- $sk := .Values.stateKey | default dict -}}
+{{- $key := $sk.name | default "tofu-state" -}}
+{{- /* Helm string literals: Helm never reads them as actions (SEC-190). */ -}}
+{{- $idNs := "{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}" -}}
+{{- $idSa := "{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_name}}" -}}
+{{- $ctx := dict "kv" $kv "apps" $apps "aud" $aud "ns" $idNs "sa" $idSa "key" $key -}}
 {{- $ns := .Release.Namespace -}}
 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
+{{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin") -}}
 
-{{- /* role: name, sa, saNs, policies, ttl, maxTTL */ -}}
+{{- /* role: name, sa (one name or a list), ns (one or a list), policies, ttl,
+maxTTL, aud (the audience a service-account token must carry; none = any). */ -}}
 {{- $roles := list
   (dict "name" $esoRole "sa" $esoSA "ns" $esoNs "policies" (list "external-secrets-read" "external-secrets-push") "ttl" $ttl "max" $maxTTL)
   (dict "name" "sso-bridge" "sa" "sso-bridge-reconciler" "ns" "sso-bridge" "policies" (list "sso-bridge-write") "ttl" $ttl "max" $maxTTL)
@@ -194,17 +296,46 @@ openbao.configOps — the ordered desired state as JSON
 {{- if $pt.peers -}}
 {{- $roles = append $roles (dict "name" "openbao-peer-token" "sa" $esoSA "ns" $esoNs "policies" (list "openbao-peer-token") "ttl" "15m" "max" "1h") -}}
 {{- end -}}
+{{- /* SEC-190 generic roles. workload: any pod, with a token for audience openbao. */ -}}
+{{- $roles = concat $roles (list
+  (dict "name" "workload" "sa" "*" "ns" "*" "policies" (list "workload") "ttl" "15m" "max" "1h" "aud" "openbao")
+  (dict "name" "eso-ns" "sa" "eso-reader" "ns" "*" "policies" (list "eso-ns") "ttl" "15m" "max" "1h")
+  (dict "name" "tofu-state-mint" "sa" "eso-reader" "ns" "crossplane-system" "policies" (list "eso-ns" "tofu-state-mint") "ttl" "15m" "max" "1h")) -}}
+{{- /* tofu-state and tofu-state-backup bind the service accounts of
+stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ -}}
+{{- range $role, $ids := dict "tofu-state" ($sk.jobIdentities | default list) "tofu-state-backup" ($sk.backupIdentities | default list) -}}
+{{- if $ids -}}
+{{- $sas := list -}}{{- $nss := list -}}
+{{- range $ids }}{{ $sas = append $sas .serviceAccount }}{{ $nss = append $nss .namespace }}{{ end -}}
+{{- $roles = append $roles (dict "name" $role "sa" (uniq $sas) "ns" (uniq $nss) "policies" (list $role) "ttl" "15m" "max" (ternary "15m" "1h" (eq $role "tofu-state-backup")) "aud" "openbao") -}}
+{{- end -}}
+{{- end -}}
 
 {{- $ops := list
   (dict "kind" "write" "path" "sys/policies/acl/openbao-config-admin" "payload" (dict "policy" (include "openbao.configAdminPolicy" $)))
   (dict "kind" "secrets-mount" "path" (printf "sys/mounts/%s" $kv) "payload" (dict "type" "kv" "options" (dict "version" "2"))) -}}
+{{- range $name, $spec := $engines -}}
+{{- $ops = append $ops (dict "kind" "secrets-mount" "path" (printf "sys/mounts/%s" $name) "payload" $spec) -}}
+{{- end -}}
 {{- range $policies -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/%s" .) "payload" (dict "policy" (include (printf "openbao.policy.%s" (ternary "openbao-peer-push" . (eq . $aud))) $ctx))) -}}
 {{- end -}}
+{{- /* The state key: exportable and with a plaintext backup allowed (both
+one-way), so that the one offline backup can be taken; never deletable. */ -}}
+{{- if hasKey $engines "transit" -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "transit/keys/%s" $key) "payload" (dict "type" "aes256-gcm96" "exportable" true "allow_plaintext_backup" true)) -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "transit/keys/%s/config" $key) "payload" (dict "deletion_allowed" false "exportable" true "allow_plaintext_backup" true)) -}}
+{{- end -}}
 {{- range $roles -}}
-{{- $body := dict "bound_service_account_names" (list .sa) "bound_service_account_namespaces" (list .ns) "policies" .policies "ttl" .ttl "max_ttl" .max -}}
+{{- $sas := .sa }}{{ if kindIs "string" .sa }}{{ $sas = list .sa }}{{ end -}}
+{{- $nss := .ns }}{{ if kindIs "string" .ns }}{{ $nss = list .ns }}{{ end -}}
+{{- $body := dict "bound_service_account_names" $sas "bound_service_account_namespaces" $nss "policies" .policies "ttl" .ttl "max_ttl" .max -}}
+{{- if .aud }}{{ $_ := set $body "audience" .aud }}{{ end -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/%s/role/%s" $mount .name) "payload" $body) -}}
 {{- end -}}
+{{- /* Token role tofu-state: what External Secrets mints every 15 minutes for
+the provider pod (an orphan, not renewable, at most 1h, policy tofu-state). */ -}}
+{{- $ops = append $ops (dict "kind" "write" "path" "auth/token/roles/tofu-state" "payload" (dict "allowed_policies" (list "tofu-state") "orphan" true "renewable" false "token_explicit_max_ttl" "1h")) -}}
 {{- if $pt.peers -}}
 {{- $self := $pt.self -}}
 {{- $ops = append $ops (dict "kind" "write" "path" "identity/oidc/config" "payload" (dict "issuer" (printf "http://%s:8200" (index $pt.hosts $self)))) -}}

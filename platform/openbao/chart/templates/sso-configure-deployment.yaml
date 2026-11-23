@@ -15,8 +15,11 @@ that:
      mounted at oidc/).
   4. Writes auth/oidc/config with oidc_discovery_url, client_id,
      client_secret, default_role=operator.
-  5. Writes sys/policies/acl/sso-operator-admin with full superuser
-     capabilities (so OIDC-onboarded operators are admins).
+  5. Writes sys/policies/acl/sso-operator-admin with the read-mostly text
+     of policy sovereign-admin (SEC-190; it was `path "*"` with sudo), and
+     maps the admin and ops realm groups to policy sovereign-admin, the
+     admin group also to tofu-state-backup (both written by the
+     configuration reconciler, templates/_config.tpl).
   6. Writes auth/oidc/role/operator binding token_policies=
      sso-operator-admin + groups_claim=groups + bound_claims to the
      adminGroup realm group + allowed_redirect_uris covering the UI
@@ -49,6 +52,14 @@ worked. (#3150)
 {{- $baoAddrSSO := .Values.baoAddress | default (printf "http://%s-openbao.%s.svc.cluster.local:8200" .Release.Name .Release.Namespace) -}}
 {{- /* The k8s-auth mount this reconciler logs in against (kubernetesAuth.mountPath). */ -}}
 {{- $authMountSSO := (.Values.kubernetesAuth | default dict).mountPath | default "kubernetes" -}}
+{{- /* SEC-190: the human administrators' policy text, one definition in templates/_config.tpl. */ -}}
+{{- $kvSSO := (.Values.kubernetesAuth | default dict).kvMountPath | default "secret" -}}
+{{- $adminPolicySSO := dict "policy" (include "openbao.policy.sovereign-admin" (dict "kv" $kvSSO)) | toJson -}}
+{{- /* SEC-190: the baseline of every OIDC login (sso-operator-read) reads and
+lists, but no value: no secret of the kv mount or of mounted/, nothing of
+transit/ (the state key is exportable). Denies add up across policies, and an
+exact path of another policy (tofu-state-backup) still wins over the glob. */ -}}
+{{- $readPolicySSO := dict "policy" (printf "path \"*\" { capabilities = [\"read\",\"list\"] }\npath \"%s/data/*\" { capabilities = [\"deny\"] }\npath \"mounted/data/*\" { capabilities = [\"deny\"] }\npath \"transit/*\" { capabilities = [\"deny\"] }\n" $kvSSO) | toJson -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -214,8 +225,12 @@ data:
 
       # ── Policies (#3150) ──────────────────────────────────────────────
       # Two policies, mapped from the operator's realm group:
-      #   sso-operator-admin  → full read/write/sudo (sovereign-admins / -ops)
-      #   sso-operator-read   → read+list everywhere  (sovereign-viewers)
+      #   sso-operator-admin  → the sovereign-admin text (SEC-190): a token
+      #                         that still names it is no longer a superuser
+      #                         (admins and ops now map to sovereign-admin)
+      #   sso-operator-read   → read+list everywhere, no value of the kv
+      #                         mount or of mounted/, nothing of transit/
+      #                         (the baseline of every login, SEC-190)
       # The role grants NO policy by token_policies; the effective policy is
       # attached via external identity groups keyed on the `groups` claim, so
       # a viewer never silently inherits admin (and an admin is not gated to
@@ -241,14 +256,14 @@ data:
       # window where the operator is authenticated and powerless, with no error
       # anywhere in the chain — the login itself succeeds. Retrying the whole
       # tick keeps policy-then-role in that order on every pass.
-      ADMIN_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"create\",\"update\",\"delete\",\"list\",\"sudo\"] }"}'
+      ADMIN_POLICY_PAYLOAD={{ $adminPolicySSO | squote }}
       if bao_write sys/policies/acl/sso-operator-admin "${ADMIN_POLICY_PAYLOAD}"; then
         log "sso-operator-admin policy written"
       else
         log "WARN: sys/policies/acl/sso-operator-admin write failed; retrying next tick (role NOT written — it would reference a policy that does not exist)"
         continue
       fi
-      READ_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"list\"] }"}'
+      READ_POLICY_PAYLOAD={{ $readPolicySSO | squote }}
       if bao_write sys/policies/acl/sso-operator-read "${READ_POLICY_PAYLOAD}"; then
         log "sso-operator-read policy written"
       else
@@ -315,8 +330,10 @@ data:
       # OpenBao attaches policies from the `groups` claim only via external
       # identity groups whose alias name == the claim value AND whose alias
       # mount_accessor == the oidc auth mount accessor. Map:
-      #   sovereign-admins → sso-operator-admin
-      #   sovereign-ops    → sso-operator-admin
+      #   sovereign-admins → sovereign-admin, tofu-state-backup (SEC-190)
+      #   sovereign-ops    → sovereign-admin
+      # The configuration reconciler writes both policies; until it has,
+      # the group adds nothing and the role baseline (read-only) holds.
       #   sovereign-viewers→ (none extra; role baseline already read-only)
       OIDC_ACCESSOR="$(bao_get sys/auth | sed -n 's/.*"oidc\/":{[^}]*"accessor":"\([^"]*\)".*/\1/p')"
       if [ -z "${OIDC_ACCESSOR}" ]; then
@@ -354,7 +371,8 @@ data:
           printf '%s' "$1" | tr ',{}' '\n\n\n' | grep -E '(^|[^A-Za-z_])"id":"' | sed -n 's/.*"id":"\([^"]*\)".*/\1/p'
         }
         map_admin_group() {
-          # $1 = realm group name (claim value). Fully idempotent: creates
+          # $1 = realm group name (claim value), $2 = its policies as JSON
+          # list items ("a","b"). Fully idempotent: creates
           # the external group + alias on first tick, and UPDATES both on
           # every subsequent tick. Vault rejects a DUPLICATE
           # `identity/group-alias` create with 400 ("alias already exists"),
@@ -363,6 +381,7 @@ data:
           # already bound it. The update path targets the existing alias by
           # id via identity/group-alias/id/<alias_id>.
           _grp="$1"
+          _pols="$2"
           _gjson="$(bao_get "identity/group/name/${_grp}")"
           # The group's canonical id == its OWN top-level `id` (always present
           # on any existing group). The nested alias.id (if any) sorts FIRST in
@@ -378,13 +397,13 @@ data:
           fi
           if [ -z "${_gid}" ]; then
             # Group does not exist yet — create it, then re-read its id.
-            bao_write "identity/group" "$(printf '{"name":"%s","type":"external","policies":["sso-operator-admin"]}' "${_grp}")" || return 1
+            bao_write "identity/group" "$(printf '{"name":"%s","type":"external","policies":[%s]}' "${_grp}" "${_pols}")" || return 1
             _gjson="$(bao_get "identity/group/name/${_grp}")"
             _gid="$(exact_id "${_gjson}" | tail -1)"
             _aid=""
           else
             # Group exists — keep its policy current (last-write-wins).
-            bao_write "identity/group/name/${_grp}" '{"type":"external","policies":["sso-operator-admin"]}' || return 1
+            bao_write "identity/group/name/${_grp}" "$(printf '{"type":"external","policies":[%s]}' "${_pols}")" || return 1
           fi
           [ -z "${_gid}" ] && return 1
           # Bind (or rebind) the alias: name == the realm group claim value,
@@ -399,8 +418,10 @@ data:
           fi
         }
         for g in "${OIDC_ADMIN_GROUP}" "${OIDC_OPS_GROUP}"; do
-          if map_admin_group "${g}"; then
-            log "external group ${g} → sso-operator-admin mapped"
+          _p='"sovereign-admin"'
+          [ "${g}" = "${OIDC_ADMIN_GROUP}" ] && _p='"sovereign-admin","tofu-state-backup"'
+          if map_admin_group "${g}" "${_p}"; then
+            log "external group ${g} → ${_p} mapped"
           else
             log "WARN: mapping external group ${g} failed; retrying next tick"
           fi
