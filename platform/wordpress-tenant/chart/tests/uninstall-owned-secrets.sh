@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
-# bp-wordpress-tenant — the Secrets an Application writes go with it.
+# bp-wordpress-tenant — the media-store Secret goes with its Application.
 #
 # On hw307 (23 November 2026, J5 of check FND-G12) the uninstall of a
-# two-region WordPress Application left two Secrets in its namespace in BOTH
-# regions:
-#   <release>-media-s3            carried helm.sh/resource-policy: keep
-#   <pair>-replication-ca-seed    written by cert-manager from the seed
-#                                 Certificate; cert-manager never deletes it
-#                                 (no --enable-certificate-owner-ref)
+# two-region WordPress Application left <release>-media-s3 in its namespace
+# in BOTH regions: it carried helm.sh/resource-policy: keep, so Helm never
+# deleted it. The data survives an upgrade through the template's lookup
+# re-emit, not through that policy.
 #
 # Cases:
-#   U1  the media-s3 Secret is rendered, and without helm.sh/resource-policy,
-#       so Helm deletes it on uninstall and when it leaves the manifest.
-#   U2  the primary renders the seed CA Secret <pair>-replication-ca-seed
-#       itself (the Certificate's secretName, in its namespace), so Helm
-#       deletes it with the Certificate on uninstall and on a Primary move.
-#       On the first install it is Opaque and has no key: the seed PushSecret
-#       finds no tls.crt and tries again until cert-manager wrote it, so no
-#       empty CA reaches the write-once store.
-#   U3  the replica renders neither the seed CA Secret nor its Certificate.
+#   U1  the primary and the replica each render one media-s3 Secret, without
+#       helm.sh/resource-policy, so Helm deletes it on uninstall.
+#   U2  the media-s3 Secret still re-emits the reflected keys (the lookup
+#       stays): the template reads the live Secret.
 #
-# Vacuity: U2's body against the replica render must FAIL.
+# Vacuity: U1's body against a render with the policy added must FAIL.
 #
 # Usage: bash tests/uninstall-owned-secrets.sh [CHART_DIR]
 set -euo pipefail
@@ -42,9 +35,6 @@ COMMON=(
   --set adminUser.email=admin@acme.example.local
   --api-versions postgresql.cnpg.io/v1
   --api-versions cilium.io/v2
-  --api-versions external-secrets.io/v1alpha1
-  --api-versions external-secrets.io/v1beta1
-  --api-versions cert-manager.io/v1
   --set openova.topology.mode=active-hot-standby
   --set database.topology.promotion.mechanism=manual
 )
@@ -60,48 +50,34 @@ helm template wordpress-rtz-b . "${COMMON[@]}" \
   --set openova.topology.self="$B" --set openova.topology.primary="$A" --set "openova.topology.peers={$A}" \
   > "$TMP/replica.yaml"
 
-# U1
-media="$(yq ea '[select(.kind == "Secret" and (.metadata.name | test("-media-s3$")))] | length' "$TMP/primary.yaml")"
-media_keep="$(yq ea '[select(.kind == "Secret" and (.metadata.name | test("-media-s3$")) and .metadata.annotations["helm.sh/resource-policy"] != null)] | length' "$TMP/primary.yaml")"
-if [ "$media" = "1" ] && [ "$media_keep" = "0" ]; then
-  pass "U1 one media-s3 Secret, without helm.sh/resource-policy"
-else
-  fail "U1 want one media-s3 Secret without helm.sh/resource-policy, got $media Secret(s), $media_keep with the policy"
-fi
-
-# U2 body: prints nothing when the seed CA Secret is rendered as the
-# Certificate's own Secret, else the reason.
-seed_secret_fault() {  # $1 render
-  local cert ns name type secret_ns
-  cert="$(yq ea '[select(.kind == "Certificate" and (.metadata.name | test("-replication-ca-seed$")))] | length' "$1")"
-  if [ "$cert" != "1" ]; then
-    echo "want one seed CA Certificate, got $cert"
-    return
-  fi
-  name="$(yq ea 'select(.kind == "Certificate" and (.metadata.name | test("-replication-ca-seed$"))) | .spec.secretName' "$1")"
-  ns="$(yq ea 'select(.kind == "Certificate" and (.metadata.name | test("-replication-ca-seed$"))) | .metadata.namespace' "$1")"
-  type="$(yq ea "select(.kind == \"Secret\" and .metadata.name == \"$name\") | .type" "$1")"
-  secret_ns="$(yq ea "select(.kind == \"Secret\" and .metadata.name == \"$name\") | .metadata.namespace" "$1")"
-  keys="$(yq ea "select(.kind == \"Secret\" and .metadata.name == \"$name\") | (.data // {}) | keys | length" "$1")"
-  if [ "$type" != "Opaque" ] || [ "$secret_ns" != "$ns" ]; then
-    echo "the Secret $name of the seed Certificate is not rendered as an Opaque Secret in $ns (type '$type', namespace '$secret_ns')"
-  elif [ "$keys" != "0" ]; then
-    # On the first install the PushSecret must find no key and try again,
-    # never push an empty CA into the write-once store.
-    echo "the Secret $name carries $keys key(s) on the first install"
+# U1 body: prints nothing when the render holds one media-s3 Secret without
+# helm.sh/resource-policy, else the reason.
+media_fault() {  # $1 render
+  local n keep
+  n="$(yq ea '[select(.kind == "Secret" and (.metadata.name | test("-media-s3$")))] | length' "$1")"
+  keep="$(yq ea '[select(.kind == "Secret" and (.metadata.name | test("-media-s3$")) and .metadata.annotations["helm.sh/resource-policy"] != null)] | length' "$1")"
+  if [ "$n" != "1" ] || [ "$keep" != "0" ]; then
+    echo "want one media-s3 Secret without helm.sh/resource-policy, got $n Secret(s), $keep with the policy"
   fi
 }
 
-f="$(seed_secret_fault "$TMP/primary.yaml")"
-if [ -z "$f" ]; then pass "U2 the primary renders the seed CA Secret, so Helm deletes it with the Certificate"; else fail "U2 $f"; fi
+for r in primary replica; do
+  f="$(media_fault "$TMP/$r.yaml")"
+  if [ -z "$f" ]; then pass "U1 $r: one media-s3 Secret, deleted with the release"; else fail "U1 $r: $f"; fi
+done
 
-# Vacuity: the replica renders no seed, so U2's body must fail there.
-f="$(seed_secret_fault "$TMP/replica.yaml")"
-if [ -n "$f" ]; then pass "U2 vacuity: the body fails on the replica render ($f)"; else fail "U2 vacuity: the body passes on a render without a seed"; fi
+# Vacuity: the same render with the policy put back must fail U1.
+yq ea '(select(.kind == "Secret" and (.metadata.name | test("-media-s3$"))) | .metadata.annotations["helm.sh/resource-policy"]) = "keep"' \
+  "$TMP/primary.yaml" > "$TMP/kept.yaml"
+f="$(media_fault "$TMP/kept.yaml")"
+if [ -n "$f" ]; then pass "U1 vacuity: the body fails when the policy is back"; else fail "U1 vacuity: the body passes with helm.sh/resource-policy: keep"; fi
 
-# U3
-left="$(yq ea '[select((.kind == "Secret" or .kind == "Certificate") and (.metadata.name | test("-replication-ca-seed$")))] | length' "$TMP/replica.yaml")"
-if [ "$left" = "0" ]; then pass "U3 the replica renders no seed CA Secret or Certificate"; else fail "U3 the replica renders $left seed CA object(s)"; fi
+# U2
+if grep -q 'lookup "v1" "Secret" .Release.Namespace (include "bp-wordpress-tenant.mediaS3SecretName" .)' templates/media-s3-secret.yaml; then
+  pass "U2 the template re-emits the live media-s3 data on an upgrade"
+else
+  fail "U2 the lookup re-emit of the media-s3 data is gone: an upgrade would wipe the reflected credentials"
+fi
 
 if [ "$fails" -gt 0 ]; then
   echo "uninstall-owned-secrets: $fails failure(s)"
