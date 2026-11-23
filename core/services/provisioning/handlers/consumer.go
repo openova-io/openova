@@ -342,13 +342,12 @@ func (h *Handler) waitAndFinalizeInstall(ctx context.Context, data appChangeData
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// Every Organization's apps run inside its vCluster (#4292) and surface on
-	// the host ns as synced `<pod>-x-<slug>-x-vcluster` pods — the one shape
-	// appPodNameMatches accepts. The plan is not consulted here: it used to
-	// pick between a synced and a native pod-name shape, and the native arm no
-	// longer exists. (The manifests were already committed authoritatively by
-	// applyTenantChange, which still resolves the plan for QoS and fails
-	// closed on a guess.)
+	// The customer's apps run inside its vCluster (#4292) and surface on the
+	// host ns as synced `<pod>-x-<slug>-x-vcluster` pods; the platform stack
+	// (newapi, openclaw, agenity) runs natively on the host. orgAppPodMatches
+	// takes each in its shape, by app, never by plan. (The manifests were
+	// already committed authoritatively by applyTenantChange, which still
+	// resolves the plan for QoS and fails closed on a guess.)
 	waitSlugs := data.DeploySlugs
 	if len(waitSlugs) == 0 {
 		waitSlugs = []string{data.AppSlug}
@@ -466,11 +465,12 @@ func (h *Handler) waitAndFinalizeUninstall(ctx context.Context, data appChangeDa
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// The uninstall wait matches the same synced pod shape as the install wait
-	// (every Organization is vCluster-backed, #4292), so "gone" means the
-	// synced pod has left the host ns — never a first-poll false positive on a
-	// shape the matcher could not see (the #4293 MINOR-4 defect, which the
-	// former per-plan gate existed to fix and which the single shape closes).
+	// The uninstall wait (orgAppPodPresent) sees the app's pod in either
+	// placement: the synced pod of an app in the vCluster, and for the
+	// platform stack also the native workload on the host. So "gone" means no
+	// pod of the app is left in the host ns — never a first-poll false
+	// positive on a shape the matcher could not see (the #4293 MINOR-4
+	// defect).
 	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute); err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("day-2 uninstall: wait canceled — tenant delete preempted",
@@ -922,12 +922,13 @@ func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string)
 // waitForVclusterAppGone is the inverse of waitForVclusterApp — it waits
 // until no pod matching the app slug exists in the host namespace.
 //
-// It reuses appPodNameMatches so the install and uninstall waits agree on
-// what an Organization app pod looks like: the synced
-// `<pod>-x-<slug>-x-vcluster` shape, for every plan (#4292). #4293 MINOR-4
-// was this wait hardcoding a different literal than the install side and
-// reporting "gone" on the first poll for a pod it simply could not see; one
-// shared matcher is what prevents that class of drift.
+// It uses orgAppPodPresent, which takes every pod orgAppPodMatches takes plus
+// the synced platform-stack pods of an Organization created before that
+// stack moved to the host: the synced `<pod>-x-<slug>-x-vcluster` shape for
+// an app in the vCluster, the app's own native workload for the platform
+// stack on the host. #4293 MINOR-4 was this wait hardcoding a different
+// literal than the install side and reporting "gone" on the first poll for a
+// pod it simply could not see.
 func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -936,14 +937,15 @@ func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug
 			var podList struct {
 				Items []struct {
 					Metadata struct {
-						Name string `json:"name"`
+						Name   string            `json:"name"`
+						Labels map[string]string `json:"labels"`
 					} `json:"metadata"`
 				} `json:"items"`
 			}
 			found := false
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
-					if appPodNameMatches(pod.Metadata.Name, appSlug) {
+					if orgAppPodPresent(pod.Metadata.Name, pod.Metadata.Labels, appSlug) {
 						found = true
 						break
 					}

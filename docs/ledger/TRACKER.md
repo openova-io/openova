@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T06:00:07Z` |
+| Last refreshed | `2026-11-23T06:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
+| 2026-11-23T06:28 | [#8647](https://github.com/openova-io/openova/pull/8647) | #8634 | feat(openbao): mounts mounted and transit, templated policie |
 | 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
 | 2026-11-23T04:05 | [#8644](https://github.com/openova-io/openova/pull/8644) | #8580 | fix(ci): the encrypted-path test's control case proves the d |
 | 2026-11-23T05:29 | [#8643](https://github.com/openova-io/openova/pull/8643) | #5429 | fix(applications): a customer can upgrade, remove and read t |
@@ -316,7 +317,9 @@ flowchart LR
 | 2026-11-23T04:14 | [#8640](https://github.com/openova-io/openova/pull/8640) | #4636 | fix(provisioner): a wipe, a sweep and an install's reclaim t |
 | 2026-11-23T04:03 | [#8635](https://github.com/openova-io/openova/pull/8635) | fix(gate): the acceptance suite renews its sign-in in a long |  |
 | 2026-11-23T04:59 | [#8630](https://github.com/openova-io/openova/pull/8630) | fix(cutover): one skopeo version, 1.16.1, at every download  |  |
+| 2026-11-23T06:38 | [#8627](https://github.com/openova-io/openova/pull/8627) | #3526 | fix(cutover): step 08 takes its Workspace baseline after the |
 | 2026-11-23T05:37 | [#8626](https://github.com/openova-io/openova/pull/8626) | test(cutover): the follower region needs no provider package |  |
+| 2026-11-23T06:33 | [#8623](https://github.com/openova-io/openova/pull/8623) | #4993 | fix(organization): the applications a new Organization is gi |
 | 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
 | 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-21T13:22 | [#8596](https://github.com/openova-io/openova/pull/8596) | fix(ci): the acceptance job of a work package has OpenTofu,  |  |
 | 2026-11-21T16:57 | [#8595](https://github.com/openova-io/openova/pull/8595) | #8594 | fix(net): the name servers answer on public port 53 over UDP |
 | 2026-11-21T09:49 | [#8593](https://github.com/openova-io/openova/pull/8593) | #7087 | docs(ledger): plan update |
-| 2026-11-21T10:34 | [#8592](https://github.com/openova-io/openova/pull/8592) | #8584 | fix(cutover): an Organization gets the Sovereign's own chart |
-| 2026-11-21T08:04 | [#8591](https://github.com/openova-io/openova/pull/8591) | #8567 | fix(organization): the smallest plan's quota holds what ever |
-| 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
 
 ---
 

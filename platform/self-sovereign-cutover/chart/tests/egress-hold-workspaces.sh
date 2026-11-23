@@ -13,23 +13,35 @@
 # regression named by kind, namespace and name. A region that does not serve a kind
 # has none of it; a list that cannot be read for another reason fails the proof.
 #
+# THE WAIT (measured 21 Nov 2026 on two installs). Step 11 re-creates the provider Pod
+# and it re-syncs the Workspaces one at a time; step 08 ran right after and took its
+# baseline while 22 of 24 read Ready=True Synced=False, so the hold watched 2 and
+# reported PASSED; all 24 were Ready and Synced 8 to 10 minutes later. Step 08 now
+# waits (egressTest.workspaceSettle, 900 s) before the baseline, and a Workspace still
+# not Ready and Synced at the bound is named, counted and recorded NOT MEASURED.
+#
 # WHAT THIS TEST DOES. It renders the chart, cuts from step 08's script the blocks
-# step-record, workspace-hold, tofu-cli-lint and tofu-pre-hold and the survival
-# window, and runs them under /bin/sh with `set -eu`: the pre-hold block while a
-# stubbed kubectl answers the state before the hold, then the window (one poll) while
-# it answers the state in the hold. Seven cases:
+# step-record, workspace-hold, tofu-cli-lint and tofu-pre-hold, the survival window and
+# the verdict tail, and runs them under /bin/sh with `set -eu`: the pre-hold block while
+# a stubbed kubectl answers the state before the hold (a stubbed clock: sleep moves it),
+# then the window (one poll) while it answers the state in the hold. Ten cases:
 #   1 a Workspace Ready and Synced before the hold that turns Synced=False fails, named
 #   2 one that turns Ready=False fails (the namespaced kind)
-#   3 one not Synced before the hold is named as baseline and excluded
+#   3 one never Synced before the hold is named NOT MEASURED and not judged
 #   4 a secondary region's Workspace that loses Synced fails that region
 #   5 a region that does not serve the kind passes
 #   6 a failed read that is not an absent kind fails, in the window and before the hold
 #   7 a region whose Workspaces exist and none is in the baseline is NOT MEASURED: it
 #     does not fail, says so with both numbers, never says judged or passed, and
 #     records not-measured on the status ConfigMap (a measured region records judged)
+#   8 Workspaces that become Synced 5 minutes into the wait are all in the baseline
+#   9 one that never becomes Synced is waited for until the bound, then counted and
+#     recorded as not measured, and the result line carries the numbers of all regions
+#  10 a condition waiting cannot change (Deleting, ReconcilePaused) does not hold the wait
 # On origin/main before SOV-344 the render has no block workspace-hold: the test fails.
 # Case 7 fails before the NOT MEASURED repair: there the region reads "0 cloud Workspace(s) ...
-# judged in the window" and nothing is recorded.
+# judged in the window" and nothing is recorded. Cases 8, 9 and 10 fail before the wait:
+# there the baseline is taken at once (2 of 4 in case 8) and the result line has no numbers.
 #
 # Usage: bash tests/egress-hold-workspaces.sh [CHART_DIR]
 set -uo pipefail
@@ -47,11 +59,14 @@ helm template ssc "${CHART_DIR}" --set sovereign.fqdn="${FQDN}" --set sovereign.
   || { echo "helm template failed:"; cat "${TMP}/render.err"; exit 1; }
 yq 'select(.kind == "ConfigMap" and .metadata.name == "cutover-step-08-egress-block-test") | .data["podSpec"]' "${TMP}/render.yaml" >"${TMP}/s08.yaml"
 yq '.containers[0].args[0]' "${TMP}/s08.yaml" >"${TMP}/s08.sh"
-yq '.containers[0].env[] | select(.name | test("^(TOFU_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$|CUTOVER_NAMESPACE$|STATUS_CONFIGMAP$)")) | "export " + .name + "=\"" + .value + "\""' \
+yq '.containers[0].env[] | select(.name | test("^(TOFU_|WS_|LOCAL_REGISTRY_HOST$|SOVEREIGN_FQDN$|CUTOVER_NAMESPACE$|STATUS_CONFIGMAP$)")) | "export " + .name + "=\"" + .value + "\""' \
   "${TMP}/s08.yaml" >"${TMP}/env.sh"
 block() { awk -v b="# $2 BEGIN" -v e="# $2 END" '$0 == b {f = 1} f {print} $0 == e {f = 0}' "$1"; }
 for b in step-record workspace-hold tofu-cli-lint tofu-pre-hold; do block "${TMP}/s08.sh" "${b}"; done >"${TMP}/pre.sh"
 awk 'index($0, "survival window — only NEW NotReady") {f = 1} f {print} index($0, "window complete; new-regression-cycles") {f = 0}' "${TMP}/s08.sh" >"${TMP}/window.sh"
+# The verdict tail: from the NOT MEASURED line before the verdict to the end of the script.
+awk 'index($0, "if [ -s /work/ws_not_measured.txt ]; then") {f = 1} f {print}' "${TMP}/s08.sh" >"${TMP}/verdict.sh"
+grep -qF 'sovereignty proof PASSED' "${TMP}/verdict.sh" || { echo "[egress-hold-workspaces] step 08 of the render has no verdict tail after its NOT MEASURED line"; exit 1; }
 for f in ws_read ws_baseline ws_regressed run_tofu_cli_config_host_lint; do
   grep -q "^${f}() {$" "${TMP}/pre.sh" || { echo "[egress-hold-workspaces] step 08 of the render has no ${f}: nothing to run"; exit 1; }
 done
@@ -64,11 +79,14 @@ grep -q '^export TOFU_CLI_CM="opentofu-cli-config"$' "${TMP}/env.sh" || { echo "
 
 # The stubs. kubectl answers state/<region>/<kind>.<phase> (no file: the kind is not
 # served), <kind>.<phase>.err (a read that fails), tofurc (the CLI configuration, live
-# and in the pod). date and sleep give the window exactly one poll.
+# and in the pod). Before the hold the clock is 1000 plus the seconds slept (file
+# clock), and from the second in file settle_at on the phase before reads as settled.
+# In the hold sleep stops the clock, so the window makes exactly one poll.
 cat >"${TMP}/stubs.sh" <<'STUBS'
 set -eu
-date() { if [ -f "${D}/stop" ]; then echo 1000000; else echo 1000; fi; }
-sleep() { : >"${D}/stop"; }
+date() { if [ -f "${D}/stop" ]; then echo 1000000; else echo $((1000 + $(cat "${D}/clock"))); fi; }
+sleep() { if [ "$(cat "${D}/phase")" = during ]; then : >"${D}/stop"; else echo $(($(cat "${D}/clock") + $1)) >"${D}/clock"; fi; }
+reboot_hold_release() { echo "reboot hold released"; }
 kubectl() {
   _r=primary
   case "$1" in
@@ -76,6 +94,7 @@ kubectl() {
     --kubeconfig) _r=$(basename "$2" .yaml); shift 2 ;;
   esac
   _s="${D}/state/${_r}"; _ph=$(cat "${D}/phase")
+  if [ "${_ph}" = before ] && [ -f "${D}/settle_at" ] && [ "$(cat "${D}/clock")" -ge "$(cat "${D}/settle_at")" ]; then _ph=settled; fi
   case "$*" in
     "get workspaces."*)
       if [ -f "${_s}/$2.${_ph}.err" ]; then cat "${_s}/$2.${_ph}.err" >&2; return 1; fi
@@ -112,22 +131,26 @@ setup() {
   local d="${TMP}/$1"
   mkdir -p "${d}/work" "${d}/skc" "${d}/state/primary"
   cp "${TMP}/tofurc" "${d}/state/primary/tofurc"
+  echo 0 >"${d}/clock"
   printf '\n' >"${d}/work/baseline_hr.txt"; printf '\n' >"${d}/work/baseline_ks.txt"
   if [ "${2:-}" != "" ]; then
     mkdir -p "${d}/state/${SEC}"; : >"${d}/skc/${SEC}.yaml"
     printf '\n' >"${d}/work/baseline_hr_${SEC}.txt"; printf '\n' >"${d}/work/baseline_ks_${SEC}.txt"
   fi
-  for f in pre window; do sed "s#/work/#${d}/work/#g; s#/secondary-kubeconfigs/#${d}/skc/#g" "${TMP}/${f}.sh" >"${d}/${f}.sh"; done
+  for f in pre window verdict; do sed "s#/work/#${d}/work/#g; s#/secondary-kubeconfigs/#${d}/skc/#g" "${TMP}/${f}.sh" >"${d}/${f}.sh"; done
 }
 ws() { printf '%s\n' "$5" >>"${TMP}/$1/state/$2/$3.$4"; }
-# run <case>: the pre-hold block in the phase before, then the window in the phase during.
+# run <case> [verdict]: the pre-hold block in the phase before, then the window in the
+# phase during; with "verdict" then the verdict tail, for a hold that was applied.
 run() {
   local d="${TMP}/$1"
-  ( cd "${d}" && D="${d}" DURATION_SECONDS=600 FRONT_DOOR_JUDGED="" sh -c \
-    '. "$1"; . "$2"; echo before >"${D}/phase"; . "$3"; echo during >"${D}/phase"; . "$4"' sh "${TMP}/env.sh" "${TMP}/stubs.sh" "${d}/pre.sh" "${d}/window.sh" ) >"${d}/out" 2>&1
+  ( cd "${d}" && D="${d}" DURATION_SECONDS=600 FRONT_DOOR_JUDGED="" POLICY_APPLIED=yes ENFORCE_CIDR_BLOCK=true secondary_kubeconfig_count=0 sh -c \
+    '. "$1"; . "$2"; echo before >"${D}/phase"; . "$3"; echo during >"${D}/phase"; . "$4"; [ -z "$5" ] || . "$5"' \
+    sh "${TMP}/env.sh" "${TMP}/stubs.sh" "${d}/pre.sh" "${d}/window.sh" "${2:+${d}/verdict.sh}" ) >"${d}/out" 2>&1
   echo $? >"${d}/rc"
 }
 cycles() { sed -n 's/^.*window complete; new-regression-cycles=\([0-9]*\)$/\1/p' "${TMP}/$1/out"; }
+clock() { cat "${TMP}/$1/clock"; }
 show() { echo "    case $1: exit $(cat "${TMP}/$1/rc"), cycles '$(cycles "$1")'"; sed 's/^/      | /' "${TMP}/$1/out"; }
 
 echo "── Case 1: a Workspace Ready and Synced before the hold that turns Synced=False fails the window ──"
@@ -149,14 +172,14 @@ if [ "$(cycles 2)" = 1 ] && grep -qxF "  NEW[primary] WS ${WSM}/org-a/unit-1 Rea
   pass "the window names ${WSM}/org-a/unit-1 Ready=False Synced=True"
 else fail "case 2"; show 2; fi
 
-echo "── Case 3: one not Synced before the hold is named as baseline and excluded ──"
+echo "── Case 3: one never Synced before the hold is named NOT MEASURED and not judged ──"
 setup 3
 ws 3 primary "${WS}" before "/adopt-a Ready=True Synced=True"; ws 3 primary "${WS}" before "/adopt-c Ready=True Synced=False"
 ws 3 primary "${WS}" during "/adopt-a Ready=True Synced=True"; ws 3 primary "${WS}" during "/adopt-c Ready=False Synced=False"
 run 3
 if [ "$(cat "${TMP}/3/rc")" = 0 ] && [ "$(cycles 3)" = 0 ] && ! grep -q 'NEW\[' "${TMP}/3/out" \
-    && grep -qxF "  baseline[primary] WS (not Ready and Synced before the hold, excluded) ${WS}//adopt-c Ready=True Synced=False" "${TMP}/3/out"; then
-  pass "adopt-c is named as baseline, excluded, and the window counts nothing"
+    && grep -qxF "  baseline[primary] WS (not Ready and Synced when the wait ended: NOT MEASURED) ${WS}//adopt-c Ready=True Synced=False" "${TMP}/3/out"; then
+  pass "adopt-c is named NOT MEASURED, and the window counts nothing"
 else fail "case 3"; show 3; fi
 
 echo "── Case 4: a secondary region's Workspace that loses Synced fails that region ──"
@@ -209,6 +232,61 @@ if [ "$(cat "${TMP}/7/rc")" = 0 ] && [ "$(cycles 7)" = 0 ] && [ ! -s "${TMP}/7/c
     && grep -qxF "primary (2 exist, 0 in the baseline)" "${TMP}/7/work/ws_not_measured.txt"; then
   pass "primary is NOT MEASURED (2 exist, 0 in the baseline), recorded as such, does not fail; ${SEC} records judged"
 else fail "case 7"; show 7; sed 's/^/      patch | /' "${TMP}/7/patches"; fi
+
+echo "── Case 8: Workspaces that become Ready and Synced 5 minutes into the wait are all in the baseline ──"
+setup 8
+for w in a b; do ws 8 primary "${WS}" before "/ws-${w} Ready=True Synced=True"; done
+for w in c d; do ws 8 primary "${WS}" before "/ws-${w} Ready=True Synced=False"; done
+for w in a b c d; do ws 8 primary "${WS}" settled "/ws-${w} Ready=True Synced=True"; ws 8 primary "${WS}" during "/ws-${w} Ready=True Synced=True"; done
+echo 300 >"${TMP}/8/settle_at"
+run 8 verdict
+REC8='"step.egress-block-test.region.primary.workspaces":"judged: 4 of 4 in the baseline"'
+if [ "$(cat "${TMP}/8/rc")" = 0 ] && [ "$(cycles 8)" = 0 ] && [ "$(clock 8)" = 300 ] \
+    && [ "$(grep -c . "${TMP}/8/work/ws_base_primary.txt")" = 4 ] && grep -qxF "${WS}//ws-d" "${TMP}/8/work/ws_base_primary.txt" \
+    && grep -qF "region primary: 4 cloud Workspace(s) Ready and Synced before the hold, judged in the window" "${TMP}/8/out" \
+    && grep -qF "region primary: 2 cloud Workspace(s) not yet Ready and Synced; waiting, 900s left of 900s" "${TMP}/8/out" \
+    && ! grep -q 'NOT MEASURED' "${TMP}/8/out" && grep -qF "${REC8}" "${TMP}/8/patches" \
+    && grep -qF "— sovereignty proof PASSED (cloud Workspaces: 4 of 4 judged)" "${TMP}/8/out"; then
+  pass "the wait ends at 300 s when the last one is Synced; all 4 are in the baseline and the result line says 4 of 4"
+else fail "case 8 (clock $(clock 8))"; show 8; fi
+
+echo "── Case 9: one never Synced is waited for until the bound, counted, recorded as not measured, and in the result line ──"
+setup 9 secondary
+cp "${TMP}/tofurc" "${TMP}/9/state/${SEC}/tofurc"
+for p in before during; do
+  ws 9 primary "${WS}" "${p}" "/ws-a Ready=True Synced=True why=Available/ReconcileSuccess"
+  ws 9 primary "${WS}" "${p}" "/ws-b Ready=True Synced=True why=Available/ReconcileSuccess"
+  ws 9 primary "${WS}" "${p}" "/ws-c Ready=True Synced=False why=Available/ReconcileError"
+  ws 9 "${SEC}" "${WS}" "${p}" "/ws-x Ready=True Synced=True why=Available/ReconcileSuccess"
+done
+run 9 verdict
+REC9='"step.egress-block-test.region.primary.workspaces":"judged: 2 of 3 in the baseline; not-measured: 1"'
+REC9_SEC="\"step.egress-block-test.region.${SEC}.workspaces\":\"judged: 1 of 1 in the baseline\""
+if [ "$(cat "${TMP}/9/rc")" = 0 ] && [ "$(cycles 9)" = 0 ] && [ "$(clock 9)" = 900 ] \
+    && [ "$(grep -c . "${TMP}/9/work/ws_base_primary.txt")" = 2 ] \
+    && grep -qxF "  baseline[primary] WS (not Ready and Synced when the wait ended: NOT MEASURED) ${WS}//ws-c Ready=True Synced=False why=Available/ReconcileError" "${TMP}/9/out" \
+    && grep -qF "region primary: 1 of 3 cloud Workspace(s) NOT MEASURED (named above; not a failure, not a pass)" "${TMP}/9/out" \
+    && grep -qF "${REC9}" "${TMP}/9/patches" && grep -qF "${REC9_SEC}" "${TMP}/9/patches" \
+    && grep -qxF "primary (2 of 3 judged)" "${TMP}/9/work/ws_not_measured.txt" \
+    && grep -qF "cloud Workspaces NOT MEASURED in: primary (2 of 3 judged) " "${TMP}/9/out" \
+    && grep -qF "— sovereignty proof PASSED (cloud Workspaces: 3 of 4 judged, 1 NOT MEASURED, not covered by this proof)" "${TMP}/9/out"; then
+  pass "ws-c is waited for 900 s, named NOT MEASURED, recorded 2 of 3 with 1 not measured; the result line says 3 of 4, 1 NOT MEASURED"
+else fail "case 9 (clock $(clock 9))"; show 9; sed 's/^/      patch | /' "${TMP}/9/patches"; fi
+
+echo "── Case 10: a condition waiting cannot change (Deleting, ReconcilePaused) does not hold the wait ──"
+setup 10
+for p in before during; do
+  ws 10 primary "${WS}" "${p}" "/ws-a Ready=True Synced=True why=Available/ReconcileSuccess"
+  ws 10 primary "${WS}" "${p}" "/ws-p Ready=True Synced=False why=Available/ReconcilePaused"
+  ws 10 primary "${WS}" "${p}" "/ws-d Ready=False Synced=False why=Deleting/ReconcileError"
+done
+run 10 verdict
+if [ "$(cat "${TMP}/10/rc")" = 0 ] && [ "$(clock 10)" = 0 ] && ! grep -q 'waiting, ' "${TMP}/10/out" \
+    && grep -qF "NOT MEASURED) ${WS}//ws-p Ready=True Synced=False why=Available/ReconcilePaused" "${TMP}/10/out" \
+    && grep -qF "NOT MEASURED) ${WS}//ws-d Ready=False Synced=False why=Deleting/ReconcileError" "${TMP}/10/out" \
+    && grep -qF "— sovereignty proof PASSED (cloud Workspaces: 1 of 3 judged, 2 NOT MEASURED, not covered by this proof)" "${TMP}/10/out"; then
+  pass "no wait; ws-p and ws-d are named NOT MEASURED and the result line says 1 of 3"
+else fail "case 10 (clock $(clock 10))"; show 10; fi
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "[egress-hold-workspaces] ${FAILURES} case(s) FAILED"; exit 1; fi

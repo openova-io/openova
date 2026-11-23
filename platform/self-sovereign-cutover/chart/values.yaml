@@ -1230,6 +1230,13 @@ helmRepositories:
     # a harmless no-op (the annotate is `|| true`).
     gitRepositoryName: "openova-org-tenants"
     gitRepositoryNamespace: "flux-system"
+    # The Kustomization that applies that branch (products/catalyst/chart
+    # org-services/org-repo-kustomization.yaml, default org-tenants). Step 08
+    # reads both names (ORG_TENANTS_GITREPO, ORG_TENANTS_KUSTOMIZATION): its
+    # #3526 check pokes them and its #3376 gate waits on the Kustomization.
+    # Renaming it also means renaming it in readbackReconcileKustomizations above
+    # and egressTest.hostKustomizationGate.names.
+    kustomizationName: "org-tenants"
 
   # ── #6309: per-Org `<slug>/catalyst-tenant` DURABLE-SOURCE pivot (Phase-2d) ─
   #
@@ -1923,6 +1930,49 @@ registryPivot:
 # overrides duration via overlay if 10 min isn't enough.
 egressTest:
   durationSeconds: 600
+  # SOV-344 — the cloud Workspaces through the hold (step 08, blocks
+  # workspace-hold and tofu-pre-hold). provider-opentofu runs tofu init for each
+  # Workspace on its own reconcile loop. A Workspace is neither a HelmRelease nor
+  # a Kustomization, and the Kustomization that applies the claims does not
+  # health-check them: a hold that counted only those passed while 21 of 24
+  # Workspaces could not reach registry.opentofu.org. ws_read lists both kinds of
+  # a region into /work/ws_now, one row "<kind>/<namespace>/<name> Ready=<s>
+  # Synced=<s> why=<Ready reason>/<Synced reason>". A kind the region does not
+  # serve has no rows; a list that cannot be read for another reason returns 1,
+  # which fails the proof. ws_settle waits as described below; ws_baseline keeps
+  # the Workspaces that are then Ready and Synced. In the window ws_regressed
+  # names, by kind, namespace and name, each kept one that is no longer both, or
+  # is gone.
+  #
+  # The wait. Step 11 re-creates the provider-opentofu Pod (it moves the OpenTofu
+  # CLI configuration to the Sovereign's registry), and that Pod re-syncs the
+  # Workspaces one at a time (upstream --max-reconcile-rate defaults to 1 and the
+  # kit does not set it; each runs tofu init again). Measured on two installs on
+  # 21 Nov 2026: step 08 ran right after and found 14 of 24, then 2 of 24 Ready
+  # and Synced ("Ready=True Synced=False" for 22); all 24 were Ready and Synced 8
+  # to 10 minutes later. The hold watched 2 Workspaces and reported the proof
+  # PASSED.
+  #
+  # So, before the baseline and in every region, step 08 reads the Workspaces every
+  # intervalSeconds until each one that exists is Ready and Synced, or carries a
+  # condition that waiting cannot change (Ready reason Deleting, or Synced reason
+  # ReconcilePaused), or timeoutSeconds have passed since the first read that found
+  # one waiting (one bound for all regions). The bound is the measured 10 minutes
+  # with half again as margin. No other condition separates a re-sync from a fault:
+  # provider-opentofu reports both as Synced=False reason ReconcileError, so any
+  # other Workspace is waited for until the bound.
+  #
+  # At the bound the hold starts. Each Workspace still not Ready and Synced is named
+  # with its condition reasons ("NOT MEASURED"), never judged and never counted as
+  # passed: the step records step.egress-block-test.region.<region>.workspaces as
+  # "judged: <b> of <n> in the baseline; not-measured: <n-b>" (or "not-measured:
+  # <n> exist, 0 in the baseline"), names the region next to the verdict, and its
+  # result line ends "(cloud Workspaces: <b> of <n> judged, <n-b> NOT MEASURED, not
+  # covered by this proof)". It does not fail for it. timeoutSeconds 0 waits not at
+  # all.
+  workspaceSettle:
+    timeoutSeconds: 900
+    intervalSeconds: 15
   # #7900 — the front door is part of the proof. Step 08 asks every host below
   # (a label under sovereign.fqdn) `samples` times before the hold and again
   # at every poll of the survival window, one connection per request. If the
@@ -2182,6 +2232,12 @@ egressTest:
   # IMAGE pulls via certs.d. Flux's source-controller fetches these URLs itself
   # and never traverses containerd, so a certs.d redirect cannot cover a source
   # object — only genuinely local hosts count.
+  #
+  # The lint runs PER REGION (#5359, hw292 dep 1c56518035a83e03). It shipped in
+  # 0.1.162 measuring ONE cluster, the shape of the defect it exists to catch:
+  # region-a held 69 HelmRepositories on the local Harbor and 0 on ghcr, region-b
+  # 0 local and 64 on ghcr, and cutoverComplete=true was set from region-a alone.
+  # A fleet property asserted from a single-region sample is not asserted at all.
   #
   # allowHosts is EMPTY by default so the lint fails closed: an external host is
   # a tether until a human declares otherwise here, in Git, under review. Adding
@@ -4152,6 +4208,17 @@ rebootHold:
 #
 # The rules, in the code they govern (these comments sit here because a
 # template's comments are stored in every Helm release Secret, #6004):
+#
+# The pre-hold lint (step 08, block tofu-cli-lint; SOV-344). Every tofu init of
+#   a Workspace installs its providers as the key .tofurc of the ConfigMap
+#   TOFU_NAMESPACE/TOFU_CLI_CM says; the provider pod mounts it, and step 11
+#   moves its OCI mirror into the Sovereign's registry. The lint reads the live
+#   ConfigMap and the file in every running pod that mounts it: each
+#   repository_template names LOCAL_REGISTRY_HOST, registry.SOVEREIGN_FQDN or
+#   harbor.SOVEREIGN_FQDN, and no direct, network_mirror, filesystem_mirror or
+#   dev_overrides block exists. Without the ConfigMap tofu init takes the
+#   implied configuration, which installs from registry.opentofu.org: a region
+#   passes without it only when it serves no Workspace kind.
 #
 # The list (_helpers.tpl, define tofuProviders, block tofu-providers-list).
 #   tofu_list_read FILE writes the lines of the list ConfigMap to FILE: 0 read,

@@ -88,7 +88,11 @@ var perOrgHostAppsBaselineDocs = []string{
 //     rewrite the org-controller's apps Kustomization applies.
 //   - the host-scoped HelmRelease-shaped apps `<basePath>/<slug>/app-<x>.yaml`
 //     (openclaw / stalwart-mail / newapi) → `vcluster/host-apps/app-<x>.yaml`,
-//     for EVERY plan (#5423, made unconditional by #4292). The org-controller
+//     for EVERY plan (#5423, made unconditional by #4292). Each HR file then
+//     carries its own placement: no kubeConfig for the platform stack, which
+//     installs on the host `<slug>` ns, and the vCluster kubeConfig for the
+//     customer-scope app (hostPlacedHelmReleaseApps). The file itself must
+//     never sit in `vcluster/apps/`: the org-controller
 //     gives the apps Kustomization a `kubeConfig.secretRef` for every
 //     Organization, so it applies INTO the Org vcluster — which registers no
 //     `helm.toolkit.fluxcd.io` / `source.toolkit.fluxcd.io` CRDs at all. A
@@ -177,11 +181,14 @@ func (g *ManifestGenerator) GeneratePerOrgAppsTree(slug, planSlug string, appSlu
 // Emitted for EVERY Organization (#4292): every Org's apps run inside its
 // vCluster, so the synced Service is the only host-side backend and this route
 // is the only path from the host gateway to the app — there is no plan whose
-// apps run natively in the host `<slug>` ns. HelmRelease-shaped apps (openclaw,
-// stalwart-mail) carry their OWN chart-emitted HTTPRoute parented to the same
-// gateway and sync no `<app>-x-…-x-vcluster` Service, so they are skipped — a
-// second route to a non-existent Service would 404. Shareable DB slugs
-// (mysql/postgres/redis) are never externally routed and are skipped too.
+// Deployment-shaped apps run natively in the host `<slug>` ns. HelmRelease-
+// shaped apps are skipped: none syncs a `<app>-x-…-x-vcluster` Service, so a
+// route to that name would 404. The per-Organization platform stack (openclaw,
+// newapi, agenity) installs on the host (hostPlacedHelmReleaseApps), so its
+// charts' own HTTPRoutes are host objects parented to the same gateway; the
+// route of stalwart-mail, which installs into the vCluster, does not reach the
+// host (a known gap, not closed here). Shareable DB slugs (mysql/postgres/
+// redis) are never externally routed and are skipped too.
 //
 // Returns the file map (paths relative to the per-Org repo root) and the sorted
 // list of route doc basenames the caller merges into
