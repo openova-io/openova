@@ -31,6 +31,7 @@ SHELL_TESTS=(
   apicall-rbac-correspondence.sh
   bootstrap-window.sh
   crossplane-runtime-suite-current.sh
+  replication-ca-seed-orphan-current.sh
 )
 
 # step <label> <command...>

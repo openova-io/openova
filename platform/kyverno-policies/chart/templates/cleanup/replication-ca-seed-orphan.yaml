@@ -1,0 +1,110 @@
+{{- /*
+replication-ca-seed-orphan — deletes the seed CA Secret of an uninstalled
+Application (check FND-G12, journey J5.2).
+
+THE DEFECT
+==========
+bp-wordpress-tenant (templates/shared-secrets-seed.yaml) renders, in the
+writer region of a two-region database pair, a cert-manager Certificate whose
+Secret is `<pair>-replication-ca-seed`. cert-manager writes that Secret and
+never deletes it, and the platform does not turn on cert-manager's
+owner-reference flag. Every uninstall therefore left the Secret in the
+Organization namespace of every region the Certificate ever rendered in
+(hw307, 23 November, both acceptance records).
+
+THE RULE
+========
+The Certificate's secretTemplate labels the Secret
+  catalyst.openova.io/component: replication-ca-seed
+  catalyst.openova.io/app:       <Application name>
+The application-controller stamps `catalyst.openova.io/app: <Application
+name>` on every HelmRelease of the Application (fanout.go renderOneHR and the
+per-region path of application_controller.go). The HelmRelease's own name is
+`<app>-<cluster>`, shortened with a hash for long names, so it is never used.
+
+A Secret so labelled is deleted ONLY when no HelmRelease carrying its
+Application's label exists in the Secret's namespace:
+  - a HelmRelease being deleted (deletionTimestamp set) still exists: keep;
+    the next run deletes once it is gone;
+  - an error reading the HelmReleases (no right, no CRD, API down) makes the
+    condition an error, and the controller deletes nothing on an error: keep;
+  - another Application's HelmRelease in the same namespace keeps only that
+    Application's Secret: the condition compares the label, not the namespace.
+
+WHY A DeletingPolicy (NOT A ClusterCleanupPolicy)
+================================================
+A ClusterCleanupPolicy loads its apiCall context once per run, before the
+loop over the matched resources (Kyverno v1.18.0
+pkg/controllers/cleanup/controller.go:172-184), so a per-namespace lookup
+would answer for the first Secret only. The DeletingPolicy of the same
+release lists only the labelled Secrets (pkg/controllers/deleting/
+controller.go:190) and evaluates each by itself: Evaluate builds a new
+variable map per Secret (pkg/cel/policies/dpol/compiler/policy.go:29-39),
+and resource.List is a live LIST per call with no cache
+(pkg/cel/libs/context.go:134-149). An error stops the Secret before
+any delete (deleting/controller.go:225-229).
+
+vCLUSTER PIVOT LEG
+==================
+A pivoted HelmRelease lives in the vCluster's host namespace and installs the
+chart inside the vCluster, so the seed Secret is written inside the vCluster,
+where this host policy does not look. bp-wordpress-tenant never pivots: its
+variants place on the host (tier '') and the controller keeps a CNPG-bearing
+Blueprint host-side (blueprintRequiresHostCNPGOperator). The chart labels the
+Secret only when it lands in the namespace its HelmRelease lives in.
+
+Values: cleanupPolicies.replicationCaSeedOrphan.{enabled,schedule}.
+*/ -}}
+{{- $p := .Values.cleanupPolicies.replicationCaSeedOrphan -}}
+{{- if $p.enabled }}
+apiVersion: policies.kyverno.io/v1beta1
+kind: DeletingPolicy
+metadata:
+  name: replication-ca-seed-orphan
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: cleanup-policy
+    catalyst.openova.io/policy-tier: cleanup
+    catalyst.openova.io/policy-domain: lifecycle
+  annotations:
+    policies.kyverno.io/title: Delete the seed CA Secret of an uninstalled Application
+    policies.kyverno.io/category: catalyst-lifecycle
+    policies.kyverno.io/subject: Secret
+    policies.kyverno.io/description: >-
+      Deletes a Secret labelled catalyst.openova.io/component=replication-ca-seed
+      once no Flux HelmRelease labelled with its catalyst.openova.io/app value
+      exists in the Secret's namespace. A HelmRelease being deleted, or an error
+      reading HelmReleases, keeps the Secret.
+spec:
+  schedule: {{ $p.schedule | quote }}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["secrets"]
+    objectSelector:
+      matchLabels:
+        catalyst.openova.io/component: replication-ca-seed
+      matchExpressions:
+        - key: catalyst.openova.io/app
+          operator: Exists
+  variables:
+    - name: application
+      expression: string(object.metadata.labels["catalyst.openova.io/app"])
+    # The label selector narrows the LIST on the API server; the condition
+    # compares the label again, so a list that ignores the selector (the
+    # Kyverno CLI's test context does) still answers per Application.
+    # `items` is typed `any` by the library; dyn() makes it a list to range on.
+    - name: releases
+      expression: >-
+        dyn(resource.List("helm.toolkit.fluxcd.io/v2", "helmreleases",
+        object.metadata.namespace,
+        {"catalyst.openova.io/app": variables.application}).items)
+  conditions:
+    - name: no-helmrelease-of-its-application
+      expression: >-
+        variables.releases.all(hr,
+        !(has(hr.metadata.labels) &&
+        "catalyst.openova.io/app" in hr.metadata.labels &&
+        hr.metadata.labels["catalyst.openova.io/app"] == variables.application))
+{{- end }}

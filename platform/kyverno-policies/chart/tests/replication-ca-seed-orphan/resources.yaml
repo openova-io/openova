@@ -1,0 +1,81 @@
+# The Secrets the policy judges: the seed CA Secrets cert-manager writes from
+# bp-wordpress-tenant's seed Certificate, labelled by its secretTemplate.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alpha-db-replication-ca-seed
+  namespace: org-a
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: alpha
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: beta-db-replication-ca-seed
+  namespace: org-b
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: beta
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gamma-db-replication-ca-seed
+  namespace: org-c
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: gamma
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: delta-one-db-replication-ca-seed
+  namespace: org-d
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: delta-one
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: delta-two-db-replication-ca-seed
+  namespace: org-d
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: delta-two
+type: kubernetes.io/tls
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: marketing-site-of-the-acme-trading-company-in-muscat-oman-2-db-replication-ca-seed
+  namespace: org-e
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+    catalyst.openova.io/app: marketing-site-of-the-acme-trading-company-in-muscat-oman-2
+type: kubernetes.io/tls
+---
+# Same namespace as gamma, no seed labels: not selected.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gamma-db-app
+  namespace: org-c
+type: Opaque
+---
+# The component label without the Application label (a seed rendered before
+# the contract, or in a namespace its HelmRelease does not live in): not
+# selected, so never deleted.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: legacy-db-replication-ca-seed
+  namespace: org-c
+  labels:
+    catalyst.openova.io/component: replication-ca-seed
+type: kubernetes.io/tls

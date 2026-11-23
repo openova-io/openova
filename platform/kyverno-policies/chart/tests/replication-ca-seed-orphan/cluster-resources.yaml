@@ -1,0 +1,34 @@
+# The cluster the CLI evaluates against: the HelmRelease kind (for its REST
+# mapper) and the namespaces of the Secrets in resources.yaml.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: ClusterResource
+metadata:
+  name: cluster-resources
+spec:
+  crds:
+    - helmrelease-crd.yaml
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-a
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-b
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-c
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-d
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-e
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: org-other

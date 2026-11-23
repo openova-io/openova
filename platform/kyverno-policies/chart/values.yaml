@@ -602,3 +602,22 @@ compliancePolicies:
     # mirrors fluxsource.localSourceHostMarkers (`gitea`). Operator-overridable
     # for a Sovereign that renames its in-cluster Gitea host.
     giteaHostMarker: gitea
+
+# ─── Cleanup (Kyverno DeletingPolicy, run by the cleanup controller) ──────
+#
+# replicationCaSeedOrphan (check FND-G12, journey J5.2): cert-manager writes
+# the seed CA Secret <pair>-replication-ca-seed of a two-region database pair
+# (bp-wordpress-tenant shared-secrets-seed.yaml) and never deletes it, so it
+# outlived every uninstall. The policy deletes a Secret labelled
+# `catalyst.openova.io/component: replication-ca-seed` +
+# `catalyst.openova.io/app: <application>` once no Flux HelmRelease labelled
+# `catalyst.openova.io/app: <application>` exists in the Secret's namespace.
+# A HelmRelease that is being deleted still counts (kept until it is gone);
+# an error reading HelmReleases keeps the Secret. `schedule` is a cron
+# expression: the check waits 10 minutes, so it stays at 2 minutes or less.
+# templates/cleanup/replication-ca-seed-orphan.yaml renders the policy and the
+# cleanup controller's right to list HelmReleases and list + delete Secrets.
+cleanupPolicies:
+  replicationCaSeedOrphan:
+    enabled: true
+    schedule: "*/2 * * * *"

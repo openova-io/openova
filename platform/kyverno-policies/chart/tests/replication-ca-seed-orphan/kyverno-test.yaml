@@ -1,0 +1,86 @@
+# Check FND-G12 (journey J5.2): the DeletingPolicy replication-ca-seed-orphan
+# deletes the seed CA Secret of an Application only once no HelmRelease of
+# that Application is left in the Secret's namespace.
+#
+# For a DeletingPolicy the CLI reports `pass` when the Secret matches (the
+# cleanup controller would delete it) and `fail` when it does not (kept).
+#
+# policy.yaml is the render of the template; re-render it after a change:
+#   cd platform/kyverno-policies/chart
+#   helm template . --show-only templates/cleanup/replication-ca-seed-orphan.yaml \
+#     | grep -v '^# Source:' | sed '1{/^---$/d}' \
+#     > tests/replication-ca-seed-orphan/policy.yaml
+#   kyverno test tests/replication-ca-seed-orphan/
+# tests/replication-ca-seed-orphan-current.sh fails when the copy is stale.
+#
+# Cases:
+#   1  HelmRelease present                                  -> keep
+#   2  HelmRelease present with deletionTimestamp           -> keep
+#   3  no HelmRelease in the namespace (one of the same
+#      Application in another namespace does not count)     -> delete
+#   4  same namespace, another Application's HelmRelease
+#      exists, the first one's is gone                       -> only the first is deleted
+#   5  long Application name, shortened HelmRelease name    -> keep (the label matches)
+#   6  a Secret without the seed labels, or with the
+#      component label only                                 -> not selected, kept
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: replication-ca-seed-orphan-test
+clusterResources:
+  - cluster-resources.yaml
+context: context.yaml
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  # 1
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-a/alpha-db-replication-ca-seed
+    result: fail
+  # 2
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-b/beta-db-replication-ca-seed
+    result: fail
+  # 3
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-c/gamma-db-replication-ca-seed
+    result: pass
+  # 4
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-d/delta-one-db-replication-ca-seed
+    result: pass
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-d/delta-two-db-replication-ca-seed
+    result: fail
+  # 5
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-e/marketing-site-of-the-acme-trading-company-in-muscat-oman-2-db-replication-ca-seed
+    result: fail
+  # 6
+  - isDeletingPolicy: true
+    policy: replication-ca-seed-orphan
+    kind: Secret
+    resources:
+      - org-c/gamma-db-app
+      - org-c/legacy-db-replication-ca-seed
+    result: fail
