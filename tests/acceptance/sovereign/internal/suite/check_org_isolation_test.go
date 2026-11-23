@@ -784,7 +784,7 @@ func TestVCKubectlSendsARefusedCallAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	local := ln.Addr().String()
 	refused := fmt.Errorf("exit status 1: The connection to the server %s was refused - did you specify the right host or port?", local)
 	for name, tc := range map[string]struct {
