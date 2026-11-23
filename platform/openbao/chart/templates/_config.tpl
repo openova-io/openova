@@ -162,6 +162,34 @@ path "{{ .kv }}/metadata/{{ .apps }}/{{ .ns }}/*" {
 }
 {{ end -}}
 
+{{- /* SEC-200 — the birth Job of a namespace (platform/secrets-lib): it
+creates values below its own namespace of mounted/ and reads their metadata
+(never a value). With peers it also mints the identity token of role
+openbao-peer-birth-<its namespace>, which a peer region accepts for that
+namespace only. */ -}}
+{{- define "openbao.policy.secrets-birth" -}}
+path "mounted/data/{{ .ns }}/*" {
+  capabilities = ["create"]
+}
+path "mounted/metadata/{{ .ns }}/*" {
+  capabilities = ["read"]
+}
+{{- if .peers }}
+path "identity/oidc/token/openbao-peer-birth-{{ .ns }}" {
+  capabilities = ["read"]
+}
+{{- end }}
+{{ end -}}
+
+{{- /* SEC-200 — what the birth Job of a PEER region may do here, one policy
+per namespace of peerTrust.birthNamespaces: create below that namespace of
+mounted/, nothing else (no read, no update, no list). */ -}}
+{{- define "openbao.policy.secrets-birth-peer" -}}
+path "mounted/data/{{ .birthNs }}/*" {
+  capabilities = ["create"]
+}
+{{ end -}}
+
 {{- /* The state key: what a minted token, or a Job that logs in itself, may do. */ -}}
 {{- define "openbao.policy.tofu-state" -}}
 path "transit/datakey/plaintext/{{ .key }}" {
@@ -277,13 +305,21 @@ openbao.configOps — the ordered desired state as JSON
 {{- /* Helm string literals: Helm never reads them as actions (SEC-190). */ -}}
 {{- $idNs := "{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}" -}}
 {{- $idSa := "{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_name}}" -}}
-{{- $ctx := dict "kv" $kv "apps" $apps "aud" $aud "ns" $idNs "sa" $idSa "key" $key -}}
+{{- $ctx := dict "kv" $kv "apps" $apps "aud" $aud "ns" $idNs "sa" $idSa "key" $key "peers" $pt.peers -}}
+{{- /* SEC-200: the namespaces whose birth Job writes shared values into the
+peers; each gets one role on every jwt-peer-<peer> mount. */ -}}
+{{- $birthNs := list -}}
+{{- range ($cfg.birthNamespaces | default list) -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" (toString .)) }}{{ fail (printf "peerTrust.birthNamespaces: %q is not a namespace name" (toString .)) }}{{ end -}}
+{{- $birthNs = append $birthNs (toString .) -}}
+{{- end -}}
+{{- $birthNs = $birthNs | uniq | sortAlpha -}}
 {{- $ns := .Release.Namespace -}}
 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
-{{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin") -}}
+{{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin" "secrets-birth") -}}
 {{- $bk := .Values.backup | default dict -}}
 {{- if $bk.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 
@@ -304,6 +340,8 @@ maxTTL, aud (the audience a service-account token must carry; none = any). */ -}
   (dict "name" "workload" "sa" "*" "ns" "*" "policies" (list "workload") "ttl" "15m" "max" "1h" "aud" "openbao")
   (dict "name" "eso-ns" "sa" "eso-reader" "ns" "*" "policies" (list "eso-ns") "ttl" "15m" "max" "1h")
   (dict "name" "tofu-state-mint" "sa" "eso-reader" "ns" "crossplane-system" "policies" (list "eso-ns" "tofu-state-mint") "ttl" "15m" "max" "1h")) -}}
+{{- /* SEC-200: the birth Job of any namespace (service account secrets-birth). */ -}}
+{{- $roles = append $roles (dict "name" "secrets-birth" "sa" "secrets-birth" "ns" "*" "policies" (list "secrets-birth") "ttl" "15m" "max" "1h" "aud" "openbao") -}}
 {{- /* SEC-180: the backup CronJob (templates/backup-snapshot.yaml), with a token
 for audience openbao; rendered with it, when backup.enabled. */ -}}
 {{- if $bk.enabled -}}
@@ -328,6 +366,11 @@ stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ 
 {{- range $policies -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/%s" .) "payload" (dict "policy" (include (printf "openbao.policy.%s" (ternary "openbao-peer-push" . (eq . $aud))) $ctx))) -}}
 {{- end -}}
+{{- if $pt.peers -}}
+{{- range $birthNs -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/secrets-birth-peer-%s" .) "payload" (dict "policy" (include "openbao.policy.secrets-birth-peer" (dict "birthNs" .)))) -}}
+{{- end -}}
+{{- end -}}
 {{- /* The state key: exportable and with a plaintext backup allowed (both
 one-way), so that the one offline backup can be taken; never deletable. */ -}}
 {{- if hasKey $engines "transit" -}}
@@ -346,9 +389,16 @@ the provider pod (an orphan, not renewable, at most 1h, policy tofu-state). */ -
 {{- $ops = append $ops (dict "kind" "write" "path" "auth/token/roles/tofu-state" "payload" (dict "allowed_policies" (list "tofu-state") "orphan" true "renewable" false "token_explicit_max_ttl" "1h")) -}}
 {{- if $pt.peers -}}
 {{- $self := $pt.self -}}
+{{- $clients := list $aud -}}
+{{- range $birthNs }}{{ $clients = append $clients (printf "openbao-peer-birth-%s" .) }}{{ end -}}
 {{- $ops = append $ops (dict "kind" "write" "path" "identity/oidc/config" "payload" (dict "issuer" (printf "http://%s:8200" (index $pt.hosts $self)))) -}}
-{{- $ops = append $ops (dict "kind" "write" "path" (printf "identity/oidc/key/%s" $aud) "payload" (dict "algorithm" "RS256" "allowed_client_ids" (list $aud) "rotation_period" "24h" "verification_ttl" "24h")) -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "identity/oidc/key/%s" $aud) "payload" (dict "algorithm" "RS256" "allowed_client_ids" $clients "rotation_period" "24h" "verification_ttl" "24h")) -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "identity/oidc/role/%s" $aud) "payload" (dict "key" $aud "client_id" $aud "ttl" ($cfg.tokenTTL | default "1h") "template" (dict "openova_region" $self | toJson))) -}}
+{{- /* SEC-200: one identity role per namespace; the token names the
+namespace and this region, and only that namespace's Job may mint it. */ -}}
+{{- range $birthNs -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "identity/oidc/role/openbao-peer-birth-%s" .) "payload" (dict "key" $aud "client_id" (printf "openbao-peer-birth-%s" .) "ttl" "15m" "template" (dict "openova_namespace" . "openova_region" $self | toJson))) -}}
+{{- end -}}
 {{- range $pt.peers -}}
 {{- $issuer := printf "http://%s:8200/v1/identity/oidc" (index $pt.hosts .) -}}
 {{- $probe := printf "%s/.well-known/openid-configuration" $issuer -}}
@@ -356,6 +406,10 @@ the provider pod (an orphan, not renewable, at most 1h, policy tofu-state). */ -
 {{- $ops = append $ops (dict "kind" "mount" "path" (printf "sys/auth/%s" $m) "probe" $probe "payload" (dict "type" "jwt" "description" "ADR-0015 peer-region ESO push (bp-openbao)")) -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/%s/config" $m) "probe" $probe "payload" (dict "oidc_discovery_url" $issuer)) -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/%s/role/%s" $m $aud) "probe" $probe "payload" (dict "role_type" "jwt" "bound_audiences" (list $aud) "user_claim" "sub" "bound_claims" (dict "openova_region" .) "token_policies" (list $aud) "token_ttl" "15m" "token_max_ttl" "1h")) -}}
+{{- $peer := . -}}
+{{- range $birthNs -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "auth/%s/role/secrets-birth-%s" $m .) "probe" $probe "payload" (dict "role_type" "jwt" "bound_audiences" (list (printf "openbao-peer-birth-%s" .)) "user_claim" "sub" "bound_claims" (dict "openova_region" $peer "openova_namespace" .) "token_policies" (list (printf "secrets-birth-peer-%s" .)) "token_ttl" "15m" "token_max_ttl" "1h")) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $ops | toJson -}}

@@ -11,7 +11,9 @@ active OpenBao), plus a selector-less stub openbao-<peer> per peer so a dial
 to a peer reaches only that peer, and the two CiliumNetworkPolicies on 8200.
 
 The OpenBao-side trust (this region's issuer, one jwt-peer-<peer> mount per
-peer, the scoped push policy) is part of the declarative desired state in
+peer, the scoped push policy, and per namespace of peerTrust.birthNamespaces
+a create-only role for the peers' birth Jobs, SEC-200) is part of the
+declarative desired state in
 templates/_config.tpl, applied by the openbao-config reconciler; its
 jwt-peer ops carry the peer's discovery URL as a probe and wait for it.
 
@@ -84,7 +86,11 @@ spec:
 # ClusterMesh cluster, on 8200 only:
 #   - ESO (a peer's primary pushing shared material into this OpenBao);
 #   - a peer's OpenBao + openbao-config reconciler (OIDC discovery of
-#     THIS region's issuer).
+#     THIS region's issuer);
+#   - the birth Job of any namespace (service account secrets-birth,
+#     platform/secrets-lib): the primary's Job writes a shared tier B value
+#     into EVERY region's OpenBao itself (SEC-200); the same rule admits
+#     the Job of this cluster.
 # enableDefaultDeny false (#7901): these two policies only ADD their allow.
 # Without the field, a policy with rules denies everything else in its
 # direction for the pods it selects. On a fresh installation
@@ -122,6 +128,13 @@ spec:
             - key: k8s:app.kubernetes.io/name
               operator: In
               values: [openbao, openbao-config]
+        - matchLabels:
+            k8s:app.kubernetes.io/name: secrets-birth
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
       toPorts:
         - ports:
             - port: "8200"

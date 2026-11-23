@@ -29,6 +29,18 @@
 #       chart renders no Cilium policy that turns default-deny on: on a fresh
 #       installation they are the only policies on the server until
 #       bp-plane-isolation lands (#7901).
+#   P10 SEC-200 — per namespace of peerTrust.birthNamespaces and
+#       per peer: policy secrets-birth-peer-<ns> (create below mounted/data/
+#       <ns>/, nothing else), written before role secrets-birth-<ns> on
+#       jwt-peer-<peer> (claims openova_region=<peer> + openova_namespace=
+#       <ns>, audience openbao-peer-birth-<ns>); the identity role
+#       openbao-peer-birth-<ns> names <ns> and this region; the local policy
+#       secrets-birth lets a Job mint only its own namespace's token;
+#   P11 the ingress admits the birth Job (secrets-birth) of any namespace
+#       from any ClusterMesh cluster;
+#   P12 one region: role secrets-birth (create + metadata read, audience
+#       openbao) and no peer op;
+#   P13 a namespace name that is not a DNS label fails the render.
 #
 # Vacuity: P1's assertions run against the single-region render must fail.
 set -euo pipefail
@@ -184,6 +196,44 @@ must     "P7 selfRegion unset: nothing"                           none  "$TMP/no
 must     "P7 self not in the registry: nothing"                   none  "$TMP/foreign.yaml" "x" ""
 must_not "P1 vacuity: the single-region render has no peer trust" peers "$TMP/single.yaml" "$A" "$B"
 must_not "P2 vacuity: A's render does not trust A as a peer"     peers "$TMP/a.yaml" "$A" "$A"
+
+
+# ── P10-P13 (SEC-200): the birth Job's way into the peers ─────────────────
+# Shell only: jq on the payloads of the desired-state ConfigMap.
+rbn() {  # $1 out, $2 self, $3 regions, $4 birthNamespaces (JSON list)
+  jq -n --arg s "$2" --arg g "$3" --argjson n "$4" '{peerTrust: {selfRegion: $s, regions: $g, birthNamespaces: $n}}' > "$1.values.json"
+  helm template openbao . --namespace openbao --set baoAddress=http://openbao.openbao.svc.cluster.local:8200 -f "$1.values.json" > "$1" 2> "$1.err"
+}
+pl() { grep -E "^  $(printf '%s' "$2" | tr '/' '.' | sed 's/\./\\./g')\\.json: " "$1" | head -n 1 | sed 's/^[^:]*: //' | jq -r . ; }
+man() { awk '/^  manifest: \|/ { on = 1; next } on && /^  [^ ]/ { exit } on { sub(/^    /, ""); if ($0 != "") print $2 }' "$1"; }
+rbn "$TMP/ba.yaml" "$A" "$REG2" '["acme","kube-x","acme"]'
+rbn "$TMP/bs.yaml" "$A" "$REG1" '["acme"]'
+p10=""
+[ "$(pl "$TMP/ba.yaml" sys/policies/acl/secrets-birth-peer-acme | jq -r .policy)" = "$(printf 'path "mounted/data/acme/*" {\n  capabilities = ["create"]\n}')" ] || p10="$p10 policy-acme"
+want='{"bound_audiences":["openbao-peer-birth-acme"],"bound_claims":{"openova_namespace":"acme","openova_region":"'"$B"'"},"role_type":"jwt","token_max_ttl":"1h","token_policies":["secrets-birth-peer-acme"],"token_ttl":"15m","user_claim":"sub"}'
+[ "$(pl "$TMP/ba.yaml" "auth/jwt-peer-$B/role/secrets-birth-acme" | jq -cS .)" = "$want" ] || p10="$p10 role-acme($(pl "$TMP/ba.yaml" "auth/jwt-peer-$B/role/secrets-birth-acme"))"
+[ "$(man "$TMP/ba.yaml" | grep -c '/role/secrets-birth-')" = 2 ] || p10="$p10 roles-per-namespace"
+[ "$(man "$TMP/ba.yaml" | grep -c "jwt-peer-$A")" = 0 ] || p10="$p10 self-trust"
+pos() { man "$TMP/ba.yaml" | grep -n -x -F "$1" | cut -d: -f1; }
+[ "$(pos sys/policies/acl/secrets-birth-peer-kube-x)" -lt "$(pos "auth/jwt-peer-$B/role/secrets-birth-kube-x")" ] || p10="$p10 order"
+[ "$(pl "$TMP/ba.yaml" identity/oidc/role/openbao-peer-birth-acme | jq -cS .)" = '{"client_id":"openbao-peer-birth-acme","key":"openbao-peer-push","template":"{\"openova_namespace\":\"acme\",\"openova_region\":\"'"$A"'\"}","ttl":"15m"}' ] || p10="$p10 identity-role"
+[ "$(pl "$TMP/ba.yaml" identity/oidc/key/openbao-peer-push | jq -c .allowed_client_ids)" = '["openbao-peer-push","openbao-peer-birth-acme","openbao-peer-birth-kube-x"]' ] || p10="$p10 key-clients"
+[ "$(pl "$TMP/ba.yaml" sys/policies/acl/secrets-birth | jq -r .policy | grep -c -F 'identity/oidc/token/openbao-peer-birth-{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}')" = 1 ] || p10="$p10 local-mint"
+[ -z "$p10" ] && pass "P10 per namespace and peer a create-only role (claims region + namespace), its policy first; the identity token carries the namespace" || { echo "  FAIL  P10:$p10"; FAIL=1; }
+awk '/^kind: CiliumNetworkPolicy/ { on = 1 } on && /^  name: openbao-allow-peer-region-ingress/ { take = 1 } /^---/ { on = 0; take = 0 } take' "$TMP/ba.yaml" > "$TMP/ing.yaml"
+grep -A6 -x "            k8s:app.kubernetes.io/name: secrets-birth" "$TMP/ing.yaml" > "$TMP/ing-birth.txt" || true
+if grep -q -x "            - key: k8s:io.kubernetes.pod.namespace" "$TMP/ing-birth.txt" \
+   && grep -q -x "            - key: io.cilium.k8s.policy.cluster" "$TMP/ing-birth.txt"; then
+  pass "P11 the ingress admits the birth Job (secrets-birth) of any namespace and any ClusterMesh cluster on 8200"
+else echo "  FAIL  P11 the ingress does not admit the birth Job"; FAIL=1; fi
+p12=""
+man "$TMP/bs.yaml" | grep -q 'secrets-birth-peer\|openbao-peer-birth' && p12="$p12 peer-ops"
+[ "$(pl "$TMP/bs.yaml" sys/policies/acl/secrets-birth | jq -r .policy)" = "$(printf 'path "mounted/data/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["create"]\n}\npath "mounted/metadata/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["read"]\n}')" ] || p12="$p12 local-policy"
+[ "$(pl "$TMP/bs.yaml" auth/kubernetes/role/secrets-birth | jq -cS .)" = '{"audience":"openbao","bound_service_account_names":["secrets-birth"],"bound_service_account_namespaces":["*"],"max_ttl":"1h","policies":["secrets-birth"],"ttl":"15m"}' ] || p12="$p12 local-role"
+[ -z "$p12" ] && pass "P12 one region: role secrets-birth (create + metadata read, audience openbao), no peer role and no identity token" || { echo "  FAIL  P12:$p12"; FAIL=1; }
+if rbn "$TMP/bad.yaml" "$A" "$REG2" '["Acme_1"]'; then echo "  FAIL  P13 a bad namespace name rendered"; FAIL=1
+elif grep -q 'peerTrust.birthNamespaces: "Acme_1" is not a namespace name' "$TMP/bad.yaml.err"; then pass "P13 a bad namespace name fails the render"
+else echo "  FAIL  P13 $(cat "$TMP/bad.yaml.err")"; FAIL=1; fi
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao peer-trust render"; exit 1; fi
 echo "PASS: bp-openbao peer-region trust — owner + stubs, peer jwt mounts, scoped push grant"
