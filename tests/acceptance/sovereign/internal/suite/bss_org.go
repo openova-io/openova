@@ -28,9 +28,12 @@ import (
 //
 // The journey runs once per run. onboardedOrg gives every check of the billing
 // area that needs a customer Organization the Organization it created, or the
-// error it ended with. Its clean-up is registered with AtEnd: the owner
-// deletes the Organization through the storefront, the suite waits until no
-// region holds it, and the voucher is revoked.
+// error it ended with. Its clean-up is registered with AtEnd (cleanUp): the
+// owner deletes the Organization through the storefront, which ends its
+// subscription; the sovereign-admin deletes it through the platform, as the
+// console does (DELETE /api/v1/organizations/{id}), and revokes the voucher;
+// then the suite waits until no region holds the Organization object or its
+// namespace, and fails naming each one that is left.
 //
 // The sign-in code is mailed to the address the customer typed. The suite
 // reads it from the gate lane's mailbox over IMAP (storefront.Mailbox) with
@@ -441,7 +444,7 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 			return fmt.Errorf("%d call(s) with the console session during steps 4 to 6", console)
 		case res.Token == "":
 			return errors.New("the customer holds no storefront token")
-		case res.Token == cc.API.Session:
+		case res.Token == cc.API.Session || res.Token == cc.API.SessionValue():
 			return errors.New("the customer's storefront token is the console session of the sovereign-admin")
 		}
 		return nil
@@ -616,53 +619,58 @@ func hostStatus(ctx context.Context, client *http.Client, u string) (int, error)
 	return res.StatusCode, nil
 }
 
-// cleanUp is the end of the journey: the owner deletes the Organization, the
-// suite waits until no region holds it or its namespace, and the voucher is
-// revoked. A voucher that was redeemed or is gone answers 404, which is fine.
+// cleanUp is the end of the journey. The owner deletes the Organization
+// through the storefront (its subscription ends), and the sovereign-admin
+// deletes it through the platform (DELETE /api/v1/organizations/{id}, the id
+// the platform lists it under: the tenant id of the storefront) and revokes
+// the voucher. A delete that answers 404 and a voucher that was redeemed or is
+// gone (404) are fine: what decides is what is left. The suite then waits, up
+// to waits.gone, until no region holds the Organization object or its
+// namespace; a region that does not serve the kind Organization holds no such
+// object. When something is left the step fails naming each one: kind, name
+// and region, and what each delete answered.
 func (o onboarding) cleanUp(ctx context.Context, cc *CheckContext, rec StepRecorder, st *onboardState) {
-	checkStep(rec, onboardID, 9, "the owner deletes the Organization of the journey (DELETE /api/tenant/orgs/{id}), no region holds it after "+o.waits.gone.String()+", and the voucher is revoked", func(ev Evidence) error {
-		var errs []string
+	checkStep(rec, onboardID, 9, "the owner deletes the Organization of the journey (DELETE /api/tenant/orgs/{id}), the platform deletes it (DELETE /api/v1/organizations/{id}), the voucher is revoked, and no region holds the Organization or its namespace after "+o.waits.gone.String(), func(ev Evidence) error {
+		var errs, answers []string
 		if st.orgID != "" {
 			ev["org_id"], ev["org_slug"] = st.orgID, st.slug
 			var nf *storefront.Error
-			if err := st.sf.DeleteOrg(ctx, st.orgID); err != nil && (!errors.As(err, &nf) || nf.Status != http.StatusNotFound) {
-				errs = append(errs, err.Error())
-			} else {
-				last, err := poll(ctx, o.waits.gone, o.waits.every, func() (bool, string, error) {
-					left := []string{}
-					for _, region := range cc.Regions {
-						org, err := o.organization(ctx, region, st.slug)
-						if err != nil {
-							return false, region.ID + ": " + err.Error(), nil
-						}
-						if org != nil {
-							left = append(left, "Organization in "+region.ID)
-						}
-						out, err := o.kubectl(region, ctx, nil, "get", "namespace", st.slug, "--ignore-not-found", "-o", "name")
-						if err != nil {
-							return false, region.ID + ": " + err.Error(), nil
-						}
-						if strings.TrimSpace(string(out)) != "" {
-							left = append(left, "namespace "+st.slug+" in "+region.ID)
-						}
-					}
-					return len(left) == 0, "left: " + strings.Join(left, ", "), nil
-				})
-				ev["last"] = last
-				if err != nil {
-					errs = append(errs, "the Organization "+st.slug+" is not gone: "+err.Error())
-				}
+			switch err := st.sf.DeleteOrg(ctx, st.orgID); {
+			case err == nil:
+				answers = append(answers, "the storefront's delete answered 2xx")
+			case errors.As(err, &nf) && nf.Status == http.StatusNotFound:
+				answers = append(answers, "the storefront's delete answered 404")
+			default:
+				errs = append(errs, "the owner's delete: "+err.Error())
+			}
+			path := "/api/v1/organizations/" + url.PathEscape(st.orgID)
+			switch r, err := st.admin.Do(ctx, http.MethodDelete, path, nil); {
+			case err != nil:
+				errs = append(errs, "the platform's delete: "+err.Error())
+			case r.Status == http.StatusNotFound || (r.Status >= 200 && r.Status <= 299):
+				ev["platform_delete_http"] = r.Status
+				answers = append(answers, fmt.Sprintf("DELETE %s answered %d", path, r.Status))
+			default:
+				ev["platform_delete_http"] = r.Status
+				errs = append(errs, fmt.Sprintf("the platform's delete: DELETE %s: HTTP %d %s", path, r.Status, api.Snippet(r.Body)))
 			}
 		}
 		if st.voucher != "" {
 			r, err := st.admin.Do(ctx, http.MethodDelete, "/api/v1/org/billing/vouchers/revoke/"+url.PathEscape(st.voucher), nil)
 			switch {
 			case err != nil:
-				errs = append(errs, err.Error())
+				errs = append(errs, "revoke the voucher: "+err.Error())
 			case r.Status != http.StatusNotFound && (r.Status < 200 || r.Status > 299):
 				errs = append(errs, fmt.Sprintf("revoke the voucher: HTTP %d %s", r.Status, api.Snippet(r.Body)))
 			default:
 				ev["revoke_http"] = r.Status
+			}
+		}
+		if st.orgID != "" {
+			left, err := o.leftovers(ctx, cc, st.slug)
+			ev["left"] = left
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("the Organization %s is not gone after %s: left %s (%s)", st.slug, o.waits.gone, strings.Join(left, ", "), strings.Join(answers, "; ")))
 			}
 		}
 		if len(errs) > 0 {
@@ -670,4 +678,35 @@ func (o onboarding) cleanUp(ctx context.Context, cc *CheckContext, rec StepRecor
 		}
 		return nil
 	})
+}
+
+// leftovers waits up to waits.gone until no region holds the Organization
+// object or the namespace of slug. It returns what the last look found, each
+// as "<kind> <name> in <region>", or what could not be read, and an error when
+// that is not nothing.
+func (o onboarding) leftovers(ctx context.Context, cc *CheckContext, slug string) ([]string, error) {
+	var left []string
+	_, err := poll(ctx, o.waits.gone, o.waits.every, func() (bool, string, error) {
+		left = []string{}
+		for _, region := range cc.Regions {
+			org, err := o.organization(ctx, region, slug)
+			switch {
+			case err != nil && strings.Contains(err.Error(), notServed):
+				// The region serves no kind Organization: it holds none.
+			case err != nil:
+				left = append(left, "Organization "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
+			case org != nil:
+				left = append(left, "Organization "+slug+" in "+region.ID)
+			}
+			out, err := o.kubectl(region, ctx, nil, "get", "namespace", slug, "--ignore-not-found", "-o", "name")
+			switch {
+			case err != nil:
+				left = append(left, "Namespace "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
+			case strings.TrimSpace(string(out)) != "":
+				left = append(left, "Namespace "+slug+" in "+region.ID)
+			}
+		}
+		return len(left) == 0, strings.Join(left, ", "), nil
+	})
+	return left, err
 }

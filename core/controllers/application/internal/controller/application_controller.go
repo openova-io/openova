@@ -177,6 +177,10 @@ const (
 	ReasonRenderError         = "RenderError"
 	ReasonOrgGiteaMissing     = "GiteaOrgMissing"
 	ReasonAwaitingDrain       = "AwaitingFluxDrain"
+	// ReasonUninstallBlocked — a delete pass stopped on an error (Gitea
+	// unreachable, token refused, a cluster call failed). The message carries
+	// the error; the finalizer stays and the next pass retries.
+	ReasonUninstallBlocked = "UninstallBlocked"
 
 	// ReasonRegionLocalVolumeNotReplicated — ADR-0015 D6. The Application
 	// spans more than one region but its Blueprint declares a
@@ -501,13 +505,32 @@ func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
 
 // regionFor maps a placement cluster ID to its canonical region id through
 // the ONE registry (ADR-0015 D3). A desired-state target names its region
-// explicitly; that wins. Otherwise the cluster ID's region letter is read
-// back to the region at that provisioning index. "" = not a region of this
-// Sovereign (the renderer then refuses the leg).
-func (r *Reconciler) regionFor(targets []bpv1alpha1.PlacementTarget) func(cluster string) string {
+// explicitly; that wins. Otherwise the cluster ID's region letter is read as
+// a POSITION in the regions the Application picked (spec.regions, primary
+// first — the same order placement.Resolve and the Continuum read), followed
+// by the Sovereign's other regions in provisioning order. A Blueprint's
+// `rtz-A` is "the first region of this placement", not "the first region of
+// the Sovereign": before, a singleton picked into the second region was
+// written into the first region's folder, and a hot-standby with regions
+// [B, A] put its active leg in A while its Continuum named B primary. An
+// Application that picks no region (or picks in provisioning order) maps
+// exactly as before. "" = not a region of this Sovereign (the renderer then
+// refuses the leg).
+func (r *Reconciler) regionFor(targets []bpv1alpha1.PlacementTarget, picked []string) func(cluster string) string {
 	byCluster := make(map[string]string, len(targets))
 	for _, t := range targets {
 		byCluster[t.Cluster] = t.Region
+	}
+	order := make([]string, 0, r.Cfg.Regions.Len())
+	for _, p := range picked {
+		if id, err := r.Cfg.Regions.Canonical(p); err == nil && !containsString(order, id) {
+			order = append(order, id)
+		}
+	}
+	for _, id := range r.Cfg.Regions.IDs() {
+		if !containsString(order, id) {
+			order = append(order, id)
+		}
 	}
 	return func(cluster string) string {
 		if tr, ok := byCluster[cluster]; ok && tr != "" {
@@ -515,11 +538,44 @@ func (r *Reconciler) regionFor(targets []bpv1alpha1.PlacementTarget) func(cluste
 				return id
 			}
 		}
+		if k, ok := clusterRegionPosition(cluster); ok && k < len(order) {
+			return order[k]
+		}
 		if id, err := r.Cfg.Regions.Canonical(cluster); err == nil {
 			return id
 		}
 		return ""
 	}
+}
+
+// pickedRegionsFor is the region order the fan-out maps the Blueprint's
+// cluster letters onto: the Application's spec.regions, unless the instance
+// named its clusters itself (then nil: the letters keep the registry order).
+func pickedRegionsFor(spec appSpec) []string {
+	if len(spec.PlacementClusters) > 0 {
+		return nil
+	}
+	return spec.Regions
+}
+
+// clusterRegionPosition reads the region letter of a canonical cluster ID
+// (`mgmt-A`, `dmz-B`, `rtz-C`) as a zero-based position.
+func clusterRegionPosition(cluster string) (int, bool) {
+	t := strings.TrimSpace(cluster)
+	i := strings.LastIndex(t, "-")
+	if i <= 0 || i != len(t)-2 {
+		return 0, false
+	}
+	switch t[:i] {
+	case "mgmt", "dmz", "rtz":
+	default:
+		return 0, false
+	}
+	letter := strings.ToUpper(t[i+1:])[0]
+	if letter < 'A' || letter > 'Z' {
+		return 0, false
+	}
+	return int(letter - 'A'), true
 }
 
 // observesRegion reports whether this controller instance observes legs of
@@ -1259,8 +1315,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				SourceRefKind:       ifEmpty(fanoutSourceKind, "HelmRepository"),
 				SourceRefNamespace:  r.Cfg.SourceNamespace,
 				KubeConfigSecretFor: fanoutKubeSecretFor,
-				// ADR-0015 D3 — every leg's region, from the one registry.
-				RegionFor: r.regionFor(spec.PlacementTargets),
+				// ADR-0015 D3 — every leg's region, from the one registry,
+				// in the order the Application picked its regions. An
+				// instance that names its clusters (spec.placement.clusters)
+				// names registry letters, so its legs keep that mapping.
+				RegionFor: r.regionFor(spec.PlacementTargets, pickedRegionsFor(spec)),
 				// #3373 — loft-sh vcluster exportKubeConfig data key
 				// (matches the per-region render path + the
 				// hand-proven bootstrap-kit vCluster slots).
@@ -2220,14 +2279,40 @@ func (r *Reconciler) handleDeletion(ctx context.Context, app *unstructured.Unstr
 		return r.removeFinalizer(ctx, app)
 	}
 
-	// Surface phase=Uninstalling for the UI.
-	_ = r.updateStatus(ctx, app, statusUpdate{
-		Phase:   PhaseUninstalling,
-		Reason:  ReasonAwaitingDrain,
-		Message: "removing manifests from Gitea; waiting for Flux to drain",
-		Ready:   "False",
-	})
+	// Surface phase=Uninstalling for the UI. A pass after one that stopped
+	// keeps the stop on the object (ReasonUninstallBlocked and its error)
+	// until a pass gets through; overwriting it with the generic drain
+	// message would hide again why the uninstall is not finishing.
+	if _, reason, _ := readReadyCondition(app); reason != ReasonUninstallBlocked {
+		_ = r.updateStatus(ctx, app, statusUpdate{
+			Phase:   PhaseUninstalling,
+			Reason:  ReasonAwaitingDrain,
+			Message: "removing manifests from Gitea; waiting for Flux to drain",
+			Ready:   "False",
+		})
+	}
 
+	if err := r.uninstall(ctx, app); err != nil {
+		// The uninstall stopped halfway: the finalizer stays (nothing is
+		// released while a region file may still deliver the workload) and
+		// the next pass retries. Write WHY on the object — before this, the
+		// error reached only the controller log and the Application read
+		// "waiting for Flux to drain" for ever.
+		_ = r.updateStatus(ctx, app, statusUpdate{
+			Phase:   PhaseUninstalling,
+			Reason:  ReasonUninstallBlocked,
+			Message: fmt.Sprintf("uninstall stopped: %v; retried on every pass, the Application is released only once its manifests are removed", err),
+			Ready:   "False",
+		})
+		return err
+	}
+	return nil
+}
+
+// uninstall is the teardown of handleDeletion after the Uninstalling status:
+// remove every manifest the controller wrote, then release the finalizer. An
+// error leaves the finalizer in place.
+func (r *Reconciler) uninstall(ctx context.Context, app *unstructured.Unstructured) error {
 	spec, err := parseSpec(app)
 	if err != nil {
 		// Spec is unparseable — clean what this region still holds, then

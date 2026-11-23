@@ -68,6 +68,10 @@ type fakeGitea struct {
 	// failPathErr.
 	failOnPath  string
 	failPathErr error
+
+	// failDeleteErr: if non-nil, every DeleteFile returns it (Gitea down,
+	// token refused).
+	failDeleteErr error
 }
 
 type pseudoErr string
@@ -178,6 +182,9 @@ func (f *fakeGitea) PutFileIfMatch(_ context.Context, org, repo, branch, path st
 func (f *fakeGitea) DeleteFile(_ context.Context, org, repo, branch, path, _ string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failDeleteErr != nil {
+		return false, f.failDeleteErr
+	}
 	key := f.repoKey(org, repo)
 	if _, ok := f.repos[key]; !ok {
 		return true, nil

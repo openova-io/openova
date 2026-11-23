@@ -156,11 +156,7 @@ func orgSlugFromHost(host string) string {
 // An agent token (claim typ "agent", internal/agenttoken) is confined the
 // same way, to the Organization of its org_id claim, whatever its tier.
 func claimsAreOrgScoped(claims *auth.Claims) bool {
-	if claims == nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(claims.Tier), orgScopedTier) ||
-		strings.EqualFold(strings.TrimSpace(claims.Typ), "agent")
+	return auth.ClaimsAreOrgScoped(claims)
 }
 
 // orgScopeForRequest returns the Organization slug a request is confined

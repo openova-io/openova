@@ -66,12 +66,20 @@ spec:
   # inside the vCluster and resolve `nats-jetstream.nats-system.svc.
   # cluster.local` natively via vCluster CoreDNS.
   targetNamespace: nats-system
-  # dependsOn: (key removed #4341) — #4325 de-vcluster dropped the last
-  # `- name: bp-mgmt-vcluster` array item; leaving the bare `dependsOn:` key
-  # rendered `dependsOn: null`, which the HelmRelease CRD rejects
-  # (`spec.dependsOn must be of type array`) and wedged the WHOLE
-  # bootstrap-kit Kustomization. With the planes now native host namespaces
-  # there is no vc-mgmt Secret gate, so NATS has no remaining hard dependency.
+  # dependsOn storage-ready (slot 15b), the neutral storage gate. Every NATS
+  # server keeps its JetStream store on a volume of the default StorageClass
+  # (values nats.config.jetstream.fileStore.pvc). Installed before that class
+  # exists, the servers stay Pending until the disk driver comes: on the fresh
+  # two-region install of 21 Nov 2026 (hw307) the class came at 16:07:39 (a)
+  # and 16:21:58 (b), the release at 15:53, and the servers started at 16:09
+  # (a) and 16:23 (b). The function test runs right after the install
+  # (install.disableWait) and failed in region b on 15:54-16:08 with no server
+  # to answer; holding one of helm-controller's four workers for those 15
+  # minutes, it also held back the releases that bring the class. bp-cnpg and
+  # bp-stalwart-sovereign wait on the same gate. (#4341: the key must never be
+  # left bare, `dependsOn: null` is rejected by the HelmRelease CRD.)
+  dependsOn:
+    - name: storage-ready
   chart:
     spec:
       chart: bp-nats-jetstream

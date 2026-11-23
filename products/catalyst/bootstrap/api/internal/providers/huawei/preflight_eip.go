@@ -1,41 +1,39 @@
-// Wave 5.93 (#2445) — RotateBlocklistedNATEIPs scans the SNAT rules on
-// every NAT gateway tagged for this deployment and, for any rule whose
-// floating-IP address is on the known-blocklist, releases + reallocates
-// a fresh EIP and swaps the SNAT rule to use it. Eliminates the manual
-// "watcher script" intervention that hw01/hw02/hw03 needed.
+// The NAT EIP pre-flight: every region's egress EIPs, the NAT gateway's and
+// the primary control plane's, are chosen BEFORE `tofu plan`, so that
+// OpenTofu's state holds the addresses the region egresses through.
 //
-// Why blocklist + pool-drain instead of reachability-probe-from-tofu:
-// running an actual TCP probe to harbor.openova.io requires either an
-// ECS in the same VPC with that EIP attached (the chicken-and-egg
-// problem we're trying to avoid) OR a tofu local-exec from the runner
-// (catalyst-api pod) — but catalyst-api lives on Contabo, so a probe
-// from catalyst-api to "Contabo + Huawei EIP" doesn't tell us anything
-// about Huawei egress reachability. The pragmatic answer: maintain a
-// statically-declared blocklist of Huawei me-east-215 EIPs known to
-// be on third-party IP-reputation lists for Contabo 45.151.123.0/24,
-// and rotate them post-allocation. Pool drain: when Huawei recycles a
-// blocklisted EIP back into a fresh allocate() (the small free-pool
-// case), the rotation HOLDS the bad EIP (doesn't release immediately)
-// so the next allocate() returns a different IP. This breaks the
-// small-pool recycle loop.
+// Why a choice at all (Wave 5.93, #2445): some EIPs of the Huawei me-east-215
+// free pool are refused by third-party IP-reputation lists for Contabo
+// 45.151.123.0/24 (harbor.openova.io), so a region whose NAT or control-plane
+// EIP is one of them has no egress to harbor and cloudinit stalls.
+// catalyst-api runs on Contabo and cannot probe a Huawei EIP's egress (that
+// needs an ECS behind the EIP), so the choice reads a blocklist (blocklist()): the static seed
+// below, CATALYST_HUAWEI_NAT_EIP_BLOCKLIST=ip1,ip2,..., and the learned store
+// of eip_blocklist_store.go (#3722), into which every refused address is
+// recorded with a TTL. CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true (#3716)
+// refuses the first draw of every egress EIP as well, to drain a poisoned
+// pool.
 //
-// Caller: catalyst-api provisioner calls this right after tofu apply
-// + before the Phase-1 "watch for HRs Ready" loop. The 2-second
-// per-rotation cost is negligible compared to the 14-min provisioning
-// budget, and it eliminates a major source of false-failure perception
-// for operators.
+// Why before the plan: until CLD-G12 (2026-11-21) the choice was a swap right
+// after `tofu apply` — allocate a clean EIP, delete the SNAT rule, create a new
+// one, delete the old EIP — through the cloud API alone. The state kept the
+// deleted EIP and SNAT rule, so every later plan wanted to create both and to
+// replace the security-group rules that name the NAT address, and the readers
+// of the state (the network registry, the Crossplane adoption claims) named
+// an address that no longer existed. Now chooseNATAddresses allocates the EIP
+// that tofu would create, with the module's own bandwidth settings, until one
+// is not on the blocklist, and returns it as an import: the engine imports it
+// into huaweicloud_vpc_eip.nat[<region>] before the plan, the plan creates the
+// SNAT rule and the security-group rules from it, and the first apply renames
+// its bandwidth to the module's name. After the install a plan shows no change,
+// and the wipe's `tofu destroy` deletes the EIP with the rest.
 //
-// Operators can extend the blocklist without a code change by setting
-// CATALYST_HUAWEI_NAT_EIP_BLOCKLIST=ip1,ip2,... — but as of Wave 5.157
-// (#3722) they SHOULDN'T NEED TO for the common poisoned-pool case. The
-// rotation now LEARNS: every EIP it rotates away from is persisted to an
-// on-PVC store (eip_blocklist_store.go) and merged back into the
-// blocklist on the next prov, with a TTL so a recovered EIP ages out.
-// This replaces the brittle manual escape hatch (set ROTATE_ALL=true +
-// flux suspend the catalyst-platform kustomization, which the non-durable
-// env defeated within ~5 min) with zero-touch self-heal. ROTATE_ALL
-// remains an explicit force-override but is no longer required for
-// correctness. See eip_blocklist_store.go for the persistence design.
+// Why the control plane's EIP as well: the refused addresses the choice held
+// are released before the plan, and the pool hands a just-released address to
+// the very next allocation, which is OpenTofu's. The primary control plane
+// egresses through its own EIP (huaweicloud_vpc_eip.cp, main.tf
+// egressAddresses), so it is chosen and imported the same way; what OpenTofu
+// still allocates are the load balancers' EIPs, which carry no egress.
 
 package huawei
 
@@ -65,9 +63,8 @@ var hwBlocklistedEIPs = map[string]bool{
 // Wave 5.157 (#3722): the third source is the zero-touch fix. The static
 // seed only knows .48/.14; the kom4dc free-pool gets poisoned by repeated
 // wipe→re-prov cycles (released EIPs stay un-routable to harbor for
-// hours), so a fresh prov draws a poisoned IP that ISN'T in the seed and
-// the default self-heal misses it → wedge. RotateBlocklistedNATEIPs now
-// RECORDS every EIP it rotated away from to an on-PVC store
+// hours), so a fresh prov draws a poisoned IP that ISN'T in the seed.
+// chooseNATAddresses RECORDS every EIP it refuses to an on-PVC store
 // (eip_blocklist_store.go); merging that store here means prov N's poison
 // becomes prov N+1's auto-avoid set — no operator env var, no flux
 // suspend. TTL-pruned on load so a recovered EIP ages back in.
@@ -91,223 +88,292 @@ func blocklist() map[string]bool {
 	return out
 }
 
-type hwSNATRule struct {
-	ID                string `json:"id"`
-	NATGatewayID      string `json:"nat_gateway_id"`
-	NetworkID         string `json:"network_id"`
-	FloatingIPID      string `json:"floating_ip_id"`
-	FloatingIPAddress string `json:"floating_ip_address"`
-	Status            string `json:"status"`
+// egressEIPs are the module's EIPs through which a region reaches the
+// internet, and so harbor.openova.io: the two that egressAddresses names in
+// infra/providers/huawei/main.tf, the NAT gateway's (huaweicloud_vpc_eip.nat,
+// the workers' SNAT) and the primary control plane's (huaweicloud_vpc_eip.cp,
+// bound to it with eip_id, through which its cloud-init pulls). kind is the
+// resource's name and bw the infix of its bandwidth name
+// (<prefix>-<region>-<bw>-bw). The pre-flight chooses both, so the refused
+// addresses it releases before the plan can reach only an EIP that OpenTofu
+// still allocates, a load balancer's (elb_primary, elb_console), which carries
+// no egress.
+var egressEIPs = []struct{ kind, bw string }{{"nat", "nat"}, {"cp", "cp1"}}
+
+// eipTarget is one egress EIP of one region that the state does not hold yet.
+type eipTarget struct{ code, kind, bw string }
+
+// resource is the module's resource instance of the target.
+func (t eipTarget) resource() string {
+	return fmt.Sprintf("huaweicloud_vpc_eip.%s[%q]", t.kind, t.code)
 }
 
-// RotateBlocklistedNATEIPs runs the pre-flight check for one deployment.
-// Returns (rotated_count, error). Idempotent — re-running on a clean
-// state is a no-op.
+// The bandwidth of the module's egress EIPs (infra/providers/huawei/main.tf,
+// resources huaweicloud_vpc_eip.nat and huaweicloud_vpc_eip.cp, which differ
+// in the bandwidth's name alone). An allocated EIP carries the same settings,
+// so the import differs from the configuration in the bandwidth's name alone,
+// which the first apply changes in place.
+const (
+	natEIPType          = "5_bgp"
+	natBandwidthSize    = 100
+	natBandwidthShare   = "PER"
+	natBandwidthCharged = "traffic"
+)
+
+// chooseNATAddresses gives every egress EIP (egressEIPs: the NAT and the
+// primary control plane EIP) of every region of spec that the state does not
+// hold yet (inState) an address that is not on the blocklist, and returns one
+// import per EIP for the engine (providers.PreflightResult).
 //
-// Wave 5.93 entry point — called by PostApply (capabilities.go) after
-// `tofu apply`.
-func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sovereignFQDN, accessKey, secretKey, projectID, region string, progress func(msg string)) (int, error) {
+// An EIP that already exists is kept: the module's own (bandwidth
+// <prefix>-<region>-<bw>-bw) or one an earlier attempt of this deployment
+// allocated (<prefix>-<region>-<bw>-preflight-<n>, not on the blocklist), so a
+// retried install allocates nothing twice. Otherwise EIPs are allocated with
+// the module's bandwidth settings, one after the other; a refused one is held,
+// so that the pool cannot hand the same address back, until every EIP has an
+// address. The held ones are recorded to the learned blocklist and released
+// before the plan. The pool hands a just-released address to the next
+// allocation, and the next allocations are OpenTofu's: since both egress EIPs
+// of every region are imported, those are the load balancers' EIPs only.
+//
+// The hold budget keeps the project within its EIP quota: the EIPs that exist
+// (the listing) plus one per EIP still to draw plus the held ones never exceed
+// the quota (publicIPQuota; 10 on kom4dc), and at most natMaxHeld are held.
+// A draw always has its own room; when the draw is refused and the budget is
+// spent, the refused EIP stays held in that room until the release, and that
+// one EIP gets no import, so OpenTofu allocates it (from the released
+// addresses, so its region may not reach harbor.openova.io). For two regions
+// the pre-flight draws four EIPs, so next to the bastion's one five refused
+// fit; right after a wipe the pool may hand back the six addresses the wipe
+// released (provider.go records them all), and then the sixth falls to
+// OpenTofu: the quota leaves no room to step past it.
+//
+// On a failed cloud call every EIP this call allocated is released and the
+// error returned: no address is left that no state knows.
+func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inState map[string]bool, progress func(msg string)) ([]providers.StateImport, error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
-	// Wave 5.156 (#3716) — build hwCreds DIRECTLY from the AK/SK/project
-	// args, mirroring (*Provider).VPCQuota (provider.go). The previous
-	// implementation round-tripped through a providers.ProviderCreds{Raw}
-	// map keyed with the OpenTofu *tfvars* names (`huawei_access_key`
-	// etc.) and then handed it to credsFromProviderCreds(), which reads
-	// the BARE signing-layer keys (`access_key`/`secret_key`/`project_id`,
-	// see provider_test.go). The key-name mismatch meant every lookup
-	// returned "" → credsFromProviderCreds() failed with
-	// "huawei: access_key is required" on EVERY Huawei prov, so the
-	// poisoned-EIP self-heal NEVER ran. The access_key was always
-	// present (handler stamp deployments.go:1130 → req.HuaweiAccessKey,
-	// the same field the working VPCQuota pre-flight consumes); it was
-	// simply stuffed into the creds bag under a key credsFromProviderCreds
-	// doesn't read. There was no unit test exercising this path, which is
-	// how the mismatch shipped silently.
-	hw := hwCreds{AccessKey: accessKey, SecretKey: secretKey, ProjectID: projectID}
-	if hw.AccessKey == "" {
-		return 0, fmt.Errorf("huawei: access_key is required (CATALYST_HUAWEI_ACCESS_KEY missing on catalyst-api — see secret huawei-operator-creds)")
+	// #3716: the signing creds are the bare keys of the credentials map.
+	hw := hwCreds{AccessKey: spec.Creds.Get("access_key"), SecretKey: spec.Creds.Get("secret_key"), ProjectID: spec.Creds.Get("project_id")}
+	switch {
+	case hw.AccessKey == "":
+		return nil, fmt.Errorf("huawei: access_key is required (CATALYST_HUAWEI_ACCESS_KEY missing on catalyst-api — see secret huawei-operator-creds)")
+	case hw.SecretKey == "":
+		return nil, fmt.Errorf("huawei: secret_key is required (CATALYST_HUAWEI_SECRET_KEY missing on catalyst-api)")
+	case hw.ProjectID == "":
+		return nil, fmt.Errorf("huawei: project_id is required (CATALYST_HUAWEI_PROJECT_ID missing on catalyst-api)")
+	case len(spec.DeploymentID) < 8 || strings.TrimSpace(spec.SovereignFQDN) == "":
+		return nil, fmt.Errorf("huawei: the NAT EIP pre-flight needs the Sovereign FQDN and a deployment id of at least 8 characters")
 	}
-	if hw.SecretKey == "" {
-		return 0, fmt.Errorf("huawei: secret_key is required (CATALYST_HUAWEI_SECRET_KEY missing on catalyst-api)")
+	var targets []eipTarget
+	for _, r := range spec.Regions {
+		code := strings.TrimSpace(r.Code)
+		if code == "" {
+			code = strings.TrimSpace(r.CloudRegion)
+		}
+		if code == "" {
+			continue
+		}
+		for _, k := range egressEIPs {
+			t := eipTarget{code: code, kind: k.kind, bw: k.bw}
+			if inState[t.resource()] {
+				progress(fmt.Sprintf("egress EIP %s: the state holds it, nothing to choose", t.resource()))
+				continue
+			}
+			targets = append(targets, t)
+		}
 	}
-	if hw.ProjectID == "" {
-		return 0, fmt.Errorf("huawei: project_id is required (CATALYST_HUAWEI_PROJECT_ID missing on catalyst-api)")
+	if len(targets) == 0 {
+		return nil, nil
 	}
-	if region == "" {
-		region = defaultRegion
+	region := regionFromCreds(spec.Creds)
+	client := httpClientFor(spec.Creds)
+	existing, err := listPublicIPs(client, hw, region)
+	if err != nil {
+		return nil, err
 	}
-	// httpClientFor only consumes the `insecure` knob (default true for
-	// on-prem HCS); the signing creds come from `hw` above, not the map.
-	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
 	bl := blocklist()
-	// Wave 5.156 (#3716) — aggressive pool-drain mode. The static seed
-	// blocklist only knows .48/.14; when the Huawei free-pool gets
-	// poisoned by repeated wipe→re-prov cycles (released EIPs stay
-	// reputation-blocklisted for Contabo 45.151.123.0/24 for hours), a
-	// FRESH allocation can draw a poisoned IP that isn't in the seed
-	// list — exactly the hw151–154 wedge (0 HRs, kubeconfig never PUT,
-	// no egress to harbor.openova.io 45.151.123.50). Since catalyst-api
-	// runs on Contabo it cannot reachability-probe a Huawei EIP's egress
-	// directly (the chicken-and-egg the file header documents), so the
-	// operator escape hatch is CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true:
-	// when set, treat EVERY deployment-owned SNAT EIP as rotate-worthy.
-	// allocateCleanEIP already HOLDS rejected EIPs (drains them from the
-	// pool) before returning a clean one, so flipping this forces a
-	// re-roll that walks past the poisoned addresses and self-heals the
-	// pool. Default (unset) preserves the seed+env blocklist behaviour.
 	rotateAll := strings.EqualFold(strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL")), "true")
 	if rotateAll {
-		progress("Wave 5.156 (#3716): CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true — re-rolling every deployment-owned SNAT EIP to drain a poisoned free-pool")
+		progress("Wave 5.156 (#3716): CATALYST_HUAWEI_NAT_EIP_ROTATE_ALL=true — refusing the first EIP drawn for every egress EIP to drain a poisoned free-pool")
 	}
+	prefix := "catalyst-" + strings.ReplaceAll(strings.TrimSpace(spec.SovereignFQDN), ".", "-") + "-" + spec.DeploymentID[:8]
+	reused := map[int]rawPublicIP{}
+	for i, t := range targets {
+		if e, ok := reusableNATEIP(existing, prefix, t, bl); ok {
+			reused[i] = e
+		}
+	}
+	holdBudget := natMaxHeld
+	if len(reused) < len(targets) {
+		if room := publicIPQuota(client, hw, region) - len(existing) - (len(targets) - len(reused)); room < holdBudget {
+			holdBudget = room
+		}
+	}
+	var imports []providers.StateImport
+	var chosen, held []rawPublicIP
+	gaveUp := 0 // the held EIPs that sit in the room of an EIP left to OpenTofu
+	release := func(list []rawPublicIP) {
+		for _, e := range list {
+			if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
+				progress(fmt.Sprintf("NAT EIP pre-flight: could not release %s (%s): %v — the wipe's name-prefix purge removes it", e.Address, e.BandwidthName, err))
+			}
+		}
+	}
+	for i, t := range targets {
+		if e, ok := reused[i]; ok {
+			progress(fmt.Sprintf("egress EIP %s: keeps %s (%s) of an earlier attempt", t.resource(), e.Address, e.BandwidthName))
+			imports = append(imports, providers.StateImport{Address: t.resource(), ID: e.ID, Label: e.Address})
+			continue
+		}
+		for n := 1; ; n++ {
+			e, err := allocateNATEIP(client, hw, region, fmt.Sprintf("%s-%s-%s-preflight-%d", prefix, t.code, t.bw, n))
+			if err != nil {
+				release(held)
+				release(chosen)
+				return nil, err
+			}
+			if bl[e.Address] || (rotateAll && n == 1) {
+				held = append(held, e)
+				if len(held)-gaveUp <= holdBudget {
+					progress(fmt.Sprintf("egress EIP %s: %s is refused (blocklist or ROTATE_ALL), holding it and drawing again", t.resource(), e.Address))
+					continue
+				}
+				gaveUp++
+				progress(fmt.Sprintf("egress EIP %s: %s is refused and the EIP quota leaves no room to hold another (%d held) — OpenTofu allocates it, and region %s may not reach harbor.openova.io", t.resource(), e.Address, len(held), t.code))
+				break
+			}
+			progress(fmt.Sprintf("egress EIP %s: %s (%s), for the plan to import", t.resource(), e.Address, e.ID))
+			chosen = append(chosen, e)
+			imports = append(imports, providers.StateImport{Address: t.resource(), ID: e.ID, Label: e.Address})
+			break
+		}
+	}
+	if len(held) > 0 {
+		// Wave 5.157 (#3722) — persist the poison BEFORE releasing it, so the
+		// next prov does not draw it again from the pool.
+		addrs := make([]string, 0, len(held))
+		for _, e := range held {
+			addrs = append(addrs, e.Address)
+		}
+		if err := recordPoisonedEIPs(addrs, spec.DeploymentID, time.Now()); err != nil {
+			progress(fmt.Sprintf("Wave 5.157: could not persist learned poison %v (non-fatal): %v", addrs, err))
+		} else {
+			progress(fmt.Sprintf("Wave 5.157 (#3722): recorded %d refused EIP(s) to the learned blocklist", len(addrs)))
+		}
+		// The pool hands these to OpenTofu's next allocations: the load
+		// balancers' EIPs, and an egress EIP only if one gave up above.
+		release(held)
+	}
+	return imports, nil
+}
 
-	// List SNAT rules
-	url := fmt.Sprintf("%s/v2/%s/snat_rules", endpointFor("nat", region), hw.ProjectID)
+// reusableNATEIP returns the EIP of target t that this deployment already
+// has: the module's own, or one an earlier attempt allocated that is not on
+// the blocklist.
+func reusableNATEIP(existing []rawPublicIP, prefix string, t eipTarget, bl map[string]bool) (rawPublicIP, bool) {
+	base := prefix + "-" + t.code + "-" + t.bw
+	for _, e := range existing {
+		if e.BandwidthName == base+"-bw" {
+			return e, true
+		}
+	}
+	for _, e := range existing {
+		if strings.HasPrefix(e.BandwidthName, base+"-preflight-") && !bl[e.Address] {
+			return e, true
+		}
+	}
+	return rawPublicIP{}, false
+}
+
+// natMaxHeld bounds the refused EIPs the NAT pre-flight holds at once (the
+// attempts of the former post-apply swap).
+const natMaxHeld = 8
+
+// defaultPublicIPQuota is the project's EIP quota when the quota API does not
+// answer: kom4dc grants 10.
+const defaultPublicIPQuota = 10
+
+// publicIPQuota returns the project's EIP quota (GET quotas?type=publicIp, the
+// call VPCQuota makes for VPCs), or defaultPublicIPQuota when it cannot be read.
+func publicIPQuota(client *http.Client, hw hwCreds, region string) int {
+	url := fmt.Sprintf("%s/v1/%s/quotas?type=publicIp", endpointFor("vpc", region), hw.ProjectID)
+	body, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	if err != nil || status >= 400 {
+		return defaultPublicIPQuota
+	}
+	var decoded struct {
+		Quotas struct {
+			Resources []struct {
+				Type  string `json:"type"`
+				Quota int    `json:"quota"`
+			} `json:"resources"`
+		} `json:"quotas"`
+	}
+	if json.Unmarshal(body, &decoded) != nil {
+		return defaultPublicIPQuota
+	}
+	for _, r := range decoded.Quotas.Resources {
+		if r.Type == "publicIp" && r.Quota > 0 {
+			return r.Quota
+		}
+	}
+	return defaultPublicIPQuota
+}
+
+// listPublicIPs lists the project's EIPs.
+func listPublicIPs(client *http.Client, hw hwCreds, region string) ([]rawPublicIP, error) {
+	url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
 	body, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, fmt.Errorf("snat list: %w", err)
+		return nil, fmt.Errorf("list publicips: %w", err)
 	}
 	if status >= 400 {
-		return 0, fmt.Errorf("snat list status %d: %s", status, snippet(body, 240))
+		return nil, fmt.Errorf("list publicips: status %d: %s", status, snippet(body, 240))
 	}
 	var decoded struct {
-		SNATRules []hwSNATRule `json:"snat_rules"`
+		PublicIPs []rawPublicIP `json:"publicips"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return 0, fmt.Errorf("decode snat: %w", err)
+		return nil, fmt.Errorf("decode publicips: %w", err)
 	}
-
-	rotated := 0
-	for _, r := range decoded.SNATRules {
-		seedBlocked := bl[r.FloatingIPAddress]
-		// Wave 5.156 (#3716): in rotateAll mode every deployment-owned
-		// SNAT EIP is rotate-worthy even if absent from the seed/env
-		// blocklist (a freshly-poisoned free-pool address). Otherwise the
-		// historical behaviour holds: only static-blocklisted EIPs rotate.
-		if !seedBlocked && !rotateAll {
-			continue
-		}
-		// Only rotate SNAT rules whose NAT gateway is tagged for this
-		// deployment. Match by NAT gateway name prefix (deployment-id
-		// substring) is the safest filter — checking tags would require
-		// an extra round trip per NAT.
-		if !natGatewayBelongsToDeployment(ctx, client, hw, region, r.NATGatewayID, deploymentID) {
-			continue
-		}
-		if seedBlocked {
-			progress(fmt.Sprintf("Wave 5.93: SNAT %s EIP %s is blocklisted, rotating",
-				r.ID[:8], r.FloatingIPAddress))
-		} else {
-			progress(fmt.Sprintf("Wave 5.156: SNAT %s EIP %s force-rotating (ROTATE_ALL pool-drain)",
-				r.ID[:8], r.FloatingIPAddress))
-		}
-		// Add the current EIP to the working blocklist so allocateCleanEIP
-		// never hands the same poisoned address straight back (Huawei
-		// recycles a just-released EIP into the very next allocate()).
-		bl[r.FloatingIPAddress] = true
-		newEIPID, newAddr, held, heldAddrs, err := allocateCleanEIP(ctx, client, hw, region, deploymentID, bl, 8)
-		if err != nil {
-			return rotated, fmt.Errorf("allocate clean EIP: %w", err)
-		}
-		// Delete old SNAT (must come before SNAT-create since one SNAT
-		// per network).
-		oldSNATURL := fmt.Sprintf("%s/v2/%s/nat_gateways/%s/snat_rules/%s",
-			endpointFor("nat", region), hw.ProjectID, r.NATGatewayID, r.ID)
-		if _, st, err := doSignedRequest(client, hw, http.MethodDelete, oldSNATURL, nil); err != nil || st >= 400 {
-			return rotated, fmt.Errorf("delete old snat %s: status %d err %v", r.ID, st, err)
-		}
-		time.Sleep(6 * time.Second) // propagation
-		// Create new SNAT with the clean EIP
-		newSNATBody := fmt.Sprintf(`{"snat_rule":{"nat_gateway_id":%q,"network_id":%q,"source_type":0,"floating_ip_id":%q}}`,
-			r.NATGatewayID, r.NetworkID, newEIPID)
-		newSNATURL := fmt.Sprintf("%s/v2/%s/snat_rules", endpointFor("nat", region), hw.ProjectID)
-		if _, st, err := doSignedRequest(client, hw, http.MethodPost, newSNATURL, []byte(newSNATBody)); err != nil || st >= 400 {
-			return rotated, fmt.Errorf("create new snat: status %d err %v", st, err)
-		}
-		// Wave 5.157 (#3722) — PERSIST the poison BEFORE releasing it.
-		// Releasing a blocklisted EIP returns it to the HCS free-pool
-		// where it stays un-routable to harbor for hours; without this
-		// record the NEXT prov re-draws it, finds it's not in the static
-		// seed, and wedges. We record the rotated-away SNAT address
-		// (r.FloatingIPAddress) + every held reject's address (heldAddrs,
-		// returned by allocateCleanEIP) so blocklist() auto-avoids the
-		// whole set on the next prov — the zero-touch loop.
-		poisonAddrs := append([]string{r.FloatingIPAddress}, heldAddrs...)
-		if rerr := recordPoisonedEIPs(poisonAddrs, deploymentID, time.Now()); rerr != nil {
-			// Non-fatal: losing cross-prov memory for this address is a
-			// degradation, not a provisioning failure.
-			progress(fmt.Sprintf("Wave 5.157: could not persist learned poison %v (non-fatal): %v", poisonAddrs, rerr))
-		} else {
-			progress(fmt.Sprintf("Wave 5.157 (#3722): recorded %d poisoned EIP(s) to the learned blocklist (next prov auto-avoids them)", len(poisonAddrs)))
-		}
-		// Release the OLD (blocklisted) EIP — held EIPs are released too
-		_ = deleteEIP(ctx, client, hw, region, r.FloatingIPID)
-		for _, h := range held {
-			_ = deleteEIP(ctx, client, hw, region, h)
-		}
-		progress(fmt.Sprintf("Wave 5.93: SNAT %s rotated to clean EIP %s", r.ID[:8], newAddr))
-		rotated++
-	}
-	return rotated, nil
+	return decoded.PublicIPs, nil
 }
 
-// allocateCleanEIP allocates EIPs until one is NOT on the blocklist.
-// Returns (cleanEIPID, cleanEIPAddress, heldEIPIDs, heldEIPAddresses, error).
-// Held EIPs are blocklisted EIPs that we keep allocated to drain the
-// Huawei free-pool past their recycle. heldEIPAddresses mirrors
-// heldEIPIDs by index — the caller persists those addresses to the
-// learned blocklist (#3722) so the next prov auto-avoids them.
-func allocateCleanEIP(ctx context.Context, client *http.Client, hw hwCreds, region, deploymentID string, bl map[string]bool, maxAttempts int) (string, string, []string, []string, error) {
-	held := []string{}
-	heldAddrs := []string{}
-	for i := 0; i < maxAttempts; i++ {
-		body := fmt.Sprintf(`{"publicip":{"type":"5_bgp"},"bandwidth":{"name":"catalyst-%s-nat-preflight-%d","size":300,"share_type":"PER","charge_mode":"traffic"}}`,
-			deploymentID[:8], i+1)
-		url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
-		resp, status, err := doSignedRequest(client, hw, http.MethodPost, url, []byte(body))
-		if err != nil || status >= 400 {
-			return "", "", held, heldAddrs, fmt.Errorf("alloc EIP attempt %d: status %d err %v", i+1, status, err)
-		}
-		var decoded struct {
-			PublicIP struct {
-				ID      string `json:"id"`
-				Address string `json:"public_ip_address"`
-			} `json:"publicip"`
-		}
-		if err := json.Unmarshal(resp, &decoded); err != nil {
-			return "", "", held, heldAddrs, fmt.Errorf("decode alloc EIP: %w", err)
-		}
-		if !bl[decoded.PublicIP.Address] {
-			return decoded.PublicIP.ID, decoded.PublicIP.Address, held, heldAddrs, nil
-		}
-		// Blocklisted — hold to drain pool, and remember the address so
-		// the caller can persist it to the learned blocklist (#3722).
-		held = append(held, decoded.PublicIP.ID)
-		heldAddrs = append(heldAddrs, decoded.PublicIP.Address)
+// allocateNATEIP allocates one EIP with the bandwidth settings of the module's
+// NAT EIP and the given bandwidth name.
+func allocateNATEIP(client *http.Client, hw hwCreds, region, name string) (rawPublicIP, error) {
+	type publicIP struct {
+		Type string `json:"type"`
 	}
-	return "", "", held, heldAddrs, fmt.Errorf("exhausted %d attempts; all allocated EIPs were blocklisted", maxAttempts)
-}
-
-// natGatewayBelongsToDeployment matches NAT gateway name against the
-// deployment ID prefix. The cloudinit names NATs as
-// "catalyst-<fqdn-slug>-<dep-id-prefix>-<region>-nat".
-func natGatewayBelongsToDeployment(ctx context.Context, client *http.Client, hw hwCreds, region, natID, deploymentID string) bool {
-	if len(deploymentID) < 8 {
-		return false
+	type bandwidth struct {
+		Name       string `json:"name"`
+		Size       int    `json:"size"`
+		ShareType  string `json:"share_type"`
+		ChargeMode string `json:"charge_mode"`
 	}
-	url := fmt.Sprintf("%s/v2/%s/nat_gateways/%s", endpointFor("nat", region), hw.ProjectID, natID)
-	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
+	req, err := json.Marshal(struct {
+		PublicIP  publicIP  `json:"publicip"`
+		Bandwidth bandwidth `json:"bandwidth"`
+	}{publicIP{natEIPType}, bandwidth{name, natBandwidthSize, natBandwidthShare, natBandwidthCharged}})
+	if err != nil {
+		return rawPublicIP{}, err
+	}
+	url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
+	resp, status, err := doSignedRequest(client, hw, http.MethodPost, url, req)
 	if err != nil || status >= 400 {
-		return false
+		return rawPublicIP{}, fmt.Errorf("allocate NAT EIP %s: status %d err %v: %s", name, status, err, snippet(resp, 240))
 	}
 	var decoded struct {
-		NATGateway struct {
-			Name string `json:"name"`
-		} `json:"nat_gateway"`
+		PublicIP rawPublicIP `json:"publicip"`
 	}
 	if err := json.Unmarshal(resp, &decoded); err != nil {
-		return false
+		return rawPublicIP{}, fmt.Errorf("decode the allocated NAT EIP %s: %w", name, err)
 	}
-	return strings.Contains(decoded.NATGateway.Name, deploymentID[:8])
+	if decoded.PublicIP.ID == "" || decoded.PublicIP.Address == "" {
+		return rawPublicIP{}, fmt.Errorf("allocate NAT EIP %s: the answer names no id or address: %s", name, snippet(resp, 240))
+	}
+	decoded.PublicIP.BandwidthName = name
+	return decoded.PublicIP, nil
 }

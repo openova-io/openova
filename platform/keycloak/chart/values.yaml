@@ -466,6 +466,65 @@ keycloak:
     - name: cache-ispn
       mountPath: /opt/bitnami/keycloak/conf/cluster
       readOnly: true
+  # ─── Who may reach the Keycloak Pods (SVC-G06, 22 Nov 2026) ─────────────
+  # The subchart's NetworkPolicy `keycloak` defaults to allowExternal: true,
+  # one ingress rule with no `from` on 8080 AND 7800: every source of the
+  # cluster, of the peer region and of the outside may reach both ports. 7800
+  # is the cluster transport of Infinispan (JGroups TCP, see cache above),
+  # which has no authentication: a Pod that reaches it can join the cluster
+  # that holds the sessions. Measured on hw307 21 Nov 2026 in both regions:
+  # bp-plane-isolation's function test, a Pod in `default`, reached Keycloak
+  # (`the namespace keycloak is not isolated`), and this rule was the only
+  # one in the namespace that admits every source.
+  #
+  # allowExternal false narrows that rule to Keycloak's own Pods (and Pods
+  # labelled keycloak-client=true) in this namespace. Two rules of extraIngress
+  # (a template the subchart renders, so the ports follow its values) keep
+  # what is used:
+  #   * the ports of the old rule but 7800 stay open to every source, exactly
+  #     as before: the HTTP port 8080 (and HTTPS with tls, the management port
+  #     with metrics). Keycloak's issuer is dialled in-cluster at
+  #     keycloak.keycloak.svc from namespaces no list can name
+  #     (catalyst-system, sso-bridge, gitea, kube-system's hubble proxy, and
+  #     every Organization's namespace: openclaw, agenity's gate, the apps of
+  #     core/services/provisioning), and it is public at auth.<fqdn> anyway.
+  #   * 7800 is admitted from the Keycloak Pods of BOTH regions: the two
+  #     regions' Keycloaks are one Infinispan cluster across the mesh, and
+  #     Cilium runs with policy-default-local-cluster=true, so a podSelector
+  #     matches only this region's Pods unless it names the key
+  #     io.cilium.k8s.policy.cluster (Cilium 1.19.3,
+  #     pkg/k8s/network_policy.go parseNetworkPolicyPeer); Exists names every
+  #     cluster of the mesh.
+  # Egress is unchanged (allowExternalEgress stays true). bp-plane-isolation's
+  # keycloak-default-deny still admits its allow-list on every port; the
+  # gateway reaches 8080 through its keycloak-allow-gateway-ingress.
+  # Locked by tests/network-policy-render.sh.
+  networkPolicy:
+    allowExternal: false
+    extraIngress: |
+      - ports:
+          - port: {{ .Values.containerPorts.http }}
+            protocol: TCP
+          {{- if .Values.tls.enabled }}
+          - port: {{ .Values.containerPorts.https }}
+            protocol: TCP
+          {{- end }}
+          {{- if .Values.metrics.enabled }}
+          - port: {{ .Values.containerPorts.management }}
+            protocol: TCP
+          {{- end }}
+      - ports:
+          - port: 7800
+            protocol: TCP
+        from:
+          - podSelector:
+              matchLabels:
+                app.kubernetes.io/name: {{ include "common.names.name" . }}
+                app.kubernetes.io/instance: {{ .Release.Name }}
+                app.kubernetes.io/component: keycloak
+              matchExpressions:
+                - key: io.cilium.k8s.policy.cluster
+                  operator: Exists
   # ─── Bitnami image-registry consolidation (issue #191) ──────────────────
   # Bitnami consolidated their tag scheme around 2025-09 (see
   # https://github.com/bitnami/charts/issues/30852). The original

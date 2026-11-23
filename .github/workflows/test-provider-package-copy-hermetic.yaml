@@ -9,8 +9,9 @@
 #   copy     every tag serves the listed digest; the index, every manifest and every blob are
 #            byte-equal on both sides;
 #   again    a second run copies nothing;
-#   control  skopeo's own copy of the index, digests preserved, is refused as measured on
-#            21 Nov 2026: if it is not, the test can no longer see the defect and the job fails.
+#   whole    skopeo alone at step 03's version copies each package index whole, digests equal;
+#   control  the same whole copy with skopeo 1.15.2 is refused as measured on 21 Nov 2026: if
+#            it is not, the test can no longer see the defect and the job fails.
 # Both registries and the copier share one network namespace with no other network: nothing
 # publishes a port and nothing uses a node port. No cluster is read or written.
 #

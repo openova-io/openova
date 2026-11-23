@@ -670,8 +670,12 @@ func (r *runner) j5(ctx context.Context) bool {
 	}) {
 		return false
 	}
-	return r.step("J5", "J5.2", "both regions: Application, HelmReleases, CNPG Clusters and PVCs are gone", func(ev Evidence) error {
-		_, err := poll(ctx, r.cfg.DeleteTimeout, 15*time.Second, func() (bool, string, error) {
+	// The Secrets of the Application's namespace named after it are its own
+	// too: on hw307 the seeds <app>-db-replication-ca-seed and
+	// <app>-bp-wordpress-tenant-media-s3 stayed after a J5 that passed.
+	every := min(15*time.Second, r.cfg.DeleteTimeout)
+	return r.step("J5", "J5.2", "both regions: Application, HelmReleases, CNPG Clusters, PVCs and the Secrets of its namespace named after it are gone", func(ev Evidence) error {
+		_, err := poll(ctx, r.cfg.DeleteTimeout, every, func() (bool, string, error) {
 			left := map[string][]string{}
 			for _, reg := range []kube.Region{r.A, r.B} {
 				var rest []string
@@ -699,6 +703,17 @@ func (r *runner) j5(ctx context.Context) bool {
 					for _, o := range objs {
 						if o.Mentions(r.app.Name) {
 							rest = append(rest, kind+"/"+o.Namespace()+"/"+o.Name())
+						}
+					}
+				}
+				if r.app.Namespace != "" {
+					secrets, err := reg.GetList(ctx, "secrets", r.app.Namespace)
+					if err != nil {
+						return false, err.Error(), nil
+					}
+					for _, o := range secrets {
+						if o.Mentions(r.app.Name) {
+							rest = append(rest, "secrets/"+o.Namespace()+"/"+o.Name())
 						}
 					}
 				}

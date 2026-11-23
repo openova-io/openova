@@ -32,7 +32,11 @@
 #       of every registries.yaml name at its start, cleanContainerdHosts) is
 #       followed by a sweep that pivots those names again;
 #   (6) a node reboot (a new Pod, whose first sweep sees v2) pivots the names
-#       k3s has just rewritten.
+#       k3s has just rewritten;
+#   (7) a failed read of the status ConfigMap after the cutover (the API away,
+#       a 5xx, the --max-time) changes nothing: the node keeps the pivot, acks
+#       no v1, and the next read that succeeds finds it in place. Before this
+#       rule the empty read became v1 and the node rolled back (fails on main).
 #
 # Usage: bash tests/registry-pivot-keeps-k3s-files.sh [CHART_DIR]
 # shellcheck disable=SC2015,SC2016  # pass/fail chains; ${T_DIR} is expanded by the script under test
@@ -95,6 +99,7 @@ if [ "${w}" = "1" ]; then printf '200'; exit 0; fi
 case "${u}" in
   */configmaps/"${STATUS_CONFIGMAP_NAME}")
     s=$(cat "${T_DIR}/state")
+    [ "${s}" = fail ] && exit 22  # the read fails: curl -f prints nothing
     printf '{"data":{"registriesYamlActive":"%s","dragonflyUpstream":"local","node.%s.registriesYaml":"%s"}}\n' "${s}" "${NODE_NAME}" "${s}" ;;
   *) printf '{}\n' ;;
 esac
@@ -227,6 +232,20 @@ all_owned "${R}/certs.d" && fail "the model of k3s's start left every pivot file
 printf 'v2\n' >"${R}/scenario"
 run_pod "${R}"
 all_owned "${R}/snap.1" && pass "the first sweep of the new Pod pivoted every managed name" || fail "after the reboot a managed name stays on k3s's file"
+
+echo "[sov132] (7) a failed read of the status ConfigMap keeps the pivot"
+F="${TMP}/readfail"
+mkdir -p "${F}"
+cp -Rp "${TMP}/node.orig/certs.d" "${F}/certs.d"
+printf 'v2\nfail\nv2\n' >"${F}/scenario"
+run_pod "${F}"
+all_owned "${F}/snap.1" && pass "the first sweep pivoted (the case bites)" || fail "the first v2 sweep did not pivot"
+all_owned "${F}/snap.2" && pass "after the sweep whose read failed every managed name still has the pivot's file" \
+  || fail "the sweep whose read failed removed the pivot's files"
+grep -q -- '-> v1\|registriesYaml=v1' "${F}/log" && fail "the failed read led to v1: $(grep -- '-> v1\|registriesYaml=v1' "${F}/log" | head -n 2 | tr '\n' ' ')" \
+  || pass "no state change to v1 and no v1 ack"
+all_owned "${F}/snap.3" && [ "$(grep -c 'state change' "${F}/log")" = 1 ] \
+  && pass "the next good read finds the pivot in place: one state change in the whole run" || fail "the sweep after the failed read changed the state again"
 
 if [ "${FAILURES}" -gt 0 ]; then echo "registry-pivot-keeps-k3s-files: ${FAILURES} failure(s)"; exit 1; fi
 echo "registry-pivot-keeps-k3s-files: all checks passed"

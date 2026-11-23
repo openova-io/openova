@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-22T15:30:05Z` |
+| Last refreshed | `2026-11-23T05:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8223](https://github.com/openova-io/openova/issues/8223) | NET-120 Hermetic two-cluster mesh test | Other |
-| [#8225](https://github.com/openova-io/openova/issues/8225) | CLD-115 The VPC pre-flight becomes the Huawei adapter's Preflighter | Other |
-| [#8226](https://github.com/openova-io/openova/issues/8226) | SVC-159 The Blueprint files say what the seed says | Other |
-| [#8230](https://github.com/openova-io/openova/issues/8230) | NET-153 Allow-list of the hand-over proof's deny-egress object | Other |
 | [#8232](https://github.com/openova-io/openova/issues/8232) | FND-156 The conformance account exists on every Sovereign | Other |
 | [#8235](https://github.com/openova-io/openova/issues/8235) | FND-207 A check stays green on the newest valid pair until a newer record says o | Other |
 | [#8238](https://github.com/openova-io/openova/issues/8238) | FND-079 The gate has a scoped access to the parent | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#8607](https://github.com/openova-io/openova/issues/8607) | SVC-180 Screens group by class; the dead branch goes | Other |
 | [#8609](https://github.com/openova-io/openova/issues/8609) | BSS-070 BSS-G01 becomes required | Other |
 | [#8613](https://github.com/openova-io/openova/issues/8613) | PRD-201 bp-bge chart to the serving rules | Other |
+| [#8617](https://github.com/openova-io/openova/issues/8617) | NET-081 One producer of the Organization kubeconfig | Other |
+| [#8618](https://github.com/openova-io/openova/issues/8618) | SEC-060 Keycloak secrets no longer computable | Other |
+| [#8634](https://github.com/openova-io/openova/issues/8634) | SEC-190 Mounts, templated policies and generic roles | Other |
+| [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
 
 ---
 
@@ -307,7 +307,20 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
+| 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
+| 2026-11-23T04:05 | [#8644](https://github.com/openova-io/openova/pull/8644) | #8580 | fix(ci): the encrypted-path test's control case proves the d |
+| 2026-11-23T05:29 | [#8643](https://github.com/openova-io/openova/pull/8643) | #5429 | fix(applications): a customer can upgrade, remove and read t |
+| 2026-11-23T05:45 | [#8642](https://github.com/openova-io/openova/pull/8642) | fix(charts): the function tests of the messaging service, th |  |
+| 2026-11-23T04:03 | [#8641](https://github.com/openova-io/openova/pull/8641) | #6004 | fix(platform): a failed read is never taken as 'nothing ther |
+| 2026-11-23T04:14 | [#8640](https://github.com/openova-io/openova/pull/8640) | #4636 | fix(provisioner): a wipe, a sweep and an install's reclaim t |
+| 2026-11-23T04:03 | [#8635](https://github.com/openova-io/openova/pull/8635) | fix(gate): the acceptance suite renews its sign-in in a long |  |
+| 2026-11-23T04:59 | [#8630](https://github.com/openova-io/openova/pull/8630) | fix(cutover): one skopeo version, 1.16.1, at every download  |  |
+| 2026-11-23T05:37 | [#8626](https://github.com/openova-io/openova/pull/8626) | test(cutover): the follower region needs no provider package |  |
+| 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
+| 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
+| 2026-11-22T17:02 | [#8611](https://github.com/openova-io/openova/pull/8611) | #8598 | fix(provisioner): when the install's pre-flight replaces a r |
 | 2026-11-22T12:33 | [#8610](https://github.com/openova-io/openova/pull/8610) | #8607 | refactor(console): screens group by class and the dead branc |
 | 2026-11-22T12:04 | [#8608](https://github.com/openova-io/openova/pull/8608) | #7087 | docs(ledger): plan update |
 | 2026-11-22T11:45 | [#8606](https://github.com/openova-io/openova/pull/8606) | #7087 | docs(ledger): plan update |
@@ -324,19 +337,6 @@ flowchart LR
 | 2026-11-21T10:34 | [#8592](https://github.com/openova-io/openova/pull/8592) | #8584 | fix(cutover): an Organization gets the Sovereign's own chart |
 | 2026-11-21T08:04 | [#8591](https://github.com/openova-io/openova/pull/8591) | #8567 | fix(organization): the smallest plan's quota holds what ever |
 | 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
-| 2026-11-21T07:39 | [#8589](https://github.com/openova-io/openova/pull/8589) | #5646 | fix(organization): the mirror of an Organization's kubeconfi |
-| 2026-11-21T07:16 | [#8588](https://github.com/openova-io/openova/pull/8588) | fix(gate): the zero-change plan check packs the provider con |  |
-| 2026-11-21T07:23 | [#8587](https://github.com/openova-io/openova/pull/8587) | #8570 | fix(cutover): step 08 fails at once when its roll cannot fin |
-| 2026-11-21T07:09 | [#8585](https://github.com/openova-io/openova/pull/8585) | #7087 | docs(ledger): plan update |
-| 2026-11-21T07:06 | [#8584](https://github.com/openova-io/openova/pull/8584) | #3526 | fix(cutover): an Organization written while the cutover runs |
-| 2026-11-21T05:49 | [#8583](https://github.com/openova-io/openova/pull/8583) | #7087 | docs(ledger): plan update |
-| 2026-11-21T05:49 | [#8582](https://github.com/openova-io/openova/pull/8582) | #8577 | test(gate): check NET-G18 proves full-size transfers between |
-| 2026-11-21T05:25 | [#8581](https://github.com/openova-io/openova/pull/8581) | #7087 | docs(ledger): plan update |
-| 2026-11-21T07:14 | [#8580](https://github.com/openova-io/openova/pull/8580) | #8567 | test(cilium): a cloud-free job moves 64 KB between two worke |
-| 2026-11-21T05:10 | [#8579](https://github.com/openova-io/openova/pull/8579) | #7087 | docs(ledger): plan update |
-| 2026-11-21T04:59 | [#8576](https://github.com/openova-io/openova/pull/8576) | #7087 | docs(ledger): plan update |
-| 2026-11-21T06:39 | [#8575](https://github.com/openova-io/openova/pull/8575) | #8574 | test: a cloud-free harness drains, restarts and rolls the re |
-| 2026-11-21T04:29 | [#8573](https://github.com/openova-io/openova/pull/8573) | #7087 | docs(ledger): plan update |
 
 ---
 
