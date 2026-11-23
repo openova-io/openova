@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T21:30:08Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-23T21:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T21:35 | [#8675](https://github.com/openova-io/openova/pull/8675) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:24 | [#8673](https://github.com/openova-io/openova/pull/8673) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:06 | [#8670](https://github.com/openova-io/openova/pull/8670) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:21 | [#8669](https://github.com/openova-io/openova/pull/8669) | #2634 | INF-G01: the chargeback database is back within the limit af |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-23T06:33 | [#8623](https://github.com/openova-io/openova/pull/8623) | #4993 | fix(organization): the applications a new Organization is gi |
 | 2026-11-23T07:26 | [#8620](https://github.com/openova-io/openova/pull/8620) | fix(continuum): a region move and a node drain take turns, a |  |
 | 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
-| 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 
 ---
 
