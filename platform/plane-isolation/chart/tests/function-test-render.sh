@@ -30,7 +30,7 @@ grep -q -F 'kind: CiliumNetworkPolicy' "$TMP/default-test.yaml" || fail "no egre
 # the Pod's name the policy's "Succeeded" overwrote the Pod's "Failed" (hw307, 21 Nov 2026). On 0.1.19 this fails.
 [ "$(yq 'select(.kind == "CiliumNetworkPolicy") | .metadata.name' "$TMP/default-test.yaml")" = "plane-isolation-function-test-egress" ] || fail "the test's CiliumNetworkPolicy is not named plane-isolation-function-test-egress: under the Pod's name its result hides the Pod's"
 [ "$(yq 'select(.kind == "CiliumNetworkPolicy") | .metadata.namespace' "$TMP/default-test.yaml")" = "default" ] || fail "the test's CiliumNetworkPolicy is not in the namespace default"
-grep -q -F '28|7) ;;' "$TMP/default-test.yaml" || fail "the test does not demand that the connection is not made"
+[ "$(yq 'select(.kind == "Role") | .rules[] | select(.resources[0] == "networkpolicies" and .apiGroups[0] == "networking.k8s.io") | .resourceNames[0]' "$TMP/default-test.yaml")" = "keycloak-default-deny" ] || fail "the test Role cannot get the NetworkPolicy keycloak-default-deny, and only it"
 python3 - "$TMP/default.yaml" <<'PY' || fail "the chart renders no default-deny for keycloak that keeps the namespace default out"
 import sys, yaml
 for d in yaml.safe_load_all(open(sys.argv[1])):
@@ -96,9 +96,21 @@ stub() { mkdir -p "$TMP/bin"; cat > "$TMP/bin/$1"; chmod +x "$TMP/bin/$1"; }
 printf '#!/bin/sh\nexit 0\n' | stub sleep
 stub kubectl <<'EOF'
 #!/bin/sh
-# The kubeconfig lines succeed. The Endpoints of the target do not exist for the first $MISSING reads (its release is
-# not installed yet), then hold one ready address.
+# The kubeconfig lines succeed. The NetworkPolicy keycloak-default-deny answers as $DENY says: ok (the chart's own,
+# podSelector {}, Ingress and Egress); missing (deleted); narrow (selects some Pods only); egress (no Ingress type).
+# The Endpoints of the target do not exist for the first $MISSING reads (its release is not installed yet), then hold
+# one ready address.
 case "$1" in config) exit 0 ;; esac
+case "$*" in
+  *"-n keycloak get networkpolicy keycloak-default-deny "*)
+    case "${DENY:-ok}" in
+      missing) echo 'Error from server (NotFound): networkpolicies.networking.k8s.io "keycloak-default-deny" not found' >&2; exit 1 ;;
+      narrow) printf 'Ingress Egress;{"app.kubernetes.io/name":"nothing"}' ;;
+      egress) printf 'Egress;' ;;
+      *) printf 'Ingress Egress;' ;;
+    esac
+    exit 0 ;;
+esac
 n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
 if [ "$n" -le "$MISSING" ]; then echo 'Error from server (NotFound): endpoints "keycloak" not found' >&2; exit 1; fi
 printf '10.42.0.7'
@@ -134,6 +146,17 @@ runs fail "the test passes when a Pod outside the allow-list gets an HTTP answer
 grep -q -F 'the namespace keycloak is not isolated' "$TMP/run.out" || fail "an HTTP answer does not fail as not isolated"
 runs fail "the test passes when a connection is made and then reset" MISSING=0 SECONDS=0 CONNECT=reset TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
 grep -q -F 'the namespace keycloak is not isolated' "$TMP/run.out" || fail "a connection made then reset does not fail as not isolated"
-runs pass "the test fails when the connection is refused" MISSING=0 SECONDS=0 CONNECT=refused TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+# Cilium here drops a packet a policy denies without an answer, so a refused connection reached the Pod. Up to e2fea25
+# this passed.
+runs fail "the test passes when the connection is refused: the packet passed every policy" MISSING=0 SECONDS=0 CONNECT=refused TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F 'was refused or found no host (curl exit code 7): the packet passed every policy and reached the Pod' "$TMP/run.out" || fail "a refused connection does not fail as one that reached the Pod"
+# bp-keycloak's own policy keeps the namespace default off 7800 whether or not this chart's default-deny is there, so
+# the connection alone cannot fail for a missing or ineffective default-deny: the test reads it. Up to e2fea25 all three passed.
+runs fail "the test passes while keycloak-default-deny is deleted" DENY=missing MISSING=0 SECONDS=0 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F 'the NetworkPolicy keycloak/keycloak-default-deny cannot be read' "$TMP/run.out" || fail "a deleted default-deny does not fail naming it"
+runs fail "the test passes while keycloak-default-deny selects some Pods only" DENY=narrow MISSING=0 SECONDS=0 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F 'selects only the Pods {"app.kubernetes.io/name":"nothing"}, not every Pod of the namespace' "$TMP/run.out" || fail "a default-deny that selects some Pods only does not fail naming its selector"
+runs fail "the test passes while keycloak-default-deny has no Ingress type" DENY=egress MISSING=0 SECONDS=0 CONNECT=no TEST_NAMESPACE=default TARGET_NAMESPACE=keycloak TARGET_SERVICE=keycloak "$T"
+grep -q -F "has the policy types 'Egress', not Ingress" "$TMP/run.out" || fail "a default-deny without the Ingress type does not fail naming its types"
 
 echo "function-test-render: all cases passed"

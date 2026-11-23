@@ -19,8 +19,17 @@ known. Up to and including 0.1.19 the test dialled the Service on port 80
 (Pod port 8080), so it could pass only if Keycloak's issuer stopped answering
 the platform.
 
+The target's Pods are also selected by the policies of their own release
+(bp-keycloak's admits 7800 only from Keycloak Pods), and a Pod admits the union
+of every policy that selects it, so a connection that is not made cannot show
+that this chart's default-deny exists. The test therefore first reads, through
+the Kubernetes API, the NetworkPolicy <target namespace>-default-deny and fails
+unless it exists, has the policy type Ingress and selects every Pod of the
+namespace (a podSelector with no matchLabels and no matchExpressions). The
+connection then fails the test for an allow that is too wide.
+
 The test Pod runs in functionTest.namespace (default "default"), a namespace
-that the target does not admit. It first reads, through the Kubernetes API, the
+that the target does not admit. It then reads, through the Kubernetes API, the
 Endpoints of the target Service and requires at least one ready address, so a
 target that is down cannot pass the test. Another release delivers the target
 (bp-keycloak), and this release cannot depend on it without moving the
@@ -31,10 +40,14 @@ it has no ready address by then. T is functionTest.timeoutSeconds, the Pod's
 activeDeadlineSeconds: the kit states the install timeout of its release
 there, no shorter than the target release's (docs/RUNBOOKS.md section 4.5);
 without it T is 300. Then it connects to the first ready address on the
-port. It passes when no connection is made within 5 seconds (curl exit code 28,
-or 7 when it is refused). It fails when the connection is made, whatever the
+port. It passes only when no connection is made within 5 seconds (curl exit
+code 28): Cilium here sets no policy-deny-response, so a packet a policy denies
+is dropped without an answer. It fails when the connection is made, whatever the
 port answers (curl's time_connect is not zero): then a namespace outside the
-allow-list reaches the protected namespace. It writes nothing.
+allow-list reaches the protected namespace. It fails as well when the
+connection is refused or finds no host (exit code 7): the packet passed every
+policy and reached the Pod, whose port is closed or which is gone. It writes
+nothing.
 
 So that only the target's own policies decide, a CiliumNetworkPolicy of this
 file (rendered when the API cilium.io/v2 is served) lets the test Pod send to
@@ -45,8 +58,8 @@ CiliumNetworkPolicy hook after the Pod hook, so under the Pod's name its
 "Succeeded" overwrote the Pod's "Failed" and check SVC-G06 read a failed test
 as passed (hw307, 21 Nov 2026, both regions). A ServiceAccount in the test
 namespace, and a Role and RoleBinding in the target namespace (get on the
-Endpoints of the target Service), give the Pod the right to read the
-Endpoints; they come before the Pod in Helm's order, so the Pod's result is
+Endpoints of the target Service and on its default-deny), give the Pod the
+right to read them; they come before the Pod in Helm's order, so the Pod's result is
 the one kept under the shared name.
 
 It renders only when enabled is true, the target namespace is one of
@@ -61,6 +74,7 @@ webhook gate), which carries curl; functionTest.image overrides it.
 {{- $targetHost := $target.host | default "keycloak.keycloak.svc.cluster.local" }}
 {{- $targetPort := $target.port | default 7800 }}
 {{- $targetService := first (splitList "." $targetHost) }}
+{{- $targetPolicy := printf "%s-default-deny" $targetNamespace }}
 {{- $protected := false }}
 {{- range .Values.components }}
 {{- if and (eq .namespace $targetNamespace) (not (has $testNamespace (.allowIngressFrom | default list))) }}
@@ -100,6 +114,10 @@ rules:
   - apiGroups: [""]
     resources: ["endpoints"]
     resourceNames: [{{ $targetService | quote }}]
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    resourceNames: [{{ $targetPolicy | quote }}]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -222,6 +240,13 @@ spec:
           set -u
           {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          # The policy types, then after ";" the labels and expressions of its podSelector: none means every Pod.
+          deny="$(kubectl --request-timeout=15s -n "${TARGET_NAMESPACE}" get networkpolicy {{ $targetPolicy }} -o jsonpath='{.spec.policyTypes[*]};{.spec.podSelector.matchLabels}{.spec.podSelector.matchExpressions}' 2>/tmp/error)" || fail "the NetworkPolicy ${TARGET_NAMESPACE}/{{ $targetPolicy }} cannot be read, so nothing denies the namespace's ingress: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          case " ${deny%%;*} " in
+            *" Ingress "*) ;;
+            *) fail "the NetworkPolicy ${TARGET_NAMESPACE}/{{ $targetPolicy }} has the policy types '${deny%%;*}', not Ingress, so it denies no ingress" ;;
+          esac
+          [ -z "${deny#*;}" ] || fail "the NetworkPolicy ${TARGET_NAMESPACE}/{{ $targetPolicy }} selects only the Pods ${deny#*;}, not every Pod of the namespace"
           ready=""
           while [ "${SECONDS}" -lt {{ $wait }} ]; do
             ready="$(kubectl --request-timeout=15s -n "${TARGET_NAMESPACE}" get endpoints "${TARGET_SERVICE}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/tmp/error)" && [ -n "${ready}" ] && break
@@ -237,7 +262,8 @@ spec:
             fail "a Pod in ${TEST_NAMESPACE} connected to ${target} (curl exit code ${rc}): the namespace ${TARGET_NAMESPACE} is not isolated"
           fi
           case "${rc}" in
-            28|7) ;;
+            28) ;;
+            7) fail "the connection to ${target} was refused or found no host (curl exit code 7): the packet passed every policy and reached the Pod, so the namespace ${TARGET_NAMESPACE} is not shown to be isolated: $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
             *) fail "the connection to ${target} ended with curl exit code ${rc}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
           esac
           echo "FUNCTION-TEST pass {{ .Chart.Name }} a Pod in ${TEST_NAMESPACE} could not connect to ${target} (curl exit code ${rc}), a ready address"
