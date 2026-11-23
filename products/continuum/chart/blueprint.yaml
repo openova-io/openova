@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-9-disaster-recovery
     openova.io/category: customer-facing-capability
 spec:
-  version: 0.2.7
+  version: 0.2.9
   card:
     title: Continuum
     summary: |
@@ -60,6 +60,22 @@ spec:
               ttlSeconds:
                 type: integer
                 default: 60
+          rebootAgent:
+            type: object
+            description: A move and a drain take turns — the transition holds kured's lock and waits for its drains.
+            properties:
+              hold:
+                type: boolean
+                default: true
+              namespace:
+                type: string
+                default: kube-system
+              holdTTLSeconds:
+                type: integer
+                default: 300
+              waitSeconds:
+                type: integer
+                default: 1200
 
   placementSchema:
     # One release per region: every region runs its own Continuum (ADR-0015

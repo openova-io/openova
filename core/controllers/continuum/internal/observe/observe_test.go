@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -71,14 +72,17 @@ func TestPeers_FetchOverHTTP(t *testing.T) {
 	srv := httptest.NewServer(Handler(newObserver()))
 	defer srv.Close()
 	p := Peers{URLFor: func(string) string { return srv.URL }}
-	got, err := p.Fetch(context.Background(), region, []Target{{Namespace: "acme", App: "wp", Stateful: true}})
+	got, rb, err := p.Fetch(context.Background(), region, []Target{{Namespace: "acme", App: "wp", Stateful: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got["acme/wp"].DB.DemotionToken != "TOKEN" || got["acme/wp"].Serving != transition.False {
 		t.Fatalf("round trip lost fields: %+v", got["acme/wp"])
 	}
-	if _, err := p.Fetch(context.Background(), "some-other-region", nil); err == nil {
+	if rb != nil {
+		t.Fatalf("an observer without a reboot reader reports none, got %+v", rb)
+	}
+	if _, _, err := p.Fetch(context.Background(), "some-other-region", nil); err == nil {
 		t.Fatal("an answer from a different region must be rejected")
 	}
 }
@@ -129,5 +133,50 @@ func TestObserve_PlatformMember_ByHelmReleaseRef(t *testing.T) {
 	back := ParseTargets(EncodeTargets([]Target{tg, {Namespace: "acme", App: "wp"}}))
 	if len(back) != 2 || back[0] != tg || back[1].HelmRelease != "" {
 		t.Fatalf("encode/parse: %+v", back)
+	}
+}
+
+// The state of an interrupted demotion, read from the Cluster's own status:
+// the operator's reading of each instance (instancesReportedState[].isPrimary)
+// and whether it is switching the Cluster to a replica.
+func TestDBStatusOf_RunningPrimaryAndSwitching(t *testing.T) {
+	c := func(status map[string]interface{}) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "db-b"},
+			"spec":     map[string]interface{}{"replica": map[string]interface{}{"self": "db-b", "primary": "db-a"}},
+			"status":   status,
+		}}
+	}
+	standby := DBStatusOf(c(map[string]interface{}{"instancesReportedState": map[string]interface{}{
+		"db-b-1": map[string]interface{}{"isPrimary": false, "timeLineID": int64(3)}}}))
+	if standby.RunningPrimary != transition.False || standby.Switching || standby.Primary {
+		t.Fatalf("a standby instance: %+v", standby)
+	}
+	running := DBStatusOf(c(map[string]interface{}{"switchReplicaClusterStatus": map[string]interface{}{"inProgress": true},
+		"instancesReportedState": map[string]interface{}{
+			"db-b-1": map[string]interface{}{"isPrimary": false}, "db-b-2": map[string]interface{}{"isPrimary": true}}}))
+	if running.RunningPrimary != transition.True || !running.Switching {
+		t.Fatalf("a running primary being demoted: %+v", running)
+	}
+	if none := DBStatusOf(c(map[string]interface{}{})); none.RunningPrimary != transition.Unknown {
+		t.Fatalf("no reported instance is Unknown, never False: %+v", none)
+	}
+}
+
+type fixedReboot struct{ s transition.RebootStatus }
+
+func (f fixedReboot) Read(context.Context, time.Time) transition.RebootStatus { return f.s }
+
+func TestPeers_CarryTheRebootAgent(t *testing.T) {
+	o := newObserver()
+	o.Reboot = fixedReboot{transition.RebootStatus{Agent: true, Holdable: true, Holder: "w5cce4d", Draining: []string{"w5cce4d"}}}
+	srv := httptest.NewServer(Handler(o))
+	defer srv.Close()
+	_, rb, err := Peers{URLFor: func(string) string { return srv.URL }}.Fetch(context.Background(), region, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb == nil || !rb.Agent || len(rb.Draining) != 1 || rb.Draining[0] != "w5cce4d" {
+		t.Fatalf("the reboot agent did not cross: %+v", rb)
 	}
 }

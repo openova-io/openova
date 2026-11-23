@@ -24,12 +24,19 @@ type world struct {
 	live     map[string]map[string]*MemberStatus
 	commits  []Commit
 	stateful map[string]bool
+	// interrupt: region → how many of its next demotions are interrupted (the
+	// instance restarts while CNPG applies the demotion and comes back as a
+	// standby without a token).
+	interrupt map[string]int
+	// reboot: region → its reboot agent report (nil = not reported).
+	reboot map[string]*RebootStatus
 }
 
 func newWorld(t *testing.T, regions []string, members []Member, primary string) *world {
 	w := &world{t: t, now: time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC), regions: regions,
 		down: map[string]time.Time{}, files: map[string]map[string]FileView{},
-		live: map[string]map[string]*MemberStatus{}, stateful: map[string]bool{}}
+		live: map[string]map[string]*MemberStatus{}, stateful: map[string]bool{},
+		interrupt: map[string]int{}, reboot: map[string]*RebootStatus{}}
 	for _, m := range members {
 		w.stateful[m.Key()] = m.Stateful
 		w.files[m.Key()] = map[string]FileView{}
@@ -64,7 +71,7 @@ func (w *world) view() View {
 		}
 	}
 	for _, r := range w.regions {
-		rv := RegionView{Reachable: true, LastSeen: w.now, Members: map[string]MemberStatus{}}
+		rv := RegionView{Reachable: true, LastSeen: w.now, Members: map[string]MemberStatus{}, Reboot: w.reboot[r]}
 		if since, ok := w.down[r]; ok {
 			rv = RegionView{Reachable: false, LastSeen: since}
 		} else {
@@ -113,7 +120,11 @@ func (w *world) apply() {
 			wantPrimary := f.Fields.Primary == r
 			switch {
 			case ms.DB.Primary && !wantPrimary:
-				ms.DB.Primary = false
+				ms.DB.Primary, ms.DB.RunningPrimary = false, False
+				if w.interrupt[r] > 0 {
+					w.interrupt[r]--
+					continue // demoted at start-up: no token
+				}
 				ms.DB.DemotionToken = "tok-" + r
 			case !ms.DB.Primary && wantPrimary:
 				tok := f.Fields.PromotionToken
@@ -136,7 +147,7 @@ func (w *world) apply() {
 				if tok != "" && tok != peerToken {
 					continue
 				}
-				ms.DB.Primary = true
+				ms.DB.Primary, ms.DB.RunningPrimary = true, True
 				ms.DB.LastPromotionToken = tok
 				ms.DB.DemotionToken = ""
 			}
