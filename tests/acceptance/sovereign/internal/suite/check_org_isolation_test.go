@@ -579,7 +579,7 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 		{"the Application does not answer", func(f *isoFake, _ *isoConsole) {
 			f.page = &wordpress.Page{Status: 503, FinalURL: "https://wp.iso.test/"}
 		}, "last observed: HTTP 503", 74},
-		{"a namespace stays", func(f *isoFake, _ *isoConsole) { f.stays = "iso-b-" }, "left: iso-b-", 74},
+		{"a namespace stays", func(f *isoFake, _ *isoConsole) { f.stays = "iso-b-" }, "left: Namespace iso-b-", 74},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -622,6 +622,7 @@ func TestOrgIsolationCheck_SecondaryRegion(t *testing.T) {
 		want  string
 	}{
 		"the control reaches it and the Pod of A times out": {func(*isoFake) {}, ""},
+		"the namespace of the positive control stays":       {func(f *isoFake) { f.stays = "iso-ctl-" }, "left: Namespace iso-ctl-"},
 		"the control does not reach it": {func(f *isoFake) { f.answers["C"][mesh] = DialTimedOut },
 			"the Service catalyst-system/catalyst-api of region region-b has no ready endpoint, and the dial of its ClusterIP " + mesh +
 				" from a Pod on the host network of region region-b timed-out"},

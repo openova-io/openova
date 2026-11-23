@@ -784,6 +784,24 @@ jobs:
           # of a complete chain is committed, never a discovery run's; chain_plan in that script says why. The self-test of the
           # script holds the commit steps below to this one output.
           bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec" >> "$GITHUB_OUTPUT"
+      - name: Name the record of this run
+        if: always()
+        run: |
+          set -uo pipefail
+          # The artifact holds every record committed in the candidate's tree beside the one this run wrote.
+          # own-record.txt names that one: one line, its path in the candidate's checkout (the path it gets on
+          # main when it is committed). It holds no line when the suite wrote none or more than one. The step
+          # runs under bash -e: grep -c answers 1 when it counts nothing, and a run without a record must warn,
+          # not fail here.
+          files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/ 2>/dev/null || true)"
+          n="$(printf '%s' "$files" | grep -c . || true)"
+          : > "$RUNNER_TEMP/own-record.txt"
+          if [ "$n" = 1 ]; then
+            printf '%s\n' "$files" > "$RUNNER_TEMP/own-record.txt"
+            echo "The record of this run: $files" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::The suite wrote $n records, not 1, so own-record.txt of the artifact names none."
+          fi
       - name: Upload record + log
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -792,6 +810,7 @@ jobs:
           path: |
             candidate/docs/ledger/acceptance/*.json
             ${{ runner.temp }}/acceptance.log
+            ${{ runner.temp }}/own-record.txt
           if-no-files-found: warn
       - name: "Release writer: push with the release-writer key"
         if: always() && steps.record.outputs.commit == 'true'

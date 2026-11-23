@@ -71,21 +71,9 @@ func flowStreamJudge(parent context.Context, c *api.Client, dep string, timeout 
 	defer cancel()
 	path := "/api/v1/flows/" + url.PathEscape(dep) + "/stream"
 	ev["path"] = path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+path, nil)
+	res, err := c.Stream(ctx, nil, path) // an answer HTTP 401 renews the session once
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	if c.Session != "" {
-		req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: c.Session})
-	}
-	client := c.HTTP
-	if client == nil {
-		client = http.DefaultClient
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 	ev["status"], ev["content_type"] = res.StatusCode, res.Header.Get("Content-Type")
