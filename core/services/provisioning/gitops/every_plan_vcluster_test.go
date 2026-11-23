@@ -107,7 +107,12 @@ func TestEveryPlanIsVclusterBacked_NoTierGate(t *testing.T) {
 				t.Errorf("apps-sync differs from plan %q's — the plan must not select the boundary:\n--- first ---\n%s\n--- this ---\n%s", everyPlanSlug[0], firstAppsSync, sync)
 			}
 
-			// 2. Every HelmRelease-shaped app file carries the same mirror.
+			// 2. Each HelmRelease-shaped app file carries the placement of
+			//    its app, the same on every plan: the customer-scope app
+			//    (stalwart-mail) the vCluster mirror, the platform stack
+			//    (openclaw, newapi) none — it installs on the host, where the
+			//    APIs its charts need are served (hostPlacedHelmReleaseApps).
+			sawVcluster, sawHost := false, false
 			for _, a := range hrApps {
 				path := testBasePath + "/" + slug + "/app-" + a + ".yaml"
 				body, ok := out[path]
@@ -115,9 +120,20 @@ func TestEveryPlanIsVclusterBacked_NoTierGate(t *testing.T) {
 					t.Errorf("%s missing (keys: %v)", path, keys(out))
 					continue
 				}
+				if HelmReleaseAppInstallsOnHost(a) {
+					sawHost = true
+					if strings.Contains(body, "kubeConfig:") || strings.Contains(body, mirror) {
+						t.Errorf("%s MUST NOT carry a kubeConfig — the platform stack installs on the host `%s` namespace:\n%s", path, slug, body)
+					}
+					continue
+				}
+				sawVcluster = true
 				if !strings.Contains(body, "kubeConfig:") || !strings.Contains(body, mirror) {
 					t.Errorf("%s MUST carry the HR-level kubeConfig mirror %q — the host helm-controller installs it INTO the vCluster:\n%s", path, mirror, body)
 				}
+			}
+			if !sawVcluster || !sawHost {
+				t.Fatalf("vacuity: cart %v must hold an app of each placement (vCluster %v, host %v)", cart, sawVcluster, sawHost)
 			}
 
 			// 3. The per-Org tree re-roots the HR docs into host-apps and

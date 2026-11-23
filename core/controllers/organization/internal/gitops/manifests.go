@@ -1512,6 +1512,31 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: flux-system
+    # CNPG OPERATOR status (8000) + metrics (9187). The Organization namespace
+    # holds the CNPG Clusters of the platform stack on the host: bp-newapi's
+    # database (the funnel installs bp-newapi on the host, hostPlacedHelmReleaseApps
+    # in core/services/provisioning/gitops), the WordPress database and the
+    # funnel's CNPG primary. endpointSelector {} default-denies their ingress,
+    # and the operator in cnpg-system is in none of the rules above, so it
+    # cannot read an instance: CNPG reports "Instance Status Extraction Error:
+    # HTTP communication issue" and the Cluster stays Ready=False while
+    # Postgres runs (measured for the WordPress database on hw296, #6311). Two
+    # charts carry their own carve-out for it (platform/postgres
+    # networkpolicy-singleton-operator-probe.yaml, platform/wordpress-tenant
+    # networkpolicy-cnpg-operator-probe.yaml) and bp-newapi did not; like DNS
+    # below, it belongs in the namespace baseline. Only those two ports, only
+    # from that namespace. The pods the vCluster syncs stay closed to it: the
+    # organization fence (org-fence.yaml) denies them ingress from every
+    # namespace but this one and flux-system, and a deny wins.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: cnpg-system
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "9187"
+              protocol: TCP
   egress:
     # CLUSTER DNS — 53 UDP + TCP to kube-system CoreDNS.
     #

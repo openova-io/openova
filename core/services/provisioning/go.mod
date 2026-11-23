@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/openova-io/openova/core/services/shared v0.0.0
 	go.mongodb.org/mongo-driver/v2 v2.1.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
