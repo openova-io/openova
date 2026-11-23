@@ -166,7 +166,7 @@ func (p *Provider) reconcileELBMembers(ctx context.Context, ak, sk, projectID, r
 	base := fmt.Sprintf("%s/v3/%s/elb", endpointFor("elb", region), projectID)
 
 	// 1. Find the gateway ELB (by the -elb-primary name suffix).
-	elbs, err := listELBsByName(ctx, client, hw, region, sovereignFQDN)
+	elbs, err := listELBsByName(ctx, client, hw, region, sovereignNamePrefix(sovereignFQDN))
 	if err != nil {
 		return 0, fmt.Errorf("gateway-elb: list ELBs: %w", err)
 	}
@@ -373,4 +373,14 @@ func gatewayMemberCreateBody(address string, port int, subnetCIDRID string) []by
 	}
 	b, _ := json.Marshal(map[string]any{"member": member})
 	return b
+}
+
+// sovereignNamePrefix matches a name that starts with the Sovereign's
+// catalyst-<fqdn>- prefix. Only the member reconcile above still selects
+// its load balancer this way, because its callers do not pass the
+// deployment id; every destructive call of the wipe and the reclaim
+// selects by deploymentScope.
+func sovereignNamePrefix(sovereignFQDN string) func(name string) bool {
+	prefix := "catalyst-" + strings.ReplaceAll(sovereignFQDN, ".", "-") + "-"
+	return func(name string) bool { return sovereignFQDN != "" && strings.HasPrefix(name, prefix) }
 }

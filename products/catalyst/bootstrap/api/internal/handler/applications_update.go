@@ -41,6 +41,7 @@ import (
 
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/appmanage"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
@@ -390,27 +391,8 @@ type applicationUpdateResponse struct {
 	Status      map[string]interface{} `json:"status,omitempty"`
 }
 
-// applicationDeleteResponse is returned on DELETE to confirm the cascade
-// will follow. `Status` is the canonical-token form ("deleted" |
-// "already-deleted") that the matrix asserts (TC-080) and that
-// programmatic consumers branch on; `Message` keeps the human-readable
-// sentence for audit-log readers + UI toasts. Per
-// `feedback_no_mvp_no_workarounds.md` the status is real (set by the
-// handler from the actual k8s outcome), never a placeholder.
-//
-// Fix #177 (qa-loop iter-17, TC-080) — envelope adds Kind/HTTPStatus/
-// Deleted so the matrix runner sees stable anchors even when the
-// caller hits the idempotent re-delete path. Mirrors Fix #165's
-// applicationInstallResponse wire-shape contract.
-type applicationDeleteResponse struct {
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Namespace  string `json:"namespace"`
-	Status     string `json:"status"`
-	HTTPStatus string `json:"httpStatus"`
-	Deleted    bool   `json:"deleted"`
-	Message    string `json:"message"`
-}
+// applicationDeleteResponse is the DELETE answer (appmanage.DeleteAnswer).
+type applicationDeleteResponse = appmanage.DeleteAnswer
 
 // ── HTTP handler — update (PUT) ──────────────────────────────────────
 
@@ -434,7 +416,7 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
+		if !applicationInstallCallerAuthorized(claims) && !auth.OrgConfined(r.Context()) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "forbidden",
 				"detail": "PUT /applications requires tier-admin or higher",
@@ -763,7 +745,7 @@ func (h *Handler) HandleApplicationDelete(w http.ResponseWriter, r *http.Request
 	}
 
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
+		if !applicationInstallCallerAuthorized(claims) && !auth.OrgConfined(r.Context()) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "forbidden",
 				"detail": "DELETE /applications requires tier-admin or higher",
@@ -819,15 +801,11 @@ func (h *Handler) HandleApplicationDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusOK, applicationDeleteResponse{
-		Kind:       "Application",
-		Name:       name,
-		Namespace:  cur.GetNamespace(),
-		Status:     "deleted",
-		HTTPStatus: "200",
-		Deleted:    true,
-		Message:    fmt.Sprintf("HTTP 200 OK — Application %q deleted in namespace %q (controller cascades region cleanup); status: deleted", name, cur.GetNamespace()),
-	})
+	// The delete was accepted; the object is gone only once the controller
+	// releases its finalizer. Answer what the read-back shows (appmanage).
+	left, readErr := client.Resource(ApplicationGVR()).Namespace(cur.GetNamespace()).Get(r.Context(), name, metav1.GetOptions{})
+	code, answer := appmanage.DeleteOutcome(name, cur.GetNamespace(), left, readErr)
+	writeJSON(w, code, answer)
 }
 
 // ── HTTP handler — topology preview (POST) ──────────────────────────
@@ -938,7 +916,7 @@ func (h *Handler) handleApplicationChangePreview(w http.ResponseWriter, r *http.
 	}
 
 	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
+		if !applicationInstallCallerAuthorized(claims) && !auth.OrgConfined(r.Context()) {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "forbidden",
 				"detail": "preview requires tier-admin or higher",

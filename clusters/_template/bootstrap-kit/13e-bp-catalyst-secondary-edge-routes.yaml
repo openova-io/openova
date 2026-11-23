@@ -56,7 +56,8 @@ spec:
     # itself until 60 seconds before its bound T, the install timeout below,
     # stated once as values.functionTest.timeoutSeconds (docs/RUNBOOKS.md
     # section 4.5). The console Gateway comes from the sovereign-tls
-    # Kustomization, which no dependsOn of a HelmRelease can name.
+    # Kustomization, which no dependsOn of a HelmRelease can name; what that
+    # Kustomization waits for can be named, see dependsOn below.
     timeout: 15m
   # #5289 — un-suspend ONLY on the secondary CP. SECONDARY_EDGE_SUSPEND renders
   # "false" on secondary CPs (sovereign_region_role != "primary") and "true" on
@@ -77,6 +78,20 @@ spec:
     # bp-catalyst-platform — it is SUSPENDED on the secondary CP (never Ready),
     # so a dep on it would deadlock this HR forever.
     - name: bp-gateway-api
+      namespace: flux-system
+    # The parent of every route here, the console Gateway, is applied by the
+    # sovereign-tls Kustomization (clusters/_template/sovereign-tls, retried
+    # every minute), whose apply fails until the cert-manager CRDs and the
+    # cert-manager namespace exist (bp-cert-manager) and the ConfigMap
+    # sovereign-tls-vars with CONSOLE_LISTENERS_YAML exists
+    # (bp-sovereign-tls-vars). Without these two edges the release installed
+    # at 15:53:56 in region b of the fresh install of 21 Nov 2026 (hw307),
+    # those two at 16:09:01-16:09:08 and the Gateway at 16:09:36: its function
+    # test found no parent to accept the routes for 14 minutes and failed at
+    # 16:08:14, holding one of helm-controller's four workers that whole time.
+    - name: bp-cert-manager
+      namespace: flux-system
+    - name: bp-sovereign-tls-vars
       namespace: flux-system
   chart:
     spec:

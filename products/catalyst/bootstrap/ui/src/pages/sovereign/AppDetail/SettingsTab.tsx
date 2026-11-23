@@ -34,6 +34,13 @@ export interface SettingsTabProps {
   applicationName: string
   /** Org namespace. */
   namespace?: string
+  /**
+   * An Organization session (useConsoleScope().orgScoped): read, upgrade
+   * and uninstall through /org/applications/{name}. The Sovereign routes
+   * refuse an Organization session, so without it the customer's buttons
+   * answered 403.
+   */
+  orgScoped?: boolean
   /** Test seam — pre-populated CR (skip status fetch). */
   initialApp?: ApplicationStatus
   /** Test seam. */
@@ -66,6 +73,7 @@ export function SettingsTab({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   initialApp,
   disableNetwork = false,
 }: SettingsTabProps) {
@@ -77,8 +85,8 @@ export function SettingsTab({
   const [busy, setBusy] = useState(false)
 
   const statusQ = useQuery({
-    queryKey: ['application-status', sovereignId, applicationName, namespace],
-    queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace),
+    queryKey: ['application-status', sovereignId, applicationName, namespace, orgScoped],
+    queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace, { orgScoped }),
     enabled: !initialApp && !!sovereignId && !!applicationName,
     refetchInterval: 10_000,
   })
@@ -113,7 +121,7 @@ export function SettingsTab({
     setError(null)
     setInfo(null)
     try {
-      await updateApplication(sovereignId, applicationName, { parameters }, { namespace })
+      await updateApplication(sovereignId, applicationName, { parameters }, { namespace, orgScoped })
       setInfo('Parameters saved; controller is reconciling.')
       void qc.invalidateQueries({ queryKey: ['application-status'] })
     } catch (e) {
@@ -213,6 +221,7 @@ export function SettingsTab({
         sovereignId={sovereignId}
         applicationName={applicationName}
         namespace={namespace}
+        orgScoped={orgScoped}
         blueprintName={blueprintRef?.name ?? ''}
         currentVersion={blueprintRef?.version ?? ''}
         disableNetwork={disableNetwork}
@@ -227,9 +236,11 @@ export function SettingsTab({
         sovereignId={sovereignId}
         applicationName={applicationName}
         namespace={namespace}
+        orgScoped={orgScoped}
         disableNetwork={disableNetwork}
         onUninstalled={() => {
-          setInfo('Uninstall queued; controller is cascading region cleanup.')
+          setInfo('Uninstalling; the controller removes it from every region, then the Application is gone.')
+          void qc.invalidateQueries({ queryKey: ['application-status'] })
         }}
       />
     </div>

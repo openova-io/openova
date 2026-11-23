@@ -2,7 +2,7 @@
 # copier.sh - the part of provider-package-copy-test.sh that runs in the copier container (the
 # image of cutover step 03), in the network namespace of the two registries: localhost:5001 (the
 # origin) and localhost:5002 (the Sovereign's registry). /w holds the packages, the publisher's
-# ORAS and step 03's skopeo (bin/), the code cut from the render (cut.sh), its environment (env.sh)
+# ORAS and step 03's skopeo (bin/), skopeo 1.15.2 for the control (bin/old/), the code cut from the render (cut.sh), its environment (env.sh)
 # and the list (list); each case writes /w/out/case-<name>.txt, one "ok" or "FAIL" line per check.
 set -u
 export PATH="/w/bin:${PATH}"
@@ -161,19 +161,31 @@ else
   echo "FAIL — order: the index PUT before its entries answered ${code} ${body}: this registry does not show the order" >"${OUT}/case-order.txt"
 fi
 
-echo "── case control: skopeo's own copy of the index, every manifest present, digests preserved ──"
+echo "── case whole: skopeo alone at step 03's version copies each package index whole, digests preserved ──"
+: >"${OUT}/whole.out"
+{
+  while read -r source version digest; do
+    repo="${source#registry.opentofu.org/}"; rc=0
+    sh -c 'set -eu; . /w/env.sh; . "$1"; offlinemirror_skopeo_copy "${TOFU_ORIGIN_PREFIX}/$2@$4" "" "${HARBOR_HOST}/whole/$2:$3" --multi-arch all' \
+      sh /w/cut.sh "${repo}" "${version}" "${digest}" </dev/null >>"${OUT}/whole.out" 2>&1 || rc=$?
+    if [ "${rc}" -eq 0 ]; then echo "ok   — whole: $(skopeo --version) copies ${repo}:${version} in one call (--multi-arch all, --preserve-digests), exit 0"
+    else echo "FAIL — whole: $(skopeo --version) copying ${repo}:${version} in one call exits ${rc}: $(grep -h 'level=fatal' "${OUT}/whole.out" | tail -n 1 | cut -c1-240)"; fi
+    judge whole "openova-io/tofu-providers/${repo}" "whole/${repo}" "${version}" "${digest}"
+  done </w/list
+} >"${OUT}/case-whole.txt" 2>&1
+sed 's/^/    /' "${OUT}/whole.out"
+
+echo "── case control: the same whole copy with skopeo 1.15.2, the version before, is refused as measured ──"
+read -r source version digest </w/list
+repo="${source#registry.opentofu.org/}"
 sh -c '
-  set -eu; . /w/env.sh; . "$1"
-  src="${TOFU_ORIGIN_PREFIX}/$2"; dst="${HARBOR_HOST}/${TOFU_LOCAL_PATH}/control/$2"
-  for m in $(skopeo inspect --raw --tls-verify=true "docker://${src}@$4" | jq -r ".manifests[].digest"); do
-    offlinemirror_skopeo_copy "${src}@${m}" "" "${dst}@${m}" --multi-arch all
-  done
-  offlinemirror_skopeo_copy "${src}@$4" "" "${dst}:$3" --multi-arch index-only
+  set -eu; . /w/env.sh; . "$1"; export PATH="/w/bin/old:${PATH}"; skopeo --version
+  offlinemirror_skopeo_copy "${TOFU_ORIGIN_PREFIX}/$2@$4" "" "${HARBOR_HOST}/control/$2:$3" --multi-arch all
 ' sh /w/cut.sh "${repo}" "${version}" "${digest}" >"${OUT}/control.out" 2>&1 && crc=0 || crc=$?
 sed 's/^/    /' "${OUT}/control.out"
-if [ "${crc}" -ne 0 ] && grep -q 'Instructed to preserve digests' "${OUT}/control.out"; then
-  echo "ok   — control: skopeo refuses to write the index of ${repo}:${version} unchanged, as measured on 21 Nov 2026" >"${OUT}/case-control.txt"
+if [ "${crc}" -ne 0 ] && grep -qx 'skopeo version 1.15.2' "${OUT}/control.out" && grep -q 'Instructed to preserve digests' "${OUT}/control.out"; then
+  echo "ok   — control: skopeo 1.15.2 refuses the whole copy of ${repo}:${version}, as measured on 21 Nov 2026" >"${OUT}/case-control.txt"
 else
-  echo "FAIL — control: skopeo's own index copy exited ${crc} without the measured refusal: the packages no longer have the shape that failed, and this test cannot see the defect" >"${OUT}/case-control.txt"
+  echo "FAIL — control: skopeo 1.15.2's whole copy exited ${crc} without the measured refusal: the packages no longer have the shape that failed, and this test cannot see the defect" >"${OUT}/case-control.txt"
 fi
 exit 0

@@ -77,9 +77,19 @@ spec:
   interval: 15m
   releaseName: valkey
   targetNamespace: valkey
+  # storage-ready (slot 15b), the neutral storage gate: valkey-primary keeps its
+  # data on a 1Gi volume of the default StorageClass (chart values
+  # valkey.primary.persistence). Installed before that class exists, the Pod
+  # stays Pending and the function test, which runs right after the install
+  # (install.disableWait), finds no server: it failed in both regions of the
+  # fresh two-region install of 20 Nov 2026 (record
+  # hw307-20261120T022739Z-5038). It passed on 21 Nov only because bp-flux
+  # came late enough. bp-cnpg and bp-nats-jetstream wait on the same gate.
   dependsOn:
     - name: bp-flux
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+    - name: storage-ready
+      namespace: flux-system
   chart:
     spec:
       chart: bp-valkey

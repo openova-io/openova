@@ -644,6 +644,7 @@ data:
             _selfheal_ghcr_user=""; _selfheal_ghcr_pat=""
             _selfheal_moth_user=""; _selfheal_moth_pat=""
 
+            {{- include "bp-self-sovereign-cutover.skopeoFetch" . | nindent 12 }}
             self_heal_ensure_skopeo() {
               [ "${_selfheal_skopeo_ready}" = "1" ] && return 0
               if command -v skopeo >/dev/null 2>&1; then
@@ -651,22 +652,11 @@ data:
                 return 0
               fi
               echo "[egress-block-test] self-heal: skopeo not on PATH; downloading static binary (same pinned build step-03 harbor-prewarm uses)"
-              _sh_url="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
-              _sh_try=1
-              while [ "${_sh_try}" -le 3 ]; do
-                if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${_sh_url}" -o /work/skopeo 2>&1 \
-                  && chmod +x /work/skopeo \
-                  && /work/skopeo --version >/dev/null 2>&1; then
-                  export PATH="/work:${PATH}"
-                  _selfheal_skopeo_ready=1
-                  echo "[egress-block-test] self-heal: skopeo static binary installed: $(skopeo --version)"
-                  return 0
-                fi
-                echo "[egress-block-test] self-heal: skopeo download attempt ${_sh_try}/3 failed; retrying in 5s"
-                _sh_try=$((_sh_try+1))
-                sleep 5
-              done
-              rm -f /work/skopeo
+              if skopeo_fetch /work "[egress-block-test] self-heal:"; then
+                _selfheal_skopeo_ready=1
+                echo "[egress-block-test] self-heal: skopeo static binary installed: $(skopeo --version)"
+                return 0
+              fi
               echo "[egress-block-test] self-heal: skopeo unavailable after 3 download attempts — warm path disabled this run"
               return 1
             }
@@ -2874,18 +2864,20 @@ data:
              verdict to cover EVERY route to an empty POLICY_APPLIED, also one
              written later (measured 2026-08-14).
             */}}
-            {{- /*
-             Last step of the chain: past its verdict it releases kured's install hold in every region
-             (values rebootHold) by writing the ConfigMap slot 04b reads; one line per region (#7922).
-            */}}
+            {{- /* Releases kured's install hold in every region, retried; see values rebootHold. */}}
             reboot_hold_release() {
+              rh_left=""
               for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
                 [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
-                kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
-                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
-                  || { echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"; continue; }
-                echo "[egress-block-test] reboot hold released in region $(basename "${rh_kc:-primary}" .yaml): ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present; bp-kured (interval 1m) applies it within a minute"
+                rh_r=$(basename "${rh_kc:-primary}" .yaml); rh_try=1
+                until kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
+                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1; do
+                  [ "${rh_try}" -lt {{ .Values.rebootHold.releaseAttempts }} ] || { rh_left="${rh_left} ${rh_r}"; continue 2; }
+                  rh_try=$((rh_try + 1)); sleep {{ .Values.rebootHold.releaseRetrySeconds }}
+                done
+                echo "[egress-block-test] reboot hold released in region ${rh_r}: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present"
               done
+              [ -z "${rh_left}" ] || { echo "[egress-block-test] FATAL: the reboot hold is NOT released in region(s):${rh_left}: {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} not written in {{ .Values.rebootHold.releaseAttempts }} tries; cutoverComplete stays false" >&2; exit 1; }
             }
             {{- /* SOV-344 — a region whose Workspaces were not measured is named next to the verdict, never inside it. */}}
             if [ -s /work/ws_not_measured.txt ]; then

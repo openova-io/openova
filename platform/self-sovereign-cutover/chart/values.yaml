@@ -1723,6 +1723,30 @@ imageRegistryPivot:
     # instead of a sweep-induced ImagePullBackOff. Keep ON.
     presenceGate: true
 
+# THE ONE SKOPEO (_helpers.tpl, define skopeoFetch; these rules sit here because a
+# template's comments are stored in every Helm release Secret, #6004). Every site that
+# downloads skopeo reads these three values: step 03 (harbor-prewarm), the follower
+# prewarm, step 08's #5194 self-heal and the day-two reconciler's #5640 image leg (lazily,
+# warm mode only). Each calls skopeo_fetch only when no skopeo is on PATH: it downloads
+# printf(url, version), compares the file's sha256 with sha256 and runs it only if equal;
+# a file of another sha256 is deleted and fetched again. Three attempts, each curl
+# --max-time 600 with -C - so a partial download resumes (#2618: github.com is reached at
+# ~120-360 KB/s from HCS and the 39 MB binary needs 3-5 min). No apk fallback: the steps
+# run as non-root, so apk cannot install, and an apk skopeo would be a second, unpinned
+# version. url: the static builds of lework/skopeo-binary, GitHub release assets
+# (containers/skopeo ships no static binary). sha256: of that asset, computed on download
+# (22 Nov 2026), equal to the release's own skopeo-linux-amd64.sha256.
+# 1.16.1 (containers/image v5.32): skopeo 1.15.2 (v5.30.2) dropped the top-level
+# artifactType and subject of an OCI index when it copied a list, then refused under
+# --preserve-digests (step 03 Phase A5, 21 Nov 2026); v5.32.0 keeps them. The case whole of
+# tests/hermetic/provider-package-copy copies each OpenTofu provider package with skopeo
+# alone and requires equal digests; its control requires 1.15.2 to refuse the same copy.
+# offlinemirror_put_list (#8597) stays unchanged: such a list is still one registry-API PUT of its own bytes.
+skopeo:
+  version: "1.16.1"
+  url: "https://github.com/lework/skopeo-binary/releases/download/v%s/skopeo-linux-amd64"
+  sha256: "8813fb7fcd7a723196ac287683dd929d280f6fe7f0782eace452fe1e3ff2b7eb"
+
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run
 # BEFORE registries.yaml v2 takes effect on the node containerd.
@@ -1762,6 +1786,26 @@ images:
 # on demand at trigger time.
 registryPivot:
   enabled: true
+  # THE RULES OF A SWEEP of pivot.sh (the reconcile loop of the template; they
+  # sit here because a template's comments are stored in every Helm release
+  # Secret, #6004):
+  #   - The sweep reads the status ConfigMap once. A read that fails (the API
+  #     away, a 5xx or 429, the --max-time) is no answer: the node keeps the
+  #     state it has, logs a WARN and reads again next sweep. Only a read that
+  #     succeeds can change the state; a ConfigMap without registriesYamlActive
+  #     reads as v1 (the dormant first run). Before this rule a failed read gave
+  #     an empty value, read as v1, and a cut-over node rolled back: install-time
+  #     registry files, /etc/hosts pin removed, dfdaemon upstream back to ghcr.
+  #   - #5007: while v2 is desired, every sweep re-writes the local-registry
+  #     /etc/hosts pin (idempotent; heals a rewritten /etc/hosts and completes the
+  #     pin once the gateway VIP is assigned). On v1/rollback apply_state removes it.
+  #   - #4639: apply_state fires once per state, so v2 is re-applied while the
+  #     read shows dragonflyUpstream != local (the cluster-wide dfdaemon flip
+  #     missed on the first v2 sweep, e.g. the Harbor CA anchor or a patch).
+  #   - #4637: v2 is re-applied while the read shows no v2 ack of THIS node
+  #     (its dfdaemon was not serving on the first sweep, #4649); without it the
+  #     per-node ack wait of step 04 never reaches acks == desired.
+  #   - SOV-132: v2 is re-applied when k3s rewrote the pivoted names (a restart).
   # #4639 (Refs #4637) — Dragonfly P2P registry-pivot. THE GENERIC HAIRPIN KILL.
   #
   # Every node's containerd already mirrors through the node-LOCAL dfdaemon
@@ -2908,10 +2952,8 @@ daytwoReconciler:
     # step-03's PREWARM_COPY_ATTEMPTS default; proxy-sourced refs use
     # prewarm.proxyCopyAttempts (single-source with step-03/step-08).
     copyAttempts: 3
-    # The pinned skopeo static build step-03 harbor-prewarm and step-08's #5194
-    # self-heal already download. Fetched LAZILY and ONLY in warm mode, so
-    # detect keeps its zero-external-egress contract literally.
-    skopeoStaticURL: "https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+    # skopeo is the one of the top-level key skopeo, fetched LAZILY and ONLY in
+    # warm mode, so detect keeps its zero-external-egress contract literally.
     # Upper bound on refs probed per cycle, so a Sovereign with hundreds of
     # per-Org workloads cannot make one cycle unbounded. Raise on a large
     # Sovereign; the cycle is idempotent so the remainder is picked up next pass.
@@ -4072,8 +4114,15 @@ secondaryRegions:
 # no more). Each value is a plain string, so every Helm version merges it the
 # same way (a null that removes a key of a subchart is not kept by all of them).
 # The ConfigMap is created once and never changed; a re-run of the
-# step finds it and leaves it. The step prints one line per region: released,
-# or a WARNING naming the region whose write failed, which keeps its hold.
+# step finds it and leaves it. The step prints one line per region: released.
+# A region where neither the create nor the read of the ConfigMap succeeds is
+# tried again, releaseAttempts times in all, releaseRetrySeconds apart. A region
+# still not written after the last try is named in a FATAL and the step fails:
+# nothing else writes this ConfigMap and a completed chain never runs the step
+# again, so a release that failed once, with cutoverComplete=true, kept that
+# region's nodes from ever restarting. The failed step is retried like any step.
+# (The release function reboot_hold_release sits in 08-egress-block-test-job.yaml,
+# past the verdict; these comments sit here, #6004.)
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
@@ -4082,6 +4131,8 @@ rebootHold:
   namespace: flux-system
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
+  releaseAttempts: 12
+  releaseRetrySeconds: 10
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
   releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'
 

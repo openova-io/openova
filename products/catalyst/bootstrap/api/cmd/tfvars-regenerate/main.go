@@ -10,15 +10,17 @@
 // in place, so give the command a copy of the working directory.
 //
 // The request is the record's: every field that the record holds comes from
-// it. A record holds no credential and not every field of the request; those
-// fields are read from the kept file, under the key that writeTfvars writes
-// each one to, the way the wipe reads the cloud credentials back from it. The
-// fields that are not credentials are named in type kept below, with their
-// keys. The credentials are not named: a string field that the record does
-// not give back is one, and its key is found by writing a probe file with
-// writeTfvars (see credentials). The request is then validated, as Provision
-// validates it, against the cloud profiles of -providers (the providers
-// directory, by default the engine image's), and provisioner.WriteTfvars
+// it. A record holds every field of the request but the credentials; those
+// are read from the kept file, under the key that writeTfvars writes each one
+// to, the way the wipe reads the cloud credentials back from it. The
+// credentials are not named: a string field that the record does not give
+// back is one, and its key is found by writing a probe file with writeTfvars
+// (see credentials). A record written before the record kept the other
+// settings lacks them; type kept below names them with their keys, and they
+// are read from the kept file when the record holds them empty. The request
+// is then validated, as Provision validates it, against the cloud profiles
+// of -providers (the providers directory, by default the engine image's), and
+// provisioner.WriteTfvars
 // writes the file, checking the adapter's variables against the module
 // contract of the same directory. Of that directory the command reads
 // _contract/cloudprofile.schema.json, _contract/contract.json and
@@ -59,11 +61,13 @@ import (
 // tfvarsName is the variables file of a working directory.
 const tfvarsName = "tofu.auto.tfvars.json"
 
-// kept holds the request fields that a deployment record does not hold and
-// that are not credentials, under the keys of the variables file that
-// writeTfvars writes them to. A field of kept that is a string has the name of
-// its request field, so that credentials leaves it alone. The test
-// TestRoundTrip fails when a field of the request is missing here.
+// kept holds the request fields that are not credentials and that a record
+// written before the record kept them does not hold, under the keys of the
+// variables file that writeTfvars writes them to (Variables also gives
+// HANDOVER_AUTO, SOVEREIGN_TIME_ZONE and the MAIL_ keys). A field of kept that
+// is a string has the name of its request field. A record keeps every field
+// that is not a credential: TestTheRecordKeepsEveryFieldButTheCredentials
+// fails on one that it does not keep.
 type kept struct {
 	BcpTopology         string         `json:"bcp_topology"`
 	AdminCIDRs          []string       `json:"admin_cidrs"`
@@ -115,13 +119,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err := readJSON(path, &k); err != nil {
 		return fail(2, "kept file: %v", err)
 	}
-	req := fromRecord(rec)
-	fill(&req, k)
-	if err := credentials(&req, before); err != nil {
-		return fail(3, "find the keys of the credentials: %v", err)
-	}
-	if err := req.Validate(); err != nil {
-		return fail(3, "the engine refuses the request of the record: %v", err)
+	req, err := rebuild(rec, k, before)
+	if err != nil {
+		return fail(3, "%v", err)
 	}
 	if err := provisioner.WriteTfvars(*dir, req); err != nil {
 		return fail(3, "write %s: %v", path, err)
@@ -136,6 +136,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// rebuild is the request that the command writes the file for: the record's,
+// completed from the kept file, validated as Provision validates it.
+func rebuild(rec store.Record, k kept, file map[string]any) (provisioner.Request, error) {
+	req := fromRecord(rec)
+	fill(&req, k)
+	if err := credentials(&req, file); err != nil {
+		return req, fmt.Errorf("find the keys of the credentials: %v", err)
+	}
+	if err := req.Validate(); err != nil {
+		return req, fmt.Errorf("the engine refuses the request of the record: %v", err)
+	}
+	return req, nil
+}
+
 // fromRecord is the request that a record gives back.
 func fromRecord(rec store.Record) provisioner.Request {
 	req := rec.Request.ToProvisionerRequest()
@@ -143,22 +157,42 @@ func fromRecord(rec store.Record) provisioner.Request {
 	return req
 }
 
-// fill sets on req the fields of type kept, from the kept file.
+// fill sets on req, from the kept file, each field of type kept that the
+// record holds empty. A record written before the record kept these fields
+// holds none of them; for a newer one the kept file, written from the same
+// request, gives the value the engine derived from the empty field, so the
+// file comes out the same.
 func fill(req *provisioner.Request, k kept) {
-	req.BcpTopology = k.BcpTopology
-	req.AdminCIDRs = k.AdminCIDRs
-	if k.ConsoleIsolation != "" {
+	str := func(field *string, value string) {
+		if *field == "" {
+			*field = value
+		}
+	}
+	str(&req.BcpTopology, k.BcpTopology)
+	str(&req.QAFixturesNamespace, k.QAFixturesNamespace)
+	str(&req.QAOrganization, k.QAOrganization)
+	str(&req.ClusterMeshName, k.ClusterMeshName)
+	str(&req.GitopsBranch, k.GitopsBranch)
+	variable := func(key string) string { s, _ := k.Variables[key].(string); return s }
+	str(&req.SovereignTimeZone, variable("SOVEREIGN_TIME_ZONE"))
+	if req.AdminCIDRs == nil {
+		req.AdminCIDRs = k.AdminCIDRs
+	}
+	if req.ConsoleIsolationEnabled == nil && k.ConsoleIsolation != "" {
 		on := k.ConsoleIsolation == "true"
 		req.ConsoleIsolationEnabled = &on
 	}
-	req.EnableSharedPostgres = k.SharedPostgres == "true"
-	req.QATestEnabled = k.QATest == "true"
-	req.QAFixturesNamespace, req.QAOrganization = k.QAFixturesNamespace, k.QAOrganization
-	req.ClusterMeshName, req.ClusterMeshID = k.ClusterMeshName, k.ClusterMeshID
-	req.GitopsBranch = k.GitopsBranch
-	if auto, ok := k.Variables["HANDOVER_AUTO"].(string); ok && auto != "" {
+	req.EnableSharedPostgres = req.EnableSharedPostgres || k.SharedPostgres == "true"
+	req.QATestEnabled = req.QATestEnabled || k.QATest == "true"
+	if req.ClusterMeshID == 0 {
+		req.ClusterMeshID = k.ClusterMeshID
+	}
+	if auto := variable("HANDOVER_AUTO"); req.FireCutoverOnHandover == nil && auto != "" {
 		on := auto == "true"
 		req.FireCutoverOnHandover = &on
+	}
+	if req.MailRelay == nil && variable("MAIL_MODE") == "relay" {
+		req.MailRelay = &provisioner.MailRelay{Host: variable("MAIL_RELAY_HOST"), Port: variable("MAIL_RELAY_PORT"), From: variable("MAIL_FROM")}
 	}
 }
 

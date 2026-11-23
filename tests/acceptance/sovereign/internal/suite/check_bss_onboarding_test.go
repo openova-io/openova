@@ -41,6 +41,18 @@ type onboardWorld struct {
 	orgSlug                 string
 	deleted, revoked        bool
 
+	// The platform's delete: its answer (0: 204), whether it was called, and
+	// whether it removes the Organization (the storefront's delete alone does
+	// not, as measured on hw307). nsStaysB leaves the namespace in region b.
+	platformStatus  int
+	platformDeleted bool
+	nsStaysB        bool
+	// The console session: expired after the voucher is issued (a long run),
+	// and the console calls that answered 401.
+	expire  bool
+	expired bool
+	refused []string
+
 	// The Sovereign's own mailbox: its Secret per region, the reads of that
 	// Secret, the forwards started and ended, the mailboxes opened.
 	secrets                     map[string]string
@@ -88,6 +100,7 @@ const (
 	  {"id":"a-gh","slug":"ghost","deployable":true},{"id":"a-cs","slug":"comingsoon","deployable":false},{"id":"a-rd","slug":"redis","kind":"service","deployable":true}]`
 	onboardCheckout = `{"order_id":"o-1","paid_by_credit":true,"amount_baisa":2490,"price_source":"bss:OpenOva plans@2026-11-19"}`
 	onboardSession  = "console-session"
+	renewedSession  = "console-session-renewed"
 )
 
 func newOnboardWorld(t *testing.T) *onboardWorld {
@@ -101,10 +114,20 @@ func (w *onboardWorld) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	line := r.URL.Host + " " + r.Method + " " + r.URL.Path
-	if c, err := r.Cookie("catalyst_session"); err == nil && c.Value == onboardSession {
+	cookie := ""
+	if c, err := r.Cookie("catalyst_session"); err == nil {
+		cookie = c.Value
+	}
+	if cookie == onboardSession || cookie == renewedSession {
 		line += " session"
 	}
 	w.seen = append(w.seen, line)
+	if r.URL.Host == "console.sov.test" && w.expired && cookie == onboardSession {
+		w.refused = append(w.refused, r.Method+" "+r.URL.Path)
+		rw.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(rw, `{"error":"unauthenticated"}`)
+		return
+	}
 	var body map[string]any
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -116,8 +139,15 @@ func (w *onboardWorld) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	switch host, path := r.URL.Host, r.URL.Path; {
 	case host == "console.sov.test" && path == "/api/v1/org/billing/vouchers/issue":
-		w.issued = body
+		w.issued, w.expired = body, w.expire
 		out(w.issueStatus, `{"code":"VCH-ABCD2345","credit_omr":5}`)
+	case host == "console.sov.test" && path == "/api/v1/organizations/t-1" && r.Method == http.MethodDelete:
+		status := w.platformStatus
+		if status == 0 {
+			status = http.StatusNoContent
+		}
+		w.platformDeleted = status >= 200 && status <= 299
+		out(status, `{"error":"org-tenant-not-found"}`)
 	case host == "console.sov.test" && path == "/api/v1/org/billing/vouchers/revoke/VCH-ABCD2345":
 		w.revoked = true
 		out(404, `{"error":"voucher not valid"}`)
@@ -185,12 +215,17 @@ func (w *onboardWorld) Code(_ context.Context, address string) (string, error) {
 func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, args ...string) ([]byte, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	there := r.ID == "a" && w.orgSlug != "" && (!w.deleted || w.keepOrg)
+	// The Organization lives in region a until the platform deletes it; region
+	// b serves no kind Organization, as on hw307.
+	there := r.ID == "a" && w.orgSlug != "" && (!w.platformDeleted || w.keepOrg)
 	switch args[1] {
 	case "secret":
 		w.kubeCalls = append(w.kubeCalls, r.ID+" "+strings.Join(args, " "))
 		return []byte(w.secrets[r.ID]), nil
 	case "organizations.orgs.openova.io":
+		if r.ID == "b" {
+			return nil, fmt.Errorf("[b] kubectl get organizations.orgs.openova.io -o json: exit status 1: error: %s \"organizations.orgs.openova.io\"", notServed)
+		}
 		if !there {
 			return []byte(`{"items":[]}`), nil
 		}
@@ -206,7 +241,7 @@ func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, ar
 		}
 		return []byte(`{"items":[]}`), nil
 	case "namespace":
-		if there {
+		if there || (r.ID == "b" && w.nsStaysB && w.orgSlug != "") {
 			return []byte("namespace/" + w.orgSlug + "\n"), nil
 		}
 	}
@@ -225,6 +260,7 @@ func onboardRun(t *testing.T, w *onboardWorld) *runner {
 		tag:       func() string { return "TAG1" }}
 	console := api.New("https://console.sov.test", onboardSession)
 	console.HTTP.Transport = w
+	console.Renew = &api.Renewal{Mint: func(context.Context) (string, error) { return renewedSession, nil }}
 	cc := &CheckContext{RunIn: RunInCloud, API: console, Regions: []kube.Region{{ID: "a"}, {ID: "b"}}}
 	r := &runner{out: io.Discard, run: &Run{Mode: "run", Steps: []*Step{priceListD01()}}}
 	m := &Manifest{Checks: []ManifestCheck{entry(onboardID, StateExpectedFail)}}
@@ -284,17 +320,56 @@ func TestOnboardingJourneyPasses(t *testing.T) {
 	if strings.Join(w.opened, ",") != "imap.test:993||gate|pw" || len(w.forwards) != 0 || len(w.kubeCalls) != 0 {
 		t.Errorf("the gate lane's mailbox: opened %v, forwards %v, Secret reads %v", w.opened, w.forwards, w.kubeCalls)
 	}
-	if !w.deleted || !w.revoked {
-		t.Errorf("clean-up: deleted=%t revoked=%t", w.deleted, w.revoked)
+	if !w.deleted || !w.platformDeleted || !w.revoked {
+		t.Errorf("clean-up: deleted by the owner %t, by the platform %t, voucher revoked %t", w.deleted, w.platformDeleted, w.revoked)
+	}
+	if ev := onboardStep(r, "BSS-G01.9").Evidence; ev["platform_delete_http"] != http.StatusNoContent || fmt.Sprint(ev["left"]) != "[]" {
+		t.Errorf("step 9 evidence: %v", ev)
 	}
 	for _, s := range w.seen {
 		console := strings.HasPrefix(s, "console.sov.test ")
 		if console != strings.HasSuffix(s, " session") {
 			t.Errorf("request %q: the console session goes to the console and nowhere else", s)
 		}
-		if console && !strings.Contains(s, "/vouchers/") {
-			t.Errorf("console request %q: the journey makes no console call but the voucher", s)
+		if console && !strings.Contains(s, "/vouchers/") && s != "console.sov.test DELETE /api/v1/organizations/t-1 session" {
+			t.Errorf("console request %q: the journey makes no console call but the voucher and the platform's delete", s)
 		}
+	}
+}
+
+// The storefront's delete ends the subscription and leaves the Organization,
+// as on hw307: the clean-up passes only because the platform deletes it, and
+// the region that serves no kind Organization holds none.
+func TestOnboardingCleanUpAsksThePlatform(t *testing.T) {
+	w := newOnboardWorld(t)
+	r := onboardRun(t, w)
+	if got := onboardStep(r, "BSS-G01.9"); got == nil || got.Status != Pass {
+		t.Fatalf("step 9: %+v", got)
+	}
+	var calls []string
+	for _, s := range w.seen {
+		if strings.Contains(s, " DELETE ") {
+			calls = append(calls, s)
+		}
+	}
+	want := "marketplace.sov.test DELETE /api/tenant/orgs/t-1,console.sov.test DELETE /api/v1/organizations/t-1 session," +
+		"console.sov.test DELETE /api/v1/org/billing/vouchers/revoke/VCH-ABCD2345 session"
+	if strings.Join(calls, ",") != want {
+		t.Errorf("deletes:\n got %s\nwant %s", strings.Join(calls, ","), want)
+	}
+}
+
+// A run that lasts longer than its session: the console refuses the
+// clean-up's calls, the session is renewed once and each call is sent again.
+func TestOnboardingCleanUpRenewsAnExpiredSession(t *testing.T) {
+	w := newOnboardWorld(t)
+	w.expire = true
+	r := onboardRun(t, w)
+	if got := r.run.Checks[0]; got.Status != Pass {
+		t.Fatalf("want PASS, got %s %q; steps %v", got.Status, got.Reason, onboardSteps(r))
+	}
+	if strings.Join(w.refused, ",") != "DELETE /api/v1/organizations/t-1" || !w.platformDeleted || !w.revoked {
+		t.Errorf("refused %v, deleted by the platform %t, revoked %t: want the first console call refused, then both done", w.refused, w.platformDeleted, w.revoked)
 	}
 }
 
@@ -344,7 +419,15 @@ func TestOnboardingJourneyFails(t *testing.T) {
 		{"the quote is priced from another list", "BSS-G01.8", "the quote of plan id-s is 3000 baisa and the price book shows 2.490 for plan.s", func(w *onboardWorld) {
 			w.quote, w.quoteStatus = `{"amount_baisa":3000}`, 200
 		}},
-		{"the Organization stays", "BSS-G01.9", "the Organization g01-tag1 is not gone", func(w *onboardWorld) { w.keepOrg = true }},
+		{"the Organization stays", "BSS-G01.9", "the Organization g01-tag1 is not gone after 60ms: left Organization g01-tag1 in a, Namespace g01-tag1 in a " +
+			"(the storefront's delete answered 2xx; DELETE /api/v1/organizations/t-1 answered 204)", func(w *onboardWorld) { w.keepOrg = true }},
+		{"the platform does not know the Organization", "BSS-G01.9", "left Organization g01-tag1 in a, Namespace g01-tag1 in a " +
+			"(the storefront's delete answered 2xx; DELETE /api/v1/organizations/t-1 answered 404)", func(w *onboardWorld) { w.platformStatus = 404 }},
+		{"the platform's delete fails", "BSS-G01.9", "the platform's delete: DELETE /api/v1/organizations/t-1: HTTP 502", func(w *onboardWorld) { w.platformStatus = 502 }},
+		{"the namespace stays in region b", "BSS-G01.9", "left Namespace g01-tag1 in b (", func(w *onboardWorld) { w.nsStaysB = true }},
+		{"the renewed session is refused too", "BSS-G01.9", "the platform's delete: DELETE /api/v1/organizations/t-1: HTTP 401 again with a renewed session", func(w *onboardWorld) {
+			w.expire, w.platformStatus = true, 401
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newOnboardWorld(t)

@@ -15,8 +15,12 @@
 #       create per region (the primary and each mounted kubeconfig), into the
 #       namespace, name and key of values.yaml; one "released" line per region
 #       (#7922: the step said nothing when it worked); an existing ConfigMap is
-#       left and is no error; a region where the write fails is named in a
-#       WARNING, gets no "released" line, and the step still ends with status 0;
+#       left and is no error; a region whose write fails twice is written on
+#       the third try; a region where the write keeps failing is tried
+#       rebootHold.releaseAttempts times, the next region is still written,
+#       it gets no "released" line, a FATAL names it and the step fails (a
+#       completed chain never runs the step again: a status 0 here left that
+#       region held for good, with cutoverComplete=true);
 #   (c) slot 04b reads exactly that ConfigMap and key, optional, and reconciles
 #       every minute (#7922: helm-controller does not watch the ConfigMap, and at
 #       15m the release landed 2m19s and 13m07s after it on hw307);
@@ -103,24 +107,30 @@ PY
 echo "[reboot-hold] (b) the rendered release, run against a recording kubectl"
 mkdir -p "${TMP}/bin" "${TMP}/kc"
 : >"${TMP}/kc/me-east-b-1.yaml"; : >"${TMP}/kc/me-east-c-1.yaml"
-# The stub records every call. CREATE_FAILS / GET_FAILS hold the regions where that verb fails.
+# The stub records every call. CREATE_FAILS / GET_FAILS hold the regions where that verb fails;
+# a create of a CREATE_FAILS region fails its first FAIL_TIMES calls only. sleep is recorded.
 cat >"${TMP}/bin/kubectl" <<'STUB'
 #!/bin/sh
 region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
 printf '%s|%s\n' "${region}" "$*" >>"${RECORD}"
 case " $* " in
-  *" create configmap "*) case " ${CREATE_FAILS:-} " in *" ${region} "*) echo "error: configmaps already exists or the API is away" >&2; exit 1;; esac;;
+  *" create configmap "*) case " ${CREATE_FAILS:-} " in *" ${region} "*)
+    n=$(( $(cat "${RECORD}.${region}" 2>/dev/null || echo 0) + 1 )); echo "${n}" >"${RECORD}.${region}"
+    [ "${n}" -gt "${FAIL_TIMES}" ] || { echo "error: configmaps already exists or the API is away" >&2; exit 1; };; esac;;
   *" get configmap "*) case " ${GET_FAILS:-} " in *" ${region} "*) echo "Error from server (NotFound)" >&2; exit 1;; esac;;
 esac
 exit 0
 STUB
-chmod +x "${TMP}/bin/kubectl"
+printf '#!/bin/sh\necho "sleep $*" >>"${RECORD}.sleep"\n' >"${TMP}/bin/sleep"
+chmod +x "${TMP}/bin/kubectl" "${TMP}/bin/sleep"
 sed "s#/secondary-kubeconfigs/#${TMP}/kc/#g" "${TMP}/release.sh" >"${TMP}/release-local.sh"
 printf 'reboot_hold_release\n' >>"${TMP}/release-local.sh"
-run_release() { # $1 = regions whose create fails, $2 = regions whose get fails
-  : >"${TMP}/record.txt"
-  RECORD="${TMP}/record.txt" CREATE_FAILS="$1" GET_FAILS="$2" PATH="${TMP}/bin:${PATH}" sh -eu "${TMP}/release-local.sh" >"${TMP}/out.txt" 2>&1
+ATTEMPTS=$(sed -n 's/.*\[ "${rh_try}" -lt \([0-9][0-9]*\) \].*/\1/p' "${TMP}/release.sh")
+if [ -z "${ATTEMPTS}" ] || [ "${ATTEMPTS}" -le 1 ]; then fail "the release states no number of tries above 1 ('${ATTEMPTS}')"; fi
+run_release() { # $1 = regions whose create fails, $2 = regions whose get fails, $3 = how many creates fail (default all)
+  : >"${TMP}/record.txt"; rm -f "${TMP}/record.txt".*
+  RECORD="${TMP}/record.txt" CREATE_FAILS="$1" GET_FAILS="$2" FAIL_TIMES="${3:-100000}" PATH="${TMP}/bin:${PATH}" sh -eu "${TMP}/release-local.sh" >"${TMP}/out.txt" 2>&1
 }
 
 if run_release "" ""; then pass "the release ends with status 0"; else fail "the release ended non-zero: $(cat "${TMP}/out.txt")"; fi
@@ -137,18 +147,24 @@ if [ "$(released)" = 3 ] && [ "$(wc -l <"${TMP}/out.txt")" = 3 ] \
   pass "one 'released' line per region, nothing else, when every region is written"
 else fail "output on the good path: $(cat "${TMP}/out.txt")"; fi
 
-if run_release "primary me-east-b-1 me-east-c-1" "" && [ "$(released)" = 3 ] && ! grep -q WARNING "${TMP}/out.txt" \
-   && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ]; then
-  pass "a re-run finds the ConfigMap in every region: status 0, no warning, each region said released"
+if run_release "primary me-east-b-1 me-east-c-1" "" && [ "$(released)" = 3 ] && ! grep -q FATAL "${TMP}/out.txt" \
+   && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ] && [ ! -e "${TMP}/record.txt.sleep" ]; then
+  pass "a re-run finds the ConfigMap in every region: status 0, no FATAL, no retry, each region said released"
 else fail "a re-run with the ConfigMap present: $(cat "${TMP}/out.txt")"; fi
 
+if run_release "me-east-b-1" "me-east-b-1" 2 && [ "$(released)" = 3 ] && ! grep -q FATAL "${TMP}/out.txt" \
+   && [ "$(grep -c '^me-east-b-1|.* create configmap ' "${TMP}/record.txt")" = 3 ] && [ "$(grep -c . "${TMP}/record.txt.sleep")" = 2 ]; then
+  pass "a region whose write fails twice is written on the third try, after two waits, and said released: status 0"
+else fail "a region that fails twice: output: $(cat "${TMP}/out.txt") tries: $(grep -c '^me-east-b-1|.* create configmap ' "${TMP}/record.txt")"; fi
+
 if run_release "me-east-b-1" "me-east-b-1"; then
-  if grep -q "WARNING: the reboot hold of region me-east-b-1 is NOT released" "${TMP}/out.txt" && [ "$(grep -c WARNING "${TMP}/out.txt")" = 1 ] \
+  fail "a region whose hold cannot be released let the step end with status 0: $(cat "${TMP}/out.txt")"
+elif grep -q "FATAL: the reboot hold is NOT released in region(s): me-east-b-1:" "${TMP}/out.txt" \
      && [ "$(released)" = 2 ] && ! grep -q "released in region me-east-b-1:" "${TMP}/out.txt" \
+     && [ "$(grep -c '^me-east-b-1|.* create configmap ' "${TMP}/record.txt")" = "${ATTEMPTS}" ] \
      && grep -q '^me-east-c-1|.* create configmap ' "${TMP}/record.txt"; then
-    pass "a region that cannot be written is named in one WARNING and not said released, the next region is still written, status 0"
-  else fail "a failed region: output: $(cat "${TMP}/out.txt")"; fi
-else fail "a failed region made the step fail after its verdict"; fi
+  pass "a region that cannot be written is tried ${ATTEMPTS} times, not said released, named in a FATAL, the next region is still written, and the step fails"
+else fail "a failed region: output: $(cat "${TMP}/out.txt") tries: $(grep -c '^me-east-b-1|.* create configmap ' "${TMP}/record.txt")"; fi
 
 echo "[reboot-hold] (c) slot 04b reads the ConfigMap the step writes"
 python3 - "${SLOT}" <<'PY' && pass "slot 04b reconciles every minute, so the release lands within a minute of the ConfigMap" || fail "slot 04b reconciles less often than every minute: helm-controller does not watch the ConfigMap, so the hold outlives the chain by up to that interval"

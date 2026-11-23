@@ -131,12 +131,14 @@ func TestSaveAndLoadAll_RoundTripsRecord(t *testing.T) {
 		ID:     "abcdef0123456789",
 		Status: "ready",
 		Request: Redact(provisioner.Request{
-			OrgName:          "Omantel",
-			SovereignFQDN:    "omantel.omani.works",
-			Region:           "fsn1",
-			Credentials:      map[string]string{"hcloud_token": "leaked-if-broken"},
-			DynadotAPIKey:    "leaked-if-broken",
-			DynadotAPISecret: "leaked-if-broken",
+			OrgName:           "Omantel",
+			SovereignFQDN:     "omantel.omani.works",
+			SovereignTimeZone: "Asia/Muscat",
+			MailRelay:         &provisioner.MailRelay{Host: "smtp.example.org", From: "noreply@example.org"},
+			Region:            "fsn1",
+			Credentials:       map[string]string{"hcloud_token": "leaked-if-broken"},
+			DynadotAPIKey:     "leaked-if-broken",
+			DynadotAPISecret:  "leaked-if-broken",
 		}),
 		Result: &provisioner.Result{
 			SovereignFQDN:  "omantel.omani.works",
@@ -207,6 +209,15 @@ func TestSaveAndLoadAll_RoundTripsRecord(t *testing.T) {
 	}
 	if g.Request.Credentials["hcloud_token"] != redactedMarker {
 		t.Errorf("HetznerToken on disk should be %q, got %q", redactedMarker, g.Request.Credentials["hcloud_token"])
+	}
+	// The Sovereign's time zone and its mail relay are settings, not
+	// credentials: a reloaded deployment keeps them (INF-054, SOV-323).
+	back := g.Request.ToProvisionerRequest()
+	if back.SovereignTimeZone != "Asia/Muscat" {
+		t.Errorf("SovereignTimeZone round-trip: %q, want Asia/Muscat", back.SovereignTimeZone)
+	}
+	if back.MailRelay == nil || back.MailRelay.Host != "smtp.example.org" || back.MailRelay.From != "noreply@example.org" {
+		t.Errorf("MailRelay round-trip: %+v", back.MailRelay)
 	}
 }
 

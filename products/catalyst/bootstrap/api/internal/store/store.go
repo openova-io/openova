@@ -254,6 +254,26 @@ type RedactedRequest struct {
 	// stripped the bit and /settings/marketplace toggle defaulted to
 	// disabled even on a marketplace-enabled Sovereign.
 	MarketplaceEnabled bool `json:"marketplaceEnabled,omitempty"`
+
+	// The rest of the request's settings, none of them a credential, kept
+	// verbatim so that a reloaded record and a variables file written again
+	// from it (cmd/tfvars-regenerate) agree with the install. A field added
+	// to provisioner.Request that is not a credential belongs here, in Redact
+	// and in ToProvisionerRequest; cmd/tfvars-regenerate's
+	// TestTheRecordKeepsEveryFieldButTheCredentials fails until it is.
+	SovereignTimeZone       string                 `json:"sovereignTimeZone,omitempty"`
+	BcpTopology             string                 `json:"bcpTopology,omitempty"`
+	AdminCIDRs              []string               `json:"adminCIDRs,omitempty"`
+	ConsoleIsolationEnabled *bool                  `json:"consoleIsolationEnabled,omitempty"`
+	EnableSharedPostgres    bool                   `json:"enableSharedPostgres,omitempty"`
+	QATestEnabled           bool                   `json:"qaTestEnabled,omitempty"`
+	FireCutoverOnHandover   *bool                  `json:"fireCutoverOnHandover,omitempty"`
+	MailRelay               *provisioner.MailRelay `json:"mailRelay,omitempty"` // host, port and sender; the relay's login is a Secret of the Sovereign
+	QAFixturesNamespace     string                 `json:"qaFixturesNamespace,omitempty"`
+	QAOrganization          string                 `json:"qaOrganization,omitempty"`
+	ClusterMeshName         string                 `json:"clusterMeshName,omitempty"`
+	ClusterMeshID           int                    `json:"clusterMeshId,omitempty"`
+	GitopsBranch            string                 `json:"gitopsBranch,omitempty"`
 }
 
 // Redact returns a RedactedRequest derived from req with every
@@ -291,6 +311,20 @@ func Redact(req provisioner.Request) RedactedRequest {
 		ObjectStorageBucket: req.ObjectStorageBucket,
 		// PR P (2026-05-17): MarketplaceEnabled preserved through redact path.
 		MarketplaceEnabled: req.MarketplaceEnabled,
+
+		SovereignTimeZone:       req.SovereignTimeZone,
+		BcpTopology:             req.BcpTopology,
+		AdminCIDRs:              req.AdminCIDRs,
+		ConsoleIsolationEnabled: req.ConsoleIsolationEnabled,
+		EnableSharedPostgres:    req.EnableSharedPostgres,
+		QATestEnabled:           req.QATestEnabled,
+		FireCutoverOnHandover:   req.FireCutoverOnHandover,
+		MailRelay:               req.MailRelay,
+		QAFixturesNamespace:     req.QAFixturesNamespace,
+		QAOrganization:          req.QAOrganization,
+		ClusterMeshName:         req.ClusterMeshName,
+		ClusterMeshID:           req.ClusterMeshID,
+		GitopsBranch:            req.GitopsBranch,
 	}
 	// Credentials: present-and-non-empty → redactedMarker; empty → empty.
 	// This is the test-load-bearing branch for TestRedact_OmitsAllSecrets.
@@ -406,6 +440,20 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		ObjectStorageAccessKey: r.ObjectStorageAccessKey,
 		ObjectStorageSecretKey: r.ObjectStorageSecretKey,
 		MarketplaceEnabled:     r.MarketplaceEnabled,
+
+		SovereignTimeZone:       r.SovereignTimeZone,
+		BcpTopology:             r.BcpTopology,
+		AdminCIDRs:              r.AdminCIDRs,
+		ConsoleIsolationEnabled: r.ConsoleIsolationEnabled,
+		EnableSharedPostgres:    r.EnableSharedPostgres,
+		QATestEnabled:           r.QATestEnabled,
+		FireCutoverOnHandover:   r.FireCutoverOnHandover,
+		MailRelay:               r.MailRelay,
+		QAFixturesNamespace:     r.QAFixturesNamespace,
+		QAOrganization:          r.QAOrganization,
+		ClusterMeshName:         r.ClusterMeshName,
+		ClusterMeshID:           r.ClusterMeshID,
+		GitopsBranch:            r.GitopsBranch,
 	}
 }
 

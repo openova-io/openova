@@ -253,6 +253,12 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	if spec.SovereignFQDN == "" {
 		return nil, errors.New("huawei provider: SovereignFQDN required for Wipe")
 	}
+	// Every destructive call below selects by this deployment's identity
+	// (deployment_scope.go), never by the Sovereign's name alone.
+	scope, err := newDeploymentScope(spec.SovereignFQDN, spec.DeploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("huawei provider: Wipe refused: %w", err)
+	}
 	hw, err := credsFromProviderCreds(spec.Creds)
 	if err != nil {
 		return nil, err
@@ -270,7 +276,7 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 
 	// Step 0 (CLD-116) — remove first what the destroy cannot remove here.
 	removeBeforeDestroy(ctx, beforeDestroyCloud{client: client, hw: hw, region: region,
-		sovereignFQDN: spec.SovereignFQDN, deployment: spec.DeploymentID, progress: progress}, out)
+		sovereignFQDN: spec.SovereignFQDN, deployment: spec.DeploymentID, scope: scope, progress: progress}, out)
 
 	// Step 1 — tofu destroy. Build a destroy Request that carries the
 	// Huawei creds parsed from spec.Creds so writeTfvars renders a
@@ -334,14 +340,14 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// helper exclude it).
 	const maxPurgePasses = 6
 	for pass := 1; pass <= maxPurgePasses; pass++ {
-		if err := purgeHuaweiResources(ctx, client, hw, region, spec.SovereignFQDN, spec.DeploymentID, progress, out); err != nil {
+		if err := purgeHuaweiResources(ctx, client, hw, region, scope, spec.DeploymentID, progress, out); err != nil {
 			out.Errors = append(out.Errors, "huawei orphan purge: "+err.Error())
 		}
 		// Fresh verify each pass — reset the residual map + flag so a
 		// clean pass doesn't inherit stale entries from a prior one.
 		out.ResidualOrphans = map[string][]string{}
 		out.VerifiedZeroOrphans = false
-		verifyZeroOrphans(ctx, client, hw, region, spec.SovereignFQDN, progress, out)
+		verifyZeroOrphans(ctx, client, hw, region, scope, progress, out)
 		// #4046 (2026-06-21 live audit): break on the FULL zero-orphans
 		// verdict, not just the 3-kind quota sum (networks/nat_gateways/
 		// floating_ips). The old quota-only condition broke the retry the
@@ -426,14 +432,11 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	endpoint := obsEndpointFor(region)
 	bucketCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	removed, berr := purgeOBSBuckets(bucketCtx, endpoint, hw, region, spec.SovereignFQDN, progress)
+	removed, berr := purgeOBSBuckets(bucketCtx, endpoint, hw, region, scope, progress)
 	if berr != nil {
 		out.Errors = append(out.Errors, "obs bucket purge: "+berr.Error())
 	}
-	prefix := BucketNamePrefixForSovereign(spec.SovereignFQDN)
-	for i := 0; i < removed; i++ {
-		out.S3Buckets = append(out.S3Buckets, prefix+"-*")
-	}
+	out.S3Buckets = append(out.S3Buckets, removed...)
 
 	// Step 4 (#5028) — the detached volumes of the storage driver.
 	p.reapDetachedVolumes(ctx, spec, hw, region, progress)
@@ -483,59 +486,34 @@ func wipeRetryShouldBreak(out *providers.WipeResult) bool {
 	return out.VerifiedZeroOrphans
 }
 
-// verifyZeroOrphans walks every cleanup-bearing resource kind and
-// records any catalyst-<stem>- prefixed entries (excluding bastion-*)
-// in out.ResidualOrphans. Sets out.VerifiedZeroOrphans=true when the
-// scan finds zero residuals across every kind — that is the canonical
-// "wipe was complete" signal the operator + CI gate read.
+// verifyZeroOrphans walks every cleanup-bearing resource kind and records
+// in out.ResidualOrphans what still carries the wiped deployment's identity
+// (deployment_scope.go; the bastion never matches). Sets
+// out.VerifiedZeroOrphans=true when the scan finds zero residuals across
+// every kind — that is the canonical "wipe was complete" signal the operator
+// + CI gate read. Another deployment's resources, and an address without a
+// name, are not this wipe's residuals: counting them kept a wipe from ever
+// verifying while another Sovereign of the same FQDN ran.
 //
 // G103 (Refs #2670) acceptance: post-wipe account must contain
-// 0 catalyst-* VPCs / EIPs / NATs / ECSs / keypairs (the bastion-*
-// fleet is hard-protected throughout this codebase per
-// memory feedback_hcs_kom4dc_wipe_cascade_quirks bastion-IP
-// preservation rule).
-func verifyZeroOrphans(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
-	if sovereignFQDN == "" {
-		return
-	}
+// 0 VPCs / EIPs / NATs / ECSs / keypairs of the deployment.
+func verifyZeroOrphans(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope, progress func(msg string), out *providers.WipeResult) {
 	progress("verifying zero orphans (G103 #2670 post-wipe gate)")
 	if out.ResidualOrphans == nil {
 		out.ResidualOrphans = map[string][]string{}
 	}
 
 	// ECS residuals.
-	if servers, err := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, ""); err == nil {
+	if servers, err := listECSByNamePrefix(ctx, client, hw, region, scope); err == nil {
 		for _, s := range servers {
-			if strings.HasPrefix(s.Name, "bastion") || strings.Contains(s.Name, "bastion") {
-				continue
-			}
 			out.ResidualOrphans["servers"] = append(out.ResidualOrphans["servers"], s.Name)
 		}
 	}
 
-	// EIP residuals — name-prefix-matched (catalyst-<stem>- bandwidth name).
+	// EIP residuals — the deployment's bandwidth name.
 	eipSeen := map[string]bool{}
-	if eips, err := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, ""); err == nil {
+	if eips, err := listEIPsByNamePrefix(ctx, client, hw, region, scope); err == nil {
 		for _, e := range eips {
-			if strings.HasPrefix(e.Address, "bastion") {
-				continue
-			}
-			if eipSeen[e.Address] {
-				continue
-			}
-			eipSeen[e.Address] = true
-			out.ResidualOrphans["floating_ips"] = append(out.ResidualOrphans["floating_ips"], e.Address)
-		}
-	}
-	// #4636 — UNBOUND / nameless EIP residuals. The name-prefix scan above
-	// is blind to an EIP that has no catalyst-<stem>- bandwidth name (the
-	// live 212.72.24.36 leak on the 8fd457a8 wipe). Sweep the WHOLE project
-	// for NON-bastion UNBOUND (port_id == "") EIPs and record any survivor
-	// so the G103 zero-orphans verdict FAILS instead of falsely passing.
-	// The bastion EIP is BOUND (port_id set) + literal-IP/name guarded, so
-	// it is never flagged.
-	if orphanEIPs, err := listUnboundOrphanEIPs(ctx, client, hw, region); err == nil {
-		for _, e := range orphanEIPs {
 			if eipSeen[e.Address] {
 				continue
 			}
@@ -545,68 +523,36 @@ func verifyZeroOrphans(ctx context.Context, client *http.Client, hw hwCreds, reg
 	}
 
 	// NAT residuals.
-	if nats, err := listNATsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+	if nats, err := listNATsByName(ctx, client, hw, region, scope); err == nil {
 		for _, n := range nats {
-			if strings.HasPrefix(n.Name, "bastion") {
-				continue
-			}
 			out.ResidualOrphans["nat_gateways"] = append(out.ResidualOrphans["nat_gateways"], n.Name)
 		}
 	}
 
 	// VPC residuals.
-	if vpcs, err := listVPCsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+	if vpcs, err := listVPCsByName(ctx, client, hw, region, scope); err == nil {
 		for _, v := range vpcs {
-			if strings.HasPrefix(v.Name, "bastion") {
-				continue
-			}
 			out.ResidualOrphans["networks"] = append(out.ResidualOrphans["networks"], v.Name)
 		}
 	}
 
 	// SG residuals.
-	if sgs, err := listSGsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+	if sgs, err := listSGsByName(ctx, client, hw, region, scope); err == nil {
 		for _, sg := range sgs {
-			if strings.HasPrefix(sg.Name, "bastion") {
-				continue
-			}
 			out.ResidualOrphans["firewalls"] = append(out.ResidualOrphans["firewalls"], sg.Name)
 		}
 	}
 
 	// ELB residuals.
-	if elbs, err := listELBsByName(ctx, client, hw, region, sovereignFQDN); err == nil {
+	if elbs, err := listELBsByName(ctx, client, hw, region, scope.owns); err == nil {
 		for _, lb := range elbs {
-			if strings.HasPrefix(lb.Name, "bastion") {
-				continue
-			}
 			out.ResidualOrphans["load_balancers"] = append(out.ResidualOrphans["load_balancers"], lb.Name)
 		}
 	}
 
-	// Keypair residuals — list ALL keypairs in project, filter by stem
-	// prefix excluding bastion. Mirrors sweepKeypairs's listing logic.
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
-	kpBase := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), hw.ProjectID)
-	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, kpBase, nil)
-	var keyList struct {
-		Keypairs []struct {
-			Keypair struct {
-				Name string `json:"name"`
-			} `json:"keypair"`
-		} `json:"keypairs"`
-	}
-	_ = json.Unmarshal(resp, &keyList)
-	for _, k := range keyList.Keypairs {
-		name := k.Keypair.Name
-		if strings.HasPrefix(name, "bastion") || strings.Contains(name, "bastion") {
-			continue
-		}
-		if !strings.HasPrefix(name, prefix) {
-			continue
-		}
-		out.ResidualOrphans["keypairs"] = append(out.ResidualOrphans["keypairs"], name)
+	// Keypair residuals.
+	if kps := listKeypairs(client, hw, region, scope); len(kps) > 0 {
+		out.ResidualOrphans["keypairs"] = append(out.ResidualOrphans["keypairs"], kps...)
 	}
 
 	// Compute the zero-orphans verdict + log the residuals (if any) so
@@ -672,9 +618,13 @@ func (p *Provider) ListServers(ctx context.Context, deploymentID, sovereignFQDN 
 // listECSByNamePrefix. This exposes that same fallback read-only, so a zero
 // tag-scoped inventory is never mistaken for "infra gone" on HCS.
 func (p *Provider) HasServersByNamePrefix(ctx context.Context, ak, sk, projectID, region, sovereignFQDN, deploymentID string) (bool, error) {
+	scope, err := newDeploymentScope(sovereignFQDN, deploymentID)
+	if err != nil {
+		return false, err
+	}
 	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
 	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
-	servers, err := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	servers, err := listECSByNamePrefix(ctx, client, hw, region, scope)
 	if err != nil {
 		return false, err
 	}
@@ -865,7 +815,7 @@ func buildECSTagFilterBody(deploymentID, sovereignFQDN string) []byte {
 // catalyst-<sovereign-stem>-<dep-id-short>-* identifies catalyst-owned
 // ECSs regardless of tag state, and excluding by stem keeps neighbor
 // Sovereigns' ECSs safe.
-func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string, progress func(msg string), out *providers.WipeResult) error {
+func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope, deploymentID string, progress func(msg string), out *providers.WipeResult) error {
 	// Wave 5.153 (2026-05-27): full cascade purge in proper dependency
 	// order. Prior versions only handled ECS+EIP+SG+VPC — but ELB,
 	// listeners, pools, NAT gateways with snat_rules, and subnet ports
@@ -888,11 +838,11 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	//   8. VPC (last — only after all subnets gone)
 
 	// 1. ECS — delete first. tag + name-prefix union for full coverage.
-	servers, err := listECSByTag(ctx, client, hw, region, deploymentID, sovereignFQDN)
+	servers, err := listECSByTag(ctx, client, hw, region, deploymentID, "")
 	if err != nil {
 		out.Errors = append(out.Errors, "list ECS by tag: "+err.Error())
 	}
-	byName, nerr := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	byName, nerr := listECSByNamePrefix(ctx, client, hw, region, scope)
 	if nerr != nil {
 		out.Errors = append(out.Errors, "list ECS by name-prefix: "+nerr.Error())
 	}
@@ -917,7 +867,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 
 	// 2. ELB cascade (Wave 5.153) — listeners → pools → members →
 	// healthmonitors → LB. This frees ELB-attached EIPs.
-	elbs, eerr := listELBsByName(ctx, client, hw, region, sovereignFQDN)
+	elbs, eerr := listELBsByName(ctx, client, hw, region, scope.owns)
 	if eerr != nil {
 		out.Errors = append(out.Errors, "list ELB: "+eerr.Error())
 	}
@@ -934,7 +884,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	// itself. NAT.0205 "Rule has not been deleted" was the consistent
 	// HCS rejection witnessed on hw29/hw30/hw31 when canonical wipe
 	// tried to delete NAT without clearing rules first.
-	nats, naterr := listNATsByName(ctx, client, hw, region, sovereignFQDN)
+	nats, naterr := listNATsByName(ctx, client, hw, region, scope)
 	if naterr != nil {
 		out.Errors = append(out.Errors, "list NAT: "+naterr.Error())
 	}
@@ -949,11 +899,11 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 
 	// 4. EIP — by-tag (returns 0 with tags disabled) + name-prefix
 	// fallback so untagged EIPs still get found.
-	eips, err := listEIPsByTag(ctx, client, hw, region, deploymentID, sovereignFQDN)
+	eips, err := listEIPsByTag(ctx, client, hw, region, deploymentID)
 	if err != nil {
 		out.Errors = append(out.Errors, "list EIP by tag: "+err.Error())
 	}
-	eipsByName, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	eipsByName, _ := listEIPsByNamePrefix(ctx, client, hw, region, scope)
 	eipSeen := map[string]bool{}
 	for _, e := range eips {
 		eipSeen[e.ID] = true
@@ -992,7 +942,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 			progress(fmt.Sprintf("deleted EIP %s (pass %d)", e.Address, pass))
 		}
 		// Re-list to verify; drop any IDs that came back from the dead.
-		stillThere, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+		stillThere, _ := listEIPsByNamePrefix(ctx, client, hw, region, scope)
 		survived := map[string]bool{}
 		for _, e := range stillThere {
 			survived[e.ID] = true
@@ -1017,31 +967,17 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	}
 	// Any EIPs that survived all 3 passes — surface them so the
 	// operator + the next prov see real residual.
-	stillStuck, _ := listEIPsByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	stillStuck, _ := listEIPsByNamePrefix(ctx, client, hw, region, scope)
 	for _, e := range stillStuck {
 		out.Errors = append(out.Errors, fmt.Sprintf("EIP %s survived %d wipe passes (still in HCS — quota will be hit on next prov)", e.Address, eipPasses))
 	}
 
-	// #4636 — UNBOUND / nameless EIP sweep. The name-prefix purge above
-	// only sees EIPs whose bandwidth_name carries the catalyst-<stem>-
-	// prefix. An UNBOUND, DOWN EIP with no name match (live: 212.72.24.36
-	// on the 8fd457a8 wipe) is invisible to it AND to verifyZeroOrphans,
-	// so it leaks per wipe → publicIp quota exhaustion (#4614 reap class).
-	// Release every NON-bastion UNBOUND (port_id == "") EIP project-wide;
-	// listUnboundOrphanEIPs never returns a bound or bastion EIP, so this
-	// can only release genuine leftovers.
-	if orphanEIPs, oerr := listUnboundOrphanEIPs(ctx, client, hw, region); oerr != nil {
-		out.Errors = append(out.Errors, "list unbound orphan EIPs (#4636): "+oerr.Error())
-	} else {
-		for _, e := range orphanEIPs {
-			if err := deleteEIP(ctx, client, hw, region, e.ID); err != nil {
-				out.Errors = append(out.Errors, fmt.Sprintf("delete unbound orphan EIP %s (#4636): %s", e.Address, err))
-				continue
-			}
-			out.ProviderPurge["floating_ips"] = append(out.ProviderPurge["floating_ips"], e.Address)
-			progress(fmt.Sprintf("#4636: released unbound orphan EIP %s (no port_id, no name match)", e.Address))
-		}
-	}
+	// No project-wide release of unbound addresses (#4636 is withdrawn): an
+	// unbound address of another install, freshly created and not yet
+	// bound, looked the same, and the wipe released it. An address is
+	// released only when its name carries this deployment's identity,
+	// including the NAT addresses the pre-flight rotation allocates
+	// (deploymentScope.owns).
 
 	// 5. SG — by-name (covers tags-disabled case).
 	//
@@ -1059,7 +995,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	// surface in out.Errors AND are caught by verifyZeroOrphans → the outer
 	// loop (now gated on VerifiedZeroOrphans) keeps retrying.
 	const sgPasses = 3
-	sgs, err := listSGsByName(ctx, client, hw, region, sovereignFQDN)
+	sgs, err := listSGsByName(ctx, client, hw, region, scope)
 	if err != nil {
 		out.Errors = append(out.Errors, "list SG: "+err.Error())
 	}
@@ -1080,7 +1016,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 		}
 		// Re-list to verify; a 409-on-port-settle can return 2xx on the
 		// DELETE yet leave the SG present, so drop any ID that came back.
-		stillThere, _ := listSGsByName(ctx, client, hw, region, sovereignFQDN)
+		stillThere, _ := listSGsByName(ctx, client, hw, region, scope)
 		survived := map[string]bool{}
 		for _, sg := range stillThere {
 			survived[sg.ID] = true
@@ -1107,7 +1043,7 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	// delete non-network ports, then subnets, then VPC. Without this
 	// the subnet delete returns VPC.0209 "subnet is still used" and
 	// VPC delete cascades to 409 "Router contains subnet".
-	vpcs, err := listVPCsByName(ctx, client, hw, region, sovereignFQDN)
+	vpcs, err := listVPCsByName(ctx, client, hw, region, scope)
 	if err != nil {
 		out.Errors = append(out.Errors, "list VPC: "+err.Error())
 	}
@@ -1123,10 +1059,10 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	// philosophy as the ECS tag+name listing). bastion's VPC never
 	// appears here: it owns no catalyst-* peerings and the VPC-set
 	// filter only carries this Sovereign's VPC IDs.
-	purgeVPCPeerings(ctx, client, hw, region, sovereignFQDN, vpcs, progress, out)
+	purgeVPCPeerings(ctx, client, hw, region, scope, vpcs, progress, out)
 
 	for _, v := range vpcs {
-		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID); err != nil {
+		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID, scope); err != nil {
 			out.Errors = append(out.Errors, fmt.Sprintf("delete VPC %s: %s", v.Name, err))
 			continue
 		}
@@ -1140,25 +1076,21 @@ func purgeHuaweiResources(ctx context.Context, client *http.Client, hw hwCreds, 
 	// 2026-05-27: v1/vpcs returned 204 OK but v2.0/subnets and
 	// v2.0/networks still listed the catalyst-hw29-* entries until
 	// explicit DELETE on /v2.0/subnets/{id} and /v2.0/networks/{id}.
-	sweepNeutronOrphans(ctx, client, hw, region, sovereignFQDN, progress, out)
+	sweepNeutronOrphans(ctx, client, hw, region, scope, progress, out)
 
 	// 10. Keypair sweep (Wave 5.155). ECS keypairs accumulate one per
 	// prov attempt — failed provs leave them stranded. Without this
 	// sweep we accumulated 68 orphan keypairs on me-east-215 across
 	// hw01-hw33 attempts. Match by `catalyst-<stem>-` prefix with HARD
 	// bastion-* protection.
-	sweepKeypairs(ctx, client, hw, region, sovereignFQDN, progress, out)
+	sweepKeypairs(ctx, client, hw, region, scope, progress, out)
 	return nil
 }
 
 // sweepNeutronOrphans removes Neutron-layer subnet+network records that
-// outlive the VPC delete on HCS Kom4DC. Hard bastion-* protection.
-func sweepNeutronOrphans(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
-	if sovereignFQDN == "" {
-		return
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
+// outlive the VPC delete on HCS Kom4DC, when their name carries the
+// deployment's identity.
+func sweepNeutronOrphans(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope, progress func(msg string), out *providers.WipeResult) {
 	vpcNeutron := fmt.Sprintf("%s/v2.0", endpointFor("vpc", region))
 	// Subnets
 	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcNeutron+"/subnets", nil)
@@ -1172,10 +1104,7 @@ func sweepNeutronOrphans(ctx context.Context, client *http.Client, hw hwCreds, r
 	_ = json.Unmarshal(resp, &subnetList)
 	netIDs := []string{}
 	for _, s := range subnetList.Subnets {
-		if strings.HasPrefix(s.Name, "bastion") {
-			continue
-		}
-		if !strings.HasPrefix(s.Name, prefix) {
+		if !scope.owns(s.Name) {
 			continue
 		}
 		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcNeutron+"/subnets/"+s.ID, nil)
@@ -1190,14 +1119,9 @@ func sweepNeutronOrphans(ctx context.Context, client *http.Client, hw hwCreds, r
 	}
 }
 
-// sweepKeypairs removes ECS keypairs whose name matches
-// `catalyst-<sovereign-stem>-` with HARD bastion-* protection. Wave 5.155.
-func sweepKeypairs(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, progress func(msg string), out *providers.WipeResult) {
-	if sovereignFQDN == "" {
-		return
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
+// listKeypairs returns the names of the project's ECS keypairs that carry
+// the deployment's identity.
+func listKeypairs(client *http.Client, hw hwCreds, region string, scope deploymentScope) []string {
 	base := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), hw.ProjectID)
 	resp, _, _ := doSignedRequest(client, hw, http.MethodGet, base, nil)
 	var keyList struct {
@@ -1208,14 +1132,19 @@ func sweepKeypairs(ctx context.Context, client *http.Client, hw hwCreds, region,
 		} `json:"keypairs"`
 	}
 	_ = json.Unmarshal(resp, &keyList)
+	var names []string
 	for _, k := range keyList.Keypairs {
-		name := k.Keypair.Name
-		if strings.HasPrefix(name, "bastion") || strings.Contains(name, "bastion") {
-			continue
+		if scope.owns(k.Keypair.Name) {
+			names = append(names, k.Keypair.Name)
 		}
-		if !strings.HasPrefix(name, prefix) {
-			continue
-		}
+	}
+	return names
+}
+
+// sweepKeypairs removes the ECS keypairs of the deployment. Wave 5.155.
+func sweepKeypairs(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope, progress func(msg string), out *providers.WipeResult) {
+	base := fmt.Sprintf("%s/v2/%s/os-keypairs", endpointFor("ecs", region), hw.ProjectID)
+	for _, name := range listKeypairs(client, hw, region, scope) {
 		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, base+"/"+name, nil)
 		out.ProviderPurge["keypairs"] = append(out.ProviderPurge["keypairs"], name)
 		progress("deleted keypair " + name)
@@ -1230,13 +1159,9 @@ type hwELB struct {
 }
 
 // listELBsByName enumerates v3 ELB load balancers in the project and
-// filters by the `catalyst-<sovereign-stem>-` name prefix.
-func listELBsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwELB, error) {
-	if sovereignFQDN == "" {
-		return nil, nil
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
+// keeps the ones whose name `owns` accepts: the wipe passes its
+// deploymentScope.owns.
+func listELBsByName(ctx context.Context, client *http.Client, hw hwCreds, region string, owns func(name string) bool) ([]hwELB, error) {
 	url := fmt.Sprintf("%s/v3/%s/elb/loadbalancers", endpointFor("elb", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -1259,7 +1184,7 @@ func listELBsByName(ctx context.Context, client *http.Client, hw hwCreds, region
 	}
 	out := []hwELB{}
 	for _, lb := range decoded.LoadBalancers {
-		if strings.HasPrefix(lb.Name, prefix) {
+		if owns(lb.Name) {
 			out = append(out, hwELB{ID: lb.ID, Name: lb.Name})
 		}
 	}
@@ -1340,12 +1265,9 @@ type hwNAT struct {
 	Name string
 }
 
-func listNATsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwNAT, error) {
-	if sovereignFQDN == "" {
-		return nil, nil
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
+// listNATsByName lists the NAT gateways whose name carries the deployment's
+// identity.
+func listNATsByName(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwNAT, error) {
 	url := fmt.Sprintf("%s/v2/%s/nat_gateways", endpointFor("nat", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -1368,7 +1290,7 @@ func listNATsByName(ctx context.Context, client *http.Client, hw hwCreds, region
 	}
 	out := []hwNAT{}
 	for _, n := range decoded.NATGateways {
-		if strings.HasPrefix(n.Name, prefix) {
+		if scope.owns(n.Name) {
 			out = append(out, hwNAT{ID: n.ID, Name: n.Name})
 		}
 	}
@@ -1443,32 +1365,26 @@ func cascadeDeleteNAT(ctx context.Context, client *http.Client, hw hwCreds, regi
 	return fmt.Errorf("delete NAT: status %d after 4 attempts", status)
 }
 
-// listEIPsByNamePrefix uses bandwidth_name prefix (Wave 5.138 pattern)
-// to find catalyst-owned EIPs even when tags are disabled.
-func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string) ([]hwEIP, error) {
-	if sovereignFQDN == "" {
-		return nil, nil
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	prefix := "catalyst-" + stem + "-"
+// listEIPsByNamePrefix finds the deployment's EIPs by their bandwidth name
+// (Wave 5.138 pattern), which works while tags are disabled.
+func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwEIP, error) {
 	url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
-	if err != nil || status >= 400 {
+	if err != nil {
 		return nil, err
 	}
+	if status >= 400 {
+		return nil, fmt.Errorf("list publicips: status %d: %s", status, snippet(resp, 240))
+	}
 	var decoded struct {
-		PublicIPs []struct {
-			ID            string `json:"id"`
-			Address       string `json:"public_ip_address"`
-			BandwidthName string `json:"bandwidth_name"`
-		} `json:"publicips"`
+		PublicIPs []rawPublicIP `json:"publicips"`
 	}
 	if err := json.Unmarshal(resp, &decoded); err != nil {
 		return nil, err
 	}
 	out := []hwEIP{}
 	for _, e := range decoded.PublicIPs {
-		if strings.HasPrefix(e.BandwidthName, prefix) {
+		if scope.ownsAddress(e) {
 			out = append(out, hwEIP{ID: e.ID, Address: e.Address})
 		}
 	}
@@ -1477,18 +1393,21 @@ func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, 
 
 // cascadeDeleteVPC walks the full HCS Kom4DC dependency tree for a VPC:
 //
+//  0. Read back the servers in the VPC (vpcServers) and REFUSE, before any
+//     call that changes the cloud, when one of them does not carry the
+//     identity of the deployment the caller acts for (scope). A VPC that
+//     still holds another deployment's server, a server without identity
+//     (an operator's probe) or the bastion, is not this caller's to tear
+//     down. The project-wide reclaim acts for no deployment (the zero
+//     scope), so it never deletes a server and never a VPC that holds one,
+//     whatever the engine remembers.
 //  1. List floating-IPs whose router_id matches this VPC (HCS Kom4DC
 //     uses the same UUID for VPC and its built-in router). Disassociate
 //     (PUT port_id=null) then DELETE each — otherwise router-interface
 //     removal returns "RouterInterfaceInUseByFloatingIP".
-//  2. List ports on each subnet. For COMPUTE-owned ports
-//     (device_owner=compute:...), follow device_id to the ECS and
-//     delete it via the canonical ECS batch-delete endpoint with
-//     delete_publicip+delete_volume — these are orphan ECSs the
-//     name-prefix sweep missed because the operator named them
-//     ad-hoc (e.g. an RCA-recheck probe with a non-catalyst-* name
-//     reused the VPC's keypair → landed in this subnet). Wait briefly
-//     for the ECS to release its port.
+//  2. Delete the deployment's servers in the VPC via the canonical ECS
+//     batch-delete endpoint with delete_publicip+delete_volume, and wait
+//     briefly for them to release their ports.
 //  3. For the router-interface port on each subnet, find the Neutron
 //     subnet_id from fixed_ips (Kom4DC has TWO subnet IDs per subnet:
 //     the VPC-layer ID and the underlying Neutron ID). Call
@@ -1497,16 +1416,25 @@ func listEIPsByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, 
 //     "Port's device_owner is not empty and is not neutron:VIP_PORT".
 //  4. Delete the subnet, then the VPC.
 //
-// Wave 5.154 (2026-05-27) root cause: prior cascadeDeleteVPC deleted
-// only non-network ports, never floating-IPs, never the router-interface,
-// and never compute-port-attached orphan ECSs. That left hw29 stuck
-// behind a single rca-recheck-s7nl4-* ECS I had spawned during s7n.large.4
-// capacity-exhaustion debugging — the wipe filter (catalyst-* prefix)
-// missed it, but the port-on-subnet stopped the entire VPC teardown.
-func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, vpcID string) error {
+// Wave 5.154 (2026-05-27) added the floating-IP, router-interface and
+// server steps; it deleted every non-bastion server in the VPC, which also
+// took the servers of a live deployment whose VPC another caller had
+// selected (the claims of 22 November 2026).
+func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, vpcID string, scope deploymentScope) error {
 	vpcBase := fmt.Sprintf("%s/v1/%s", endpointFor("vpc", region), hw.ProjectID)
 	vpcNeutron := fmt.Sprintf("%s/v2.0", endpointFor("vpc", region))
 	ecsBase := fmt.Sprintf("%s/v1/%s", endpointFor("ecs", region), hw.ProjectID)
+
+	// 0. The servers in the VPC, read back from the cloud.
+	servers, portList, err := vpcServers(client, hw, region, vpcID)
+	if err != nil {
+		return err
+	}
+	for _, s := range servers {
+		if !scope.owns(s.Name) {
+			return fmt.Errorf("refused: VPC %s holds server %q, which does not carry the deployment's identity", vpcID, s.Name)
+		}
+	}
 
 	// 1. Disassociate + delete floating-IPs bound to this VPC's router.
 	fResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcNeutron+"/floatingips", nil)
@@ -1526,6 +1454,24 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 		_, _, _ = doSignedRequest(client, hw, http.MethodDelete, vpcNeutron+"/floatingips/"+f.ID, nil)
 	}
 
+	// 2. The deployment's servers in the VPC.
+	for _, s := range servers {
+		delBody, _ := json.Marshal(map[string]any{
+			"servers":         []map[string]string{{"id": s.ID}},
+			"delete_publicip": true,
+			"delete_volume":   true,
+		})
+		_, _, _ = doSignedRequest(client, hw, http.MethodPost, ecsBase+"/cloudservers/delete", delBody)
+	}
+	if len(servers) > 0 {
+		// Give Kom4DC time to release the compute ports.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(45 * time.Second):
+		}
+	}
+
 	// List subnets in this VPC.
 	resp, _, err := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/subnets", nil)
 	if err != nil {
@@ -1540,88 +1486,10 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 	}
 	_ = json.Unmarshal(resp, &subnetList)
 
-	// Single ports query reused per subnet.
-	pResp, _, _ := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/ports", nil)
-	var portList struct {
-		Ports []struct {
-			ID          string `json:"id"`
-			DeviceOwner string `json:"device_owner"`
-			DeviceID    string `json:"device_id"`
-			FixedIPs    []struct {
-				SubnetID string `json:"subnet_id"`
-			} `json:"fixed_ips"`
-		} `json:"ports"`
-	}
-	_ = json.Unmarshal(pResp, &portList)
-
 	for _, s := range subnetList.Subnets {
 		if s.VPCID != vpcID {
 			continue
 		}
-		// 2. Delete orphan ECSs whose port sits on this VPC's subnet.
-		//    `network:` (router/dhcp) ports are infrastructure — handled
-		//    by step 3. Compute ports (device_owner=compute:*) and any
-		//    other non-network owner with a device_id imply an ECS.
-		killedECS := false
-		for _, p := range portList.Ports {
-			// Match port to this VPC's subnet by inspecting fixed_ips.
-			// fixed_ips[].subnet_id is the Neutron subnet ID. We can't
-			// directly equate it to the VPC subnet ID, but since these
-			// ports came back from the project-scoped list, any port
-			// with a device_id and a non-network owner that we can't
-			// otherwise account for AND whose port maps to our VPC via
-			// network_id will be caught below. Conservative: only kill
-			// when owner starts with "compute:" — clearly an ECS.
-			if !strings.HasPrefix(p.DeviceOwner, "compute:") {
-				continue
-			}
-			if p.DeviceID == "" {
-				continue
-			}
-			// Verify ECS lives in our VPC before deleting.
-			detailURL := fmt.Sprintf("%s/cloudservers/%s", ecsBase, p.DeviceID)
-			eResp, _, _ := doSignedRequest(client, hw, http.MethodGet, detailURL, nil)
-			var srv struct {
-				Server struct {
-					Name     string                      `json:"name"`
-					Metadata map[string]string           `json:"metadata"`
-					Addrs    map[string][]map[string]any `json:"addresses"`
-				} `json:"server"`
-			}
-			if json.Unmarshal(eResp, &srv) != nil {
-				continue
-			}
-			// HARD bastion protection: never touch bastion-* ECSs.
-			if strings.HasPrefix(srv.Server.Name, "bastion-") {
-				continue
-			}
-			// Confirm vpc_id in metadata OR an address keyed by this VPC.
-			matchesVPC := srv.Server.Metadata["vpc_id"] == vpcID
-			if !matchesVPC {
-				if _, ok := srv.Server.Addrs[vpcID]; ok {
-					matchesVPC = true
-				}
-			}
-			if !matchesVPC {
-				continue
-			}
-			delBody, _ := json.Marshal(map[string]any{
-				"servers":         []map[string]string{{"id": p.DeviceID}},
-				"delete_publicip": true,
-				"delete_volume":   true,
-			})
-			_, _, _ = doSignedRequest(client, hw, http.MethodPost, ecsBase+"/cloudservers/delete", delBody)
-			killedECS = true
-		}
-		if killedECS {
-			// Give Kom4DC ~45s to release the compute port.
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(45 * time.Second):
-			}
-		}
-
 		// 3. Find router-interface port for THIS subnet → extract Neutron
 		//    subnet_id from fixed_ips → call remove_router_interface.
 		for _, p := range portList.Ports {
@@ -1662,6 +1530,72 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 	return nil
 }
 
+// vpcPorts is the projection of the project's port listing the cascade
+// reads.
+type vpcPorts struct {
+	Ports []struct {
+		ID          string `json:"id"`
+		DeviceOwner string `json:"device_owner"`
+		DeviceID    string `json:"device_id"`
+		FixedIPs    []struct {
+			SubnetID string `json:"subnet_id"`
+		} `json:"fixed_ips"`
+	} `json:"ports"`
+}
+
+// vpcServer is one server found in a VPC.
+type vpcServer struct{ ID, Name string }
+
+// vpcServers reads back the servers in a VPC: every compute-owned port of
+// the project leads to its server, which is in the VPC when its metadata or
+// its addresses name the VPC. A port listing that cannot be read is an
+// error, never "no server". It returns the port listing for the cascade.
+func vpcServers(client *http.Client, hw hwCreds, region, vpcID string) ([]vpcServer, vpcPorts, error) {
+	vpcBase := fmt.Sprintf("%s/v1/%s", endpointFor("vpc", region), hw.ProjectID)
+	ecsBase := fmt.Sprintf("%s/v1/%s", endpointFor("ecs", region), hw.ProjectID)
+	var ports vpcPorts
+	pResp, pStatus, err := doSignedRequest(client, hw, http.MethodGet, vpcBase+"/ports", nil)
+	if err != nil {
+		return nil, ports, fmt.Errorf("list ports: %w", err)
+	}
+	if pStatus >= 400 {
+		return nil, ports, fmt.Errorf("list ports: status %d: %s", pStatus, snippet(pResp, 240))
+	}
+	if err := json.Unmarshal(pResp, &ports); err != nil {
+		return nil, ports, fmt.Errorf("decode ports: %w", err)
+	}
+	seen := map[string]bool{}
+	var out []vpcServer
+	for _, p := range ports.Ports {
+		if !strings.HasPrefix(p.DeviceOwner, "compute:") || p.DeviceID == "" || seen[p.DeviceID] {
+			continue
+		}
+		seen[p.DeviceID] = true
+		eResp, eStatus, err := doSignedRequest(client, hw, http.MethodGet, ecsBase+"/cloudservers/"+p.DeviceID, nil)
+		if err != nil {
+			return nil, ports, fmt.Errorf("read server %s: %w", p.DeviceID, err)
+		}
+		if eStatus == http.StatusNotFound {
+			continue
+		}
+		var srv struct {
+			Server struct {
+				Name     string                      `json:"name"`
+				Metadata map[string]string           `json:"metadata"`
+				Addrs    map[string][]map[string]any `json:"addresses"`
+			} `json:"server"`
+		}
+		if eStatus >= 400 || json.Unmarshal(eResp, &srv) != nil {
+			return nil, ports, fmt.Errorf("read server %s: status %d", p.DeviceID, eStatus)
+		}
+		_, addressed := srv.Server.Addrs[vpcID]
+		if srv.Server.Metadata["vpc_id"] == vpcID || addressed {
+			out = append(out, vpcServer{ID: p.DeviceID, Name: srv.Server.Name})
+		}
+	}
+	return out, ports, nil
+}
+
 // listECSByNamePrefix lists every ECS in the project, filters by name
 // starting with `catalyst-<sovereign-stem>-<dep-id-short>-` (the
 // canonical local.name_prefix from infra/providers/huawei/main.tf).
@@ -1670,24 +1604,10 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 // failed tofu destroys leave ECSs stranded forever — the actual cause
 // of the s7n.large.4 HCS pool exhaustion that broke hw30 #4-#22.
 //
-// The sovereign-stem comes from sovereignFQDN with dots replaced by
-// dashes (matches local.name_prefix construction). deploymentID-short
-// is the first 8 chars (matches tofu's behavior).
-func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN, deploymentID string) ([]hwECSServer, error) {
-	if sovereignFQDN == "" {
-		return nil, nil
-	}
-	stem := strings.ReplaceAll(sovereignFQDN, ".", "-")
-	depShort := deploymentID
-	if len(depShort) > 8 {
-		depShort = depShort[:8]
-	}
-	// Match: "catalyst-<stem>-<depShort>-..."
-	prefix := fmt.Sprintf("catalyst-%s-%s-", stem, depShort)
-	// If no deploymentID, fall back to stem-only prefix (covers ALL
-	// deployments for this Sovereign — broader sweep).
-	stemPrefix := fmt.Sprintf("catalyst-%s-", stem)
-
+// The match is the deployment's scope (deployment_scope.go); the former
+// stem-only fallback for an empty deployment id matched every deployment
+// of the FQDN.
+func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwECSServer, error) {
 	// List all ECSs in project.
 	url := fmt.Sprintf("%s/v1/%s/cloudservers/detail", endpointFor("ecs", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
@@ -1712,13 +1632,7 @@ func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, r
 	}
 	out := []hwECSServer{}
 	for _, s := range decoded.Servers {
-		matches := false
-		if deploymentID != "" && strings.HasPrefix(s.Name, prefix) {
-			matches = true
-		} else if deploymentID == "" && strings.HasPrefix(s.Name, stemPrefix) {
-			matches = true
-		}
-		if matches {
+		if scope.owns(s.Name) {
 			out = append(out, hwECSServer{ID: s.ID, Name: s.Name, Status: s.Status, Flavor: s.Flavor.ID})
 		}
 	}
@@ -1748,10 +1662,14 @@ type hwEIP struct {
 	Address string
 }
 
-func listEIPsByTag(ctx context.Context, client *http.Client, hw hwCreds, region, deploymentID, sovereignFQDN string) ([]hwEIP, error) {
+// listEIPsByTag lists the EIPs tagged with the deployment's full id. The
+// Sovereign tag is not a selector: every deployment of the FQDN carries it.
+func listEIPsByTag(ctx context.Context, client *http.Client, hw hwCreds, region, deploymentID string) ([]hwEIP, error) {
+	if deploymentID == "" {
+		return nil, errNoDeploymentIdentity
+	}
 	// EIP list-by-tag follows the standard TMS list-resources pattern.
 	// Endpoint: GET /v1/<project_id>/publicips
-	// We post-filter by name prefix for simplicity.
 	url := fmt.Sprintf("%s/v1/%s/publicips", endpointFor("vpc", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -1780,13 +1698,12 @@ func listEIPsByTag(ctx context.Context, client *http.Client, hw hwCreds, region,
 	for _, e := range decoded.PublicIPs {
 		match := false
 		for _, t := range e.Tags {
-			if (deploymentID != "" && t.Key == "catalyst.openova.io/deployment-id" && t.Value == deploymentID) ||
-				(t.Key == "catalyst.openova.io/sovereign" && t.Value == sovereignFQDN) {
+			if t.Key == "catalyst.openova.io/deployment-id" && t.Value == deploymentID {
 				match = true
 				break
 			}
 		}
-		if match {
+		if match && e.Address != bastionEIPAddress {
 			out = append(out, hwEIP{ID: e.ID, Address: e.Address})
 		}
 	}
@@ -2093,10 +2010,19 @@ func (p *Provider) SweepOrphanVPCs(ctx context.Context, ak, sk, projectID, regio
 			deleted++
 			continue
 		}
+		// A VPC that still holds a server is not an orphan, whatever this
+		// engine remembers (its protected prefixes come from memory, and a
+		// record removed or lost to a restart is not in it): read the
+		// servers back from the cloud before any call that changes it.
+		if servers, _, serr := vpcServers(client, hw, region, v.ID); serr != nil || len(servers) > 0 {
+			progress(fmt.Sprintf("sweep orphan VPC %s: skipped (holds %d servers, or they could not be read: %v)", v.Name, len(servers), serr))
+			continue
+		}
 		// Delete any peering pinning this VPC before the cascade, else
 		// the VPC delete 409s "Router contains subnet" / peering-bound.
 		deleteVPCPeeringsTouching(ctx, client, hw, region, v.ID, progress)
-		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID); err != nil {
+		// The reclaim acts for no deployment: the zero scope owns no server.
+		if err := cascadeDeleteVPC(ctx, client, hw, region, v.ID, deploymentScope{}); err != nil {
 			progress(fmt.Sprintf("sweep orphan VPC %s: cascade delete failed: %v", v.Name, err))
 			continue
 		}
@@ -2416,7 +2342,7 @@ type hwSG struct {
 	Name string
 }
 
-func listSGsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwSG, error) {
+func listSGsByName(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwSG, error) {
 	url := fmt.Sprintf("%s/v1/%s/security-groups", endpointFor("vpc", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -2437,10 +2363,9 @@ func listSGsByName(ctx context.Context, client *http.Client, hw hwCreds, region,
 	if err := json.Unmarshal(resp, &decoded); err != nil {
 		return nil, fmt.Errorf("decode SG list: %w", err)
 	}
-	prefix := "catalyst-" + strings.ReplaceAll(sovereignFQDN, ".", "-")
 	out := []hwSG{}
 	for _, sg := range decoded.SecurityGroups {
-		if strings.HasPrefix(sg.Name, prefix) {
+		if scope.owns(sg.Name) {
 			out = append(out, hwSG{ID: sg.ID, Name: sg.Name})
 		}
 	}
@@ -2464,7 +2389,7 @@ type hwVPC struct {
 	Name string
 }
 
-func listVPCsByName(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string) ([]hwVPC, error) {
+func listVPCsByName(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwVPC, error) {
 	url := fmt.Sprintf("%s/v1/%s/vpcs", endpointFor("vpc", region), hw.ProjectID)
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -2485,10 +2410,9 @@ func listVPCsByName(ctx context.Context, client *http.Client, hw hwCreds, region
 	if err := json.Unmarshal(resp, &decoded); err != nil {
 		return nil, fmt.Errorf("decode VPC list: %w", err)
 	}
-	prefix := "catalyst-" + strings.ReplaceAll(sovereignFQDN, ".", "-")
 	out := []hwVPC{}
 	for _, v := range decoded.VPCs {
-		if strings.HasPrefix(v.Name, prefix) {
+		if scope.owns(v.Name) {
 			out = append(out, hwVPC{ID: v.ID, Name: v.Name})
 		}
 	}
@@ -2511,12 +2435,11 @@ func deleteVPC(ctx context.Context, client *http.Client, hw hwCreds, region, id 
 // any of the deployment's VPCs (or carries the per-Sovereign name
 // prefix). Failures are recorded per-peering in out.Errors — the VPC
 // cascade then proceeds and its own 409s surface any residual.
-func purgeVPCPeerings(ctx context.Context, client *http.Client, hw hwCreds, region, sovereignFQDN string, vpcs []hwVPC, progress func(msg string), out *providers.WipeResult) {
+func purgeVPCPeerings(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope, vpcs []hwVPC, progress func(msg string), out *providers.WipeResult) {
 	vpcSet := map[string]struct{}{}
 	for _, v := range vpcs {
 		vpcSet[v.ID] = struct{}{}
 	}
-	prefix := "catalyst-" + strings.ReplaceAll(sovereignFQDN, ".", "-")
 	url := fmt.Sprintf("%s/v2.0/vpc/peerings", endpointFor("vpc", region))
 	resp, status, err := doSignedRequest(client, hw, http.MethodGet, url, nil)
 	if err != nil {
@@ -2548,7 +2471,7 @@ func purgeVPCPeerings(ctx context.Context, client *http.Client, hw hwCreds, regi
 	for _, pr := range decoded.Peerings {
 		_, reqMatch := vpcSet[pr.RequestVPC.VPCID]
 		_, accMatch := vpcSet[pr.AcceptVPC.VPCID]
-		if !reqMatch && !accMatch && !strings.HasPrefix(pr.Name, prefix) {
+		if !reqMatch && !accMatch && !scope.owns(pr.Name) {
 			continue
 		}
 		delURL := fmt.Sprintf("%s/v2.0/vpc/peerings/%s", endpointFor("vpc", region), pr.ID)
@@ -2566,15 +2489,14 @@ func purgeVPCPeerings(ctx context.Context, client *http.Client, hw hwCreds, regi
 	}
 }
 
-// purgeOBSBuckets empties + deletes every OBS bucket whose name
-// matches the per-Sovereign prefix. Same minio-go client + prefix
-// strategy internal/hetzner/buckets.go uses.
-func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region, sovereignFQDN string, progress func(msg string)) (int, error) {
+// purgeOBSBuckets empties + deletes the OBS buckets whose name carries the
+// deployment's identity (BucketNameForSovereign: catalyst-<fqdn>-<dep8>) and
+// returns their names. The Sovereign's prefix alone would also match the
+// bucket of every other deployment of the FQDN. Same minio-go client
+// internal/hetzner/buckets.go uses.
+func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region string, scope deploymentScope, progress func(msg string)) ([]string, error) {
 	if strings.TrimSpace(hw.AccessKey) == "" || strings.TrimSpace(hw.SecretKey) == "" {
-		return 0, errors.New("obs access/secret keys are empty")
-	}
-	if strings.TrimSpace(sovereignFQDN) == "" {
-		return 0, errors.New("sovereign fqdn is empty")
+		return nil, errors.New("obs access/secret keys are empty")
 	}
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(hw.AccessKey, hw.SecretKey, ""),
@@ -2582,24 +2504,23 @@ func purgeOBSBuckets(ctx context.Context, endpoint string, hw hwCreds, region, s
 		Region: region,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("construct minio client: %w", err)
+		return nil, fmt.Errorf("construct minio client: %w", err)
 	}
 
 	buckets, err := client.ListBuckets(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list buckets: %w", err)
+		return nil, fmt.Errorf("list buckets: %w", err)
 	}
-	prefix := BucketNamePrefixForSovereign(sovereignFQDN)
-	removed := 0
+	var removed []string
 	for _, b := range buckets {
-		if !strings.HasPrefix(b.Name, prefix) {
+		if !scope.owns(b.Name) {
 			continue
 		}
 		if err := emptyAndRemoveOBSBucket(ctx, client, b.Name); err != nil {
 			progress(fmt.Sprintf("obs: remove bucket %s failed: %s", b.Name, err))
 			continue
 		}
-		removed++
+		removed = append(removed, b.Name)
 		progress("obs: removed bucket " + b.Name)
 	}
 	return removed, nil
