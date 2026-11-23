@@ -132,8 +132,8 @@ func (l platformLocal) Observe(_ context.Context, ts []observe.Target) map[strin
 
 type platformPeers struct{ s *platformSim }
 
-func (p platformPeers) Fetch(_ context.Context, region string, ts []observe.Target) (map[string]transition.MemberStatus, error) {
-	return platformLocal{p.s, region}.Observe(context.Background(), ts), nil
+func (p platformPeers) Fetch(_ context.Context, region string, ts []observe.Target) (map[string]transition.MemberStatus, *transition.RebootStatus, error) {
+	return platformLocal{p.s, region}.Observe(context.Background(), ts), nil, nil
 }
 
 func TestPlatformPair_TwoRegions_ThreeCommitProtocol(t *testing.T) {

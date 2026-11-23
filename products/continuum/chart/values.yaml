@@ -67,6 +67,29 @@ continuum:
     # right to act; another region resumes the transition from the record.
     ttlSeconds: 60
 
+  # A move and a drain take turns. The reboot agent (kured, bp-kured) drains
+  # a node only after it takes its one lock, an annotation of its DaemonSet
+  # kube-system/kured. While a transition of this region runs, Continuum
+  # holds that lock (nodeID continuum-<region>), so kured starts no drain; a
+  # move does not start until each region of it holds its agent, and waits
+  # while the agent drains a node of those regions.
+  rebootAgent:
+    # false: neither hold kured nor wait for its drains.
+    hold: true
+    # Namespace of kured's DaemonSet (its name is kured: bp-kured pins it).
+    namespace: kube-system
+    # TTL of the hold, renewed every third of it while a transition runs: if
+    # the controller is gone, kured's own expiry frees the lock this long
+    # after the last renewal.
+    holdTTLSeconds: 300
+    # Bound of a move's wait for a region's reboot agent: one drain of
+    # bp-kured (--drain-timeout 10m + --lock-release-delay 5m) plus the
+    # node's restart. Past it the move goes on and says so (condition
+    # Interrupted, reason RebootWaitExceeded). It also bounds the hold of a
+    # Failed move: this long after the move failed the hold is released
+    # (condition RebootAgentHeld, reason ReleasedFailedMove).
+    waitSeconds: 1200
+
   resources:
     requests:
       cpu: 50m

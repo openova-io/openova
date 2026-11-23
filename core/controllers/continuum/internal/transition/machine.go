@@ -104,11 +104,11 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	for _, m := range g.Members {
 		d, why := desiredOf(m, v)
 		if why != "" {
-			res.Outcome, res.Message, res.Record = OutcomeBlocked, why, rec
+			res.Outcome, res.Message, res.Record = OutcomeBlocked, why, paused(rec, v, p)
 			return res
 		}
 		if desired != "" && d != desired {
-			res.Outcome, res.Record = OutcomeBlocked, rec
+			res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 			res.Message = fmt.Sprintf("members of the group declare different primaries (%s wants %s, another member wants %s); a group moves together — set the same Primary on every member", m.App, d, desired)
 			return res
 		}
@@ -137,7 +137,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	}
 	res.Committed = committed
 	if !anyFile {
-		res.Outcome, res.Message, res.Record = OutcomePending, "no region files committed yet — nothing to move", rec
+		res.Outcome, res.Message, res.Record = OutcomePending, "no region files committed yet — nothing to move", paused(rec, v, p)
 		return res
 	}
 
@@ -155,7 +155,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 		// Steady state — unless the primary's region is lost.
 		if l, d := lost(v, desired, p); l {
 			if !p.AutoPromoteOnRegionLoss {
-				res.Outcome, res.Record = OutcomeBlocked, rec
+				res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 				res.Message = fmt.Sprintf("primary region %s unreachable for %s; autoPromoteOnRegionLoss=false — nothing committed (restore the region, or change Primary in placement)", desired, d.Round(time.Second))
 				return res
 			}
@@ -167,13 +167,13 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 				}
 			}
 			if survivor == "" {
-				res.Outcome, res.Record = OutcomeBlocked, rec
+				res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 				res.Message = fmt.Sprintf("primary region %s lost and no other region of the placement is reachable", desired)
 				return res
 			}
 			rec = &Record{ID: fmt.Sprintf("%s-to-%s-%d", desired, survivor, v.Now.Unix()), From: desired, To: survivor, StartedAt: ts(v.Now), LossMode: true}
 		} else {
-			res.Outcome, res.Message, res.Record = OutcomeConverged, "every region file names "+desired, rec
+			res.Outcome, res.Message, res.Record = OutcomeConverged, "every region file names "+desired, paused(rec, v, p)
 			return res
 		}
 	default:
@@ -190,7 +190,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 			}
 		}
 		if from == "" {
-			res.Outcome, res.Record = OutcomeBlocked, rec
+			res.Outcome, res.Record = OutcomeBlocked, paused(rec, v, p)
 			res.Message = "region files disagree on the primary and no transition record explains it — fix the files in Git"
 			return res
 		}
@@ -218,13 +218,44 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	}
 	rec.Activity = acts
 
+	// A move starts only when no step of it has started yet: the reboot gate
+	// then also waits for the regions of the move to hold their reboot agent.
+	starting := true
+	for _, a := range rec.Activity {
+		if a.StartedAt != "" {
+			starting = false
+			break
+		}
+	}
+
 	ev := evaluator{g: g, rec: rec, v: v, p: p}
 	for i, s := range all {
 		a := &rec.Activity[i]
 		if a.State == StateSucceeded {
 			continue // progress is monotonic: a finished cell is never re-run
 		}
+		waitSince := rec.RebootWaitSince
+		wait, in := ev.rebootGate(starting)
+		if wait != "" {
+			// The step is not evaluated: its state stays as it is and its
+			// clock stands still (a step not yet begun does not start it; one
+			// that has begun is credited the wait, endGateHold). A step
+			// already past its deadline stays Failed while it waits.
+			a.Message = wait
+			res.Outcome, res.Message = OutcomeTransitioning, fmt.Sprintf("%s %s: %s", s.phase, s.member.App, wait)
+			if a.State == StateFailed {
+				res.Outcome = OutcomeFailed
+			}
+			rec.settle(res.Outcome, res.Message, v.Now)
+			rec.Interruption, res.Interruption = in, in
+			return res
+		}
+		ev.endGateHold(*a, waitSince)
 		r := ev.eval(s)
+		if r.interruption != nil {
+			in = r.interruption
+		}
+		rec.Interruption, res.Interruption = in, in
 		switch {
 		case r.commit != nil:
 			if a.StartedAt == "" {
@@ -233,7 +264,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 			a.State, a.Message = StateRunning, r.msg
 			res.Commit = r.commit
 			res.Outcome, res.Message = OutcomeTransitioning, fmt.Sprintf("%s %s: %s", s.phase, s.member.App, r.msg)
-			rec.Outcome, rec.Message = res.Outcome, res.Message
+			rec.settle(res.Outcome, res.Message, v.Now)
 			return res
 		case r.done:
 			if a.StartedAt == "" {
@@ -245,7 +276,8 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 				a.StartedAt = ts(v.Now)
 			}
 			started, _ := parseTS(a.StartedAt)
-			if p.PhaseTimeout > 0 && v.Now.Sub(started) > p.PhaseTimeout {
+			// The time the reboot gate held the step does not count.
+			if p.PhaseTimeout > 0 && v.Now.Sub(started)-ev.gateHeld(*a, started) > p.PhaseTimeout {
 				a.State = StateFailed
 				a.Message = fmt.Sprintf("not reached within %s: %s", p.PhaseTimeout, r.msg)
 				res.Outcome = OutcomeFailed
@@ -254,7 +286,7 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 				res.Outcome = OutcomeTransitioning
 			}
 			res.Message = fmt.Sprintf("%s %s: %s", s.phase, s.member.App, a.Message)
-			rec.Outcome, rec.Message = res.Outcome, res.Message
+			rec.settle(res.Outcome, res.Message, v.Now)
 			return res
 		}
 	}
@@ -263,16 +295,68 @@ func Plan(g Group, rec *Record, v View, p Policy) Result {
 	if rec.LossMode {
 		res.Message += fmt.Sprintf(" (region %s lost; promoted without a demotion token)", rec.From)
 	}
-	rec.Outcome, rec.Message = res.Outcome, res.Message
+	rec.settle(res.Outcome, res.Message, v.Now)
+	rec.Interruption, rec.RebootWaitSince, res.Interruption = nil, "", nil
 	return res
+}
+
+// settle records the outcome of one evaluation. FailedSince is when the move
+// was first reported Failed; it is cleared when the move is not.
+func (r *Record) settle(outcome, msg string, now time.Time) {
+	r.Outcome, r.Message = outcome, msg
+	switch {
+	case outcome != OutcomeFailed:
+		r.FailedSince = ""
+	case r.FailedSince == "":
+		r.FailedSince = ts(now)
+	}
+}
+
+// paused is the record Plan returns when it does not walk rec this
+// evaluation (the group is Blocked or Pending, or the move was re-targeted
+// back). A wait for the reboot agent ends here: it is credited to the step it
+// held, and RebootWaitSince and the wait's Interruption are cleared. The lease
+// keeps an in-flight record, so the move can be resumed later; its next wait
+// then counts its bound from when it begins, not from a wait of before.
+func paused(rec *Record, v View, p Policy) *Record {
+	if rec == nil || rec.RebootWaitSince == "" {
+		return rec
+	}
+	c := rec.clone()
+	since := c.RebootWaitSince
+	c.RebootWaitSince, c.Interruption = "", nil
+	ev := evaluator{rec: c, v: v, p: p}
+	for _, a := range c.Activity {
+		if a.State != StateSucceeded {
+			ev.endGateHold(a, since)
+			break
+		}
+	}
+	return c
 }
 
 func (r *Record) clone() *Record {
 	c := *r
 	c.Activity = append([]Activity(nil), r.Activity...)
+	if r.GateHeld != nil {
+		c.GateHeld = map[string]int64{}
+		for k, v := range r.GateHeld {
+			c.GateHeld[k] = v
+		}
+	}
 	c.Tokens = map[string]string{}
 	for k, v := range r.Tokens {
 		c.Tokens[k] = v
+	}
+	if r.Demotions != nil {
+		c.Demotions = map[string]Demotion{}
+		for k, v := range r.Demotions {
+			c.Demotions[k] = v
+		}
+	}
+	if r.Interruption != nil {
+		in := *r.Interruption
+		c.Interruption = &in
 	}
 	return &c
 }
@@ -281,6 +365,8 @@ type evalResult struct {
 	commit *Commit
 	done   bool
 	msg    string
+	// interruption names what outside the transition holds this step up.
+	interruption *Interruption
 }
 
 type evaluator struct {
@@ -318,38 +404,78 @@ func (e evaluator) eval(s step) evalResult {
 		if !f.Exists {
 			return evalResult{done: true, msg: "no file in " + from}
 		}
-		if f.Fields.Primary != to {
-			return e.commit(m, from, regionfile.TransitionFields{Primary: to}, "stop traffic and demote in the old primary")
+		// The old primary's file names the new primary — unless the demotion
+		// is being issued again and the old primary is restored first.
+		d := e.rec.Demotions[m.Key()]
+		want, why := to, "stop traffic and demote in the old primary"
+		var note *Interruption
+		if d.Restoring {
+			want, why = from, fmt.Sprintf("restore the old primary, so that CNPG can demote a running primary (the demotion is issued again, attempt %d of %d)", d.Attempts, ReissueAttempts)
+			note = e.reissued(m, from, d)
+		}
+		if f.Fields.Primary != want {
+			r := e.commit(m, from, regionfile.TransitionFields{Primary: want}, why)
+			r.interruption = note
+			return r
 		}
 		if e.rec.LossMode {
 			return evalResult{done: true, msg: fmt.Sprintf("region %s lost — demotion skipped; it rejoins as a replica from Git when it returns", from)}
 		}
 		ms, rv := e.obs(m, from)
 		if !rv.Reachable {
-			if l, d := lost(e.v, from, e.p); l {
+			if l, dur := lost(e.v, from, e.p); l {
 				if e.p.AutoPromoteOnRegionLoss {
+					if d.Restoring {
+						// Never promote elsewhere while the lost region's
+						// file names itself primary: it would come back a
+						// second writer. Name the new primary there first.
+						d.Restoring = false
+						e.setDemotion(m, d)
+						return e.commit(m, from, regionfile.TransitionFields{Primary: to}, "the old primary's region was lost while its demotion was issued again; its file names the new primary again before the promotion")
+					}
 					e.rec.LossMode = true
-					return evalResult{done: true, msg: fmt.Sprintf("region %s unreachable for %s — promoting without a demotion token (autoPromoteOnRegionLoss)", from, d.Round(time.Second))}
+					return evalResult{done: true, msg: fmt.Sprintf("region %s unreachable for %s — promoting without a demotion token (autoPromoteOnRegionLoss)", from, dur.Round(time.Second))}
 				}
-				return evalResult{msg: fmt.Sprintf("region %s unreachable for %s; autoPromoteOnRegionLoss=false — waiting for the region", from, d.Round(time.Second))}
+				return evalResult{msg: fmt.Sprintf("region %s unreachable for %s; autoPromoteOnRegionLoss=false — waiting for the region", from, dur.Round(time.Second)), interruption: note}
 			}
-			return evalResult{msg: fmt.Sprintf("waiting: region %s not reachable", from)}
+			return evalResult{msg: fmt.Sprintf("waiting: region %s not reachable", from), interruption: note}
 		}
 		if !ms.Observed {
-			return evalResult{msg: fmt.Sprintf("waiting: HelmRelease of %s not observed in %s", m.App, from)}
+			return evalResult{msg: fmt.Sprintf("waiting: HelmRelease of %s not observed in %s", m.App, from), interruption: note}
 		}
-		if ms.AppliedPrimary != to {
-			return evalResult{msg: fmt.Sprintf("waiting: Flux has not applied primary=%s in %s (live HelmRelease says %q)", to, from, ms.AppliedPrimary)}
+		if ms.AppliedPrimary != want {
+			return evalResult{msg: fmt.Sprintf("waiting: Flux has not applied primary=%s in %s (live HelmRelease says %q)", want, from, ms.AppliedPrimary), interruption: note}
+		}
+		if d.Restoring {
+			// The demotion is committed once more only when the old
+			// primary's Cluster runs a primary again: only a running
+			// primary's demotion yields a token.
+			if !ms.DB.Found || !ms.DB.Primary || !ms.DB.Ready || ms.DB.RunningPrimary != True || ms.DB.Switching {
+				return evalResult{msg: fmt.Sprintf("waiting: CNPG Cluster %s in %s to run a primary again before the demotion is issued once more (phase %q)", ms.DB.Cluster, from, ms.DB.Phase), interruption: note}
+			}
+			d.Restoring = false
+			e.setDemotion(m, d)
+			r := e.commit(m, from, regionfile.TransitionFields{Primary: to}, fmt.Sprintf("stop traffic and demote in the old primary (issued again, attempt %d of %d)", d.Attempts, ReissueAttempts))
+			r.interruption = note
+			return r
 		}
 		if m.Stateful {
 			if !ms.DB.Found {
 				return evalResult{msg: fmt.Sprintf("waiting: CNPG Cluster of %s not found in %s", m.App, from)}
 			}
 			if ms.DB.DemotionToken == "" {
-				return evalResult{msg: fmt.Sprintf("waiting: CNPG Cluster %s in %s has not published status.demotionToken (phase %q)", ms.DB.Cluster, from, ms.DB.Phase)}
+				return e.demotionPending(m, from, ms, d)
 			}
 			e.rec.Tokens[m.Key()] = ms.DB.DemotionToken
-			return evalResult{done: true, msg: fmt.Sprintf("CNPG Cluster %s demoted in %s; demotion token published", ms.DB.Cluster, from)}
+			msg := fmt.Sprintf("CNPG Cluster %s demoted in %s; demotion token published", ms.DB.Cluster, from)
+			if d.Attempts > 0 {
+				msg += fmt.Sprintf(" (the demotion was issued %d more time(s))", d.Attempts)
+			}
+			if d.LostSince != "" || d.Exhausted {
+				d.LostSince, d.Exhausted = "", false
+				e.setDemotion(m, d)
+			}
+			return evalResult{done: true, msg: msg}
 		}
 		if !ms.ReleaseReady {
 			return evalResult{msg: fmt.Sprintf("waiting: HelmRelease in %s not Ready: %s", from, ms.ReleaseMessage)}

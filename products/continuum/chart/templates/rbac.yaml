@@ -16,9 +16,15 @@ Application it mirrors the transition onto:
   coordination.k8s.io/leases                   get,list,watch,create,update,patch (in-region leader election
                                                                  between this region's replicas only)
   ""/events                                    create,patch
+  ""/nodes                                     get,list,watch   (which node the reboot agent cordons)
+  apps/daemonsets kured (Role, in the reboot   get,patch        (the reboot agent's own lock annotation:
+  agent's namespace)                                             held while a transition of this region
+                                                                 runs, so kured starts no drain — a lock,
+                                                                 like the leases; internal/reboot)
 
 No workload write verb: scripts/check-continuum-no-workload-mutation.sh fails
-CI if one is added here or in the Go source.
+CI if one is added here or in the Go source. The kured lock is the one
+exception it allows, by name.
 */ -}}
 {{- if .Values.continuum.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -52,6 +58,9 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -67,4 +76,38 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "continuum.fullname" . }}
     namespace: {{ .Release.Namespace }}
+{{- if .Values.continuum.rebootAgent.hold }}
+---
+# The reboot agent's lock: kured (bp-kured, DaemonSet named kured whatever the
+# release) locks in an annotation of its own DaemonSet before it drains a
+# node. Continuum holds that lock while a transition of this region runs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "continuum.fullname" . }}-reboot-hold
+  namespace: {{ .Values.continuum.rebootAgent.namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["kured"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "continuum.fullname" . }}-reboot-hold
+  namespace: {{ .Values.continuum.rebootAgent.namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "continuum.fullname" . }}-reboot-hold
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "continuum.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}
