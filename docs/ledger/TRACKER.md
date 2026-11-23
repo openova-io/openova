@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T22:00:02Z` |
+| Last refreshed | `2026-11-23T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T22:03 | [#8676](https://github.com/openova-io/openova/pull/8676) | #8658 | NET-G19: dnsdist answers public queries (explicit access lis |
 | 2026-11-23T21:35 | [#8675](https://github.com/openova-io/openova/pull/8675) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:24 | [#8673](https://github.com/openova-io/openova/pull/8673) | #7087 | docs(ledger): plan update |
+| 2026-11-23T22:11 | [#8671](https://github.com/openova-io/openova/pull/8671) | #8667 | feat(postgres): scheduled backups of the platform database c |
 | 2026-11-23T21:06 | [#8670](https://github.com/openova-io/openova/pull/8670) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:21 | [#8669](https://github.com/openova-io/openova/pull/8669) | #2634 | INF-G01: the chargeback database is back within the limit af |
 | 2026-11-23T20:52 | [#8666](https://github.com/openova-io/openova/pull/8666) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-23T06:38 | [#8627](https://github.com/openova-io/openova/pull/8627) | #3526 | fix(cutover): step 08 takes its Workspace baseline after the |
 | 2026-11-23T05:37 | [#8626](https://github.com/openova-io/openova/pull/8626) | test(cutover): the follower region needs no provider package |  |
 | 2026-11-23T06:33 | [#8623](https://github.com/openova-io/openova/pull/8623) | #4993 | fix(organization): the applications a new Organization is gi |
-| 2026-11-23T07:26 | [#8620](https://github.com/openova-io/openova/pull/8620) | fix(continuum): a region move and a node drain take turns, a |  |
-| 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
 
 ---
 
