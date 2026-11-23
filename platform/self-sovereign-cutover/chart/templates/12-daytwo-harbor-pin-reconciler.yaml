@@ -200,8 +200,6 @@ spec:
               value: {{ .Values.daytwoReconciler.images.copyAttempts | default 3 | quote }}
             - name: PREWARM_PROXY_COPY_ATTEMPTS
               value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
-            - name: SKOPEO_STATIC_URL
-              value: {{ .Values.daytwoReconciler.images.skopeoStaticURL | quote }}
             - name: IMAGE_SCAN_MAX
               value: {{ .Values.daytwoReconciler.images.maxRefsPerCycle | quote }}
           volumeMounts:
@@ -500,6 +498,7 @@ spec:
                zero-external-egress contract literally (no github.com dial).
               */}}
               _skopeo_ready=0
+              {{- include "bp-self-sovereign-cutover.skopeoFetch" . | nindent 14 }}
               daytwo_ensure_skopeo() {
                 [ "${_skopeo_ready}" = "1" ] && return 0
                 if command -v skopeo >/dev/null 2>&1; then
@@ -507,21 +506,11 @@ spec:
                   return 0
                 fi
                 echo "[daytwo] image warm: skopeo not on PATH; downloading the pinned static binary (same build step-03 harbor-prewarm uses)"
-                _sk_try=1
-                while [ "${_sk_try}" -le 3 ]; do
-                  if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${SKOPEO_STATIC_URL}" -o "${WORK}/skopeo" 2>&1 \
-                    && chmod +x "${WORK}/skopeo" \
-                    && "${WORK}/skopeo" --version >/dev/null 2>&1; then
-                    export PATH="${WORK}:${PATH}"
-                    _skopeo_ready=1
-                    echo "[daytwo] image warm: skopeo static binary installed: $(skopeo --version)"
-                    return 0
-                  fi
-                  echo "[daytwo] image warm: skopeo download attempt ${_sk_try}/3 failed; retrying in 5s"
-                  _sk_try=$((_sk_try+1))
-                  sleep 5
-                done
-                rm -f "${WORK}/skopeo"
+                if skopeo_fetch "${WORK}" "[daytwo] image warm:"; then
+                  _skopeo_ready=1
+                  echo "[daytwo] image warm: skopeo static binary installed: $(skopeo --version)"
+                  return 0
+                fi
                 echo "[daytwo] image warm: skopeo unavailable after 3 download attempts — the warm path is disabled this cycle; every missing image stays in the manifest (fail-soft)"
                 return 1
               }

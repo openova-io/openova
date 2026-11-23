@@ -12,10 +12,11 @@
 #
 # WHAT THIS TEST DOES, with no cloud and no cluster. Two registries (docker.io/library/registry:2.8.3
 # over TLS) share one network namespace that has no other network; a copier container of the image
-# step 03 runs (images.kubectl of the chart) joins it with the skopeo binary step 03 downloads (its
-# SKOPEO_URL). For every package the provider packs list (infra/providers/*/tofu-providers.txt) the
-# test builds a stub provider zip and the package of it with the publisher's own command
-# (tools/guards/cmd/tofu-providers stub and pack) and pushes it to the first registry with the
+# step 03 runs (images.kubectl of the chart) joins it with the skopeo binary step 03 downloads,
+# fetched by step 03's own skopeo_fetch (the URL and sha256 of values skopeo), and skopeo 1.15.2,
+# the version before, for the control. For every package the provider packs list
+# (infra/providers/*/tofu-providers.txt) the test builds a stub provider zip and the package of it
+# with the publisher's own command (tools/guards/cmd/tofu-providers stub and pack) and pushes it to the first registry with the
 # publisher's own tool and call (ORAS at the version and checksum of
 # .github/workflows/mirror-tofu-providers.yaml, oras cp --from-oci-layout). It cuts Phase A5 from
 # the chart's render (the list functions, src_creds_for and the block tofu-providers-copy of step
@@ -31,11 +32,14 @@
 #             NOT take the registry-API branch: every other list keeps the skopeo path;
 #   order     a package index PUT before its entries is refused (400 MANIFEST_BLOB_UNKNOWN): the
 #             registry enforces the order, so the case copy proves the entries went first;
-#   control   skopeo's own copy of the index (--multi-arch index-only, --preserve-digests, every
-#             manifest already present) is refused with the measured line: the packages have the
-#             shape that failed. If it is not refused the test can no longer see the defect: it
-#             fails and says so.
-# On main before the repair, the case copy fails with the measured line.
+#   whole     skopeo alone at step 03's version (one offlinemirror_skopeo_copy, --multi-arch all,
+#             --preserve-digests, no registry-API PUT) copies each package index into an empty
+#             repository: the tag serves the listed digest and the index, every manifest and
+#             every blob are byte-equal on both sides. With skopeo 1.15.2 it fails;
+#   control   the same whole copy with skopeo 1.15.2 is refused with the measured line: the
+#             packages have the shape that failed. If it is not refused the test can no longer
+#             see the defect: it fails and says so.
+# Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole.
 #
 # Usage: bash tests/hermetic/provider-package-copy/provider-package-copy-test.sh [CHART_DIR]
 # PPC_DIR (default RUNNER_TEMP/provider-package-copy) holds bin/, work/ and results.txt.
@@ -81,12 +85,16 @@ key "${W}/s03cm.yaml" run.sh >"${W}/run.sh"
 key "${W}/s03cm.yaml" podSpec >"${W}/pod.yaml"
 key "${W}/s03acm.yaml" resolver.sh >"${W}/resolver.sh"
 for f in run.sh pod.yaml resolver.sh; do [ -s "${W}/${f}" ] || die "could not cut ${f} from the render"; done
-SKOPEO_URL=$(sed -n 's/^ *SKOPEO_URL="\(https:[^"]*\)"$/\1/p' "${W}/run.sh" | head -n 1)
-[ -n "${SKOPEO_URL}" ] || die "the render of step 03 names no SKOPEO_URL"
+SKOPEO_URL=$(sed -n 's/^ *_sf_u="\(https:[^"]*\)"; .*/\1/p' "${W}/run.sh" | head -n 1)
+SKOPEO_SHA256=$(sed -n 's/^ *_sf_u="[^"]*"; _sf_w="\([0-9a-f]*\)"; .*/\1/p' "${W}/run.sh" | head -n 1)
+[ -n "${SKOPEO_URL}" ] && [ "${#SKOPEO_SHA256}" -eq 64 ] || die "the render of step 03 names no skopeo URL and sha256 (skopeo_fetch)"
+# The control: skopeo 1.15.2, the version before, from the same GitHub release host, at its checksum.
+OLD_SKOPEO_URL="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+OLD_SKOPEO_SHA256=6b84d1158f29610f692f24c82459a865c2a21911647cc0cdf44027e7a59f73ba
 COPIER_IMAGE=$(grep -o 'proxy-dockerhub/alpine/k8s:[^"[:space:]]*' "${W}/pod.yaml" | head -n 1)
 [ -n "${COPIER_IMAGE}" ] || die "the pod of step 03 does not run alpine/k8s"
 COPIER_IMAGE="docker.io/${COPIER_IMAGE#proxy-dockerhub/}"
-say "ORAS ${ORAS_VERSION} (the publisher's), skopeo ${SKOPEO_URL##*/download/} (step 03's), copier ${COPIER_IMAGE}, registries ${REGISTRY_IMAGE}"
+say "ORAS ${ORAS_VERSION} (the publisher's), skopeo ${SKOPEO_URL##*/download/} (step 03's, sha256 ${SKOPEO_SHA256}), control skopeo ${OLD_SKOPEO_URL##*/download/}, copier ${COPIER_IMAGE}, registries ${REGISTRY_IMAGE}"
 
 # ---- the code under test, cut from the render as the chart tests cut it.
 block() { awk -v b="# $2 BEGIN" -v e="# $2 END" '$0 == b {f = 1} f {print} $0 == e {f = 0}' "$1"; }
@@ -113,15 +121,26 @@ if [ ! -x "${BIN}/oras-${ORAS_VERSION}" ]; then
   mv "${BIN}/oras" "${BIN}/oras-${ORAS_VERSION}"
   rm -f "${BIN}/oras.tar.gz"
 fi
-SKOPEO_BIN="${BIN}/skopeo-$(printf '%s' "${SKOPEO_URL}" | sha256sum | cut -c1-12)"
-if [ ! -x "${SKOPEO_BIN}" ]; then
-  curl -fsSL --retry 3 -o "${SKOPEO_BIN}.part" "${SKOPEO_URL}"
-  chmod +x "${SKOPEO_BIN}.part"
-  mv "${SKOPEO_BIN}.part" "${SKOPEO_BIN}"
+# sha FILE: the sha256 of FILE, empty when it does not exist.
+sha() { [ ! -f "$1" ] || sha256sum <"$1" | cut -c1-64; }
+# Step 03's skopeo is fetched by step 03's skopeo_fetch, cut from the render: its URL, its check.
+SKOPEO_DIR="${BIN}/skopeo-fetch-${SKOPEO_SHA256:0:12}"
+func "${W}/run.sh" skopeo_fetch >"${W}/fetch.sh"
+grep -q '^skopeo_fetch() {$' "${W}/fetch.sh" || die "the render of step 03 has no skopeo_fetch"
+if [ "$(sha "${SKOPEO_DIR}/skopeo")" != "${SKOPEO_SHA256}" ]; then
+  rm -rf "${SKOPEO_DIR}"; mkdir -p "${SKOPEO_DIR}"
+  sh -c '. "$1"; skopeo_fetch "$2" "[provider-package-copy]"' sh "${W}/fetch.sh" "${SKOPEO_DIR}" \
+    || die "step 03's skopeo_fetch did not fetch ${SKOPEO_URL} at sha256 ${SKOPEO_SHA256}"
 fi
-mkdir -p "${W}/bin"
+OLD_SKOPEO_BIN="${BIN}/skopeo-control-${OLD_SKOPEO_SHA256:0:12}"
+if [ "$(sha "${OLD_SKOPEO_BIN}")" != "${OLD_SKOPEO_SHA256}" ]; then
+  curl -fsSL --retry 3 -o "${OLD_SKOPEO_BIN}" "${OLD_SKOPEO_URL}" || die "cannot download ${OLD_SKOPEO_URL}"
+  [ "$(sha "${OLD_SKOPEO_BIN}")" = "${OLD_SKOPEO_SHA256}" ] || { rm -f "${OLD_SKOPEO_BIN}"; die "${OLD_SKOPEO_URL} is not sha256 ${OLD_SKOPEO_SHA256}"; }
+fi
+mkdir -p "${W}/bin/old"
 cp "${BIN}/oras-${ORAS_VERSION}" "${W}/bin/oras"
-cp "${SKOPEO_BIN}" "${W}/bin/skopeo"
+cp "${SKOPEO_DIR}/skopeo" "${W}/bin/skopeo"
+cp "${OLD_SKOPEO_BIN}" "${W}/bin/old/skopeo"; chmod +x "${W}/bin/old/skopeo"
 (cd "${ROOT}/tools/guards" && CGO_ENABLED=0 go build -o "${W}/tofu-providers" ./cmd/tofu-providers) || die "go build of tools/guards/cmd/tofu-providers failed"
 
 # ---- the packages: every listed source and version, a stub zip each, packed as the publisher packs.
