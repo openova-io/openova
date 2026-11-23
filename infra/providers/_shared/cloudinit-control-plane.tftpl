@@ -164,6 +164,33 @@ write_files:
     encoding: gz+b64
     content: ${base64gzip(format("%s\n", chomp(replace(registry_mirror_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
+  # ── etcd snapshots to the Sovereign's bucket (FND-182, ADR-0036 B1, B3) ─
+  # k3s reads every file of /etc/rancher/k3s/config.yaml.d at start, each key
+  # as the server flag of that name. With this file every control-plane
+  # server takes an etcd snapshot every 12 hours, keeps its 5 newest, and
+  # uploads each, uncompressed, to etcd/<region>/ of the bucket. The key pair
+  # is here, in a file only root reads: never on the k3s command line (the
+  # process list shows it) and never in a Secret (each snapshot would hold the
+  # key that guards it). k3s wants the endpoint as host[:port], so the scheme
+  # is cut off; http:// turns on etcd-s3-insecure. A bucket that cannot be
+  # reached does not stop k3s: it builds its S3 client in the background, and
+  # a failed upload keeps the snapshot on the server's disk.
+  - path: /etc/rancher/k3s/config.yaml.d/etcd-s3.yaml
+    permissions: '0600'
+    content: |
+      etcd-snapshot-schedule-cron: "0 */12 * * *"
+      etcd-snapshot-retention: 5
+      etcd-s3: true
+      etcd-s3-endpoint: ${jsonencode(trimsuffix(trimprefix(trimprefix(object_storage_endpoint, "https://"), "http://"), "/"))}
+%{ if startswith(object_storage_endpoint, "http://") ~}
+      etcd-s3-insecure: true
+%{ endif ~}
+      etcd-s3-region: ${jsonencode(object_storage_region)}
+      etcd-s3-bucket: ${jsonencode(object_storage_bucket_name)}
+      etcd-s3-folder: ${jsonencode("etcd/${region_canonical_label}")}
+      etcd-s3-access-key: ${jsonencode(object_storage_access_key)}
+      etcd-s3-secret-key: ${jsonencode(object_storage_secret_key)}
+
   # ── flux-system/bootstrap-seed: the raw values of the bootstrap Secrets ──
   # SEC-153: one KEY=value line per value, the value base64-encoded so that
   # no character of it can change the YAML Flux substitutes it into (the

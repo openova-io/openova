@@ -593,3 +593,39 @@ run "golden" {
     error_message = "Golden files: a file cloud-init writes from the huawei fixture differs from golden.auto.tfvars.json: ${join(", ", [for p in sort(setunion([for p, h in output.files_sha256_huawei : p if lookup(var.golden_files_huawei, p, "") != h], [for p, h in var.golden_files_huawei : p if lookup(output.files_sha256_huawei, p, "") != h])) : "huawei:${p}"])}. If the change is intended, run scripts/update-cloudinit-golden.sh and say in the commit message which file changed and why."
   }
 }
+
+# FND-182 (ADR-0036 B1, B3): every control-plane server snapshots its etcd to
+# the Sovereign's bucket. The template writes the k3s configuration file
+# /etc/rancher/k3s/config.yaml.d/etcd-s3.yaml: the schedule, the retention,
+# the bucket and the folder etcd/<region>/, and the bucket's key pair. The key
+# is in that file only, readable by root alone, and no etcd flag is on the
+# k3s command line.
+run "etcd_snapshots_go_to_the_bucket" {
+  command = plan
+
+  assert {
+    condition     = jsonencode(output.etcd_s3.config) == jsonencode({ "etcd-snapshot-schedule-cron" = "0 */12 * * *", "etcd-snapshot-retention" = 5, "etcd-s3" = true, "etcd-s3-endpoint" = "s3.example.test", "etcd-s3-region" = "us-east-1", "etcd-s3-bucket" = "render-test-bucket", "etcd-s3-folder" = "etcd/primary", "etcd-s3-access-key" = "render-test-ak", "etcd-s3-secret-key" = "render-test-sk" })
+    error_message = "FND-182: /etc/rancher/k3s/config.yaml.d/etcd-s3.yaml must hold the etcd row of ADR-0036 B1 for this region (schedule 0 */12 * * *, retention 5, folder etcd/primary) and the bucket's endpoint without its scheme, region, name and key pair; got ${jsonencode(output.etcd_s3.config)}."
+  }
+
+  assert {
+    condition     = output.etcd_s3.root_only && length(regexall("render-test-sk", output.boot_text)) == 2 && length(regexall("render-test-sk", output.rendered_cloud_init)) == 1 && length(regexall("--etcd-(s3|snapshot)", output.rendered_cloud_init)) == 0
+    error_message = "FND-182 (ADR-0036 B3): the etcd snapshot file must be a plain write_files entry with permissions '0600', the bucket's secret key must appear in the render once and in no file but this one, and no etcd snapshot flag may be on the k3s command line."
+  }
+}
+
+# The other cloud branch, with an http endpoint: k3s takes host:port and
+# etcd-s3-insecure turns off TLS.
+run "etcd_snapshots_http_endpoint" {
+  command = plan
+
+  variables {
+    provider_name           = "huawei"
+    object_storage_endpoint = "http://127.0.0.1:9000/"
+  }
+
+  assert {
+    condition     = output.etcd_s3.root_only && output.etcd_s3.config["etcd-s3-endpoint"] == "127.0.0.1:9000" && output.etcd_s3.config["etcd-s3-insecure"] == true && output.etcd_s3.config["etcd-s3-folder"] == "etcd/primary" && length(output.etcd_s3.config) == 10
+    error_message = "FND-182: an http endpoint must render as etcd-s3-endpoint 127.0.0.1:9000 with etcd-s3-insecure true; got ${jsonencode(output.etcd_s3.config)}."
+  }
+}

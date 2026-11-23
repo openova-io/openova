@@ -36,6 +36,14 @@ variable "golden_huawei" {
 # file cloud-init writes from each fixture (path => hash) with these maps,
 # written by scripts/update-cloudinit-golden.sh into the same file. The
 # default is empty, so the run fails when the values are missing.
+# FND-182: the fixtures' object-storage endpoint. A run sets it to an http
+# endpoint to cover the form of the etcd snapshot file that turns off TLS.
+variable "object_storage_endpoint" {
+  description = "The object_storage_endpoint both fixtures pass to the template."
+  type        = string
+  default     = "https://s3.example.test"
+}
+
 variable "golden_files_hetzner" {
   description = "Expected SHA-256 of each file cloud-init writes from the hetzner fixture, by path."
   type        = map(string)
@@ -157,7 +165,7 @@ locals {
     object_storage_access_key         = "render-test-ak"
     object_storage_secret_key         = "render-test-sk"
     object_storage_bucket_name        = "render-test-bucket"
-    object_storage_endpoint           = "https://s3.example.test"
+    object_storage_endpoint           = var.object_storage_endpoint
     object_storage_region             = "us-east-1"
     node_ip_cmd                       = "echo 10.0.1.2"
     node_external_ip_cmd              = "echo 203.0.113.10"
@@ -278,6 +286,14 @@ locals {
     ]))) }
     resources = yamldecode(file("${local.bootstrap_secrets_dir}/kustomization.yaml")).resources
     root      = { for f in fileset("${path.module}/../../../../clusters/_template/root/base-primary", "*.yaml") : f => yamldecode(file("${path.module}/../../../../clusters/_template/root/base-primary/${f}")) }
+  }
+
+  # FND-182 (ADR-0036 B1, B3): the k3s configuration file of the etcd
+  # snapshots as the node has it, decoded (null when the render lacks it),
+  # and whether its write_files entry is a plain file only root reads.
+  etcd_s3 = {
+    config    = try(yamldecode(local.files["/etc/rancher/k3s/config.yaml.d/etcd-s3.yaml"]), null)
+    root_only = strcontains(local.rendered_cloud_init, "\n  - path: /etc/rancher/k3s/config.yaml.d/etcd-s3.yaml\n    permissions: '0600'\n    content: |\n")
   }
 
   # The render and every file it writes, decoded: the subject of the checks
@@ -405,6 +421,10 @@ output "flux_bootstrap_yaml" {
 
 output "boot_text" {
   value = local.boot_text
+}
+
+output "etcd_s3" {
+  value = local.etcd_s3
 }
 
 output "seal" {
