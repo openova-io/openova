@@ -13,8 +13,11 @@ import (
 // stubCloud stands in for the cloud calls of the capabilities for one test.
 func stubCloud(t *testing.T, quota func(n int) (int, int, error), sweep func(region string, protect map[string]struct{}, destructive bool) (int, error)) *[]string {
 	t.Helper()
-	origQuota, origSweep := vpcQuota, sweepVPCs
-	t.Cleanup(func() { vpcQuota, sweepVPCs = origQuota, origSweep })
+	origQuota, origSweep, origNAT := vpcQuota, sweepVPCs, chooseNAT
+	t.Cleanup(func() { vpcQuota, sweepVPCs, chooseNAT = origQuota, origSweep, origNAT })
+	chooseNAT = func(context.Context, providers.ProvisionSpec, map[string]bool, func(string)) ([]providers.StateImport, error) {
+		return nil, nil
+	}
 	var calls []string
 	n := 0
 	vpcQuota = func(_ *Provider, _ context.Context, ak, sk, projectID, region string) (int, int, error) {
@@ -46,8 +49,10 @@ func TestCapabilities_ReachedThroughTheRegistry(t *testing.T) {
 	if _, ok, err := providers.As[providers.Preflighter](Name); !ok || err != nil {
 		t.Errorf("As[Preflighter](%q) = %v, %v; want the adapter", Name, ok, err)
 	}
-	if _, ok, err := providers.As[providers.PostApplier](Name); !ok || err != nil {
-		t.Errorf("As[PostApplier](%q) = %v, %v; want the adapter", Name, ok, err)
+	// CLD-G12: the NAT EIP is chosen before the plan; no step after the apply
+	// changes the cloud behind the state's back.
+	if _, ok, err := providers.As[providers.PostApplier](Name); ok || err != nil {
+		t.Errorf("As[PostApplier](%q) = %v, %v; want no PostApplier", Name, ok, err)
 	}
 	if _, ok, err := providers.As[providers.ApplyErrorClassifier](Name); !ok || err != nil {
 		t.Errorf("As[ApplyErrorClassifier](%q) = %v, %v; want the adapter", Name, ok, err)
@@ -71,7 +76,7 @@ func TestPreflight_ReclaimsWithTheProtectedIDsThenRefuses(t *testing.T) {
 	})
 	var msgs []string
 	in := preflightInput(map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P", "region": " me-east-216 "}, 2, func(m string) { msgs = append(msgs, m) })
-	err := New().Preflight(context.Background(), in)
+	_, err := New().Preflight(context.Background(), in)
 	want := "HCS VPC quota exhausted: project at 4/5 after orphan reclaim, this prov requests 2 more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying"
 	if err == nil || err.Error() != want {
 		t.Fatalf("Preflight error = %v; want %q", err, want)
@@ -102,7 +107,7 @@ func TestPreflight_ProceedsWhenTheReclaimFreedRoom(t *testing.T) {
 		}
 		return 3, 5, nil
 	}, func(string, map[string]struct{}, bool) (int, error) { return 2, nil })
-	if err := New().Preflight(context.Background(), preflightInput(map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P"}, 2, nil)); err != nil {
+	if _, err := New().Preflight(context.Background(), preflightInput(map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P"}, 2, nil)); err != nil {
 		t.Fatalf("Preflight = %v; want nil", err)
 	}
 	if got := (*calls)[0]; got != "quota AK SK P "+defaultRegion {
@@ -122,7 +127,7 @@ func TestPreflight_ProceedsWithoutAReclaim(t *testing.T) {
 			return 0, nil
 		})
 		var msgs []string
-		if err := New().Preflight(context.Background(), preflightInput(map[string]string{"access_key": "AK"}, 2, func(m string) { msgs = append(msgs, m) })); err != nil {
+		if _, err := New().Preflight(context.Background(), preflightInput(map[string]string{"access_key": "AK"}, 2, func(m string) { msgs = append(msgs, m) })); err != nil {
 			t.Errorf("%s: Preflight = %v; want nil", name, err)
 		}
 		if len(*calls) != 1 || len(msgs) != 1 {
@@ -131,30 +136,52 @@ func TestPreflight_ProceedsWithoutAReclaim(t *testing.T) {
 	}
 }
 
-// The NAT EIP rotation gets the deployment, its credentials and region; its
-// failure is reported and never fails the prov (Wave 5.93).
-func TestPostApply_RotationFailureDoesNotFailTheProv(t *testing.T) {
-	orig := rotateNATEIPs
-	t.Cleanup(func() { rotateNATEIPs = orig })
-	var got []string
-	rotateNATEIPs = func(_ context.Context, provider, deploymentID, sovereignFQDN, ak, sk, projectID, region string, _ func(string)) (int, error) {
-		got = []string{provider, deploymentID, sovereignFQDN, ak, sk, projectID, region}
-		return 0, errors.New("huawei: access_key is required")
+// The NAT EIP choice gets the spec and the state's addresses, and its imports
+// are the result; a failed choice is reported and never fails the prov
+// (Wave 5.93): OpenTofu then allocates the NAT EIPs itself.
+func TestPreflight_ReturnsTheNATImportsAndAFailedChoiceDoesNotFailTheProv(t *testing.T) {
+	stubCloud(t, func(int) (int, int, error) { return 1, 5, nil }, func(string, map[string]struct{}, bool) (int, error) { return 0, nil })
+	want := []providers.StateImport{{Address: `huaweicloud_vpc_eip.nat["ra"]`, ID: "eip-1", Label: "203.0.113.24"}}
+	var gotSpec providers.ProvisionSpec
+	var gotInState map[string]bool
+	fail := false
+	chooseNAT = func(_ context.Context, spec providers.ProvisionSpec, inState map[string]bool, _ func(string)) ([]providers.StateImport, error) {
+		gotSpec, gotInState = spec, inState
+		if fail {
+			return want, errors.New("list publicips: status 503")
+		}
+		return want, nil
 	}
+	in := preflightInput(map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P"}, 1, nil)
+	in.InState = map[string]bool{"huaweicloud_vpc.region[\"ra\"]": true}
+	res, err := New().Preflight(context.Background(), in)
+	if err != nil || !reflect.DeepEqual(res.Imports, want) {
+		t.Fatalf("Preflight = %+v, %v; want the imports %+v", res, err, want)
+	}
+	if gotSpec.DeploymentID != in.Spec.DeploymentID || !reflect.DeepEqual(gotInState, in.InState) {
+		t.Errorf("the choice got spec %+v and state %v; want the input's", gotSpec, gotInState)
+	}
+	fail = true
 	var msgs []string
-	res, err := New().PostApply(context.Background(), providers.PostApplyInput{
-		Spec: providers.ProvisionSpec{DeploymentID: "d1", SovereignFQDN: "t1.omani.works",
-			Creds: providers.ProviderCreds{Raw: map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P", "region": "me-east-216"}}},
-		Progress: func(m string) { msgs = append(msgs, m) },
-	})
-	if err != nil || res.ReapplyNeeded {
-		t.Fatalf("PostApply = %+v, %v; want no error and no re-apply", res, err)
+	in.Progress = func(m string) { msgs = append(msgs, m) }
+	res, err = New().Preflight(context.Background(), in)
+	if err != nil || len(res.Imports) != 0 {
+		t.Fatalf("Preflight after a failed choice = %+v, %v; want no error and no import", res, err)
 	}
-	if want := []string{Name, "d1", "t1.omani.works", "AK", "SK", "P", "me-east-216"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("rotation args = %q; want %q", got, want)
+	if len(msgs) != 2 || !strings.HasPrefix(msgs[1], "NAT EIP pre-flight failed (non-fatal") {
+		t.Errorf("progress = %q; want the quota line and the non-fatal failure line", msgs)
 	}
-	if len(msgs) != 1 || !strings.HasPrefix(msgs[0], "EIP pre-flight check failed (non-fatal") {
-		t.Errorf("progress = %q; want the non-fatal failure line", msgs)
+}
+
+// A refused VPC quota fails the prov before any NAT EIP is allocated.
+func TestPreflight_AQuotaRefusalChoosesNoNAT(t *testing.T) {
+	stubCloud(t, func(int) (int, int, error) { return 5, 5, nil }, func(string, map[string]struct{}, bool) (int, error) { return 0, nil })
+	chooseNAT = func(context.Context, providers.ProvisionSpec, map[string]bool, func(string)) ([]providers.StateImport, error) {
+		t.Error("the NAT EIP choice ran after a refused quota")
+		return nil, nil
+	}
+	if _, err := New().Preflight(context.Background(), preflightInput(map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "P"}, 2, nil)); err == nil {
+		t.Fatal("Preflight = nil; want the quota refusal")
 	}
 }
 

@@ -30,7 +30,6 @@
       "products/catalyst/bootstrap/api/internal/handler/post_handover_gateway_elb.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/post_handover_spine_apps.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/wipe.go": 1,
-      "products/catalyst/bootstrap/api/internal/providers/huawei/preflight_eip.go": 1,
       "products/catalyst/bootstrap/api/internal/provisioner/provisioner.go": 1
     },
     "go_ticker": {

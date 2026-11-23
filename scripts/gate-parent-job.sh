@@ -1505,6 +1505,20 @@ STUB
     && [ "$(grep -F '"$GITHUB_OUTPUT"' <<< "$v" | tail -n 1 | sed 's/^ *//')" = 'bash scripts/gate-parent-job.sh plan "$CHAIN" "$rec" >> "$GITHUB_OUTPUT"' ] \
     && [ "$(grep -n -F 'acceptance-gate.py validate-record' <<< "$v" | cut -d: -f1)" -lt "$(grep -n -F 'bash scripts/gate-parent-job.sh plan' <<< "$v" | cut -d: -f1)" ]
   ok $? "workflow: the record is committed on the output commit of plan alone, written after the record is valid"
+  # The artifact uploads every record committed in the candidate's tree beside the run's own: the step
+  # "Name the record of this run" names that one in own-record.txt. Its own text runs here as GitHub runs it
+  # (bash -eo pipefail): no record, one, two, beside one committed record; it never fails the job.
+  local own="$T/own" body
+  body="$(awk -v n='      - name: Name the record of this run' '$0 == n {f = 1; next} f && /^      - / {exit} f && r {sub(/^          /, ""); print} f && $0 == "        run: |" {r = 1}' "$wf")"
+  mkdir -p "$own/candidate/docs/ledger/acceptance" "$own/tmp" && echo '{}' > "$own/candidate/docs/ledger/acceptance/committed.json"
+  git -C "$own/candidate" init -q && git -C "$own/candidate" add . \
+    && git -C "$own/candidate" -c user.name=self-test -c user.email=self-test@example.invalid commit -q -m committed
+  own_run() { (cd "$own" && RUNNER_TEMP="$own/tmp" GITHUB_STEP_SUMMARY="$own/summary" bash --noprofile --norc -eo pipefail -c "$body") > "$own/out" 2>&1; }
+  [ -n "$body" ] && own_run && [ -f "$own/tmp/own-record.txt" ] && [ ! -s "$own/tmp/own-record.txt" ] && grep -q 'wrote 0 records' "$own/out" \
+    && echo '{}' > "$own/candidate/docs/ledger/acceptance/run.json" && own_run \
+    && [ "$(cat "$own/tmp/own-record.txt")" = docs/ledger/acceptance/run.json ] \
+    && echo '{}' > "$own/candidate/docs/ledger/acceptance/other.json" && own_run && [ ! -s "$own/tmp/own-record.txt" ] && grep -q 'wrote 2 records' "$own/out"
+  ok $? "workflow: own-record.txt of the artifact names the one record the run wrote, none else, and the step never fails"
   # A discovery run is the input discovery of both triggers (boolean, default false), set as GATE_DISCOVERY in
   # the environment of the whole job live, so every plan of the job and the Job on the parent see the same value.
   [ "$(awk '$0 == "      discovery:" {f = 1; n++; next} f && !/^        / {f = 0} f && ($0 == "        type: boolean" || $0 == "        default: false") {c++} END {print n + 0 "/" c + 0}' "$wf")" = 2/4 ] \

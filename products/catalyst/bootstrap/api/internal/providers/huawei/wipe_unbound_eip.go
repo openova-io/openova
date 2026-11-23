@@ -13,7 +13,7 @@
 // leak that feeds it).
 //
 // Fix: a project-wide `GET /v1/{proj}/publicips` sweep (the same raw list
-// SweepOrphanEIPs / allocateCleanEIP already use) that flags every EIP
+// SweepOrphanEIPs / chooseNATAddresses already use) that flags every EIP
 // which is NON-bastion AND UNBOUND (port_id == "") as an orphan. The wipe
 // purge releases them (DELETE only — conservatively, never a BOUND EIP),
 // and verifyZeroOrphans surfaces any survivor in

@@ -27,7 +27,12 @@
 #         plan        tofu plan -detailed-exitcode -lock=false (at most 30 minutes).
 #       The state and the working directory are never written: every step works on the copy, and
 #       the copy is removed at the end. Only the step markers, the changed key names, the error
-#       summaries and the plan's action lines (address and action, no value) leave the Pod.
+#       summaries and the plan's action lines (address and action, no value) leave the Pod, and
+#       one line for each object that tofu reports as changed or deleted outside OpenTofu with
+#       IP addresses among its changed attributes: its address and those IP addresses, the
+#       state's and the cloud's (drift, below), so that a state that kept an address the cloud
+#       no longer uses (CLD-G12 of 2026-11-21: a NAT address swapped behind the state) is named
+#       in the record. No other value leaves the Pod.
 #       The transcript is judged into the result file (below). Exit 0 PASS, 1 FAIL, 2 usage error.
 # judge Reads a transcript and writes the result file that
 #       scripts/acceptance-gate.py merge-check --check CLD-G12 adds to a gate record:
@@ -63,6 +68,30 @@ begin() { step="$1"; say "begin $1 $(now)"; }
 finish() { say "end $step $1 $(now)"; }
 lines() { while IFS= read -r l; do say "line $step $l"; done; }
 errors() { grep 'Error: ' "$1" | sed 's/^[^E]*Error: /Error: /' | head -20 | lines; }
+# drift < plan output: for each object of tofu's "changed outside of OpenTofu" part whose
+# attributes change from an IP address, one action-shaped line naming the object, the IP
+# addresses the state holds and those the cloud reports (none when the object is gone).
+drift() {
+  awk '
+    function keep(list, v) { return index(", " list ", ", ", " v ", ") ? list : (list == "" ? v : list ", " v) }
+    function flush() {
+      if (addr != "" && olds != "" && news != "")
+        printf "  # %s differs outside OpenTofu: the state holds %s, the cloud %s\n", addr, olds, news
+      else if (addr != "" && olds != "")
+        printf "  # %s was deleted outside OpenTofu: the state holds %s, the cloud has no such object\n", addr, olds
+      addr = ""; olds = ""; news = ""
+    }
+    /^  # .* (has been deleted|has changed)$/ {
+      flush(); addr = substr($0, 5); sub(/ (has been deleted|has changed)$/, "", addr); next
+    }
+    addr != "" && (/^    }$/ || /^OpenTofu (will perform|used the selected)/) { flush(); next }
+    addr != "" && match($0, /"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(\/[0-9]+)?" -> /) {
+      olds = keep(olds, substr($0, RSTART + 1, RLENGTH - 6)); rest = substr($0, RSTART + RLENGTH)
+      if (match(rest, /^"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(\/[0-9]+)?"/)) news = keep(news, substr(rest, 2, RLENGTH - 2))
+    }
+    END { flush() }
+  '
+}
 limit() { if command -v timeout > /dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi; }
 begin copy
 t="$(mktemp -d "${TMPDIR:-/tmp}/cld-g12.XXXXXX")" || { echo "no temporary directory" | lines; finish 1; exit 0; }
@@ -125,6 +154,7 @@ begin plan
 limit 1800 tofu plan -detailed-exitcode -lock=false -input=false -no-color > "$t/out" 2>&1
 rc=$?
 grep -E '^  # .* (will|must) be ' "$t/out" | head -400 | lines
+drift < "$t/out" | head -100 | lines
 grep -E '^Plan: |^No changes\.' "$t/out" | head -1 | lines
 errors "$t/out"
 finish "$rc"
@@ -382,6 +412,7 @@ case "$1" in
       silent) exit 0 ;;
       change) printf '  # fakecloud_address.nat["b"] will be created\n  # fakecloud_instance.cp[0] must be replaced\n  # x has changed\nPlan: 1 to add, 0 to change, 1 to destroy.\n'; exit 2 ;;
       error) printf '\342\224\202 Error: Invalid provider configuration\n'; exit 1 ;;
+      file) cat "$FAKE_PLAN_FILE"; exit 2 ;;
       many) i=0; while [ "$i" -lt 450 ]; do echo "  # fakecloud_address.a[$i] will be created"; i=$((i + 1)); done
         echo "Plan: 450 to add, 0 to change, 0 to destroy."; exit 2 ;;
       HUP|PIPE) # the exec stream drops during the plan: the remote shell gets the signal
@@ -449,6 +480,60 @@ PY
   case_run 1 "rule plan: a plan with changes is FAIL, with the counts and every planned action" 'Plan: 1 to add, 0 to change, 1 to destroy.' FAKE_PLAN=change
   grep -q 'must be replaced' "$t/result.json" && ! grep -q 'has changed' "$t/result.json"
   ok $? "rule plan: the actions are listed, drift lines are not"
+  # CLD-G12 of 2026-11-21: the state holds a NAT address that the cloud no longer uses (the
+  # address was swapped behind the state). tofu's own drift report is all the plan knows; the
+  # failure names the resource and the two addresses of the rule, the state's and the cloud's,
+  # and the deleted address the state still holds.
+  cat > "$t/nat-plan.txt" <<'EOF'
+Note: Objects have changed outside of OpenTofu
+
+OpenTofu detected the following changes made outside of OpenTofu since the
+last "tofu apply" which may have affected this plan:
+
+  # fakecloud_snat_rule.region["a"] has changed
+  ~ resource "fakecloud_snat_rule" "region" {
+      ~ floating_ip_address = "203.0.113.1" -> "203.0.113.24"
+      ~ floating_ip_id      = "26acceac" -> "8fedaa"
+        id                  = "3ab6edad"
+        # (2 unchanged attributes hidden)
+    }
+
+  # fakecloud_address.nat["a"] has been deleted
+  - resource "fakecloud_address" "nat" {
+      - address = "203.0.113.1" -> null
+        id      = "26acceac"
+        tags    = {
+            "k" = "10.0.0.1"
+        }
+    }
+
+Unless you have made equivalent changes to your configuration, or ignored the
+relevant attributes using ignore_changes, the following plan may include
+actions to undo or respond to these changes.
+
+OpenTofu used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+
+OpenTofu will perform the following actions:
+
+  # fakecloud_address.nat["a"] will be created
+  + resource "fakecloud_address" "nat" {
+      + address = (known after apply)
+    }
+
+  # fakecloud_rule.api["a|nat|a"] must be replaced
+-/+ resource "fakecloud_rule" "api" {
+      ~ remote_ip_prefix = "203.0.113.1/32" -> (known after apply) # forces replacement
+    }
+
+Plan: 2 to add, 0 to change, 1 to destroy.
+EOF
+  case_run 1 "rule plan: a state whose NAT address differs from the cloud's names the resource and both addresses" \
+    'fakecloud_snat_rule.region\[\\"a\\"\] differs outside OpenTofu: the state holds 203.0.113.1, the cloud 203.0.113.24' \
+    FAKE_PLAN=file FAKE_PLAN_FILE="$t/nat-plan.txt"
+  grep -q 'fakecloud_address.nat\[\\"a\\"\] was deleted outside OpenTofu: the state holds 203.0.113.1, the cloud has no such object' "$t/result.json" \
+    && grep -q 'fakecloud_rule.api\[\\"a|nat|a\\"\] must be replaced' "$t/result.json" && ! grep -q '10\.0\.0\.1\|8fedaa\|3ab6edad' "$t/result.json"
+  ok $? "rule plan: the deleted address the state holds is named, the actions stay listed, no other value leaves"
   case_run 1 "rule plan: more actions than are listed still give the counts" 'the plan shows changes: Plan: 450 to add' FAKE_PLAN=many
   case_run 1 "rule plan: a plan that fails is FAIL with its error" 'tofu plan exit code 1: Error: Invalid provider configuration' FAKE_PLAN=error
   case_run 1 "rule plan: exit code 0 without the line No changes. is FAIL" 'without the line No changes.' FAKE_PLAN=silent
