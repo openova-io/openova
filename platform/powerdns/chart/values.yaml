@@ -446,6 +446,17 @@ dnsdist:
     setLocal('0.0.0.0:53')
     addLocal('[::]:53', { reusePort=true })
 
+    -- ─── Access list (NET-G19) ───────────────────────────────────────
+    -- Without setACL dnsdist keeps its built-in list: private, loopback and
+    -- link-local sources only. This dnsdist is the Sovereign's PUBLIC name
+    -- server: public port 53 reaches it with the client's address kept
+    -- (the hostPort-53 DaemonSet), so that list dropped every query from
+    -- the internet (udp timed out, tcp was reset on read). Its one backend
+    -- is PowerDNS Authoritative (newServer below; no recursor behind it),
+    -- so admitting every source opens no resolver. MaxQPSIPRule below stays
+    -- the per-source limit. The console ACL is not touched (no console).
+    setACL({ '0.0.0.0/0', '::/0' })
+
     local backend = os.getenv("POWERDNS_SERVICE_HOST") or "127.0.0.1"
     newServer({ address = backend .. ":5353", name = 'powerdns-auth' })
 
