@@ -4498,26 +4498,41 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-101, FND-107, SVC-040]
+  after: []
   touches:
-  - products/catalyst/bootstrap/ui/e2e/gate/applications/**
-  - docs/ledger/UAT.md
-  - docs/ledger/uat-row-map.csv
   - docs/ledger/gates.yaml
+  - docs/ledger/uat-row-map.csv
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/agenity.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/app-detail.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/apps-grid.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/catalog-edit.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/catalog.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/lib.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/object-model.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/org-apps.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/applications/shared-pg-topology.spec.ts
   resources: []
   flips: [FND-G20]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -d products/catalyst/bootstrap/ui/e2e/gate/applications; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd tools/guards && go run ./cmd/check-uat-row-map && cd ../.. && test \"$(grep -c ',test:FND-G20,products/catalyst/bootstrap/ui/e2e/gate/applications/' docs/ledger/uat-row-map.csv)\" = 82 && test \"$(grep -c ',test:FND-G20$' docs/ledger/uat-row-map.csv)\" = 0"
+  - id: A2
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: FND-162') && test \"$(awk '/^- id: /{f=($3==\"FND-G20\")} f&&/^  (state|implementation): /{print $2}' docs/ledger/gates.yaml | tr '\\n' ' ')\" = 'expected-fail products/catalyst/bootstrap/ui/e2e/gate/applications '"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/ui && npm ci --no-audit --no-fund && npx tsc --noEmit -p e2e/gate && npx eslint e2e/gate && m=$(mktemp) && python3 ../../../../scripts/acceptance-gate.py export > \"$m\" && test \"$(node --experimental-strip-types e2e/gate/checks.ts \"$m\" cloud | grep -cx FND-G20)\" = 1 && test \"$(NO_COLOR=1 GATE_MANIFEST=\"$m\" GATE_FQDN=gate.invalid GATE_CHECKS=FND-G20 npx playwright test -c e2e/gate/playwright.config.ts --list | grep -cx 'Total: 82 tests in 8 files')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The ledger rows about the applications grid, application detail and the catalogue are browser tests behind gate check FND-G20.
+  delivers: The 82 ledger rows about the applications grid, the application detail page and the catalogue are browser tests behind gate check FND-G20, which every live gate run runs and records.
 - id: FND-163
   title: 'Console regression: jobs, resource views, cloud and infrastructure read pages'
   area: FND
