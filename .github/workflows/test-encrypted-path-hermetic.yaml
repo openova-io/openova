@@ -5,9 +5,10 @@
 # chart platform/cilium/chart with the values of its bootstrap-kit slot 01 (WireGuard, node
 # encryption, native routing, kube-proxy replacement), on a container network of MTU 1500. Two cases:
 #   kit      the slot's defaults: a 65,536-byte answer moves host to host between the agents, both
-#            ways, 3 times each, each within 5 seconds, through cilium_wg0;
-#   control  the same with CILIUM_MTU=1420: no fetch completes. If one does, the test cannot see the
-#            defect and the job fails.
+#            ways, 5 times each, each within 5 seconds, through cilium_wg0;
+#   control  the same with CILIUM_MTU=1420: at most half of the 10 fetches complete (the path is
+#            broken, not dead: 1 of 66 completed in CI). If most do, the test cannot see the defect
+#            and the job fails.
 # The job fails when a case does not come out as stated. The case files and the summary are
 # uploaded as the artifact encrypted-path-hermetic. Nothing publishes a port and nothing uses a node
 # port.
