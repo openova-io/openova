@@ -1,0 +1,26 @@
+# CTL-120 — the Sovereign's fleet intent (contract C4, part 2): the
+# authored desired state under clusters/${SOVEREIGN_FQDN}/intent of the
+# Sovereign region repo, written only through the commit library with
+# scope fleet-intent. Applied in the WRITER region only: the follower
+# overlay (../multi-region-follower) deletes this Kustomization.
+#
+# Flux fails on a missing path, so the organization-controller commits the
+# placeholder intent/intent-root.yaml (a ConfigMap intent-root in
+# flux-system, no data) at start-up; it is never deleted.
+# prune: deleting a file removes its object. wait: false — one broken
+# object must not hold the others.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sovereign-intent
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./clusters/${SOVEREIGN_FQDN}/intent
+  prune: true
+  wait: false
+  sourceRef:
+    kind: GitRepository
+    name: sovereign-region

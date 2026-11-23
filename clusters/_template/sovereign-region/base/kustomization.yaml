@@ -24,3 +24,5 @@ kind: Kustomization
 resources:
   - gitrepository.yaml
   - region-kustomization.yaml
+  # CTL-120 — the fleet intent of the writer region (deleted in followers).
+  - intent-kustomization.yaml

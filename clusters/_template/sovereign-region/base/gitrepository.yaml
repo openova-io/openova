@@ -22,6 +22,9 @@ spec:
   # a region without it names its own Secret via SOVEREIGN_REGION_GIT_SECRET.
   secretRef:
     name: ${SOVEREIGN_REGION_GIT_SECRET:=openova-org-tenants-git-auth}
+  # The source carries this region's folder and the Sovereign's fleet intent
+  # (CTL-120), which only the writer region's sovereign-intent applies.
   ignore: |
     /*
     !/clusters/${SOVEREIGN_FQDN}/regions/${SOVEREIGN_REGION_ID}
+    !/clusters/${SOVEREIGN_FQDN}/intent

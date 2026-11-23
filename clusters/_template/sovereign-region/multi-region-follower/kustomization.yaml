@@ -33,3 +33,13 @@ resources:
   - git-sync-script.yaml
   - git-sync-cronjob.yaml
   - catalog-helmrepository.yaml
+# CTL-120 — a follower never applies the fleet intent: only the writer
+# region does, so the base Kustomization sovereign-intent is deleted here.
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: sovereign-intent
+        namespace: flux-system

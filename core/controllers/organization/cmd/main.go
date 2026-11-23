@@ -30,8 +30,10 @@ import (
 	"github.com/openova-io/openova/core/controllers/organization/internal/controller"
 	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	"github.com/openova-io/openova/core/controllers/organization/internal/iacbootstrap"
+	"github.com/openova-io/openova/core/controllers/organization/internal/intentroot"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
 	"github.com/openova-io/openova/core/controllers/pkg/regions"
 )
@@ -137,6 +139,12 @@ func main() {
 	// Secrets live. Defaults to the controller's own namespace so the
 	// ClusterRole `secrets:get` rule + cache scope stay minimal.
 	fedSecretNs := envOr("CATALYST_FEDERATION_SECRET_NAMESPACE", "catalyst-controllers")
+	// The Sovereign FQDN the fleet repository's paths are keyed on, and the
+	// fleet repository itself (ADR-0015 D1). The reconciler and the fleet
+	// intent root (CTL-120) read the same three values.
+	sovereignFQDN := envOr("SOVEREIGN_FQDN", hostCluster)
+	regionRepoOwner := envOr("SOVEREIGN_REGION_REPO_OWNER", "openova")
+	regionRepo := envOr("SOVEREIGN_REGION_REPO", "sovereign-regions")
 	// Namespace where per-Org UserAccess Claim CRs are written. Defaults
 	// to `catalyst-system` per the qa-fixtures convention. Per Inviolable
 	// Principle #4 the deployment env can override this for non-canonical
@@ -319,9 +327,9 @@ func main() {
 		FluxIntervalSeconds:               fluxIntervalSeconds,
 		FluxGiteaSecretRef:                fluxGiteaSecretRef,
 		Regions:                           regionRegistry,
-		SovereignFQDN:                     envOr("SOVEREIGN_FQDN", hostCluster),
-		SovereignRegionRepoOwner:          envOr("SOVEREIGN_REGION_REPO_OWNER", "openova"),
-		SovereignRegionRepo:               envOr("SOVEREIGN_REGION_REPO", "sovereign-regions"),
+		SovereignFQDN:                     sovereignFQDN,
+		SovereignRegionRepoOwner:          regionRepoOwner,
+		SovereignRegionRepo:               regionRepo,
 		FederationSecretNamespace:         fedSecretNs,
 		UserAccessNamespace:               uaNs,
 		IacBootstrapGitea:                 iacGitea,
@@ -352,6 +360,38 @@ func main() {
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
+		os.Exit(1)
+	}
+
+	// CTL-120 — the fleet intent root. The writer region's Flux Kustomization
+	// sovereign-intent applies clusters/<fqdn>/intent and fails while that
+	// path is missing, so the placeholder intent-root.yaml is committed once
+	// (must not exist; a conflict is success). This controller runs in the
+	// writer region only: a follower region suspends the platform release.
+	// It runs when the manager starts, on the elected leader, not before:
+	// the probes are served by the manager, and a call that blocked on an
+	// unreachable Gitea before it would let the liveness probe kill the Pod.
+	// A failure is logged and never stops the controller.
+	fleetGit, err := gitwrite.New(gitwrite.Config{
+		BaseURL:     giteaURL,
+		Tokens:      gitwrite.SharedTokenSource(giteaToken),
+		RobotDomain: "robots." + sovereignFQDN,
+	})
+	if err != nil {
+		log.Error(err, "fleet intent writer")
+		os.Exit(1)
+	}
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		fleetRepo := gitwrite.Repo{Owner: regionRepoOwner, Name: regionRepo, Branch: branch}
+		if err := intentroot.Run(ctx, fleetGit, fleetRepo, sovereignFQDN, intentroot.Retry, log.WithName("intentroot")); err != nil {
+			log.Error(err, "fleet intent root NOT committed; Kustomization sovereign-intent stays not Ready until the next start",
+				"repo", regionRepoOwner+"/"+regionRepo, "path", intentroot.Path(sovereignFQDN))
+			return nil
+		}
+		log.Info("fleet intent root present", "repo", regionRepoOwner+"/"+regionRepo, "path", intentroot.Path(sovereignFQDN))
+		return nil
+	})); err != nil {
+		log.Error(err, "add fleet intent root runnable")
 		os.Exit(1)
 	}
 
