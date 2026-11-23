@@ -12,10 +12,13 @@
 #       in the namespace of the seed Certificate; the Role allows get and
 #       delete on exactly the Certificate's secretName; the RoleBinding binds
 #       the Job's ServiceAccount; the Job deletes that Secret, exits 0 and
-#       sets an explicit CPU limit (50m) so plan-quota cannot refuse its Pod.
+#       sets an explicit CPU limit (50m) so plan-quota cannot refuse its Pod;
+#       the Job is bounded (activeDeadlineSeconds 300) and deleted on failure
+#       (hook-failed), so a Pod that never starts does not stay.
 #   H2  primary: the hook is post-delete only (the seed is live there).
-#   H3  replica: the same hook on post-delete AND post-upgrade, so a former
-#       primary loses the Secret on the upgrade that moves the Primary away.
+#   H3  replica: the same hook, post-delete ONLY: no hook may gate the
+#       upgrade that demotes a former primary (a failed hook rolls it back to
+#       the revision where it is the primary again).
 #   H4  single-region: no hook (no seed renders).
 #   H5  the hook Job carries app.kubernetes.io/managed-by: flux.
 #
@@ -103,7 +106,12 @@ hook_fault() {  # $1 render
   # plan-quota the plan default and the hook Pod can be refused.
   limits="$(yq ea 'select(.kind == "Job" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .spec.template.spec.containers[0].resources.limits.cpu + "|" + .spec.template.spec.containers[0].resources.limits.memory' "$r")"
   if [ "$limits" != "50m|64Mi" ]; then
-    echo "the Job's container limits are '$limits', want cpu 50m and memory 64Mi"
+    echo "the Job's container limits are '$limits', want cpu 50m and memory 64Mi"; return
+  fi
+  # A Pod that never starts: the deadline fails the Job, hook-failed removes it.
+  bound="$(yq ea 'select(.kind == "Job" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | (.spec.activeDeadlineSeconds | tostring) + "|" + .metadata.annotations["helm.sh/hook-delete-policy"]' "$r")"
+  if [ "$bound" != "300|before-hook-creation,hook-succeeded,hook-failed" ]; then
+    echo "the Job is '$bound', want activeDeadlineSeconds 300 and delete policy before-hook-creation,hook-succeeded,hook-failed"
   fi
 }
 
@@ -120,11 +128,17 @@ fi
 # H3
 f="$(hook_fault "$TMP/replica.yaml")"
 hooks="$(hooked "$TMP/replica.yaml" Job | cut -d'|' -f3)"
-if [ -z "$f" ] && [ "$hooks" = "post-delete,post-upgrade" ]; then
-  pass "H3 replica: the same hook on post-delete and post-upgrade"
+if [ -z "$f" ] && [ "$hooks" = "post-delete" ]; then
+  pass "H3 replica: the same hook, post-delete only (nothing gates the demotion upgrade)"
 else
-  fail "H3 replica: ${f:-the hook is '$hooks', want post-delete,post-upgrade}"
+  fail "H3 replica: ${f:-the hook is '$hooks', want post-delete}"
 fi
+# H3b: no object of the hook, in either region, runs on an upgrade.
+for r in primary replica; do
+  for k in ServiceAccount Role RoleBinding Job; do hooked "$TMP/$r.yaml" "$k"; done > "$TMP/$r.hooks"
+  if [ ! -s "$TMP/$r.hooks" ]; then fail "H3b $r: no hook object rendered"
+  elif grep -q 'upgrade' "$TMP/$r.hooks"; then fail "H3b $r: a hook object runs on upgrade: $(tr '\n' ' ' < "$TMP/$r.hooks")"; else pass "H3b $r: no hook object runs on upgrade"; fi
+done
 
 # H4 + vacuity
 if [ -z "$(hooked "$TMP/single.yaml" Job)" ]; then pass "H4 single-region: no hook"; else fail "H4 single-region renders the hook"; fi
