@@ -465,11 +465,12 @@ func (h *Handler) waitAndFinalizeUninstall(ctx context.Context, data appChangeDa
 	h.markJobStep(ctx, job, 1, "running", "")
 	// #4290: org-controller-owned `<slug>` host namespace (single boundary).
 	hostNS := data.TenantSlug
-	// The uninstall wait matches the same synced pod shape as the install wait
-	// (every Organization is vCluster-backed, #4292), so "gone" means the
-	// synced pod has left the host ns — never a first-poll false positive on a
-	// shape the matcher could not see (the #4293 MINOR-4 defect, which the
-	// former per-plan gate existed to fix and which the single shape closes).
+	// The uninstall wait (orgAppPodPresent) sees the app's pod in either
+	// placement: the synced pod of an app in the vCluster, and for the
+	// platform stack also the native workload on the host. So "gone" means no
+	// pod of the app is left in the host ns — never a first-poll false
+	// positive on a shape the matcher could not see (the #4293 MINOR-4
+	// defect).
 	if err := h.waitForVclusterAppGone(ctx, hostNS, data.AppSlug, 5*time.Minute); err != nil {
 		if ctx.Err() != nil {
 			slog.Warn("day-2 uninstall: wait canceled — tenant delete preempted",
@@ -921,13 +922,13 @@ func (h *Handler) readExistingDBPassword(ctx context.Context, tenantSlug string)
 // waitForVclusterAppGone is the inverse of waitForVclusterApp — it waits
 // until no pod matching the app slug exists in the host namespace.
 //
-// It reuses orgAppPodMatches so the install and uninstall waits agree on
-// what an Organization app pod looks like: the synced
-// `<pod>-x-<slug>-x-vcluster` shape for an app in the vCluster, the native
-// shape for the platform stack on the host. #4293 MINOR-4
-// was this wait hardcoding a different literal than the install side and
-// reporting "gone" on the first poll for a pod it simply could not see; one
-// shared matcher is what prevents that class of drift.
+// It uses orgAppPodPresent, which takes every pod orgAppPodMatches takes plus
+// the synced platform-stack pods of an Organization created before that
+// stack moved to the host: the synced `<pod>-x-<slug>-x-vcluster` shape for
+// an app in the vCluster, the app's own native workload for the platform
+// stack on the host. #4293 MINOR-4 was this wait hardcoding a different
+// literal than the install side and reporting "gone" on the first poll for a
+// pod it simply could not see.
 func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -944,7 +945,7 @@ func (h *Handler) waitForVclusterAppGone(ctx context.Context, namespace, appSlug
 			found := false
 			if jerr := json.Unmarshal(body, &podList); jerr == nil {
 				for _, pod := range podList.Items {
-					if orgAppPodMatches(pod.Metadata.Name, pod.Metadata.Labels, appSlug) {
+					if orgAppPodPresent(pod.Metadata.Name, pod.Metadata.Labels, appSlug) {
 						found = true
 						break
 					}
