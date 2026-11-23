@@ -560,3 +560,32 @@ bootstrapOwned:
   helmRelease:
     name: ""
     namespace: flux-system
+
+# ── Scheduled backup (decision record 0036, B1 database row; FND-183) ───
+# An installation that names the Sovereign's bucket gets the backup: the
+# Cluster archives its write-ahead log continuously and a ScheduledBackup takes
+# a base backup on `schedule`, both under
+# s3://<objectStore.bucket>/database/<region>/<namespace>/<cluster>/, kept for
+# `retentionPolicy`. With a bucket, `region` and `objectStore.endpoint` are
+# required and `objectStore.secretName` may not be empty: a half-wired
+# installation fails its render. The schedule and the retention are the
+# defaults of record 0036 for every installation.
+backup:
+  # Six fields, seconds first (the operator's form): daily at 02:00.
+  schedule: "0 0 2 * * *"
+  # The recovery window: the operator deletes base backups and archived
+  # write-ahead log older than it.
+  retentionPolicy: "30d"
+  # The canonical region label (the kit's SOVEREIGN_REGION_CANONICAL_LABEL),
+  # so that the copies of two regions never share a path.
+  region: ""
+  objectStore:
+    # The name of the Sovereign's bucket.
+    bucket: ""
+    # The bucket's S3 endpoint, a URL.
+    endpoint: ""
+    # A Secret in the Cluster's namespace with the keys s3-access-key,
+    # s3-secret-key and s3-region: a copy of the Sovereign's object-storage
+    # Secret. The chart renders no Secret; this one is register entry
+    # database-backup-bucket.
+    secretName: object-storage
