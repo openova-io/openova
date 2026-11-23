@@ -475,7 +475,7 @@ export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
   spine:    ['cilium', 'powerdns', 'external-dns', 'netbird'],
   surge:    ['vpa', 'reloader', 'continuum'],
   silo:     ['seaweedfs', 'velero', 'harbor'],
-  guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
+  guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'sigstore', 'keycloak'],
   insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo'],
   fabric:   [],
   cortex:   [],

@@ -153,12 +153,6 @@ export const logo_trivy = Badge('#1904DA', '#fff',
     <path d="M10.5 10.5l2 2" stroke="#fff" strokeWidth="1.4" strokeLinecap="round"/></>
 )
 
-export const logo_syftGrype = Badge('#9D4EDD', '#fff',
-  // Syft/Grype: SBOM layers
-  <><path d="M4 6h10M4 9h10M4 12h7" stroke="#fff" strokeWidth="1.4" strokeLinecap="round"/>
-    <circle cx="13" cy="12" r="2" fill="#9D4EDD" stroke="#fff" strokeWidth="1.3"/></>
-)
-
 export const logo_sigstore = Badge('#7C3AED', '#fff',
   // Sigstore: wax seal circle + S
   <><circle cx="9" cy="9" r="5.5" stroke="#fff" strokeWidth="1.3" fill="none"/>
@@ -399,7 +393,6 @@ export const COMPONENT_LOGOS: Record<string, React.ReactNode> = {
   'cert-manager':   logo_certManager,
   falco:            logo_falco,
   trivy:            logo_trivy,
-  'syft-grype':     logo_syftGrype,
   sigstore:         logo_sigstore,
   keycloak:         logo_keycloak,
   grafana:          logo_grafana,

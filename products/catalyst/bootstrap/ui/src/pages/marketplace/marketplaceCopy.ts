@@ -112,7 +112,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
         'OpenBao stores secrets behind independent Raft quorum; External Secrets ' +
         'syncs them into workloads without leaving the cluster.',
       'Cert-Manager automates X.509 issuance through ACME and internal CAs; ' +
-        'Falco surfaces runtime threats; Trivy, Syft, Grype, and Sigstore close ' +
+        'Falco surfaces runtime threats; Trivy and Sigstore close ' +
         'the supply-chain loop from build through deploy.',
     ],
     capabilities: [
@@ -597,21 +597,6 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     ],
     upstreamUrl: 'https://trivy.dev',
     upstreamLabel: 'trivy.dev',
-  },
-  'syft-grype': {
-    positioning:
-      'Syft generates SBOMs from container images and source trees; Grype analyses them for known ' +
-      'vulnerabilities. Together they close the supply-chain inventory loop.',
-    integration:
-      'Syft runs in the CI pipeline and stores SBOM artifacts in the Sovereign’s SeaweedFS pool. ' +
-      'Grype consumes those SBOMs in scheduled scans against the Anchore vulnerability database.',
-    highlights: [
-      'SBOM generation in SPDX and CycloneDX formats',
-      'Continuous CVE matching against new advisories',
-      'Diff reporting between artifact versions',
-    ],
-    upstreamUrl: 'https://github.com/anchore/syft',
-    upstreamLabel: 'anchore/syft',
   },
   sigstore: {
     positioning:
