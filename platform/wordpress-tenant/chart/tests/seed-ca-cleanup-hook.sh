@@ -11,7 +11,8 @@
 #   H1  primary: a post-delete hook (ServiceAccount, Role, RoleBinding, Job)
 #       in the namespace of the seed Certificate; the Role allows get and
 #       delete on exactly the Certificate's secretName; the RoleBinding binds
-#       the Job's ServiceAccount; the Job deletes that Secret and exits 0.
+#       the Job's ServiceAccount; the Job deletes that Secret, exits 0 and
+#       sets an explicit CPU limit (50m) so plan-quota cannot refuse its Pod.
 #   H2  primary: the hook is post-delete only (the seed is live there).
 #   H3  replica: the same hook on post-delete AND post-upgrade, so a former
 #       primary loses the Secret on the upgrade that moves the Primary away.
@@ -69,7 +70,7 @@ hooked() {  # $1 render, $2 kind: the hook objects of that kind, as name|namespa
 
 # H1 body: prints nothing when the render holds the complete hook, else why.
 hook_fault() {  # $1 render
-  local r="$1" sa role rb job rules subj ref script
+  local r="$1" sa role rb job rules subj ref script limits
   sa="$(hooked "$r" ServiceAccount)"; role="$(hooked "$r" Role)"; rb="$(hooked "$r" RoleBinding)"; job="$(hooked "$r" Job)"
   for o in "ServiceAccount:$sa" "Role:$role" "RoleBinding:$rb" "Job:$job"; do
     case "${o#*:}" in
@@ -96,7 +97,13 @@ hook_fault() {  # $1 render
     *) echo "the Job's script sends no DELETE for the Secret"; return ;;
   esac
   if [ "$(printf '%s\n' "$script" | grep -v '^\s*$' | tail -1 | tr -d ' ')" != "exit0" ]; then
-    echo "the Job's script does not end with exit 0"
+    echo "the Job's script does not end with exit 0"; return
+  fi
+  # #4951: without an explicit CPU limit the plan-limits LimitRange charges
+  # plan-quota the plan default and the hook Pod can be refused.
+  limits="$(yq ea 'select(.kind == "Job" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .spec.template.spec.containers[0].resources.limits.cpu + "|" + .spec.template.spec.containers[0].resources.limits.memory' "$r")"
+  if [ "$limits" != "50m|64Mi" ]; then
+    echo "the Job's container limits are '$limits', want cpu 50m and memory 64Mi"
   fi
 }
 
