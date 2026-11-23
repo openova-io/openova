@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T07:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-23T07:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T07:19 | [#8650](https://github.com/openova-io/openova/pull/8650) | #7087 | docs(ledger): plan update |
 | 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
 | 2026-11-23T06:28 | [#8647](https://github.com/openova-io/openova/pull/8647) | #8634 | feat(openbao): mounts mounted and transit, templated policie |
 | 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
@@ -320,6 +321,7 @@ flowchart LR
 | 2026-11-23T06:38 | [#8627](https://github.com/openova-io/openova/pull/8627) | #3526 | fix(cutover): step 08 takes its Workspace baseline after the |
 | 2026-11-23T05:37 | [#8626](https://github.com/openova-io/openova/pull/8626) | test(cutover): the follower region needs no provider package |  |
 | 2026-11-23T06:33 | [#8623](https://github.com/openova-io/openova/pull/8623) | #4993 | fix(organization): the applications a new Organization is gi |
+| 2026-11-23T07:26 | [#8620](https://github.com/openova-io/openova/pull/8620) | fix(continuum): a region move and a node drain take turns, a |  |
 | 2026-11-22T16:27 | [#8616](https://github.com/openova-io/openova/pull/8616) | #7087 | docs(ledger): plan update |
 | 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T16:12 | [#8598](https://github.com/openova-io/openova/pull/8598) | #6837 | fix(providers): the reference cloud's balancer members carry |
 | 2026-11-21T13:56 | [#8597](https://github.com/openova-io/openova/pull/8597) | #8558 | fix(cutover): step 03 copies the OpenTofu provider packages  |
 | 2026-11-21T13:22 | [#8596](https://github.com/openova-io/openova/pull/8596) | fix(ci): the acceptance job of a work package has OpenTofu,  |  |
-| 2026-11-21T16:57 | [#8595](https://github.com/openova-io/openova/pull/8595) | #8594 | fix(net): the name servers answer on public port 53 over UDP |
-| 2026-11-21T09:49 | [#8593](https://github.com/openova-io/openova/pull/8593) | #7087 | docs(ledger): plan update |
 
 ---
 
