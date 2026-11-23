@@ -147,11 +147,18 @@ func (p *Provider) ListLeftovers(ctx context.Context, spec providers.LeftoverSpe
 	}
 	prefix := "catalyst-" + strings.ReplaceAll(fqdn, ".", "-") + "-" + dep[:8]
 	own := func(name string) bool { return name == prefix || strings.HasPrefix(name, prefix+"-") }
+	// A server's name is its hostname, so its stem is cut (nodeStem).
+	nodePrefix := "catalyst-" + nodeStem(strings.ReplaceAll(fqdn, ".", "-")) + "-" + dep[:8]
+	ownNode := func(name string) bool { return name == nodePrefix || strings.HasPrefix(name, nodePrefix+"-") }
 	report := &providers.LeftoverReport{NamePrefix: prefix}
 	collect := func(l leftoverListing, items []map[string]any) {
 		labels := []string{}
+		o := own
+		if l.kind == "servers" {
+			o = ownNode
+		}
 		for _, it := range items {
-			if label, left := l.pick(it, own); left {
+			if label, left := l.pick(it, o); left {
 				labels = append(labels, label)
 			}
 		}

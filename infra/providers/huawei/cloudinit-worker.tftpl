@@ -113,7 +113,7 @@ runcmd:
   # clean. No hardcoded IP: r4() derives the A record at boot + self-heals.
   - |
     r4() {
-     getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
+     a=$(getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}'); [ -n "$a" ] && { echo "$a"; return; }
      for s in 1.1.1.1 8.8.8.8; do
       a=$(nslookup -type=A "$1" "$s" 2>/dev/null | awk '/^Address: [0-9]/&&$2!~/#/{print $2; exit}')
       [ -n "$a" ] && { echo "$a"; return; }

@@ -131,6 +131,9 @@ variable "retry_attempt" { default = 0 }
 locals {
   name_prefix = "catalyst-t99-omani-works-6339cafe"
   region_keys = [for r in var.regions : r.code]
+  # The module computes this from local.cp_names; tests/multi_region.tftest.hcl
+  # proves it equals the planned name of region 0's cp1.
+  primary_cp_name = "${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}"
   cp_eip      = { "me-east-215-a" = "203.0.113.10", "me-east-215-b" = "203.0.113.20" }
 
   blocks = {

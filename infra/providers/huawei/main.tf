@@ -287,6 +287,17 @@ locals {
   # different per-prov names do NOT break orphan cleanup.
   name_prefix = "catalyst-${local.fqdn_slug}-${substr(var.deployment_id, 0, 8)}"
 
+  # The prefix of a node's ECS name. That name is the node's hostname, which
+  # first boot compares to pick the primary (kubeconfig_put_block): at most
+  # 63 characters, one DNS label. With name_prefix a Sovereign FQDN of 21
+  # characters or more made the CP name too long, so the hostname never
+  # equalled PRIMARY_HOST and the primary never sent its kubeconfig. The
+  # FQDN part is cut to its first 20 characters, so every FQDN fits with a
+  # 13-character region code; an FQDN of up to 20 characters keeps the
+  # names it always had. The Go sweeps cut the same way (nodeNameStemLen in
+  # products/catalyst/bootstrap/api/internal/providers/huawei/deployment_scope.go).
+  node_name_prefix = "catalyst-${substr(local.fqdn_slug, 0, 20)}-${substr(var.deployment_id, 0, 8)}"
+
   # Canonical TMS tags per PROVIDER-INTERFACE.md §3 (label conventions).
   # Same key shape as Hetzner; Huawei TMS happens to accept k=v lists.
   common_tags = {
@@ -787,6 +798,11 @@ locals {
       }
     ]
   ])
+
+  # The ECS name (and so the hostname) of each entry of cp_nodes, and the
+  # one first boot recognises as the primary: region 0's cp1.
+  cp_names        = [for n in local.cp_nodes : "${local.node_name_prefix}-${n.region}-cp${n.index + 1}-${substr(sha256("${var.deployment_id}-${n.region}-cp${n.index}-${var.retry_attempt}"), 0, 6)}"]
+  primary_cp_name = local.cp_names[index([for n in local.cp_nodes : "${n.region}/${n.index}"], "${local.region_keys[0]}/0")]
 
   # Per-region worker count comes from `regions[].worker_count` (the
   # cross-provider PROVIDER-INTERFACE.md §1 shape — set by the wizard
@@ -1385,7 +1401,7 @@ locals {
 %{~if idx == 0~}
 - |
   HOSTNAME=$(hostname)
-  PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+  PRIMARY_HOST='${local.primary_cp_name}'
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
     sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-rewritten.yaml
     LAST_CODE=000
@@ -1422,7 +1438,7 @@ locals {
 %{~else~}
 - |
   HOSTNAME=$(hostname)
-  PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+  PRIMARY_HOST='${local.primary_cp_name}'
   MY_REGION='${idx == 0 ? r.code : "${r.code}-${idx}"}'
   MY_EIP='${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'
   # #3991 — this CP's PRIVATE eth0 IP (same detection as --node-ip).
@@ -1486,7 +1502,7 @@ resource "huaweicloud_compute_instance" "control_plane" {
   # tail `cp<count+1>-<6hex>` differs per retry, so HCS picks fresh
   # cells. lifecycle.ignore_changes=[name] below protects an already-
   # ACTIVE CP from being destroyed when the formula changes.
-  name              = "${local.name_prefix}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index + 1}-${substr(sha256("${var.deployment_id}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index}-${var.retry_attempt}"), 0, 6)}"
+  name              = local.cp_names[count.index]
   image_id          = var.image_id
   flavor_id         = local.cp_nodes[count.index].flavor
   availability_zone = local.region_az[local.cp_nodes[count.index].region]
@@ -1552,6 +1568,10 @@ resource "huaweicloud_compute_instance" "control_plane" {
   # plans no node replacement and no update. A new node gets both at create.
   lifecycle {
     ignore_changes = [tags, metadata, name, user_data, data_disks, delete_disks_on_termination]
+    precondition {
+      condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", local.cp_names[count.index]))
+      error_message = "The control-plane name ${local.cp_names[count.index]} is its hostname and must be one DNS label of at most 63 characters (a region code of 13 characters fits); first boot would otherwise never recognise the primary."
+    }
   }
 }
 
@@ -1585,7 +1605,7 @@ resource "huaweicloud_compute_instance" "worker" {
   # that returned Common.0021 on the prior attempt. EXISTING ACTIVE
   # workers are protected by lifecycle.ignore_changes=[name] below so
   # their already-created names persist across retries.
-  name              = "${local.name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}-${var.retry_attempt}"), 0, 6)}"
+  name              = "${local.node_name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}-${var.retry_attempt}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = each.value.flavor
   availability_zone = local.region_az[each.value.region]
@@ -1615,6 +1635,10 @@ resource "huaweicloud_compute_instance" "worker" {
   # workers but must NOT trigger a destroy of the alive ones).
   lifecycle {
     ignore_changes = [tags, metadata, name, user_data]
+    precondition {
+      condition     = length("${local.node_name_prefix}-${each.value.region}-w000000") <= 63
+      error_message = "A worker name of region ${each.value.region} is its hostname and must be at most 63 characters."
+    }
   }
 }
 

@@ -34,6 +34,7 @@ on:
       - 'infra/providers/huawei/**'
       - 'scripts/lint-cloudinit.sh'
       - 'scripts/check-cloudinit-exit-codes.py'
+      - 'scripts/tests/test-cloudinit-first-boot-fails-loudly.sh'
       - '.github/workflows/preflight-cloudinit-posix.yml'
   pull_request:
     paths:
@@ -42,6 +43,7 @@ on:
       - 'infra/providers/huawei/**'
       - 'scripts/lint-cloudinit.sh'
       - 'scripts/check-cloudinit-exit-codes.py'
+      - 'scripts/tests/test-cloudinit-first-boot-fails-loudly.sh'
       - '.github/workflows/preflight-cloudinit-posix.yml'
   workflow_dispatch:
 
@@ -97,6 +99,11 @@ jobs:
           # use 86 to 95, 97 and 98 (docs/contracts/c8-seal-provider.md).
           python3 scripts/check-cloudinit-exit-codes.py --self-test
           python3 scripts/check-cloudinit-exit-codes.py
+
+      - name: First-boot fragments see the failure of their pipe (helm download, r4)
+        # Runs the rt() helper, the helm download line and r4() under dash
+        # with failing stubs: 5 tries + sentinel + exit 91; r4 asks nslookup.
+        run: dash scripts/tests/test-cloudinit-first-boot-fails-loudly.sh
 
       - name: Self-test the gate (inject a bash-ism, prove it FAILS, then restore)
         if: always()
