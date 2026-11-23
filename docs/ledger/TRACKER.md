@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T05:15:03Z` |
+| Last refreshed | `2026-11-23T05:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
 | 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
 | 2026-11-23T04:05 | [#8644](https://github.com/openova-io/openova/pull/8644) | #8580 | fix(ci): the encrypted-path test's control case proves the d |
+| 2026-11-23T05:29 | [#8643](https://github.com/openova-io/openova/pull/8643) | #5429 | fix(applications): a customer can upgrade, remove and read t |
 | 2026-11-23T04:03 | [#8641](https://github.com/openova-io/openova/pull/8641) | #6004 | fix(platform): a failed read is never taken as 'nothing ther |
 | 2026-11-23T04:14 | [#8640](https://github.com/openova-io/openova/pull/8640) | #4636 | fix(provisioner): a wipe, a sweep and an install's reclaim t |
 | 2026-11-23T04:03 | [#8635](https://github.com/openova-io/openova/pull/8635) | fix(gate): the acceptance suite renews its sign-in in a long |  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-21T07:45 | [#8590](https://github.com/openova-io/openova/pull/8590) | #8586 | test(gate): check INF-G01 requires every moved workload back |
 | 2026-11-21T07:39 | [#8589](https://github.com/openova-io/openova/pull/8589) | #5646 | fix(organization): the mirror of an Organization's kubeconfi |
 | 2026-11-21T07:16 | [#8588](https://github.com/openova-io/openova/pull/8588) | fix(gate): the zero-change plan check packs the provider con |  |
-| 2026-11-21T07:23 | [#8587](https://github.com/openova-io/openova/pull/8587) | #8570 | fix(cutover): step 08 fails at once when its roll cannot fin |
-| 2026-11-21T07:09 | [#8585](https://github.com/openova-io/openova/pull/8585) | #7087 | docs(ledger): plan update |
 
 ---
 
