@@ -10,10 +10,12 @@
 # Cases:
 #   U1  the primary and the replica each render one media-s3 Secret, without
 #       helm.sh/resource-policy, so Helm deletes it on uninstall.
-#   U2  the media-s3 Secret still re-emits the reflected keys (the lookup
-#       stays): the template reads the live Secret.
+#   U2  with fake live data in place of the lookup, the render re-emits both
+#       reflected keys, so an upgrade keeps what bp-reflector wrote.
 #
-# Vacuity: U1's body against a render with the policy added must FAIL.
+# Vacuity: U1's body against a render with the policy added must FAIL; U2's
+# body against a copy whose data lines render "" (the #7067 regression) must
+# FAIL.
 #
 # Usage: bash tests/uninstall-owned-secrets.sh [CHART_DIR]
 set -euo pipefail
@@ -72,12 +74,52 @@ yq ea '(select(.kind == "Secret" and (.metadata.name | test("-media-s3$"))) | .m
 f="$(media_fault "$TMP/kept.yaml")"
 if [ -n "$f" ]; then pass "U1 vacuity: the body fails when the policy is back"; else fail "U1 vacuity: the body passes with helm.sh/resource-policy: keep"; fi
 
-# U2
-if grep -q 'lookup "v1" "Secret" .Release.Namespace (include "bp-wordpress-tenant.mediaS3SecretName" .)' templates/media-s3-secret.yaml; then
-  pass "U2 the template re-emits the live media-s3 data on an upgrade"
-else
-  fail "U2 the lookup re-emit of the media-s3 data is gone: an upgrade would wipe the reflected credentials"
-fi
+# U2: helm template has no cluster, so lookup returns nothing. A copy of the
+# chart gets fake live data in place of the lookup call; the render must
+# carry both fake values.
+AK="$(yq '.media.s3.credentials.accessKeyIdKey' values.yaml)"
+SK="$(yq '.media.s3.credentials.secretAccessKeyKey' values.yaml)"
+AKV="QUtJRC1saXZl"      # base64 "AKID-live"
+SKV="U0VDUkVULWxpdmU="  # base64 "SECRET-live"
+
+# fake_live SRC DST: copy the chart with the lookup replaced by live data.
+fake_live() {
+  cp -R "$1" "$2"
+  sed -e "s/lookup[[:space:]]\{1,\}\"v1\"[[:space:]]\{1,\}\"Secret\"[^}]*/(dict \"data\" (dict \"$AK\" \"$AKV\" \"$SK\" \"$SKV\")) /" \
+    "$1/templates/media-s3-secret.yaml" > "$2/templates/media-s3-secret.yaml"
+}
+
+# U2 body: prints nothing when the render of chart $1 re-emits both live
+# values, else the reason.
+reemit_fault() {  # $1 chart dir
+  local a s
+  if ! grep -qF "$AKV" "$1/templates/media-s3-secret.yaml"; then
+    echo "no lookup of the media-s3 Secret to replace with live data"
+    return
+  fi
+  if ! helm template wordpress-rtz-a "$1" "${COMMON[@]}" \
+      --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" \
+      --show-only templates/media-s3-secret.yaml > "$1.yaml" 2> "$1.err"; then
+    echo "render failed: $(head -n 3 "$1.err")"
+    return
+  fi
+  a="$(yq ".data[\"$AK\"]" "$1.yaml")"
+  s="$(yq ".data[\"$SK\"]" "$1.yaml")"
+  if [ "$a" != "$AKV" ] || [ "$s" != "$SKV" ]; then
+    echo "want the live $AK and $SK re-emitted, got '$a' and '$s'"
+  fi
+}
+
+fake_live "$CHART_DIR" "$TMP/live"
+f="$(reemit_fault "$TMP/live")"
+if [ -z "$f" ]; then pass "U2 the template re-emits the live media-s3 data on an upgrade"; else fail "U2 $f"; fi
+
+# Vacuity: the #7067 regression (both data lines render "") must fail U2.
+fake_live "$CHART_DIR" "$TMP/wiped"
+sed -e 's/^\(  {{ [^}]* }}:\).*/\1 ""/' "$TMP/live/templates/media-s3-secret.yaml" \
+  > "$TMP/wiped/templates/media-s3-secret.yaml"
+f="$(reemit_fault "$TMP/wiped")"
+if [ -n "$f" ]; then pass "U2 vacuity: the body fails when the data lines render \"\""; else fail "U2 vacuity: the body passes with the data lines set to \"\""; fi
 
 if [ "$fails" -gt 0 ]; then
   echo "uninstall-owned-secrets: $fails failure(s)"
