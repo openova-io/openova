@@ -277,6 +277,27 @@ spec:
               value: {{ (.Values.sovereign).regionId | default "" | quote }}
             - name: SOVEREIGN_FQDN
               value: {{ .Values.global.sovereignFQDN | default "" | quote }}
+            # NATS_URL — the event bus the provisioning service publishes
+            # provision.tenant_removed on. Without it main.go skips every NATS
+            # subscription, so a cancelled marketplace Organization is never
+            # ended: its CR is never deleted, neither region removes it and its
+            # chargeback customer is never closed (measured on hw307 region a,
+            # 21 November 2026: "natsbus: NATS_URL unset — D35 consume-leg
+            # disabled"). The SAME address as the org-services-config key
+            # NATS_URL the provisioning service reads (org-services/
+            # configmap.yaml): orgServices.eventBus.natsURL, else the host
+            # nats-system Service on a Sovereign, else empty (Catalyst-Zero has
+            # no NATS). controllers.organization.env.NATS_URL overrides it.
+            # Egress to nats-system is in baseline-catalyst-system.yaml.
+            {{- $orgNATS := "" }}
+            {{- if .Values.global.sovereignFQDN }}
+            {{- $orgNATS = "nats://nats-jetstream.nats-system.svc.cluster.local:4222" }}
+            {{- end }}
+            {{- $orgNATS = default $orgNATS (index (default (dict) .Values.orgServices.eventBus) "natsURL") }}
+            {{- if and $orgNATS (not (hasKey (default (dict) .Values.controllers.organization.env) "NATS_URL")) }}
+            - name: NATS_URL
+              value: {{ $orgNATS | quote }}
+            {{- end }}
             {{- range $k, $v := .Values.controllers.organization.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

@@ -736,6 +736,25 @@ func (c *PlatformCollector) EmitOrg(ctx context.Context, org string) (int, error
 	to := now
 	if !internal && cust.EndedAt != nil && cust.EndedAt.Before(to) {
 		to = cust.EndedAt.UTC()
+		// The customer is closed only once the CR is marked for deletion,
+		// after the teardown, the Git prune and the event: a pass in that
+		// gap metered past the end and moved the stamp beyond it. Those
+		// records are cut back to the end (the hour it fell in shortened to
+		// the instant, every later one removed) and the stamp is put on the
+		// end, or they would stay billed — nothing below revisits a window
+		// once the stamp has passed it.
+		if src.LastCollectedAt != nil && src.LastCollectedAt.After(to) {
+			n, err := c.Repo.CutUsageAt(ctx, src.ID, to)
+			if err != nil {
+				return 0, fmt.Errorf("cut usage back to the end of %s: %w", org, err)
+			}
+			if err := c.Repo.SetSourceCollected(ctx, src.ID, to); err != nil {
+				return 0, err
+			}
+			slog.Info("openova adapter: usage metered after the organization ended was cut back to the end",
+				"org", org, "records", n, "ended_at", to, "was_collected_to", src.LastCollectedAt.UTC())
+			return 0, nil
+		}
 	}
 	if !from.Before(to) {
 		return 0, nil

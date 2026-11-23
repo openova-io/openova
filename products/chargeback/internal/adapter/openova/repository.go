@@ -71,6 +71,11 @@ type Repository interface {
 	// of the same slug exists again.
 	EndCustomer(ctx context.Context, id string, at time.Time) error
 	ReopenCustomer(ctx context.Context, id string) error
+	// CutUsageAt removes what a source metered after `at` (deletes the
+	// records that start at or after it, cuts the one spanning it): the
+	// collector calls it when a pass ran between the Organization's end and
+	// the customer's close.
+	CutUsageAt(ctx context.Context, sourceID string, at time.Time) (int64, error)
 }
 
 var _ Repository = (*store.Store)(nil)

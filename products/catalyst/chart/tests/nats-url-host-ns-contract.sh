@@ -143,4 +143,57 @@ if grep -rnE "${SCAN_KEYS}.*${DEAD_VALKEY}" templates/ values.yaml >/dev/null 2>
 fi
 echo "  PASS (no live mgmt-vcluster / rtz-vcluster mangled NATS or Valkey value in templates/ or values.yaml)"
 
+echo "[nats-url] Case 5: the organization-controller is on the SAME bus as the provisioning service (PR #8639)"
+# A cancelled marketplace Organization ends only when the organization-controller
+# consumes provision.tenant_removed, which the provisioning service publishes on
+# org-services-config NATS_URL. main.go subscribes only when NATS_URL is set, and
+# the Deployment once carried none: on hw307 the controller logged "NATS_URL
+# unset — D35 consume-leg disabled" and no cancelled Organization was ever
+# ended, with every Go test green (they call the handler directly). Assert on
+# the VALUE the controller gets, and that it follows the ConfigMap's override.
+ORG_TEMPLATE="templates/controllers/organization-controller-deployment.yaml"
+# org_nats <file> — the value of every NATS_URL env entry, one per line.
+org_nats() {
+  awk '/^[[:space:]]*- name: "?NATS_URL"?[[:space:]]*$/ { if ((getline line) > 0) { sub(/^[[:space:]]*value:[[:space:]]*/, "", line); gsub(/"/, "", line); print line } }' "$1"
+}
+helm template smoke-org . \
+  --set global.sovereignFQDN=omantel.biz \
+  --show-only "${ORG_TEMPLATE}" > "$TMP/org.yaml"
+GOT="$(org_nats "$TMP/org.yaml")"
+if [ "${GOT}" != "${HOST_NATS}" ]; then
+  echo "FAIL: organization-controller NATS_URL = '${GOT}', want '${HOST_NATS}' — without it no provision.tenant_removed is consumed and a cancelled Organization is never ended (PR #8639)" >&2
+  exit 1
+fi
+echo "  PASS (organization-controller NATS_URL=${HOST_NATS})"
+
+OVERRIDE_NATS="nats://bus.example.internal:4222"
+helm template smoke-org . \
+  --set global.sovereignFQDN=omantel.biz \
+  --set ingress.marketplace.enabled=true \
+  --set "orgServices.eventBus.natsURL=${OVERRIDE_NATS}" \
+  --show-only "${ORG_TEMPLATE}" > "$TMP/org-override.yaml"
+helm template smoke . \
+  --set global.sovereignFQDN=omantel.biz \
+  --set ingress.marketplace.enabled=true \
+  --set "orgServices.eventBus.natsURL=${OVERRIDE_NATS}" \
+  --show-only "${CM_TEMPLATE}" > "$TMP/cm-override.yaml"
+GOT="$(org_nats "$TMP/org-override.yaml")"
+CM_GOT="$(awk '/^[[:space:]]*NATS_URL:/ { sub(/^[[:space:]]*NATS_URL:[[:space:]]*/, ""); gsub(/"/, ""); print }' "$TMP/cm-override.yaml")"
+if [ "${GOT}" != "${OVERRIDE_NATS}" ] || [ "${CM_GOT}" != "${OVERRIDE_NATS}" ]; then
+  echo "FAIL: with orgServices.eventBus.natsURL=${OVERRIDE_NATS} the organization-controller dials '${GOT}' and the provisioning service '${CM_GOT}' — they must be the same bus (PR #8639)" >&2
+  exit 1
+fi
+echo "  PASS (an eventBus override moves the controller and the provisioning service together)"
+
+helm template smoke-org . \
+  --set global.sovereignFQDN=omantel.biz \
+  --set "controllers.organization.env.NATS_URL=${OVERRIDE_NATS}" \
+  --show-only "${ORG_TEMPLATE}" > "$TMP/org-env.yaml"
+GOT="$(org_nats "$TMP/org-env.yaml")"
+if [ "${GOT}" != "${OVERRIDE_NATS}" ]; then
+  echo "FAIL: controllers.organization.env.NATS_URL must be the ONE NATS_URL entry; got: ${GOT}" >&2
+  exit 1
+fi
+echo "  PASS (controllers.organization.env.NATS_URL replaces the default, one entry)"
+
 echo "[nats-url] ALL CASES PASS — NATS + Valkey defaults resolve to their host-ns Services post-#4325 de-vcluster."

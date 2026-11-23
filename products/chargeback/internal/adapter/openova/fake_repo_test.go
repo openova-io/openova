@@ -3,7 +3,9 @@ package openova
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -322,6 +324,37 @@ func (f *fakeRepo) EndCustomer(_ context.Context, id string, at time.Time) error
 	}
 	c.Status = "suspended"
 	return nil
+}
+
+// CutUsageAt mirrors the store: records from `at` on are deleted, the one
+// spanning it is cut there with its quantity scaled (a metric keeps its value).
+func (f *fakeRepo) CutUsageAt(_ context.Context, sourceID string, at time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for k, r := range f.usage {
+		if r.SourceID != sourceID {
+			continue
+		}
+		switch {
+		case !r.WindowStart.Before(at):
+			delete(f.usage, k)
+			n++
+		case r.WindowEnd.After(at):
+			if !store.IsMetricSKU(r.SKU) {
+				q, err := strconv.ParseFloat(string(r.Quantity), 64)
+				if err != nil {
+					return n, err
+				}
+				scale := at.Sub(r.WindowStart).Seconds() / r.WindowEnd.Sub(r.WindowStart).Seconds()
+				r.Quantity = store.Decimal(strconv.FormatFloat(math.Round(q*scale*1e6)/1e6, 'f', 6, 64))
+			}
+			r.WindowEnd = at
+			f.usage[k] = r
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeRepo) ReopenCustomer(_ context.Context, id string) error {

@@ -89,9 +89,19 @@ func TestCancelledOrganization_ClosedAtTheCancellation_NothingMeteredAfter(t *te
 		}
 	}
 
-	// The cancellation: the CR is stamped and marked for deletion.
-	clock = cancelled.Add(5 * time.Second)
-	cr := endingOrg("acme", cancelled, cancelled.Add(5*time.Second))
+	// A pass in the gap between the cancellation and the customer's close:
+	// the CR is marked for deletion only after the provisioning teardown, the
+	// Git prune and the event, and EmitDirty runs every 30 s, so this pass
+	// meters past the end and moves the source's stamp beyond it.
+	clock = cancelled.Add(20 * time.Second)
+	if _, err := pc.EmitOrg(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The end: the CR is stamped with the cancellation and marked for
+	// deletion.
+	clock = cancelled.Add(2 * time.Minute)
+	cr := endingOrg("acme", cancelled, cancelled.Add(2*time.Minute))
 	if err := s.SyncOrganization(ctx, cr); err != nil { // the informer's update
 		t.Fatal(err)
 	}
@@ -104,7 +114,8 @@ func TestCancelledOrganization_ClosedAtTheCancellation_NothingMeteredAfter(t *te
 	}
 
 	// 17 hours later its pods are still observed (the removal is slow): a
-	// meter reading now must charge nothing after the cancellation.
+	// meter reading now must charge nothing after the cancellation, and
+	// take back what the pass in the gap charged after it.
 	clock = cancelled.Add(17 * time.Hour)
 	if _, err := pc.EmitOrg(ctx, "acme"); err != nil {
 		t.Fatal(err)

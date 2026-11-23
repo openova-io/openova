@@ -44,6 +44,46 @@ func (s *Store) EndCustomer(ctx context.Context, id string, at time.Time) error 
 	return nil
 }
 
+// CutUsageAt removes from a source's ledger everything metered after `at`,
+// the instant its Organization ended. The customer is closed only once the
+// Organization CR is marked for deletion, which comes after the provisioning
+// service's teardown, its Git prune and its event, so a collection pass in
+// that gap writes records past the end; without this they stay billed (the
+// collector never revisits a window once its stamp has passed it). A record
+// that starts at or after `at` is deleted. A record that spans it is cut to
+// end there, its quantity scaled to the part before: a meter's quantity is
+// hours times a fixed factor over its window (window.Quantity), so the scale
+// is exact. A sampled metric (metric_skus.go) is never rated, so only its
+// window is cut. One transaction; safe to run twice (the second finds
+// nothing past `at`). Returns the number of records deleted or cut.
+func (s *Store) CutUsageAt(ctx context.Context, sourceID string, at time.Time) (int64, error) {
+	at = at.UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	defer func() { _ = tx.Rollback() }() // a no-op after Commit
+	res, err := tx.ExecContext(ctx, `DELETE FROM usage_records WHERE source_id = $1 AND window_start >= $2`, sourceID, at)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	deleted, _ := res.RowsAffected()
+	res, err = tx.ExecContext(ctx, `UPDATE usage_records SET
+	quantity = CASE WHEN sku IN `+metricSKUsSQL+` THEN quantity
+		ELSE round(quantity * (EXTRACT(EPOCH FROM ($2::timestamptz - window_start))::numeric
+			/ EXTRACT(EPOCH FROM (window_end - window_start))::numeric), 6) END,
+	window_end = $2, collected_at = now()
+ WHERE source_id = $1 AND window_start < $2 AND window_end > $2`, sourceID, at)
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	cut, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, mapErr(err)
+	}
+	return deleted + cut, nil
+}
+
 // ReopenCustomer clears ended_at: an Organization of the same slug exists
 // again. The caller restarts collection from now, so the ended gap is never
 // metered.
