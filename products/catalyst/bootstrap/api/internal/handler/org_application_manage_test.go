@@ -203,6 +203,51 @@ func TestOrgApplicationManage_ForgedSiblingHostRefused(t *testing.T) {
 	}
 }
 
+// TestOrgApplicationManage_SovereignSessionKeepsTheTierGate — a Sovereign
+// session is not bound to one Organization, so naming one with X-Tenant-Host
+// confines nothing: below tier admin it gets the same 403 on the
+// Organization routes as on /api/v1/sovereigns/{id}/applications/{name}, and
+// the Organization's Application is untouched. Before the repair every
+// request through these routes was marked confined, so a viewer could
+// upgrade or uninstall any Organization's Application.
+func TestOrgApplicationManage_SovereignSessionKeepsTheTierGate(t *testing.T) {
+	cr := withAppFinalizer(makeAppCR(acmeOrgNS, "shop", "1.2.3", "single-region", []string{"fsn1"}))
+	f := newOrgManageFixture(t, cr)
+	const host = "console.acme.omani.homes"
+	for _, tier := range []string{"viewer", "developer", "operator"} {
+		claims := &auth.Claims{Tier: tier}
+		for _, c := range []struct {
+			method, path string
+			body         any
+		}{
+			{http.MethodPut, "/api/v1/org/applications/shop", map[string]any{"parameters": map[string]any{"domain": "taken.example"}}},
+			{http.MethodDelete, "/api/v1/org/applications/shop", nil},
+			{http.MethodPost, "/api/v1/org/applications/shop/upgrade/preview?targetVersion=1.3.0", map[string]any{}},
+			{http.MethodPost, "/api/v1/org/applications/shop/topology/preview", map[string]any{}},
+		} {
+			rec := f.call(t, c.method, c.path, host, claims, c.body)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "tier-admin or higher") {
+				t.Fatalf("tier %s %s %s: got %d, want 403 from the tier gate; body=%s", tier, c.method, c.path, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	got, ok := f.get(t, acmeOrgNS, "shop")
+	if !ok || got.GetDeletionTimestamp() != nil {
+		t.Fatal("a Sovereign session below tier admin marked the Organization's Application for deletion")
+	}
+	if dom, _, _ := unstructured.NestedString(got.Object, "spec", "parameters", "domain"); dom != "shop.acme.com" {
+		t.Fatalf("a Sovereign session below tier admin patched the Organization's Application: domain=%q", dom)
+	}
+
+	// The gate decides, not the route: an admin passes here as it does on the
+	// Sovereign route.
+	rec := f.call(t, http.MethodPut, "/api/v1/org/applications/shop", host, &auth.Claims{Tier: "admin"},
+		map[string]any{"parameters": map[string]any{"domain": "shop.acme.example"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tier admin PUT: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestOrgApplicationUpdate_CustomerUpgradesOwnApplication — the customer's
 // edit lands on their own Application and not on the same-named Application
 // of another Organization.

@@ -51,10 +51,17 @@ func RegisterOrgRoutes(r chi.Router, own OwnOrg, h Routes) {
 // Confine runs next, a Sovereign Application handler, for the caller's own
 // Organization only. The namespace is FORCED to that Organization's
 // namespace (a ?namespace= the caller sent is replaced), the deployment id is
-// the local Sovereign's, and the request is marked confined
-// (auth.WithOrgConfined), which is what lets a mutation pass the handler's
-// tier gate: the own-Organization binding is the authorization, exactly as
-// on the install route. Nothing outside that namespace is reachable.
+// the local Sovereign's. Nothing outside that namespace is reachable.
+//
+// An Organization session (auth.ClaimsAreOrgScoped) is marked confined
+// (auth.WithOrgConfined), which is what lets its mutation pass the handler's
+// tier gate: own already bound that session to its own Organization, and
+// that binding is the authorization, exactly as on the install route. Any
+// other session is NOT marked: a Sovereign session that names an
+// Organization with X-Tenant-Host meets the same tier gate as on
+// /api/v1/sovereigns/{id}/applications/{name}, so a viewer, developer or
+// operator cannot upgrade or uninstall an Organization's Application here
+// either.
 func Confine(own OwnOrg, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ns, depID, ok := own(w, r)
@@ -76,7 +83,11 @@ func Confine(own OwnOrg, next http.HandlerFunc) http.HandlerFunc {
 			})
 			return
 		}
-		confined := r.Clone(auth.WithOrgConfined(r.Context()))
+		ctx := r.Context()
+		if auth.ClaimsAreOrgScoped(auth.ClaimsFromContext(ctx)) {
+			ctx = auth.WithOrgConfined(ctx)
+		}
+		confined := r.Clone(ctx)
 		q := confined.URL.Query()
 		q.Set("namespace", ns)
 		confined.URL.RawQuery = q.Encode()

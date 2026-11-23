@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -63,7 +64,14 @@ func TestReconcile_DeletionStoppedHalfway_SaysWhyOnTheObject(t *testing.T) {
 	if _, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/site.yaml"); ok {
 		t.Error("the region file should be deleted once Gitea answers")
 	}
-	if after, err := r.Dynamic.Resource(ApplicationGVR).Namespace("acme").Get(ctx, "site", metav1.GetOptions{}); err == nil && hasFinalizer(after, FinalizerName) {
+	// Released means gone, or still present without the finalizer. Any other
+	// read error proves nothing about the release, so it fails the test.
+	after, err := r.Dynamic.Resource(ApplicationGVR).Namespace("acme").Get(ctx, "site", metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		t.Fatalf("read back the Application after the pass that got through: %v", err)
+	case hasFinalizer(after, FinalizerName):
 		t.Errorf("finalizer still present after a pass that got through: %v", after.GetFinalizers())
 	}
 }

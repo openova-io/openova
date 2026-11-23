@@ -144,6 +144,20 @@ export function applicationUrl(
   return `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}${suffix}${qs ? '?' + qs : ''}`
 }
 
+/**
+ * Request headers of one Application's route. The Organization route
+ * resolves the caller's own Organization from X-Tenant-Host (the API answers
+ * 400 tenant-required without it), so an Organization session sends the
+ * page's host, as the Apps grid (AppsPage) and org.api.ts do.
+ */
+export function applicationHeaders(
+  headers: Record<string, string>,
+  scope: ApplicationScope = {},
+): Record<string, string> {
+  if (!scope.orgScoped) return headers
+  return { ...headers, 'X-Tenant-Host': typeof window !== 'undefined' ? window.location.host : '' }
+}
+
 /* ── REST calls (catalog read) ───────────────────────────────────── */
 
 export async function listCatalog(opts: { org?: string } = {}): Promise<CatalogListResponse> {
@@ -512,7 +526,7 @@ export async function getApplication(
   const params = new URLSearchParams()
   if (namespace) params.set('namespace', namespace)
   const url = applicationUrl(sovereignId, name, '', params, scope)
-  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  const res = await authedFetch(url, { headers: applicationHeaders({ Accept: 'application/json' }, scope) })
   if (res.status === 404) return null
   if (!res.ok) {
     throw new Error(`getApplication: HTTP ${res.status}`)
@@ -561,7 +575,7 @@ export async function getApplicationStatus(
   const params = new URLSearchParams()
   if (namespace) params.set('namespace', namespace)
   const url = applicationUrl(sovereignId, name, '/status', params, scope)
-  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  const res = await authedFetch(url, { headers: applicationHeaders({ Accept: 'application/json' }, scope) })
   if (!res.ok) {
     throw new Error(`status: HTTP ${res.status}`)
   }
@@ -684,7 +698,7 @@ export async function updateApplication(
   const url = applicationUrl(sovereignId, name, '', params, opts)
   const res = await authedFetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -704,7 +718,7 @@ export async function deleteApplication(
   const url = applicationUrl(sovereignId, name, '', params, opts)
   const res = await authedFetch(url, {
     method: 'DELETE',
-    headers: { Accept: 'application/json' },
+    headers: applicationHeaders({ Accept: 'application/json' }, opts),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -736,7 +750,7 @@ export async function previewTopologyChange(
   const url = applicationUrl(sovereignId, name, '/topology/preview', params, opts)
   const res = await authedFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -759,7 +773,7 @@ export async function previewUpgrade(
   const url = applicationUrl(sovereignId, name, '/upgrade/preview', params, opts)
   const res = await authedFetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: applicationHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }, opts),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
