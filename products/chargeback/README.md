@@ -43,8 +43,11 @@ rows. Each stays pending until its read-only credential is entered in the
 console or through `POST /api/v1/sources/{id}/credential`, which seals it
 with `APP_ENCRYPTION_KEY` and verifies it; the adapter never reads a
 Kubernetes Secret.
-Deleting an Organization SUSPENDS its customer; nothing is ever deleted —
-statements and the usage ledger are billing history.
+Deleting an Organization ENDS its customer at the instant it ended (the
+`orgs.openova.io/ended-at` annotation the cancellation stamps, else the
+deletion mark): `ended_at` is set, the status goes `suspended`, and nothing is
+metered or billed after that instant. Nothing is ever deleted — statements and
+the usage ledger are billing history.
 
 **Platform collector.** Shared informers on namespaces, pods and PVCs; the
 join key is the `openova.io/organization` namespace label (the same key the

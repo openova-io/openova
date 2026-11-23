@@ -11,6 +11,13 @@
       "count": 1,
       "metric": "K",
       "owner": "CTL",
+      "path": "products/catalyst/bootstrap/api/internal/orgend/orgend.go",
+      "reason": "the platform's DELETE of an Organization the marketplace door created: its CR is made through the API and lies in no Git tree, so the delete that starts its removal in every region cannot be a commit; it moves with the route's other writes (CTL-180)"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "CTL",
       "path": "products/catalyst/bootstrap/api/internal/jobauth/jobauth.go",
       "reason": "a TokenReview asks the cluster to judge a token and stores nothing"
     },

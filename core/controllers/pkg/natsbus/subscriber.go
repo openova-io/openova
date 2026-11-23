@@ -93,6 +93,13 @@ const (
 	// tenant-service's DELETE /api/organizations/{id} route did), so the
 	// org-tenants Kustomization perpetually recreated the ns + HRs.
 	SubjectTenantDeleted = "catalyst.tenant.deleted"
+	// SubjectProvisionTenantRemoved fires when the provisioning service has
+	// torn down a cancelled marketplace tenant's Git tree. Its payload
+	// {id, slug, ended_at} hands the Organization over to its end: the
+	// organization-controller deletes the Organization CR the provisioning
+	// service minted for that tenant, which starts its removal in every
+	// region and closes its chargeback customer at ended_at.
+	SubjectProvisionTenantRemoved = "catalyst.provision.tenant_removed"
 )
 
 // Event is the JSON envelope on every catalyst.* subject. The shape

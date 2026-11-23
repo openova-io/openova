@@ -438,6 +438,18 @@ func main() {
 			); err != nil {
 				log.Error(err, "natsbus: subscribe order.placed failed")
 			}
+			// A cancelled marketplace tenant's Organization ends here: the
+			// provisioning service publishes provision.tenant_removed after
+			// its Git prune and the bridge deletes the Organization CR it
+			// minted (internal/controller/organization_end.go).
+			if err := sub.Subscribe(ctx,
+				natsbus.SubjectProvisionTenantRemoved,
+				"organization-controller-tenant-removed",
+				bridge.HandleTenantRemoved,
+				natsbus.SubscribeOptions{},
+			); err != nil {
+				log.Error(err, "natsbus: subscribe provision.tenant_removed failed")
+			}
 			<-ctx.Done()
 			sub.Close()
 			return nil
@@ -447,7 +459,7 @@ func main() {
 		}
 		log.Info("natsbus: D35 consume-leg wired",
 			"nats_url", natsURL,
-			"subjects", []string{natsbus.SubjectTenantCreated, natsbus.SubjectOrderPlaced},
+			"subjects", []string{natsbus.SubjectTenantCreated, natsbus.SubjectOrderPlaced, natsbus.SubjectProvisionTenantRemoved},
 		)
 	} else {
 		log.Info("natsbus: NATS_URL unset — D35 consume-leg disabled (informer-requeue fallback only)")

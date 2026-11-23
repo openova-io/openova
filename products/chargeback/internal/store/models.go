@@ -165,6 +165,10 @@ type Customer struct {
 	BillingMode string  `json:"billing_mode"`
 	Status      string  `json:"status"`
 	StartDate   *string `json:"start_date,omitempty"`
+	// EndedAt is the instant the customer's Organization ended (its
+	// subscription cancelled and the Organization deleted): it is metered and
+	// billed up to this instant and never after. Nil while it runs.
+	EndedAt *time.Time `json:"ended_at,omitempty"`
 	// PlanSlug is the catalog plan the customer pays for (s, m, l, xl,
 	// flexi; "" = no plan). For an Organization customer OrgSync reads it
 	// from the Organization CR's spec.planSlug; the platform collector

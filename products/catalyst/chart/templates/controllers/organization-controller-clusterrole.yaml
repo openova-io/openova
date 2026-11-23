@@ -38,9 +38,14 @@ rules:
   # `organizations` resource itself, otherwise EVERY reconcile bails on the
   # first finalizer-add with `cannot update resource "organizations"` and no
   # per-Org boundary is ever produced (#4462 delete-cascade regression).
+  # `delete`: a cancelled marketplace tenant's Organization ENDS here — on
+  # provision.tenant_removed the controller deletes the CR the provisioning
+  # service minted for that tenant (internal/controller/organization_end.go),
+  # which starts its removal in every region and closes its chargeback
+  # customer. Without it the CR outlives the cancellation, whole and billed.
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations/status"]
     verbs: ["get", "update", "patch"]

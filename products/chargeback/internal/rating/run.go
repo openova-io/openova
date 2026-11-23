@@ -807,9 +807,11 @@ func isPlanRow(sku string) bool {
 // in [from, to) are computed from (DESIGN.md §22.11): the timeline of its
 // plans, the advance line an earlier statement wrote for this period,
 // whether this is its first period on a package, and whether its customer
-// is active now.
+// is active now. A customer whose Organization ENDED is never active here,
+// whatever its status says: the next period is not billed in advance for an
+// Organization that no longer exists.
 func commitmentInputOf(ctx context.Context, st *store.Store, c store.Customer, src store.CostSource, pb store.PriceBook, items map[string]store.PriceItem, from, to time.Time) (CommitmentInput, error) {
-	in := CommitmentInput{Source: src, From: from, To: to, Items: items, Divisor: pb.AnnualDivisor, Currency: pb.Currency, Active: c.Status == "active"}
+	in := CommitmentInput{Source: src, From: from, To: to, Items: items, Divisor: pb.AnnualDivisor, Currency: pb.Currency, Active: c.Status == "active" && c.EndedAt == nil}
 	var err error
 	if in.Timeline, err = st.PlanTimeline(ctx, src.ID, from, to); err != nil {
 		return in, err

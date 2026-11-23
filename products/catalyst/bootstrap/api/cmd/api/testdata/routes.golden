@@ -6,7 +6,7 @@ DELETE /api/v1/deployments/{id}/release-subdomain handler.(*Handler).ReleaseSubd
 DELETE /api/v1/org/billing/vouchers/revoke/{code} handler.(*Handler).HandleRevokeOrgBillingVoucher-fm 2
 DELETE /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceDelete-fm 2
 DELETE /api/v1/org/users/{uuid} handler.(*Handler).HandleDeleteOrgUser-fm 2
-DELETE /api/v1/organizations/{id} handler.(*Handler).HandleDeleteOrganization-fm 2
+DELETE /api/v1/organizations/{id} Delete.(closure) 2
 DELETE /api/v1/sovereign/parent-domains/{name} handler.(*Handler).DeleteParentDomain-fm 2
 DELETE /api/v1/sovereigns/{id}/applications/{name} handler.(*Handler).HandleApplicationDelete-fm 2
 DELETE /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name} handler.(*Handler).HandleK8sResourceDelete-fm 2

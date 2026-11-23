@@ -143,7 +143,7 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 	reconciled, skipped := 0, 0
 	for i := range list.Items {
 		rec, ok := orgConsoleTLSRecordFromOrgCR(&list.Items[i], sovereignFQDN)
-		if !ok {
+		if !ok || list.Items[i].GetDeletionTimestamp() != nil { // an ending Organization's surface is being removed: never re-add it
 			skipped++
 			continue
 		}

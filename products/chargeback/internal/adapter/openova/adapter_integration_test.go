@@ -73,7 +73,7 @@ func TestIntegrationOrgSyncAgainstStore(t *testing.T) {
 	}
 
 	// Delete suspends; the usage rows stay.
-	if err := s.SuspendOrganization(ctx, org); err != nil {
+	if err := s.EndOrganization(ctx, org); err != nil {
 		t.Fatal(err)
 	}
 	c2, err := st.GetCustomerBySlug(ctx, "agwalk")

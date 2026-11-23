@@ -293,7 +293,7 @@ func TestSyncInternalOrganizationIsNotACustomer(t *testing.T) {
 		t.Fatalf("sources after resync = %d, want the one internal source", n)
 	}
 	// Deleting the internal Organization suspends nothing (it has no customer).
-	if err := s.SuspendOrganization(ctx, org); err != nil {
+	if err := s.EndOrganization(ctx, org); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -381,7 +381,7 @@ func TestSyncOrganizationResumeStampsPlatformSource(t *testing.T) {
 		t.Fatalf("active resync moved the stamp: %v", got)
 	}
 
-	if err := s.SuspendOrganization(ctx, org); err != nil {
+	if err := s.EndOrganization(ctx, org); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(48 * time.Hour)
