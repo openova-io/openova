@@ -26,7 +26,7 @@ var dnsdistContainerPortRE = regexp.MustCompile(`(?m)^\s*- name: (dns-[a-z]+)\s*
 // dnsdistPorts reads the named container ports of dnsdist from the chart.
 func dnsdistPorts(t *testing.T, root string) map[string]int {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(root, "platform", "powerdns", "chart", "templates", "dnsdist.yaml"))
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join(root, "platform", "powerdns", "chart", "templates", "dnsdist.yaml")))
 	if err != nil {
 		t.Fatalf("read the dnsdist template: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBootstrapKit_PowerDNSAnycastReachesDnsdist(t *testing.T) {
 	}
 	checked := 0
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(filepath.Clean(f))
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
