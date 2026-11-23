@@ -9,10 +9,12 @@
 #
 # Cases:
 #   H1  primary: a post-delete hook (ServiceAccount, Role, RoleBinding, Job)
-#       in the namespace of the seed Certificate; the Role allows get and
-#       delete on exactly the Certificate's secretName and get on exactly the
-#       release's own HelmRelease; the RoleBinding binds
-#       the Job's ServiceAccount; the Job deletes that Secret, exits 0 and
+#       in the namespace of the seed Certificate; the Role allows delete (and
+#       not get: the Secret holds the CA private key) on exactly the
+#       Certificate's secretName and get on exactly the release's own
+#       HelmRelease; the RoleBinding binds the Job's ServiceAccount; the RBAC
+#       objects (hook-weight -10) are created before the Job (0); the Job
+#       deletes that Secret, exits 0 and
 #       sets an explicit CPU limit (50m) so plan-quota cannot refuse its Pod;
 #       the Job is bounded (activeDeadlineSeconds 300) and deleted on failure
 #       (hook-failed), so a Pod that never starts does not stay.
@@ -24,10 +26,15 @@
 #   H5  the hook Job carries app.kubernetes.io/managed-by: flux.
 #   H6  the Job's script, RUN against a fake API server (a stub curl first on
 #       PATH): it reads the release's own HelmRelease and sends the DELETE
-#       only when that HelmRelease has a deletionTimestamp (Flux pruned it)
-#       or is gone (404 naming it); a HelmRelease that exists without one (a
-#       remediation uninstall of a failed install), a 404 that does not name
-#       it, a 403 and no answer delete nothing. Every case exits 0.
+#       only when that HelmRelease has a deletionTimestamp (Flux pruned it;
+#       its finalizer runs the uninstall, so it exists until the hook
+#       returns); a HelmRelease that exists without one (a remediation
+#       uninstall of a failed install), ANY 404 (also one naming
+#       helmreleases), a 403 and no answer delete nothing. A release whose
+#       name helm-controller shortened (HelmRelease name over 53 characters:
+#       40 characters, "-", 12 of its sha256) asks for a name no HelmRelease
+#       has; its 404 keeps the seed. A refused DELETE prints a WARNING. Every
+#       case exits 0.
 #
 # Vacuity: H1's body against the single-region render must FAIL.
 #
@@ -80,7 +87,7 @@ hooked() {  # $1 render, $2 kind: the hook objects of that kind, as name|namespa
 
 # H1 body: prints nothing when the render holds the complete hook, else why.
 hook_fault() {  # $1 render, $2 its release name
-  local r="$1" sa role rb job rules subj ref script limits
+  local r="$1" sa role rb job rules weights subj ref script limits
   sa="$(hooked "$r" ServiceAccount)"; role="$(hooked "$r" Role)"; rb="$(hooked "$r" RoleBinding)"; job="$(hooked "$r" Job)"
   for o in "ServiceAccount:$sa" "Role:$role" "RoleBinding:$rb" "Job:$job"; do
     case "${o#*:}" in
@@ -89,8 +96,17 @@ hook_fault() {  # $1 render, $2 its release name
     esac
   done
   rules="$(yq ea 'select(.kind == "Role" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .rules | to_json' "$r" | tr -d ' \n')"
-  if [ "$rules" != "[{\"apiGroups\":[\"\"],\"resources\":[\"secrets\"],\"resourceNames\":[\"$SECRET\"],\"verbs\":[\"get\",\"delete\"]},{\"apiGroups\":[\"helm.toolkit.fluxcd.io\"],\"resources\":[\"helmreleases\"],\"resourceNames\":[\"$2\"],\"verbs\":[\"get\"]}]" ]; then
-    echo "the Role is not get and delete on exactly $SECRET plus get on exactly the HelmRelease $2: $rules"; return
+  if [ "$rules" != "[{\"apiGroups\":[\"\"],\"resources\":[\"secrets\"],\"resourceNames\":[\"$SECRET\"],\"verbs\":[\"delete\"]},{\"apiGroups\":[\"helm.toolkit.fluxcd.io\"],\"resources\":[\"helmreleases\"],\"resourceNames\":[\"$2\"],\"verbs\":[\"get\"]}]" ]; then
+    echo "the Role is not delete on exactly $SECRET plus get on exactly the HelmRelease $2: $rules"; return
+  fi
+  # The Job runs with RBAC that already exists: Helm creates lower weights first.
+  # One kind per query: one document, so no cross product of several.
+  weights=""
+  for k in ServiceAccount Role RoleBinding Job; do
+    weights="$weights$k=$(yq ea "select(.kind == \"$k\" and .metadata.labels[\"catalyst.openova.io/component\"] == \"shared-secret-seed-cleanup\") | .metadata.annotations[\"helm.sh/hook-weight\"]" "$r") "
+  done
+  if [ "$weights" != "ServiceAccount=-10 Role=-10 RoleBinding=-10 Job=0 " ]; then
+    echo "the hook weights are '$weights', want the ServiceAccount, Role and RoleBinding at -10 and the Job at 0"; return
   fi
   subj="$(yq ea 'select(.kind == "RoleBinding" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .subjects[0].name' "$r")"
   ref="$(yq ea 'select(.kind == "RoleBinding" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .roleRef.name' "$r")"
@@ -161,7 +177,8 @@ fi
 
 # H6: the script's decision, run for real. The stub curl records each call as
 # "<method> <url>"; the HelmRelease read answers $FAKE_HR_CODE with
-# $FAKE_HR_BODY ("none" = no answer, curl exit 7); a DELETE answers 200.
+# $FAKE_HR_BODY ("none" = no answer, curl exit 7); a DELETE answers
+# $FAKE_DEL_CODE.
 mkdir -p "$TMP/bin" "$TMP/run"
 cat > "$TMP/bin/curl" <<'EOF'
 #!/bin/sh
@@ -176,7 +193,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 printf '%s %s\n' "$method" "$url" >> "$FAKE_API_LOG"
-if [ "$method" = DELETE ]; then printf '200'; exit 0; fi
+if [ "$method" = DELETE ]; then printf '%s' "$FAKE_DEL_CODE"; exit 0; fi
 [ "$FAKE_HR_CODE" = none ] && exit 7
 printf '%s\n' "$FAKE_HR_BODY" > "$out"
 printf '%s' "$FAKE_HR_CODE"
@@ -208,20 +225,22 @@ STATUS='{
   "code": %s
 }'
 
-decide() {  # $1 render, $2 release, $3 case, $4 code, $5 body, $6 want (delete|keep)
-  local log="$TMP/run/$3.log" script want got rc
+decide() {  # $1 render, $2 release, $3 case, $4 code, $5 body, $6 want (delete|keep), [$7 DELETE code, default 200]
+  local log="$TMP/run/$3.log" script want got rc last del="${7:-200}"
   local -a jobenv
   script="$(yq ea "$JOB | .spec.template.spec.containers[0].command[2]" "$1")"
   mapfile -t jobenv < <(yq ea "$JOB | .spec.template.spec.containers[0].env[] | .name + \"=\" + .value" "$1")
   : > "$log"
   if env -i "PATH=$TMP/bin:$PATH" "TMPDIR=$TMP/run" "FAKE_API_LOG=$log" "FAKE_HR_CODE=$4" "FAKE_HR_BODY=$5" \
-       "${jobenv[@]}" /bin/sh -c "$script" > "$TMP/run/$3.out" 2>&1; then rc=0; else rc=$?; fi
+       "FAKE_DEL_CODE=$del" "${jobenv[@]}" /bin/sh -c "$script" > "$TMP/run/$3.out" 2>&1; then rc=0; else rc=$?; fi
   want="GET https://kubernetes.default.svc/apis/helm.toolkit.fluxcd.io/v2/namespaces/acme/helmreleases/$2"
   [ "$6" = delete ] && want="$want
 DELETE $DEL_URL"
   got="$(cat "$log")"
-  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
-    pass "H6 $3: $6 ($(tail -1 "$TMP/run/$3.out"))"
+  last="$(tail -1 "$TMP/run/$3.out")"
+  # A DELETE the API refuses leaves the Secret: the script must say so.
+  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ] && { [ "$del" = 200 ] || [ "${last#WARNING: }" != "$last" ]; }; then
+    pass "H6 $3: $6 ($last)"
   else
     fail "H6 $3: want $6 and exit 0; exit $rc, calls: $(tr '\n' ';' < "$log") output: $(tr '\n' ' ' < "$TMP/run/$3.out")"
   fi
@@ -232,8 +251,29 @@ decide "$P" wordpress-rtz-a removal-deleting 200 "$(printf "$META" wordpress-rtz
     "deletionTimestamp": "2026-11-24T10:00:00Z",')" delete
 decide "$TMP/replica.yaml" wordpress-rtz-b removal-deleting-replica 200 "$(printf "$META" wordpress-rtz-b '
     "deletionTimestamp": "2026-11-24T10:00:00Z",')" delete
-decide "$P" wordpress-rtz-a removal-gone 404 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" not found' NotFound \
-  '{ "name": "wordpress-rtz-a", "group": "helm.toolkit.fluxcd.io", "kind": "helmreleases" }' 404)" delete
+decide "$P" wordpress-rtz-a removal-deleting-delete-refused 200 "$(printf "$META" wordpress-rtz-a '
+    "deletionTimestamp": "2026-11-24T10:00:00Z",')" delete 500
+# A Flux removal always answers 200 with a deletionTimestamp, so a 404 naming
+# the HelmRelease is never read as "gone".
+decide "$P" wordpress-rtz-a gone-404 404 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" not found' NotFound \
+  '{ "name": "wordpress-rtz-a", "group": "helm.toolkit.fluxcd.io", "kind": "helmreleases" }' 404)" keep
+# A HelmRelease name over 53 characters: helm-controller (internal/release
+# ShortenName) installs the release as its first 40 characters, "-" and 12 of
+# its sha256, so .Release.Name is not the HelmRelease name and the GET answers
+# 404 naming helmreleases, also while a remediation uninstall runs.
+HRLONG="omani-works-corporate-website-production-mirror1-rtz-a"
+SHORT="${HRLONG:0:40}-$(printf '%s' "$HRLONG" | sha256sum | cut -c1-12)"
+helm template "$SHORT" . "${COMMON[@]}" "${MULTI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" \
+  > "$TMP/short.yaml"
+got="$(yq ea "$JOB | .spec.template.spec.containers[0].env[] | select(.name == \"HELMRELEASE_NAME\") | .value" "$TMP/short.yaml")"
+if [ "$got" = "$SHORT" ] && [ "$got" != "$HRLONG" ] && [ "${#got}" -eq 53 ]; then
+  pass "H6 shortened-release-name: the Job asks for $got, not the HelmRelease $HRLONG"
+else
+  fail "H6 shortened-release-name: the Job asks for '$got', want the shortened $SHORT"
+fi
+decide "$TMP/short.yaml" "$SHORT" shortened-release-name 404 "$(printf "$STATUS" "helmreleases.helm.toolkit.fluxcd.io \\\"$SHORT\\\" not found" NotFound \
+  "{ \"name\": \"$SHORT\", \"group\": \"helm.toolkit.fluxcd.io\", \"kind\": \"helmreleases\" }" 404)" keep
 decide "$P" wordpress-rtz-a remediation-live 200 "$(printf "$META" wordpress-rtz-a '')" keep
 decide "$P" wordpress-rtz-a api-not-served 404 "$(printf "$STATUS" 'the server could not find the requested resource' NotFound '{}' 404)" keep
 decide "$P" wordpress-rtz-a forbidden 403 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" is forbidden' Forbidden \
