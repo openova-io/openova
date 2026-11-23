@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T21:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-23T21:15:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T21:06 | [#8670](https://github.com/openova-io/openova/pull/8670) | #7087 | docs(ledger): plan update |
 | 2026-11-23T20:52 | [#8666](https://github.com/openova-io/openova/pull/8666) | #7087 | docs(ledger): plan update |
 | 2026-11-23T20:43 | [#8663](https://github.com/openova-io/openova/pull/8663) | #7087 | docs(ledger): plan update |
 | 2026-11-23T20:53 | [#8661](https://github.com/openova-io/openova/pull/8661) | #8599 | fix(gate): a dial Pod is dialed again until its network work |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-22T15:57 | [#8615](https://github.com/openova-io/openova/pull/8615) | #7087 | docs(ledger): plan update |
 | 2026-11-22T12:27 | [#8612](https://github.com/openova-io/openova/pull/8612) | #7087 | docs(ledger): plan update |
 | 2026-11-22T17:02 | [#8611](https://github.com/openova-io/openova/pull/8611) | #8598 | fix(provisioner): when the install's pre-flight replaces a r |
-| 2026-11-22T12:33 | [#8610](https://github.com/openova-io/openova/pull/8610) | #8607 | refactor(console): screens group by class and the dead branc |
 
 ---
 
