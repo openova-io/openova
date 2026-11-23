@@ -210,6 +210,10 @@ const (
 	// ReissueAttempts times without a token and nothing more is re-issued:
 	// the hold is released.
 	ReasonReleasedReissueExhausted = "ReleasedReissueExhausted"
+	// ReasonReleasedBlockedMove — the move's record is still in flight but
+	// this evaluation is Blocked (Plan walks no step of it): the hold is
+	// released, and taken again when the move acts.
+	ReasonReleasedBlockedMove = "ReleasedBlockedMove"
 )
 
 // RebootHold says whether a move holds the reboot agent of one region of it,

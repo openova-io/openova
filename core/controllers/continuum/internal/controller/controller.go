@@ -288,7 +288,9 @@ func (c *Controller) beginTick(ctx context.Context, now time.Time) {
 // and can still act (st.hold, transition.HoldOf). A Failed transition (a step
 // past its phase deadline) is still evaluated and may still commit, so it
 // keeps the hold, but at most RebootWait after it failed; a transition whose
-// demotion re-issue bound is exhausted releases it. A group whose record
+// demotion re-issue bound is exhausted releases it, and so does one whose
+// record is still in flight while this tick's evaluation is Converged, Pending
+// or Blocked (Plan walks it no more). A group whose record
 // could not be read leaves the hold as it is: it is then neither renewed nor
 // released, and lapses at its TTL if that lasts.
 func (c *Controller) noteHold(st groupStatus) {
@@ -580,7 +582,9 @@ func (c *Controller) commitRegionFile(ctx context.Context, repo Repo, cm transit
 
 func (c *Controller) statusAll(ctx context.Context, members []member, st groupStatus) error {
 	if st.known {
-		st.hold = transition.HoldOf(st.record, c.Region, c.RebootWait, c.now())
+		// The hold follows this tick's outcome: the record as read may be a
+		// move Plan no longer walks (Converged, Pending, Blocked).
+		st.hold = transition.HoldOf(st.outcome, st.record, c.Region, c.RebootWait, c.now())
 	}
 	c.noteHold(st)
 	for _, pm := range members {
@@ -674,8 +678,9 @@ func (c *Controller) writeStatus(ctx context.Context, pm member, st groupStatus)
 	}
 	// RebootAgentHeld — present while a transition of this region is in
 	// progress and this region's Continuum holds the reboot agent for it:
-	// True while it holds it, False once it released it at its bound
-	// (transition.Reason{HeldForMove,ReleasedFailedMove,ReleasedReissueExhausted}).
+	// True while it holds it, False once it released it at its bound or
+	// because the move is Blocked
+	// (transition.Reason{HeldForMove,ReleasedFailedMove,ReleasedReissueExhausted,ReleasedBlockedMove}).
 	if h := st.hold; h != nil && c.Reboot != nil {
 		held := "False"
 		if h.Held {

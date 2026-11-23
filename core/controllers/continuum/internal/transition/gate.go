@@ -166,9 +166,19 @@ func (e evaluator) endGateHold(a Activity, prevSince string) {
 }
 
 // HoldOf says whether the move recorded in r holds the reboot agent of region
-// at now (nil: no move of the region is in progress — Transitioning or
-// Failed). A move holds it while it can still act, with a bound:
+// at now, after an evaluation whose outcome is outcome (Plan's Result.Outcome,
+// or the acting region's record when this region mirrors it). nil: no move of
+// the region is in progress. A move holds it while it can still act, with a
+// bound:
 //
+//   - the outcome of this evaluation decides, not the record alone: Plan
+//     returns an in-flight record unchanged when it no longer walks it (every
+//     file names the desired primary again after the move was re-targeted
+//     back, no file is committed, the group is Blocked), and nothing then
+//     rewrites the lease, so the record would read Transitioning until some
+//     later move. Converged or Pending: no move is in progress (nil). Blocked:
+//     the move cannot act and releases it (ReasonReleasedBlockedMove); it
+//     holds it again when it acts;
 //   - a move whose demotion was issued again ReissueAttempts times without a
 //     token, and is re-issued no more, releases it
 //     (ReasonReleasedReissueExhausted);
@@ -181,7 +191,7 @@ func (e evaluator) endGateHold(a Activity, prevSince string) {
 //
 // A move that acts again (the Failed step is reached, the next step begins)
 // is no longer Failed and holds the agent again.
-func HoldOf(r *Record, region string, wait time.Duration, now time.Time) *RebootHold {
+func HoldOf(outcome string, r *Record, region string, wait time.Duration, now time.Time) *RebootHold {
 	if r == nil || (r.Outcome != OutcomeTransitioning && r.Outcome != OutcomeFailed) || (region != r.From && region != r.To) {
 		return nil
 	}
@@ -189,6 +199,15 @@ func HoldOf(r *Record, region string, wait time.Duration, now time.Time) *Reboot
 		wait = DefaultRebootWait
 	}
 	move := fmt.Sprintf("the move %s → %s (%s)", r.From, r.To, r.ID)
+	switch outcome {
+	case OutcomeTransitioning, OutcomeFailed:
+	case OutcomeBlocked:
+		return &RebootHold{Reason: ReasonReleasedBlockedMove, Message: fmt.Sprintf(
+			"%s is Blocked and cannot act: the reboot agent of region %s is released; the move holds it again when it acts",
+			move, region)}
+	default:
+		return nil
+	}
 	keys := make([]string, 0, len(r.Demotions))
 	for k := range r.Demotions {
 		keys = append(keys, k)

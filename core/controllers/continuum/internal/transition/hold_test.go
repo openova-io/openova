@@ -22,17 +22,27 @@ func TestHoldOf_IsBounded(t *testing.T) {
 		name   string
 		r      *Record
 		region string
+		tick   string // this evaluation's outcome; "" = the record's own
 		held   bool
 		reason string // "" = nil (nothing to say)
 	}{
-		{"no move", nil, "a", false, ""},
-		{"converged", rec(OutcomeConverged, 0), "a", false, ""},
-		{"a region not of the move", rec(OutcomeTransitioning, 0), "c", false, ""},
-		{"in progress", rec(OutcomeTransitioning, 0), "b", true, ReasonHeldForMove},
-		{"failed within the bound", rec(OutcomeFailed, wait), "a", true, ReasonHeldForMove},
-		{"failed past the bound", rec(OutcomeFailed, wait+time.Second), "a", false, ReasonReleasedFailedMove},
+		{"no move", nil, "a", OutcomeConverged, false, ""},
+		{"converged", rec(OutcomeConverged, 0), "a", "", false, ""},
+		{"a region not of the move", rec(OutcomeTransitioning, 0), "c", "", false, ""},
+		{"in progress", rec(OutcomeTransitioning, 0), "b", "", true, ReasonHeldForMove},
+		{"failed within the bound", rec(OutcomeFailed, wait), "a", "", true, ReasonHeldForMove},
+		{"failed past the bound", rec(OutcomeFailed, wait+time.Second), "a", "", false, ReasonReleasedFailedMove},
+		// The record is still in flight, but this evaluation walks it no more.
+		{"in flight, re-targeted back (Converged)", rec(OutcomeTransitioning, 0), "a", OutcomeConverged, false, ""},
+		{"in flight, no file committed (Pending)", rec(OutcomeTransitioning, 0), "b", OutcomePending, false, ""},
+		{"in flight, Blocked", rec(OutcomeTransitioning, 0), "b", OutcomeBlocked, false, ReasonReleasedBlockedMove},
+		{"failed within the bound, Blocked", rec(OutcomeFailed, 0), "a", OutcomeBlocked, false, ReasonReleasedBlockedMove},
 	} {
-		h := HoldOf(tc.r, tc.region, wait, now)
+		tick := tc.tick
+		if tick == "" {
+			tick = tc.r.Outcome
+		}
+		h := HoldOf(tick, tc.r, tc.region, wait, now)
 		switch {
 		case tc.reason == "" && h != nil:
 			t.Errorf("%s: want nothing, got %+v", tc.name, h)
@@ -55,7 +65,7 @@ func TestHoldOf_ReleasedWhenTheReissueBoundIsExhausted(t *testing.T) {
 		if res.Interruption != nil && res.Interruption.Reason == ReasonDemotionReissueExhausted && exhaustedAt < 0 {
 			exhaustedAt = i
 		}
-		if h := HoldOf(rec, "b", 0, w.now); exhaustedAt < 0 && (h == nil || !h.Held) {
+		if h := HoldOf(res.Outcome, rec, "b", 0, w.now); exhaustedAt < 0 && (h == nil || !h.Held) {
 			t.Fatalf("tick %d: before the bound is exhausted the move holds the agent, got %+v", i, h)
 		}
 	}
@@ -63,7 +73,7 @@ func TestHoldOf_ReleasedWhenTheReissueBoundIsExhausted(t *testing.T) {
 		t.Fatal("the re-issue bound was never exhausted: the test proves nothing")
 	}
 	for _, r := range []string{"a", "b"} {
-		h := HoldOf(rec, r, time.Hour, w.now)
+		h := HoldOf(res.Outcome, rec, r, time.Hour, w.now)
 		if h == nil || h.Held || h.Reason != ReasonReleasedReissueExhausted || !strings.Contains(h.Message, "acme/wp") {
 			t.Fatalf("%s: past the re-issue bound the hold is released and says why, got %+v", r, h)
 		}
@@ -73,7 +83,7 @@ func TestHoldOf_ReleasedWhenTheReissueBoundIsExhausted(t *testing.T) {
 	db := &w.live["acme/wp"]["b"].DB
 	db.Primary, db.RunningPrimary = true, True
 	res, rec = w.tick(g, rec, policy)
-	if h := HoldOf(rec, "b", time.Hour, w.now); h == nil || !h.Held {
+	if h := HoldOf(res.Outcome, rec, "b", time.Hour, w.now); h == nil || !h.Held {
 		t.Fatalf("a move that can act again holds the agent again: %+v (%s %+v)", h, res.Outcome, rec.Demotions)
 	}
 }
