@@ -102,7 +102,8 @@ jobs:
 
       - name: First-boot fragments see the failure of their pipe (helm download, r4)
         # Runs the rt() helper, the helm download line and r4() under dash
-        # with failing stubs: 5 tries + sentinel + exit 91; r4 asks nslookup.
+        # with failing stubs: 5 tries + sentinel + exit 91; r4 asks nslookup;
+        # the Cilium item's set -e stops the boot at a failed SEC-040 apply.
         run: dash scripts/tests/test-cloudinit-first-boot-fails-loudly.sh
 
       - name: Self-test the gate (inject a bash-ism, prove it FAILS, then restore)

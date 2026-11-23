@@ -74,19 +74,30 @@ func TestDeploymentScopeOwnsTheNodesOfALongFQDN(t *testing.T) {
 	}
 }
 
-// The leftover report of a long FQDN names its nodes.
+// The leftover report of a long FQDN names its nodes, by the cut name and by
+// the full name of a server created before the cut, and no other
+// deployment's node.
 func TestListLeftoversNamesLongFQDNNodes(t *testing.T) {
+	const preCut = "catalyst-a-sovereign-of-a-long-name-012345-omani-works-0123abcd-me-east-215-a-cp1-abcdef"
 	a := cleanAnswers()
-	a["/cloudservers/detail"] = `{"servers":[{"name":"` + longNodeName + `"},{"name":"catalyst-a-sovereign-of-a-lon-0123abce-me-east-215-a-cp1-abcdef"}]}`
+	a["/cloudservers/detail"] = `{"servers":[{"name":"` + longNodeName + `"},{"name":"` + preCut + `"},{"name":"catalyst-a-sovereign-of-a-lon-0123abce-me-east-215-a-cp1-abcdef"}]}`
 	fakeCloud(t, a)
 	spec := providers.LeftoverSpec{DeploymentID: "0123abcd99", SovereignFQDN: longFQDN, Creds: leftoverSpec.Creds}
 	r, err := New().ListLeftovers(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("ListLeftovers: %v", err)
 	}
+	seen := false
 	for _, k := range r.Kinds {
-		if k.Kind == "servers" && !reflect.DeepEqual(k.Leftovers, []string{longNodeName}) {
-			t.Fatalf("servers left %v, want [%s]", k.Leftovers, longNodeName)
+		if k.Kind != "servers" {
+			continue
 		}
+		seen = true
+		if want := []string{longNodeName, preCut}; !reflect.DeepEqual(k.Leftovers, want) {
+			t.Fatalf("servers left %v, want %v", k.Leftovers, want)
+		}
+	}
+	if !seen {
+		t.Fatalf("the report has no servers kind: %+v", r.Kinds)
 	}
 }
