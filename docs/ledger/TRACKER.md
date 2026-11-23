@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-23T20:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-23T20:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8238](https://github.com/openova-io/openova/issues/8238) | FND-079 The gate has a scoped access to the parent | Other |
-| [#8244](https://github.com/openova-io/openova/issues/8244) | CLD-111 Wipe and janitor through capabilities | Other |
 | [#8247](https://github.com/openova-io/openova/issues/8247) | FND-078 The gate's cluster jobs run as a Job on the parent | Other |
 | [#8254](https://github.com/openova-io/openova/issues/8254) | INF-512 Runner test task: arguments, target check and Nuclei (profile network-pa | Other |
 | [#8256](https://github.com/openova-io/openova/issues/8256) | CLD-065 Crossplane 1.20 to 2.4 | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
 | [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
 | [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
+| [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
+| [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-23T20:43 | [#8663](https://github.com/openova-io/openova/pull/8663) | #7087 | docs(ledger): plan update |
 | 2026-11-23T16:01 | [#8657](https://github.com/openova-io/openova/pull/8657) | #7087 | docs(ledger): plan update |
 | 2026-11-23T10:23 | [#8656](https://github.com/openova-io/openova/pull/8656) | #8655 | feat(secrets-lib): a library chart for namespaced stores and |
 | 2026-11-23T09:53 | [#8654](https://github.com/openova-io/openova/pull/8654) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-22T11:45 | [#8606](https://github.com/openova-io/openova/pull/8606) | #7087 | docs(ledger): plan update |
 | 2026-11-22T11:55 | [#8605](https://github.com/openova-io/openova/pull/8605) | #8604 | test(external-secrets): conformance test of External Secrets |
 | 2026-11-22T11:20 | [#8603](https://github.com/openova-io/openova/pull/8603) | #7087 | docs(ledger): plan update |
-| 2026-11-22T12:02 | [#8602](https://github.com/openova-io/openova/pull/8602) | #8601 | fix(kured): the node maintenance window is a setting of the  |
 
 ---
 
