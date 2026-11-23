@@ -23,7 +23,10 @@
 #
 # Also checked, from the files Flux applies: every multi-region-follower-* root
 # lists the ConfigMap (identical) and no other root does; slot 10 reads it by
-# name in its own namespace; slot 10 spec.values sets no gitea.gitea.admin key.
+# name in its own namespace; slot 10 spec.values sets no gitea.gitea.admin key;
+# region B rendered over a chart default that bakes an admin password (the
+# pinned older chart's case) still sets none, so the follower values must not
+# lean on this chart's empty default.
 #
 # Needs helm and yq v4. Usage: bash tests/one-admin-password-writer.sh [CHART_DIR]
 set -euo pipefail
@@ -160,6 +163,22 @@ fi
 bpw="$("$YQ" 'select(.kind == "Deployment") | .spec.template.spec.initContainers[] | select(.name == "configure-gitea") | .env[] | select(.name == "GITEA_ADMIN_PASSWORD") | [has("valueFrom"), (.value | length)] | @csv' "$TMP/b.yaml" | grep -vE '^(---)?$' || true)"
 if [ "$bpw" = "false,0" ]; then pass "region B's init has an empty admin password"
 else fail "region B's init carries an admin password (valueFrom,length = ${bpw:-<no env>}; value not printed)"; fi
+
+# ── 3. The follower values stand on their own ──────────────────────────────
+# Slot 10 may still pin a chart released before this one, whose default
+# gitea.gitea.admin.password is the upstream baked password (bp-gitea 1.2.55).
+# Render region B over such a default: the follower values alone must leave
+# its init with no admin password and no admin-user step.
+printf 'gitea:\n  gitea:\n    admin:\n      password: baked-default-password\n' > "$TMP/baked-default.yaml"
+"$HELM" template gitea "$CHART_DIR" --namespace gitea \
+  -f "$TMP/baked-default.yaml" -f "$TMP/follower-values.yaml" -f "$TMP/b-values.yaml" > "$TMP/b-baked.yaml"
+sk="$(setters "$TMP/b-baked.yaml")"
+bk="$("$YQ" 'select(.kind == "Deployment") | .spec.template.spec.initContainers[] | select(.name == "configure-gitea") | .env[] | select(.name == "GITEA_ADMIN_PASSWORD") | [has("valueFrom"), (.value | length)] | @csv' "$TMP/b-baked.yaml" | grep -vE '^(---)?$' || true)"
+if [ "$sk" = 0 ] && [ "$bk" = "false,0" ]; then
+  pass "the follower values clear a chart's baked admin password (region B sets none)"
+else
+  fail "over a chart default with a baked admin password, region B sets it (init admin step ${sk}, valueFrom,length = ${bk:-<no env>}): the follower values must carry password \"\""
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "one-admin-password-writer: ${failures} check(s) failed" >&2
