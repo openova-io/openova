@@ -35,8 +35,15 @@
 #       40 characters, "-", 12 of its sha256) asks for a name no HelmRelease
 #       has; its 404 keeps the seed. A refused DELETE prints a WARNING. Every
 #       case exits 0.
+#   H7  a failed hook leaves no RBAC: Helm deletes only the failing Job, so
+#       the ServiceAccount, Role and RoleBinding carry an ownerReference to
+#       the release's own HelmRelease (Helm lookup, replaced in a copy of the
+#       chart by the API's answer), in both regions, also for a shortened
+#       release name; none where it cannot be valid (HelmRelease API not
+#       served, no HelmRelease, another namespace) or under helm template.
 #
-# Vacuity: H1's body against the single-region render must FAIL.
+# Vacuity: H1's body against the single-region render must FAIL; H7's owned
+# check against a render without ownerReferences must FAIL.
 #
 # Usage: bash tests/seed-ca-cleanup-hook.sh [CHART_DIR]
 set -euo pipefail
@@ -279,6 +286,79 @@ decide "$P" wordpress-rtz-a api-not-served 404 "$(printf "$STATUS" 'the server c
 decide "$P" wordpress-rtz-a forbidden 403 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" is forbidden' Forbidden \
   '{ "name": "wordpress-rtz-a", "group": "helm.toolkit.fluxcd.io", "kind": "helmreleases" }' 403)" keep
 decide "$P" wordpress-rtz-a no-answer none "" keep
+
+# H7: a failed hook leaves no RBAC behind. Helm deletes only the failing Job
+# and helm-controller then drops the HelmRelease, so the ServiceAccount, Role
+# and RoleBinding carry an ownerReference to the release's own HelmRelease,
+# found by Helm `lookup` at render time. `helm template` has no cluster and
+# its lookup answers nothing, so copies of the chart have each lookup replaced
+# by what the API would answer; every replacement is checked to have happened.
+HRAPI=(--api-versions helm.toolkit.fluxcd.io/v2/HelmRelease)
+BYNAME='lookup "helm.toolkit.fluxcd.io/v2" "HelmRelease" .Release.Namespace .Release.Name'
+BYLIST='lookup "helm.toolkit.fluxcd.io/v2" "HelmRelease" .Release.Namespace ""'
+owned_chart() {  # $1 new dir, $2 the by-name answer, $3 the list answer
+  cp -r "$CHART_DIR" "$1"
+  local t="$1/templates/shared-secrets-seed-cleanup.yaml"
+  sed -i -e "s|$BYNAME|$2|" -e "s|$BYLIST|$3|" "$t"
+  if grep -q 'lookup "helm.toolkit.fluxcd.io/v2"' "$t" || ! grep -qF "$2" "$t" || ! grep -qF "$3" "$t"; then
+    echo "the HelmRelease lookups of $t were not replaced"; exit 1
+  fi
+}
+refs() {  # $1 render, $2 kind: that hook object's ownerReferences, compact JSON
+  yq ea "select(.kind == \"$2\" and .metadata.labels[\"catalyst.openova.io/component\"] == \"shared-secret-seed-cleanup\") | .metadata.ownerReferences | to_json" "$1" | tr -d ' \n'
+}
+owner_fault() {  # $1 render, $2 HelmRelease name, $3 its uid ("" = no ownerReference)
+  local k got want=null
+  [ -n "$3" ] && want="[{\"apiVersion\":\"helm.toolkit.fluxcd.io/v2\",\"kind\":\"HelmRelease\",\"name\":\"$2\",\"uid\":\"$3\"}]"
+  for k in ServiceAccount Role RoleBinding; do
+    got="$(refs "$1" "$k")"
+    if [ "$got" != "$want" ]; then echo "the $k's ownerReferences are $got, want $want"; return; fi
+  done
+}
+h7() {  # $1 case, $2 render, $3 HelmRelease name, $4 uid ("" = none)
+  local f
+  f="$(owner_fault "$2" "$3" "$4")"
+  if [ -n "$f" ]; then fail "H7 $1: $f"
+  elif [ -n "$4" ]; then pass "H7 $1: the RBAC objects are owned by the HelmRelease $3"
+  else pass "H7 $1: no ownerReference"; fi
+}
+owned_chart "$TMP/owned" '(dict "metadata" (dict "name" .Release.Name "uid" (printf "uid-%s" .Release.Name)))' '(dict)'
+helm template wordpress-rtz-a "$TMP/owned" "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/owned-primary.yaml"
+helm template wordpress-rtz-b "$TMP/owned" "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" \
+  --set openova.topology.self="$B" --set openova.topology.primary="$A" --set "openova.topology.peers={$A}" > "$TMP/owned-replica.yaml"
+helm template wordpress-rtz-a "$TMP/owned" "${COMMON[@]}" "${MULTI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/owned-noapi.yaml"
+helm template wordpress-rtz-a "$TMP/owned" "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" --set database.cluster.namespace=elsewhere \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/owned-elsewhere.yaml"
+h7 primary "$TMP/owned-primary.yaml" wordpress-rtz-a uid-wordpress-rtz-a
+h7 replica "$TMP/owned-replica.yaml" wordpress-rtz-b uid-wordpress-rtz-b
+h7 api-not-served "$TMP/owned-noapi.yaml" "" ""
+if [ "$(hooked "$TMP/owned-elsewhere.yaml" ServiceAccount | cut -d'|' -f2)" = elsewhere ]; then
+  h7 other-namespace "$TMP/owned-elsewhere.yaml" "" ""
+else
+  fail "H7 other-namespace: no hook ServiceAccount in the namespace elsewhere"
+fi
+# A shortened release name: no HelmRelease has it, so the one whose name
+# shortens to it is found in the list; a long name that does not is skipped.
+DECOY="${HRLONG}-other"
+owned_chart "$TMP/owned-short" '(dict)' "(dict \"items\" (list (dict \"metadata\" (dict \"name\" \"$DECOY\" \"uid\" \"uid-decoy\")) (dict \"metadata\" (dict \"name\" \"$HRLONG\" \"uid\" \"uid-long\"))))"
+helm template "$SHORT" "$TMP/owned-short" "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/owned-short.yaml"
+helm template wordpress-rtz-a "$TMP/owned-short" "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/owned-none.yaml"
+h7 shortened-release-name "$TMP/owned-short.yaml" "$HRLONG" uid-long
+h7 no-helmrelease "$TMP/owned-none.yaml" "" ""
+# The unchanged chart under helm template: its lookup answers nothing.
+helm template wordpress-rtz-a . "${COMMON[@]}" "${MULTI[@]}" "${HRAPI[@]}" \
+  --set openova.topology.self="$A" --set openova.topology.primary="$A" --set "openova.topology.peers={$B}" > "$TMP/hrapi.yaml"
+h7 helm-template "$TMP/hrapi.yaml" "" ""
+# Vacuity: the owned body must fail on a render that has no ownerReference.
+if [ -n "$(owner_fault "$TMP/hrapi.yaml" wordpress-rtz-a uid-wordpress-rtz-a)" ]; then
+  pass "H7 vacuity: the owned check fails on a render without ownerReferences"
+else
+  fail "H7 vacuity: the owned check passes on a render without ownerReferences"
+fi
 
 if [ "$fails" -gt 0 ]; then
   echo "seed-ca-cleanup-hook: $fails failure(s)"
