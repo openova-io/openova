@@ -1331,6 +1331,12 @@ func startForward(ctx context.Context, region kube.Region, namespace, service, p
 	found := make(chan string, 1)
 	go func() {
 		addr := ""
+		// kubectl writes "Handling connection for <port>" to stdout for every
+		// forwarded connection. The reader keeps reading to EOF after the
+		// address line, and drains whatever the scanner stops on (a line over
+		// its 64 KiB limit): a stdout nobody reads blocks exec's copy, so Wait
+		// would never return after kubectl ended and the forward would never
+		// start again.
 		sc := bufio.NewScanner(pr)
 		for sc.Scan() {
 			if m := forwardRE.FindStringSubmatch(sc.Text()); m != nil && addr == "" {
@@ -1338,6 +1344,7 @@ func startForward(ctx context.Context, region kube.Region, namespace, service, p
 				found <- addr
 			}
 		}
+		_, _ = io.Copy(io.Discard, pr)
 		if addr == "" {
 			found <- ""
 		}

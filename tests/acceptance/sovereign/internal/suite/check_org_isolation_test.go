@@ -775,6 +775,49 @@ func TestPortForwardStartsAgain(t *testing.T) {
 	}
 }
 
+// TestPortForwardStartsAgainAfterMoreOutput: kubectl prints a line on stdout
+// for every forwarded connection after its address line. The forward must read
+// them all (also a line longer than the scanner's limit), or kubectl's exit is
+// never seen and the forward never starts again.
+func TestPortForwardStartsAgainAfterMoreOutput(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	// The first kubectl prints its address, 2000 "Handling connection" lines
+	// (about 64 KiB, more than a pipe holds) and one 70 KiB line, then ends.
+	hostFile(t, dir, "forwards", 0o700, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"+
+		"echo 'Forwarding from 127.0.0.1:43123 -> 8443'\n"+
+		"if [ \"$(wc -l < "+calls+")\" -eq 1 ]; then\n"+
+		"  i=0; while [ $i -lt 2000 ]; do echo 'Handling connection for 43123 ...............'; i=$((i+1)); done\n"+
+		"  head -c 71680 /dev/zero | tr '\\0' x; echo\n"+
+		"  echo 'error: lost connection to pod' >&2; exit 1\n"+
+		"fi\n"+
+		"exec sleep 60\n"))
+	region := kube.Region{ID: "region-a", Kubeconfig: "k.yaml", Kubectl: filepath.Join(dir, "forwards")}
+	addr, stop, err := portForward(context.Background(), region, "iso-a-x", isoVClusterName, 443)
+	if err != nil || addr != "127.0.0.1:43123" {
+		t.Fatalf("want 127.0.0.1:43123, got %q, %v", addr, err)
+	}
+	defer func() {
+		stopped := make(chan struct{})
+		go func() { stop(); close(stopped) }()
+		select {
+		case <-stopped:
+		case <-time.After(5 * time.Second):
+			t.Error("stop did not return: the end of kubectl was never seen")
+		}
+	}()
+	var lines []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		b, _ := os.ReadFile(filepath.Clean(calls))
+		if lines = strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) >= 2 {
+			break
+		}
+	}
+	if len(lines) != 2 || !strings.HasSuffix(lines[1], " 43123:443") {
+		t.Fatalf("want the forward started again on 43123 after kubectl wrote more output and ended, got %q", lines)
+	}
+}
+
 // TestVCKubectlSendsARefusedCallAgain: a call that the port forward refused
 // is sent again with the same input once the forward listens; any other
 // error is returned at once, and a forward that keeps refusing ends the
