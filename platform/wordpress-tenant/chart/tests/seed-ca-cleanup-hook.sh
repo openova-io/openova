@@ -10,7 +10,8 @@
 # Cases:
 #   H1  primary: a post-delete hook (ServiceAccount, Role, RoleBinding, Job)
 #       in the namespace of the seed Certificate; the Role allows get and
-#       delete on exactly the Certificate's secretName; the RoleBinding binds
+#       delete on exactly the Certificate's secretName and get on exactly the
+#       release's own HelmRelease; the RoleBinding binds
 #       the Job's ServiceAccount; the Job deletes that Secret, exits 0 and
 #       sets an explicit CPU limit (50m) so plan-quota cannot refuse its Pod;
 #       the Job is bounded (activeDeadlineSeconds 300) and deleted on failure
@@ -21,6 +22,12 @@
 #       the revision where it is the primary again).
 #   H4  single-region: no hook (no seed renders).
 #   H5  the hook Job carries app.kubernetes.io/managed-by: flux.
+#   H6  the Job's script, RUN against a fake API server (a stub curl first on
+#       PATH): it reads the release's own HelmRelease and sends the DELETE
+#       only when that HelmRelease has a deletionTimestamp (Flux pruned it)
+#       or is gone (404 naming it); a HelmRelease that exists without one (a
+#       remediation uninstall of a failed install), a 404 that does not name
+#       it, a 403 and no answer delete nothing. Every case exits 0.
 #
 # Vacuity: H1's body against the single-region render must FAIL.
 #
@@ -72,7 +79,7 @@ hooked() {  # $1 render, $2 kind: the hook objects of that kind, as name|namespa
 }
 
 # H1 body: prints nothing when the render holds the complete hook, else why.
-hook_fault() {  # $1 render
+hook_fault() {  # $1 render, $2 its release name
   local r="$1" sa role rb job rules subj ref script limits
   sa="$(hooked "$r" ServiceAccount)"; role="$(hooked "$r" Role)"; rb="$(hooked "$r" RoleBinding)"; job="$(hooked "$r" Job)"
   for o in "ServiceAccount:$sa" "Role:$role" "RoleBinding:$rb" "Job:$job"; do
@@ -82,8 +89,8 @@ hook_fault() {  # $1 render
     esac
   done
   rules="$(yq ea 'select(.kind == "Role" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .rules | to_json' "$r" | tr -d ' \n')"
-  if [ "$rules" != "[{\"apiGroups\":[\"\"],\"resources\":[\"secrets\"],\"resourceNames\":[\"$SECRET\"],\"verbs\":[\"get\",\"delete\"]}]" ]; then
-    echo "the Role is not get and delete on exactly $SECRET: $rules"; return
+  if [ "$rules" != "[{\"apiGroups\":[\"\"],\"resources\":[\"secrets\"],\"resourceNames\":[\"$SECRET\"],\"verbs\":[\"get\",\"delete\"]},{\"apiGroups\":[\"helm.toolkit.fluxcd.io\"],\"resources\":[\"helmreleases\"],\"resourceNames\":[\"$2\"],\"verbs\":[\"get\"]}]" ]; then
+    echo "the Role is not get and delete on exactly $SECRET plus get on exactly the HelmRelease $2: $rules"; return
   fi
   subj="$(yq ea 'select(.kind == "RoleBinding" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .subjects[0].name' "$r")"
   ref="$(yq ea 'select(.kind == "RoleBinding" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup") | .roleRef.name' "$r")"
@@ -115,7 +122,7 @@ hook_fault() {  # $1 render
   fi
 }
 
-f="$(hook_fault "$TMP/primary.yaml")"
+f="$(hook_fault "$TMP/primary.yaml" wordpress-rtz-a)"
 if [ -z "$f" ]; then pass "H1 primary: the post-delete hook deletes $NS/$SECRET with a Role on that one name"; else fail "H1 primary: $f"; fi
 
 # H2
@@ -126,7 +133,7 @@ else
 fi
 
 # H3
-f="$(hook_fault "$TMP/replica.yaml")"
+f="$(hook_fault "$TMP/replica.yaml" wordpress-rtz-b)"
 hooks="$(hooked "$TMP/replica.yaml" Job | cut -d'|' -f3)"
 if [ -z "$f" ] && [ "$hooks" = "post-delete" ]; then
   pass "H3 replica: the same hook, post-delete only (nothing gates the demotion upgrade)"
@@ -142,7 +149,7 @@ done
 
 # H4 + vacuity
 if [ -z "$(hooked "$TMP/single.yaml" Job)" ]; then pass "H4 single-region: no hook"; else fail "H4 single-region renders the hook"; fi
-f="$(hook_fault "$TMP/single.yaml")"
+f="$(hook_fault "$TMP/single.yaml" wordpress)"
 if [ -n "$f" ]; then pass "H1 vacuity: the body fails on the single-region render ($f)"; else fail "H1 vacuity: the body passes on a render without the hook"; fi
 
 # H5
@@ -151,6 +158,87 @@ if [ "$(yq ea 'select(.kind == "Job" and .metadata.labels["catalyst.openova.io/c
 else
   fail "H5 the hook Job is not managed-by flux"
 fi
+
+# H6: the script's decision, run for real. The stub curl records each call as
+# "<method> <url>"; the HelmRelease read answers $FAKE_HR_CODE with
+# $FAKE_HR_BODY ("none" = no answer, curl exit 7); a DELETE answers 200.
+mkdir -p "$TMP/bin" "$TMP/run"
+cat > "$TMP/bin/curl" <<'EOF'
+#!/bin/sh
+out=/dev/null; method=GET; url=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -X) method="$2"; shift 2 ;;
+    -w|-H|--max-time|--retry|--retry-delay|--cacert) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+printf '%s %s\n' "$method" "$url" >> "$FAKE_API_LOG"
+if [ "$method" = DELETE ]; then printf '200'; exit 0; fi
+[ "$FAKE_HR_CODE" = none ] && exit 7
+printf '%s\n' "$FAKE_HR_BODY" > "$out"
+printf '%s' "$FAKE_HR_CODE"
+EOF
+chmod +x "$TMP/bin/curl"
+
+JOB='select(.kind == "Job" and .metadata.labels["catalyst.openova.io/component"] == "shared-secret-seed-cleanup")'
+DEL_URL="https://kubernetes.default.svc/api/v1/namespaces/$NS/secrets/$SECRET"
+# The API server pretty-prints for curl; these bodies are shaped the same way.
+META='{
+  "kind": "PartialObjectMetadata",
+  "apiVersion": "meta.k8s.io/v1",
+  "metadata": {
+    "name": "%s",
+    "namespace": "acme",%s
+    "finalizers": [
+      "finalizers.fluxcd.io"
+    ]
+  }
+}'
+STATUS='{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {},
+  "status": "Failure",
+  "message": "%s",
+  "reason": "%s",
+  "details": %s,
+  "code": %s
+}'
+
+decide() {  # $1 render, $2 release, $3 case, $4 code, $5 body, $6 want (delete|keep)
+  local log="$TMP/run/$3.log" script want got rc
+  local -a jobenv
+  script="$(yq ea "$JOB | .spec.template.spec.containers[0].command[2]" "$1")"
+  mapfile -t jobenv < <(yq ea "$JOB | .spec.template.spec.containers[0].env[] | .name + \"=\" + .value" "$1")
+  : > "$log"
+  if env -i "PATH=$TMP/bin:$PATH" "TMPDIR=$TMP/run" "FAKE_API_LOG=$log" "FAKE_HR_CODE=$4" "FAKE_HR_BODY=$5" \
+       "${jobenv[@]}" /bin/sh -c "$script" > "$TMP/run/$3.out" 2>&1; then rc=0; else rc=$?; fi
+  want="GET https://kubernetes.default.svc/apis/helm.toolkit.fluxcd.io/v2/namespaces/acme/helmreleases/$2"
+  [ "$6" = delete ] && want="$want
+DELETE $DEL_URL"
+  got="$(cat "$log")"
+  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
+    pass "H6 $3: $6 ($(tail -1 "$TMP/run/$3.out"))"
+  else
+    fail "H6 $3: want $6 and exit 0; exit $rc, calls: $(tr '\n' ';' < "$log") output: $(tr '\n' ' ' < "$TMP/run/$3.out")"
+  fi
+}
+
+P="$TMP/primary.yaml"
+decide "$P" wordpress-rtz-a removal-deleting 200 "$(printf "$META" wordpress-rtz-a '
+    "deletionTimestamp": "2026-11-24T10:00:00Z",')" delete
+decide "$TMP/replica.yaml" wordpress-rtz-b removal-deleting-replica 200 "$(printf "$META" wordpress-rtz-b '
+    "deletionTimestamp": "2026-11-24T10:00:00Z",')" delete
+decide "$P" wordpress-rtz-a removal-gone 404 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" not found' NotFound \
+  '{ "name": "wordpress-rtz-a", "group": "helm.toolkit.fluxcd.io", "kind": "helmreleases" }' 404)" delete
+decide "$P" wordpress-rtz-a remediation-live 200 "$(printf "$META" wordpress-rtz-a '')" keep
+decide "$P" wordpress-rtz-a api-not-served 404 "$(printf "$STATUS" 'the server could not find the requested resource' NotFound '{}' 404)" keep
+decide "$P" wordpress-rtz-a forbidden 403 "$(printf "$STATUS" 'helmreleases.helm.toolkit.fluxcd.io \"wordpress-rtz-a\" is forbidden' Forbidden \
+  '{ "name": "wordpress-rtz-a", "group": "helm.toolkit.fluxcd.io", "kind": "helmreleases" }' 403)" keep
+decide "$P" wordpress-rtz-a no-answer none "" keep
 
 if [ "$fails" -gt 0 ]; then
   echo "seed-ca-cleanup-hook: $fails failure(s)"
