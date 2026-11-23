@@ -895,7 +895,7 @@ runcmd:
     : >/var/lib/catalyst/github-ipv4-hosts
 %{ endif ~}
     r4() {
-     getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}' && return
+     a=$(getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}'); [ -n "$a" ] && { echo "$a"; return; }
      for s in 1.1.1.1 8.8.8.8; do
       a=$(nslookup -type=A "$1" "$s" 2>/dev/null | awk '/^Address: [0-9]/&&$2!~/#/{print $2; exit}')
       [ -n "$a" ] && { echo "$a"; return; }
@@ -1166,9 +1166,10 @@ runcmd:
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
   # rt() retries each network step 5x/10s; `helm upgrade --install` is
   # idempotent so a retry after a partial register actually recovers
-  # (`helm install` would die "cannot re-use a name"). set -e exits on any
-  # exhausted retry; a rollout-status failure writes the sentinel + exit 91
-  # so "no CNI" is its own loud fault, never a masqueraded Flux wedge.
+  # (`helm install` would die "cannot re-use a name"). An exhausted retry
+  # writes the sentinel + exit 91 so "no CNI" is its own loud fault, never
+  # a masqueraded Flux wedge. The set -e stays: runcmd is one script, and
+  # the items after this one rely on it (the SEC-040 `(exit $?)` below).
   #
   # #4752 — the cilium rollout-status wait MUST go through `rt` (the 5×/10s
   # retry helper), like every helm step above it. A single-shot
@@ -1178,15 +1179,21 @@ runcmd:
   # available", exit 91 fired, and cilium finished healthy seconds later —
   # too late. Wrapping in `rt` gives cilium up to 5×240s=20m (breaking early
   # the instant it's Ready) while still failing loud on a genuinely dead CNI.
+  #
+  # The helm installer is downloaded to a file and then run (#5042 did the
+  # same for k3s): piped `curl | bash` under sh reported bash's 0 when curl
+  # failed, so rt never retried and the boot died at `helm: not found`.
+  # Every exhausted step names itself, writes the sentinel and exits 91
+  # (scripts/tests/test-cloudinit-first-boot-fails-loudly.sh runs this).
   - |
     set -e
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    rt(){ for i in 1 2 3 4 5;do "$@"&&return;sleep 10;done;return 1;}
-    rt sh -c 'curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3|bash'
+    rt(){ for i in 1 2 3 4 5;do "$@"&&return;sleep 10;done;echo "[cilium] FATAL: failed 5x: $*" >&2;${fail_mark_cmd}cilium-bootstrap-FAILED||true;exit 91;}
+    rt sh -c 'curl -fsSL -o /var/lib/catalyst/get-helm-3 https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3&&bash /var/lib/catalyst/get-helm-3'
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
     rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
-    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { ${fail_mark_cmd}cilium-bootstrap-FAILED||true;exit 91;}
+    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s
   # #4503 root cause: on
   # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
   # helm.cilium.io / the chart pull used to be SILENT (cloud-init runcmd is

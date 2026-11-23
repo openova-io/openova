@@ -23,6 +23,10 @@ import (
 // reclaim) owns no resource.
 type deploymentScope struct {
 	prefix string // local.name_prefix of the deployment
+	// node is local.node_name_prefix, the prefix of the deployment's ECS
+	// names: the same identity with the FQDN part cut (nodeStem), because a
+	// node's name is its hostname. It equals prefix for a short FQDN.
+	node string
 	// rotated is the name prefix of the NAT addresses the pre-flight
 	// allocated outside the state before #8611
 	// (catalyst-<first 8 characters of the deployment id>-nat-preflight-<n>);
@@ -43,8 +47,38 @@ func newDeploymentScope(fqdn, deploymentID string) (deploymentScope, error) {
 	if fqdn == "" || len(dep) < 8 {
 		return deploymentScope{}, errNoDeploymentIdentity
 	}
-	return deploymentScope{prefix: "catalyst-" + strings.ReplaceAll(fqdn, ".", "-") + "-" + dep[:8],
+	stem := strings.ReplaceAll(fqdn, ".", "-")
+	return deploymentScope{prefix: "catalyst-" + stem + "-" + dep[:8],
+		node:    "catalyst-" + nodeStem(stem) + "-" + dep[:8],
 		rotated: "catalyst-" + dep[:8] + "-nat-preflight-"}, nil
+}
+
+// nodeNameStemLen is how many characters of the FQDN stem (the FQDN with
+// dashes for dots) an ECS node name carries: local.node_name_prefix in
+// infra/providers/huawei/main.tf cuts it there, because a node name is the
+// node's hostname, at most 63 characters. A stem of up to 20 characters is
+// whole, so those names are what they always were.
+const nodeNameStemLen = 20
+
+// nodeStem is the FQDN stem as an ECS node name carries it.
+func nodeStem(stem string) string {
+	if len(stem) > nodeNameStemLen {
+		return stem[:nodeNameStemLen]
+	}
+	return stem
+}
+
+// ownsServer reports whether an ECS name carries the deployment's identity:
+// the module's node-name prefix, or the full prefix that names every other
+// resource (a server created before the node names were cut).
+func (s deploymentScope) ownsServer(name string) bool {
+	if s.owns(name) {
+		return true
+	}
+	if s.node == "" || strings.Contains(strings.ToLower(name), "bastion") {
+		return false
+	}
+	return name == s.node || strings.HasPrefix(name, s.node+"-")
 }
 
 // owns reports whether a resource name carries the deployment's identity.

@@ -774,6 +774,106 @@ run "post_back_sends_parent_bootstrap_kubeconfig" {
   }
 }
 
+# A node's ECS name is its hostname, and first boot sends the primary
+# kubeconfig only on the node whose hostname equals PRIMARY_HOST. For the
+# longest FQDN the provisioner accepts (45 characters, the bucket rule; one
+# region, since two regions refuse it at the peering name) and the longest a
+# two-region install accepts (32 characters, the peering name) every node
+# name must be one DNS label of at most 63 characters, and the PRIMARY_HOST
+# of every region's render must be the name of region 0's cp1. Before the
+# fix the control-plane name was 43 + the FQDN length characters (88 and
+# 75), so no hostname could ever equal it and the primary stayed silent.
+run "node_names_are_hostnames_for_the_longest_fqdn" {
+  command = plan
+
+  variables {
+    sovereign_fqdn          = "a-sovereign-of-a-long-name-012345.omani.works"
+    obs_bucket_name         = "catalyst-a-sovereign-of-a-long-name-012345-omani-works-deadbeef"
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(var.sovereign_fqdn) == 45 && alltrue([for n in concat(huaweicloud_compute_instance.control_plane[*].name, [for w in huaweicloud_compute_instance.worker : w.name]) : can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", n))])
+    error_message = "Every node name must be a hostname of at most 63 characters; got ${join(", ", [for n in concat(huaweicloud_compute_instance.control_plane[*].name, [for w in huaweicloud_compute_instance.worker : w.name]) : "${n} (${length(n)})"])}."
+  }
+
+  assert {
+    condition     = huaweicloud_compute_instance.control_plane[0].name == "catalyst-a-sovereign-of-a-lon-deadbeef-me-east-215-a-cp1-${substr(sha256("deadbeefcafef00d-me-east-215-a-cp0-0"), 0, 6)}" && regex("PRIMARY_HOST='([^']*)'", local.cp_cloud_init_by_region["me-east-215-a"])[0] == huaweicloud_compute_instance.control_plane[0].name
+    error_message = "The PRIMARY_HOST of the render must be the name of the primary cp1, ${huaweicloud_compute_instance.control_plane[0].name}."
+  }
+}
+
+run "node_names_are_hostnames_for_the_longest_two_region_fqdn" {
+  command = plan
+
+  variables {
+    sovereign_fqdn          = "a-sovereign-of-a-lon.omani.works"
+    obs_bucket_name         = "catalyst-a-sovereign-of-a-lon-omani-works-deadbeef"
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(var.sovereign_fqdn) == 32 && alltrue([for n in concat(huaweicloud_compute_instance.control_plane[*].name, [for w in huaweicloud_compute_instance.worker : w.name]) : can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", n))])
+    error_message = "Every node name must be a hostname of at most 63 characters; got ${join(", ", [for n in concat(huaweicloud_compute_instance.control_plane[*].name, [for w in huaweicloud_compute_instance.worker : w.name]) : "${n} (${length(n)})"])}."
+  }
+
+  assert {
+    condition     = huaweicloud_compute_instance.control_plane[0].name == "catalyst-a-sovereign-of-a-lon-deadbeef-me-east-215-a-cp1-${substr(sha256("deadbeefcafef00d-me-east-215-a-cp0-0"), 0, 6)}" && alltrue([for code, ud in local.cp_cloud_init_by_region : regex("PRIMARY_HOST='([^']*)'", ud)[0] == huaweicloud_compute_instance.control_plane[0].name]) && length(local.cp_cloud_init_by_region) == 2
+    error_message = "The PRIMARY_HOST of both regions' renders must be the name of region 0's cp1, ${huaweicloud_compute_instance.control_plane[0].name}."
+  }
+}
+
+# A Sovereign FQDN of up to 20 characters keeps the node names it always had.
+run "node_names_unchanged_for_a_short_fqdn" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = huaweicloud_compute_instance.control_plane[0].name == "catalyst-t99-omani-works-deadbeef-${var.regions[0].code}-cp1-${substr(sha256("deadbeefcafef00d-${var.regions[0].code}-cp0-0"), 0, 6)}"
+    error_message = "A short FQDN must keep the node name catalyst-<fqdn>-<dep8>-<region>-cp1-<6 hex>; got ${huaweicloud_compute_instance.control_plane[0].name}."
+  }
+}
+
 # SOV-141 — the peer token. In a region that is not the primary, cloud-init
 # creates ServiceAccount kube-system/handover-peer with its cluster-admin
 # binding and token Secret, writes /var/lib/catalyst/handover-peer.kubeconfig

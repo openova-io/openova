@@ -1431,7 +1431,7 @@ func cascadeDeleteVPC(ctx context.Context, client *http.Client, hw hwCreds, regi
 		return err
 	}
 	for _, s := range servers {
-		if !scope.owns(s.Name) {
+		if !scope.ownsServer(s.Name) {
 			return fmt.Errorf("refused: VPC %s holds server %q, which does not carry the deployment's identity", vpcID, s.Name)
 		}
 	}
@@ -1604,7 +1604,8 @@ func vpcServers(client *http.Client, hw hwCreds, region, vpcID string) ([]vpcSer
 // failed tofu destroys leave ECSs stranded forever — the actual cause
 // of the s7n.large.4 HCS pool exhaustion that broke hw30 #4-#22.
 //
-// The match is the deployment's scope (deployment_scope.go); the former
+// The match is the deployment's scope (deployment_scope.go; a server name
+// is matched by ownsServer, the module's node-name prefix); the former
 // stem-only fallback for an empty deployment id matched every deployment
 // of the FQDN.
 func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, region string, scope deploymentScope) ([]hwECSServer, error) {
@@ -1632,7 +1633,7 @@ func listECSByNamePrefix(ctx context.Context, client *http.Client, hw hwCreds, r
 	}
 	out := []hwECSServer{}
 	for _, s := range decoded.Servers {
-		if scope.owns(s.Name) {
+		if scope.ownsServer(s.Name) {
 			out = append(out, hwECSServer{ID: s.ID, Name: s.Name, Status: s.Status, Flavor: s.Flavor.ID})
 		}
 	}
