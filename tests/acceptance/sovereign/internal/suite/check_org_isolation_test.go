@@ -820,8 +820,8 @@ func TestPortForwardStartsAgainAfterMoreOutput(t *testing.T) {
 
 // TestVCKubectlSendsARefusedCallAgain: a call that the port forward refused
 // is sent again with the same input once the forward listens; any other
-// error is returned at once, and a forward that keeps refusing ends the
-// retries.
+// error is returned at once, a refusal on the API path (it reached the
+// vCluster) too, and a forward that keeps refusing ends the retries.
 func TestVCKubectlSendsARefusedCallAgain(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -829,15 +829,21 @@ func TestVCKubectlSendsARefusedCallAgain(t *testing.T) {
 	}
 	defer func() { _ = ln.Close() }()
 	local := ln.Addr().String()
-	refused := fmt.Errorf("exit status 1: The connection to the server %s was refused - did you specify the right host or port?", local)
+	// Every real error carries the arguments, so the local address too
+	// (kube.Region.once).
+	prefix := fmt.Sprintf("[iso-a@a] kubectl --server https://%s --tls-server-name vcluster.iso-a-x exec -i p -- <redacted>: exit status 1: ", local)
+	refused := errors.New(prefix + "The connection to the server " + local + " was refused - did you specify the right host or port?")
+	dialRefused := errors.New(prefix + `Get "https://` + local + `/api?timeout=32s": dial tcp ` + local + ": connect: connection refused")
 	for name, tc := range map[string]struct {
 		answers []error
 		calls   int
 		err     string
 	}{
-		"refused once, then served": {[]error{refused, nil}, 2, ""},
-		"another error":             {[]error{errors.New("exit status 1: pods \"x\" not found")}, 1, "not found"},
-		"refused every time":        {[]error{refused, refused, refused, refused, refused}, isoForwardRetries + 1, "was refused"},
+		"refused once, then served":      {[]error{refused, nil}, 2, ""},
+		"dial refused once, then served": {[]error{dialRefused, nil}, 2, ""},
+		"another error":                  {[]error{errors.New(prefix + `pods "x" not found`)}, 1, "not found"},
+		"refused by the product":         {[]error{errors.New(prefix + "error dialing backend: dial tcp 10.42.0.7:10250: connect: connection refused"), nil}, 1, "10.42.0.7:10250"},
+		"refused every time":             {[]error{refused, refused, refused, refused, refused}, isoForwardRetries + 1, "was refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdins []string

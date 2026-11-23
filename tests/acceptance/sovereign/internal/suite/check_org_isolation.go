@@ -464,11 +464,17 @@ func (j *isoJourney) vcKubectl(v *isoVC) kubectlFunc {
 	}
 }
 
-// forwardRefused says whether err is kubectl's answer to a refused
-// connection to the local address of a port forward.
+// forwardRefused says whether err is kubectl's own answer to a refused
+// connection to the local address of a port forward. Only kubectl's
+// client-side messages for that address count: every error of a vCluster
+// call carries the address in its arguments (--server, kube.Region.once), and
+// a refusal on the API path while the forward is up ("error dialing backend:
+// dial tcp 10.42.x:10250: connect: connection refused", a webhook) reached the
+// vCluster and is returned at once.
 func forwardRefused(err error, local string) bool {
 	msg := err.Error()
-	return strings.Contains(msg, local) && strings.Contains(msg, "refused")
+	return strings.Contains(msg, "The connection to the server "+local+" was refused") ||
+		strings.Contains(msg, "dial tcp "+local+": connect: connection refused")
 }
 
 // waitListening waits until addr accepts a TCP connection, for at most
