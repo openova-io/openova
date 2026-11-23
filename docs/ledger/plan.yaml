@@ -14773,7 +14773,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-080, SEC-140, SEC-190]
-  after: [FND-011, SEC-090, SEC-154, SEC-180, SVC-040, SVC-041]
+  after: [FND-011, SEC-090, SEC-154, SEC-180, NET-133, SVC-040, SVC-041]
   touches:
   - platform/secrets-lib/chart/**
   - platform/secrets-lib/README.md
@@ -14782,6 +14782,8 @@ packages:
   - platform/external-secrets-stores/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
   - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - platform/openbao/chart/templates/peer-trust.yaml
+  - platform/openbao/chart/tests/peer-trust-render.sh
   resources: []
   flips: []
   implements: []
