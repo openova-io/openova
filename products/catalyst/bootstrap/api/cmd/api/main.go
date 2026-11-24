@@ -398,7 +398,7 @@ func main() {
 				k8sFactory,
 				newCompliancePolicyRollupPublisherFromEnv(log),
 			)
-			compliance.Start(ctx)
+			startCompliance(ctx, log, compliance, os.Getenv)
 			h.SetComplianceHandler(compliance)
 			log.Info("compliance: aggregator started")
 
