@@ -67,6 +67,13 @@ override_resource {
   }
 }
 
+override_resource {
+  target = random_password.keycloak_client_secret_salt
+  values = {
+    result = "SEC060saltSEC060saltSEC060saltSEC060saltSEC060sa"
+  }
+}
+
 # --- contract body ---
 # Contract version 1: the shared body of every module's tests/contract.tftest.hcl.
 # A module's file holds its own mock_provider and override blocks, then the

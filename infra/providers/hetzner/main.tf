@@ -155,6 +155,17 @@ resource "random_password" "k3s_agent_token" {
   special  = false
 }
 
+# SEC-060: one salt per Sovereign, not per region, because the regions share
+# the Keycloak realm. The bootstrap-kit slots 09 (bp-keycloak) and 13
+# (bp-catalyst-platform) append it to the seed of every derived Keycloak client
+# secret, so no secret can be computed from the release name and namespace
+# alone. It reaches them as the key KEYCLOAK_CLIENT_SECRET_SALT of the seed
+# Secret flux-system/bootstrap-seed. The value stays in the state.
+resource "random_password" "keycloak_client_secret_salt" {
+  length  = 48
+  special = false
+}
+
 resource "hcloud_network" "region" {
   for_each = toset(local.all_region_keys)
 
@@ -910,6 +921,9 @@ locals {
     # A-record targets the console front door (the #4179 final layer).
     console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
 
+    # SEC-060: the salt of the derived Keycloak client secrets.
+    keycloak_client_secret_salt = random_password.keycloak_client_secret_salt.result
+
     # sovereign_region_role feeds the SHARED SOVEREIGN_REGION_ROLE substitute
     # (bp-cnpg-pair split-side, slot 16b `cnpgPair.side`).
     # #5017 keystone — provider API CIDRs for the step-08 deny-egress
@@ -1509,6 +1523,9 @@ locals {
       # controller only runs in the primary region but the substitute must be
       # defined in both templatefile() calls.
       console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
+
+      # SEC-060: the salt of the derived Keycloak client secrets.
+      keycloak_client_secret_salt = random_password.keycloak_client_secret_salt.result
 
       # sovereign_region_role feeds the shared SOVEREIGN_REGION_ROLE
       # substitute (bp-cnpg-pair split-side).

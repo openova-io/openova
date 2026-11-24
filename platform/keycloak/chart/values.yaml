@@ -151,6 +151,11 @@ catalystAPIWorkloadPort: 8080
 # set it via per-Sovereign valuesFrom or SealedSecret-backed overlay.
 sso:
   tier1ClientSecretSalt: ""
+  # SEC-060: when true, an install of this release by Flux without a salt fails
+  # (templates/_helpers.tpl, bp-keycloak.clientSecretSalt); a render without a
+  # cluster does not. Bootstrap-kit slot 09 sets it true and takes the salt from
+  # the seed Secret of first boot; an upgrade without the salt is not refused.
+  requireSalt: false
 
 # sovereignRealm.enabled: when true, the configmap-sovereign-realm.yaml
 # template emits the realm import ConfigMap and keycloakConfigCli references it
@@ -968,6 +973,13 @@ gateway:
 # lives (flux-system for the slot 09 HR).
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —

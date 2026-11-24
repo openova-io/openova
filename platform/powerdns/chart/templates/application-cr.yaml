@@ -27,6 +27,10 @@ shareable Context, so spec.parameters is empty.
 {{- $live := lookup "apps.openova.io/v1" "Application" .Release.Namespace .Release.Name }}
 {{- $liveSpec := dict }}
 {{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
+{{- /* CTL-172: a field set (and not empty) in bootstrapOwned.intent, the
+     placement committed to Git that the slot passes in, wins over the live
+     value and over the seed. With intent unset the render is unchanged. */}}
+{{- $intent := .Values.bootstrapOwned.intent | default dict }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -43,7 +47,9 @@ spec:
        them for bootstrap-owned instances but still ACCEPTS them. Inert
        under both schemas. */}}
   environmentRef: platform-bootstrap
-  {{- if hasKey $liveSpec "regions" }}
+  {{- if $intent.regions }}
+  regions: {{ toJson $intent.regions }}
+  {{- else if hasKey $liveSpec "regions" }}
   regions: {{ toJson (get $liveSpec "regions") }}
   {{- else }}
   regions: ["platform-bootstrap-owned-host"]
@@ -60,7 +66,9 @@ spec:
        bootstrap app installed as one copy → singleton is the truthful effective
        mode; the value is overridable so a future slot can place it otherwise
        without re-introducing a banned literal. */}}
-  {{- if hasKey $liveSpec "placement" }}
+  {{- if $intent.placement }}
+  placement: {{ toJson $intent.placement }}
+  {{- else if hasKey $liveSpec "placement" }}
   placement: {{ toJson (get $liveSpec "placement") }}
   {{- else }}
   placement: {{ .Values.bootstrapOwned.placement | default "singleton" }}
