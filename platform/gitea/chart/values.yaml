@@ -668,3 +668,34 @@ gitDataMigration:
   # which fails the pre-upgrade gate and rollback-loops the whole gitea HR.
   # Identical proxy ref to sso-configure-deployment.yaml / database-secret-sync-job.yaml.
   image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+
+# ─── Scheduled Git bundles (decision record 0036, B1 Git row; FND-184) ────
+# templates/git-bundle-cronjob.yaml. An installation that names the
+# Sovereign's bucket gets one CronJob, in the writer region only (the
+# platformRepos.regionId and writerRegionId of slot 10): every repository's
+# default-branch head that has no bundle yet is written as
+# `git bundle create --all` to git/<owner>/<repository>/<head>.bundle of the
+# bucket, and the `keep` newest bundles of each repository stay. With a
+# bucket, objectStore.endpoint and objectStore.secretName may not be empty: a
+# half-wired installation fails its render.
+gitBundle:
+  # Five fields: every 15 minutes.
+  schedule: "*/15 * * * *"
+  # The newest bundles kept per repository.
+  keep: 10
+  # The image of the Gitea Deployment (gitea.image and the subchart's app
+  # version): it carries git, curl and a shell. Pulled through the Harbor
+  # proxy cache, like every image of this chart.
+  image: "harbor.openova.io/proxy-dockerhub/gitea/gitea:1.22.3-rootless"
+  # Upper bound of the scratch volume that holds one repository's clone and
+  # bundle at a time.
+  scratchSizeLimit: 2Gi
+  objectStore:
+    # The name of the Sovereign's bucket.
+    bucket: ""
+    # The bucket's S3 endpoint, a URL; addressed path-style.
+    endpoint: ""
+    # A Secret in this namespace with the keys s3-access-key, s3-secret-key
+    # and s3-region: a copy of the Sovereign's object-storage Secret. The
+    # chart renders no Secret; this one is register entry git-bundle-bucket.
+    secretName: object-storage
