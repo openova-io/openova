@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T03:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-24T03:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-24T02:59 | [#8718](https://github.com/openova-io/openova/pull/8718) | #7087 | docs(ledger): plan update |
+| 2026-11-24T03:14 | [#8717](https://github.com/openova-io/openova/pull/8717) | #8702 | The registry warm-up does not try to copy the image of an un |
 | 2026-11-24T02:50 | [#8715](https://github.com/openova-io/openova/pull/8715) | #7087 | docs(ledger): plan update |
 | 2026-11-24T02:40 | [#8712](https://github.com/openova-io/openova/pull/8712) | #7087 | docs(ledger): plan update |
 | 2026-11-24T02:27 | [#8709](https://github.com/openova-io/openova/pull/8709) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-23T20:43 | [#8663](https://github.com/openova-io/openova/pull/8663) | #7087 | docs(ledger): plan update |
 | 2026-11-23T20:53 | [#8661](https://github.com/openova-io/openova/pull/8661) | #8599 | fix(gate): a dial Pod is dialed again until its network work |
 | 2026-11-23T20:54 | [#8660](https://github.com/openova-io/openova/pull/8660) | #8599 | fix(gate): NET-G07 starts a port forward that ended again an |
-| 2026-11-23T20:54 | [#8659](https://github.com/openova-io/openova/pull/8659) | #8635 | fix(wordpress-tenant): removing an Application removes its m |
 
 ---
 
