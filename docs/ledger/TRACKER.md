@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T00:30:08Z` |
+| Last refreshed | `2026-11-24T00:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,10 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T00:37 | [#8698](https://github.com/openova-io/openova/pull/8698) | #7087 | docs(ledger): plan update |
+| 2026-11-24T00:34 | [#8697](https://github.com/openova-io/openova/pull/8697) | #8690 | docs(ledger): result of the spike FND-201, what the telemetr |
 | 2026-11-24T00:21 | [#8693](https://github.com/openova-io/openova/pull/8693) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:48 | [#8689](https://github.com/openova-io/openova/pull/8689) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:26 | [#8687](https://github.com/openova-io/openova/pull/8687) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:47 | [#8686](https://github.com/openova-io/openova/pull/8686) | #8684 | refactor(console): remove the second vulnerability matcher f |
+| 2026-11-24T00:32 | [#8685](https://github.com/openova-io/openova/pull/8685) | FND-G12: a deleting policy removes an Application's seed CA  |  |
 | 2026-11-23T23:13 | [#8683](https://github.com/openova-io/openova/pull/8683) | #7087 | docs(ledger): plan update |
 | 2026-11-23T22:03 | [#8676](https://github.com/openova-io/openova/pull/8676) | #8658 | NET-G19: dnsdist answers public queries (explicit access lis |
 | 2026-11-23T21:35 | [#8675](https://github.com/openova-io/openova/pull/8675) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-23T06:28 | [#8647](https://github.com/openova-io/openova/pull/8647) | #8634 | feat(openbao): mounts mounted and transit, templated policie |
 | 2026-11-22T20:04 | [#8645](https://github.com/openova-io/openova/pull/8645) | #7087 | docs(ledger): plan update |
 | 2026-11-23T04:05 | [#8644](https://github.com/openova-io/openova/pull/8644) | #8580 | fix(ci): the encrypted-path test's control case proves the d |
-| 2026-11-23T05:29 | [#8643](https://github.com/openova-io/openova/pull/8643) | #5429 | fix(applications): a customer can upgrade, remove and read t |
-| 2026-11-23T05:45 | [#8642](https://github.com/openova-io/openova/pull/8642) | fix(charts): the function tests of the messaging service, th |  |
-| 2026-11-23T04:03 | [#8641](https://github.com/openova-io/openova/pull/8641) | #6004 | fix(platform): a failed read is never taken as 'nothing ther |
 
 ---
 
