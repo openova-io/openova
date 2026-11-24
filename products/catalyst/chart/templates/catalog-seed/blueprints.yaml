@@ -1832,7 +1832,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.60
+  version: 1.0.61
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1867,7 +1867,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.60
+    version: 1.0.61
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
