@@ -310,6 +310,16 @@ giteaWait:
 # bp-keycloak 1.4.33 uses (so the value byte-matches what the in-vCluster
 # realm import baked into Keycloak — no cross-cluster read); the master
 # password is read from the host-mirrored bitnami secret via lookup.
+# SEC-060: the salt of the client secrets the host bridge derives. It must equal
+# bp-keycloak's sso.tier1ClientSecretSalt (slot 09), or the derived secrets
+# differ from the ones Keycloak holds; bootstrap-kit slots 09 and 13 both read
+# key KEYCLOAK_CLIENT_SECRET_SALT of Secret flux-system/bootstrap-seed. Empty =
+# no salt (a Sovereign installed before SEC-060). requireSalt: an install of
+# this release by Flux without a salt fails; slot 13 sets it true.
+sso:
+  tier1ClientSecretSalt: ""
+  requireSalt: false
+
 keycloakHostBridge:
   # Master gate. When false the bridge renders nothing — set false on
   # Catalyst-Zero (contabo, keycloak-zero host-side) or any topology where

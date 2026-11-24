@@ -2151,12 +2151,13 @@ checks:
 - id: SEC-G06
   title: Security check SEC-G06
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_differ.go
   delivered_by: SEC-060
 - id: SEC-G07
   title: Security check SEC-G07

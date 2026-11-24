@@ -151,6 +151,11 @@ catalystAPIWorkloadPort: 8080
 # set it via per-Sovereign valuesFrom or SealedSecret-backed overlay.
 sso:
   tier1ClientSecretSalt: ""
+  # SEC-060: when true, an install of this release by Flux without a salt fails
+  # (templates/_helpers.tpl, bp-keycloak.clientSecretSalt); a render without a
+  # cluster does not. Bootstrap-kit slot 09 sets it true and takes the salt from
+  # the seed Secret of first boot; an upgrade without the salt is not refused.
+  requireSalt: false
 
 # sovereignRealm.enabled: when true, the configmap-sovereign-realm.yaml
 # template emits the realm import ConfigMap and keycloakConfigCli references it

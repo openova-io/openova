@@ -343,6 +343,10 @@ spec:
         name: bp-keycloak
         namespace: flux-system
     sovereignFQDN: ${SOVEREIGN_FQDN}
+    # SEC-060: an install without the salt of valuesFrom below fails; an
+    # upgrade of a release installed before the salt existed does not.
+    sso:
+      requireSalt: true
     # parentZones (#3374 #3988): the Sovereign's parent-domain pool, the SAME
     # ${PARENT_DOMAINS_YAML} substitute powerdns (slot 11) / external-dns
     # (slot 12) / sovereign-tls-vars (slot 12a) already consume. The sovereign
@@ -418,3 +422,18 @@ spec:
         database: keycloak
         existingSecret: keycloak-database-secret
         existingSecretPasswordKey: password
+  # SEC-060: the salt of the derived Keycloak client secrets. First boot writes
+  # one random salt per Sovereign into the seed Secret flux-system/bootstrap-seed
+  # (key KEYCLOAK_CLIENT_SECRET_SALT, infra/providers/_shared/cloudinit-control-plane.tftpl);
+  # slots 09 (bp-keycloak) and 13 (bp-catalyst-platform, its Keycloak
+  # credentials host bridge) read the same key, so both derive the same
+  # secrets. Optional: the seed of a Sovereign installed before SEC-060 has no
+  # such key, and that Sovereign keeps the unsalted secrets Keycloak holds
+  # (sso.requireSalt refuses only an install without the salt). The salt is in
+  # a Secret object, never in values or a postBuild substitute.
+  valuesFrom:
+    - kind: Secret
+      name: bootstrap-seed
+      valuesKey: KEYCLOAK_CLIENT_SECRET_SALT
+      targetPath: sso.tier1ClientSecretSalt
+      optional: true

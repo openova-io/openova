@@ -109,6 +109,7 @@ fixture_common() {
     powerdns_api_key                  = "pdnsTESTapikey0001"
     pdm_basic_auth_user               = "pdm-user"
     pdm_basic_auth_pass               = "pdmTESTpass0001"
+    keycloak_client_secret_salt       = "keycloakTESTsalt0001"
     kubeconfig_bearer_token           = "kubeconfigTESTbearer0001"
     catalyst_api_url                  = "https://console.openova.io/sovereign"
     enable_unattended_upgrades        = true
