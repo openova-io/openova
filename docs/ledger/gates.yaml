@@ -1445,12 +1445,13 @@ checks:
 - id: FND-G20
   title: 'Console regression: applications and catalogue'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the applications grid, the application detail page and the catalogue passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/applications
   delivered_by: FND-162
 - id: FND-G21
   title: 'Console regression: jobs, resources, cloud pages'
