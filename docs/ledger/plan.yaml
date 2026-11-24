@@ -17204,8 +17204,8 @@ packages:
   wave: W1a
   size: S
   lane: CONTROL
-  depends_on: [NET-172]
-  after: []
+  depends_on: []
+  after: [NET-172]
   touches:
   - core/services/provisioning/gitops/gitops.go
   - core/services/provisioning/gitops/rbac_test.go
@@ -25695,6 +25695,90 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Decision record 0027 states the recovery point and recovery time per data class when one region of two is lost, gives the follower region's Git server its own database fed by a push mirror, makes the promotion of a surviving region to writer one Git commit fenced by the lease-witness Worker outside both regions, decides the bucket dr-leases, lock stage topology, the per-Application DNS record and the mesh loop of the API, carries one Unfreezes line for each of four topology entries with a table of what each permits, and is listed in the index in number order.
+- id: CTL-801
+  title: 'Git copy: each region''s Git server has its own database, and the writer push-mirrors to every follower'
+  area: CTL
+  epic: null
+  type: fix
+  wave: W2
+  size: M
+  lane: SUBSTRATE
+  depends_on: [CTL-800, FND-120]
+  after: [FND-011, FND-182, FND-184, CLD-023, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-160, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-152, SEC-153, SEC-154, SEC-162, NET-020, NET-031, NET-071, NET-110, NET-185, SVC-040, SVC-041, SVC-080, SVC-130, SVC-136, SVC-220, CTL-020, CTL-041, CTL-172, CTL-340, CTL-345, CTL-347, CTL-350, CTL-420, BSS-040, AIP-111, AIP-201, INF-040, INF-060]
+  touches:
+  - clusters/_template/bootstrap-kit/10-gitea.yaml
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  - platform/gitea/chart/values.yaml
+  - platform/gitea/chart/templates/**
+  - platform/gitea/chart/tests/**
+  - core/controllers/pkg/gitea/client.go
+  - core/controllers/pkg/gitea/client_test.go
+  - clusters/_template/sovereign-region/multi-region-follower/kustomization.yaml
+  - clusters/_template/sovereign-region/multi-region-follower/git-sync-cronjob.yaml
+  - clusters/_template/sovereign-region/multi-region-follower/git-sync-script.yaml
+  - clusters/_template/sovereign-region/multi-region/**
+  - scripts/baselines/polling.json
+  - docs/ledger/deleted-paths.txt
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Decision record 0027 R2: each region''s Git server has its own database cluster gitea-pg in its own region, so the follower keeps its Git database when the writer region is lost; the writer''s Git server push-mirrors every repository to each follower with sync on commit (the repository first created on the follower, then the mirror; every creation of a repository does both, and a one-time backfill does both for the existing ones); the writer region reaches each follower''s Git server through a stub Service and its egress; the one-minute pull job of the follower and its polling entry are deleted.'
+- id: CTL-802
+  title: 'Promotion: a writer lease on the witness and a one-commit writer value'
+  area: CTL
+  epic: null
+  type: fix
+  wave: W2
+  size: M
+  lane: CONTROL
+  depends_on: [CTL-800, CTL-801, FND-120, NET-200]
+  after: [FND-011, FND-182, CLD-023, CLD-030, CLD-113, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-146, SOV-149, SOV-151, SOV-154, SOV-342, SEC-060, SEC-153, SEC-154, SVC-040, SVC-041, SVC-130, SVC-138, SVC-220, CTL-041, CTL-300, AIP-201, INF-060]
+  touches:
+  - core/controllers/continuum/internal/writerlease/**
+  - core/controllers/continuum/internal/transition/**
+  - core/controllers/continuum/cmd/main.go
+  - products/continuum/chart/values.yaml
+  - products/continuum/chart/templates/**
+  - core/controllers/application/internal/controller/continuum.go
+  - core/controllers/application/internal/controller/platform_region_files.go
+  - core/controllers/application/internal/controller/dns_items.go
+  - core/controllers/application/internal/controller/dns_items_test.go
+  - core/controllers/application/deploy/rbac.yaml
+  - clusters/_template/bootstrap-kit/11-powerdns.yaml
+  - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+  - clusters/_template/bootstrap-kit/16a-bp-postgres-shared.yaml
+  - clusters/_template/sovereign-region/multi-region-follower/kustomization.yaml
+  - clusters/_template/sovereign-region/multi-region-follower/gitea-writer-stub.yaml
+  - clusters/_template/root/**
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  - infra/providers/huawei/provider-substitutes.yaml.tftpl
+  - platform/nats-jetstream/chart/templates/kv-buckets.yaml
+  - platform/nats-jetstream/chart/values.yaml
+  - tests/acceptance/sovereign/internal/suite/journeys.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Decision record 0027 R3 to R5 and R7 to R9: the writer is fenced by a lease on the lease-witness Worker held by the Continuum controller, and promotion of a surviving region is one commit of the writer value in the fleet repository, made by the survivor''s Continuum or by the sovereign-admin; every group then moves as desired state, shared-pg included; the bucket dr-leases is deleted; the Application controller no longer deletes or writes Continuums; per-Application DNS follows the Primary; journey step J3.5 follows it. The loss of the writer region no longer leaves every group Blocked.'
 - id: CTL-810
   title: Delete the legacy promoter and failback templates
   area: CTL
@@ -25703,8 +25787,8 @@ packages:
   wave: W2
   size: S
   lane: CHARTS
-  depends_on: [CTL-800]
-  after: [FND-011, FND-096, FND-171, FND-183, SEC-162, NET-071, SVC-040, SVC-041, SVC-060, CTL-020, CTL-172, CTL-340, CTL-345, CTL-347, CTL-350, CTL-420, BSS-040, AIP-111, INF-040]
+  depends_on: [CTL-800, CTL-802]
+  after: [FND-011, FND-183, NET-071, SVC-040, SVC-041, CTL-020, CTL-172, CTL-340, CTL-345, CTL-347, CTL-350, CTL-420, BSS-040, AIP-111, INF-040]
   touches:
   - platform/cnpg-pair/chart/templates/dr-promoter.yaml
   - platform/cnpg-pair/chart/templates/dr-failback.yaml
@@ -26062,7 +26146,7 @@ packages:
   - .github/workflows/tree-guards.yaml
   - docs/ledger/gates.yaml
   resources: []
-  flips: [CMP-G01, CMP-G02]
+  flips: [CMP-G01]
   implements: []
   proven_by: null
   precondition:
@@ -26089,6 +26173,32 @@ packages:
   ticket_rev: 3
   dropped: false
   delivers: The compliance routes of catalyst-api show for each policy the mode its engine object carries, answer the policy routes from the informer cache, carry no fixture application names, no fixed baseline list and no category block, filter violations by policy on the server, a guard keeps the direct cluster reads of the compliance code from growing, and the gate check CMP-G01 is required.
+- id: CMP-021
+  title: CMP-G02 becomes required once the pinned catalyst-api carries CMP-020
+  area: CMP
+  epic: null
+  type: test
+  wave: W2
+  size: XS
+  lane: CONTROL
+  depends_on: [CMP-020]
+  after: []
+  touches:
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [CMP-G02]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'One line: CMP-G02 from expected-fail to required. Check CMP-G02 (the shown mode is the engine''s mode) is required and passes in the local pack with the pinned catalyst-api image, which carries CMP-020.'
 - id: CMP-022
   title: The console stops claiming what does not exist
   area: CMP
