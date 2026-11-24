@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-068, CMP-063, CMP-064, CMP-065, CMP-066, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-068, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -11223,7 +11223,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-310, SOV-330]
-  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-211, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
+  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-205, SEC-211, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
   touches:
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
   - clusters/_template/bootstrap-secrets/kustomization.yaml
@@ -14934,24 +14934,31 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-201, SEC-200]
-  after: [NET-081, NET-170, AIP-040, AIP-041]
+  after: []
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
-  - core/controllers/organization/internal/gitops/*_test.go
+  - core/controllers/organization/internal/gitops/eso_stores_test.go
+  - core/controllers/organization/internal/controller/organization_controller_test.go
   resources: []
   flips: []
   implements: []
   proven_by: PRD-209
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F eso-reader core/controllers/organization/internal/gitops/manifests.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd core/controllers && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^TestESOStores_' ./organization/internal/gitops/)\" && test \"$(grep -c -E '^--- PASS: TestESOStores_(ExactObjects|RenderedHostSideForEveryPlan|NoLegacyOrClusterStore|MergedIntoAnExistingIndex) ' <<<\"$out\")\" = 4"
+  - id: A2
+    run: "cd core/controllers && go vet ./organization/... && go test -count=1 ./organization/... > /dev/null && test \"$(grep -c -F 'gs.createFiles != 30' organization/internal/controller/organization_controller_test.go)\" = 2 && test -z \"$(gofmt -l organization/internal/gitops/manifests.go organization/internal/gitops/eso_stores_test.go organization/internal/controller/organization_controller_test.go)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Service account eso-reader and the two namespaced stores in every Organization's host-applied tree.
+  delivers: Every Organization's host-applied tree and its region-baseline copy hold service account eso-reader and the one namespaced store openbao (mount secret, role eso-ns), listed in both host-apps indexes; no store for mount mounted/ and never the cluster-wide store.
 - id: SEC-207
   title: Fence the legacy cluster-wide store
   area: SEC
@@ -23219,7 +23226,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-120]
-  after: [NET-081, NET-170, AIP-041]
+  after: [SEC-205, NET-081, NET-170, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/per_org_flux.go
   - core/controllers/organization/internal/gitops/manifests.go
@@ -23870,7 +23877,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-180, CTL-201]
-  after: [CLD-114, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_dns.go
@@ -23898,7 +23905,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-202]
-  after: [CLD-114, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_keycloak.go
@@ -23926,7 +23933,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-203, SEC-095]
-  after: [CLD-114, NET-081, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-081, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - core/controllers/organization/internal/gitops/manifests.go
@@ -26792,7 +26799,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-041, CMP-S5, FND-038]
-  after: [FND-011, NET-081, NET-170, SVC-040, SVC-041, AIP-041]
+  after: [FND-011, SEC-205, NET-081, NET-170, SVC-040, SVC-041, AIP-041]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/testdata/**
@@ -28377,7 +28384,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-070, BSS-S1]
-  after: [FND-059, CLD-080, NET-081, NET-170, CTL-044, CTL-045, BSS-050, BSS-141, AIP-041]
+  after: [FND-059, CLD-080, SEC-205, NET-081, NET-170, CTL-044, CTL-045, BSS-050, BSS-141, AIP-041]
   touches:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
@@ -28446,7 +28453,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [BSS-107]
-  after: [FND-011, CLD-114, NET-032, NET-081, NET-170, SVC-040, CTL-420, BSS-141, AIP-041]
+  after: [FND-011, CLD-114, SEC-205, NET-032, NET-081, NET-170, SVC-040, CTL-420, BSS-141, AIP-041]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/controller/organization_controller.go
@@ -30951,7 +30958,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [AIP-140]
-  after: [NET-081, NET-170, AIP-041]
+  after: [SEC-205, NET-081, NET-170, AIP-041]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/manifests_test.go
@@ -30978,7 +30985,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [AIP-120, AIP-202]
-  after: [NET-081, NET-150]
+  after: [SEC-205, NET-081, NET-150]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/manifests_test.go
@@ -31006,7 +31013,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-140, CTL-207, SVC-170]
-  after: [CLD-030, SOV-183, NET-081, NET-170, CTL-040, AIP-041]
+  after: [CLD-030, SOV-183, SEC-205, NET-081, NET-170, CTL-040, AIP-041]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_funnel_apps.go
   - core/services/provisioning/gitops/gitops.go
@@ -31247,7 +31254,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-170, NET-170]
-  after: [NET-081, NET-150]
+  after: [SEC-205, NET-081, NET-150]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - tests/acceptance/sovereign/policy-dials.yaml
