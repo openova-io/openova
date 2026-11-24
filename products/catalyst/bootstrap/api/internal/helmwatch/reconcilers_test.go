@@ -450,30 +450,6 @@ func makeScanJob(name, label string, fin time.Time) *unstructured.Unstructured {
 	return u
 }
 
-// makeSyftJob constructs a syft-grype SBOM-scan Job (issue #3919). variant
-// drives the syft detection path exercised: "owner" (a CronJob ownerReference
-// to the syft-grype CronJob — authoritative), "label" (the bp-syft-grype
-// blueprint label, namespace-scoped), or "namespace-only" (a bare Job that
-// only resides in the syft-grype namespace — the belt-and-braces fallback).
-func makeSyftJob(name, variant string, fin time.Time) *unstructured.Unstructured {
-	owner := ""
-	if variant == "owner" {
-		owner = syftGrypeCronName
-	}
-	u := makeBatchJob(syftGrypeNamespace, name, owner, "Complete", metav1.ConditionTrue, fin)
-	meta := u.Object["metadata"].(map[string]any)
-	switch variant {
-	case "label":
-		meta["labels"] = map[string]any{
-			"catalyst.openova.io/blueprint": "bp-syft-grype",
-			"app.kubernetes.io/instance":    "syft-grype",
-		}
-	case "namespace-only":
-		// no labels, no owner — relies solely on the syft-grype namespace
-	}
-	return u
-}
-
 // setJobFailed flips a batch Job's terminal condition from "Complete" to
 // "Failed" in place (status.conditions[0].type), so jobRunStatus reports it
 // as a failed run. Used to model a scan run that errored.
@@ -489,12 +465,14 @@ func setJobFailed(u *unstructured.Unstructured) {
 
 // TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow pins
 // the #3925 model (jobs-convergence-monitor-model.md §4 Surface B): Day-2
-// security-scanner Jobs (trivy-operator AND syft-grype) are NOT excluded and
-// are NOT one-row-per-run — each scanner COLLAPSES to exactly ONE
-// identity-keyed task row carrying its run-history (all runs as Executions),
-// so a 600-run flood is one row + 600 runs. This supersedes the earlier #3919
-// "exclude entirely" disposition: a recurring scan is a finite job that
-// recurs, so it belongs in the Jobs view as one row, never dropped.
+// security-scanner Jobs (trivy-operator, the one matcher — ADR-0031 I13) are
+// NOT excluded and are NOT one-row-per-run — the scanner COLLAPSES to exactly
+// ONE identity-keyed task row carrying its run-history (all runs as
+// Executions), so a 600-run flood is one row + 600 runs. This supersedes the
+// earlier #3919 "exclude entirely" disposition: a recurring scan is a finite
+// job that recurs, so it belongs in the Jobs view as one row, never dropped.
+// A recurring CronJob needs no scanner rule: its runs fold onto its own
+// cron-<name> leaf.
 func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *testing.T) {
 	t0 := time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)
 	objs := []runtime.Object{}
@@ -519,23 +497,14 @@ func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *test
 		objs = append(objs, makeScanJob("scan-vulnerabilityreport-"+itoaTest(i), label, t0.Add(time.Duration(i)*time.Minute)))
 	}
 
-	// A fleet of syft-grype SBOM Jobs across all three syft detection paths,
-	// PLUS the syft-grype CronJob itself (which seeds the identity row but
-	// must NOT mint its own cron-syft-grype leaf).
-	syftFleet := 30
-	for i := 0; i < syftFleet; i++ {
-		var variant string
-		switch i % 3 {
-		case 0:
-			variant = "owner"
-		case 1:
-			variant = "label"
-		default:
-			variant = "namespace-only"
-		}
-		objs = append(objs, makeSyftJob("syft-grype-2900"+itoaTest(i), variant, t0.Add(time.Duration(i)*time.Minute)))
+	// A recurring CronJob with 30 spawned runs: they fold onto its ONE
+	// cron-<name> leaf as Executions, never a task row per run.
+	cronFleet := 30
+	for i := 0; i < cronFleet; i++ {
+		objs = append(objs, makeBatchJob("openbao", "openbao-snapshot-save-2900"+itoaTest(i), "openbao-snapshot-save",
+			"Complete", metav1.ConditionTrue, t0.Add(time.Duration(i)*time.Minute)))
 	}
-	objs = append(objs, makeCronJob(syftGrypeNamespace, syftGrypeCronName))
+	objs = append(objs, makeCronJob("openbao", "openbao-snapshot-save"))
 
 	// A handful of REAL reconciler Jobs that must each still surface — incl. a
 	// fixed-name Job whose name starts "scan-" but lives in a TENANT namespace
@@ -553,8 +522,8 @@ func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *test
 	}
 
 	// Count task + cron leaves. After collapse the task leaves are: the 4 real
-	// reconcilers + exactly the 2 scanner identity rows. ZERO cron leaf for
-	// syft (its CronJob folds onto the syft identity task row instead).
+	// reconcilers + exactly the 1 scanner identity row; the cron leaves are
+	// exactly the 1 CronJob.
 	taskLeaves := []string{}
 	cronLeaves := []string{}
 	for i := range obs {
@@ -566,38 +535,35 @@ func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *test
 		}
 	}
 
-	// Exactly the 4 real reconciler Jobs + 2 collapsed scanner rows survive.
+	// Exactly the 4 real reconciler Jobs + 1 collapsed scanner row survive.
 	wantTasks := map[string]bool{
 		"cnpg-pair-primary-join": true,
 		"openbao-init":           true, // run-suffix stripped from -29000111
 		"gitea-sso-configure":    true,
 		"scan-invoices-nightly":  true, // tenant "scan-*" Job is a REAL task
 		trivyScanIdentity:        true, // collapsed trivy row
-		syftScanIdentity:         true, // collapsed syft row
 	}
 	if len(taskLeaves) != len(wantTasks) {
-		t.Fatalf("scanners NOT collapsed to one identity row: got %d task leaves %v, want exactly %d (4 real + 2 scanner). (pre-collapse ≈ %d trivy per-run rows)",
+		t.Fatalf("scanner NOT collapsed to one identity row: got %d task leaves %v, want exactly %d (4 real + 1 scanner). (pre-collapse ≈ %d trivy per-run rows)",
 			len(taskLeaves), taskLeaves, len(wantTasks), trivyFleet)
 	}
 	for _, name := range taskLeaves {
 		if !wantTasks[name] {
-			t.Errorf("unexpected task leaf %q — only the 4 real reconcilers + 2 collapsed scanner rows should exist", name)
+			t.Errorf("unexpected task leaf %q — only the 4 real reconcilers + 1 collapsed scanner row should exist", name)
 		}
+	}
+	if len(cronLeaves) != 1 || cronLeaves[0] != "openbao-snapshot-save" {
+		t.Errorf("cron leaves = %v, want exactly [openbao-snapshot-save]", cronLeaves)
 	}
 
-	// ZERO per-run scanner leaf leaked — no scan-vulnerabilityreport-* row, no
-	// syft-grype-<n> row, no legacy security-scans summary row, no cron leaf.
-	for _, name := range cronLeaves {
-		if name == syftGrypeCronName {
-			t.Errorf("the syft-grype scanner CronJob leaked a cron-%s leaf — it must collapse onto the %s row", name, syftScanIdentity)
-		}
-	}
+	// ZERO per-run leaf leaked — no scan-vulnerabilityreport-* row, no
+	// openbao-snapshot-save-<n> row, no legacy security-scans summary row.
 	for i := range obs {
 		n := obs[i].Name
 		if strings.HasPrefix(n, "scan-vulnerabilityreport-") ||
-			strings.HasPrefix(n, "syft-grype-") ||
+			strings.HasPrefix(n, "openbao-snapshot-save-") ||
 			n == "security-scans" {
-			t.Errorf("a per-run scanner leaf leaked into the flow: kind=%q name=%q — scanner runs must fold onto the identity row as Executions", obs[i].Kind, n)
+			t.Errorf("a per-run leaf leaked into the flow: kind=%q name=%q — runs must fold onto their leaf as Executions", obs[i].Kind, n)
 		}
 	}
 
@@ -614,13 +580,18 @@ func TestListReconcilerObservations_Day2ScannersCollapseToOneIdentityRow(t *test
 		t.Errorf("collapsed trivy row headline should be Succeeded (all runs complete); got %q", trivy.Status)
 	}
 
-	// The collapsed syft row carries all 30 spawned runs as run-history.
-	syft := findTask(obs, syftScanIdentity)
-	if syft == nil {
-		t.Fatalf("expected one collapsed %q task row; got none", syftScanIdentity)
+	// The cron leaf carries all 30 spawned runs as run-history.
+	var cron *ReconcilerObservation
+	for i := range obs {
+		if obs[i].Kind == ReconcilerKindCron && obs[i].Name == "openbao-snapshot-save" {
+			cron = &obs[i]
+		}
 	}
-	if len(syft.Executions) != syftFleet {
-		t.Errorf("collapsed syft row should carry %d runs (run-history); got %d Executions", syftFleet, len(syft.Executions))
+	if cron == nil {
+		t.Fatal("expected one openbao-snapshot-save cron leaf; got none")
+	}
+	if len(cron.Executions) != cronFleet {
+		t.Errorf("cron leaf should carry %d runs (run-history); got %d Executions", cronFleet, len(cron.Executions))
 	}
 
 	// The genuine reconciler Jobs each survived with the right status (no
@@ -645,8 +616,8 @@ func TestListReconcilerObservations_ScannerStickyHeadlineNoFlap(t *testing.T) {
 	// List order is deliberately NON-chronological: the older Succeeded run is
 	// listed AFTER the newer Failed run, so a naive last-wins would wrongly
 	// report Succeeded. Recency resolution must pick the newer Failed.
-	older := makeScanJob("scan-vulnerabilityreport-old", "managed-by", t0)                       // succeeded, older
-	newer := makeScanJob("scan-vulnerabilityreport-new", "managed-by", t0.Add(10*time.Minute))   // failed, newer
+	older := makeScanJob("scan-vulnerabilityreport-old", "managed-by", t0)                     // succeeded, older
+	newer := makeScanJob("scan-vulnerabilityreport-new", "managed-by", t0.Add(10*time.Minute)) // failed, newer
 	// flip the newer run to a failed condition.
 	setJobFailed(newer)
 

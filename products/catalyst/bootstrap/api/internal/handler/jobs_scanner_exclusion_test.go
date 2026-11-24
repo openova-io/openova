@@ -7,20 +7,24 @@
 //	  → jobs.Bridge.SeedReconcilerObservations (project into jobs.Store)
 //	  → Handler.flowSnapshotFromJobs      (build the flow-diagram DAG)
 //
-// and asserts that a 100s-strong trivy-operator + syft-grype scan flood
-// collapses to EXACTLY TWO identity-keyed LEAVES in jobs.Store (one per
-// scanner) — never a per-run row, never excluded — and therefore exactly two
-// scanner NODES (no per-run nodes) in the DAG, while every genuine reconciler
-// Job survives as its own node. The flow diagram is derived strictly from the
-// leaves in jobs.Store, so collapsing scanners at ingestion is what keeps the
-// graph to one node per scanner — this test pins that the collapse holds all
-// the way through the graph builder, not just at the observation layer.
+// and asserts that a 100s-strong trivy-operator scan flood collapses to
+// EXACTLY ONE identity-keyed LEAF in jobs.Store — never a per-run row, never
+// excluded — and therefore exactly one scanner NODE (no per-run nodes) in the
+// DAG, while every genuine reconciler Job survives as its own node and a
+// CronJob's runs fold onto that CronJob's own cron leaf. Trivy is the one
+// matcher the platform runs (ADR-0031 I13), so it is the one scanner that
+// collapses. The flow diagram is derived strictly from the leaves in
+// jobs.Store, so collapsing the scanner at ingestion is what keeps the graph
+// to one node for it — this test pins that the collapse holds all the way
+// through the graph builder, not just at the observation layer.
 package handler
 
 import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 )
@@ -107,9 +112,10 @@ func mkCron(namespace, name string) *unstructured.Unstructured {
 	return u
 }
 
-// TestFlowDiagram_CollapsesDay2Scanners is the DAG-level guard: a scan flood
-// collapses to EXACTLY ONE node per scanner identity (no per-run nodes), while
-// real reconciler Jobs each become their own node.
+// TestFlowDiagram_CollapsesDay2Scanners is the DAG-level guard: a trivy scan
+// flood collapses to EXACTLY ONE node (no per-run nodes), a CronJob's runs
+// fold onto its own cron node, and real reconciler Jobs each become their own
+// node.
 func TestFlowDiagram_CollapsesDay2Scanners(t *testing.T) {
 	const depID = "dep-scan-collapse"
 	st, err := jobs.NewStore(t.TempDir())
@@ -120,7 +126,7 @@ func TestFlowDiagram_CollapsesDay2Scanners(t *testing.T) {
 
 	objs := []runtime.Object{}
 
-	// --- the scanner flood (must collapse to ONE node per scanner) ---
+	// --- the scanner flood (must collapse to ONE node) ---
 	// trivy-operator scan Jobs across all three detection paths.
 	const trivyRuns = 120
 	for i := 0; i < trivyRuns; i++ {
@@ -135,15 +141,13 @@ func TestFlowDiagram_CollapsesDay2Scanners(t *testing.T) {
 		}
 		objs = append(objs, mkJob("trivy-system", "scan-vulnerabilityreport-"+strconv.Itoa(i), "", labels))
 	}
-	// syft-grype: the CronJob + its spawned Jobs (owner ref) + a label-only
-	// Job + a bare namespace-only Job — all fold onto the one syft identity.
-	objs = append(objs, mkCron("syft-grype", "syft-grype"))
-	for i := 0; i < 12; i++ {
-		objs = append(objs, mkJob("syft-grype", "syft-grype-run-"+strconv.Itoa(i), "syft-grype", nil))
+
+	// --- a recurring CronJob: its runs fold onto ITS cron leaf, no scanner rule ---
+	const cronRuns = 12
+	objs = append(objs, mkCron("openbao", "openbao-snapshot-save"))
+	for i := 0; i < cronRuns; i++ {
+		objs = append(objs, mkJob("openbao", "openbao-snapshot-save-2900"+strconv.Itoa(i), "openbao-snapshot-save", nil))
 	}
-	objs = append(objs, mkJob("syft-grype", "syft-grype-orphan", "",
-		map[string]string{"catalyst.openova.io/blueprint": "bp-syft-grype"}))
-	objs = append(objs, mkJob("syft-grype", "stray-job-no-labels", "", nil))
 
 	// --- the real convergence set (must each become a DAG node) ---
 	objs = append(objs,
@@ -168,39 +172,45 @@ func TestFlowDiagram_CollapsesDay2Scanners(t *testing.T) {
 		t.Fatal("flowSnapshotFromJobs returned no snapshot")
 	}
 
-	// EXACTLY ONE collapsed node per scanner identity — and ZERO per-run nodes.
+	// EXACTLY ONE collapsed trivy node, ONE cron node — and ZERO per-run nodes.
 	trivyNodeID := depID + ":" + jobs.TaskJobPrefix + "trivy-security-scan"
-	syftNodeID := depID + ":" + jobs.TaskJobPrefix + "syft-sbom"
-	trivyNodes, syftNodes, perRunNodes := 0, 0, 0
+	cronNodeID := depID + ":" + jobs.CronJobPrefix + "openbao-snapshot-save"
+	trivyNodes, cronNodes, perRunNodes := 0, 0, 0
 	for _, n := range msg.Nodes {
 		switch n.ID {
 		case trivyNodeID:
 			trivyNodes++
-		case syftNodeID:
-			syftNodes++
+		case cronNodeID:
+			cronNodes++
 		default:
 			if perRunLooksLikeScanner(n.ID) || perRunLooksLikeScanner(n.Label) {
 				perRunNodes++
-				t.Errorf("a per-run scanner node leaked into the DAG: id=%q label=%q — runs must fold onto the identity node", n.ID, n.Label)
+				t.Errorf("a per-run node leaked into the DAG: id=%q label=%q — runs must fold onto their leaf", n.ID, n.Label)
 			}
 		}
 	}
 	if trivyNodes != 1 {
 		t.Errorf("expected exactly 1 collapsed trivy node (%s); got %d (flood was %d runs)", trivyNodeID, trivyNodes, trivyRuns)
 	}
-	if syftNodes != 1 {
-		t.Errorf("expected exactly 1 collapsed syft node (%s); got %d", syftNodeID, syftNodes)
+	if cronNodes != 1 {
+		t.Errorf("expected exactly 1 cron node (%s); got %d", cronNodeID, cronNodes)
 	}
 	if perRunNodes != 0 {
-		t.Errorf("%d per-run scanner nodes leaked — scanners must collapse to one node each", perRunNodes)
+		t.Errorf("%d per-run nodes leaked — runs must fold onto one node each", perRunNodes)
 	}
 
-	// The collapsed scanner leaves each carry their run-history (run-count =
-	// Executions) in jobs.Store, proving the runs are NOT lost.
+	// The collapsed scanner leaf and the cron leaf each carry their
+	// run-history (run-count = Executions) in jobs.Store, proving the runs
+	// are NOT lost.
 	if _, execs, gerr := st.GetJob(depID, jobs.TaskJobPrefix+"trivy-security-scan"); gerr != nil {
 		t.Errorf("collapsed trivy leaf missing from store: %v", gerr)
 	} else if len(execs) != trivyRuns {
 		t.Errorf("collapsed trivy leaf should carry %d runs as run-history; got %d Executions", trivyRuns, len(execs))
+	}
+	if _, execs, gerr := st.GetJob(depID, jobs.CronJobPrefix+"openbao-snapshot-save"); gerr != nil {
+		t.Errorf("cron leaf missing from store: %v", gerr)
+	} else if len(execs) != cronRuns {
+		t.Errorf("cron leaf should carry %d runs as run-history; got %d Executions", cronRuns, len(execs))
 	}
 
 	// The 3 real reconciler Jobs each ARE nodes (as Reconcilers-group task leaves).
@@ -224,14 +234,36 @@ func TestFlowDiagram_CollapsesDay2Scanners(t *testing.T) {
 }
 
 // perRunLooksLikeScanner reports whether a node id/label references a PER-RUN
-// scanner artifact (an individual trivy scan-* Job, a syft-grype-run-* Job, or
-// the retired "security-scans" summary). The COLLAPSED identity nodes
-// (trivy-security-scan / syft-sbom) are expected and are NOT flagged here.
+// artifact (an individual trivy scan-* Job, a single openbao-snapshot-save-<n>
+// run, or the retired "security-scans" summary). The collapsed identity node
+// (trivy-security-scan) and the cron node are expected and are NOT flagged.
 func perRunLooksLikeScanner(s string) bool {
 	l := strings.ToLower(s)
 	return strings.Contains(l, "scan-vulnerabilityreport") ||
-		strings.Contains(l, "syft-grype-run") ||
-		strings.Contains(l, "syft-grype-orphan") ||
-		strings.Contains(l, "stray-job-no-labels") ||
+		strings.Contains(l, "openbao-snapshot-save-2900") ||
 		strings.Contains(l, "security-scans")
+}
+
+// UAT row 176, the control half. trivy-security-scan aggregates one scan Job
+// per workload and has no single object to re-run, so a retry on it must
+// answer 422 with the actionable code. A real scan Job is seeded so the
+// lookup has something to find: its presence must not make the aggregate row
+// retryable.
+func TestRetryJob_Task_TrivyIdentity_Stays422_Row176(t *testing.T) {
+	scan := mkJob("trivy-system", "scan-vulnerabilityreport-1", "",
+		map[string]string{"app.kubernetes.io/managed-by": "trivy-operator"})
+	r, _, depID := installRetryHarness(t, "owner@t99.omani.works",
+		"task-trivy-security-scan", jobs.StatusFailed, scan)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "task-trivy-security-scan",
+		&auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("trivy aggregate must stay 422 (nothing to re-run), got %d; body=%s",
+			rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not-directly-retryable") {
+		t.Fatalf("422 body must keep the actionable code: %s", rec.Body.String())
+	}
 }
