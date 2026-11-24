@@ -295,7 +295,7 @@ epics:
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
-  packages: [CMP-073, CMP-071, CMP-072, CMP-076, CMP-074]
+  packages: [CMP-073, CMP-071, CMP-075, CMP-072, CMP-076, CMP-074]
 - id: CMP-080
   title: 'Epic: decisions (waivers and remediation requests)'
   wave: W2
@@ -5291,12 +5291,15 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-203]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011, FND-017, FND-062, FND-063, FND-088, SVC-040, SVC-041, CTL-044, CTL-320, AIP-111, AIP-113]
   touches:
   - platform/mimir/chart/templates/**
   - platform/mimir/chart/values.yaml
   - platform/mimir/chart/tests/**
   - tests/acceptance/sovereign/internal/suite/fixture_alert*.go
+  - core/services/alert-relay/**
+  - .github/workflows/services-build.yaml
+  - docs/contracts/C3-event-subjects.yaml
   resources: []
   flips: []
   implements: []
@@ -5319,12 +5322,14 @@ packages:
   wave: W1c
   size: M
   lane: GATE
-  depends_on: [FND-204, FND-034]
+  depends_on: [FND-204, FND-034, FND-120]
   after: []
   touches:
   - tests/acceptance/sovereign/internal/suite/check_observability*.go
   - clusters/_template/sovereign-region/observability/**
   - docs/ledger/gates.yaml
+  - clusters/_template/sovereign-region/base/kustomization.yaml
+  - clusters/_template/sovereign-region/base/observability-kustomization.yaml
   resources: []
   flips: [FND-G19]
   implements: []
@@ -15849,7 +15854,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-058, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -15881,7 +15886,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-073]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-058, CMP-073]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -25828,8 +25833,9 @@ packages:
   - platform/nats-jetstream/chart/templates/kv-buckets.yaml
   - platform/nats-jetstream/chart/values.yaml
   - tests/acceptance/sovereign/internal/suite/journeys.go
+  - docs/ledger/gates.yaml
   resources: []
-  flips: []
+  flips: [CTL-G10]
   implements: []
   proven_by: null
   precondition: null
@@ -25975,7 +25981,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_ctl_region_loss_test.go
   - docs/ledger/gates.yaml
   resources: []
-  flips: [CTL-G10]
+  flips: []
   implements: []
   proven_by: null
   precondition:
@@ -26595,25 +26601,35 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-012, CMP-014, CMP-020]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno/chart/Chart.yaml
   - platform/kyverno/chart/values.yaml
   - .github/workflows/policy-chart-tests.yaml
+  - platform/kyverno-policies/chart/tests/replication-ca-seed-orphan/kyverno-test.yaml
+  - platform/kyverno-policies/chart/tests/replication-ca-seed-orphan/context.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'appVersion: \"v1.18.0\"' platform/kyverno/chart/Chart.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "c=platform/kyverno/chart && w=.github/workflows/policy-chart-tests.yaml && test \"$(grep -c -x 'appVersion: \"v1.19.2\"' \"$c/Chart.yaml\")\" = 1 && test \"$(grep -c -x '    version: \"3.9.2\"' \"$c/Chart.yaml\")\" = 1 && test \"$(grep -c -x '    version: \"3.9.2\"' \"$c/values.yaml\")\" = 1 && test \"$(grep -c -E '^ +tag: ' \"$c/values.yaml\")\" = 7 && test \"$(grep -c -E '^ +tag: \"?v1\\.19\\.2\"?$' \"$c/values.yaml\")\" = 7 && test \"$(grep -c -x '  KYVERNO_VERSION: v1.19.2' \"$w\")\" = 1 && test \"$(grep -c -x '  KYVERNO_SHA256: 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a' \"$w\")\" = 1 && test \"$(awk -F'\"' '/^appVersion:/ {print $2}' \"$c/Chart.yaml\")\" = \"$(awk '/^  KYVERNO_VERSION:/ {print $2}' \"$w\")\""
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && mkdir \"$d/c\" && cp -R platform/kyverno/chart/Chart.yaml platform/kyverno/chart/values.yaml platform/kyverno/chart/.helmignore platform/kyverno/chart/templates \"$d/c/\" && (cd \"$d/c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$d/c/charts\")\" = \"kyverno-3.9.2.tgz\" && test \"$(helm show chart \"$d/c/charts/kyverno-3.9.2.tgz\" | grep -c -x 'appVersion: v1.19.2')\" = 1 && helm lint \"$d/c\" > /dev/null && helm template bp-kyverno \"$d/c\" > \"$d/render.yaml\" && test \"$(grep -o -E 'image: *\"?[^\" ]+' \"$d/render.yaml\" | sed -E 's/image: *\"?//' | grep -F /kyverno/ | LC_ALL=C sort -u | tr '\\n' ' ')\" = 'harbor.openova.io/proxy-ghcr/kyverno/background-controller:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/cleanup-controller:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/kyverno-cli:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/kyverno:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/kyvernopre:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/readiness-checker:v1.19.2 harbor.openova.io/proxy-ghcr/kyverno/reports-controller:v1.19.2 '"
+  - id: A3
+    run: "t=platform/kyverno-policies/chart/tests/replication-ca-seed-orphan && test \"$(grep -c -x 'kind: ClusterResource' \"$t/context.yaml\")\" = 1 && test \"$(grep -c -E '^context:' \"$t/kyverno-test.yaml\")\" = 0 && test \"$(awk '/^clusterResources:/ {s=1; next} s && /^  - / {print $2; next} {s=0}' \"$t/kyverno-test.yaml\" | tr '\\n' ' ')\" = 'cluster-resources.yaml context.yaml ' && test \"$(grep -c -E '^ +- org-c/(gamma-db-app|legacy-db-replication-ca-seed)$' \"$t/kyverno-test.yaml\")\" = 0 && test \"$(grep -c -E '^  name: (gamma-db-app|legacy-db-replication-ca-seed)$' \"$t/resources.yaml\")\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Engine and tool on the newest 1.19 patch release named in the ticket
+  delivers: The engine chart installs Kyverno v1.19.2 from the upstream chart 3.9.2 with every engine image pulled through the registry proxy at that tag, and the policy chart tests run with the command-line tool v1.19.2.
 - id: CMP-061
   title: Engine values, informer kinds and mode adapter for the current policy kinds
   area: CMP
@@ -26852,7 +26868,7 @@ packages:
   dropped: false
   delivers: Engine on 1.20 after CMP-G06 is green twice; second report group read only if the ticket says the chart defaults to it
 - id: CMP-071
-  title: 'Policy files in every region''s folder: scopes, the alignment function, the empty document'
+  title: 'Policy files in every region''s folder: scopes, the write functions, the empty document'
   area: CMP
   epic: CMP-070
   type: refactor
@@ -26860,13 +26876,12 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-030, CMP-036, CTL-035, CTL-045, CTL-110]
-  after: [SOV-180, SOV-181, NET-071, SVC-040, CTL-038, CTL-039, CTL-112, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CTL-700, CMP-032, AIP-120, AIP-227]
+  after: [SVC-040, CTL-112, CTL-700]
   touches:
   - core/controllers/pkg/gitwrite/**
   - docs/contracts/C4-git-layout-and-commit-library.md
   - products/catalyst/bootstrap/api/internal/compliance/policyfiles.go
   - products/catalyst/bootstrap/api/internal/compliance/policyfiles_test.go
-  - products/catalyst/bootstrap/api/cmd/api/**
   resources: []
   flips: []
   implements: []
@@ -26880,7 +26895,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: FleetPolicy and FleetEvidence scopes; Regions, WriteAll, Serialize and EnsurePolicyFiles; empty values document in every region
+  delivers: FleetPolicy and FleetEvidence scopes; Regions, WriteAll, Serialize and the empty values document (EmptyValuesDocument)
 - id: CMP-072
   title: Mode change from the screen
   area: CMP
@@ -26889,7 +26904,7 @@ packages:
   wave: W2
   size: M
   lane: CONTROL
-  depends_on: [CMP-036, CMP-041, CMP-052, CMP-071, CMP-S6, CTL-045, CTL-160]
+  depends_on: [CMP-036, CMP-041, CMP-052, CMP-S6, CTL-045, CTL-160, CMP-075]
   after: [FND-011, SOV-190, SVC-040, SVC-180, SVC-230, CTL-231, CTL-320, CTL-345, CMP-022, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
@@ -26988,6 +27003,38 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Intent lock stage policy set to deny; write verbs on this area's kinds removed from the API role
+- id: CMP-075
+  title: 'Policy files in every region''s folder: the alignment function at start-up, the local pack''s document kept'
+  area: CMP
+  epic: CMP-070
+  type: refactor
+  wave: W1b
+  size: S
+  lane: CONTROL
+  depends_on: [CMP-071]
+  after: [CLD-086, SVC-040, CTL-320, CTL-700, CMP-032, AIP-120]
+  touches:
+  - products/catalyst/bootstrap/api/internal/compliance/policyfiles.go
+  - products/catalyst/bootstrap/api/internal/compliance/policyfiles_test.go
+  - docs/contracts/C4-git-layout-and-commit-library.md
+  - products/catalyst/bootstrap/api/cmd/api/main.go
+  - products/catalyst/bootstrap/api/cmd/api/policyfiles_wire.go
+  - products/catalyst/bootstrap/api/cmd/api/policyfiles_wire_test.go
+  - clusters/_template/providers/local/kit/policy-values.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: EnsurePolicyFiles, run once at catalyst-api start-up beside the compliance aggregator; empty values document in every region; the local pack's document compliance-policy-values is changed in the same package so that the alignment does not replace the NodePort ban at Enforce and FND-G05 stays green.
 - id: CMP-076
   title: Delete the parent's enforce patch
   area: CMP
@@ -27028,7 +27075,7 @@ packages:
   wave: W1b
   size: M
   lane: CONTROL
-  depends_on: [CMP-016, CMP-045, CMP-071, CTL-160]
+  depends_on: [CMP-016, CMP-045, CTL-160, CMP-075]
   after: [FND-011, SVC-040, SVC-041, CTL-231, CTL-345, BSS-040, AIP-120, AIP-227]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
@@ -27514,7 +27561,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-123, CMP-131]
-  after: [SVC-040]
+  after: [SVC-040, CMP-058]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/oscal.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/oscal/*.json

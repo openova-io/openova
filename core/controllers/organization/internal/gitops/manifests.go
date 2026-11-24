@@ -1874,6 +1874,56 @@ subjects:
     namespace: org-services
 `
 
+// esoStoresDoc is the host-apps-tree filename of the Organization namespace's
+// External Secrets reader (SEC-205). It holds the same two objects the library
+// chart secrets-lib renders for a platform namespace
+// (platform/secrets-lib/chart/templates/_secret-stores.tpl):
+//
+//   - ServiceAccount eso-reader, with no token mount. OpenBao role eso-ns binds
+//     it in every namespace (platform/openbao/chart/templates/_config.tpl).
+//   - SecretStore openbao: mount secret/, logged in as eso-reader through role
+//     eso-ns, whose policy admits only keys under openova/apps/<namespace>/.
+//
+// There is no store for mount mounted/: a tier B value is written only by a
+// birth Job, never by External Secrets (SEC-140 step 2). An Organization
+// namespace never gets the cluster-wide store (ADR-0018 S10). The file is in
+// the host-apps tree because both objects belong in the host `<slug>`
+// namespace, where External Secrets runs; inside the vCluster there is none.
+const esoStoresDoc = "eso-stores.yaml"
+
+const esoStoresTemplate = `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-reader
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/component: eso-reader
+automountServiceAccountToken: false
+---
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: openbao
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+spec:
+  provider:
+    vault:
+      server: "http://openbao.openbao.svc.cluster.local:8200"
+      path: secret
+      version: v2
+      auth:
+        kubernetes:
+          mountPath: kubernetes
+          role: eso-ns
+          serviceAccountRef:
+            name: eso-reader
+`
+
 // appsNamespaceTemplate creates the vcluster-INTERNAL target namespace for the
 // vcluster tier (#4991). The apps Flux Kustomization applies via kubeConfig into
 // the Org vcluster with targetNamespace=<slug>; Flux does NOT auto-create the
@@ -1954,8 +2004,9 @@ type renderView struct {
 	// apps Kustomization needs the target ns created INSIDE the vcluster).
 	AppsResources []string
 	// HostAppsResources is the file list vcluster/host-apps/kustomization.yaml
-	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
-	// both always applied host-side onto `<slug>`.
+	// references (#4991) — ciliumnetworkpolicy.yaml, provisioning-rbac.yaml,
+	// org-fence.yaml, org-fence-api.yaml and eso-stores.yaml, all applied
+	// host-side onto `<slug>`.
 	HostAppsResources []string
 	// ResourceQuotaName / LimitRangeName carry BoundaryResourceQuotaName /
 	// BoundaryLimitRangeName into the boundary templates so the rendered object
@@ -2054,6 +2105,9 @@ func ceilDiv(n, d int64, unit string) string {
 //     CiliumNetworkPolicy cannot be applied into the CRD-less vcluster apiserver.
 //   - host-apps/org-fence.yaml + host-apps/org-fence-api.yaml are the
 //     Organization fence (NET-170, see orgFenceTemplate), in the same tree.
+//   - host-apps/eso-stores.yaml is the namespace's External Secrets reader:
+//     ServiceAccount eso-reader and SecretStore openbao (SEC-205, see
+//     esoStoresTemplate), in the same tree.
 func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoName == "" {
 		in.VClusterHelmRepoName = "loft"
@@ -2234,6 +2288,8 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// NET-170 — the Organization fence (see orgFenceTemplate).
 	files["vcluster/host-apps/"+orgFenceDoc] = orgFenceTemplate
 	files["vcluster/host-apps/"+orgFenceAPIDoc] = orgFenceAPITemplate
+	// SEC-205 — the namespace's External Secrets reader (see esoStoresTemplate).
+	files["vcluster/host-apps/"+esoStoresDoc] = esoStoresTemplate
 	// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
 	// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
 	// vcluster (nothing else does → `namespaces "<slug>" not found`).
@@ -2252,8 +2308,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 	// Explicit host-apps/kustomization.yaml so the per-Org host-apps Flux
 	// Kustomization's `kustomize build ./vcluster/host-apps` enumerates the CNP
-	// + provisioning RBAC deterministically.
-	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc, orgFenceDoc, orgFenceAPIDoc})
+	// + provisioning RBAC + the fence + the External Secrets reader
+	// deterministically.
+	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc, orgFenceDoc, orgFenceAPIDoc, esoStoresDoc})
 	files["vcluster/host-apps/kustomization.yaml"] = hostAppsKustomizationTemplate
 	// ADR-0015 D1 (Refs #7067) — the controller-owned baseline copies the
 	// non-home regions reconcile instead of the funnel-shared trees, and the
