@@ -1480,12 +1480,13 @@ checks:
 - id: FND-G23
   title: 'Console regression: compliance, hand-over, storefront'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the compliance, sovereignty and hand-over pages and of the storefront pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/assurance
   delivered_by: FND-165
 - id: INF-G01
   title: Coordinated reboot
