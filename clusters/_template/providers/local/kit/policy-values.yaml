@@ -16,11 +16,23 @@
 #
 # A policy that a later chart version adds with the default Enforce enforces on the pack
 # too, until it is listed here.
+#
+# The same ConfigMap has a writer after first boot: catalyst-api aligns the policy folder of
+# every region of the fleet repository at start-up (compliance.EnsurePolicyFiles), and the
+# region's Kustomization sovereign-region applies platform/policy/policy-values.yaml. Both
+# documents are rendered once (ssa IfNotPresent: Flux creates the ConfigMap when it is absent
+# and never applies it to one that exists). This one is applied first, at boot, so the
+# alignment's empty document never replaces it, and the NodePort ban stays at Enforce. A
+# document that a policy route writes later replaces it, and this file does not write it
+# back. The test TestPolicyFilesLocalKitAgrees in
+# products/catalyst/bootstrap/api/internal/compliance/policyfiles_test.go holds both.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: compliance-policy-values
   namespace: flux-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
 data:
   values.yaml: |
     compliancePolicies:

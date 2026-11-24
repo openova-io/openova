@@ -8,15 +8,17 @@ package compliance
 //
 // Each region's sovereign-region Kustomization applies its own folder. This
 // file is the one writer of that folder: Regions lists the regions,
-// WriteAll writes one file into all of them in one commit, and Serialize
-// gives the bytes of an object. None of them writes a Flux object or a
-// kustomization.yaml, and none writes outside platform/policy/.
+// WriteAll writes one file into all of them in one commit, Serialize gives
+// the bytes of an object, and EnsurePolicyFiles brings the regions back to
+// the same files. None of them writes a Flux object or a kustomization.yaml,
+// and none writes outside platform/policy/.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -46,6 +48,12 @@ const (
 	// HelmRelease that reads the document when the document changes.
 	WatchLabel   = "reconcile.fluxcd.io/watch"
 	WatchEnabled = "Enabled"
+	// ApplyAnnotation with ApplyIfNotPresent makes Flux create the object
+	// when the cluster has none and never apply it to one that exists.
+	ApplyAnnotation   = "kustomize.toolkit.fluxcd.io/ssa"
+	ApplyIfNotPresent = "IfNotPresent"
+	// AlignSummary is the commit summary of EnsurePolicyFiles.
+	AlignSummary = "Align policy files across regions"
 )
 
 // FleetRepo is the fleet repository of contract C4, section 2.1.
@@ -64,6 +72,12 @@ func PolicyScope(sovereignFQDN string, regionIDs []string) gitwrite.Scope {
 // policyDir is the policy folder of one region, relative to that region's
 // folder, with a trailing slash.
 const policyDir = "platform/" + PolicyModule + "/"
+
+// regionPolicyDir is the policy folder of one region in the fleet
+// repository, with a trailing slash.
+func regionPolicyDir(sovereignFQDN, region string) string {
+	return "clusters/" + sovereignFQDN + "/regions/" + region + "/" + policyDir
+}
 
 // Regions returns the region IDs of a Sovereign: the folders directly under
 // clusters/<fqdn>/regions/ of the fleet repository, sorted by name. A
@@ -134,8 +148,17 @@ func WriteAll(ctx context.Context, w gitwrite.Writer, sovereignFQDN, rel string,
 // label app.kubernetes.io/managed-by=flux, the annotation
 // catalyst.openova.io/change-id=changeID and the annotation
 // kustomize.toolkit.fluxcd.io/substitute=disabled, serialised as every
-// intent file is (intent.Serialize). obj is not changed.
+// intent file is (intent.Serialize). It removes ApplyAnnotation, so the
+// file it gives always replaces the object in the cluster, also when obj
+// was read from the empty document that EnsurePolicyFiles writes. obj is
+// not changed.
 func Serialize(obj *unstructured.Unstructured, changeID string) ([]byte, error) {
+	return serialize(obj, changeID, false)
+}
+
+// serialize is Serialize; seed sets ApplyAnnotation to ApplyIfNotPresent
+// instead of removing it.
+func serialize(obj *unstructured.Unstructured, changeID string, seed bool) ([]byte, error) {
 	if obj == nil {
 		return nil, fmt.Errorf("%w: no object to serialise", gitwrite.ErrInvalid)
 	}
@@ -155,6 +178,10 @@ func Serialize(obj *unstructured.Unstructured, changeID string) ([]byte, error) 
 	}
 	ann[intent.ChangeIDAnnotation] = changeID
 	ann[SubstituteAnnotation] = SubstituteDisabled
+	delete(ann, ApplyAnnotation)
+	if seed {
+		ann[ApplyAnnotation] = ApplyIfNotPresent
+	}
 	c.SetAnnotations(ann)
 	return intent.Serialize(c)
 }
@@ -173,4 +200,129 @@ func EmptyValuesDocument() *unstructured.Unstructured {
 		},
 		"data": map[string]interface{}{ValuesKey: EmptyValues},
 	}}
+}
+
+// policyTree returns the files below one region's policy folder, as path
+// relative to that folder -> blob SHA. A missing folder gives an empty map.
+func policyTree(ctx context.Context, w gitwrite.Writer, s gitwrite.Scope, root string) (map[string]string, error) {
+	files := map[string]string{}
+	dirs := []string{strings.TrimSuffix(root, "/")}
+	for len(dirs) > 0 {
+		dir := dirs[0]
+		dirs = dirs[1:]
+		entries, err := w.List(ctx, s, FleetRepo, dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Path, root) {
+				return nil, fmt.Errorf("compliance: the listing of %s holds %s", dir, e.Path)
+			}
+			if e.IsDir {
+				dirs = append(dirs, e.Path)
+				continue
+			}
+			files[strings.TrimPrefix(e.Path, root)] = e.BlobSHA
+		}
+	}
+	return files, nil
+}
+
+// EnsurePolicyFiles brings the policy folders of every region of the
+// Sovereign to the same files, in one commit with Via controller and the
+// summary AlignSummary.
+//
+// The reference region is the first region by name whose policy folder
+// holds ValuesFile. A region folder that appears later, whatever its name,
+// therefore receives the files instead of becoming an empty reference. When
+// no region holds ValuesFile, the reference is the first region by name,
+// and the empty document (EmptyValuesDocument) is written to every region
+// with ApplyAnnotation set to ApplyIfNotPresent: Flux creates it in a region
+// whose cluster has no ValuesConfigMap and never replaces one there, such
+// as the local provider pack's own document, rendered once the same way
+// (clusters/_template/providers/local/kit/policy-values.yaml). A document
+// that a route writes through Serialize replaces either. Each file of the
+// reference that another region lacks, or holds with other content, is
+// written there from the reference, with compare-and-swap on that
+// region's copy: a concurrent writer makes it fail with
+// *gitwrite.ConflictError rather than be overwritten. Nothing is deleted:
+// a file that only a non-reference region holds stays. When every region
+// already matches, nothing is committed and the result has Committed false.
+// A Sovereign with no region folder returns ErrNoRegion and commits nothing.
+func EnsurePolicyFiles(ctx context.Context, w gitwrite.Writer, sovereignFQDN string) (gitwrite.Result, error) {
+	regions, err := Regions(ctx, w, sovereignFQDN)
+	if err != nil {
+		return gitwrite.Result{}, err
+	}
+	scope := PolicyScope(sovereignFQDN, regions)
+	trees := make(map[string]map[string]string, len(regions))
+	for _, r := range regions {
+		t, err := policyTree(ctx, w, scope, regionPolicyDir(sovereignFQDN, r))
+		if err != nil {
+			return gitwrite.Result{}, err
+		}
+		trees[r] = t
+	}
+	ref := regions[0]
+	for _, r := range regions {
+		if _, ok := trees[r][ValuesFile]; ok {
+			ref = r
+			break
+		}
+	}
+
+	changeID := gitwrite.NewChangeID()
+	var files []gitwrite.FileChange
+	if _, ok := trees[ref][ValuesFile]; !ok {
+		doc, err := serialize(EmptyValuesDocument(), changeID, true)
+		if err != nil {
+			return gitwrite.Result{}, err
+		}
+		for _, r := range regions {
+			files = append(files, gitwrite.FileChange{Path: regionPolicyDir(sovereignFQDN, r) + ValuesFile, Op: gitwrite.OpUpsert, Content: doc, IfMatch: gitwrite.AbsentSHA})
+		}
+	}
+	rels := make([]string, 0, len(trees[ref]))
+	for rel := range trees[ref] {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
+		want := trees[ref][rel]
+		var content []byte
+		read := false
+		for _, r := range regions {
+			have, ok := trees[r][rel]
+			if r == ref || (ok && have == want) {
+				continue
+			}
+			if !read {
+				src := regionPolicyDir(sovereignFQDN, ref) + rel
+				b, sha, err := w.Read(ctx, scope, FleetRepo, src)
+				if err != nil {
+					return gitwrite.Result{}, err
+				}
+				if sha != want {
+					return gitwrite.Result{}, &gitwrite.ConflictError{Path: src, Want: want, Current: sha}
+				}
+				content, read = b, true
+			}
+			ifMatch := gitwrite.AbsentSHA
+			if ok {
+				ifMatch = have
+			}
+			files = append(files, gitwrite.FileChange{Path: regionPolicyDir(sovereignFQDN, r) + rel, Op: gitwrite.OpUpsert, Content: content, IfMatch: ifMatch})
+		}
+	}
+	if len(files) == 0 {
+		return gitwrite.Result{}, nil
+	}
+	return w.Commit(ctx, gitwrite.Change{
+		Scope:    scope,
+		Repo:     FleetRepo,
+		Files:    files,
+		Summary:  AlignSummary,
+		ChangeID: changeID,
+		Via:      gitwrite.ViaController,
+	})
 }
