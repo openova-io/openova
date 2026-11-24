@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T12:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T13:00:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-24T11:41 | [#8771](https://github.com/openova-io/openova/pull/8771) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:05 | [#8769](https://github.com/openova-io/openova/pull/8769) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:51 | [#8768](https://github.com/openova-io/openova/pull/8768) | #7087 | docs(ledger): plan update |
+| 2026-11-24T12:59 | [#8767](https://github.com/openova-io/openova/pull/8767) | #8765 | feat(compliance): ComplianceModel definition, data files, ch |
 | 2026-11-24T11:01 | [#8766](https://github.com/openova-io/openova/pull/8766) | #8762 | refactor(compliance): policy files in every region folder: s |
 | 2026-11-24T10:24 | [#8764](https://github.com/openova-io/openova/pull/8764) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:31 | [#8763](https://github.com/openova-io/openova/pull/8763) | #8761 | chore(catalyst-api): delete the long-lived bearer seed; no o |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
 | 2026-11-24T06:42 | [#8733](https://github.com/openova-io/openova/pull/8733) | #8728 | test(gate): check CMP-G02 is required now that the pinned ca |
 | 2026-11-24T06:20 | [#8731](https://github.com/openova-io/openova/pull/8731) | #7087 | docs(ledger): plan update |
-| 2026-11-24T05:59 | [#8727](https://github.com/openova-io/openova/pull/8727) | #7087 | docs(ledger): plan update |
 
 ---
 
