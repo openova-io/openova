@@ -2547,7 +2547,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-064, SOV-225]
-  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020]
+  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020, CMP-041]
   touches:
   - .github/workflows/release-key-resign.yaml
   - .github/workflows/tree-guards.yaml
@@ -15874,7 +15874,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-058, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -15906,7 +15906,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-058, CMP-073]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-073]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -15964,7 +15964,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-273, CMP-066]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
@@ -22371,7 +22371,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-240, SVC-040, SVC-160, SVC-190]
-  after: [FND-011, FND-096, FND-099, FND-102, CLD-114, SOV-035, NET-032, NET-102, NET-212, SVC-170, CTL-160, CTL-815, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140]
+  after: [FND-011, FND-096, FND-099, FND-102, CLD-114, SOV-035, NET-032, NET-102, NET-212, SVC-170, CTL-160, CTL-815, CMP-041, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - .github/workflows/preflight-blueprint-crd-cel.yaml
@@ -23515,7 +23515,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -24020,7 +24020,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -24111,7 +24111,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -24201,7 +24201,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -26484,7 +26484,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-016, CMP-032, CMP-036, CMP-014]
-  after: [FND-011, FND-028, FND-059, FND-096, FND-099, FND-102, CLD-211, SOV-035, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-230, CTL-815, CMP-073, INF-110, INF-130, INF-133, INF-135, INF-140]
+  after: [FND-011]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/**
@@ -26501,16 +26501,26 @@ packages:
   flips: []
   implements: []
   proven_by: CMP-042
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls -d platform/kyverno-policies/chart/model tools/guards/cmd/check-compliance-model 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "c=platform/kyverno-policies/chart && helm dependency build \"$c\" >/dev/null && test \"$(helm template \"$c\" --include-crds | grep -c -x -E 'kind: ComplianceModel|apiVersion: compliance[.]openova[.]io/v1alpha1|  name: compliancemodels[.]compliance[.]openova[.]io')\" = 3"
+  - id: A2
+    run: "cd tools/guards && go vet ./cmd/check-compliance-model && test \"$(NO_COLOR=1 go test -count=1 -run '^(TestEveryKeywordCanFail|TestASchemaThatCannotBeAppliedIsAnError)$' -v ./cmd/check-compliance-model | grep -c -E '^--- PASS: Test(EveryKeywordCanFail|ASchemaThatCannotBeAppliedIsAnError) ')\" = 2"
+  - id: A3
+    run: "w=.github/workflows/tree-guards.yaml && test \"$(grep -c -x -F '        run: cd tools/guards && go test -count=1 ./cmd/check-compliance-model' \"$w\")\" = 1 && test \"$(grep -c -x -F '        run: cd tools/guards && go run ./cmd/check-compliance-model' \"$w\")\" = 1 && test \"$(grep -c -x -F '  model-render.sh' scripts/run-policy-chart-tests.sh)\" = 1 && test \"$(grep -c -F '| `cmd/check-compliance-model` |' tools/guards/README.md)\" = 1 && test \"$(grep -c -F '\"policy_checks_without_suite\": {' scripts/baselines/policy-suites.json)\" = 1 && test \"$(grep -c -F '\"policy_exempt_namespaces\": {' scripts/baselines/policy-exemptions.json)\" = 1"
+  - id: A4
+    run: "test \"$(grep -c -x -E '[|] ComplianceModel [|] compliance[.]openova[.]io [|] v1alpha1 [|] Cluster [|] compliancemodels [|] platform/kyverno-policies/chart/crds/compliancemodel[.]yaml [|] (yes|no) [|]' docs/generated/custom-resources.md)\" = 1 && python3 scripts/generators/custom-resources.py --check"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Module kind with ten axes and 22 checks, 23 exemptions with reasons, catalogue and module-kind guards
+  delivers: The policy chart defines the kind ComplianceModel and renders its one object default from data files (ten axes, 22 checks, the reasons of the 20 exempt namespaces), and the guard check-compliance-model holds the data files, the policies, their suites and the exempt namespaces together.
 - id: CMP-042
   title: 'ComplianceModel: the per-cluster loader of catalyst-api, and check CMP-G03'
   area: CMP
@@ -26731,7 +26741,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-061, CMP-073]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-041]
   touches:
   - platform/kyverno-policies/chart/templates/_helpers.tpl
   - platform/kyverno-policies/chart/tests/**
@@ -26759,7 +26769,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-062]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-041]
   touches:
   - platform/kyverno-policies/chart/tests/**
   - scripts/baselines/kyverno-legacy.json
@@ -26786,7 +26796,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-041]
   touches:
   - platform/kyverno-policies/chart/templates/rbac-*.yaml
   - platform/kyverno-policies/chart/tests/**
@@ -26814,7 +26824,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-064]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-041]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/21-app-label-mutate.yaml
   - platform/kyverno-policies/chart/templates/mutate/*.yaml
@@ -35013,7 +35023,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [MIG-101, SVC-170]
-  after: [SVC-040, FND-102, SVC-041, FND-011, SOV-322, SEC-103, SEC-104, SEC-105, SEC-200, NET-040, NET-221, SVC-162, SVC-164, SVC-166, SVC-220, CTL-346, CTL-347, CTL-815, AIP-070, AIP-221, INF-050, INF-110, INF-120, INF-130, INF-133, INF-135, INF-140, ACC-050, PRD-201]
+  after: [SVC-040, FND-102, SVC-041, FND-011, SOV-322, SEC-103, SEC-104, SEC-105, SEC-200, NET-040, NET-221, SVC-162, SVC-164, SVC-166, SVC-220, CTL-346, CTL-347, CTL-815, CMP-041, AIP-070, AIP-221, INF-050, INF-110, INF-120, INF-130, INF-133, INF-135, INF-140, ACC-050, PRD-201]
   touches:
   - products/vm-migration/chart/Chart.yaml
   - products/vm-migration/chart/values.yaml
@@ -36010,7 +36020,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [MIG-126, MIG-151, MIG-156]
-  after: [FND-011, CTL-231, CTL-345, CTL-815, BSS-040, AIP-120, AIP-227, INF-110, INF-130, INF-133, INF-135, INF-140]
+  after: [FND-011, CTL-231, CTL-345, CTL-815, CMP-041, BSS-040, AIP-120, AIP-227, INF-110, INF-130, INF-133, INF-135, INF-140]
   touches:
   - products/vm-migration/api/v1alpha1/migrationwave_types.go
   - products/vm-migration/api/v1alpha1/migration_types.go
@@ -38084,6 +38094,7 @@ packages:
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+  - scripts/check-netpol-egress-completeness.py
   resources: []
   flips: []
   implements: []
@@ -38093,25 +38104,25 @@ packages:
     expect: "2"
   acceptance:
   - id: A1
-    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency build platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving > \"$t/off.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true > \"$t/home.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set enabled=true > \"$t/enabled.yaml\"; for f in off home enabled; do test \"$(grep -c '^kind: ' \"$t/$f.yaml\")\" = 1; grep -q -x 'kind: Namespace' \"$t/$f.yaml\"; grep -q -x '    pod-security.kubernetes.io/enforce: restricted' \"$t/$f.yaml\"; done"
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency update platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving > \"$t/off.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true > \"$t/home.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set enabled=true > \"$t/enabled.yaml\"; for f in off home enabled; do test \"$(grep -c '^kind: ' \"$t/$f.yaml\")\" = 1; grep -q -x 'kind: Namespace' \"$t/$f.yaml\"; grep -q -x '    pod-security.kubernetes.io/enforce: restricted' \"$t/$f.yaml\"; done"
   - id: A2
-    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency build platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true > \"$t/all.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true --show-only templates/deployment.yaml > \"$t/d.yaml\"; test \"$(grep -c -E '^kind: (HTTPRoute|Ingress|Gateway|GRPCRoute)$' \"$t/all.yaml\")\" = 0; test \"$(grep -c -E 'secretKeyRef|type: NodePort' \"$t/all.yaml\")\" = 0; test \"$(grep -r -c secretKeyRef platform/bge/chart/templates | grep -c -v ':0$')\" = 0; grep -q -x '  type: ClusterIP' \"$t/all.yaml\"; grep -q -x '  replicas: 1' \"$t/d.yaml\"; grep -q -x '          image: \"docker.io/michaelf34/infinity:0.0.78-cpu@sha256:5401a057f16f82a7a1202369f674dc15695fe37d8517f3c0263fdfb88b2e2717\"' \"$t/d.yaml\"; test \"$(grep -c -x -- '            - --lengths-via-tokenize' \"$t/d.yaml\")\" = 2; grep -q -x '            - \"d6cffd338414d6a1c1f5decfad5fec62eebc90d5\"' \"$t/d.yaml\"; grep -q -x '      automountServiceAccountToken: false' \"$t/d.yaml\"; grep -q -x '        runAsUser: 10001' \"$t/d.yaml\"; test \"$(grep -c -x '            readOnlyRootFilesystem: true' \"$t/d.yaml\")\" = 1; grep -q -x '            failureThreshold: 30' \"$t/d.yaml\"; grep -q -x '            periodSeconds: 10' <<< \"$(grep -A4 -x '          startupProbe:' \"$t/d.yaml\")\""
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency update platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true > \"$t/all.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true --show-only templates/deployment.yaml > \"$t/d.yaml\"; test \"$(grep -c -E '^kind: (HTTPRoute|Ingress|Gateway|GRPCRoute)$' \"$t/all.yaml\")\" = 0; test \"$(grep -c -E 'secretKeyRef|type: NodePort' \"$t/all.yaml\")\" = 0; test \"$(grep -r -c secretKeyRef platform/bge/chart/templates | grep -c -v ':0$')\" = 0; grep -q -x '  type: ClusterIP' \"$t/all.yaml\"; grep -q -x '  replicas: 1' \"$t/d.yaml\"; grep -q -x '          image: \"docker.io/michaelf34/infinity:0.0.78-cpu@sha256:5401a057f16f82a7a1202369f674dc15695fe37d8517f3c0263fdfb88b2e2717\"' \"$t/d.yaml\"; test \"$(grep -c -x -- '            - --lengths-via-tokenize' \"$t/d.yaml\")\" = 2; grep -q -x '            - \"d6cffd338414d6a1c1f5decfad5fec62eebc90d5\"' \"$t/d.yaml\"; grep -q -x '      automountServiceAccountToken: false' \"$t/d.yaml\"; grep -q -x '        runAsUser: 10001' \"$t/d.yaml\"; test \"$(grep -c -x '            readOnlyRootFilesystem: true' \"$t/d.yaml\")\" = 1; grep -q -x '            failureThreshold: 30' \"$t/d.yaml\"; grep -q -x '            periodSeconds: 10' <<< \"$(grep -A4 -x '          startupProbe:' \"$t/d.yaml\")\"; test \"$(grep -c -x -E '              - (10\\.0\\.0\\.0/8|100\\.64\\.0\\.0/10|169\\.254\\.0\\.0/16|172\\.16\\.0\\.0/12|192\\.168\\.0\\.0/16)' \"$t/all.yaml\")\" = 5"
   - id: A3
-    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency build platform/bge/chart >/dev/null; s=(--namespace model-serving --set home=true --set enabled=true); if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.source=oci://registry.example/models/embed:latest --set embedding.revision=null 2> \"$t/e1\"; then exit 1; fi; grep -q -F 'embedding.source \"oci://registry.example/models/embed:latest\" is neither' \"$t/e1\"; if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.revision=main 2> \"$t/e2\"; then exit 1; fi; grep -q -F 'embedding.revision must be the 40-character commit' \"$t/e2\"; if helm template bge platform/bge/chart \"${s[@]}\" 2> \"$t/e3\"; then exit 1; fi; grep -q -F 'the network policy allows no egress to it' \"$t/e3\"; if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.dimensions=32 2> \"$t/e4\"; then exit 1; fi; grep -q -F 'embedding.dimensions must be a whole number from 64 to 4096' \"$t/e4\""
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency update platform/bge/chart >/dev/null; s=(--namespace model-serving --set home=true --set enabled=true); if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.source=oci://registry.example/models/embed:latest --set embedding.revision=null 2> \"$t/e1\"; then exit 1; fi; grep -q -F 'embedding.source \"oci://registry.example/models/embed:latest\" is neither' \"$t/e1\"; if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.revision=main 2> \"$t/e2\"; then exit 1; fi; grep -q -F 'embedding.revision must be the 40-character commit' \"$t/e2\"; if helm template bge platform/bge/chart \"${s[@]}\" 2> \"$t/e3\"; then exit 1; fi; grep -q -F 'the network policy allows no egress to it' \"$t/e3\"; if helm template bge platform/bge/chart \"${s[@]}\" --set networkPolicy.hubEgress=true --set embedding.dimensions=32 2> \"$t/e4\"; then exit 1; fi; grep -q -F 'embedding.dimensions must be a whole number from 64 to 4096' \"$t/e4\""
   - id: A4
-    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency build platform/bge/chart >/dev/null; a=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set \"embedding.source=oci://registry.example/models/embed@sha256:$a\" --set embedding.revision=null --set \"reranker.source=oci://registry.example/models/rerank@sha256:$a\" --set reranker.revision=null --show-only templates/networkpolicy.yaml > \"$t/np.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true --set hubToken.secretProviderClass=bge-hub --show-only templates/deployment.yaml > \"$t/tok.yaml\"; grep -q -x '              kubernetes.io/metadata.name: \"model-gateway\"' \"$t/np.yaml\"; test \"$(grep -c -F '0.0.0.0/0' \"$t/np.yaml\")\" = 0; grep -q -x '            driver: secrets-store.csi.k8s.io' \"$t/tok.yaml\"; grep -q -x '              secretProviderClass: \"bge-hub\"' \"$t/tok.yaml\"; grep -q -x '              value: /var/run/secrets/openova/hf-token' \"$t/tok.yaml\""
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency update platform/bge/chart >/dev/null; a=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set \"embedding.source=oci://registry.example/models/embed@sha256:$a\" --set embedding.revision=null --set \"reranker.source=oci://registry.example/models/rerank@sha256:$a\" --set reranker.revision=null --show-only templates/networkpolicy.yaml > \"$t/np.yaml\"; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true --set hubToken.secretProviderClass=bge-hub --show-only templates/deployment.yaml > \"$t/tok.yaml\"; grep -q -x '              kubernetes.io/metadata.name: \"model-gateway\"' \"$t/np.yaml\"; test \"$(grep -c -F '0.0.0.0/0' \"$t/np.yaml\")\" = 0; grep -q -x '            driver: secrets-store.csi.k8s.io' \"$t/tok.yaml\"; grep -q -x '              secretProviderClass: \"bge-hub\"' \"$t/tok.yaml\"; grep -q -x '              value: /var/run/secrets/openova/hf-token' \"$t/tok.yaml\""
   - id: A5
-    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency build platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true > \"$t/on.yaml\"; python3 scripts/check-function-test.py --chart bp-bge --release bge < \"$t/on.yaml\"; helm template bge platform/bge/chart --namespace model-serving > \"$t/off.yaml\"; python3 scripts/check-function-test.py --chart bp-bge --release bge --absent < \"$t/off.yaml\"; grep -q -x '          value: \"http://bge-bp-bge.model-serving.svc.cluster.local:7997/v1\"' \"$t/on.yaml\"; grep -q -F '\"${BASE_URL}/embeddings\"' \"$t/on.yaml\"; grep -q -x '          value: \"384\"' \"$t/on.yaml\""
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; helm dependency update platform/bge/chart >/dev/null; helm template bge platform/bge/chart --namespace model-serving --set home=true --set enabled=true --set networkPolicy.hubEgress=true > \"$t/on.yaml\"; python3 scripts/check-function-test.py --chart bp-bge --release bge < \"$t/on.yaml\"; helm template bge platform/bge/chart --namespace model-serving > \"$t/off.yaml\"; python3 scripts/check-function-test.py --chart bp-bge --release bge --absent < \"$t/off.yaml\"; grep -q -x '          value: \"http://bge-bp-bge.model-serving.svc.cluster.local:7997/v1\"' \"$t/on.yaml\"; grep -q -F '\"${BASE_URL}/embeddings\"' \"$t/on.yaml\"; grep -q -x '          value: \"384\"' \"$t/on.yaml\""
   - id: A6
     run: "test \"$(grep -c -F 'platform/bge' scripts/baselines/products.json)\" = 0; python3 scripts/check-products.py; python3 scripts/check-service-model.py; test \"$(grep -c -x 'platform/bge/chart:2:0' scripts/secret-guard-baselines/check-secret-object-register.txt)\" = 0; bash scripts/check-secret-object-register.sh"
   - id: A7
-    run: "grep -q -x '    required: \\[home, enabled, embedding\\]' platform/bge/blueprint.yaml; grep -q -x '        required: \\[source, servedName, dimensions\\]' platform/bge/blueprint.yaml; test \"$(grep -c -E '^  endpoints:' platform/bge/blueprint.yaml)\" = 0; grep -q -x '    - singleton' platform/bge/blueprint.yaml; python3 scripts/generate-catalog.py --check"
+    run: "grep -q -x '    required: \\[home, enabled, embedding\\]' platform/bge/blueprint.yaml; grep -q -x '        required: \\[source, servedName, dimensions\\]' platform/bge/blueprint.yaml; test \"$(grep -c -E '^  endpoints:' platform/bge/blueprint.yaml)\" = 0; grep -q -x '    - singleton' platform/bge/blueprint.yaml; test \"$(grep -c -F 'active-active' platform/bge/blueprint.yaml)\" = 0; grep -q -x '    metrics: none' platform/bge/blueprint.yaml; python3 scripts/generate-catalog.py --check"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: bp-bge serves one embedding model and at most one reranker from one Infinity server pinned by digest, takes each model by digest from a model image or at a pinned revision from the model hub, renders its workloads only when home and enabled are both true, mounts a model-hub token as one CSI file instead of reading a Secret, ships a function test that asserts the length of the vector, and is proven by a real run of its image that fetches, copies and serves both models.
 - id: PRD-202
