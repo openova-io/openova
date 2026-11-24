@@ -30,6 +30,10 @@ application-not-found.
 {{- $live := lookup "apps.openova.io/v1" "Application" .Release.Namespace .Release.Name }}
 {{- $liveSpec := dict }}
 {{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
+{{- /* CTL-172: a field set (and not empty) in bootstrapOwned.intent, the
+     placement committed to Git that the slot passes in, wins over the live
+     value and over the seed. With intent unset the render is unchanged. */}}
+{{- $intent := .Values.bootstrapOwned.intent | default dict }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -44,7 +48,9 @@ spec:
   {{- /* Old-CRD compatibility fields — inert under both schemas (see
        bp-postgres application-cr.yaml for the hw130 history). */}}
   environmentRef: platform-bootstrap
-  {{- if hasKey $liveSpec "regions" }}
+  {{- if $intent.regions }}
+  regions: {{ toJson $intent.regions }}
+  {{- else if hasKey $liveSpec "regions" }}
   regions: {{ toJson (get $liveSpec "regions") }}
   {{- else }}
   regions: ["platform-bootstrap-owned-host"]
@@ -52,7 +58,9 @@ spec:
   blueprintRef:
     name: bp-cnpg-pair
     version: {{ .Chart.Version | quote }}
-  {{- if hasKey $liveSpec "placement" }}
+  {{- if $intent.placement }}
+  placement: {{ toJson $intent.placement }}
+  {{- else if hasKey $liveSpec "placement" }}
   placement: {{ toJson (get $liveSpec "placement") }}
   {{- else }}
   placement: active-hot-standby

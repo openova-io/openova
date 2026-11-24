@@ -1,0 +1,9 @@
+{
+  "allow": [],
+  "counts": {
+    "compliance_live_reads": {
+      "products/catalyst/bootstrap/api/internal/handler/compliance_runtime.go": 6
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

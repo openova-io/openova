@@ -255,8 +255,35 @@ jobs:
           # FIRST `tag:` that follows it in the same image block; empty / "latest" /
           # *placeholder* tags are skipped (unwarmable / non-pinned). These are the
           # images an Organization installs later; the fresh install's are above.
+          #
+          # A chart whose Blueprint (the nearest blueprint.yaml above its
+          # values.yaml) the catalogue seed marks unlisted (spec.visibility of
+          # its object in products/catalyst/chart/templates/catalog-seed/
+          # blueprints.yaml, which scripts/generate-catalog.py writes from
+          # spec.visibility of the blueprint.yaml) and that no HelmRelease of
+          # the bootstrap kit installs contributes no image: no Organization can
+          # install it and no fresh install pulls it. bp-nemo-guardrails is one
+          # (#5468): its image was never published. Every other pin stays, and
+          # a copy of it that fails still fails this step.
+          unlisted="$(awk '/^---/ { m = 0; n = "" } /^metadata:/ { m = 1; next } m && /^  name:/ { n = $2; m = 0 } /^  visibility:[[:space:]]*unlisted[[:space:]]*$/ && n != "" { print n }' openova-src/products/catalyst/chart/templates/catalog-seed/blueprints.yaml 2>/dev/null || true)"
+          kit="$(sed -n 's/^[[:space:]]*chart:[[:space:]]*\(bp-[A-Za-z0-9._-]*\)[[:space:]]*$/\1/p' openova-src/clusters/_template/bootstrap-kit/*.yaml 2>/dev/null || true)"
           compfile="$(mktemp)"
-          for f in $(grep -rlE "repository:[[:space:]]*[\"']?ghcr\.io/openova-io/openova/" openova-src/platform openova-src/products --include=values.yaml 2>/dev/null | sort -u); do
+          # The files by find, not grep --include (GNU only): the same set on the
+          # runner, and the step also runs as written under busybox (the copier
+          # of tests/hermetic/provider-package-copy).
+          for f in $(find openova-src/platform openova-src/products -type f -name values.yaml -exec grep -lE "repository:[[:space:]]*[\"']?ghcr\.io/openova-io/openova/" {} + 2>/dev/null | sort -u); do
+            d="${f%/*}"; bp=""
+            while [ "${d}" != openova-src/platform ] && [ "${d}" != openova-src/products ] && [ "${d}" != "${d%/*}" ]; do
+              if [ -f "${d}/blueprint.yaml" ]; then
+                bp="$(awk '/^metadata:/ { m = 1; next } m && /^  name:/ { print $2; exit } /^[^ #]/ { m = 0 }' "${d}/blueprint.yaml")"
+                break
+              fi
+              d="${d%/*}"
+            done
+            if [ -n "${bp}" ] && grep -qxF -e "${bp}" <<<"${unlisted}" && ! grep -qxF -e "${bp}" <<<"${kit}"; then
+              echo "[warmup] skip the pins of ${f#openova-src/}: ${bp} is unlisted in the catalogue and no HelmRelease of the bootstrap kit installs it"
+              continue
+            fi
             awk 'match($0, /repository:[[:space:]]*["'"'"']?ghcr\.io\/openova-io\/openova\/[A-Za-z0-9._\/-]+/) { line=substr($0, RSTART, RLENGTH); sub(/^.*repository:[[:space:]]*["'"'"']?/, "", line); repo=line; have=1; next } have && match($0, /^[[:space:]]*tag:[[:space:]]*/) { t=$0; sub(/^[[:space:]]*tag:[[:space:]]*/, "", t); gsub(/["'"'"']/, "", t); sub(/[[:space:]]*#.*$/, "", t); gsub(/[[:space:]]/, "", t); if (t != "" && t != "latest" && t !~ /placeholder/) { print repo ":" t } have=0 }' "$f" >>"${compfile}"
           done
           components="$(cat "${compfile}"; rm -f "${compfile}")"

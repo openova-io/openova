@@ -290,6 +290,13 @@ contextsService:
 # this; console-created instances already carry a controller-created CR.
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —
