@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T09:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T09:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8334](https://github.com/openova-io/openova/issues/8334) | PRD-203 cortex query process: token check, gateway client, search, definitions l | Other |
 | [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
 | [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
 | [#8352](https://github.com/openova-io/openova/issues/8352) | AIP-223 Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation,  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8746](https://github.com/openova-io/openova/issues/8746) | SEC-205 Stores in Organization namespaces | Other |
 | [#8749](https://github.com/openova-io/openova/issues/8749) | CMP-058 Engine to the 1.19 line | Other |
 | [#8753](https://github.com/openova-io/openova/issues/8753) | FND-191 Remove the second matcher's job handling from the API | Other |
+| [#8757](https://github.com/openova-io/openova/issues/8757) | FND-165 Console regression: compliance, sovereignty and hand-over pages, storefr | Other |
 
 ---
 
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-24T09:09 | [#8754](https://github.com/openova-io/openova/pull/8754) | #7087 | docs(ledger): plan update |
+| 2026-11-24T09:22 | [#8752](https://github.com/openova-io/openova/pull/8752) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:40 | [#8750](https://github.com/openova-io/openova/pull/8750) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:43 | [#8748](https://github.com/openova-io/openova/pull/8748) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:48 | [#8747](https://github.com/openova-io/openova/pull/8747) | #8746 | feat(organization): every Organization namespace gets the Ex |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T02:27 | [#8709](https://github.com/openova-io/openova/pull/8709) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:59 | [#8707](https://github.com/openova-io/openova/pull/8707) | #8701 | docs(adr): record 0027 on the region-loss contract, a follow |
 | 2026-11-24T01:26 | [#8706](https://github.com/openova-io/openova/pull/8706) | #7087 | docs(ledger): plan update |
-| 2026-11-24T01:12 | [#8705](https://github.com/openova-io/openova/pull/8705) | #8700 | docs(ledger): result of the inspection CTL-170, where chart- |
 
 ---
 
