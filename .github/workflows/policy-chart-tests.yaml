@@ -27,8 +27,8 @@ env:
   # Pinned with the checksum that the release publishes in its checksums.txt.
   # An unverified download into a job that judges admission policies would be
   # a supply-chain hole in the guard.
-  KYVERNO_VERSION: v1.18.0
-  KYVERNO_SHA256: 3aa7b7aa68732fd6bc5732f1030d0ed12e1b0ffe7dbac5f5aa21fd8695718904
+  KYVERNO_VERSION: v1.19.2
+  KYVERNO_SHA256: 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a
 
 permissions:
   contents: read

@@ -3,7 +3,14 @@
 # that Application is left in the Secret's namespace.
 #
 # For a DeletingPolicy the CLI reports `pass` when the Secret matches (the
-# cleanup controller would delete it) and `fail` when it does not (kept).
+# cleanup controller would delete it) and `fail` when it is selected but its
+# conditions keep it. A Secret the policy's matchConstraints do not select
+# gets no result at all (CLI v1.19), and a result declared for it fails as
+# "Not found".
+#
+# The HelmReleases and Certificates the policy lists are in context.yaml, a
+# ClusterResource file: a test that has clusterResources is evaluated against
+# that fake cluster, and CLI v1.19 then ignores a `context:` file.
 #
 # policy.yaml is the render of the template; re-render it after a change:
 #   cd platform/kyverno-policies/chart
@@ -22,7 +29,8 @@
 #      exists, the first one's is gone                       -> only the first is deleted
 #   5  long Application name, shortened HelmRelease name    -> keep (the label matches)
 #   6  a Secret without the seed labels, or with the
-#      component label only                                 -> not selected, kept
+#      component label only                                 -> not selected, kept;
+#      in resources.yaml but not judged here: CLI v1.19 reports nothing for it
 #   7  HelmRelease gone (deleted while suspended) but the
 #      Certificate that writes the Secret is still there    -> keep (deleting it
 #      would only make cert-manager issue it again)
@@ -34,7 +42,7 @@ metadata:
   name: replication-ca-seed-orphan-test
 clusterResources:
   - cluster-resources.yaml
-context: context.yaml
+  - context.yaml
 policies:
   - policy.yaml
 resources:
@@ -81,14 +89,7 @@ results:
     resources:
       - org-e/marketing-site-of-the-acme-trading-company-in-muscat-oman-2-db-replication-ca-seed
     result: fail
-  # 6
-  - isDeletingPolicy: true
-    policy: replication-ca-seed-orphan
-    kind: Secret
-    resources:
-      - org-c/gamma-db-app
-      - org-c/legacy-db-replication-ca-seed
-    result: fail
+  # 6 has no result entry (see the header).
   # 7
   - isDeletingPolicy: true
     policy: replication-ca-seed-orphan

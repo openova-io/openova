@@ -41,16 +41,18 @@ type: application
 # as bp-cnpg (#3257) + bp-external-secrets (#3533). The flat global.imageRegistry
 # is documented as inert (upstream reads global.image.registry).
 version: 1.3.9
-appVersion: "v1.18.0"
+appVersion: "v1.19.2"
 keywords: [catalyst, blueprint, kyverno, policy, admission, security]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Pinned to kyverno/kyverno 3.8.0 (appVersion v1.18.0) — current stable on
-# 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
-# version is operator-bumpable via PR + Blueprint release.
+# Pinned to kyverno/kyverno 3.9.2 (appVersion v1.19.2), the newest patch
+# release of the 1.19 line on 2026-11-24 (CMP-058; was 3.8.0 / v1.18.0).
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
+# operator-bumpable via PR + Blueprint release. The command-line tool pin in
+# .github/workflows/policy-chart-tests.yaml moves with appVersion.
 dependencies:
   - name: kyverno
-    version: "3.8.0"
+    version: "3.9.2"
     repository: "https://kyverno.github.io/kyverno/"
