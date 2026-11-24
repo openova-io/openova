@@ -8,7 +8,7 @@
  *   2. Populated state — sovereign-score pill renders, treemap
  *      surface mounts.
  *   3. Filter chips populate from the scorecard's app organizations.
- *   4. SecLead variant renders title + security palette legend.
+ *   4. No regulatory-framework chip strip renders.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -23,7 +23,6 @@ import {
   Outlet,
 } from '@tanstack/react-router'
 import { SREDashboardPage } from './SREDashboardPage'
-import { SecLeadDashboardPage } from './SecLeadDashboardPage'
 import type { ScorecardResponse, Score } from './compliance.api'
 
 class FakeEventSource {
@@ -176,23 +175,15 @@ describe('SREDashboardPage', () => {
   })
 })
 
-describe('SecLeadDashboardPage', () => {
-  it('renders the Security-Lead title', async () => {
+describe('SREDashboardPage — no framework chips', () => {
+  it('renders no regulatory-framework chip strip', async () => {
     renderRoute(
-      '/admin/compliance/security',
-      <SecLeadDashboardPage disableStream initialDataOverride={scorecard([])} />,
+      '/admin/compliance/sre',
+      <SREDashboardPage disableStream initialDataOverride={scorecard([appScore('billing', 80)])} />,
     )
-    expect((await screen.findByTestId('compliance-dashboard-title')).textContent).toContain('Security Lead')
-  })
-
-  it('renders security-palette legend ("High risk" → "Hardened")', async () => {
-    renderRoute(
-      '/admin/compliance/security',
-      <SecLeadDashboardPage disableStream initialDataOverride={scorecard([])} />,
-    )
-    const legend = await screen.findByTestId('compliance-legend')
-    expect(legend.textContent).toContain('High risk')
-    expect(legend.textContent).toContain('Hardened')
+    await screen.findByTestId('compliance-dashboard-title')
+    expect(screen.queryByTestId('compliance-framework-filter')).toBeNull()
+    expect(document.body.textContent).not.toContain('PCI DSS')
   })
 })
 
@@ -200,10 +191,9 @@ describe('SecLeadDashboardPage', () => {
  *
  * Regression for qa-loop iter-1 (TC-024 + TC-025): Go's encoding/json
  * serializes a nil `[]Score` to JSON `null`. When that wire payload
- * landed in the SRE Lead / Security Lead dashboards, `.map()` /
- * `.filter()` / `.length` on `null` crashed the render and surfaced
- * the global "Something went wrong" fallback for both
- * `/sre/compliance` and `/sec/compliance` routes.
+ * landed in the SRE Lead dashboard, `.map()` / `.filter()` /
+ * `.length` on `null` crashed the render and surfaced the global
+ * "Something went wrong" fallback for the `/sre/compliance` route.
  *
  * These tests render with the worst-case wire payload (every slice =
  * null, sovereign = null) and assert the dashboard renders the empty
@@ -225,15 +215,6 @@ describe('SREDashboardPage — null-slice wire payload', () => {
     renderRoute(
       '/admin/compliance/sre',
       <SREDashboardPage disableStream initialDataOverride={nullSlicePayload} />,
-    )
-    expect(await screen.findByTestId('compliance-dashboard-title')).toBeTruthy()
-    expect(await screen.findByTestId('compliance-empty')).toBeTruthy()
-  })
-
-  it('Security Lead — renders the empty state instead of crashing', async () => {
-    renderRoute(
-      '/admin/compliance/security',
-      <SecLeadDashboardPage disableStream initialDataOverride={nullSlicePayload} />,
     )
     expect(await screen.findByTestId('compliance-dashboard-title')).toBeTruthy()
     expect(await screen.findByTestId('compliance-empty')).toBeTruthy()
