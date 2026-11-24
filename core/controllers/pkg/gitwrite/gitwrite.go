@@ -122,7 +122,7 @@ type Writer interface {
 
 // Scope binds a robot identity to the path prefixes it may write.
 type Scope struct {
-	Name     string   // "fleet-intent", "org-intent", "catalog", "fleet-rendered", "org-rendered"
+	Name     string   // "fleet-intent", "fleet-evidence", "org-intent", "catalog", "fleet-rendered", "org-rendered", "region-platform"
 	Robot    string   // Gitea user whose token is used and who is the committer
 	Prefixes []string // a Change may only touch paths under one of these; "" allows every path
 }
@@ -138,6 +138,19 @@ const fleetRobot = "catalyst-fleet-bot"
 // "clusters/<fqdn>/intent/".
 func FleetIntent(sovereignFQDN string) Scope {
 	return Scope{Name: "fleet-intent", Robot: fleetRobot, Prefixes: []string{"clusters/" + sovereignFQDN + "/intent/"}}
+}
+
+// FleetEvidence is the scope of the record folder of the compliance area
+// in the fleet repository: robot "catalyst-fleet-bot", prefix
+// "clusters/<fqdn>/evidence/". No Kustomization applies that folder. A
+// Sovereign FQDN that is empty, ".", "..", or holds a "/" gives no prefix,
+// so the scope refuses every commit.
+func FleetEvidence(sovereignFQDN string) Scope {
+	s := Scope{Name: "fleet-evidence", Robot: fleetRobot}
+	if validName(sovereignFQDN) {
+		s.Prefixes = []string{"clusters/" + sovereignFQDN + "/evidence/"}
+	}
+	return s
 }
 
 // OrgIntent is the scope of the intent of one Organization in its own
