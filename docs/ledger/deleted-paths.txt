@@ -213,6 +213,7 @@ platform/openmeter
 platform/catalyst-platform
 platform/llm-gateway
 platform/anthropic-adapter
+core/services/provisioning/handlers/kubeconfig_reconciler.go
 products/catalyst/bootstrap/ui/src/pages/admin/compliance/SecLeadDashboardPage.tsx
 products/catalyst/bootstrap/ui/src/pages/admin/compliance/FrameworkFilter.tsx
 products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx

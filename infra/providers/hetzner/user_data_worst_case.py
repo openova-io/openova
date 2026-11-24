@@ -93,7 +93,7 @@ def worst_case(c, limit):
         "hcloud_ssh_key": {"main": {"name": f"catalyst-{slug}"}},
         "random_password": {
             "k3s_server_token": {k: {"result": c.filler("k3s-server-" + k, c.TOKENS["k3s"], c.ALNUM)} for k in ["primary", secondary_key]},
-            "k3s_agent_token": {k: {"result": c.filler("k3s-agent-" + k, c.TOKENS["k3s"], c.ALNUM)} for k in ["primary", secondary_key]},
+            "k3s_agent_token": {k: {"result": c.filler("k3s-agent-" + k, c.TOKENS["k3s"], c.ALNUM)} for k in ["primary", secondary_key]}, "keycloak_client_secret_salt": {"result": c.filler("keycloak-salt", 48, c.ALNUM)},
         },
     }
     standins = {}

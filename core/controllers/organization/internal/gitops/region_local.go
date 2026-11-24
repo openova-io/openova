@@ -12,7 +12,7 @@ import "strings"
 //    The per-Org `-apps` Kustomization (flux-system) and every per-region
 //    Application HelmRelease (`<slug>` ns) reach the Org's vCluster through
 //    `tenant-<slug>-kubeconfig`. Before this file the only producer was the
-//    provisioning funnel's mirrorVClusterKubeconfig — an imperative copy run
+//    provisioning funnel's kubeconfig copy (now deleted) — an imperative copy run
 //    by org-services/provisioning, which runs in region A only. Region B had
 //    the vCluster (the `-vcluster` tree is applied everywhere) but never the
 //    kubeconfig, so nothing could be delivered into it.

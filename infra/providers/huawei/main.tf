@@ -315,6 +315,17 @@ resource "random_password" "k3s_agent_token" {
   special  = false
 }
 
+# SEC-060: one salt per Sovereign, not per region, because the regions share
+# the Keycloak realm. The bootstrap-kit slots 09 (bp-keycloak) and 13
+# (bp-catalyst-platform) append it to the seed of every derived Keycloak client
+# secret, so no secret can be computed from the release name and namespace
+# alone. It reaches them as the key KEYCLOAK_CLIENT_SECRET_SALT of the seed
+# Secret flux-system/bootstrap-seed. The value stays in the state.
+resource "random_password" "keycloak_client_secret_salt" {
+  length  = 48
+  special = false
+}
+
 # ── VPC per region ────────────────────────────────────────────────────────
 resource "huaweicloud_vpc" "region" {
   for_each = { for r in var.regions : r.code => r }
@@ -1254,6 +1265,9 @@ locals {
       # resolves even when no dedicated console ELB exists.
       console_isolation_enabled = var.console_isolation_enabled
       wildcard_cert_issuer      = var.wildcard_cert_use_staging == "true" ? "letsencrypt-dns01-staging-powerdns" : "letsencrypt-dns01-prod-powerdns"
+
+      # SEC-060: the salt of the derived Keycloak client secrets.
+      keycloak_client_secret_salt = random_password.keycloak_client_secret_salt.result
 
       ghcr_pull_username = local.ghcr_pull_username
       ghcr_pull_token    = var.ghcr_pull_token

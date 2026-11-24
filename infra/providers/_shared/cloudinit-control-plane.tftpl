@@ -182,6 +182,10 @@ write_files:
   # under one name; the five OBJECT_STORAGE_* values fill the ten keys of
   # object-storage. cloud-credentials is not in the seed: its manifest is the
   # packed file below, as before.
+  # SEC-060: KEYCLOAK_CLIENT_SECRET_SALT, the salt of the derived Keycloak
+  # client secrets, is rendered into no Secret: the HelmReleases of kit slots 09
+  # and 13 read that key of the seed with valuesFrom (optional: a Sovereign
+  # installed before it has no such key and keeps its secrets).
   - path: /var/lib/catalyst/bootstrap-seed.env
     permissions: '0600'
     content: |
@@ -196,6 +200,7 @@ write_files:
       OBJECT_STORAGE_BUCKET=${base64encode(object_storage_bucket_name)}
       OBJECT_STORAGE_ACCESS_KEY=${base64encode(object_storage_access_key)}
       OBJECT_STORAGE_SECRET_KEY=${base64encode(object_storage_secret_key)}
+      KEYCLOAK_CLIENT_SECRET_SALT=${base64encode(keycloak_client_secret_salt)}
 
   # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
   # Vendor-agnostic name (#425). Body composed per-provider in main.tf:

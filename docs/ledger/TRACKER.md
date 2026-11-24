@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T03:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T06:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,13 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8298](https://github.com/openova-io/openova/issues/8298) | SVC-250 Spike: composite resources in a release; bucket provisioning for an Orga | Other |
-| [#8302](https://github.com/openova-io/openova/issues/8302) | PRD-061 Spike: vector search with the readable principals on the chunk row | Other |
-| [#8306](https://github.com/openova-io/openova/issues/8306) | NET-251 Decision record: firewall mechanism and the package list of epic NET-250 | Other |
-| [#8311](https://github.com/openova-io/openova/issues/8311) | AIP-201 Node preparation for the sandbox class, exactly as the spike recorded | Other |
-| [#8312](https://github.com/openova-io/openova/issues/8312) | BSS-060 Gate check: self-service onboarding | Other |
-| [#8313](https://github.com/openova-io/openova/issues/8313) | SOV-321 Spike: the Sovereign's own mail server on a running Sovereign | Other |
-| [#8316](https://github.com/openova-io/openova/issues/8316) | INF-020 Spike: hardware virtualisation on worker nodes | Other |
 | [#8317](https://github.com/openova-io/openova/issues/8317) | SOV-521 The release route promotes one region per request and rolls a region bac | Other |
 | [#8320](https://github.com/openova-io/openova/issues/8320) | PRD-202 cortex store: migrations, roles, trimmed query | Other |
 | [#8326](https://github.com/openova-io/openova/issues/8326) | AIP-031 Spike: one sandbox substrate shared by Organizations, with grants scoped | Other |
@@ -300,6 +293,13 @@ flowchart LR
 | [#8713](https://github.com/openova-io/openova/issues/8713) | CTL-820 Region-loss gate check | Other |
 | [#8716](https://github.com/openova-io/openova/issues/8716) | FND-163 Console regression: jobs, resource views, cloud and infrastructure read  | Other |
 | [#8723](https://github.com/openova-io/openova/issues/8723) | FND-G21 rows 241 and 242: the live gate job passes GATE_PARENT_URL and GATE_PARE | Other |
+| [#8728](https://github.com/openova-io/openova/issues/8728) | CMP-021 CMP-G02 becomes required once the pinned catalyst-api carries CMP-020 | Other |
+| [#8729](https://github.com/openova-io/openova/issues/8729) | CTL-815 One Continuum definition file | Other |
+| [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
+| [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
+| [#8734](https://github.com/openova-io/openova/issues/8734) | SVC-230 The wizard shows the generated kit list | Other |
+| [#8736](https://github.com/openova-io/openova/issues/8736) | INF-350 Spike: change events from the reference cloud | Other |
+| [#8737](https://github.com/openova-io/openova/issues/8737) | NET-253 Lab test: the reference cloud's native firewall in front of a load balan | Other |
 
 ---
 
@@ -307,11 +307,20 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
+| 2026-11-24T06:20 | [#8731](https://github.com/openova-io/openova/pull/8731) | #7087 | docs(ledger): plan update |
+| 2026-11-24T05:59 | [#8727](https://github.com/openova-io/openova/pull/8727) | #7087 | docs(ledger): plan update |
+| 2026-11-24T05:31 | [#8726](https://github.com/openova-io/openova/pull/8726) | #7087 | docs(ledger): plan update |
+| 2026-11-24T05:20 | [#8725](https://github.com/openova-io/openova/pull/8725) | #8636 | CMP-G01 step 5 takes its starting count after the cluster ha |
+| 2026-11-24T04:03 | [#8724](https://github.com/openova-io/openova/pull/8724) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:41 | [#8722](https://github.com/openova-io/openova/pull/8722) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:43 | [#8721](https://github.com/openova-io/openova/pull/8721) | #8711 | docs(adr): record 0035 on one telemetry pipeline per cluster |
+| 2026-11-24T05:13 | [#8720](https://github.com/openova-io/openova/pull/8720) | #8713 | test(gate): check CTL-G10 measures the region-loss bounds of |
+| 2026-11-24T05:20 | [#8719](https://github.com/openova-io/openova/pull/8719) | #8692 | test(gate): the browser tests of the jobs, resource views an |
 | 2026-11-24T02:59 | [#8718](https://github.com/openova-io/openova/pull/8718) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:14 | [#8717](https://github.com/openova-io/openova/pull/8717) | #8702 | The registry warm-up does not try to copy the image of an un |
 | 2026-11-24T02:50 | [#8715](https://github.com/openova-io/openova/pull/8715) | #7087 | docs(ledger): plan update |
+| 2026-11-24T04:13 | [#8714](https://github.com/openova-io/openova/pull/8714) | #8710 | refactor(charts): the eleven chart-seeded Applications take  |
 | 2026-11-24T02:40 | [#8712](https://github.com/openova-io/openova/pull/8712) | #7087 | docs(ledger): plan update |
 | 2026-11-24T02:27 | [#8709](https://github.com/openova-io/openova/pull/8709) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:59 | [#8707](https://github.com/openova-io/openova/pull/8707) | #8701 | docs(adr): record 0027 on the region-loss contract, a follow |
@@ -328,15 +337,6 @@ flowchart LR
 | 2026-11-23T23:47 | [#8686](https://github.com/openova-io/openova/pull/8686) | #8684 | refactor(console): remove the second vulnerability matcher f |
 | 2026-11-24T00:32 | [#8685](https://github.com/openova-io/openova/pull/8685) | FND-G12: a deleting policy removes an Application's seed CA  |  |
 | 2026-11-23T23:13 | [#8683](https://github.com/openova-io/openova/pull/8683) | #7087 | docs(ledger): plan update |
-| 2026-11-23T22:03 | [#8676](https://github.com/openova-io/openova/pull/8676) | #8658 | NET-G19: dnsdist answers public queries (explicit access lis |
-| 2026-11-23T21:35 | [#8675](https://github.com/openova-io/openova/pull/8675) | #7087 | docs(ledger): plan update |
-| 2026-11-23T21:24 | [#8673](https://github.com/openova-io/openova/pull/8673) | #7087 | docs(ledger): plan update |
-| 2026-11-23T22:37 | [#8672](https://github.com/openova-io/openova/pull/8672) | #8664 | test(gate): the row map of the ledger and the browser harnes |
-| 2026-11-23T22:11 | [#8671](https://github.com/openova-io/openova/pull/8671) | #8667 | feat(postgres): scheduled backups of the platform database c |
-| 2026-11-23T21:06 | [#8670](https://github.com/openova-io/openova/pull/8670) | #7087 | docs(ledger): plan update |
-| 2026-11-23T21:21 | [#8669](https://github.com/openova-io/openova/pull/8669) | #2634 | INF-G01: the chargeback database is back within the limit af |
-| 2026-11-23T20:52 | [#8666](https://github.com/openova-io/openova/pull/8666) | #7087 | docs(ledger): plan update |
-| 2026-11-23T20:43 | [#8663](https://github.com/openova-io/openova/pull/8663) | #7087 | docs(ledger): plan update |
 
 ---
 

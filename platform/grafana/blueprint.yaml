@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-grafana
 spec:
-  version: 1.0.19  # lockstep with chart/Chart.yaml (#5022 deploymentStrategy Recreate — RWO single-replica roll deadlock)
+  version: 1.0.20
   visibility: unlisted
   class: platform-component
   lifecycle: experimental

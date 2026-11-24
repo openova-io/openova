@@ -388,17 +388,15 @@ func main() {
 			h.SetExecStreamFactory(newExecStreamFactory(k8sFactory, log))
 			// EPIC-1 #1096 slice S — compliance score aggregator. Wired
 			// AFTER k8sCache because runWatch subscribes to the
-			// Factory's SSE fanout. Nil publisher + nil resolver are
-			// fine: the handler runs in best-effort mode (SSE +
-			// Prometheus only). Wiring NATS KV + EnvironmentPolicy
-			// resolver is operator-overridable via env vars per
+			// Factory's SSE fanout. A nil publisher is fine: the handler
+			// runs in best-effort mode (SSE + Prometheus only). NATS KV is
+			// operator-overridable via env vars per
 			// docs/INVIOLABLE-PRINCIPLES.md #4.
 			compliance := handler.NewComplianceHandler(
 				handler.ComplianceConfig{},
 				log,
 				k8sFactory,
 				newCompliancePolicyRollupPublisherFromEnv(log),
-				newComplianceEnvironmentPolicyResolverFromEnv(log),
 			)
 			compliance.Start(ctx)
 			h.SetComplianceHandler(compliance)
@@ -1638,28 +1636,4 @@ func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyR
 	log.Info("compliance: NATS KV publisher wired",
 		"url", url, "bucket", bucket, "source", source)
 	return p
-}
-
-// newComplianceEnvironmentPolicyResolverFromEnv builds a dynamic-
-// client-backed EnvironmentPolicyResolver against the catalyst-api's
-// own cluster (mother) or in-cluster (chroot). Returns nil when no
-// in-cluster config is available — callers fall back to default
-// equal-weights per the brief.
-func newComplianceEnvironmentPolicyResolverFromEnv(log *slog.Logger) handler.EnvironmentPolicyResolver {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		log.Info("compliance: in-cluster config unavailable; EnvironmentPolicy resolver disabled — falling back to default equal-weights")
-		return nil
-	}
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		log.Warn("compliance: dynamic client build failed; EnvironmentPolicy resolver disabled", "err", err)
-		return nil
-	}
-	r, err := handler.NewDynamicEnvironmentPolicyResolver(dyn)
-	if err != nil {
-		log.Warn("compliance: resolver init failed", "err", err)
-		return nil
-	}
-	return r
 }

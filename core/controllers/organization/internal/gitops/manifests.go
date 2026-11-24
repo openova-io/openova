@@ -1786,7 +1786,7 @@ resources:
 // carries the reserved-entity CiliumNetworkPolicy, which cannot apply into a
 // vanilla vcluster apiserver (no cilium.io/v2 CRD, #4475 §1) and is not a
 // syncable workload object, AND (#4991) the per-Org provisioning-tenant RBAC the
-// org-services/provisioning SA needs to create the kubeconfig mirror Secret +
+// org-services/provisioning SA needs to read the kubeconfig Secret +
 // bounce vcluster-0 during DNS recovery. Both apply to the host `<slug>` ns.
 // Ranges over renderView.HostAppsResources so the index stays deterministic.
 const hostAppsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
@@ -1811,15 +1811,13 @@ const appsNamespaceDoc = "namespace.yaml"
 // funnel's GeneratePerOrgAppsTree DELIBERATELY drops the provisioning-rbac.yaml
 // host-scaffolding file (it re-roots only the app workloads into vcluster/apps/),
 // and the org-controller emitted NO provisioning Role either — so
-// `provisioning` had NO create-secrets / delete-pods rights in `<slug>`. The
-// mirrorVClusterKubeconfig step POSTs the kubeconfig mirror into `<slug>` and
-// 403'd (`secrets is forbidden`), which is FATAL (failProvision) → the whole
-// provision aborted at the vcluster step → WordPress/customer apps never served
-// (#4964 added these verbs to the funnel's own generateProvisioningTenantRBAC,
+// `provisioning` had NO delete-pods rights in `<slug>`, and the funnel's former
+// kubeconfig copy 403'd on its Secret writes, which was FATAL (failProvision)
+// (#4964 added the verbs to the funnel's own generateProvisioningTenantRBAC,
 // but on a Sovereign that file is never committed — the Role must be delivered by
 // the boundary owner instead). Emitted into vcluster/host-apps/ so it is ALWAYS
 // applied host-side onto `<slug>` (never via kubeConfig) at Org-create — well
-// before the funnel's mirror step runs. Namespaced (Role, not ClusterRole) to
+// before the funnel's vcluster step runs. Namespaced (Role, not ClusterRole) to
 // preserve the deliberate per-Org write scoping (#75).
 const provisioningRBACTemplate = `apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1837,12 +1835,12 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
-    # create/update/patch were granted for the funnel's former kubeconfig
-    # copy (#4785). The funnel now only reads tenant-<slug>-kubeconfig
-    # (written by the vCluster, region_local.go); the verbs stay until the
-    # funnel's own copy of this Role (provisioning gitops.go) is narrowed too.
+    # Read only. The funnel writes no Secret through the API: it only waits
+    # for tenant-<slug>-kubeconfig (written by the vCluster, region_local.go,
+    # its only producer). The funnel's own copy of this Role (provisioning
+    # gitops.go) grants the same verbs.
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     # delete: waitForVclusterDNSOrKick bounces vcluster-0 when the syncer's
     # initial DNS reconciliation doesn't publish kube-dns-x-kube-system-x-vcluster.
@@ -2229,9 +2227,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 	files["vcluster/host-apps/"+ciliumNetworkPolicyDoc] = ciliumNetworkPolicyTemplate
 	// #4991 — the per-Org provisioning-tenant Role+RoleBinding, delivered by the
 	// boundary owner into the ALWAYS-host-applied host-apps tree so the
-	// org-services/provisioning SA can create the kubeconfig mirror Secret +
-	// bounce vcluster-0 in `<slug>` BEFORE the funnel's mirror step 403s and
-	// aborts the whole provision.
+	// org-services/provisioning SA can read the kubeconfig Secret +
+	// bounce vcluster-0 in `<slug>` BEFORE the funnel's vcluster step needs
+	// them; without it that step 403s and aborts the whole provision.
 	files["vcluster/host-apps/"+provisioningRBACDoc] = provisioningRBACTemplate
 	// NET-170 — the Organization fence (see orgFenceTemplate).
 	files["vcluster/host-apps/"+orgFenceDoc] = orgFenceTemplate

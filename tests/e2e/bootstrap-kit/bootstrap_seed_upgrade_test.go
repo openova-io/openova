@@ -806,8 +806,8 @@ func TestBootstrapSeedUpgradeNeverWritesAnEmptyOrUnresolvedValue(t *testing.T) {
 
 	seed := builtSeed(t, root)
 	built := sortedKeys(seed)
-	if fb := firstBootSeedKeys(t, root); !reflect.DeepEqual(built, fb) {
-		t.Errorf("the builder writes the keys %v, first boot writes %v", built, fb)
+	if fb := withoutFirstBootOnly(firstBootSeedKeys(t, root)); !reflect.DeepEqual(built, fb) {
+		t.Errorf("the builder writes the keys %v, first boot writes %v (without the first-boot-only keys %v)", built, fb, firstBootOnlySeedKeys)
 	}
 	if refs := manifestReferences(t, root); !reflect.DeepEqual(built, refs) {
 		t.Errorf("the builder writes the keys %v, the manifests read %v", built, refs)
@@ -1106,6 +1106,137 @@ func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 		h.put(t, seedNamespace, seedSecret, partial)
 		for _, p := range reconcileRegion(t, root, rootKustomizations(t, root, dir), h) {
 			t.Errorf("%s, installed with a seed of SEC-153: %s", dir, p)
+		}
+	}
+}
+
+// firstBootOnlySeedKeys are the keys of bootstrap-seed.env that the seed holds
+// only on a Sovereign whose first boot wrote them (SEC-060): no bootstrap
+// Secret holds their value, so the builder cannot add them to the seed of a
+// Sovereign installed before them, and no manifest under
+// clusters/_template/bootstrap-secrets renders them. KEYCLOAK_CLIENT_SECRET_SALT
+// is the salt of the derived Keycloak client secrets; the HelmReleases of kit
+// slots 09 and 13 read it from the seed with an optional valuesFrom, so on a
+// Sovereign whose seed lacks it both charts keep the unsalted secrets Keycloak
+// already holds, and the kit keeps reconciling.
+var firstBootOnlySeedKeys = []string{"KEYCLOAK_CLIENT_SECRET_SALT"}
+
+// seedSaltReaders are the kit slots that read the salt: bp-keycloak derives the
+// realm's client secrets with it, and the Keycloak credentials host bridge of
+// bp-catalyst-platform derives two of them again, so both must read it.
+var seedSaltReaders = []string{"clusters/_template/bootstrap-kit/09-keycloak.yaml", "clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml"}
+
+func withoutFirstBootOnly(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if !slicesContain(firstBootOnlySeedKeys, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func slicesContain(l []string, s string) bool {
+	for _, x := range l {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// seedValuesFrom are the valuesFrom entries of the HelmReleases in file that
+// read the seed Secret, by key.
+func seedValuesFrom(t *testing.T, file string) map[string]map[string]any {
+	t.Helper()
+	out := map[string]map[string]any{}
+	for _, d := range readYAMLDocs(t, file) {
+		if d["kind"] != "HelmRelease" {
+			continue
+		}
+		for _, v := range list(dig(d, "spec", "valuesFrom")) {
+			e, _ := v.(map[string]any)
+			if e["kind"] == "Secret" && e["name"] == seedSecret {
+				out[fmt.Sprint(e["valuesKey"])] = e
+			}
+		}
+	}
+	return out
+}
+
+// TestBootstrapSeedFirstBootOnlyKeysKeepTheKitReconciling (SEC-060): a key that
+// only first boot writes into the seed is in the first-boot seed file, is
+// written by no builder entry and rendered by no manifest, and every
+// HelmRelease of the kit that reads it does so with an optional valuesFrom of
+// the seed Secret, into sso.tier1ClientSecretSalt; slots 09 and 13 both read
+// it. A Sovereign installed before the key existed has a seed without it: a
+// required valuesFrom would stop both releases there, and a release that does
+// not read it would derive its secrets differently from the other.
+func TestBootstrapSeedFirstBootOnlyKeysKeepTheKitReconciling(t *testing.T) {
+	root := repoRoot(t)
+	firstBoot := firstBootSeedKeys(t, root)
+	built := sortedKeys(builtSeed(t, root))
+	refs := manifestReferences(t, root)
+	for _, k := range firstBootOnlySeedKeys {
+		if !slicesContain(firstBoot, k) {
+			t.Errorf("%s: first boot does not write %s into bootstrap-seed.env", seedTemplate, k)
+		}
+		if slicesContain(built, k) {
+			t.Errorf("%s: the builder writes %s, which no bootstrap Secret of an older Sovereign holds", seedJobFile, k)
+		}
+		if slicesContain(refs, k) {
+			t.Errorf("%s: a manifest renders ${%s}; on a Sovereign whose seed lacks it, it would render an empty value", seedSecretsDir, k)
+		}
+	}
+	problems := func(readers map[string]map[string]map[string]any) []string {
+		var out []string
+		for _, f := range seedSaltReaders {
+			e, ok := readers[f]["KEYCLOAK_CLIENT_SECRET_SALT"]
+			switch {
+			case !ok:
+				out = append(out, f+": no valuesFrom of the seed key KEYCLOAK_CLIENT_SECRET_SALT")
+			case e["optional"] != true:
+				out = append(out, f+": the valuesFrom of KEYCLOAK_CLIENT_SECRET_SALT is not optional")
+			case e["targetPath"] != "sso.tier1ClientSecretSalt":
+				out = append(out, f+": the valuesFrom of KEYCLOAK_CLIENT_SECRET_SALT does not set sso.tier1ClientSecretSalt")
+			}
+		}
+		return out
+	}
+	readers := map[string]map[string]map[string]any{}
+	for _, f := range seedSaltReaders {
+		readers[f] = seedValuesFrom(t, filepath.Join(root, f))
+	}
+	for _, p := range problems(readers) {
+		t.Error(p)
+	}
+
+	// The check can fail: a required valuesFrom, a missing one, a wrong target.
+	for _, c := range []struct {
+		what string
+		edit func(e map[string]any) map[string]any
+	}{
+		{"a required valuesFrom", func(e map[string]any) map[string]any { e["optional"] = false; return e }},
+		{"no valuesFrom", func(map[string]any) map[string]any { return nil }},
+		{"another target", func(e map[string]any) map[string]any { e["targetPath"] = "sso.salt"; return e }},
+	} {
+		broken := map[string]map[string]map[string]any{}
+		for f, m := range readers {
+			broken[f] = map[string]map[string]any{}
+			for k, e := range m {
+				c := map[string]any{}
+				for kk, vv := range e {
+					c[kk] = vv
+				}
+				broken[f][k] = c
+			}
+		}
+		f := seedSaltReaders[0]
+		if e := c.edit(broken[f]["KEYCLOAK_CLIENT_SECRET_SALT"]); e == nil {
+			delete(broken[f], "KEYCLOAK_CLIENT_SECRET_SALT")
+		}
+		if len(problems(broken)) == 0 {
+			t.Errorf("the check passes %s in %s", c.what, f)
 		}
 	}
 }

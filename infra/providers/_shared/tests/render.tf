@@ -173,6 +173,7 @@ locals {
     pdm_basic_auth_user           = "render-test"
     pdm_basic_auth_pass           = "render-test-pass"
     powerdns_api_key              = "render-test-pdns-key"
+    keycloak_client_secret_salt   = "render-test-keycloak-salt"
     cloud_credentials_secret_yaml = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}"
     # Provider-injected runcmd/file blocks: empty on this render branch (the
     # conditional if-not-empty guards short-circuit them), which is enough to

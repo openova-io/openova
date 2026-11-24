@@ -79,7 +79,7 @@ def worst_case(c, limit):
         },
         "random_password": {
             "k3s_server_token": {code: {"result": c.filler("k3s-server-" + code, c.TOKENS["k3s"], c.ALNUM)} for code in codes},
-            "k3s_agent_token": {code: {"result": c.filler("k3s-agent-" + code, c.TOKENS["k3s"], c.ALNUM)} for code in codes},
+            "k3s_agent_token": {code: {"result": c.filler("k3s-agent-" + code, c.TOKENS["k3s"], c.ALNUM)} for code in codes}, "keycloak_client_secret_salt": {"result": c.filler("keycloak-salt", 48, c.ALNUM)},
         },
     }
     # The workers' join address: the DHCP address of the region's first control

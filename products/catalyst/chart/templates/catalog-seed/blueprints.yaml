@@ -678,7 +678,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.36
+  version: 0.2.37
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.
@@ -782,7 +782,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: 0.2.36
+    version: 0.2.37
   topology:
     supported: [active-hot-standby]
     defaults:
@@ -1194,7 +1194,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.56
+  version: 1.2.57
   card:
     title: Gitea
     summary: Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.
@@ -1213,7 +1213,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: 1.2.56
+    version: 1.2.57
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1271,7 +1271,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.19
+  version: 1.0.20
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1347,7 +1347,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-grafana
-    version: 1.0.19
+    version: 1.0.20
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
@@ -1360,7 +1360,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.58
+  version: 0.2.59
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
@@ -1379,7 +1379,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: 0.2.58
+    version: 0.2.59
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1436,7 +1436,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.61
+  version: 1.2.62
   card:
     title: Harbor
     summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
@@ -1456,7 +1456,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: 1.2.61
+    version: 1.2.62
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1625,7 +1625,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.5.20
+  version: 1.5.22
   card:
     title: Keycloak
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
@@ -1658,7 +1658,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: 1.5.20
+    version: 1.5.22
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -2438,7 +2438,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.4.170
+  version: 1.4.171
   card:
     title: NewAPI
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
@@ -2460,7 +2460,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: 1.4.170
+    version: 1.4.171
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2517,7 +2517,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.87
+  version: 1.2.88
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
@@ -2537,7 +2537,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: 1.2.87
+    version: 1.2.88
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2798,7 +2798,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.39
+  version: 0.2.40
   card:
     title: PostgreSQL
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
@@ -2870,7 +2870,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.2.39
+    version: 0.2.40
   topology:
     supported: [singleton, active-hot-standby]
     defaults:
@@ -2916,7 +2916,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.31
+  version: 1.2.32
   card:
     title: PowerDNS
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
@@ -2934,7 +2934,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: 1.2.31
+    version: 1.2.32
   topology:
     supported: [singleton]
     defaults:
@@ -3743,7 +3743,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.9
+  version: 1.1.10
   card:
     title: Valkey
     summary: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
@@ -3768,7 +3768,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: 1.1.9
+    version: 1.1.10
   topology:
     supported: [active-passive, singleton]
     defaults:

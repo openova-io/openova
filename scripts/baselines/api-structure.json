@@ -176,13 +176,13 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 94848
+      "products/catalyst/bootstrap/api/internal/handler": 94100
     },
     "handler_methods": {
       "products/catalyst/bootstrap/api/internal/handler": 616
     },
     "main_lines": {
-      "products/catalyst/bootstrap/api/cmd/api/main.go": 926
+      "products/catalyst/bootstrap/api/cmd/api/main.go": 924
     }
   },
   "schema": "openova.io/guard-baseline/v1"
