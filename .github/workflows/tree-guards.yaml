@@ -511,6 +511,12 @@ jobs:
       - name: 'acceptance-tools | The precondition and acceptance jobs of a work package install exactly the tools their lines name, OpenTofu as the provider modules test with'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/acceptance-tools
+      - name: 'compliance-live-reads | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/compliance-live-reads
+      - name: 'compliance-live-reads | The compliance code of catalyst-api reads the cluster directly no more often'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/compliance-live-reads
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
