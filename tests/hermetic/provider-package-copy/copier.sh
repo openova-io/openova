@@ -87,6 +87,12 @@ printf '{"imageLayoutVersion":"1.0.0"}' >"${O}/oci-layout"
 oras cp --from-oci-layout "${O}:1.0" localhost:5001/openova-io/openova/app:1.0 --to-ca-file "${CA}" --to-plain-http=false >/dev/null \
   || { echo "FAIL — oras could not push the first-party list" >"${OUT}/case-warmup.txt"; exit 1; }
 echo "pushed the first-party list localhost:5001/openova-io/openova/app:1.0 at ${BX_DIGEST} (linux/amd64 child ${BX_CHILD})"
+# The same list is the image the listed Blueprint and the unlisted Blueprint the kit installs pin
+# in the tree of case warmup; unpublished:0.21.0 and listed-absent:1.0 are never pushed.
+for r in listed-app kit-app; do
+  oras cp --from-oci-layout "${O}:1.0" "localhost:5001/openova-io/openova/${r}:1.0" --to-ca-file "${CA}" --to-plain-http=false >/dev/null \
+    || { echo "FAIL — oras could not push the first-party list as ${r}:1.0" >"${OUT}/case-warmup.txt"; exit 1; }
+done
 
 # The list ConfigMap is the one stub: a kubectl first on PATH answers its read from /w/list. A curl
 # first on PATH records every manifest PUT (the registry-API branch) in PUTS, then runs curl; a
@@ -239,6 +245,14 @@ sed 's/^/    /' "${OUT}/warmup.out"
   if [ "${rc}" -eq 0 ] && ls /tmp/warmup-copies/*.ok >/dev/null 2>&1; then echo "ok   — warmup: the copy step exits 0 and marks the image ok"
   else echo "FAIL — warmup: the copy step exits ${rc}, $(cat /tmp/warmup-copies/*.fail 2>/dev/null || echo 'no .ok')"; fi
   judge warmup openova-io/openova/app openova-io/openova/app 1.0 "${BX_DIGEST}"
+  # The component pins of the tree: the listed Blueprint's and that of the unlisted Blueprint the
+  # kit installs are copied; the unlisted Blueprint nothing installs contributes no image.
+  for r in listed-app kit-app; do
+    if [ -e "/tmp/warmup-copies/ghcr.io_openova-io_openova_${r}_1.0.ok" ]; then echo "ok   — warmup: the component pin ${r}:1.0 is in the list and copied"
+    else echo "FAIL — warmup: the component pin ${r}:1.0 was not copied ($(ls /tmp/warmup-copies/ 2>/dev/null | tr '\n' ' ')): a listed Blueprint and one the kit installs keep their images"; fi
+  done
+  if grep -q 'queue ghcr.io/openova-io/openova/unpublished:' "${OUT}/warmup.out"; then echo "FAIL — warmup: the image unpublished:0.21.0 of bp-unlisted, unlisted in the catalogue seed and installed by no HelmRelease of the kit, is in the list"
+  else echo "ok   — warmup: the image of bp-unlisted, unlisted in the catalogue seed and installed by no HelmRelease of the kit, is not in the list"; fi
 } >"${OUT}/case-warmup.txt" 2>&1
 
 echo "── case warmup-fail: a copy that fails fails the copy step (its list names an image ghcr does not have) ──"
@@ -250,6 +264,18 @@ if [ "${frc}" -ne 0 ] && ls /tmp/warmup-copies/*absent*.fail >/dev/null 2>&1; th
 else
   echo "FAIL — warmup-fail: the step exits ${frc} with $(ls /tmp/warmup-copies/ 2>/dev/null | tr '\n' ' '): a copy that fails must fail the warm-up job" >"${OUT}/case-warmup-fail.txt"
 fi
+
+echo "── case warmup-listed: the missing image of a listed Blueprint still fails the copy step ──"
+lrc=0
+warmup_step /w/gh-listed >"${OUT}/warmup-listed.out" 2>&1 || lrc=$?
+sed 's/^/    /' "${OUT}/warmup-listed.out"
+{
+  if [ "${lrc}" -ne 0 ] && [ -e /tmp/warmup-copies/ghcr.io_openova-io_openova_listed-absent_1.0.fail ]; then
+    echo "ok   — warmup-listed: the copy of listed-absent:1.0, the pin of a listed Blueprint, is marked failed and the step exits ${lrc}"
+  else echo "FAIL — warmup-listed: the step exits ${lrc} with $(ls /tmp/warmup-copies/ 2>/dev/null | tr '\n' ' '): the missing image of a listed Blueprint must fail the warm-up job"; fi
+  if grep -q 'queue ghcr.io/openova-io/openova/unpublished:' "${OUT}/warmup-listed.out"; then echo "FAIL — warmup-listed: the image of the unlisted bp-unlisted is in the list"
+  else echo "ok   — warmup-listed: the image of the unlisted bp-unlisted is not in the list"; fi
+} >"${OUT}/case-warmup-listed.txt"
 
 echo "── case warmup-control: skopeo at its default, the warm-up's copy before 24 Nov 2026, writes the child ──"
 crc=0

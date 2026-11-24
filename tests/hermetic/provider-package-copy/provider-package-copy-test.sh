@@ -52,8 +52,13 @@
 #             the shape docker/build-push-action pushes (a linux/amd64 image and its attestation
 #             manifest) from ghcr.io (a skopeo first on PATH sends ghcr.io to the first registry):
 #             the tag serves the list's digest, the list, both manifests and every blob are
-#             byte-equal. A source line moved out of the step leaves the copy undefined: it fails;
+#             byte-equal. A source line moved out of the step leaves the copy undefined: it fails.
+#             The tree's component pins are those of a listed Blueprint and of an unlisted one the
+#             bootstrap kit installs (both copied) and of an unlisted one nothing installs, whose
+#             image ghcr does not have (bp-nemo-guardrails, #5468): it is not in the list;
 #   warmup-fail  the same step for a list naming an image ghcr does not have exits non-zero;
+#   warmup-listed  the same step for a tree whose listed Blueprint pins an image ghcr does not
+#             have exits non-zero, that copy marked failed: only the unlisted pin leaves the list;
 #   warmup-control  skopeo at its default (--multi-arch system), the warm-up's copy before
 #             24 Nov 2026, writes the linux/amd64 child under the tag, not the list: the list has
 #             the shape that gave one tag two digests (gate records of 23 Nov 2026,
@@ -61,7 +66,9 @@
 # Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole;
 # with the warm-up workflow of main before 24 Nov 2026 the case warmup fails (the tag serves the
 # child); with one that cuts the functions from the ref being warmed the case warmup-workflow fails;
-# with one whose failed copy is only a warning the case warmup-fail fails.
+# with one whose failed copy is only a warning the case warmup-fail fails; with the warm-up of main
+# before 24 Nov 2026 that copies the pins of every chart, an unlisted Blueprint's never-published
+# image among them, the case warmup fails (the copy of unpublished:0.21.0 fails the step).
 #
 # Usage: bash tests/hermetic/provider-package-copy/provider-package-copy-test.sh [CHART_DIR]
 # PPC_DIR (default RUNNER_TEMP/provider-package-copy) holds bin/, work/ and results.txt.
@@ -198,10 +205,32 @@ WARMUP_TLS=$(sed -n "s/^ *PREWARM_DEST_TLS_VERIFY: *'\([a-z]*\)'.*/\1/p" "${WARM
 # The ref being warmed is a tree WITHOUT scripts/cutover-copy-functions.sh and the cutover chart
 # (every ref before 24 Nov 2026, e46c1d8 among them); its list builder is a stand-in naming one
 # first-party image (gh-fail: one ghcr does not have). The workflow's own commit is this tree.
-for g in gh:app gh-fail:absent; do
+for g in gh:app gh-fail:absent gh-listed:app; do
   mkdir -p "${W}/${g%%:*}/${WARMUP_SRC}/scripts"
   printf '#!/bin/sh\necho ghcr.io/openova-io/openova/%s:1.0\n' "${g#*:}" >"${W}/${g%%:*}/${WARMUP_SRC}/scripts/check-mothership-proxy-image-path.sh"
 done
+# The component pins of a tree (cases warmup, warmup-listed): bp_fixture TREE NAME VISIBILITY
+# IMAGE TAG [kit] writes platform/NAME with a blueprint.yaml (metadata.name bp-NAME only) and a
+# chart whose values.yaml pins ghcr.io/openova-io/openova/IMAGE at TAG, the object bp-NAME of the
+# catalogue seed with spec.visibility VISIBILITY (the one place the mark is read from), and with
+# kit a HelmRelease of the bootstrap kit that installs chart bp-NAME.
+bp_fixture() {
+  local t="${W}/$1/${WARMUP_SRC}" seed
+  seed="${t}/products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
+  mkdir -p "${t}/platform/$2/chart" "${seed%/*}" "${t}/clusters/_template/bootstrap-kit"
+  printf 'apiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-%s\nspec:\n  version: 1.0.0\n' "$2" >"${t}/platform/$2/blueprint.yaml"
+  printf 'image:\n  repository: "ghcr.io/openova-io/openova/%s"\n  tag: "%s"\n' "$4" "$5" >"${t}/platform/$2/chart/values.yaml"
+  printf -- '---\napiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-%s\n  labels:\n    catalyst.openova.io/managed-by: catalog-seed\nspec:\n  version: 1.0.0\n  visibility: %s\n  endpoints:\n  - name: ui\n    visibility: public\n' "$2" "$3" >>"${seed}"
+  [ "${6:-}" != kit ] || printf 'apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: %s\nspec:\n  chart:\n    spec:\n      chart: bp-%s\n' "$2" "$2" >"${t}/clusters/_template/bootstrap-kit/52-$2.yaml"
+}
+# gh: a listed Blueprint, an unlisted one the kit installs (both images at the first registry) and
+# an unlisted one nothing installs, whose image was never published (bp-nemo-guardrails, #5468).
+bp_fixture gh listed listed listed-app 1.0
+bp_fixture gh kitonly unlisted kit-app 1.0 kit
+bp_fixture gh unlisted unlisted unpublished 0.21.0
+# gh-listed: the same unlisted Blueprint, and a listed one whose image ghcr does not have.
+bp_fixture gh-listed listed listed listed-absent 1.0
+bp_fixture gh-listed unlisted unlisted unpublished 0.21.0
 ln -s "${ROOT}" "${W}/gh/${WARMUP_OWN}"
 # The install step on this host, as written: helm is the job's own (the helm installer is not
 # fetched); step 03's skopeo is fetched by skopeo_fetch.

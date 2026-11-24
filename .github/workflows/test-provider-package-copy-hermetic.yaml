@@ -15,7 +15,9 @@
 #   warmup   the copy_one of warmup-bastion-harbor.yaml (the parent's hosted project), with the
 #            step 03 functions it sources (scripts/cutover-copy-functions.sh), copies a
 #            first-party list (an image and its attestation) whole: the tag keeps the list's
-#            digest; its control shows skopeo's default writes the linux/amd64 child instead.
+#            digest; its control shows skopeo's default writes the linux/amd64 child instead;
+#            the image of an unlisted Blueprint nothing installs is not in its list, and the
+#            missing image of a listed Blueprint fails it (case warmup-listed).
 # Both registries and the copier share one network namespace with no other network: nothing
 # publishes a port and nothing uses a node port. No cluster is read or written.
 #
