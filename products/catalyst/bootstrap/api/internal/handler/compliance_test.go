@@ -24,8 +24,8 @@
 //     - synthetic SyntheticReport ingest → resource score recorded
 //     - rollups: app + env + org + sovereign all computed
 //     - HTTP /scorecard returns the rolled shape
-//     - HTTP /policies returns weight + violation tally
-//     - HTTP /violations returns paginated rows
+//     - HTTP /policies returns weight + violation tally + the engine's mode
+//     - HTTP /violations returns paginated rows, filtered by policy
 //     - NATS publisher receives one Put per scope on each event
 //
 // Pre-existing CI failures noted in canon §7 are unaffected — this
@@ -360,11 +360,6 @@ func newComplianceTestRig(t *testing.T) (*Handler, *ComplianceHandler, *fakeNATS
 				"hpa-effective":     {Weight: 25, Scope: "stateless"},
 				"pvc-volume-expand": {Weight: 25, Scope: "stateful"},
 			},
-			Modes: map[string]string{
-				"probes-present": "enforcing",
-				"flux-managed":   "enforcing",
-				"hpa-effective":  "permissive",
-			},
 		},
 	}}
 	c := NewComplianceHandler(ComplianceConfig{
@@ -639,6 +634,7 @@ func TestCompliance_ScorecardEndpoint(t *testing.T) {
 
 func TestCompliance_PoliciesEndpoint(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("flux-managed", "Enforce", ""))
 	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
 		"metadata": map[string]any{
@@ -654,8 +650,13 @@ func TestCompliance_PoliciesEndpoint(t *testing.T) {
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
 	}))
 	waitFor(t, 1*time.Second, func() bool {
-		c := h.ComplianceHandler()
-		return len(c.policiesFor(context.Background(), "acme")) > 0
+		// Weight 50 is the EnvironmentPolicy of acme-prod, kept at ingest.
+		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
+			if p.Name == "flux-managed" && p.Violations == 1 && p.Mode == "enforcing" && p.Weight == 50 {
+				return true
+			}
+		}
+		return false
 	})
 
 	r := chi.NewRouter()
@@ -705,7 +706,7 @@ func TestCompliance_ViolationsPagination(t *testing.T) {
 		}))
 	}
 	waitFor(t, 1*time.Second, func() bool {
-		return len(h.ComplianceHandler().violationsFor("acme", "web")) == 3
+		return len(h.ComplianceHandler().violationsFor("acme", "web", "")) == 3
 	})
 
 	r := chi.NewRouter()
@@ -841,7 +842,7 @@ func TestCompliance_ResourceFindings(t *testing.T) {
 
 // TestCompliance_SovereignAlertCount — slice Z2 follow-up.
 //
-// SovereignAlertCount returns len(violationsFor(clusterID, "")). When
+// SovereignAlertCount returns len(violationsFor(clusterID, "", "")). When
 // no violations have been ingested it returns 0; on N failing
 // (resource, policy) pairs it returns N. Nil receiver returns 0
 // (catalyst-api Pods running without compliance wired keep the
@@ -1093,11 +1094,149 @@ func TestCompliance_ScorecardEchoesRegion(t *testing.T) {
 	}
 }
 
-// TestCompliance_ScorecardSurfacesReliabilityAlias verifies the
-// `reliability` field is emitted as a JSON alias for SRE so the matrix
-// (TC-054) sees the literal `reliability` token.
-func TestCompliance_ScorecardSurfacesReliabilityAlias(t *testing.T) {
-	h, _, _, _ := newComplianceTestRig(t)
+// mkClusterPolicy builds a legacy Kyverno ClusterPolicy event payload.
+// action is spec.validationFailureAction ("" leaves it out); ruleAction
+// is validate.failureAction of its one rule ("" leaves it out).
+func mkClusterPolicy(name, action, ruleAction string) *unstructured.Unstructured {
+	rule := map[string]any{"name": name + "-rule"}
+	if ruleAction != "" {
+		rule["validate"] = map[string]any{"failureAction": ruleAction}
+	}
+	spec := map[string]any{"rules": []any{rule}}
+	if action != "" {
+		spec["validationFailureAction"] = action
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kyverno.io/v1", "kind": "ClusterPolicy",
+		"metadata": map[string]any{
+			"name":        name,
+			"annotations": map[string]any{"policies.kyverno.io/severity": "medium"},
+		},
+		"spec": spec,
+	}}
+}
+
+// TestCompliance_EnginePolicyMode — the mode is read from the engine's
+// policy object, never from a configuration of catalyst-api.
+func TestCompliance_EnginePolicyMode(t *testing.T) {
+	validating := func(actions ...any) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
+			"metadata": map[string]any{"name": "v"},
+			"spec":     map[string]any{"validationActions": actions},
+		}}
+	}
+	cases := []struct {
+		name string
+		obj  *unstructured.Unstructured
+		want string
+	}{
+		{"ValidatingPolicy with Deny", validating("Audit", "Deny"), "enforce"},
+		{"ValidatingPolicy with Audit only", validating("Audit", "Warn"), "audit"},
+		{"ClusterPolicy Enforce", mkClusterPolicy("a", "Enforce", ""), "enforce"},
+		{"ClusterPolicy enforce in lower case", mkClusterPolicy("a", "enforce", ""), "enforce"},
+		{"ClusterPolicy Audit", mkClusterPolicy("a", "Audit", ""), "audit"},
+		{"ClusterPolicy Audit with one rule Enforce", mkClusterPolicy("a", "Audit", "Enforce"), "enforce"},
+		{"ClusterPolicy with no action", mkClusterPolicy("a", "", ""), "audit"},
+	}
+	for _, c := range cases {
+		if got := enginePolicyMode(c.obj); got != c.want {
+			t.Errorf("%s: want %s, got %s", c.name, c.want, got)
+		}
+	}
+}
+
+// TestCompliance_PoliciesModeFollowsEngineObject — each listed policy
+// shows the mode of its engine object, and a changed object changes it.
+func TestCompliance_PoliciesModeFollowsEngineObject(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("enforced", "Enforce", ""))
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("rule-enforced", "Audit", "Enforce"))
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("audited", "Audit", ""))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr", []map[string]any{
+		{"policy": "audited", "rule": "audited-rule", "result": "fail",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	modes := func() map[string]string {
+		out := map[string]string{}
+		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
+			out[p.Name] = p.Mode
+		}
+		return out
+	}
+	waitFor(t, 1*time.Second, func() bool { return len(modes()) == 3 })
+	want := map[string]string{"enforced": "enforcing", "rule-enforced": "enforcing", "audited": "permissive"}
+	for n, m := range want {
+		if got := modes()[n]; got != m {
+			t.Errorf("%s: want mode %s, got %s", n, m, got)
+		}
+	}
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("audited", "Enforce", ""))
+	waitFor(t, 1*time.Second, func() bool { return modes()["audited"] == "enforcing" })
+}
+
+// TestCompliance_PoliciesIgnoreBaselineParameter — the policies route has
+// no baseline filter: `?baseline=true` lists every policy and the answer
+// carries no baseline keys.
+func TestCompliance_PoliciesIgnoreBaselineParameter(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("disallow-privileged-containers", "Enforce", ""))
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("some-custom-policy", "Audit", ""))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr", []map[string]any{
+		{"policy": "some-custom-policy", "rule": "r", "result": "pass",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	waitFor(t, 1*time.Second, func() bool {
+		return len(h.ComplianceHandler().policiesFor(context.Background(), "acme")) == 2
+	})
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/policies?baseline=true", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("policies: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := resp["baseline"]; ok {
+		t.Errorf("the answer must carry no baseline key: %s", rec.Body.String())
+	}
+	if _, ok := resp["baselineCount"]; ok {
+		t.Errorf("the answer must carry no baselineCount key: %s", rec.Body.String())
+	}
+	if resp["count"] != float64(2) {
+		t.Errorf("count: want 2, got %v", resp["count"])
+	}
+}
+
+// TestCompliance_ScorecardCarriesOnlyMeasuredData — the scorecard names
+// only applications the aggregator has seen, whatever the environment of
+// the process holds, and has no category block.
+func TestCompliance_ScorecardCarriesOnlyMeasuredData(t *testing.T) {
+	t.Setenv("CATALYST_QA_APPLICATIONS", "qa-wordpress,qa-wp")
+	h, _, _, f := newComplianceTestRig(t)
+	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1", "kind": "Deployment",
+		"metadata": map[string]any{
+			"namespace": "ns1", "name": "web",
+			"labels": map[string]any{"catalyst.openova.io/application": "web"},
+		},
+	}})
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "web-pr", []map[string]any{
+		{"policy": "probes-present", "rule": "probes-present", "result": "pass",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	waitFor(t, 1*time.Second, func() bool {
+		for _, s := range h.ComplianceHandler().rollupsFor("acme") {
+			if s.Scope == "application" && s.ID == "web" {
+				return true
+			}
+		}
+		return false
+	})
 	r := chi.NewRouter()
 	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard", nil)
@@ -1106,143 +1245,213 @@ func TestCompliance_ScorecardSurfacesReliabilityAlias(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "\"reliability\"") {
-		t.Fatalf("scorecard body must carry reliability alias; got %s", body)
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-}
-
-// TestCompliance_ScorecardWireShape_Fix167 verifies the 4 FAILs from
-// qa-loop iter-16 close on a SINGLE /scorecard call against a stock
-// chroot Sovereign (no policy reports, no `?region=` query, no
-// `?app=` query):
-//
-//   - TC-018 must contain `items`, `security`, `sre`
-//   - TC-029 must contain `qa-wordpress`
-//   - TC-050 must contain `hz-hel-rtz-prod`
-//   - TC-054 must contain `reliability`
-//
-// The matrix runner (fast_executor.py) does substring-match on the
-// raw body — every token MUST appear regardless of query string per
-// the runner's URL handling (see Fix #167 PR body).
-//
-// Wire-shape contract mirrors Fix #160 PR #1364 + Fix #165 PR #1368:
-// every matrix-asserted token is present on the BODY of the 200
-// response, regardless of upstream state, so the runner's
-// `must_contain` literal-token assertion resolves on the body alone.
-func TestCompliance_ScorecardWireShape_Fix167(t *testing.T) {
-	// Seed CATALYST_CONFIGURED_REGIONS so the env merge supplies the
-	// canonical multi-region literal token (TC-050).
-	t.Setenv("CATALYST_CONFIGURED_REGIONS", "fsn1,hz-hel-rtz-prod")
-	// CATALYST_QA_APPLICATIONS is unset → appRefsFromEnv falls back
-	// to the canonical qa-fixtures default (qa-wordpress, qa-wp).
-	h, _, _, _ := newComplianceTestRig(t)
-	r := chi.NewRouter()
-	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/acme/compliance/scorecard", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+	refs, _ := json.Marshal(resp["appRefs"])
+	if string(refs) != `["web"]` {
+		t.Errorf("appRefs: want [\"web\"], got %s", refs)
 	}
-	body := rec.Body.String()
-	// One assertion per claimed TC. The substring check matches the
-	// matrix runner (fast_executor.must_pass) so a green test
-	// guarantees a green matrix row.
-	cases := []struct {
-		tc    string
-		token string
-	}{
-		{"TC-018", "\"items\""},
-		{"TC-018", "\"security\""},
-		{"TC-018", "\"sre\""},
-		{"TC-029", "qa-wordpress"},
-		{"TC-050", "hz-hel-rtz-prod"},
-		{"TC-054", "\"reliability\""},
-	}
-	for _, c := range cases {
-		if !strings.Contains(body, c.token) {
-			t.Errorf("%s: scorecard body missing %q; got %s", c.tc, c.token, body)
+	for _, key := range []string{"categoryScores", "security", "sre", "baseline", "reliability"} {
+		if _, ok := resp[key]; ok {
+			t.Errorf("the scorecard must carry no %q key: %s", key, rec.Body.String())
 		}
 	}
+	if _, ok := resp["items"]; !ok {
+		t.Errorf("the scorecard must carry items: %s", rec.Body.String())
+	}
 }
 
-// TestCompliance_ScorecardAppRefsEnvOverride verifies the operator-
-// override path for CATALYST_QA_APPLICATIONS (per
-// INVIOLABLE-PRINCIPLES #4: every literal must be env-overridable).
-func TestCompliance_ScorecardAppRefsEnvOverride(t *testing.T) {
-	t.Setenv("CATALYST_QA_APPLICATIONS", "custom-app-1,custom-app-2")
-	h, _, _, _ := newComplianceTestRig(t)
+// TestCompliance_ViolationsPolicyFilter — `?policy=<name>` keeps the
+// violations of that policy, filtered on the server before the page.
+func TestCompliance_ViolationsPolicyFilter(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	for _, p := range []string{"a", "b", "c"} {
+		publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr-"+p, []map[string]any{
+			{"policy": p, "rule": p, "result": "fail",
+				"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+		}))
+	}
+	waitFor(t, 1*time.Second, func() bool {
+		return len(h.ComplianceHandler().violationsFor("acme", "", "")) == 3
+	})
 	r := chi.NewRouter()
-	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/acme/compliance/scorecard", nil)
+	r.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/violations?policy=b&limit=1", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("scorecard: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("violations: %d %s", rec.Code, rec.Body.String())
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "custom-app-1") || !strings.Contains(body, "custom-app-2") {
-		t.Fatalf("scorecard appRefs must reflect CATALYST_QA_APPLICATIONS env; got %s", body)
+	var resp struct {
+		Items []Violation `json:"items"`
+		Total int         `json:"total"`
 	}
-	// Default qa-wordpress MUST NOT leak when env is set (the env is
-	// authoritative, not additive to the default).
-	if strings.Contains(body, "qa-wordpress") {
-		t.Fatalf("scorecard appRefs must NOT include default qa-wordpress when env is set; got %s", body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Total != 1 || len(resp.Items) != 1 || resp.Items[0].Policy != "b" {
+		t.Fatalf("policy=b: want one violation of policy b, got total=%d items=%+v", resp.Total, resp.Items)
 	}
 }
 
-// TestCompliance_PoliciesBaselineFilter verifies `?baseline=true`
-// scopes the response to the K-slice baseline contract and surfaces
-// the literal `baseline` + `19` tokens (TC-046).
-func TestCompliance_PoliciesBaselineFilter(t *testing.T) {
-	h, _, _, _ := newComplianceTestRig(t)
-	// Seed the in-memory aggregator with a mix of baseline + non-baseline
-	// policy names so the filter has something to drop. Use the synthetic
-	// policySrc map directly via ingestKyvernoClusterPolicy fixtures
-	// would be heavyweight — instead just exercise the handler against
-	// the empty cluster path where the live-fallback returns []; the
-	// matrix tokens (`baseline`, `19`) come from the response envelope,
-	// not the items list.
+// TestCompliance_PolicyByNameFromCache — the by-name route answers from
+// the aggregator: 200 with the engine's mode for a policy the cache
+// delivered, 404 for any other name. No cluster client is wired here.
+func TestCompliance_PolicyByNameFromCache(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("require-probes", "Enforce", ""))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr", []map[string]any{
+		{"policy": "require-probes", "rule": "require-probes-rule", "result": "fail",
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+	}))
+	waitFor(t, 1*time.Second, func() bool {
+		return len(h.ComplianceHandler().policiesFor(context.Background(), "acme")) == 1
+	})
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/policies/require-probes", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("by name: %d %s", rec.Code, rec.Body.String())
+	}
+	var view PolicyView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if view.Name != "require-probes" || view.Mode != "enforcing" || view.Violations != 1 || view.Severity != "medium" ||
+		len(view.Rules) != 1 || view.Rules[0] != "require-probes-rule" {
+		t.Fatalf("by name: unexpected view %+v", view)
+	}
+	get := func(name string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/policies/"+name, nil))
+		return rec
+	}
+	var notFound struct {
+		Error string `json:"error"`
+	}
+	if rec2 := get("unknown"); rec2.Code != http.StatusNotFound ||
+		json.Unmarshal(rec2.Body.Bytes(), &notFound) != nil || notFound.Error != "policy not found" {
+		t.Fatalf("unknown name: want 404 policy not found, got %d %s", rec2.Code, rec2.Body.String())
+	}
+
+	// A policy the engine removes leaves the route and the list.
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("removed-later", "Enforce", ""))
+	waitFor(t, 1*time.Second, func() bool { return get("removed-later").Code == http.StatusOK })
+	f.Publish(k8scache.Event{Cluster: "acme", Kind: "clusterpolicy", Type: k8scache.EventDeleted,
+		Object: mkClusterPolicy("removed-later", "Enforce", ""), At: time.Now()})
+	waitFor(t, 1*time.Second, func() bool { return get("removed-later").Code == http.StatusNotFound })
+	for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
+		if p.Name == "removed-later" {
+			t.Fatalf("a deleted policy is still listed: %+v", p)
+		}
+	}
+
+	// Without the aggregator the route answers 503.
+	bare := chi.NewRouter()
+	bare.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", NewWithPDM(quietComplianceLogger(), &fakePDM{}).HandleCompliancePolicyByName)
+	rec3 := httptest.NewRecorder()
+	bare.ServeHTTP(rec3, httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/policies/require-probes", nil))
+	if rec3.Code != http.StatusServiceUnavailable {
+		t.Fatalf("no aggregator: want 503, got %d %s", rec3.Code, rec3.Body.String())
+	}
+}
+
+// countingResolver counts the EnvironmentPolicy reads of the aggregator.
+type countingResolver struct{ calls int }
+
+func (r *countingResolver) Resolve(context.Context, string) (*EnvironmentPolicySpec, error) {
+	r.calls++
+	return nil, nil
+}
+
+// TestCompliance_PolicyRoutesReadNoClusterPerRequest — the list and the
+// by-name route take the weights the last ingest kept; neither resolves an
+// EnvironmentPolicy (a cluster read in production) per request, and a policy
+// object lists before the cluster has any report.
+func TestCompliance_PolicyRoutesReadNoClusterPerRequest(t *testing.T) {
+	res := &countingResolver{}
+	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil, res)
+	c.policyMetaByName["acme"] = map[string]policyMeta{"only-object": {mode: "enforce"}}
+	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
+	h.SetComplianceHandler(c)
 	r := chi.NewRouter()
 	r.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/acme/compliance/policies?baseline=true", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("policies: %d %s", rec.Code, rec.Body.String())
+	r.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/policies"+path, nil))
+		return rec
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "\"baseline\":true") {
-		t.Fatalf("policies body must echo baseline=true; got %s", body)
+	if rec := get("/only-object"); rec.Code != http.StatusOK {
+		t.Fatalf("a policy object with no report yet: want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(body, "\"baselineCount\":19") {
-		t.Fatalf("policies body must carry baselineCount=19; got %s", body)
+	c.state["acme"] = map[string]*resourceState{"ns1/Deployment/web": {environment: "acme-prod",
+		results: map[string]policyVerdict{"weighted": {result: "fail"}}}}
+	c.envSpecs["acme-prod"] = &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{"weighted": {Weight: 40, Scope: "all"}}}
+	rec := get("/weighted")
+	var view PolicyView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("by name: %d %s %v", rec.Code, rec.Body.String(), err)
+	}
+	if view.Weight != 40 || view.Scope != "all" || view.Violations != 1 {
+		t.Fatalf("by name: want the kept weight 40/all and 1 violation, got %+v", view)
+	}
+	if rec := get(""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":2`) {
+		t.Fatalf("list: want 2 rows, got %d %s", rec.Code, rec.Body.String())
+	}
+	if res.calls != 0 {
+		t.Fatalf("the routes resolved an EnvironmentPolicy %d times per request; want 0", res.calls)
 	}
 }
 
-// TestFilterBaselinePolicies_DropsNonBaseline verifies the pure
-// filter helper retains only canonical baseline-19 names.
-func TestFilterBaselinePolicies_DropsNonBaseline(t *testing.T) {
-	in := []PolicyView{
-		{Name: "disallow-privileged-containers"},
-		{Name: "require-pod-resources"},
-		{Name: "some-custom-policy"},
-		{Name: "another-non-baseline"},
+// TestCompliance_PolicyObjectsPerCluster — one process watches several
+// clusters: each cluster's routes show the mode of its own engine object,
+// a delete in one cluster leaves the other untouched, and a cluster with
+// no object and no report lists nothing.
+func TestCompliance_PolicyObjectsPerCluster(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	publish := func(cluster string, typ k8scache.EventType, obj *unstructured.Unstructured) {
+		f.Publish(k8scache.Event{Cluster: cluster, Kind: "clusterpolicy", Type: typ, Object: obj, At: time.Now()})
 	}
-	out := filterBaselinePolicies(in)
-	if len(out) != 2 {
-		t.Fatalf("want 2 baseline policies after filter, got %d (%+v)", len(out), out)
-	}
-	for _, p := range out {
-		switch p.Name {
-		case "disallow-privileged-containers", "require-pod-resources":
-			// ok
-		default:
-			t.Errorf("unexpected baseline policy in result: %q", p.Name)
+	modes := func(cluster string) map[string]string {
+		out := map[string]string{}
+		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), cluster) {
+			out[p.Name] = p.Mode
 		}
+		return out
+	}
+	publish("acme", k8scache.EventAdded, mkClusterPolicy("x", "Enforce", ""))
+	publish("beta", k8scache.EventAdded, mkClusterPolicy("x", "Audit", ""))
+	publish("beta", k8scache.EventAdded, mkClusterPolicy("beta-only", "Audit", ""))
+	waitFor(t, 1*time.Second, func() bool { return len(modes("beta")) == 2 && len(modes("acme")) == 1 })
+	if got := modes("acme")["x"]; got != "enforcing" {
+		t.Fatalf("acme x: want enforcing (its own object), got %q", got)
+	}
+	if got := modes("beta")["x"]; got != "permissive" {
+		t.Fatalf("beta x: want permissive (its own object), got %q", got)
+	}
+	if _, ok := modes("acme")["beta-only"]; ok {
+		t.Fatalf("acme lists the policy of cluster beta: %v", modes("acme"))
+	}
+	if got := modes("unknown-id"); len(got) != 0 {
+		t.Fatalf("a cluster with no object and no report: want no policy, got %v", got)
+	}
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
+	get := func(cluster string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/"+cluster+"/compliance/policies/x", nil))
+		return rec
+	}
+	publish("beta", k8scache.EventDeleted, mkClusterPolicy("x", "Audit", ""))
+	waitFor(t, 1*time.Second, func() bool { return get("beta").Code == http.StatusNotFound })
+	rec := get("acme")
+	var view PolicyView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || rec.Code != http.StatusOK || view.Mode != "enforcing" {
+		t.Fatalf("acme x after beta deleted it: want 200 enforcing, got %d %s", rec.Code, rec.Body.String())
 	}
 }

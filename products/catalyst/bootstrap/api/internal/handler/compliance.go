@@ -19,7 +19,7 @@
 //
 //	GET /api/v1/sovereigns/{id}/compliance/scorecard
 //	GET /api/v1/sovereigns/{id}/compliance/policies
-//	GET /api/v1/sovereigns/{id}/compliance/violations?app=<name>
+//	GET /api/v1/sovereigns/{id}/compliance/violations?app=<name>&policy=<name>
 //	GET /api/v1/sovereigns/{id}/compliance/stream  (SSE)
 //
 // Outputs:
@@ -52,7 +52,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -184,6 +183,10 @@ type policyMeta struct {
 	title       string
 	category    string
 	description string
+	// mode — "enforce" or "audit": the mode the engine's policy object
+	// carries (enginePolicyMode). It is the only source of
+	// PolicyView.Mode.
+	mode string
 }
 
 // Violation — one offending (resource, policy) pair. The
@@ -249,21 +252,8 @@ type ResourceComplianceResponse struct {
 }
 
 // ScorecardResponse is the /scorecard endpoint shape. Sorted
-// children at every level for stable rendering.
-//
-// Per qa-loop iter-15 Fix #62 the response carries an additional
-// `items` array + per-category breakdown (`security`, `sre`, `baseline`)
-// per the canonical UAT matrix TC-018 contract. The category breakdown
-// is computed from the same per-resource Score state by partitioning
-// PolicyViews on the `policies.kyverno.io/category` annotation:
-//
-//   - "security"  — PSS / RBAC / Kyverno security policies
-//   - "sre"       — Reliability / availability / SLO policies
-//   - "baseline"  — Pod / namespace baseline (the K-slice baseline tier)
-//
-// Categories are ALWAYS rendered (even when their numerator is zero) so
-// the `score` literal + each category key are present at every wire
-// shape — the matrix asserts both presence + the absence of `null`.
+// children at every level for stable rendering. `items` is the flat
+// slice of every Score in the document.
 type ScorecardResponse struct {
 	Sovereign     Score   `json:"sovereign"`
 	Organizations []Score `json:"organizations"`
@@ -273,25 +263,6 @@ type ScorecardResponse struct {
 	// consumers grep `items` once without walking each rollup level.
 	// Sorted by (Scope, ID) for stable rendering.
 	Items []Score `json:"items"`
-	// CategoryScores — per-category headline numbers. Keyed on canonical
-	// category names: "security", "sre", "baseline". Always present
-	// (zero-denominator entries render `score:0`, never `null`).
-	CategoryScores map[string]CategoryScore `json:"categoryScores"`
-	// Security/SRE/Baseline — flat aliases the matrix asserts on. The
-	// alias mirrors CategoryScores[name].Score so a consumer that wants
-	// the headline number doesn't have to descend into the map.
-	Security int `json:"security"`
-	SRE      int `json:"sre"`
-	Baseline int `json:"baseline"`
-	// Reliability — alias of SRE. The canonical UAT matrix (TC-054)
-	// asserts the literal `reliability` token because the
-	// Sovereign-side compliance dashboard surfaces SRE under the
-	// industry-standard "reliability" header. Same value as SRE; both
-	// keys are emitted so consumers using either vocabulary see the
-	// score without a follow-up call. Per
-	// `feedback_no_mvp_no_workarounds.md` the value is the REAL
-	// computed SRE score, never a placeholder 0.
-	Reliability int `json:"reliability"`
 	// Region — echoes the `?region=<name>` query param when set. The
 	// matrix (TC-050) asserts the requested region literal in the
 	// scorecard body so a multi-region consumer can confirm the
@@ -312,29 +283,11 @@ type ScorecardResponse struct {
 	// regardless of `?region=` query echo — matching the chroot
 	// Sovereign's `/regions` + `/clusters` envelope shape.
 	Regions []string `json:"regions"`
-	// AppRefs — every application namespace this Sovereign carries a
-	// rollup for (qa-loop iter-16 Fix #167). Flat slice of literal
-	// applicationRef strings extracted from the Applications rollups
-	// PLUS the chart-baked `CATALYST_QA_APPLICATIONS` env (comma-
-	// separated) so the matrix's literal application tokens
-	// (`qa-wordpress`, `qa-wp`) are present on the wire even when
-	// the live aggregator has not yet ingested a PolicyReport for
-	// that workload. Mirrors fleet's `ConfiguredRegions`/`Regions`
-	// dual-axis pattern.
+	// AppRefs — every application this Sovereign carries a rollup
+	// for: the applicationRef of each Applications rollup, sorted. Only
+	// names the aggregator has seen in the cache; `[]` when none.
 	AppRefs     []string  `json:"appRefs"`
 	GeneratedAt time.Time `json:"generatedAt"`
-}
-
-// CategoryScore — per-category headline (security / sre / baseline).
-// Score is normalised to [0, 100]; Numerator/Denominator surface the
-// raw aggregation behind it. PolicyCount is the number of distinct
-// policies contributing to this category (so the UI can render
-// "<n> policies" alongside the score).
-type CategoryScore struct {
-	Score       int `json:"score"`
-	Numerator   int `json:"numerator"`
-	Denominator int `json:"denominator"`
-	PolicyCount int `json:"policyCount"`
 }
 
 // ── Configuration (env-driven, per INVIOLABLE-PRINCIPLES #4) ─────────────
@@ -429,7 +382,7 @@ type PolicyRollupPublisher interface {
 // EnvironmentPolicyResolver returns the EnvironmentPolicy CR for an
 // environment name. Nil-tolerant — when nil OR when the CR is not
 // found, the aggregator falls back to ComplianceConfig defaults
-// (every active policy weighted equally, mode=permissive). Production
+// (every active policy weighted equally). Production
 // main.go wires a dynamic-client-backed resolver; tests inject a
 // stub map.
 type EnvironmentPolicyResolver interface {
@@ -443,10 +396,6 @@ type EnvironmentPolicySpec struct {
 	// Weights — policy name → weight + applicability scope.
 	// Missing entries are treated as weight=0 (i.e. ignored).
 	Weights map[string]PolicyWeight
-
-	// Modes — policy name → "permissive" | "enforcing". Missing
-	// keys default to "permissive" at read time.
-	Modes map[string]string
 }
 
 // PolicyWeight matches the `additionalProperties` schema under
@@ -519,8 +468,11 @@ type ComplianceHandler struct {
 	// (severity / rules / title / category / description) so the
 	// per-policy drill-down (TC-026, slice U4) can render Severity +
 	// Rule lists without round-tripping the apiserver per request.
-	// Populated from `clusterpolicy` SSE events; read by policiesFor.
-	policyMetaByName map[string]policyMeta
+	// Keyed clusterID → policy name: each cluster's engine has its own
+	// objects. Written by `clusterpolicy` events, dropped on their delete;
+	// read by policiesFor.
+	policyMetaByName map[string]map[string]policyMeta
+	envSpecs         map[string]*EnvironmentPolicySpec // environment → spec resolved at its last ingest
 
 	// SSE subscribers — listeners on /compliance/stream.
 	subMu      sync.Mutex
@@ -582,7 +534,8 @@ func NewComplianceHandler(
 		state:             map[string]map[string]*resourceState{},
 		labels:            map[string]map[string]map[string]string{},
 		policySrc:         map[string]string{},
-		policyMetaByName:  map[string]policyMeta{},
+		policyMetaByName:  map[string]map[string]policyMeta{},
+		envSpecs:          map[string]*EnvironmentPolicySpec{},
 		subscribers:       map[int64]*complianceSubscriber{},
 		stop:              make(chan struct{}),
 		ready:             make(chan struct{}),
@@ -686,6 +639,10 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 			c.pruneKyvernoReport(ctx, ev)
 		case k8scache.KindComplianceEvaluator:
 			c.pruneSyntheticReport(ctx, ev)
+		case "clusterpolicy": // a removed policy leaves the list and the by-name route of its own cluster
+			c.mu.Lock()
+			delete(c.policyMetaByName[ev.Cluster], ev.Object.GetName())
+			c.mu.Unlock()
 		}
 		return
 	}
@@ -716,11 +673,9 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 //   - metadata.annotations[policies.kyverno.io/description] → Description
 //   - spec.rules[].name                                      → Rules
 //
-// Updates `policyMetaByName` keyed on the policy name. ClusterPolicies
-// are cluster-scoped; the aggregator does not partition by cluster
-// (the chroot Sovereign serves a single cluster). Per-cluster
-// partitioning is a follow-up if/when the aggregator serves multiple
-// clusters from one process — out of scope for the chroot architecture.
+// Updates `policyMetaByName[ev.Cluster]` keyed on the policy name: one
+// process watches several clusters (chroot secondaries, the mothership's
+// Sovereigns), and the same name may carry a different mode in each.
 func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
 	if ev.Object == nil {
 		return
@@ -735,6 +690,7 @@ func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
 		title:       strings.TrimSpace(annotations["policies.kyverno.io/title"]),
 		category:    strings.TrimSpace(annotations["policies.kyverno.io/category"]),
 		description: strings.TrimSpace(annotations["policies.kyverno.io/description"]),
+		mode:        enginePolicyMode(ev.Object),
 	}
 	if rules, ok, _ := unstructured.NestedSlice(ev.Object.Object, "spec", "rules"); ok {
 		for _, ri := range rules {
@@ -750,14 +706,47 @@ func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
 		}
 	}
 	c.mu.Lock()
-	c.policyMetaByName[name] = meta
+	if c.policyMetaByName[ev.Cluster] == nil {
+		c.policyMetaByName[ev.Cluster] = map[string]policyMeta{}
+	}
+	c.policyMetaByName[ev.Cluster][name] = meta
 	// First-writer-wins source — `kyverno` since the CR group is
-	// kyverno.io. Lets policiesFor surface the policy in the union
-	// even before any PolicyReport arrives.
+	// kyverno.io; policiesFor labels the row with it.
 	if c.policySrc[name] == "" {
 		c.policySrc[name] = "kyverno"
 	}
 	c.mu.Unlock()
+}
+
+// enginePolicyMode returns the mode a policy object of the engine
+// carries: "enforce" or "audit". A ValidatingPolicy enforces when
+// spec.validationActions holds Deny. A legacy ClusterPolicy enforces
+// when spec.validationFailureAction is Enforce, or when
+// validate.failureAction of one of its rules is. Every other policy
+// audits. Upper and lower case are the same.
+func enginePolicyMode(obj *unstructured.Unstructured) string {
+	if actions, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "validationActions"); ok {
+		for _, a := range actions {
+			if s, _ := a.(string); strings.EqualFold(strings.TrimSpace(s), "Deny") {
+				return "enforce"
+			}
+		}
+	}
+	if vfa, _, _ := unstructured.NestedString(obj.Object, "spec", "validationFailureAction"); strings.EqualFold(strings.TrimSpace(vfa), "Enforce") {
+		return "enforce"
+	}
+	if rules, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "rules"); ok {
+		for _, ri := range rules {
+			r, ok := ri.(map[string]any)
+			if !ok {
+				continue
+			}
+			if fa, _, _ := unstructured.NestedString(r, "validate", "failureAction"); strings.EqualFold(strings.TrimSpace(fa), "Enforce") {
+				return "enforce"
+			}
+		}
+	}
+	return "audit"
 }
 
 // isWorkloadKind returns true when the SSE event came in for a kind
@@ -994,6 +983,9 @@ func (c *ComplianceHandler) recomputeAndPublish(ctx context.Context, clusterID, 
 	c.mu.RUnlock()
 
 	envSpec, _ := c.resolveEnvPolicy(ctx, rsCopy.environment)
+	c.mu.Lock()
+	c.envSpecs[rsCopy.environment] = envSpec
+	c.mu.Unlock()
 	resourceScore := computeScore(rsCopy, envSpec)
 	resourceScore.Scope = "resource"
 	resourceScore.ID = resourceKey
@@ -1551,9 +1543,8 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	region := strings.TrimSpace(r.URL.Query().Get("region"))
 	rolls := h.compliance.rollupsFor(clusterID)
 	resp := ScorecardResponse{
-		GeneratedAt:    time.Now().UTC(),
-		CategoryScores: map[string]CategoryScore{},
-		Region:         region,
+		GeneratedAt: time.Now().UTC(),
+		Region:      region,
 	}
 	for _, s := range rolls {
 		switch s.Scope {
@@ -1590,20 +1581,6 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 		resp.Sovereign.Total = &zero
 		resp.Sovereign.Score = &zero
 	}
-	// Per qa-loop iter-15 Fix #62: compute the per-category breakdown
-	// (security/sre/baseline) from the live PolicyView set + per-policy
-	// metadata. Categories without contributing policies still render
-	// score=0 (not null/absent) so the matrix tokens are stable.
-	policies := h.compliance.policiesFor(r.Context(), clusterID)
-	resp.CategoryScores = computeCategoryScores(policies)
-	resp.Security = resp.CategoryScores["security"].Score
-	resp.SRE = resp.CategoryScores["sre"].Score
-	// Reliability is a JSON alias for SRE — the matrix asserts the
-	// industry-standard `reliability` token (TC-054). Same value, two
-	// keys; consumers using either vocabulary read the canonical SRE
-	// score without a follow-up call.
-	resp.Reliability = resp.SRE
-	resp.Baseline = resp.CategoryScores["baseline"].Score
 	// Items is sorted (scope, id) for deterministic rendering.
 	sort.Slice(resp.Items, func(i, j int) bool {
 		if resp.Items[i].Scope != resp.Items[j].Scope {
@@ -1614,17 +1591,10 @@ func (h *Handler) HandleComplianceScorecard(w http.ResponseWriter, r *http.Reque
 	if resp.Items == nil {
 		resp.Items = []Score{}
 	}
-	// qa-loop iter-16 Fix #167 — populate `regions[]` + `appRefs[]`
-	// so the matrix tokens (`hz-hel-rtz-prod` for TC-050,
-	// `qa-wordpress`/`qa-wp` for TC-029) are present on every
-	// /scorecard call regardless of query string. Per
-	// `feedback_no_mvp_no_workarounds.md` and INVIOLABLE-PRINCIPLES #4
-	// (never hardcode): both lists come from the same env-driven
-	// canonical seam used by fleet.regionsFromEnv (Fix #88 Path B)
-	// and applicationsFromEnv (Fix #167), so the chart's qa-fixtures
-	// values flow through without code edits per Sovereign.
+	// `regions[]` merges the configured regions; `appRefs[]` holds
+	// only the applications the aggregator has seen in the cache.
 	resp.Regions = mergeSortedRegions(scorecardRegions(rolls), regionsFromEnv())
-	resp.AppRefs = mergeSortedAppRefs(scorecardAppRefs(rolls), appRefsFromEnv())
+	resp.AppRefs = scorecardAppRefs(rolls)
 	// Codemod a3: scrub-null pass on the scorecard response. Empty
 	// rollups (Sovereign with no policy reports yet) leak `total:null`
 	// + `score:null` which the matrix asserts against; the wire-shape
@@ -1679,164 +1649,6 @@ func scorecardAppRefs(rolls []Score) []string {
 	return out
 }
 
-// appRefsFromEnv parses CATALYST_QA_APPLICATIONS (comma-separated)
-// into a clean string slice — the chart-baked literal app names the
-// chroot Sovereign carries before its compliance aggregator has
-// ingested a PolicyReport for that workload. Mirrors regionsFromEnv.
-//
-// Defaults to `["qa-wordpress","qa-wp"]` when the env is empty so the
-// qa-fixtures stack's matrix tokens (TC-029) are present out-of-the
-// box on every chroot Sovereign — the chart's
-// qaFixtures.applications value is the operator-overridable knob.
-// Per INVIOLABLE-PRINCIPLES #4 the default is documented + the env
-// is the single point of override (no code edits per Sovereign).
-func appRefsFromEnv() []string {
-	raw := strings.TrimSpace(os.Getenv("CATALYST_QA_APPLICATIONS"))
-	if raw == "" {
-		// qa-fixtures default: the canonical bp-wordpress / qa-wp
-		// workload pair the qa-loop matrix exercises (TC-029,
-		// TC-065, TC-091..TC-093, TC-272). Present out-of-the-box
-		// so a chroot Sovereign with qa-fixtures enabled does not
-		// need any env tuning to satisfy the matrix.
-		return []string{"qa-wordpress", "qa-wp"}
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// mergeSortedAppRefs returns the de-duplicated union of two app-ref
-// slices, sorted lexically. Either input may be empty/nil; the result
-// is ALWAYS non-nil so the caller can pass it straight through to JSON
-// (`[]` not `null`). Mirrors mergeSortedRegions.
-func mergeSortedAppRefs(a, b []string) []string {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	out := make([]string, 0, len(a)+len(b))
-	for _, src := range [][]string{a, b} {
-		for _, r := range src {
-			r = strings.TrimSpace(r)
-			if r == "" {
-				continue
-			}
-			if _, ok := seen[r]; ok {
-				continue
-			}
-			seen[r] = struct{}{}
-			out = append(out, r)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// computeCategoryScores partitions the live PolicyView set on the
-// `policies.kyverno.io/category` metadata and returns headline scores
-// per canonical category. Empty categories render with score=0 so the
-// wire shape always carries every key; matrix tokens (security/sre/
-// baseline) are guaranteed present.
-//
-// Category mapping (compatible with the K-slice baseline + future
-// catalog additions):
-//
-//   - "security"  — Pod Security, RBAC, network exposure policies
-//   - "sre"       — reliability / availability / SLO policies
-//   - "baseline"  — namespace + pod baseline policies
-//
-// Unknown categories degrade into "baseline" (the broadest bucket) so a
-// new policy without a category annotation still contributes to a
-// known number rather than being silently dropped.
-func computeCategoryScores(policies []PolicyView) map[string]CategoryScore {
-	out := map[string]CategoryScore{
-		"security": {},
-		"sre":      {},
-		"baseline": {},
-	}
-	for _, p := range policies {
-		bucket := categoryBucket(p)
-		cs := out[bucket]
-		// Numerator = (max possible weight) - violations*weight,
-		// Denominator = max possible weight. weight floor of 1.
-		w := p.Weight
-		if w <= 0 {
-			w = 1
-		}
-		cs.Denominator += w
-		passing := w - (p.Violations * w)
-		if passing < 0 {
-			passing = 0
-		}
-		cs.Numerator += passing
-		cs.PolicyCount++
-		out[bucket] = cs
-	}
-	for k, cs := range out {
-		if cs.Denominator > 0 {
-			cs.Score = (cs.Numerator * 100) / cs.Denominator
-			if cs.Score > 100 {
-				cs.Score = 100
-			}
-			if cs.Score < 0 {
-				cs.Score = 0
-			}
-		}
-		out[k] = cs
-	}
-	return out
-}
-
-// categoryBucket maps a policy's category metadata onto one of the
-// canonical buckets (security/sre/baseline). The canonical Kyverno
-// category strings (Pod Security Standards, Best Practices, etc.) are
-// recognised case-insensitively; everything unrecognised falls into
-// "baseline" so unknown categories still contribute to the headline.
-func categoryBucket(p PolicyView) string {
-	cat := strings.ToLower(strings.TrimSpace(p.Category))
-	name := strings.ToLower(strings.TrimSpace(p.Name))
-	if cat == "" {
-		// Heuristic on the canonical baseline policy names. Keeps
-		// the scorecard meaningful even when a ClusterPolicy ships
-		// without the `policies.kyverno.io/category` annotation.
-		switch {
-		case strings.Contains(name, "privileg"),
-			strings.Contains(name, "host-network"),
-			strings.Contains(name, "host-path"),
-			strings.Contains(name, "non-root"),
-			strings.Contains(name, "capabilities"),
-			strings.Contains(name, "selinux"),
-			strings.Contains(name, "rbac"),
-			strings.Contains(name, "rootfs"):
-			return "security"
-		case strings.Contains(name, "resources"),
-			strings.Contains(name, "pdb"),
-			strings.Contains(name, "limit"),
-			strings.Contains(name, "probe"),
-			strings.Contains(name, "replicas"):
-			return "sre"
-		default:
-			return "baseline"
-		}
-	}
-	switch {
-	case strings.Contains(cat, "security"),
-		strings.Contains(cat, "pod security"),
-		strings.Contains(cat, "rbac"):
-		return "security"
-	case strings.Contains(cat, "reliab"),
-		strings.Contains(cat, "availab"),
-		strings.Contains(cat, "slo"),
-		strings.Contains(cat, "sre"),
-		strings.Contains(cat, "best practice"):
-		return "sre"
-	default:
-		return "baseline"
-	}
-}
-
 // scrubScorecardNulls round-trips the ScorecardResponse through
 // generic JSON to apply jsonutil.ScrubNulls without writing the
 // per-field projection by hand. The resulting map[string]interface{}
@@ -1857,9 +1669,10 @@ func scrubScorecardNulls(in ScorecardResponse) interface{} {
 
 // HandleCompliancePolicies — GET /api/v1/sovereigns/{id}/compliance/policies
 //
-// Returns one row per active policy: name, weight, mode, current
-// violation count, source (kyverno|evaluator). The U5 toggle UI
-// reads this to show every policy + its enforcement mode.
+// Returns one row per policy the aggregator has seen in the cache:
+// name, weight, mode, current violation count, source
+// (kyverno|evaluator). The mode is the one the engine's policy object
+// carries. Nothing is read from the cluster per request.
 func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Request) {
 	if h.compliance == nil {
 		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
@@ -1873,252 +1686,72 @@ func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Reques
 	clusterID = h.resolveChrootClusterID(clusterID)
 
 	views := h.compliance.policiesFor(r.Context(), clusterID)
-	// Per qa-loop iter-15 Fix #62 + feedback_chroot_in_cluster_fallback.md:
-	// when the in-memory aggregator state is empty (no SSE events have
-	// landed yet, common on a fresh chroot Sovereign before bp-kyverno
-	// has produced its first PolicyReport), fall back to listing live
-	// Kyverno ClusterPolicy CRs via the sovereignDynamicClient so the
-	// /compliance/policies endpoint always reflects what's actually
-	// installed in the cluster (TC-021, TC-046, TC-048).
-	if len(views) == 0 {
-		if dep, ok := h.lookupDeploymentForInfra(clusterID); ok {
-			if client, err := h.sovereignDynamicClient(dep); err == nil {
-				views = listLivePoliciesFromCluster(r.Context(), client)
-			}
-		}
-	}
 	if views == nil {
 		views = []PolicyView{}
 	}
-	// qa-loop iter-1 prov #8 Fix #97 — when the caller passes
-	// `?baseline=true` (TC-046), filter to the canonical K-slice
-	// baseline-19 policy set so the response carries exactly the
-	// 19-policy contract the dashboard's "baseline compliance"
-	// headline depends on. Per `feedback_no_mvp_no_workarounds.md`
-	// the filter is applied on the REAL live policy set; if the
-	// cluster has fewer than 19 baseline policies installed the
-	// response surfaces the actual subset (never a synthesized 19).
-	// The `baseline` query value is echoed in the response so a
-	// consumer can confirm the filter was applied without re-parsing
-	// the URL.
-	baselineQ := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("baseline")), "true")
-	if baselineQ {
-		views = filterBaselinePolicies(views)
-	}
-	resp := map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"items": views,
 		"count": len(views),
-	}
-	if baselineQ {
-		resp["baseline"] = true
-		// `baselineCount` surfaces the canonical contract size (19) so
-		// the matrix asserts both the literal `baseline` keyword and
-		// the literal `19` token in the same response. Per the
-		// feedback rule the field reflects the canonical baseline-set
-		// size, not the (possibly partial) live count — the latter is
-		// already in `count`.
-		resp["baselineCount"] = canonicalBaselinePolicyCount
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// canonicalBaselinePolicyCount is the size of the K-slice baseline
-// policy contract (the matrix asserts the literal `19` token in the
-// /compliance/policies?baseline=true response per TC-046). Source of
-// truth is the bp-kyverno-policies chart's baseline-tier ConfigMap;
-// duplicated here as a constant because catalyst-api and the chart
-// are separate Helm units and we don't import chart values at build
-// time. If the chart's baseline list grows, bump this constant in the
-// same PR that ships the new policy.
-const canonicalBaselinePolicyCount = 19
-
-// canonicalBaselinePolicyNames is the K-slice baseline-19 policy set,
-// in the order the bp-kyverno-policies chart ships them. Used by
-// filterBaselinePolicies to scope a /compliance/policies response to
-// the baseline contract on `?baseline=true` (TC-046). Mirrors the
-// canonical names from the chart's baseline ConfigMap; any addition
-// to the baseline must update both the chart and this constant in
-// the same PR per `feedback_no_mvp_no_workarounds.md` (target-state,
-// no MVP partials).
-var canonicalBaselinePolicyNames = map[string]struct{}{
-	"disallow-capabilities":            {},
-	"disallow-host-namespaces":         {},
-	"disallow-host-path":               {},
-	"disallow-host-ports":              {},
-	"disallow-host-process":            {},
-	"disallow-privileged-containers":   {},
-	"disallow-proc-mount":              {},
-	"disallow-selinux":                 {},
-	"require-run-as-non-root-user":     {},
-	"require-run-as-nonroot":           {},
-	"restrict-apparmor-profiles":       {},
-	"restrict-seccomp":                 {},
-	"restrict-sysctls":                 {},
-	"require-pod-resources":            {},
-	"require-pod-probes":               {},
-	"require-non-root-groups":          {},
-	"require-default-network-policy":   {},
-	"disallow-default-namespace":       {},
-	"restrict-image-registries":        {},
-}
-
-// filterBaselinePolicies returns the subset of `views` whose policy
-// Name is in the canonical K-slice baseline contract. Names not in
-// the baseline are dropped — TC-046's `?baseline=true` MUST scope to
-// exactly the baseline set (matrix asserts the literal `19` count).
-// When the live cluster has fewer than 19 baseline policies installed
-// the result is the (smaller) intersection; the response's
-// `baselineCount` field still surfaces the canonical 19 so the
-// dashboard can render "<n>/19 installed".
-func filterBaselinePolicies(views []PolicyView) []PolicyView {
-	out := make([]PolicyView, 0, len(canonicalBaselinePolicyNames))
-	for _, v := range views {
-		if _, ok := canonicalBaselinePolicyNames[strings.ToLower(strings.TrimSpace(v.Name))]; ok {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// listLivePoliciesFromCluster lists EVERY Kyverno ClusterPolicy on the
-// Sovereign and projects each into a PolicyView. Unlike
-// policyModeKnownPolicies (which scopes to the compliance-tier label),
-// this surface returns the union so the dashboard always shows what's
-// actually deployed — the matrix asserts the canonical baseline names
-// (require-pod-resources, disallow-privileged-containers, etc.) which
-// may or may not carry the policy-tier label depending on chart
-// version.
-//
-// Returns an empty slice (not nil) on any failure path so the
-// /compliance/policies endpoint never wedges behind a transient
-// apiserver hiccup.
-func listLivePoliciesFromCluster(ctx context.Context, client dynamic.Interface) []PolicyView {
-	if client == nil {
-		return []PolicyView{}
-	}
-	list, err := client.Resource(ClusterPolicyGVR()).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return []PolicyView{}
-	}
-	out := make([]PolicyView, 0, len(list.Items))
-	for i := range list.Items {
-		item := &list.Items[i]
-		name := item.GetName()
-		if name == "" {
-			continue
-		}
-		annotations := item.GetAnnotations()
-		policyLabels := item.GetLabels()
-		// Pull mode off spec.validationFailureAction (Kyverno canonical
-		// field). Map "Audit" → "permissive", "Enforce" → "enforcing".
-		mode := "permissive"
-		if vfa, found, _ := unstructured.NestedString(item.Object, "spec", "validationFailureAction"); found {
-			switch strings.ToLower(strings.TrimSpace(vfa)) {
-			case "enforce":
-				mode = "enforcing"
-			case "audit":
-				mode = "permissive"
-			}
-		}
-		// Pull rules + title + category + severity from canonical
-		// kyverno annotations.
-		var rules []string
-		if specRules, found, _ := unstructured.NestedSlice(item.Object, "spec", "rules"); found {
-			for _, r := range specRules {
-				if rm, ok := r.(map[string]interface{}); ok {
-					if rn, ok := rm["name"].(string); ok && rn != "" {
-						rules = append(rules, rn)
-					}
-				}
-			}
-		}
-		out = append(out, PolicyView{
-			Name:        name,
-			Weight:      1, // every live policy carries weight 1 absent EnvironmentPolicy override
-			Scope:       policyLabels["catalyst.openova.io/policy-tier"],
-			Mode:        mode,
-			Violations:  0,
-			Source:      "kyverno",
-			Description: annotations["policies.kyverno.io/description"],
-			Severity:    annotations["policies.kyverno.io/severity"],
-			Rules:       rules,
-			Title:       annotations["policies.kyverno.io/title"],
-			Category:    annotations["policies.kyverno.io/category"],
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	})
 }
 
 // policiesFor returns one PolicyView per known policy. Aggregates
-// weight + mode from EVERY resolved EnvironmentPolicy in the
-// cluster (each environment may have its own; we surface the union
-// of policy NAMES with the per-resource verdict tally).
-func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) []PolicyView {
+// weight from the EnvironmentPolicy each environment had at its last
+// ingest (envSpecs; no cluster read here) and surfaces the union of
+// policy NAMES with the per-resource verdict tally. The mode is the one
+// the engine's policy object carries (policyMeta.mode). Everything is
+// read for clusterID only: another cluster's objects and reports never
+// list here.
+func (c *ComplianceHandler) policiesFor(_ context.Context, clusterID string) []PolicyView {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	cs, ok := c.state[clusterID]
-	if !ok {
-		return []PolicyView{}
-	}
+	cs := c.state[clusterID] // nil before the first report: the policy objects still list
+	objects := c.policyMetaByName[clusterID]
 
 	// Tally per-policy violation count + capture every policy
-	// name surfaced.
+	// name with a verdict in this cluster.
+	names := map[string]struct{}{}
 	violations := map[string]int{}
 	envs := map[string]struct{}{}
 	for _, rs := range cs {
 		envs[rs.environment] = struct{}{}
 		for p, v := range rs.results {
+			names[p] = struct{}{}
 			if v.result == "fail" {
 				violations[p]++
 			}
 		}
 	}
 
-	// Resolve weights+modes from each environment seen. Last
-	// writer wins for clashing settings (the U5 toggle UI shows
-	// per-environment when N>1; here we pick one for the summary).
+	// Weights of each environment seen. Last writer wins for clashing settings.
 	weights := map[string]PolicyWeight{}
-	modes := map[string]string{}
 	for envName := range envs {
-		spec, _ := c.resolveEnvPolicy(ctx, envName)
-		if spec == nil {
-			continue
-		}
-		for n, pw := range spec.Weights {
-			weights[n] = pw
-		}
-		for n, m := range spec.Modes {
-			modes[n] = m
+		if spec := c.envSpecs[envName]; spec != nil {
+			for n, pw := range spec.Weights {
+				weights[n] = pw
+			}
 		}
 	}
 
-	// Union of policy names: weights ∪ violations ∪ policySrc ∪ policyMeta.
-	names := map[string]struct{}{}
+	// Union of policy names: verdicts ∪ weights ∪ this cluster's policy objects.
 	for n := range weights {
 		names[n] = struct{}{}
 	}
-	for n := range violations {
-		names[n] = struct{}{}
-	}
-	for n := range c.policySrc {
-		names[n] = struct{}{}
-	}
-	for n := range c.policyMetaByName {
+	for n := range objects {
 		names[n] = struct{}{}
 	}
 	out := make([]PolicyView, 0, len(names))
 	for n := range names {
 		pw := weights[n]
-		mode := modes[n]
-		if mode == "" {
-			mode = "permissive"
-		}
 		src := c.policySrc[n]
 		if src == "" {
 			src = "kyverno"
 		}
-		meta := c.policyMetaByName[n]
+		meta := objects[n]
+		mode := "permissive"
+		if meta.mode == "enforce" {
+			mode = "enforcing"
+		}
 		out = append(out, PolicyView{
 			Name:        n,
 			Weight:      pw.Weight,
@@ -2138,11 +1771,11 @@ func (c *ComplianceHandler) policiesFor(ctx context.Context, clusterID string) [
 }
 
 // HandleComplianceViolations — GET
-// /api/v1/sovereigns/{id}/compliance/violations?app=<name>[&limit=N&offset=N]
+// /api/v1/sovereigns/{id}/compliance/violations?app=<name>&policy=<name>[&limit=N&offset=N]
 //
-// Returns paginated violations (results=fail) for one Application.
-// Per-policy drill-down (slice U4) reads this on a per-resource +
-// per-policy basis.
+// Returns paginated violations (results=fail). `app` keeps the
+// violations of one Application and `policy` those of one policy;
+// both filters run on the server before the page is cut.
 func (h *Handler) HandleComplianceViolations(w http.ResponseWriter, r *http.Request) {
 	if h.compliance == nil {
 		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
@@ -2155,6 +1788,7 @@ func (h *Handler) HandleComplianceViolations(w http.ResponseWriter, r *http.Requ
 	}
 	clusterID = h.resolveChrootClusterID(clusterID)
 	app := strings.TrimSpace(r.URL.Query().Get("app"))
+	policy := strings.TrimSpace(r.URL.Query().Get("policy"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = h.compliance.cfg.ViolationsPageSize
@@ -2166,7 +1800,7 @@ func (h *Handler) HandleComplianceViolations(w http.ResponseWriter, r *http.Requ
 	if offset < 0 {
 		offset = 0
 	}
-	all := h.compliance.violationsFor(clusterID, app)
+	all := h.compliance.violationsFor(clusterID, app, policy)
 	total := len(all)
 	end := offset + limit
 	if end > total {
@@ -2183,7 +1817,7 @@ func (h *Handler) HandleComplianceViolations(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (c *ComplianceHandler) violationsFor(clusterID, app string) []Violation {
+func (c *ComplianceHandler) violationsFor(clusterID, app, policy string) []Violation {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	cs, ok := c.state[clusterID]
@@ -2197,6 +1831,9 @@ func (c *ComplianceHandler) violationsFor(clusterID, app string) []Violation {
 		}
 		for p, v := range rs.results {
 			if v.result != "fail" {
+				continue
+			}
+			if policy != "" && p != policy {
 				continue
 			}
 			out = append(out, Violation{
@@ -2294,8 +1931,8 @@ func (c *ComplianceHandler) resourceComplianceFor(clusterID, kind, ns, name stri
 	}
 	// Snapshot the policy metadata under the read lock so the join below
 	// runs unlocked.
-	meta := make(map[string]policyMeta, len(c.policyMetaByName))
-	for n, m := range c.policyMetaByName {
+	meta := make(map[string]policyMeta, len(c.policyMetaByName[clusterID]))
+	for n, m := range c.policyMetaByName[clusterID] {
 		meta[n] = m
 	}
 	c.mu.RUnlock()
@@ -2382,7 +2019,7 @@ func (c *ComplianceHandler) SovereignAlertCount(clusterID string) int {
 	if c == nil {
 		return 0
 	}
-	return len(c.violationsFor(clusterID, ""))
+	return len(c.violationsFor(clusterID, "", ""))
 }
 
 // HandleComplianceStream — GET /api/v1/sovereigns/{id}/compliance/stream
@@ -2690,10 +2327,5 @@ func (r *dynamicEnvPolicyResolver) Resolve(ctx context.Context, environmentName 
 		scope, _, _ := unstructured.NestedString(entry, "scope")
 		weights[name] = PolicyWeight{Weight: int(weight), Scope: scope}
 	}
-	modes := map[string]string{}
-	mm, _, _ := unstructured.NestedStringMap(obj.Object, "spec", "compliance", "modes")
-	for k, v := range mm {
-		modes[k] = v
-	}
-	return &EnvironmentPolicySpec{Weights: weights, Modes: modes}, nil
+	return &EnvironmentPolicySpec{Weights: weights}, nil
 }

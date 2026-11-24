@@ -60,6 +60,10 @@ active-hotstandby so the console shows the cross-region topology.
 {{- $live := lookup "apps.openova.io/v1" "Application" (include "bp-postgres.namespace" .) (include "bp-postgres.instanceName" .) }}
 {{- $liveSpec := dict }}
 {{- if $live }}{{ $liveSpec = (get $live "spec") | default dict }}{{ end }}
+{{- /* CTL-172: a field set (and not empty) in bootstrapOwned.intent, the
+     placement committed to Git that the slot passes in, wins over the live
+     value and over the seed. With intent unset the render is unchanged. */}}
+{{- $intent := .Values.bootstrapOwned.intent | default dict }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:
@@ -83,7 +87,9 @@ spec:
   {{- /* old-CRD regions pattern is 4 letter-only dash tokens
        (^[a-z]+-[a-z]+-[a-z]+-[a-z]+$) — "primary" is rejected; this
        token satisfies old AND relaxed-new schemas, inert in both. */}}
-  {{- if hasKey $liveSpec "regions" }}
+  {{- if $intent.regions }}
+  regions: {{ toJson $intent.regions }}
+  {{- else if hasKey $liveSpec "regions" }}
   regions: {{ toJson (get $liveSpec "regions") }}
   {{- else }}
   regions: ["platform-bootstrap-owned-host"]
@@ -101,7 +107,9 @@ spec:
        The backend canonicalizeTopology still folds the legacy spelling, but
        the bootstrap-owned CR (the instances-table `topology` chip + the
        AppDetail topology strip read this) now stamps canonical end-to-end. */}}
-  {{- if hasKey $liveSpec "placement" }}
+  {{- if $intent.placement }}
+  placement: {{ toJson $intent.placement }}
+  {{- else if hasKey $liveSpec "placement" }}
   placement: {{ toJson (get $liveSpec "placement") }}
   {{- else if eq (include "bp-postgres.activeHotStandby" .) "true" }}
   placement: active-hot-standby

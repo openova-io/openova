@@ -572,16 +572,15 @@ func strString(v any) string {
 
 // HandleCompliancePolicyByName — GET /api/v1/sovereigns/{id}/compliance/policies/{name}
 //
-// Returns one PolicyView for a single ClusterPolicy by name. Looks up
-// the live ClusterPolicy in the Sovereign cluster (bypassing the
-// cached aggregator so the response always reflects what's actually
-// installed). Used by PolicyDrilldownPage's per-name fallback when
-// the cached bulk list is missing the requested policy (C11-003 fix).
-//
-// Returns 404 + `{"error": "not found"}` when the named ClusterPolicy
-// does not exist in the cluster. Returns 200 + full PolicyView when it
-// does.
+// Returns the row GET /compliance/policies lists for that name, from the
+// aggregator only (policy objects, reports, the weights of the last ingest):
+// nothing is read from the cluster per request. 404 + `{"error": "policy
+// not found"}` for a name the aggregator does not hold (or saw deleted).
 func (h *Handler) HandleCompliancePolicyByName(w http.ResponseWriter, r *http.Request) {
+	if h.compliance == nil {
+		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
+		return
+	}
 	clusterID := chi.URLParam(r, "id")
 	if clusterID == "" {
 		http.Error(w, "missing sovereign id", http.StatusBadRequest)
@@ -594,78 +593,13 @@ func (h *Handler) HandleCompliancePolicyByName(w http.ResponseWriter, r *http.Re
 	}
 	clusterID = h.resolveChrootClusterID(clusterID)
 
-	dep, ok := h.lookupDeploymentForInfra(clusterID)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
-		return
-	}
-	dyn, err := h.sovereignDynamicClient(dep)
-	if err != nil || dyn == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "cluster client unavailable"})
-		return
-	}
-
-	// First try the live ClusterPolicy registry (Kyverno).
-	item, err := dyn.Resource(ClusterPolicyGVR()).Get(r.Context(), name, metav1.GetOptions{})
-	if err != nil || item == nil {
-		// Not found in live cluster — surface 404 so UI renders the
-		// canonical "not found" empty state.
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "policy not found"})
-		return
-	}
-	view := projectClusterPolicyToView(item)
-	if view.Name == "" {
-		view.Name = name
-	}
-	writeJSON(w, http.StatusOK, view)
-}
-
-// projectClusterPolicyToView maps an unstructured Kyverno ClusterPolicy
-// onto a PolicyView (mirrors listLivePoliciesFromCluster's projection).
-// Extracted into its own function so HandleCompliancePolicyByName can
-// reuse it without dragging in the full bulk-list code path.
-func projectClusterPolicyToView(item *unstructured.Unstructured) PolicyView {
-	v := PolicyView{Source: "kyverno", Weight: 1, Scope: "all"}
-	v.Name = item.GetName()
-	annotations := item.GetAnnotations()
-	policyLabels := item.GetLabels()
-	mode := "permissive"
-	if vfa, found, _ := unstructured.NestedString(item.Object, "spec", "validationFailureAction"); found {
-		switch strings.ToLower(strings.TrimSpace(vfa)) {
-		case "enforce":
-			mode = "enforcing"
-		case "audit":
-			mode = "permissive"
+	for _, view := range h.compliance.policiesFor(r.Context(), clusterID) {
+		if view.Name == name {
+			writeJSON(w, http.StatusOK, view)
+			return
 		}
 	}
-	v.Mode = mode
-	var rules []string
-	if specRules, found, _ := unstructured.NestedSlice(item.Object, "spec", "rules"); found {
-		for _, r := range specRules {
-			if rm, ok := r.(map[string]any); ok {
-				if name, ok := rm["name"].(string); ok && name != "" {
-					rules = append(rules, name)
-				}
-			}
-		}
-	}
-	v.Rules = rules
-	if title, ok := annotations["policies.kyverno.io/title"]; ok && title != "" {
-		v.Title = title
-	}
-	if category, ok := annotations["policies.kyverno.io/category"]; ok && category != "" {
-		v.Category = category
-	}
-	if severity, ok := annotations["policies.kyverno.io/severity"]; ok && severity != "" {
-		v.Severity = severity
-	}
-	if desc, ok := annotations["policies.kyverno.io/description"]; ok && desc != "" {
-		v.Description = desc
-	}
-	if tier, ok := policyLabels["compliance-tier"]; ok && tier != "" {
-		v.Scope = tier
-	}
-	return v
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "policy not found"})
 }
 
 // listFalcoPods returns the names + namespace of the Falco DaemonSet
