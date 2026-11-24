@@ -4542,26 +4542,44 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-162, FND-101, FND-107, SVC-040]
+  after: [FND-162]
   touches:
-  - products/catalyst/bootstrap/ui/e2e/gate/operations/**
-  - docs/ledger/UAT.md
-  - docs/ledger/uat-row-map.csv
   - docs/ledger/gates.yaml
+  - docs/ledger/uat-row-map.csv
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/adoption-storage.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/cloud-pages.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/data-plane.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/delivery.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/front-door.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/janitor.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/jobs.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/lib.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/network-policy.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/platform-apps.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/recon.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/operations/treemap.spec.ts
   resources: []
   flips: [FND-G21]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -d products/catalyst/bootstrap/ui/e2e/gate/operations; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd tools/guards && go run ./cmd/check-uat-row-map && cd ../.. && test \"$(grep -c ',test:FND-G21,products/catalyst/bootstrap/ui/e2e/gate/operations/' docs/ledger/uat-row-map.csv)\" = 73 && test \"$(grep -c ',test:FND-G21$' docs/ledger/uat-row-map.csv)\" = 0"
+  - id: A2
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: FND-163') && test \"$(awk '/^- id: /{f=($3==\"FND-G21\")} f&&/^  (state|implementation): /{print $2}' docs/ledger/gates.yaml | tr '\\n' ' ')\" = 'expected-fail products/catalyst/bootstrap/ui/e2e/gate/operations '"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/ui && npm ci --no-audit --no-fund && npx tsc --noEmit -p e2e/gate && npx eslint e2e/gate && m=$(mktemp) && python3 ../../../../scripts/acceptance-gate.py export > \"$m\" && test \"$(node --experimental-strip-types e2e/gate/checks.ts \"$m\" cloud | grep -cx FND-G21)\" = 1 && test \"$(NO_COLOR=1 GATE_MANIFEST=\"$m\" GATE_FQDN=gate.invalid GATE_CHECKS=FND-G21 npx playwright test -c e2e/gate/playwright.config.ts --list | grep -cx 'Total: 73 tests in 11 files')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The ledger rows about jobs, resource views and the cloud and infrastructure read pages are browser tests behind gate check FND-G21.
+  delivers: The 73 ledger rows about the jobs pages, the resource views and the cloud and infrastructure read pages are browser tests behind gate check FND-G21, which every live gate run runs and records.
 - id: FND-164
   title: 'Console regression: Organizations, users and access, settings'
   area: FND
@@ -5193,7 +5211,7 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "test \"$(sha256sum < docs/adr/0035-observability-pipeline.md | cut -d' ' -f1)\" = 7009e2444350f4be2e9f3ba457cb6d501dcf16a51ef9dd10964aa7412e05b775 && test \"$(ls docs/adr | grep -c '^0035-')\" = 1"
+    run: "test \"$(sha256sum < docs/adr/0035-observability-pipeline.md | cut -d' ' -f1)\" = 6d8fea4a9990dd54109d2b7f10b5d7d6578e23a3a535a3b10fa70053f3ecd607 && test \"$(ls docs/adr | grep -c '^0035-')\" = 1"
   - id: A2
     run: "f=docs/adr/0035-observability-pipeline.md; test \"$(sed -n '3p' \"$f\")\" = 'Status: Accepted'; test \"$(grep -c '^Status: ' \"$f\")\" = 1; test \"$(grep -c -x 'Unfreezes: topology-region-git-layout' \"$f\")\" = 1; for n in 1 2 3 4 5 6 7 8 9; do test \"$(grep -c \"^\\*\\*O$n [A-Z]\" \"$f\")\" = 1; done; test \"$(grep -c '^\\*\\*O[0-9]* [A-Z]' \"$f\")\" = 9"
   - id: A3
