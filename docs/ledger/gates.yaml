@@ -803,7 +803,7 @@ checks:
 - id: CMP-G02
   title: The shown mode is the engine's mode
   owner: CMP
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
