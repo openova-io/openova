@@ -1,0 +1,23 @@
+# The HelmRelease kind for the Kyverno CLI's REST mapper: without it the CLI
+# cannot load the HelmReleases of context.yaml ("no matches for kind
+# HelmRelease"). Schema-free on purpose: only the kind is needed.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: helmreleases.helm.toolkit.fluxcd.io
+spec:
+  group: helm.toolkit.fluxcd.io
+  names:
+    kind: HelmRelease
+    listKind: HelmReleaseList
+    plural: helmreleases
+    singular: helmrelease
+  scope: Namespaced
+  versions:
+    - name: v2
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

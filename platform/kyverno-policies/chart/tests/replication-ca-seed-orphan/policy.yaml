@@ -1,0 +1,62 @@
+apiVersion: policies.kyverno.io/v1beta1
+kind: DeletingPolicy
+metadata:
+  name: replication-ca-seed-orphan
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: cleanup-policy
+    catalyst.openova.io/policy-tier: cleanup
+    catalyst.openova.io/policy-domain: lifecycle
+  annotations:
+    policies.kyverno.io/title: Delete the seed CA Secret of an uninstalled Application
+    policies.kyverno.io/category: catalyst-lifecycle
+    policies.kyverno.io/subject: Secret
+    policies.kyverno.io/description: >-
+      Deletes a Secret labelled catalyst.openova.io/component=replication-ca-seed
+      once no Flux HelmRelease labelled with its catalyst.openova.io/app value
+      and no cert-manager Certificate writing it exist in the Secret's
+      namespace. A HelmRelease being deleted, a Certificate still present, or
+      an error reading either keeps the Secret.
+spec:
+  schedule: "*/2 * * * *"
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["secrets"]
+    objectSelector:
+      matchLabels:
+        catalyst.openova.io/component: replication-ca-seed
+      matchExpressions:
+        - key: catalyst.openova.io/app
+          operator: Exists
+  variables:
+    - name: application
+      expression: string(object.metadata.labels["catalyst.openova.io/app"])
+    # The label selector narrows the LIST on the API server; the condition
+    # compares the label again, so a list that ignores the selector (the
+    # Kyverno CLI's test context does) still answers per Application.
+    # `items` is typed `any` by the library; dyn() makes it a list to range on.
+    - name: releases
+      expression: >-
+        dyn(resource.List("helm.toolkit.fluxcd.io/v2", "helmreleases",
+        object.metadata.namespace,
+        {"catalyst.openova.io/app": variables.application}).items)
+    # Every Certificate of the namespace (the seed Certificate carries no
+    # label the Secret could name); the condition matches spec.secretName.
+    - name: certificates
+      expression: >-
+        dyn(resource.List("cert-manager.io/v1", "certificates",
+        object.metadata.namespace).items)
+  conditions:
+    - name: no-helmrelease-of-its-application
+      expression: >-
+        variables.releases.all(hr,
+        !(has(hr.metadata.labels) &&
+        "catalyst.openova.io/app" in hr.metadata.labels &&
+        hr.metadata.labels["catalyst.openova.io/app"] == variables.application))
+    - name: no-certificate-writes-it
+      expression: >-
+        variables.certificates.all(c,
+        !(has(c.spec) && has(c.spec.secretName) &&
+        c.spec.secretName == object.metadata.name))
