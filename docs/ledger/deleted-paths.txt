@@ -230,3 +230,5 @@ products/catalyst/bootstrap/ui/src/pages/marketplace/MarketplaceFamilyPage.tsx
 products/catalyst/bootstrap/ui/src/pages/marketplace/MarketplaceProductPage.tsx
 products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
 products/catalyst/bootstrap/api/internal/handler/jobs_retry_syft_identity_row176_test.go
+products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
+products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
