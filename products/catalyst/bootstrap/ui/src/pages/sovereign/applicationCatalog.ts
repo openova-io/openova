@@ -35,7 +35,7 @@ import {
   findComponent,
   resolveTransitiveDependencies,
   type ComponentEntry,
-} from '@/pages/wizard/steps/componentGroups'
+} from '@/shared/lib/kitComponents'
 import { normaliseComponentId } from './eventReducer'
 
 export interface ApplicationDescriptor {
@@ -113,7 +113,7 @@ export function resolveApplications(
     .map((id) => findComponent(id))
     .filter((c): c is ComponentEntry => !!c)
     .sort((a, b) => {
-      if (a.product !== b.product) return a.product.localeCompare(b.product)
+      if (a.product !== b.product) return (a.product ?? 'platform').localeCompare(b.product ?? 'platform')
       return a.name.localeCompare(b.name)
     })
 
@@ -186,13 +186,15 @@ export function resolveServerApplication(row: {
   title?: string
 }): ApplicationDescriptor {
   const bare = row.slug && row.slug !== '' ? row.slug : row.id.replace(/^bp-/, '')
-  return makeDescriptor({
+  const d = makeDescriptor({
     blueprintId: row.id,
     bareId: bare,
-    fallbackTitle: row.title && row.title !== '' ? row.title : bare,
+    fallbackTitle: bare,
     compEntry: findComponent(bare),
     bootstrapKit: false,
   })
+  // The server's own title wins: it names the installed Application.
+  return row.title && row.title !== '' ? { ...d, title: row.title } : d
 }
 
 /** Lookup a descriptor inside a list by Blueprint id ("bp-<slug>"). */

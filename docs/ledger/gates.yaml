@@ -821,7 +821,7 @@ checks:
   needs: []
   proof: running
   asserts: The model is loaded in every region and agrees with the policies
-  delivered_by: CMP-041
+  delivered_by: CMP-042
 - id: CMP-G04
   title: Scores equal their recomputation
   owner: CMP

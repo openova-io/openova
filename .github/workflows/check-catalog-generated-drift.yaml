@@ -43,6 +43,9 @@ on:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'scripts/generators/components.py'
       - 'docs/generated/components.md'
+      - 'tools/guards/cmd/kit-rings/main.go'
+      - 'tools/guards/cmd/kit-rings/write.sh'
+      - 'products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts'
       - '.github/workflows/check-catalog-generated-drift.yaml'
   merge_group:
   push:
@@ -63,6 +66,9 @@ on:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'scripts/generators/components.py'
       - 'docs/generated/components.md'
+      - 'tools/guards/cmd/kit-rings/main.go'
+      - 'tools/guards/cmd/kit-rings/write.sh'
+      - 'products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts'
   workflow_dispatch:
 
 jobs:
@@ -117,6 +123,15 @@ jobs:
 
       - name: Fail if the components table drifted
         run: python3 scripts/generators/components.py --check
+
+      - name: Set up the Go of tools/guards (the kit ring list)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+
+      - name: Fail if the wizard ring list and the component logos drifted (SVC-230)
+        run: sh tools/guards/cmd/kit-rings/write.sh --check
 
       - name: Prove the generator is deterministic (run it twice)
         run: |
