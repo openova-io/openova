@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T08:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-24T08:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8326](https://github.com/openova-io/openova/issues/8326) | AIP-031 Spike: one sandbox substrate shared by Organizations, with grants scoped | Other |
 | [#8334](https://github.com/openova-io/openova/issues/8334) | PRD-203 cortex query process: token check, gateway client, search, definitions l | Other |
 | [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
 | [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8737](https://github.com/openova-io/openova/issues/8737) | NET-253 Lab test: the reference cloud's native firewall in front of a load balan | Other |
 | [#8746](https://github.com/openova-io/openova/issues/8746) | SEC-205 Stores in Organization namespaces | Other |
 | [#8749](https://github.com/openova-io/openova/issues/8749) | CMP-058 Engine to the 1.19 line | Other |
+| [#8753](https://github.com/openova-io/openova/issues/8753) | FND-191 Remove the second matcher's job handling from the API | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T08:40 | [#8750](https://github.com/openova-io/openova/pull/8750) | #7087 | docs(ledger): plan update |
+| 2026-11-24T08:43 | [#8748](https://github.com/openova-io/openova/pull/8748) | #7087 | docs(ledger): plan update |
 | 2026-11-24T07:53 | [#8745](https://github.com/openova-io/openova/pull/8745) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:05 | [#8743](https://github.com/openova-io/openova/pull/8743) | #8692 | test(gate): the browser tests of the Organizations, users an |
 | 2026-11-24T06:59 | [#8742](https://github.com/openova-io/openova/pull/8742) | #8737 | docs(ledger): result of the lab test NET-253, the native fir |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-24T01:12 | [#8705](https://github.com/openova-io/openova/pull/8705) | #8700 | docs(ledger): result of the inspection CTL-170, where chart- |
 | 2026-11-24T01:28 | [#8704](https://github.com/openova-io/openova/pull/8704) | #8694 | feat(gitea): scheduled Git bundles of every repository to th |
 | 2026-11-24T07:58 | [#8703](https://github.com/openova-io/openova/pull/8703) | #8621 | fix(console): the compliance pages drop the Security Lead pa |
-| 2026-11-24T01:45 | [#8702](https://github.com/openova-io/openova/pull/8702) | The cutover's image copy keeps the digest, so a restarted Po |  |
-| 2026-11-24T00:37 | [#8698](https://github.com/openova-io/openova/pull/8698) | #7087 | docs(ledger): plan update |
 
 ---
 
