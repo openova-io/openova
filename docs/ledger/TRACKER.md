@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T06:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-24T07:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,7 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T06:59 | [#8742](https://github.com/openova-io/openova/pull/8742) | #8737 | docs(ledger): result of the lab test NET-253, the native fir |
+| 2026-11-24T06:53 | [#8741](https://github.com/openova-io/openova/pull/8741) | #8730 | docs(ledger): result of the spike INF-350, change events fro |
+| 2026-11-24T06:46 | [#8740](https://github.com/openova-io/openova/pull/8740) | #7087 | docs(ledger): plan update |
+| 2026-11-24T06:54 | [#8738](https://github.com/openova-io/openova/pull/8738) | #8729 | chore(crds): keep the one Continuum definition file in the C |
 | 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
+| 2026-11-24T06:42 | [#8733](https://github.com/openova-io/openova/pull/8733) | #8728 | test(gate): check CMP-G02 is required now that the pinned ca |
 | 2026-11-24T06:20 | [#8731](https://github.com/openova-io/openova/pull/8731) | #7087 | docs(ledger): plan update |
 | 2026-11-24T05:59 | [#8727](https://github.com/openova-io/openova/pull/8727) | #7087 | docs(ledger): plan update |
 | 2026-11-24T05:31 | [#8726](https://github.com/openova-io/openova/pull/8726) | #7087 | docs(ledger): plan update |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-24T00:34 | [#8697](https://github.com/openova-io/openova/pull/8697) | #8690 | docs(ledger): result of the spike FND-201, what the telemetr |
 | 2026-11-24T00:21 | [#8693](https://github.com/openova-io/openova/pull/8693) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:33 | [#8692](https://github.com/openova-io/openova/pull/8692) | #8688 | test(gate): the browser tests of the applications grid, appl |
-| 2026-11-23T23:48 | [#8689](https://github.com/openova-io/openova/pull/8689) | #7087 | docs(ledger): plan update |
-| 2026-11-23T23:26 | [#8687](https://github.com/openova-io/openova/pull/8687) | #7087 | docs(ledger): plan update |
-| 2026-11-23T23:47 | [#8686](https://github.com/openova-io/openova/pull/8686) | #8684 | refactor(console): remove the second vulnerability matcher f |
-| 2026-11-24T00:32 | [#8685](https://github.com/openova-io/openova/pull/8685) | FND-G12: a deleting policy removes an Application's seed CA  |  |
-| 2026-11-23T23:13 | [#8683](https://github.com/openova-io/openova/pull/8683) | #7087 | docs(ledger): plan update |
 
 ---
 

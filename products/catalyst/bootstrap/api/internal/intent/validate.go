@@ -19,7 +19,8 @@ import (
 )
 
 // schemaBundle holds the openAPIV3Schema of every version of every
-// definition in products/catalyst/chart/crds/*.yaml and
+// definition in products/catalyst/chart/crds/*.yaml,
+// products/continuum/chart/crds/continuum.yaml and
 // platform/crossplane-claims/chart/templates/crds/useraccess.yaml, keyed
 // "<group>/<version>/<Kind>". Go cannot embed a file outside its module, so
 // the bundle is generated from those files; TestSchemasMatchSources fails

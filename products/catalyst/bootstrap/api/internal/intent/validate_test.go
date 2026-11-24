@@ -30,7 +30,7 @@ func definitionFiles(t *testing.T, root fs.FS) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, "platform/crossplane-claims/chart/templates/crds/useraccess.yaml")
+	files = append(files, "products/continuum/chart/crds/continuum.yaml", "platform/crossplane-claims/chart/templates/crds/useraccess.yaml")
 	sort.Strings(files)
 	return files
 }

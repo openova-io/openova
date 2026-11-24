@@ -20,7 +20,6 @@ This file says what the tree defines. It does not say what a cluster has install
 | EnvironmentPolicy | catalyst.openova.io | v1 | Cluster | environmentpolicies | products/catalyst/chart/crds/environmentpolicy.yaml | yes |
 | Sovereign | catalyst.openova.io | v1alpha1 | Cluster | sovereigns | products/catalyst/chart/crds/sovereign.yaml | yes |
 | CNPGPair | dr.openova.io | v1 | Namespaced | cnpgpairs | products/catalyst/chart/crds/cnpgpair.yaml | yes |
-| Continuum | dr.openova.io | v1 | Namespaced | continuums | products/catalyst/chart/crds/continuum.yaml | yes |
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/continuum/chart/crds/continuum.yaml | yes |
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |
 | HardeningBaseline | machines.openova.io | v1alpha1 | Namespaced | hardeningbaselines | platform/machine-operations/chart/crds/hardeningbaselines.yaml | yes |
