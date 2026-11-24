@@ -2798,7 +2798,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.39
+  version: 0.2.40
   card:
     title: PostgreSQL
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
@@ -2870,7 +2870,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.2.39
+    version: 0.2.40
   topology:
     supported: [singleton, active-hot-standby]
     defaults:
