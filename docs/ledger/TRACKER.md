@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T11:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T12:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T11:52 | [#8773](https://github.com/openova-io/openova/pull/8773) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:41 | [#8771](https://github.com/openova-io/openova/pull/8771) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:05 | [#8769](https://github.com/openova-io/openova/pull/8769) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:51 | [#8768](https://github.com/openova-io/openova/pull/8768) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T05:31 | [#8726](https://github.com/openova-io/openova/pull/8726) | #7087 | docs(ledger): plan update |
 | 2026-11-24T05:20 | [#8725](https://github.com/openova-io/openova/pull/8725) | #8636 | CMP-G01 step 5 takes its starting count after the cluster ha |
 | 2026-11-24T04:03 | [#8724](https://github.com/openova-io/openova/pull/8724) | #7087 | docs(ledger): plan update |
-| 2026-11-24T03:41 | [#8722](https://github.com/openova-io/openova/pull/8722) | #7087 | docs(ledger): plan update |
 
 ---
 
