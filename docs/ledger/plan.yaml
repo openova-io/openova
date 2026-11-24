@@ -4633,27 +4633,37 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-164, FND-101, FND-107, SVC-040]
+  after: [FND-164]
   touches:
-  - products/catalyst/bootstrap/ui/e2e/gate/assurance/**
-  - core/marketplace/e2e/gate/**
-  - docs/ledger/UAT.md
-  - docs/ledger/uat-row-map.csv
   - docs/ledger/gates.yaml
+  - docs/ledger/uat-row-map.csv
+  - products/catalyst/bootstrap/ui/e2e/gate/assurance/funnel.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/assurance/handover.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/assurance/lib.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/assurance/sovereignty.spec.ts
+  - products/catalyst/bootstrap/ui/e2e/gate/assurance/wizard.spec.ts
   resources: []
   flips: [FND-G23]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -d products/catalyst/bootstrap/ui/e2e/gate/assurance; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd tools/guards && go run ./cmd/check-uat-row-map && cd ../.. && test \"$(grep -c ',test:FND-G23,products/catalyst/bootstrap/ui/e2e/gate/assurance/' docs/ledger/uat-row-map.csv)\" = 46 && test \"$(grep -c ',test:FND-G23$' docs/ledger/uat-row-map.csv)\" = 0"
+  - id: A2
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: FND-165') && test \"$(awk '/^- id: /{f=($3==\"FND-G23\")} f&&/^  (state|implementation): /{print $2}' docs/ledger/gates.yaml | tr '\\n' ' ')\" = 'expected-fail products/catalyst/bootstrap/ui/e2e/gate/assurance '"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/ui && npm ci --no-audit --no-fund && npx tsc --noEmit -p e2e/gate && npx eslint e2e/gate && m=$(mktemp) && python3 ../../../../scripts/acceptance-gate.py export > \"$m\" && test \"$(node --experimental-strip-types e2e/gate/checks.ts \"$m\" cloud | grep -cx FND-G23)\" = 1 && test \"$(NO_COLOR=1 GATE_MANIFEST=\"$m\" GATE_FQDN=gate.invalid GATE_CHECKS=FND-G23 npx playwright test -c e2e/gate/playwright.config.ts --list | grep -cx 'Total: 46 tests in 4 files')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The ledger rows about compliance, sovereignty, hand-over and the storefront are browser tests behind gate check FND-G23.
+  delivers: The 46 ledger rows about the sovereignty cutover, the hand-over to the owner, the deployment wizard and the storefront funnel are browser tests behind gate check FND-G23, which every live gate run runs and records.
 - id: FND-166
   title: Retire the ledger tooling
   area: FND
