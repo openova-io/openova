@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -397,26 +398,19 @@ func TestHandleFleetSovereignSummary_AlertsFromCompliance(t *testing.T) {
 	)
 	h.dynamicFactory = factory
 
-	// Build a ComplianceHandler directly (no goroutine needed — we
-	// seed state under the lock and don't subscribe to anything).
-	c := &ComplianceHandler{
-		state:       map[string]map[string]*resourceState{},
-		labels:      map[string]map[string]map[string]string{},
-		policySrc:   map[string]string{},
-		subscribers: map[int64]*complianceSubscriber{},
-		stop:        make(chan struct{}),
+	// Build a ComplianceHandler with no watch loop and feed its read
+	// model one report directly.
+	c := NewComplianceHandler(ComplianceConfig{}, silentLogger(), nil, nil)
+	res := func(policy, result string) map[string]any {
+		return map[string]any{"policy": policy, "rule": policy, "result": result,
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}}
 	}
-	now := time.Now()
-	c.state[dep.ID] = map[string]*resourceState{
-		"deployment/ns1/web": {
-			resource: "deployment/ns1/web", namespace: "ns1", application: "web",
-			results: map[string]policyVerdict{
-				"probes-present": {result: "fail", at: now},
-				"flux-managed":   {result: "fail", at: now},
-				"hpa-effective":  {result: "pass", at: now}, // not an alert
-			},
-		},
-	}
+	c.model.Apply(k8scache.Event{Cluster: dep.ID, Kind: "policyreport", Type: k8scache.EventAdded,
+		Object: mkPolicyReport("ns1", "web", []map[string]any{
+			res("probes-present", "fail"),
+			res("flux-managed", "fail"),
+			res("hpa-effective", "pass"), // not an alert
+		})})
 	h.SetComplianceHandler(c)
 
 	rec := callUserAccess(t, h, http.MethodGet, "/api/v1/fleet/sovereigns/"+dep.ID+"/summary", nil, registerFleetRoutes)

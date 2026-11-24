@@ -3,21 +3,8 @@
 //
 // Test matrix:
 //
-//   computeScore (pure):
-//     - all pass        → 100
-//     - all fail        → 0
-//     - half pass       → 50
-//     - skip drops      → not in denominator
-//     - empty weights   → fallback equal-weights observed-policies
-//     - stateful scope  → drops on stateless workload
-//     - stateless scope → drops on stateful workload
-//     - missing verdict → drops from denominator
-//     - warn pulls down → counted in denominator only
-//
-//   normalizedScore (pure):
-//     - den=0 → nil
-//     - num>den (over-pass) → clamped to 100
-//     - negatives → clamped to 0
+//   The score rules and the read model are tested in internal/compliance;
+//   this file tests the HTTP and SSE surface over them.
 //
 //   end-to-end via fake k8scache.Factory:
 //     - PolicyReport ingest → resource score recorded + published
@@ -40,6 +27,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +39,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/compliance"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/compliance/adapters"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
@@ -92,197 +82,6 @@ func (f *fakeNATS) Keys() []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// fakeResolver returns a fixed EnvironmentPolicySpec for matching env
-// names; everything else returns (nil, nil) to exercise the fallback
-// path.
-type fakeResolver struct {
-	by map[string]*EnvironmentPolicySpec
-}
-
-func (r *fakeResolver) Resolve(_ context.Context, env string) (*EnvironmentPolicySpec, error) {
-	if r == nil || r.by == nil {
-		return nil, nil
-	}
-	return r.by[env], nil
-}
-
-// ── computeScore — every algorithm edge case ─────────────────────────────
-
-func TestComputeScore_AllPass(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "pass"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50, Scope: "all"},
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 100 {
-		t.Fatalf("all-pass: want 100, got %+v", got.Total)
-	}
-}
-
-func TestComputeScore_AllFail(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "fail"}, "b": {result: "fail"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50, Scope: "all"},
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 0 {
-		t.Fatalf("all-fail: want 0, got %+v", got.Total)
-	}
-	if got.Violations != 2 {
-		t.Fatalf("all-fail: want 2 violations, got %d", got.Violations)
-	}
-}
-
-func TestComputeScore_HalfPass(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "fail"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50, Scope: "all"},
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 50 {
-		t.Fatalf("half-pass: want 50, got %+v", got.Total)
-	}
-}
-
-func TestComputeScore_SkipDropsFromDenominator(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "skip"}, "c": {result: "pass"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 1}, "b": {Weight: 1}, "c": {Weight: 1},
-	}}
-	got := computeScore(rs, spec)
-	// 2 pass / 2 effective denominator = 100
-	if got.Total == nil || *got.Total != 100 {
-		t.Fatalf("skip-drop: want 100 (skip excluded from denom), got %+v num=%d den=%d",
-			got.Total, got.Numerator, got.Denominator)
-	}
-	if got.Denominator != 2 {
-		t.Fatalf("skip-drop: want denom=2, got %d", got.Denominator)
-	}
-}
-
-func TestComputeScore_EmptyWeightsFallback(t *testing.T) {
-	// No EnvironmentPolicy → fallback to "weight=1 per observed policy".
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "fail"},
-		},
-	}
-	got := computeScore(rs, nil)
-	if got.Total == nil {
-		t.Fatalf("empty-weights: want non-nil total, got nil")
-	}
-	if *got.Total != 50 {
-		t.Fatalf("empty-weights: want 50 (1/2), got %d", *got.Total)
-	}
-}
-
-func TestComputeScore_StatefulScopeOnStateless(t *testing.T) {
-	rs := &resourceState{
-		stateful: false,
-		results:  map[string]policyVerdict{"a": {result: "fail"}, "b": {result: "pass"}},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 100, Scope: "stateful"}, // dropped — stateless workload
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 100 {
-		t.Fatalf("stateful-scope: want 100 (a dropped), got %+v", got.Total)
-	}
-}
-
-func TestComputeScore_StatelessScopeOnStateful(t *testing.T) {
-	rs := &resourceState{
-		stateful: true,
-		results:  map[string]policyVerdict{"a": {result: "pass"}, "b": {result: "pass"}},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50, Scope: "stateless"}, // dropped — stateful workload
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 100 {
-		t.Fatalf("stateless-scope: want 100, got %+v", got.Total)
-	}
-	if got.Denominator != 50 {
-		t.Fatalf("stateless-scope: want denom=50, got %d", got.Denominator)
-	}
-}
-
-func TestComputeScore_MissingVerdictDropsPolicy(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{"a": {result: "pass"}}, // b missing
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50}, "b": {Weight: 50},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 100 {
-		t.Fatalf("missing: want 100 (b not yet evaluated), got %+v", got.Total)
-	}
-	if got.Denominator != 50 {
-		t.Fatalf("missing: want denom=50, got %d", got.Denominator)
-	}
-}
-
-func TestComputeScore_WarnPullsDown(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "warn"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50}, "b": {Weight: 50},
-	}}
-	got := computeScore(rs, spec)
-	if got.Total == nil || *got.Total != 50 {
-		t.Fatalf("warn: want 50 (warn in denom only), got %+v", got.Total)
-	}
-}
-
-func TestComputeScore_NoPolicies(t *testing.T) {
-	rs := &resourceState{results: map[string]policyVerdict{}}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{}}
-	got := computeScore(rs, spec)
-	if got.Total != nil {
-		t.Fatalf("no-policies: want nil (n/a), got %v", *got.Total)
-	}
-}
-
-func TestNormalizedScore_DenZero(t *testing.T) {
-	if normalizedScore(0, 0) != nil {
-		t.Fatalf("den=0 should be nil")
-	}
-}
-
-func TestNormalizedScore_Clamps(t *testing.T) {
-	if v := normalizedScore(200, 100); v == nil || *v != 100 {
-		t.Fatalf("over-pass clamp: %v", v)
-	}
-	if v := normalizedScore(-1, 100); v == nil || *v != 0 {
-		t.Fatalf("negative clamp: %v", v)
-	}
 }
 
 // ── End-to-end via the watch loop + Factory ──────────────────────────────
@@ -352,21 +151,11 @@ func newComplianceTestRig(t *testing.T) (*Handler, *ComplianceHandler, *fakeNATS
 	t.Cleanup(f.Stop)
 
 	nats := newFakeNATS()
-	resolver := &fakeResolver{by: map[string]*EnvironmentPolicySpec{
-		"acme-prod": {
-			Weights: map[string]PolicyWeight{
-				"probes-present":    {Weight: 50, Scope: "all"},
-				"flux-managed":      {Weight: 50, Scope: "all"},
-				"hpa-effective":     {Weight: 25, Scope: "stateless"},
-				"pvc-volume-expand": {Weight: 25, Scope: "stateful"},
-			},
-		},
-	}}
 	c := NewComplianceHandler(ComplianceConfig{
 		SSEHeartbeatInterval: 100 * time.Millisecond,
 		ViolationsPageSize:   10,
 		ViolationsMaxPage:    100,
-	}, quietComplianceLogger(), f, nats, resolver)
+	}, quietComplianceLogger(), f, nats)
 
 	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
 	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
@@ -410,7 +199,7 @@ func waitFor(t *testing.T, dur time.Duration, cond func() bool) {
 func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 	_, c, nats, f := newComplianceTestRig(t)
 
-	// First seed a Deployment so labels enrich the resourceState.
+	// First seed a Deployment so the resolver knows its labels.
 	dep := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1",
 		"kind":       "Deployment",
@@ -467,7 +256,7 @@ func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 		}
 	}
 
-	// Verify resource score = 50 (1 of 2 weight-50 policies pass).
+	// Verify resource score = 50 (1 of 2 checks of weight 1 passes).
 	body, _ := nats.Get("resource.deployment/ns1/billing")
 	var s Score
 	if err := json.Unmarshal(body, &s); err != nil {
@@ -523,7 +312,7 @@ func complianceScoreSeriesExists(id string) bool {
 }
 
 // TestCompliance_PruneOnPolicyReportDelete_5352 proves that a DELETED
-// per-resource PolicyReport prunes BOTH the in-memory resourceState and the
+// per-resource PolicyReport prunes BOTH the subject of the read model and the
 // per-resource `catalyst_compliance_score` gauge series. Before #5352 the
 // handler ignored ev.Type, so every churning pod/job left a permanent gauge
 // series → unbounded registry growth → catalyst-api OOM (28× on hw288).
@@ -545,7 +334,7 @@ func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
 	})
 	publishToFactory(f, "policyreport", report)
 
-	// Scored → resourceState + gauge series both exist.
+	// Scored → subject + gauge series both exist.
 	waitFor(t, 1*time.Second, func() bool {
 		_, ok := nats.Get("resource." + key)
 		return ok
@@ -553,11 +342,9 @@ func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
 	if !complianceScoreSeriesExists(key) {
 		t.Fatalf("precondition: gauge series for %q missing after ingest", key)
 	}
-	c.mu.RLock()
-	_, present := c.state["acme"][key]
-	c.mu.RUnlock()
-	if !present {
-		t.Fatalf("precondition: resourceState for %q missing after ingest", key)
+	subject := compliance.SubjectKey{Cluster: "acme", Namespace: "ns1", Kind: "Pod", Name: "pod-xyz"}
+	if _, present := c.model.Subject(subject); !present {
+		t.Fatalf("precondition: subject %q missing after ingest", key)
 	}
 
 	// Pod torn down → Kyverno deletes its per-resource PolicyReport. The
@@ -570,11 +357,9 @@ func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
 		At:      time.Now(),
 	})
 
-	// #5352 — the resourceState AND the gauge series must both be pruned.
+	// #5352 — the subject AND the gauge series must both be pruned.
 	waitFor(t, 1*time.Second, func() bool {
-		c.mu.RLock()
-		_, present := c.state["acme"][key]
-		c.mu.RUnlock()
+		_, present := c.model.Subject(subject)
 		return !present
 	})
 	if complianceScoreSeriesExists(key) {
@@ -609,7 +394,7 @@ func TestCompliance_ScorecardEndpoint(t *testing.T) {
 	}))
 	waitFor(t, 1*time.Second, func() bool {
 		c := h.ComplianceHandler()
-		return len(c.rollupsFor("acme")) > 0
+		return len(c.rollups("acme")) > 0
 	})
 
 	r := chi.NewRouter()
@@ -650,9 +435,9 @@ func TestCompliance_PoliciesEndpoint(t *testing.T) {
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
 	}))
 	waitFor(t, 1*time.Second, func() bool {
-		// Weight 50 is the EnvironmentPolicy of acme-prod, kept at ingest.
+		// Weight 1: every observed check weighs 1 in the fallback model.
 		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
-			if p.Name == "flux-managed" && p.Violations == 1 && p.Mode == "enforcing" && p.Weight == 50 {
+			if p.Name == "flux-managed" && p.Violations == 1 && p.Mode == "enforcing" && p.Weight == 1 {
 				return true
 			}
 		}
@@ -938,7 +723,7 @@ func TestCompliance_KyvernoResourceFor_PerResultPreference(t *testing.T) {
 	})
 	results, _, _ := unstructured.NestedSlice(r.Object, "results")
 	rmap := results[0].(map[string]any)
-	kind, ns, name := kyvernoResourceFor(r, rmap)
+	kind, ns, name := adapters.ResourceFor(r, rmap)
 	if kind != "Pod" || ns != "ns" || name != "alpha" {
 		t.Fatalf("per-result extraction: kind=%s ns=%s name=%s", kind, ns, name)
 	}
@@ -958,33 +743,15 @@ func TestCompliance_KyvernoResourceFor_FallbackScope(t *testing.T) {
 	}}
 	results, _, _ := unstructured.NestedSlice(r.Object, "results")
 	rmap := results[0].(map[string]any)
-	kind, ns, name := kyvernoResourceFor(r, rmap)
+	kind, ns, name := adapters.ResourceFor(r, rmap)
 	if kind != "Pod" || ns != "ns" || name != "beta" {
 		t.Fatalf("scope fallback: kind=%s ns=%s name=%s", kind, ns, name)
 	}
 }
 
-func TestCompliance_GuessStateful(t *testing.T) {
-	cases := map[string]bool{
-		"StatefulSet":           true,
-		"PersistentVolumeClaim": true,
-		"DaemonSet":             true,
-		"Deployment":            false,
-		"Service":               false,
-		"":                      false,
-	}
-	for k, want := range cases {
-		if got := guessStateful(k); got != want {
-			t.Errorf("guessStateful(%q): want %v got %v", k, want, got)
-		}
-	}
-}
-
-func TestCompliance_ResourceKeyRoundTrip(t *testing.T) {
-	k := resourceKey("Deployment", "ns1", "billing")
-	kind, ns, name := splitResourceKey(k)
-	if kind != "deployment" || ns != "ns1" || name != "billing" {
-		t.Fatalf("roundtrip: %s/%s/%s", kind, ns, name)
+func TestCompliance_ResourceKey(t *testing.T) {
+	if k := resourceKey("Deployment", "ns1", "billing"); k != "deployment/ns1/billing" {
+		t.Fatalf("resourceKey: %s", k)
 	}
 }
 
@@ -1230,7 +997,7 @@ func TestCompliance_ScorecardCarriesOnlyMeasuredData(t *testing.T) {
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
 	}))
 	waitFor(t, 1*time.Second, func() bool {
-		for _, s := range h.ComplianceHandler().rollupsFor("acme") {
+		for _, s := range h.ComplianceHandler().rollups("acme") {
 			if s.Scope == "application" && s.ID == "web" {
 				return true
 			}
@@ -1360,21 +1127,13 @@ func TestCompliance_PolicyByNameFromCache(t *testing.T) {
 	}
 }
 
-// countingResolver counts the EnvironmentPolicy reads of the aggregator.
-type countingResolver struct{ calls int }
-
-func (r *countingResolver) Resolve(context.Context, string) (*EnvironmentPolicySpec, error) {
-	r.calls++
-	return nil, nil
-}
-
 // TestCompliance_PolicyRoutesReadNoClusterPerRequest — the list and the
-// by-name route take the weights the last ingest kept; neither resolves an
-// EnvironmentPolicy (a cluster read in production) per request, and a policy
-// object lists before the cluster has any report.
+// by-name route answer from the read model and the policy objects the
+// aggregator keeps: a policy object lists before the cluster has any
+// report, and a check takes its weight from the model (1 for every observed
+// check of the fallback model) with no read of a cluster.
 func TestCompliance_PolicyRoutesReadNoClusterPerRequest(t *testing.T) {
-	res := &countingResolver{}
-	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil, res)
+	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil)
 	c.policyMetaByName["acme"] = map[string]policyMeta{"only-object": {mode: "enforce"}}
 	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
 	h.SetComplianceHandler(c)
@@ -1389,22 +1148,21 @@ func TestCompliance_PolicyRoutesReadNoClusterPerRequest(t *testing.T) {
 	if rec := get("/only-object"); rec.Code != http.StatusOK {
 		t.Fatalf("a policy object with no report yet: want 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	c.state["acme"] = map[string]*resourceState{"ns1/Deployment/web": {environment: "acme-prod",
-		results: map[string]policyVerdict{"weighted": {result: "fail"}}}}
-	c.envSpecs["acme-prod"] = &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{"weighted": {Weight: 40, Scope: "all"}}}
+	c.model.Apply(k8scache.Event{Cluster: "acme", Kind: "policyreport", Type: k8scache.EventAdded,
+		Object: mkPolicyReport("ns1", "pr", []map[string]any{
+			{"policy": "weighted", "rule": "r", "result": "fail",
+				"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
+		})})
 	rec := get("/weighted")
 	var view PolicyView
 	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("by name: %d %s %v", rec.Code, rec.Body.String(), err)
 	}
-	if view.Weight != 40 || view.Scope != "all" || view.Violations != 1 {
-		t.Fatalf("by name: want the kept weight 40/all and 1 violation, got %+v", view)
+	if view.Weight != 1 || view.Violations != 1 || view.Source != "kyverno" {
+		t.Fatalf("by name: want weight 1, 1 violation, source kyverno, got %+v", view)
 	}
 	if rec := get(""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":2`) {
 		t.Fatalf("list: want 2 rows, got %d %s", rec.Code, rec.Body.String())
-	}
-	if res.calls != 0 {
-		t.Fatalf("the routes resolved an EnvironmentPolicy %d times per request; want 0", res.calls)
 	}
 }
 
@@ -1453,5 +1211,142 @@ func TestCompliance_PolicyObjectsPerCluster(t *testing.T) {
 	var view PolicyView
 	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || rec.Code != http.StatusOK || view.Mode != "enforcing" {
 		t.Fatalf("acme x after beta deleted it: want 200 enforcing, got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// ── Golden scorecard (CMP-032) ───────────────────────────────────────────
+
+// goldenObj builds a fixture object; ownerKind and ownerName name its controller.
+func goldenObj(apiVersion, kind, ns, name string, lbls map[string]any, ownerKind, ownerName string) *unstructured.Unstructured {
+	meta := map[string]any{"namespace": ns, "name": name}
+	if lbls != nil {
+		meta["labels"] = lbls
+	}
+	if ownerKind != "" {
+		meta["ownerReferences"] = []any{map[string]any{"apiVersion": "apps/v1", "kind": ownerKind, "name": ownerName, "uid": "uid-" + ownerName, "controller": true}}
+	}
+	return &unstructured.Unstructured{Object: map[string]any{"apiVersion": apiVersion, "kind": kind, "metadata": meta}}
+}
+
+// goldenResult is one result of a fixture report.
+func goldenResult(policy, rule, result, source, kind, ns, name string) map[string]any {
+	r := map[string]any{"policy": policy, "rule": rule, "result": result, "message": policy + " " + result,
+		"resources": []any{map[string]any{"kind": kind, "namespace": ns, "name": name}}}
+	if source != "" {
+		r["source"] = source
+	}
+	return r
+}
+
+type goldenEvent struct {
+	kind string
+	obj  *unstructured.Unstructured
+}
+
+// goldenEvents: a Deployment with its ReplicaSet and Pod, a StatefulSet,
+// reports on the Deployment and on its Pod (the engine reports both), a
+// synthetic evaluator report, a result of another producer, and a sentinel
+// published last.
+func goldenEvents() []goldenEvent {
+	app := func(a string) map[string]any {
+		return map[string]any{"catalyst.openova.io/application": a, "catalyst.openova.io/environment": "acme-prod", "catalyst.openova.io/organization": "acme"}
+	}
+	pr := func(ns, name string, rs ...map[string]any) goldenEvent {
+		return goldenEvent{"policyreport", mkPolicyReport(ns, name, rs)}
+	}
+	return []goldenEvent{
+		{"deployment", goldenObj("apps/v1", "Deployment", "ns1", "web", app("web"), "", "")},
+		{"replicaset", goldenObj("apps/v1", "ReplicaSet", "ns1", "web-7d9", app("web"), "Deployment", "web")},
+		{"pod", goldenObj("v1", "Pod", "ns1", "web-7d9-abc", app("web"), "ReplicaSet", "web-7d9")},
+		{"statefulset", goldenObj("apps/v1", "StatefulSet", "ns2", "db", app("db"), "", "")},
+		pr("ns1", "web-deploy", goldenResult("require-probes", "autogen-probes", "pass", "kyverno", "Deployment", "ns1", "web"),
+			goldenResult("disallow-latest-tag", "autogen-latest", "fail", "kyverno", "Deployment", "ns1", "web")),
+		pr("ns1", "web-pod", goldenResult("require-probes", "probes", "pass", "kyverno", "Pod", "ns1", "web-7d9-abc"),
+			goldenResult("disallow-latest-tag", "latest", "fail", "kyverno", "Pod", "ns1", "web-7d9-abc"),
+			goldenResult("require-requests", "requests", "skip", "kyverno", "Pod", "ns1", "web-7d9-abc")),
+		pr("ns2", "db-sts", goldenResult("require-probes", "autogen-probes", "fail", "kyverno", "StatefulSet", "ns2", "db"),
+			goldenResult("pvc-expand", "expand", "pass", "kyverno", "StatefulSet", "ns2", "db")),
+		{k8scache.KindComplianceEvaluator, mkSyntheticReport("flux-managed", "fail", "Deployment", "ns1", "web")},
+		pr("ns1", "web-conformance", goldenResult("conformance-tls", "tls", "fail", "catalyst-conformance", "Deployment", "ns1", "web")),
+		{"deployment", goldenObj("apps/v1", "Deployment", "ns9", "sentinel", nil, "", "")},
+		pr("ns9", "sentinel", goldenResult("require-probes", "probes", "pass", "kyverno", "Deployment", "ns9", "sentinel")),
+	}
+}
+
+// goldenScorecard feeds the fixture events through the rig and returns the
+// scorecard without its time fields, as one line of JSON.
+func goldenScorecard(t *testing.T, h *Handler, nats *fakeNATS, f *k8scache.Factory) []byte {
+	t.Helper()
+	for _, e := range goldenEvents() {
+		publishToFactory(f, e.kind, e.obj)
+	}
+	waitFor(t, 2*time.Second, func() bool { _, ok := nats.Get("resource.deployment/ns9/sentinel"); return ok })
+	r := chi.NewRouter()
+	r.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/acme/compliance/scorecard", nil))
+	var doc map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("scorecard: %d %s %v", rec.Code, rec.Body.String(), err)
+	}
+	delete(doc, "generatedAt")
+	for _, k := range []string{"applications", "environments", "organizations", "items"} {
+		for _, s := range doc[k].([]any) {
+			delete(s.(map[string]any), "updatedAt")
+		}
+	}
+	delete(doc["sovereign"].(map[string]any), "updatedAt")
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return append(out, '\n')
+}
+
+// TestCompliance_PodVerdictJudgedOnItsController — one judge per check: the
+// engine reports a check on the Deployment and on its Pod; both count for the
+// Deployment, the worst wins, the Pod is no subject of its own, and the
+// resource route of the Pod shows its Deployment.
+func TestCompliance_PodVerdictJudgedOnItsController(t *testing.T) {
+	h, _, nats, f := newComplianceTestRig(t)
+	lbls := map[string]any{"catalyst.openova.io/application": "web"}
+	publishToFactory(f, "deployment", goldenObj("apps/v1", "Deployment", "ns1", "web", lbls, "", ""))
+	publishToFactory(f, "replicaset", goldenObj("apps/v1", "ReplicaSet", "ns1", "web-1", lbls, "Deployment", "web"))
+	publishToFactory(f, "pod", goldenObj("v1", "Pod", "ns1", "web-1-a", lbls, "ReplicaSet", "web-1"))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "deploy", []map[string]any{
+		goldenResult("disallow-latest-tag", "autogen", "pass", "", "Deployment", "ns1", "web")}))
+	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pod", []map[string]any{
+		goldenResult("disallow-latest-tag", "latest", "fail", "", "Pod", "ns1", "web-1-a")}))
+	c := h.ComplianceHandler()
+	waitFor(t, 2*time.Second, func() bool { return len(c.violationsFor("acme", "", "")) == 1 })
+	if v := c.violationsFor("acme", "", ""); v[0].Resource != "deployment/ns1/web" || v[0].Rule != "latest" || v[0].Application != "web" {
+		t.Fatalf("the Pod verdict must count for its Deployment: %+v", v)
+	}
+	if _, ok := nats.Get("resource.pod/ns1/web-1-a"); ok {
+		t.Fatalf("the Pod was published as a subject of its own: %v", nats.Keys())
+	}
+	if got := c.resourceComplianceFor("acme", "pod", "ns1", "web-1-a"); !got.Found || got.Violations != 1 || len(got.Findings) != 1 {
+		t.Fatalf("the resource route of the Pod shows its Deployment: %+v", got)
+	}
+}
+
+// TestCompliance_GoldenScorecard_CMP032 — the fixture events give the
+// committed testdata/golden/cmp-032-after.json; cmp-032-before.json is the
+// scorecard of the code before CMP-032. UPDATE_GOLDEN=1 writes the after file.
+func TestCompliance_GoldenScorecard_CMP032(t *testing.T) {
+	h, _, nats, f := newComplianceTestRig(t)
+	got := goldenScorecard(t, h, nats, f)
+	const file = "testdata/golden/cmp-032-after.json"
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(file, got, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(file)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("scorecard differs from %s (%v):\n%s", file, err, got)
+	}
+	if before, err := os.ReadFile("testdata/golden/cmp-032-before.json"); err != nil || string(before) == string(want) {
+		t.Fatalf("the before scorecard must exist and differ from the after one (%v)", err)
 	}
 }

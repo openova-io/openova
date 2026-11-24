@@ -14,9 +14,30 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/compliance"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
 // ── a1: add-score-alias-to-Score-struct ──────────────────────────────
+
+// scoreOfResults returns the resource Score of one Deployment that the
+// engine reported results on.
+func scoreOfResults(t *testing.T, results map[string]string) Score {
+	t.Helper()
+	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil)
+	rows := []map[string]any{}
+	for p, r := range results {
+		rows = append(rows, map[string]any{"policy": p, "rule": p, "result": r,
+			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns", "name": "web"}}})
+	}
+	c.model.Apply(k8scache.Event{Cluster: "c", Kind: "policyreport", Type: k8scache.EventAdded, Object: mkPolicyReport("ns", "web", rows)})
+	v, ok := c.model.Subject(compliance.SubjectKey{Cluster: "c", Namespace: "ns", Kind: "Deployment", Name: "web"})
+	if !ok {
+		t.Fatalf("the read model holds no subject for Deployment ns/web after a report of results %v", results)
+	}
+	return resourceScore(v)
+}
 
 // TestComputeScore_ScoreAliasMatchesTotal — every Score the
 // computation path produces MUST set the JSON-aliased `Score` field to
@@ -24,16 +45,7 @@ import (
 // literal "score" token across compliance + dashboard endpoints
 // (TC-029, TC-034, TC-040, TC-047, TC-050, TC-054).
 func TestComputeScore_ScoreAliasMatchesTotal(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{
-			"a": {result: "pass"}, "b": {result: "fail"},
-		},
-	}
-	spec := &EnvironmentPolicySpec{Weights: map[string]PolicyWeight{
-		"a": {Weight: 50, Scope: "all"},
-		"b": {Weight: 50, Scope: "all"},
-	}}
-	got := computeScore(rs, spec)
+	got := scoreOfResults(t, map[string]string{"a": "pass", "b": "fail"})
 	if got.Total == nil || got.Score == nil {
 		t.Fatalf("score-alias: expected both Total + Score populated, got total=%v score=%v",
 			got.Total, got.Score)
@@ -51,8 +63,7 @@ func TestComputeScore_ScoreAliasMatchesTotal(t *testing.T) {
 // "no data yet" contract. Any non-null placeholder would lie about the
 // data state and violate `feedback_no_mvp_no_workarounds.md`.
 func TestComputeScore_NullScoreOnEmptyDenominator(t *testing.T) {
-	rs := &resourceState{results: map[string]policyVerdict{}}
-	got := computeScore(rs, nil)
+	got := scoreOfResults(t, map[string]string{"a": "skip"})
 	if got.Total != nil {
 		t.Fatalf("expected Total nil on empty denominator, got %d", *got.Total)
 	}
@@ -64,10 +75,7 @@ func TestComputeScore_NullScoreOnEmptyDenominator(t *testing.T) {
 // TestComputeScore_AliasSerializesAsScoreKey — confirm the JSON tag is
 // `"score"` so consumers reading the alias by field name see it.
 func TestComputeScore_AliasSerializesAsScoreKey(t *testing.T) {
-	rs := &resourceState{
-		results: map[string]policyVerdict{"a": {result: "pass"}},
-	}
-	got := computeScore(rs, nil)
+	got := scoreOfResults(t, map[string]string{"a": "pass"})
 	raw, err := json.Marshal(got)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
