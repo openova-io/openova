@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openova.io/schemas/compliance-model/checks.schema.json",
+  "title": "model/checks.yaml of the policy chart: ComplianceModel.spec.checks",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checks"],
+  "properties": {
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "source", "axis", "severity", "ownerSide", "description", "remediation"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "title": {"type": "string", "minLength": 1, "maxLength": 80},
+          "source": {"enum": ["kyverno", "evaluator", "trivy-vulnerability", "trivy-configaudit", "trivy-exposedsecret", "trivy-rbac"]},
+          "axis": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "severity": {"enum": ["critical", "high", "medium", "low"]},
+          "weight": {"type": "integer", "minimum": 0, "maximum": 100},
+          "mandatory": {"type": "boolean"},
+          "ownerSide": {"enum": ["organization", "sovereign"]},
+          "valuesKey": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"},
+          "switchable": {"type": "boolean"},
+          "description": {"type": "string", "minLength": 1},
+          "remediation": {"type": "string", "minLength": 20}
+        },
+        "if": {"properties": {"source": {"const": "kyverno"}}},
+        "then": {"required": ["valuesKey"]},
+        "else": {"not": {"required": ["valuesKey"]}}
+      }
+    }
+  }
+}

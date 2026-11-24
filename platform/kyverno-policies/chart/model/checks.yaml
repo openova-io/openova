@@ -1,0 +1,359 @@
+# The checks of the compliance model (ADR-0029, CMP-041): the list
+# ComplianceModel.spec.checks, copied verbatim by
+# templates/compliance-model.yaml. Schema: schema/checks.schema.json.
+#
+# One check per validating policy of the engine. title, description and
+# severity are copied from the annotations policies.kyverno.io/title,
+# policies.kyverno.io/description and policies.kyverno.io/severity of the
+# policy, with two wordings changed: the description of forbid-nodeport-service
+# says "a shared address" where its annotation names a cloud's address product
+# (a shared file names no provider), and the description of forbid-local-path
+# says "the k3s built-in provisioner" where its annotation gives the
+# provisioner's id (scripts/check-no-local-path.sh reads that id here as a
+# use); remediation is one imperative sentence taken from its
+# validate.message. valuesKey is the key of the policy's block under
+# compliancePolicies in values.yaml; its excludeNamespaces and
+# extraExcludeNamespaces become the exemptions of the check.
+# useraccess-boundary is the one policy outside this chart (template
+# platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml,
+# values key userAccessBoundary of that chart); CMP-066 moves it here.
+# No check states a weight: each weighs severityWeights[severity] of
+# model.yaml. tools/guards/cmd/check-compliance-model holds that every
+# validating policy template has a check and every check a template.
+checks:
+  # reliability (run)
+  - id: multi-replica-drainability
+    title: Workloads must declare 2+ replicas
+    source: kyverno
+    axis: reliability
+    severity: medium
+    ownerSide: organization
+    valuesKey: multiReplica
+    description: >-
+      Deployments and StatefulSets must declare spec.replicas >= 2 so
+      voluntary disruptions (node drains, rolling updates) can preserve
+      at least one healthy replica.
+    remediation: >-
+      Set spec.replicas to 2 or more, or label a deliberate single-instance
+      database or cache openova.io/singleton-db=true.
+  - id: pdb-permits-eviction
+    title: PodDisruptionBudgets must permit eviction
+    source: kyverno
+    axis: reliability
+    severity: medium
+    ownerSide: organization
+    valuesKey: pdb
+    description: >-
+      A PodDisruptionBudget with maxUnavailable=0 (or minAvailable equal
+      to the workload's full replica count) wedges every voluntary
+      disruption. This policy rejects PDBs whose maxUnavailable is 0.
+    remediation: >-
+      Set maxUnavailable to 1 or more (or a percentage), or use a minAvailable
+      strictly less than the workload's replica count.
+  - id: topology-spread
+    title: Multi-replica workloads must spread across hostname or zone
+    source: kyverno
+    axis: reliability
+    severity: medium
+    ownerSide: organization
+    valuesKey: topologySpread
+    description: >-
+      Deployments / StatefulSets with replicas >= 2 must declare
+      topologySpreadConstraints with topologyKey of kubernetes.io/hostname
+      or topology.kubernetes.io/zone, so a single host or AZ failure
+      can't take down every replica.
+    remediation: >-
+      Add a topologySpreadConstraint with topologyKey kubernetes.io/hostname
+      or topology.kubernetes.io/zone.
+  - id: probes-present
+    title: Containers must declare liveness and readiness probes
+    source: kyverno
+    axis: reliability
+    severity: high
+    ownerSide: organization
+    valuesKey: probesPresent
+    description: >-
+      Every primary container in a Deployment / StatefulSet / DaemonSet
+      must declare both livenessProbe and readinessProbe. Without
+      probes, kubelet can't detect a wedged process and Service can't
+      gate traffic during startup.
+    remediation: >-
+      Declare both a livenessProbe and a readinessProbe on every container.
+  # capacity (run)
+  - id: resource-requests
+    title: Containers must declare CPU and memory requests
+    source: kyverno
+    axis: capacity
+    severity: high
+    ownerSide: organization
+    valuesKey: resourceRequests
+    description: >-
+      Every container must declare resources.requests.cpu AND
+      resources.requests.memory. BestEffort Pods evict first under
+      pressure and can't be reasoned about for capacity planning or
+      per-Org cost rollups.
+    remediation: >-
+      Declare resources.requests.cpu and resources.requests.memory on every
+      container.
+  - id: resource-limits
+    title: Containers should declare CPU and memory limits
+    source: kyverno
+    axis: capacity
+    severity: low
+    ownerSide: organization
+    valuesKey: resourceLimits
+    description: >-
+      Every container should declare resources.limits.cpu AND
+      resources.limits.memory. Without limits, a single Pod can
+      exhaust a node and starve neighbors.
+    remediation: >-
+      Declare resources.limits.cpu and resources.limits.memory on every
+      container.
+  - id: pvc-volume-expansion
+    title: PVC StorageClass must allow volume expansion
+    source: kyverno
+    axis: capacity
+    severity: medium
+    ownerSide: organization
+    valuesKey: pvcExpansion
+    description: >-
+      PersistentVolumeClaims should reference a StorageClass with
+      allowVolumeExpansion=true so storage can grow without rebuilding
+      the volume.
+    remediation: >-
+      Choose a StorageClass with allowVolumeExpansion=true, or extend the
+      existing one.
+  - id: hpa-effective
+    title: HPA minReplicas must not exceed workload spec.replicas
+    source: kyverno
+    axis: capacity
+    severity: low
+    ownerSide: organization
+    valuesKey: hpaEffective
+    description: >-
+      When a HorizontalPodAutoscaler is admitted, its spec.minReplicas
+      must be >= 1 and the targeted workload's declared replicas should
+      not be below the HPA floor. Runtime effectiveness (current ready
+      Pod count) is checked by the compliance-aggregator's hpa.go
+      evaluator (slice W2).
+    remediation: >-
+      Set the HorizontalPodAutoscaler's spec.minReplicas to 1 or more.
+  # resilience (run)
+  - id: backup-configured
+    title: Stateful workloads must have a Velero backup configured
+    source: kyverno
+    axis: resilience
+    severity: medium
+    ownerSide: organization
+    valuesKey: backupConfigured
+    description: >-
+      PVCs must declare a Velero backup binding via either annotation
+      `velero.io/backup-volumes` on the owning Pod template OR label
+      `velero.io/managed-by-schedule` on the PVC itself.
+    remediation: >-
+      Label the PVC velero.io/managed-by-schedule with the name of a Velero
+      schedule, or annotate the owning Pod template with
+      velero.io/backup-volumes.
+  - id: forbid-local-path-storage
+    title: Forbid the ephemeral k3s local-path provisioner
+    source: kyverno
+    axis: resilience
+    severity: critical
+    mandatory: true
+    switchable: false
+    ownerSide: organization
+    valuesKey: forbidLocalPath
+    description: >-
+      local-path (the k3s built-in provisioner) is ephemeral node-local disk
+      with no cloud block volume behind it — a node replacement destroys the
+      data, invalidating BCP/DR. #3971 forbids it entirely: k3s runs
+      --disable=local-storage and the durable per-provider cloud CSI is the
+      only default StorageClass. This policy fail-closes any PVC / StorageClass
+      / PV that references local-path.
+    remediation: >-
+      Omit storageClassName to bind to the durable cluster-default cloud CSI,
+      or name an explicit durable class.
+  # delivery (run)
+  - id: flux-managed
+    title: Workloads must be managed by Flux
+    source: kyverno
+    axis: delivery
+    severity: high
+    ownerSide: organization
+    valuesKey: fluxManaged
+    description: >-
+      Workload-rendering resources must carry
+      `app.kubernetes.io/managed-by: flux` (the upstream Flux label) OR
+      have an ownerReference pointing at a HelmRelease / Kustomization.
+      Direct kubectl apply is rejected — IaC-first per
+      docs/INVIOLABLE-PRINCIPLES.md #3.
+    remediation: >-
+      Add the label app.kubernetes.io/managed-by=flux on metadata.labels, or
+      attach an ownerReference to a HelmRelease or Kustomization.
+  - id: substrate-stays-on-host
+    title: Substrate Blueprints must install on host k3s
+    source: kyverno
+    axis: delivery
+    severity: high
+    ownerSide: sovereign
+    valuesKey: substrateOnHost
+    description: >-
+      The substrate components listed in docs/DOD.md §A4 (Cilium-agent,
+      Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)
+      MUST install on the host k3s cluster, never inside a vCluster.
+      A HelmRelease for one of these Blueprints with `spec.kubeConfig`
+      set indicates a misconfigured G92.1 vcluster-placement override.
+    remediation: >-
+      Remove the spec.kubeConfig block from the substrate Blueprint's
+      HelmRelease.
+  # supply-chain (run)
+  - id: harbor-proxy-pull
+    title: Container images must pull through the Sovereign Harbor proxy
+    source: kyverno
+    axis: supply-chain
+    severity: high
+    ownerSide: organization
+    valuesKey: harborProxyPull
+    description: >-
+      Container images must reference a Sovereign-local Harbor proxy
+      registry. Operator configures the allowed glob via
+      .Values.compliancePolicies.harborProxyPull.allowedImagePattern.
+    remediation: >-
+      Re-tag the image to pull through the Sovereign's local Harbor, as a
+      proxy-cache path or a native openova-io push.
+  - id: image-tag-pinned
+    title: Container images must be tag-pinned (no :latest)
+    source: kyverno
+    axis: supply-chain
+    severity: high
+    ownerSide: organization
+    valuesKey: imageTagPinned
+    description: >-
+      Container images must reference an explicit, non-:latest tag (or
+      a @sha256: digest). Floating tags break SHA-pinned audit trails
+      and reproducibility.
+    remediation: >-
+      Pin every image to an explicit tag that is not latest, or to a @sha256
+      digest.
+  # observability (run)
+  - id: prometheus-scrape
+    title: Workloads should be Prometheus-scrape-targeted
+    source: kyverno
+    axis: observability
+    severity: low
+    ownerSide: organization
+    valuesKey: prometheusScrape
+    description: >-
+      Pod template should carry prometheus.io/scrape="true" annotation,
+      OR the workload labels declare monitoring.coreos.com/managed=true
+      indicating an operator-managed PodMonitor / ServiceMonitor exists.
+    remediation: >-
+      Annotate the Pod template with prometheus.io/scrape="true", or label the
+      workload monitoring.coreos.com/managed="true".
+  - id: otel-injected
+    title: Workloads should be OTel-instrumented
+    source: kyverno
+    axis: observability
+    severity: low
+    ownerSide: organization
+    valuesKey: otelInjected
+    description: >-
+      Workloads should declare OpenTelemetry instrumentation via either
+      an `otel-collector` sidecar container OR
+      `instrumentation.opentelemetry.io/inject-*: "true"` annotation on
+      the Pod template (auto-injection by the OTel operator).
+    remediation: >-
+      Add an otel-collector sidecar, or annotate the Pod template with an
+      instrumentation.opentelemetry.io/inject-<language> annotation.
+  # hardening (security)
+  - id: runasnonroot-readonlyrootfs
+    title: Workloads must run non-root with read-only rootfs
+    source: kyverno
+    axis: hardening
+    severity: medium
+    ownerSide: organization
+    valuesKey: runAsNonRootReadonlyRootFs
+    description: >-
+      Pods must declare runAsNonRoot=true at Pod or container level
+      AND every container must set readOnlyRootFilesystem=true.
+    remediation: >-
+      Set runAsNonRoot=true at Pod or container level and
+      readOnlyRootFilesystem=true on every container.
+  - id: useraccess-boundary
+    title: Internal-vs-customer Org boundary on UserAccess
+    source: kyverno
+    axis: hardening
+    severity: high
+    ownerSide: sovereign
+    valuesKey: userAccessBoundary
+    description: >-
+      Denies UserAccess CRs whose openova.io/org scope differs from the
+      requesting user's org claim, unless the requester is a member of
+      the management Organization with tier=owner. Permissive Audit by
+      default; per-Sovereign overlay flips to Enforce.
+    remediation: >-
+      Set the scope's openova.io/org value to your own Organization, or ask
+      the owner of the management Organization to sign the grant.
+  # zero-trust (security)
+  - id: cilium-l7-mtls
+    title: Workloads must be covered by a Cilium L7 policy
+    source: kyverno
+    axis: zero-trust
+    severity: high
+    ownerSide: organization
+    valuesKey: ciliumL7Mtls
+    description: >-
+      Pod templates must declare the
+      `policy.cilium.io/enforced: "true"` label so the catalyst-network
+      controller routes them under the zero-trust mesh. The runtime
+      "is there an actual selecting CNP/CCNP" check lives in the W2
+      hubble evaluator.
+    remediation: >-
+      Add the label policy.cilium.io/enforced="true" to
+      spec.template.metadata.labels.
+  - id: networkpolicy-present
+    title: Namespaces must declare at least one NetworkPolicy
+    source: kyverno
+    axis: zero-trust
+    severity: medium
+    ownerSide: organization
+    valuesKey: networkpolicyPresent
+    description: >-
+      Namespaces must contain at least one NetworkPolicy or
+      CiliumNetworkPolicy so east-west traffic is mediated.
+    remediation: >-
+      Add at least one NetworkPolicy or CiliumNetworkPolicy to the namespace.
+  # secrets (security)
+  - id: secret-not-in-env
+    title: Plaintext secrets must not appear in container env
+    source: kyverno
+    axis: secrets
+    severity: high
+    ownerSide: organization
+    valuesKey: secretNotInEnv
+    description: >-
+      Container env entries with names matching *PASSWORD* / *TOKEN* /
+      *KEY* / *SECRET* must use valueFrom.secretKeyRef, not a
+      plaintext value.
+    remediation: >-
+      Source the value from a Secret with valueFrom.secretKeyRef instead of a
+      plaintext value.
+  # exposure (security)
+  - id: forbid-nodeport-service
+    title: Forbid NodePort Services (§854)
+    source: kyverno
+    axis: exposure
+    severity: critical
+    mandatory: true
+    ownerSide: organization
+    valuesKey: forbidNodePortService
+    description: >-
+      §854 (founder #1 ABSOLUTE ban): a Service must never be type=NodePort, and
+      a type=LoadBalancer Service must set allocateLoadBalancerNodePorts=false so
+      it does not silently allocate nodePorts. The gateway is served DIRECT
+      (cilium LB-IPAM VIP or a shared address, or Local-ETP + hostPort), never a
+      nodePort. Ships Audit; Enforce is the deliberate follow-up (#5088).
+      cert-manager HTTP-01 solver Services are carved out.
+    remediation: >-
+      Expose the Service directly instead: a ClusterIP Service fronted by a
+      gateway route, or the cilium LB-IPAM address.
