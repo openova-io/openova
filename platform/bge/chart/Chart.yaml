@@ -10,7 +10,7 @@ description: |
   POST /v1/embeddings and POST /v1/rerank on a ClusterIP Service; the
   platform's model gateway is the one caller. See README.md.
 type: application
-version: 1.0.0
+version: 1.0.1
 appVersion: "0.0.78"
 keywords: [catalyst, blueprint, embeddings, reranker, infinity, ai]
 maintainers:

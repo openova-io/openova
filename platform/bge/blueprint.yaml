@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-bge
 spec:
-  version: 1.0.0
+  version: 1.0.1
   card:
     title: Embeddings and reranker
     summary: One CPU server for one embedding model and at most one reranker, reached only through the platform's model gateway.

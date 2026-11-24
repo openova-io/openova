@@ -150,7 +150,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.0
+  version: 1.0.1
   card:
     title: Embeddings and reranker
     summary: One CPU server for one embedding model and at most one reranker, reached only through the platform's model gateway.
@@ -231,7 +231,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-bge
-    version: 1.0.0
+    version: 1.0.1
   topology:
     supported: [singleton]
     defaults:
