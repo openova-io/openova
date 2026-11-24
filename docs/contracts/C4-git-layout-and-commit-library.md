@@ -106,12 +106,13 @@ type Writer interface {
 
 // Scope binds a robot identity to the path prefixes it may write.
 type Scope struct {
-	Name     string   // "fleet-intent", "org-intent", "catalog", "fleet-rendered", "org-rendered"
+	Name     string   // "fleet-intent", "fleet-evidence", "org-intent", "catalog", "fleet-rendered", "org-rendered", "region-platform"
 	Robot    string   // Gitea user whose token is used and who is the committer
 	Prefixes []string // a Change may only touch paths under one of these; "" allows every path
 }
 
 func FleetIntent(sovereignFQDN string) Scope   // robot "catalyst-fleet-bot", prefix "clusters/<fqdn>/intent/"
+func FleetEvidence(sovereignFQDN string) Scope // robot "catalyst-fleet-bot", prefix "clusters/<fqdn>/evidence/"  (CMP-071)
 func OrgIntent(slug string) Scope              // robot "<slug>-iac-bot",     prefix "intent/"
 func Catalog() Scope                           // robot "catalyst-fleet-bot", prefix ""
 func FleetRendered(sovereignFQDN string) Scope // robot SharedRobot, prefix "clusters/<fqdn>/regions/"  (first used by CTL-260)
@@ -169,6 +170,10 @@ an empty list refuses every commit. `Regions` lists the region folders. `WriteAl
 writes the same files into every listed region folder in one commit, with compare-and-swap
 on the file of the first region in sorted order.
 
+Record scope (CMP-071): `FleetEvidence(fqdn)` has robot `catalyst-fleet-bot` and allows only
+`clusters/<fqdn>/evidence/**`. A Sovereign FQDN that is empty, `.`, `..` or holds a `/` gives no
+prefix, so the scope refuses every commit.
+
 Semantics:
 
 1. **Atomic.** One call to `POST /api/v1/repos/{owner}/{repo}/contents` with a `files` array (`operation` `create`, `update` or `delete`; `path`; base64 `content`; `sha`). The library reads each file's current blob SHA first to choose `create` or `update`. If the spike CTL-050 shows that this call is not all-or-nothing, the library uses the Git data sequence of `commitOnceGitData` in `core/services/provisioning/github/client.go` behind the same interface.
@@ -217,12 +222,14 @@ clusters/<sovereign-fqdn>/
 │   ├── commerce/                         reserved: the billing module
 │   └── migration/                        reserved: the migration module
 ├── sovereign/                            reserved for the Sovereign-lifecycle area; empty
-├── evidence/                             record folder of the compliance area; no Kustomization applies it
+├── evidence/                             record folder of the compliance area; no Kustomization applies it.
+│                                         Only writer: catalyst-api, scope fleet-evidence (CMP-071)
 ├── continuum/transitions/<group>.yaml    exists today: the lease of a topology transition (ADR-0015)
 └── regions/<region-id>/                  exists today. Applied by that region's sovereign-region Kustomization.
     ├── orgs/<slug>.yaml                  per-Organization Flux objects, rendered by controllers
     ├── platform/<app>.yaml               platform delivery, rendered by controllers
     ├── platform/<module>/**              every-region intent (section 2.2); modules root, policy, machine-ops
+    ├── platform/policy/policy-values.yaml   ConfigMap compliance-policy-values, namespace flux-system (CMP-071)
     └── platform/infrastructure/<plural>/<name>.yaml   this region's infrastructure intent (section 2.2)
 ```
 
@@ -236,7 +243,9 @@ Rules: one object per file, except the two settings files and the placement file
 | Every-region intent (policy mode, the compliance model, machine policies) | the same file in every region folder: `clusters/<fqdn>/regions/<region-id>/platform/<module>/**`, modules `root`, `policy`, `machine-ops` | `RegionPlatform(fqdn, modules, every region)` and `WriteAllRegions` | each region's `sovereign-region` Kustomization |
 | One region's infrastructure (node pool, virtual machine, network extension) | `clusters/<fqdn>/regions/<region-id>/platform/infrastructure/<plural>/<name>.yaml`; the file carries no region field | `RegionPlatform(fqdn, ["infrastructure"], [region-id])` | that region's `sovereign-region` Kustomization |
 
-Other names map onto the one function: `sovereign-root` is modules `root` and `infrastructure`; `FleetPolicy` is module `policy`; `FleetMachineOps` is module `machine-ops`. The variables document of a Sovereign lives in each region folder under `platform/root/`. The scope of the record folder `evidence/` arrives with CMP-071.
+Other names map onto the one function: `sovereign-root` is modules `root` and `infrastructure`; `FleetPolicy` is module `policy`; `FleetMachineOps` is module `machine-ops`. The variables document of a Sovereign lives in each region folder under `platform/root/`. The record folder `evidence/` has the scope `FleetEvidence(fqdn)`.
+
+Policy files (CMP-071). Package `compliance` of catalyst-api is the one writer of `platform/policy/**` in every region folder, through `RegionPlatform(fqdn, ["policy"], every region)`. `Regions` lists the region folders and refuses a Sovereign with none. `WriteAll` writes one relative path below `platform/policy/` into every region in one commit through `WriteAllRegions` (a nil content deletes it in every region), and refuses a `kustomization.yaml`. `Serialize` adds the label `app.kubernetes.io/managed-by: flux` and the annotations `catalyst.openova.io/change-id` and `kustomize.toolkit.fluxcd.io/substitute: disabled`: the region Kustomization substitutes variables, and no text of a policy file is read as one.
 
 ### 2.3 Organization repository `<slug>/catalyst-tenant`, branch `main`
 
