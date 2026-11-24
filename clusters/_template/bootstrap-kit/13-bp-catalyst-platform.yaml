@@ -1543,7 +1543,7 @@ spec:
       #   bp-wordpress-tenant 0.6.0 + regionLocalVolumes, bp-seaweedfs 1.3.1,
       #   bp-openbao 1.2.71, bp-self-sovereign-cutover 0.1.207, bp-reflector).
       #   Pin bumped to match.
-      version: 1.4.2294
+      version: 1.4.2300
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1678,6 +1678,9 @@ spec:
       realm: sovereign
       clientId: catalyst-ui
       skipClientUpsert: true
+      # SEC-060: an install without the salt of valuesFrom below fails; an
+      # upgrade of a release installed before the salt existed does not.
+      requireSalt: true
     # ── Keycloak credentials host bridge realm override (#3813, Refs #3642) ──
     # The host bridge (templates/catalyst-keycloak-credentials-host-bridge.yaml)
     # bakes the realm name into catalyst-kc-sa-credentials.realm. It MUST
@@ -1691,10 +1694,9 @@ spec:
     # keycloakHostBridge knobs (release coords, host addr, bitnami source)
     # keep their chart defaults — they match the slot-09 keycloak HR
     # releaseName/targetNamespace (`keycloak`) + the MGMT vCluster syncer
-    # mangle convention. NB: if a future overlay sets
-    # sso.tier1ClientSecretSalt on slot-09 keycloak it MUST be mirrored onto
-    # this chart's .Values.sso.tier1ClientSecretSalt too, or the derived SA
-    # secret diverges (both default empty today — in sync).
+    # mangle convention. sso.tier1ClientSecretSalt MUST equal slot 09's, or the
+    # derived SA secret diverges: both slots read it from the one key of
+    # valuesFrom below (SEC-060).
     keycloakHostBridge:
       realmName: ${SOVEREIGN_REALM_NAME:=sovereign}
     # G87 #2634: multi-region CNPG instances default (1 single-region, 2 multi).
@@ -2129,3 +2131,18 @@ spec:
       # the matrix sees ClusterPolicyReports without blocking platform
       # pods. Soft-launch by setting Audit on a fresh Sovereign.
       kyvernoEnforceMode: ${QA_KYVERNO_ENFORCE_MODE:-Enforce}
+  # SEC-060: the salt of the derived Keycloak client secrets. First boot writes
+  # one random salt per Sovereign into the seed Secret flux-system/bootstrap-seed
+  # (key KEYCLOAK_CLIENT_SECRET_SALT, infra/providers/_shared/cloudinit-control-plane.tftpl);
+  # slots 09 (bp-keycloak) and 13 (bp-catalyst-platform, its Keycloak
+  # credentials host bridge) read the same key, so both derive the same
+  # secrets. Optional: the seed of a Sovereign installed before SEC-060 has no
+  # such key, and that Sovereign keeps the unsalted secrets Keycloak holds
+  # (sso.requireSalt refuses only an install without the salt). The salt is in
+  # a Secret object, never in values or a postBuild substitute.
+  valuesFrom:
+    - kind: Secret
+      name: bootstrap-seed
+      valuesKey: KEYCLOAK_CLIENT_SECRET_SALT
+      targetPath: sso.tier1ClientSecretSalt
+      optional: true

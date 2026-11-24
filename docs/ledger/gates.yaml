@@ -811,7 +811,7 @@ checks:
   asserts: The shown mode is the engine's mode
   implementation: tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
   implemented_by: CMP-010
-  delivered_by: CMP-020
+  delivered_by: CMP-021
 - id: CMP-G03
   title: The model is loaded in every region and agrees with the policies
   owner: CMP
@@ -1199,12 +1199,13 @@ checks:
 - id: CTL-G10
   title: 'Region loss: recovery within the numbers of decision record 0027'
   owner: CTL
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Region loss: recovery within the numbers of decision record 0027'
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_region_loss.go
   delivered_by: CTL-820
 - id: CTL-G11
   title: Access grant from Git
@@ -1457,12 +1458,13 @@ checks:
 - id: FND-G21
   title: 'Console regression: jobs, resources, cloud pages'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the jobs pages, the resource views and the cloud and infrastructure read pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/operations
   delivered_by: FND-163
 - id: FND-G22
   title: 'Console regression: Organizations, access, settings'
@@ -2149,12 +2151,13 @@ checks:
 - id: SEC-G06
   title: Security check SEC-G06
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_differ.go
   delivered_by: SEC-060
 - id: SEC-G07
   title: Security check SEC-G07

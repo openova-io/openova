@@ -1021,11 +1021,11 @@ func (h *Handler) handleTenantDeleted(ctx context.Context, event *events.Event) 
 
 	// #4290: the host namespace is the org-controller-owned `<slug>` (single
 	// boundary). The funnel tears down ONLY what it produced — the apps-sync
-	// Flux Kustomization, its `<slug>/apps` git tree, and the kubeconfig
-	// mirror. The `<slug>` namespace + the `vcluster` HelmRelease are owned by
-	// the org-controller and are pruned by its teardownPerOrgFlux when the
-	// Organization CR is deleted; the funnel must NOT delete them (doing so
-	// would rip the boundary out from under a still-live Org).
+	// Flux Kustomization and its `<slug>/apps` git tree (it produces no
+	// kubeconfig Secret). The `<slug>` namespace + the `vcluster` HelmRelease
+	// are owned by the org-controller and are pruned by its teardownPerOrgFlux
+	// when the Organization CR is deleted; the funnel must NOT delete them
+	// (doing so would rip the boundary out from under a still-live Org).
 	hostNS := data.Slug
 	// The apps-sync Kustomization name is still emitted as `tenant-<slug>-apps`
 	// by generateAppsSyncKustomization (a flux-system CR name, not a
@@ -1967,7 +1967,7 @@ func markProvisionFailed(p *store.Provision, stepIndex int, message string) {
 		p.Steps[stepIndex].Status = "failed"
 		// #5646 — same customer-facing field as failStep. Several callers wrap a
 		// raw error into this message (`vcluster not ready: %s`,
-		// `mirror kubeconfig to flux-system: %s`), so it carries the same
+		// `vcluster kubeconfig not ready: %s`), so it carries the same
 		// runtime-object-name exposure and gets the same boundary.
 		p.Steps[stepIndex].Message = customerFacingMessage(message)
 		p.Steps[stepIndex].DoneAt = time.Now().UTC()

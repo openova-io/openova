@@ -694,3 +694,17 @@ cnpgPair:
     # PDM zone for the lua-record flip target. Empty => the controller
     # falls back to the in-cluster pool-domain-manager Service default.
     pdmZone: ""
+
+# ── bootstrapOwned.intent (CTL-172) ──────────────────────────────────
+# Only the intent of the chart-seeded Application lives here; the
+# Application itself is gated by cnpgPair.application.enabled above. The
+# key has the same path as in every other chart that seeds one, so the
+# placement values a slot receives have one shape.
+bootstrapOwned:
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}

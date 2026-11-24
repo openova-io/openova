@@ -19,8 +19,8 @@ metadata:
 # So a bug in teardown that points at the wrong slug can't wipe flux-system
 # Kustomization CRs or tenant CRs for tenants this SA wasn't invited into.
 #
-# Permissions to touch flux-system's own kustomizations + the kubeconfig
-# mirror secrets live in a Role bound in flux-system (below).
+# Permissions to touch flux-system's own kustomizations + read (never
+# write) the kubeconfig secrets live in a Role bound in flux-system (below).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -63,11 +63,10 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "patch", "delete"]
-  # Secrets: cluster-wide read is needed so the provisioning service can
-  # fetch the source `vc-vcluster` Secret from tenant-<slug> at mirror time
-  # AND look up a DB password that lives in a tenant NS on day-2 installs.
-  # Write is scoped to flux-system only (see Role below) so a bug can't
-  # rewrite in-tenant secrets.
+  # Secrets: read only. The provisioning service waits for an
+  # Organization's `tenant-<slug>-kubeconfig` Secret in the Organization's
+  # namespace and in flux-system. It writes no Secret anywhere (the Role
+  # below is read only too).
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
@@ -95,7 +94,9 @@ subjects:
 ---
 # flux-system-scoped Role: patch/delete the per-tenant Kustomization CRs that
 # live here (see #97 for why they live here and not in the tenant NS), and
-# create/update/delete the mirrored kubeconfig Secrets those CRs reference.
+# read the kubeconfig Secrets those CRs reference. The service writes no
+# Secret here: bp-reflector copies each Organization's kubeconfig into
+# flux-system (core/controllers/organization/internal/gitops/region_local.go).
 #
 # Previously these rights were cluster-wide — a bug that resolved the wrong
 # CR name could have deleted flux-system/flux-system itself and taken all
@@ -113,7 +114,7 @@ rules:
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch"]
   # SOV-183: the service reads and watches the variables document, the one
   # ConfigMap its emitted chart sources and pull Secret come from.
   - apiGroups: [""]
