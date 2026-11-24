@@ -1783,7 +1783,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.3.9
+  version: 1.3.10
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1818,7 +1818,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno
-    version: 1.3.9
+    version: 1.3.10
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -1832,7 +1832,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.59
+  version: 1.0.60
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1867,7 +1867,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.59
+    version: 1.0.60
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1

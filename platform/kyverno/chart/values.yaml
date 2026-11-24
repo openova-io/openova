@@ -21,7 +21,7 @@ global:
 catalystBlueprint:
   upstream:
     chart: kyverno
-    version: "3.8.0"
+    version: "3.9.2"
     repo: "https://kyverno.github.io/kyverno/"
 
 # ─── Upstream chart values (subchart key: kyverno) ───────────────────────
@@ -40,7 +40,7 @@ kyverno:
         registry: harbor.openova.io
         repository: proxy-ghcr/kyverno/kyverno-cli
 
-  # HA mode — Kyverno 1.18 splits into 4 controllers. Solo-Sovereign default
+  # HA mode — Kyverno (1.18 and later) splits into 4 controllers. Solo-Sovereign default
   # is replicas=2 (Wave 5.90 #2436) so a single admission-controller restart
   # doesn't take down the entire fail-closed admission path. Per-Sovereign
   # overlays may bump to 3 for true HA on regional Sovereigns.
@@ -76,7 +76,7 @@ kyverno:
       # for grep-friendliness; harmless if upstream ever starts reading it.
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/kyverno
-      tag: "v1.18.0"
+      tag: "v1.19.2"
       pullPolicy: IfNotPresent
     # #3735: the kyvernopre INIT container was NEVER overridden — the chart set
     # only admissionController.image.* (itself inert), so the init image fell
@@ -89,7 +89,7 @@ kyverno:
       image:
         registry: harbor.openova.io
         repository: proxy-ghcr/kyverno/kyvernopre
-        tag: "v1.18.0"
+        tag: "v1.19.2"
         pullPolicy: IfNotPresent
     # Wave 5.90 (#2436) — main container resources bumped from upstream
     # default 100m/128Mi/384Mi → 500m/512Mi/1Gi. Surfaced live on
@@ -115,7 +115,7 @@ kyverno:
       image:
         registry: harbor.openova.io
         repository: proxy-ghcr/kyverno/kyverno
-        tag: "v1.18.0"
+        tag: "v1.19.2"
         pullPolicy: IfNotPresent
       # G67 #2616 (2026-05-31): cpu request 500m → 200m. Live use on
       # hw74 was ~50m/admission-controller — 200m is conservative
@@ -236,7 +236,7 @@ kyverno:
     image:
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/background-controller
-      tag: "v1.18.0"
+      tag: "v1.19.2"
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -255,7 +255,7 @@ kyverno:
     image:
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/cleanup-controller
-      tag: "v1.18.0"
+      tag: "v1.19.2"
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -273,7 +273,7 @@ kyverno:
     image:
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/reports-controller
-      tag: "v1.18.0"
+      tag: "v1.19.2"
       pullPolicy: IfNotPresent
     resources:
       requests:
@@ -295,16 +295,16 @@ kyverno:
     image:
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/readiness-checker
-      # tag left to upstream default (chart appVersion v1.18.0); the
+      # tag left to upstream default (chart appVersion v1.19.2); the
       # pre-delete hook only runs on uninstall so an unpinned tag never
       # races a fresh-prov pull.
   test:
     image:
       registry: harbor.openova.io
       repository: proxy-ghcr/kyverno/readiness-checker
-      # #3735: pin to v1.18.0 (was implicit `:latest`) so even the helm-test
+      # #3735: pin to the engine version (was implicit `:latest`) so even the helm-test
       # image is a deterministic proxied ref, not a floating `:latest`.
-      tag: v1.18.0
+      tag: v1.19.2
 
   # Reports server — bundled subchart, default disabled. Per-Sovereign
   # overlays enable when scaling out PolicyReport storage.

@@ -2,8 +2,12 @@
 # carries the label the application-controller stamps on every HelmRelease of
 # an Application (catalyst.openova.io/app, render.LabelApp); the names are
 # the controller's <app>-<cluster> names.
+#
+# A ClusterResource file, listed under clusterResources of kyverno-test.yaml:
+# the CLI (v1.19) answers resource.List from the test's fake cluster when the
+# test has clusterResources and then ignores a `context:` file (kind Context).
 apiVersion: cli.kyverno.io/v1alpha1
-kind: Context
+kind: ClusterResource
 metadata:
   name: context
 spec:
