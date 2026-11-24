@@ -1457,12 +1457,13 @@ checks:
 - id: FND-G21
   title: 'Console regression: jobs, resources, cloud pages'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the jobs pages, the resource views and the cloud and infrastructure read pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/operations
   delivered_by: FND-163
 - id: FND-G22
   title: 'Console regression: Organizations, access, settings'
