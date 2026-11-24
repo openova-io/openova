@@ -1921,7 +1921,7 @@ Test harness lives at the D31 acceptance test (PR #2075).
 
 ### 6.2 Continuum CR + lease witness
 
-`Continuum` (group `dr.openova.io/v1`) orchestrates switchover with a Cloudflare-KV or DNS-quorum lease witness (anti-split-brain). Schema in `products/catalyst/chart/crds/continuum.yaml`. Controller lives in EPIC-6 (#1101).
+`Continuum` (group `dr.openova.io/v1`) orchestrates switchover with a Cloudflare-KV or DNS-quorum lease witness (anti-split-brain). Schema in `products/continuum/chart/crds/continuum.yaml`. Controller lives in EPIC-6 (#1101).
 
 Required pattern: lease-based failover with cloud-witness. DMZ data plane over public IPs with WireGuard encryption (never RFC1918 tunnels depending on cloud-provider VPC peering).
 
