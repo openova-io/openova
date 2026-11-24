@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T09:00:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-24T09:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T09:09 | [#8754](https://github.com/openova-io/openova/pull/8754) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:40 | [#8750](https://github.com/openova-io/openova/pull/8750) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:43 | [#8748](https://github.com/openova-io/openova/pull/8748) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:48 | [#8747](https://github.com/openova-io/openova/pull/8747) | #8746 | feat(organization): every Organization namespace gets the Ex |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T01:59 | [#8707](https://github.com/openova-io/openova/pull/8707) | #8701 | docs(adr): record 0027 on the region-loss contract, a follow |
 | 2026-11-24T01:26 | [#8706](https://github.com/openova-io/openova/pull/8706) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:12 | [#8705](https://github.com/openova-io/openova/pull/8705) | #8700 | docs(ledger): result of the inspection CTL-170, where chart- |
-| 2026-11-24T01:28 | [#8704](https://github.com/openova-io/openova/pull/8704) | #8694 | feat(gitea): scheduled Git bundles of every repository to th |
 
 ---
 
