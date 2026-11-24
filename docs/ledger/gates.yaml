@@ -1469,12 +1469,13 @@ checks:
 - id: FND-G22
   title: 'Console regression: Organizations, access, settings'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the Organizations, users and access, and settings pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/organizations
   delivered_by: FND-164
 - id: FND-G23
   title: 'Console regression: compliance, hand-over, storefront'
