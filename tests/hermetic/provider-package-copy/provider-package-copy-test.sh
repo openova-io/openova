@@ -38,8 +38,30 @@
 #             every blob are byte-equal on both sides. With skopeo 1.15.2 it fails;
 #   control   the same whole copy with skopeo 1.15.2 is refused with the measured line: the
 #             packages have the shape that failed. If it is not refused the test can no longer
-#             see the defect: it fails and says so.
-# Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole.
+#             see the defect: it fails and says so;
+#   warmup-workflow  the install step of .github/workflows/warmup-bastion-harbor.yaml, its
+#             `run:` block run as written on this host for a ref being warmed that has no
+#             scripts/cutover-copy-functions.sh and no cutover chart (every ref before 24 Nov
+#             2026), cuts the copy functions from the checkout at the workflow's own commit
+#             (ref github.workflow_sha) and puts step 03's skopeo, fetched by skopeo_fetch, on
+#             PATH; the workflow sets PREWARM_DEST_TLS_VERIFY 'true' (the function defaults to
+#             false) and has no skopeo of its own;
+#   warmup    the copy step of the same workflow (into the parent's hosted project, the registry
+#             every node pulls first-party images from until the cutover), its `run:` block run
+#             as written in that ref's tree, sources the functions itself and copies a list of
+#             the shape docker/build-push-action pushes (a linux/amd64 image and its attestation
+#             manifest) from ghcr.io (a skopeo first on PATH sends ghcr.io to the first registry):
+#             the tag serves the list's digest, the list, both manifests and every blob are
+#             byte-equal. A source line moved out of the step leaves the copy undefined: it fails;
+#   warmup-fail  the same step for a list naming an image ghcr does not have exits non-zero;
+#   warmup-control  skopeo at its default (--multi-arch system), the warm-up's copy before
+#             24 Nov 2026, writes the linux/amd64 child under the tag, not the list: the list has
+#             the shape that gave one tag two digests (gate records of 23 Nov 2026,
+#             catalyst-api:4166721 at 3097ff33..., the child, and 82264606..., ghcr's list).
+# Before PR 8597 the case copy failed with the measured line; before skopeo 1.16.1 the case whole;
+# with the warm-up workflow of main before 24 Nov 2026 the case warmup fails (the tag serves the
+# child); with one that cuts the functions from the ref being warmed the case warmup-workflow fails;
+# with one whose failed copy is only a warning the case warmup-fail fails.
 #
 # Usage: bash tests/hermetic/provider-package-copy/provider-package-copy-test.sh [CHART_DIR]
 # PPC_DIR (default RUNNER_TEMP/provider-package-copy) holds bin/, work/ and results.txt.
@@ -142,6 +164,70 @@ cp "${BIN}/oras-${ORAS_VERSION}" "${W}/bin/oras"
 cp "${SKOPEO_DIR}/skopeo" "${W}/bin/skopeo"
 cp "${OLD_SKOPEO_BIN}" "${W}/bin/old/skopeo"; chmod +x "${W}/bin/old/skopeo"
 (cd "${ROOT}/tools/guards" && CGO_ENABLED=0 go build -o "${W}/tofu-providers" ./cmd/tofu-providers) || die "go build of tools/guards/cmd/tofu-providers failed"
+
+# ---- the warm-up (cases warmup-workflow, warmup, warmup-fail): two steps of its workflow, run as
+# written. run_block FILE NEEDLE prints, unindented, the `run: |` block of the first step with a
+# code line NEEDLE (trimmed, whole; a leading * matches it anywhere in the line; a comment never
+# matches). checkout_path FILE REF prints the path: of the checkout step at ref: REF.
+WARMUP_WF="${ROOT}/.github/workflows/warmup-bastion-harbor.yaml"
+run_block() {
+  awk -v n="$2" '
+    function hit(l) { sub(/^ +/, "", l); sub(/[ \t]+$/, "", l); if (l ~ /^#/) return 0; return substr(n, 1, 1) == "*" ? index(l, substr(n, 2)) > 0 : l == n }
+    f && $0 !~ /^[ \t]*$/ && (match($0, /[^ ]/) - 1) <= ind { if (h) { printf "%s", b; d = 1; exit } f = 0 }
+    f { if ($0 ~ /^[ \t]*$/) { b = b "\n"; next } if (!bi) bi = match($0, /[^ ]/) - 1; b = b substr($0, bi + 1) "\n"; if (hit($0)) h = 1; next }
+    /^ *run: \|$/ { ind = match($0, /[^ ]/) - 1; f = 1; bi = 0; b = ""; h = 0 }
+    END { if (!d && f && h) printf "%s", b }' "$1"
+}
+checkout_path() {
+  awk -v r="$2" '
+    function step() { if (ref == r && p != "") { print p; d = 1; exit } p = ""; ref = "" }
+    /^ *- / { step() } /^ *path: / { p = $2 } /^ *ref: / { ref = $0; sub(/^ *ref: */, "", ref) }
+    END { if (!d) step() }' "$1"
+}
+# shellcheck disable=SC2016 # the refs are matched as written in the workflow, unexpanded
+WARMUP_OWN=$(checkout_path "${WARMUP_WF}" '${{ github.workflow_sha }}')
+# shellcheck disable=SC2016
+WARMUP_SRC=$(checkout_path "${WARMUP_WF}" "\${{ inputs.ref || '' }}")
+[ -n "${WARMUP_OWN}" ] || die "${WARMUP_WF} checks out nothing at its own commit (ref: \${{ github.workflow_sha }}): the copy would come from the ref being warmed"
+[ -n "${WARMUP_SRC}" ] && [ "${WARMUP_SRC}" != "${WARMUP_OWN}" ] || die "${WARMUP_WF} checks out the ref being warmed (ref: \${{ inputs.ref || '' }}) nowhere, or at the path of its own commit"
+run_block "${WARMUP_WF}" '*/scripts/cutover-copy-functions.sh ' >"${W}/warmup-install.sh"
+run_block "${WARMUP_WF}" 'copy_one() {' >"${W}/warmup-step.sh"
+[ -s "${W}/warmup-install.sh" ] || die "${WARMUP_WF} has no step that runs scripts/cutover-copy-functions.sh"
+[ -s "${W}/warmup-step.sh" ] || die "${WARMUP_WF} has no step that defines copy_one: nothing to run"
+WARMUP_TLS=$(sed -n "s/^ *PREWARM_DEST_TLS_VERIFY: *'\([a-z]*\)'.*/\1/p" "${WARMUP_WF}" | head -n 1)
+# The ref being warmed is a tree WITHOUT scripts/cutover-copy-functions.sh and the cutover chart
+# (every ref before 24 Nov 2026, e46c1d8 among them); its list builder is a stand-in naming one
+# first-party image (gh-fail: one ghcr does not have). The workflow's own commit is this tree.
+for g in gh:app gh-fail:absent; do
+  mkdir -p "${W}/${g%%:*}/${WARMUP_SRC}/scripts"
+  printf '#!/bin/sh\necho ghcr.io/openova-io/openova/%s:1.0\n' "${g#*:}" >"${W}/${g%%:*}/${WARMUP_SRC}/scripts/check-mothership-proxy-image-path.sh"
+done
+ln -s "${ROOT}" "${W}/gh/${WARMUP_OWN}"
+# The install step on this host, as written: helm is the job's own (the helm installer is not
+# fetched); step 03's skopeo is fetched by skopeo_fetch.
+mkdir -p "${W}/rt" "${W}/gh-bin"; : >"${W}/github-path"
+printf '#!/bin/sh\ncase "$*" in *get-helm-3*) exit 0 ;; esac\nexec %s "$@"\n' "$(command -v curl)" >"${W}/gh-bin/curl"
+chmod +x "${W}/gh-bin/curl"
+irc=0
+(cd "${W}/gh" && PATH="${W}/gh-bin:${PATH}" RUNNER_TEMP="${W}/rt" GITHUB_PATH="${W}/github-path" bash --noprofile --norc -eo pipefail "${W}/warmup-install.sh") >"${W}/out/warmup-install.out" 2>&1 || irc=$?
+sed 's/^/  | /' "${W}/out/warmup-install.out"
+WARMUP_PATH=$(tail -n 1 "${W}/github-path")
+cat >"${W}/warmup-env.sh" <<ENV
+export HARBOR_HOST=localhost:5002 HARBOR_PROJECT=openova-io HARBOR_USERNAME=admin HARBOR_PASSWORD=pw GHCR_USER=bot GHCR_PAT=tok CATALYST_SHA=
+export PREWARM_PARALLELISM=6 PREWARM_COPY_ATTEMPTS=1 PREWARM_SKOPEO_TIMEOUT=120s PREWARM_DEST_TLS_VERIFY="${WARMUP_TLS}" RUNNER_TEMP=/w/rt
+ENV
+{
+  if [ "${irc}" -eq 0 ] && grep -q '^offlinemirror_copy() {$' "${W}/rt/copy-functions.sh" 2>/dev/null; then
+    echo "ok   — warmup: its install step, run as written for a ref without scripts/cutover-copy-functions.sh, cuts step 03's copy functions from its own commit (${WARMUP_OWN})"
+  else echo "FAIL — warmup: its install step exited ${irc} for a ref without scripts/cutover-copy-functions.sh, or wrote no copy functions: $(tail -n 2 "${W}/out/warmup-install.out" | tr '\n' ' ')"; fi
+  if [ -n "${WARMUP_PATH}" ] && [ "$(sha "${WARMUP_PATH}/skopeo")" = "${SKOPEO_SHA256}" ]; then echo "ok   — warmup: it puts step 03's skopeo (sha256 ${SKOPEO_SHA256}), fetched by skopeo_fetch, on PATH"
+  else echo "FAIL — warmup: the PATH it adds ('${WARMUP_PATH}') has no skopeo at step 03's sha256 ${SKOPEO_SHA256}"; fi
+  # The shared function defaults TLS verification off; the parent's front door must be verified.
+  if [ "${WARMUP_TLS}" = true ]; then echo "ok   — warmup: the workflow sets PREWARM_DEST_TLS_VERIFY: 'true' (the destination's certificate is verified)"
+  else echo "FAIL — warmup: ${WARMUP_WF##*/} does not set PREWARM_DEST_TLS_VERIFY: 'true' (read '${WARMUP_TLS}'): the copy would run with TLS verification off"; fi
+  if grep -qE 'apt-get install.*skopeo' "${WARMUP_WF}"; then echo "FAIL — warmup: ${WARMUP_WF##*/} installs a skopeo of its own (apt), a second version"
+  else echo "ok   — warmup: the workflow installs no skopeo of its own"; fi
+} >"${W}/out/case-warmup-workflow.txt"
 
 # ---- the packages: every listed source and version, a stub zip each, packed as the publisher packs.
 : >"${W}/list"

@@ -20,7 +20,8 @@ package main
 //	                   and one of 3 GiB (its descriptor says so; the stand-in
 //	                   never serves that much)
 //	openova-io/openova/<name>  a first-party image at any tag: one image
-//	                   manifest, the way the warm-up's copy writes it; -indexed
+//	                   manifest, the way the warm-up's copy wrote it before
+//	                   24 Nov 2026 (only an index's child); -indexed
 //	                   serves it the way ghcr publishes it, an index whose
 //	                   linux/amd64 child is that manifest; -childless serves the
 //	                   index while its child is unknown; -absent names a
