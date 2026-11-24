@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T06:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-24T06:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
+| 2026-11-24T06:42 | [#8733](https://github.com/openova-io/openova/pull/8733) | #8728 | test(gate): check CMP-G02 is required now that the pinned ca |
 | 2026-11-24T06:20 | [#8731](https://github.com/openova-io/openova/pull/8731) | #7087 | docs(ledger): plan update |
 | 2026-11-24T05:59 | [#8727](https://github.com/openova-io/openova/pull/8727) | #7087 | docs(ledger): plan update |
 | 2026-11-24T05:31 | [#8726](https://github.com/openova-io/openova/pull/8726) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-23T23:26 | [#8687](https://github.com/openova-io/openova/pull/8687) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:47 | [#8686](https://github.com/openova-io/openova/pull/8686) | #8684 | refactor(console): remove the second vulnerability matcher f |
 | 2026-11-24T00:32 | [#8685](https://github.com/openova-io/openova/pull/8685) | FND-G12: a deleting policy removes an Application's seed CA  |  |
-| 2026-11-23T23:13 | [#8683](https://github.com/openova-io/openova/pull/8683) | #7087 | docs(ledger): plan update |
 
 ---
 
