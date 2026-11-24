@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T15:30:06Z` |
+| Last refreshed | `2026-11-24T15:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
 | [#8363](https://github.com/openova-io/openova/issues/8363) | AIP-151 Tool answers are fitted and made inert | Other |
 | [#8364](https://github.com/openova-io/openova/issues/8364) | AIP-250 Spike: agent workspace on the Organization's own sign-in with a short-li | Other |
 | [#8365](https://github.com/openova-io/openova/issues/8365) | SOV-154 First boot applies one root Kustomization; its children come from Git | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8770](https://github.com/openova-io/openova/issues/8770) | SOV-721 The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a pe | Other |
 | [#8776](https://github.com/openova-io/openova/issues/8776) | CMP-075 Policy files in every region's folder: the alignment function at start-u | Other |
 | [#8779](https://github.com/openova-io/openova/issues/8779) | AIP-157 Nothing reads the long-lived bearer | Other |
+| [#8783](https://github.com/openova-io/openova/issues/8783) | CMP-061 Engine values, informer kinds and mode adapter for the current policy ki | Other |
 
 ---
 
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
 | 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
+| 2026-11-24T15:31 | [#8777](https://github.com/openova-io/openova/pull/8777) | #8776 | refactor(compliance): policy files in every region folder: t |
 | 2026-11-24T12:37 | [#8775](https://github.com/openova-io/openova/pull/8775) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:52 | [#8773](https://github.com/openova-io/openova/pull/8773) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:41 | [#8771](https://github.com/openova-io/openova/pull/8771) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T06:53 | [#8741](https://github.com/openova-io/openova/pull/8741) | #8730 | docs(ledger): result of the spike INF-350, change events fro |
 | 2026-11-24T06:46 | [#8740](https://github.com/openova-io/openova/pull/8740) | #7087 | docs(ledger): plan update |
 | 2026-11-24T09:43 | [#8739](https://github.com/openova-io/openova/pull/8739) | #8734 | refactor(wizard): the component step shows the generated kit |
-| 2026-11-24T06:54 | [#8738](https://github.com/openova-io/openova/pull/8738) | #8729 | chore(crds): keep the one Continuum definition file in the C |
 
 ---
 
