@@ -220,3 +220,4 @@ products/catalyst/bootstrap/ui/src/pages/admin/compliance/SecLeadDashboardPage.t
 products/catalyst/bootstrap/ui/src/pages/admin/compliance/FrameworkFilter.tsx
 products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx
 products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.test.tsx
+products/catalyst/bootstrap/api/internal/handler/jobs_retry_syft_identity_row176_test.go

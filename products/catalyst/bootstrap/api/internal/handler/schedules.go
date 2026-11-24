@@ -11,8 +11,8 @@
 //
 // A real batch/v1 CronJob, nothing synthetic (GLOSSARY: real engine names
 // throughout). It is CLONED from an existing CronJob's jobTemplate — the
-// operator picks the work (a Blueprint's cron: openbao-snapshot-save,
-// syft-grype, …) and gives it a second cadence ("also at 12:00 on
+// operator picks the work (a Blueprint's cron, e.g. openbao-snapshot-save)
+// and gives it a second cadence ("also at 12:00 on
 // weekdays"). The console never authors a pod spec: the template, its
 // images, service account and secrets are the source's, verbatim, so the
 // clone can only ever do what the source already does.

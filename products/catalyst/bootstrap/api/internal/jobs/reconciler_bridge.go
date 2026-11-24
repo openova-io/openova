@@ -332,7 +332,7 @@ func (b *Bridge) attachExecutionToInstallLeafLocked(o ReconcilerObservation) (ex
 // is written by StartExecution as running with FinishedAt=nil; when that same
 // run later reaches a terminal verdict, the dedupe must TERMINATE the existing
 // Execution rather than leave it untouched. Skipping it outright is UAT row
-// 164's live symptom: on hw292 the syft-grype run that ended Failed /
+// 164's live symptom: on hw292 a scanner CronJob run that ended Failed /
 // BackoffLimitExceeded still read "running, finishedAt: null" days later,
 // because the only poll that could have terminated it was deduped away. A
 // terminal Execution, or a run still in flight, is left exactly as it is.
