@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T05:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T05:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T05:20 | [#8725](https://github.com/openova-io/openova/pull/8725) | #8636 | CMP-G01 step 5 takes its starting count after the cluster ha |
 | 2026-11-24T04:03 | [#8724](https://github.com/openova-io/openova/pull/8724) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:41 | [#8722](https://github.com/openova-io/openova/pull/8722) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:43 | [#8721](https://github.com/openova-io/openova/pull/8721) | #8711 | docs(adr): record 0035 on one telemetry pipeline per cluster |
 | 2026-11-24T05:13 | [#8720](https://github.com/openova-io/openova/pull/8720) | #8713 | test(gate): check CTL-G10 measures the region-loss bounds of |
+| 2026-11-24T05:20 | [#8719](https://github.com/openova-io/openova/pull/8719) | #8692 | test(gate): the browser tests of the jobs, resource views an |
 | 2026-11-24T02:59 | [#8718](https://github.com/openova-io/openova/pull/8718) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:14 | [#8717](https://github.com/openova-io/openova/pull/8717) | #8702 | The registry warm-up does not try to copy the image of an un |
 | 2026-11-24T02:50 | [#8715](https://github.com/openova-io/openova/pull/8715) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-23T21:35 | [#8675](https://github.com/openova-io/openova/pull/8675) | #7087 | docs(ledger): plan update |
 | 2026-11-23T21:24 | [#8673](https://github.com/openova-io/openova/pull/8673) | #7087 | docs(ledger): plan update |
 | 2026-11-23T22:37 | [#8672](https://github.com/openova-io/openova/pull/8672) | #8664 | test(gate): the row map of the ledger and the browser harnes |
-| 2026-11-23T22:11 | [#8671](https://github.com/openova-io/openova/pull/8671) | #8667 | feat(postgres): scheduled backups of the platform database c |
-| 2026-11-23T21:06 | [#8670](https://github.com/openova-io/openova/pull/8670) | #7087 | docs(ledger): plan update |
 
 ---
 
