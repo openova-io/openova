@@ -811,7 +811,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "80e6bd9"
+      tag: "7932aa5"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -952,7 +952,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "9de5bef"
+      tag: "7932aa5"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1007,7 +1007,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "4db7c46"
+      tag: "7932aa5"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

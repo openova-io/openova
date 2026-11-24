@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T10:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-24T11:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8355](https://github.com/openova-io/openova/issues/8355) | NET-280 Spike: overlay profile | Other |
 | [#8356](https://github.com/openova-io/openova/issues/8356) | SVC-220 Ring labels on the kit | Other |
 | [#8358](https://github.com/openova-io/openova/issues/8358) | FND-076 The standing environment is updated through the release route by a workf | Other |
 | [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8761](https://github.com/openova-io/openova/issues/8761) | AIP-156 Delete the long-lived bearer seed | Other |
 | [#8762](https://github.com/openova-io/openova/issues/8762) | CMP-071 Policy files in every region's folder: scopes, the write functions, the  | Other |
 | [#8765](https://github.com/openova-io/openova/issues/8765) | CMP-041 ComplianceModel: definition, data files, chart template, exemptions, gua | Other |
+| [#8770](https://github.com/openova-io/openova/issues/8770) | SOV-721 The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a pe | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T10:51 | [#8768](https://github.com/openova-io/openova/pull/8768) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:24 | [#8764](https://github.com/openova-io/openova/pull/8764) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:09 | [#8760](https://github.com/openova-io/openova/pull/8760) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:29 | [#8758](https://github.com/openova-io/openova/pull/8758) | #8753 | refactor(api): remove the second matcher job handling from t |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T03:43 | [#8721](https://github.com/openova-io/openova/pull/8721) | #8711 | docs(adr): record 0035 on one telemetry pipeline per cluster |
 | 2026-11-24T05:13 | [#8720](https://github.com/openova-io/openova/pull/8720) | #8713 | test(gate): check CTL-G10 measures the region-loss bounds of |
 | 2026-11-24T05:20 | [#8719](https://github.com/openova-io/openova/pull/8719) | #8692 | test(gate): the browser tests of the jobs, resource views an |
-| 2026-11-24T02:59 | [#8718](https://github.com/openova-io/openova/pull/8718) | #7087 | docs(ledger): plan update |
 
 ---
 
