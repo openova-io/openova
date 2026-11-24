@@ -31056,7 +31056,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'No one-year Organization administrator bearer is minted: catalyst-api neither mints one when it provisions an Organization nor re-mints one in its seed reconciler, and no code holds a one-year bearer lifetime.'
 - id: AIP-157
