@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T01:30:11Z` |
+| Last refreshed | `2026-11-24T01:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -313,6 +313,7 @@ flowchart LR
 | 2026-11-24T00:37 | [#8698](https://github.com/openova-io/openova/pull/8698) | #7087 | docs(ledger): plan update |
 | 2026-11-24T00:34 | [#8697](https://github.com/openova-io/openova/pull/8697) | #8690 | docs(ledger): result of the spike FND-201, what the telemetr |
 | 2026-11-24T00:21 | [#8693](https://github.com/openova-io/openova/pull/8693) | #7087 | docs(ledger): plan update |
+| 2026-11-24T01:33 | [#8692](https://github.com/openova-io/openova/pull/8692) | #8688 | test(gate): the browser tests of the applications grid, appl |
 | 2026-11-23T23:48 | [#8689](https://github.com/openova-io/openova/pull/8689) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:26 | [#8687](https://github.com/openova-io/openova/pull/8687) | #7087 | docs(ledger): plan update |
 | 2026-11-23T23:47 | [#8686](https://github.com/openova-io/openova/pull/8686) | #8684 | refactor(console): remove the second vulnerability matcher f |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-23T08:44 | [#8653](https://github.com/openova-io/openova/pull/8653) | #7087 | docs(ledger): plan update |
 | 2026-11-23T08:24 | [#8652](https://github.com/openova-io/openova/pull/8652) | #8651 | feat(openbao): a six-hourly raft snapshot of OpenBao to obje |
 | 2026-11-23T07:19 | [#8650](https://github.com/openova-io/openova/pull/8650) | #7087 | docs(ledger): plan update |
-| 2026-11-23T05:25 | [#8648](https://github.com/openova-io/openova/pull/8648) | #8602 | fix(provisioner): the deployment record keeps the Sovereign' |
 
 ---
 
