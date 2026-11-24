@@ -243,6 +243,8 @@ spec:
         clientId: guacamole-gate
         upstream: http://guacamole-server.guacamole.svc.cluster.local:80
         rootRedirectPath: /guacamole/
+        # ACC-010: only members of sovereign-admins pass this gate.
+        allowedGroups: [sovereign-admins]
 
       # chargeback (#6841). The billing app shipped its OWN PIN sign-in —
       # a second, parallel identity system on a Sovereign that already has

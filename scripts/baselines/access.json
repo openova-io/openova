@@ -6,9 +6,7 @@
     "ACC-GD1": {
       "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 1
     },
-    "ACC-GD2": {
-      "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 1
-    },
+    "ACC-GD2": {},
     "ACC-GD3": {
       "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 4
     },

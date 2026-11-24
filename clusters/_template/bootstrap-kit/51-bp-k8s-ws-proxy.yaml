@@ -133,3 +133,5 @@ spec:
       # opts out per-Sovereign by removing this slot from
       # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
       enabled: true
+      # ACC-010: exec only into catalyst-system, where cluster-shell lands.
+      allowedNamespaces: [catalyst-system]
