@@ -302,14 +302,17 @@ func TestOriginHas(t *testing.T) {
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/catalyst-ui:1\n", args...)
 	want(t, "the tag carries another digest", rc, 1, out, `(?m)^MISSING AT THE ORIGIN ghcr.io/openova-io/openova/catalyst-ui:1: .* carries sha256:[0-9a-f]+, ghcr has sha256:`)
 
-	// ghcr publishes an index; the warm-up's `skopeo copy` (no --all) writes
-	// its linux/amd64 child under the tag, so the origin's tag is the child.
+	// ghcr publishes an index; the origin's tag holds only its linux/amd64
+	// child, as the warm-up's `skopeo copy` at its default wrote it before
+	// 24 Nov 2026: the Sovereign's registry serves the index for the same tag,
+	// so the tag has two digests, and that fails.
 	idx := map[string]bool{"openova-io/openova/sovereign-ops": true}
 	ghcrIdx := httptest.NewServer(newStub(stubOptions{indexed: idx}))
 	t.Cleanup(ghcrIdx.Close)
 	argsIdx := []string{"origin-has", "-origin", base, "-ghcr", ghcrIdx.URL}
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", argsIdx...)
-	want(t, "an index on ghcr, its linux/amd64 child at the origin as the warm-up copies it", rc, 0, out, `(?m)^ORIGIN-HAS PASS 1 `)
+	want(t, "an index on ghcr, only its linux/amd64 child at the origin", rc, 1, out, `(?m)^MISSING AT THE ORIGIN ghcr.io/openova-io/openova/sovereign-ops:fe65309: .* carries only ghcr's linux/amd64 child sha256:[0-9a-f]+, ghcr has the index sha256:[0-9a-f]+: one tag, two digests \(warm the ref again\)$`)
+	want(t, "  and the cut is called incoherent", rc, 1, out, `(?m)^ORIGIN-HAS FAIL 1/1 `)
 	whole, _ := origin(t, stubOptions{user: "robot$openova-warmup", password: "pw", indexed: idx})
 	rc, out = runWith(t, env, "ghcr.io/openova-io/openova/sovereign-ops:fe65309\n", "origin-has", "-origin", whole, "-ghcr", ghcrIdx.URL)
 	want(t, "an index on ghcr, the same index at the origin (a copy with --all)", rc, 0, out, `(?m)^ORIGIN-HAS PASS 1 `)

@@ -219,24 +219,37 @@ else
   echo "FAIL — control: skopeo 1.15.2's whole copy exited ${crc} without the measured refusal: the packages no longer have the shape that failed, and this test cannot see the defect" >"${OUT}/case-control.txt"
 fi
 
-echo "── case warmup: the warm-up's copy_one, cut from its workflow, copies a first-party list from ghcr.io whole ──"
-# A skopeo first on PATH sends every docker://ghcr.io/ reference to the first registry.
-mkdir -p /tmp/ppc-warmup-stub /tmp/ppc-warmup-copies
+echo "── case warmup: the warm-up's copy step, run as written, for a ref without the cut script, copies a first-party list from ghcr.io whole ──"
+# A skopeo first on PATH sends every docker://ghcr.io/ reference to the first registry. The step
+# runs in /w/gh, the ref being warmed (its list names app:1.0); /w/rt is the RUNNER_TEMP the
+# install step wrote the copy functions to. The step sources them itself, or nothing copies.
+mkdir -p /tmp/ppc-warmup-stub
 cat >/tmp/ppc-warmup-stub/skopeo <<'STUB'
 #!/bin/sh
 for a in "$@"; do case "${a}" in docker://ghcr.io/*) a="docker://localhost:5001/${a#docker://ghcr.io/}" ;; esac; set -- "$@" "${a}"; shift; done
 exec /w/bin/skopeo "$@"
 STUB
 chmod +x /tmp/ppc-warmup-stub/skopeo
+warmup_step() { (cd "$1" && . /w/warmup-env.sh && PATH="/tmp/ppc-warmup-stub:${PATH}" bash --noprofile --norc -eo pipefail /w/warmup-step.sh); }
 rc=0
-PATH="/tmp/ppc-warmup-stub:${PATH}" sh -c 'set -eu; . /w/warmup-env.sh; . /w/warmup.sh; copy_one ghcr.io/openova-io/openova/app:1.0' >"${OUT}/warmup.out" 2>&1 || rc=$?
-cat /tmp/ppc-warmup-copies/*.log >>"${OUT}/warmup.out" 2>/dev/null
+warmup_step /w/gh >"${OUT}/warmup.out" 2>&1 || rc=$?
+cat /tmp/warmup-copies/*.log >>"${OUT}/warmup.out" 2>/dev/null
 sed 's/^/    /' "${OUT}/warmup.out"
 {
-  if [ "${rc}" -eq 0 ] && ls /tmp/ppc-warmup-copies/*.ok >/dev/null 2>&1; then echo "ok   — warmup: copy_one exits 0 and marks the image ok"
-  else echo "FAIL — warmup: copy_one exits ${rc}, $(cat /tmp/ppc-warmup-copies/*.fail 2>/dev/null || echo 'no .ok')"; fi
+  if [ "${rc}" -eq 0 ] && ls /tmp/warmup-copies/*.ok >/dev/null 2>&1; then echo "ok   — warmup: the copy step exits 0 and marks the image ok"
+  else echo "FAIL — warmup: the copy step exits ${rc}, $(cat /tmp/warmup-copies/*.fail 2>/dev/null || echo 'no .ok')"; fi
   judge warmup openova-io/openova/app openova-io/openova/app 1.0 "${BX_DIGEST}"
 } >"${OUT}/case-warmup.txt" 2>&1
+
+echo "── case warmup-fail: a copy that fails fails the copy step (its list names an image ghcr does not have) ──"
+frc=0
+warmup_step /w/gh-fail >"${OUT}/warmup-fail.out" 2>&1 || frc=$?
+sed 's/^/    /' "${OUT}/warmup-fail.out"
+if [ "${frc}" -ne 0 ] && ls /tmp/warmup-copies/*absent*.fail >/dev/null 2>&1; then
+  echo "ok   — warmup-fail: the copy of absent:1.0 is marked failed and the step exits ${frc}" >"${OUT}/case-warmup-fail.txt"
+else
+  echo "FAIL — warmup-fail: the step exits ${frc} with $(ls /tmp/warmup-copies/ 2>/dev/null | tr '\n' ' '): a copy that fails must fail the warm-up job" >"${OUT}/case-warmup-fail.txt"
+fi
 
 echo "── case warmup-control: skopeo at its default, the warm-up's copy before 24 Nov 2026, writes the child ──"
 crc=0

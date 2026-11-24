@@ -43,7 +43,8 @@
 # skopeo (skopeo_fetch, the one pinned version of values skopeo) and its copy
 # function offlinemirror_copy (--multi-arch all, --preserve-digests: a list is
 # copied entry by entry, then its own bytes), cut from the chart's render by
-# scripts/cutover-copy-functions.sh, with the same parallel fan-out and OUTER
+# scripts/cutover-copy-functions.sh, both from this workflow's own commit
+# (github.workflow_sha), with the same parallel fan-out and OUTER
 # per-image retry. Until 24 Nov 2026 this file ran its own `skopeo copy` at the
 # default --multi-arch system: it wrote the linux/amd64 child of each list under
 # the tag, so a node that pulled before the cutover ran
@@ -146,6 +147,20 @@ jobs:
           path: openova-src
           ref: ${{ inputs.ref || '' }}
 
+      # The copy (scripts/cutover-copy-functions.sh and the cutover chart it
+      # cuts the functions from) comes from this workflow's own commit, never
+      # from the ref being warmed: a ref older than the script has neither, and
+      # a run by hand for it would warm nothing. Only the image list is the ref's.
+      - name: Checkout openova at this workflow's own commit (the copy)
+        uses: actions/checkout@v4
+        with:
+          repository: openova-io/openova
+          path: openova-workflow
+          ref: ${{ github.workflow_sha }}
+          sparse-checkout: |
+            scripts
+            platform/self-sovereign-cutover
+
       - name: Set up the Go of tools/guards (the image list builder)
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -157,7 +172,7 @@ jobs:
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm version --short
-          sh openova-src/scripts/cutover-copy-functions.sh openova-src/platform/self-sovereign-cutover/chart >"${RUNNER_TEMP}/copy-functions.sh"
+          sh openova-workflow/scripts/cutover-copy-functions.sh openova-workflow/platform/self-sovereign-cutover/chart >"${RUNNER_TEMP}/copy-functions.sh"
           mkdir -p "${RUNNER_TEMP}/skopeo"
           sh -c '. "$1"; skopeo_fetch "$2" "[warmup]"' sh "${RUNNER_TEMP}/copy-functions.sh" "${RUNNER_TEMP}/skopeo"
           echo "${RUNNER_TEMP}/skopeo" >>"${GITHUB_PATH}"
@@ -316,10 +331,12 @@ jobs:
           for f in "${cpdir}"/*.ok;   do [ -e "${f}" ] && { ok=$((ok+1)); echo "[warmup] OK   $(cat "${f}")"; }; done
           for f in "${cpdir}"/*.fail; do [ -e "${f}" ] && { fail=$((fail+1)); echo "[warmup] FAIL $(cat "${f}")"; echo "---"; cat "${cpdir}/$(basename "${f}" .fail).log" 2>/dev/null | tail -20; echo "---"; }; done
           echo "[warmup] pushed ${ok} ok, ${fail} failed (of ${count})."
-          # A copy that failed is a warning (the next warmup retries it); the
-          # caller is never blocked, as no job of it `needs:` this one.
+          # A copy that failed fails this job, where it is seen: a node has no
+          # public fallback (SOV-132), and a tag left as it was may carry
+          # another digest than ghcr's. The caller is never blocked, as no job
+          # of it `needs:` this one.
           if [ "${fail}" -gt 0 ]; then
-            echo "::warning title=#4049 warmup partial::${fail}/${count} image(s) failed to warm the bastion — nodes may cold-pull those (see logs above)."
+            echo "::error title=#4049 warmup partial::${fail}/${count} image(s) failed to warm the bastion — a node cannot pull those (see logs above)."
           fi
           # The list of the fresh install could not be built: the images above
           # are pushed, the install's own are not, and that is a failure.
@@ -327,3 +344,4 @@ jobs:
             echo "::error title=warmup list::the first-party images of the fresh install were not pushed: their list could not be built (see the start of this step); ${ok} image(s) that do not depend on it were pushed"
             exit 1
           fi
+          [ "${fail}" -eq 0 ] || exit 1

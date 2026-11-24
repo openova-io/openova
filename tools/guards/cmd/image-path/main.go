@@ -80,11 +80,15 @@
 // the node map rewrites ghcr.io/openova-io/openova/<name> to the hosted project
 // path openova-io/openova/<name>. What a node pulls is the linux/amd64 image
 // manifest: the child when the tag holds an index, else the manifest itself.
-// The warm-up (.github/workflows/warmup-bastion-harbor.yaml) copies with cutover
-// step 03's copy function (--multi-arch all, --preserve-digests) since 24 Nov
-// 2026, so the origin's tag carries ghcr's index; a tag it wrote before then
-// with `skopeo copy` at its default carries ghcr's linux/amd64 child. Both pass
-// when the linux/amd64 child is ghcr's and is served. Exit 0 every image is there;
+// It must be ghcr's and be served; and when ghcr's tag holds an index, the
+// origin's tag must hold that index, at ghcr's digest. The warm-up
+// (.github/workflows/warmup-bastion-harbor.yaml) copies with cutover step 03's
+// copy function (--multi-arch all, --preserve-digests) since 24 Nov 2026, so
+// the origin's tag carries ghcr's index. A tag it wrote before then with
+// `skopeo copy` at its default carries only ghcr's linux/amd64 child and
+// fails: the Sovereign's registry (step 03) serves the index for the same tag,
+// so a Pod restarted across the cutover runs another digest (the gate records
+// of 23 Nov 2026 could not pair); warm the ref again. Exit 0 every image is there;
 // 1 at least one is missing or carries another image (each is named); 2 a
 // registry could not be read, so nothing is concluded.
 package main
@@ -1148,6 +1152,13 @@ func runOriginHas(args []string, in io.Reader, stdout, stderr io.Writer) int {
 			missing++
 		case got.image != want.image:
 			say(stdout, "MISSING AT THE ORIGIN %s: %s carries %s, ghcr has %s (the linux/amd64 image a node pulls)\n", ref, at, got.image, want.image)
+			missing++
+		case want.index != "" && got.index != want.index:
+			holds := "the index " + got.index
+			if got.index == "" {
+				holds = "only ghcr's linux/amd64 child " + got.image
+			}
+			say(stdout, "MISSING AT THE ORIGIN %s: %s carries %s, ghcr has the index %s: one tag, two digests (warm the ref again)\n", ref, at, holds, want.index)
 			missing++
 		default:
 			say(stdout, "PRESENT %s %s\n", ref, want.image)

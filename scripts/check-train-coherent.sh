@@ -894,8 +894,8 @@ run_self_test() {
   # every first-party image (sovereign-ops as an index, the way ghcr publishes
   # a multi-platform image), and the origin, which lacks continuum-controller
   # (the 20 November 2026 cut), holds catalyst-ui with another digest, and
-  # holds sovereign-ops the way the warm-up's copy writes it (the linux/amd64
-  # child under the tag).
+  # holds sovereign-ops the way the warm-up's copy writes it since 24 Nov 2026
+  # (ghcr's index under the tag; only its linux/amd64 child fails).
   echo "CHECK 5  every first-party image is at the origin"
   # The verdict check 5 records from what the tool did, whatever it did: a
   # crash or a kill never leaves the check without a result.
@@ -912,7 +912,7 @@ run_self_test() {
   if tc_build_tool "$T"; then
     "$IMAGE_PATH_TOOL" stub -port-file "$T/ghcr.port" -indexed openova-io/openova/sovereign-ops & local ghcr_pid=$!
     "$IMAGE_PATH_TOOL" stub -port-file "$T/origin.port" -user 'robot$openova-warmup' -password origin-pw \
-      -absent openova-io/openova/continuum-controller -stale openova-io/openova/catalyst-ui & local origin_pid=$!
+      -absent openova-io/openova/continuum-controller -stale openova-io/openova/catalyst-ui -indexed openova-io/openova/sovereign-ops & local origin_pid=$!
     local _ G O
     for _ in $(seq 1 50); do [ -s "$T/ghcr.port" ] && [ -s "$T/origin.port" ] && break; sleep 0.1; done
     G="http://127.0.0.1:$(cat "$T/ghcr.port" 2>/dev/null)"
