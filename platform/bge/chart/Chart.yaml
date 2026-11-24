@@ -1,43 +1,26 @@
 apiVersion: v2
 name: bp-bge
 description: |
-  Catalyst Blueprint scratch chart for BGE (BAAI General Embedding).
+  Catalyst Blueprint chart for embeddings and reranking on CPU.
 
-  No upstream Helm chart is published by BAAI for the bge-* family
-  (https://huggingface.co/BAAI). This chart hand-wires HuggingFace's
-  `text-embeddings-inference` (TEI) container — the de-facto runtime
-  for sentence-transformers / BGE models — as a Deployment + Service +
-  ConfigMap. CPU-friendly by default (bge-small-en-v1.5 fits in <1 GB
-  RAM and runs at >100 req/s on a single CPU pod).
-
-  Two endpoints are exposed:
-    - /embed (port 8080) — embeddings via the embeddings model
-    - /rerank (port 8081) — cross-encoder reranking via the reranker model
-
-  Discovery: the Service is annotated with
-  `catalyst.openova.io/llm-gateway-route: embeddings` so bp-llm-gateway
-  (slot 40) discovers and fans out queries automatically.
-
-  Pairs with bp-llm-gateway (gateway), bp-vllm (LLM serving),
-  bp-nemo-guardrails (AI safety rails), bp-cnpg (catalog DB), and
-  bp-milvus / bp-pgvector (vector store).
+  One Infinity server (github.com/michaelfeil/infinity, MIT) serves one
+  embedding model and at most one reranker, by default
+  granite-embedding-107m-multilingual (384 dimensions) and
+  mmarco-mMiniLMv2-L12-H384-v1, both on the ONNX engine. Routes:
+  POST /v1/embeddings and POST /v1/rerank on a ClusterIP Service; the
+  platform's model gateway is the one caller. See README.md.
 type: application
 version: 1.0.0
-appVersion: "1.5.1"
-keywords: [catalyst, blueprint, bge, embeddings, reranker, sentence-transformers, ai]
+appVersion: "0.0.78"
+keywords: [catalyst, blueprint, embeddings, reranker, infinity, ai]
 maintainers:
   - name: OpenOva Catalyst
     email: catalyst@openova.io
 
-# Scratch chart — BAAI does not publish a Helm chart, so the Catalyst
-# overlay templates (Deployment + Service + ConfigMap + ServiceMonitor +
-# NetworkPolicy + HPA) are entirely in templates/ in this chart. The
-# `sigstore/common` library subchart below is included ONLY to satisfy
-# the platform-wide blueprint-release.yaml hollow-chart gate (issue
-# #181) — every umbrella MUST declare at least one dependency. `common`
-# is a tiny library chart (helper templates only, zero runtime
-# resources) and contributes nothing to the rendered manifests of
-# bp-bge.
+# The chart's objects are all in templates/. The `sigstore/common` library
+# chart below is declared only for the hollow-chart gate of
+# blueprint-release.yaml (issue #181: every chart declares at least one
+# dependency); it renders nothing.
 dependencies:
   - name: common
     version: "0.1.3"

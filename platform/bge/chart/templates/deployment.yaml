@@ -1,146 +1,193 @@
-{{- if .Values.bge.enabled -}}
+{{- if include "bp-bge.serving" . }}
+{{- /*
+One Infinity server serves the embedding model and the reranker (README.md).
+
+Weights. An oci:// model is a model image: one init container per model runs
+the image's /bin/cp, which copies its /model directory into the weights
+volume; the kubelet pulls the image by digest from the Sovereign's registry,
+so the Pod itself sends nothing for it, and the server reads the volume
+read-only with the hub switched off (HF_HUB_OFFLINE). An hf:// model is
+fetched by the server itself at the pinned revision into the weights volume
+(HF_HOME), through the hub egress of the network policy, with the hub token
+file when hubToken.secretProviderClass is set.
+
+--lengths-via-tokenize makes usage.prompt_tokens count tokens, which the
+gateway's meter reads. The image runs as root by default, so the Pod names a
+numeric user; with a read-only root its caches (INFINITY_HOME, HOME, and
+HF_HOME for an oci:// model) are on the /tmp emptyDir.
+*/}}
+{{- $models := include "bp-bge.models" . | fromJsonArray }}
+{{- $kind := include "bp-bge.kind" . }}
+{{- $token := .Values.hubToken.secretProviderClass }}
+{{- $securityContext := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "bp-bge.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-bge.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.bge.replicas }}
+  replicas: 1
   selector:
     matchLabels:
       {{- include "bp-bge.selectorLabels" . | nindent 6 }}
   strategy:
+    {{- if .Values.cache }}
+    # One ReadWriteOnce weights claim: the old Pod lets go of it first.
+    type: Recreate
+    {{- else }}
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
+    {{- end }}
   template:
     metadata:
       labels:
         {{- include "bp-bge.selectorLabels" . | nindent 8 }}
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: {{ .Values.bge.embeddings.port | quote }}
-        prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: {{ include "bp-bge.serviceAccountName" . }}
+      serviceAccountName: {{ include "bp-bge.fullname" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
       securityContext:
-        {{- toYaml .Values.bge.podSecurityContext | nindent 8 }}
-      containers:
-        # Embeddings container — text-embeddings-inference (TEI) running
-        # the BAAI/bge-* embeddings model on port 8080.
-        - name: embeddings
-          image: "{{ .Values.bge.image.repository }}:{{ .Values.bge.image.tag }}"
-          imagePullPolicy: {{ .Values.bge.image.pullPolicy }}
-          args:
-            - "--model-id"
-            - {{ .Values.bge.embeddings.model | quote }}
-            - "--port"
-            - {{ .Values.bge.embeddings.port | quote }}
-            - "--max-batch-tokens"
-            - {{ mul .Values.bge.embeddings.args.maxBatchSize 512 | quote }}
-            - "--max-concurrent-requests"
-            - {{ .Values.bge.embeddings.args.maxConcurrentRequests | quote }}
-            - "--max-client-batch-size"
-            - {{ .Values.bge.embeddings.args.maxClientBatchSize | quote }}
-            - "--pooling"
-            - {{ .Values.bge.embeddings.args.pooling | quote }}
-            - "--hf-api-token-timeout"
-            - {{ .Values.bge.embeddings.args.hfApiTimeout | quote }}
-          env:
-            {{- if .Values.bge.huggingfaceToken.enabled }}
-            - name: HF_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.bge.huggingfaceToken.secretName | quote }}
-                  key: {{ .Values.bge.huggingfaceToken.secretKey | quote }}
-            {{- end }}
-            - name: HUGGINGFACE_HUB_CACHE
-              value: "/data/hf-cache"
-          ports:
-            - name: embeddings
-              containerPort: {{ .Values.bge.embeddings.port }}
-              protocol: TCP
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if eq $kind "oci" }}
+      initContainers:
+        {{- range $m := $models }}
+        - name: model-{{ $m.role }}
+          image: {{ trimPrefix "oci://" $m.source | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/cp", "-R", "/model/.", "/models/{{ $m.role }}"]
           resources:
-            {{- toYaml .Values.bge.resources | nindent 12 }}
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
           securityContext:
-            {{- toYaml .Values.bge.containerSecurityContext | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: {{ .Values.bge.probes.liveness.path }}
-              port: embeddings
-            initialDelaySeconds: {{ .Values.bge.probes.liveness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.bge.probes.liveness.periodSeconds }}
-            timeoutSeconds: {{ .Values.bge.probes.liveness.timeoutSeconds }}
-          readinessProbe:
-            httpGet:
-              path: {{ .Values.bge.probes.readiness.path }}
-              port: embeddings
-            initialDelaySeconds: {{ .Values.bge.probes.readiness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.bge.probes.readiness.periodSeconds }}
-            timeoutSeconds: {{ .Values.bge.probes.readiness.timeoutSeconds }}
+            {{- toYaml $securityContext | nindent 12 }}
           volumeMounts:
-            - name: model-cache
-              mountPath: /data
-        {{- if .Values.bge.reranker.enabled }}
-        # Reranker sidecar container — TEI running the BAAI/bge-reranker
-        # model on port 8081 in the same Pod (shared model-cache volume).
-        - name: reranker
-          image: "{{ .Values.bge.image.repository }}:{{ .Values.bge.image.tag }}"
-          imagePullPolicy: {{ .Values.bge.image.pullPolicy }}
-          args:
-            - "--model-id"
-            - {{ .Values.bge.reranker.model | quote }}
-            - "--port"
-            - {{ .Values.bge.reranker.port | quote }}
-            - "--max-batch-tokens"
-            - {{ mul .Values.bge.reranker.args.maxBatchSize 512 | quote }}
-            - "--max-concurrent-requests"
-            - {{ .Values.bge.reranker.args.maxConcurrentRequests | quote }}
-          env:
-            {{- if .Values.bge.huggingfaceToken.enabled }}
-            - name: HF_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.bge.huggingfaceToken.secretName | quote }}
-                  key: {{ .Values.bge.huggingfaceToken.secretKey | quote }}
-            {{- end }}
-            - name: HUGGINGFACE_HUB_CACHE
-              value: "/data/hf-cache"
-          ports:
-            - name: reranker
-              containerPort: {{ .Values.bge.reranker.port }}
-              protocol: TCP
-          resources:
-            {{- toYaml .Values.bge.resources | nindent 12 }}
-          securityContext:
-            {{- toYaml .Values.bge.containerSecurityContext | nindent 12 }}
-          livenessProbe:
-            httpGet:
-              path: {{ .Values.bge.probes.liveness.path }}
-              port: reranker
-            initialDelaySeconds: {{ .Values.bge.probes.liveness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.bge.probes.liveness.periodSeconds }}
-            timeoutSeconds: {{ .Values.bge.probes.liveness.timeoutSeconds }}
-          readinessProbe:
-            httpGet:
-              path: {{ .Values.bge.probes.readiness.path }}
-              port: reranker
-            initialDelaySeconds: {{ .Values.bge.probes.readiness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.bge.probes.readiness.periodSeconds }}
-            timeoutSeconds: {{ .Values.bge.probes.readiness.timeoutSeconds }}
-          volumeMounts:
-            - name: model-cache
-              mountPath: /data
+            - name: models
+              mountPath: /models
         {{- end }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - v2
+            {{- range $m := $models }}
+            - --model-id
+            {{- if eq $kind "oci" }}
+            - /models/{{ $m.role }}
+            {{- else }}
+            - {{ trimPrefix "hf://" $m.source | quote }}
+            - --revision
+            - {{ $m.revision | quote }}
+            {{- end }}
+            - --served-model-name
+            - {{ $m.servedName | quote }}
+            - --engine
+            - optimum
+            - --device
+            - cpu
+            - --lengths-via-tokenize
+            {{- end }}
+            - --port
+            - {{ .Values.port | quote }}
+            - --url-prefix
+            - /v1
+          env:
+            - name: HOME
+              value: /tmp
+            - name: INFINITY_HOME
+              value: /tmp/infinity
+            - name: INFINITY_ANONYMOUS_USAGE_STATS
+              value: "0"
+            - name: DO_NOT_TRACK
+              value: "1"
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
+            {{- if eq $kind "oci" }}
+            - name: HF_HOME
+              value: /tmp/hf
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            {{- else }}
+            - name: HF_HOME
+              value: /models/hf
+            {{- end }}
+            {{- if $token }}
+            - name: HF_TOKEN_PATH
+              value: /var/run/secrets/openova/hf-token
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          # The first failure counts after 300 seconds (30 x 10): the fetch and
+          # the ONNX load of both models, about 50 seconds when measured.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: {{ eq $kind "oci" }}
+            - name: tmp
+              mountPath: /tmp
+            {{- if $token }}
+            - name: hub-token
+              mountPath: /var/run/secrets/openova
+              readOnly: true
+            {{- end }}
       volumes:
-        - name: model-cache
-          {{- if eq .Values.bge.modelCache.type "pvc" }}
+        - name: models
+          {{- if .Values.cache }}
           persistentVolumeClaim:
-            claimName: {{ .Values.bge.modelCache.pvc.claimName | default (printf "%s-model-cache" (include "bp-bge.fullname" .)) | quote }}
+            claimName: {{ include "bp-bge.fullname" . }}-models
           {{- else }}
           emptyDir:
             sizeLimit: 10Gi
           {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 6Gi
+        {{- if $token }}
+        - name: hub-token
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ $token | quote }}
+        {{- end }}
 {{- end }}

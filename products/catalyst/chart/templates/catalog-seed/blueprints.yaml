@@ -152,16 +152,75 @@ metadata:
 spec:
   version: 1.0.0
   card:
-    title: BGE Embeddings + Reranker
-    summary: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
-    description: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
+    title: Embeddings and reranker
+    summary: One CPU server for one embedding model and at most one reranker, reached only through the platform's model gateway.
+    description: An Infinity server on CPU serves one embedding model and at most one reranker, by default granite-embedding-107m-multilingual (384 dimensions) and mmarco-mMiniLMv2-L12-H384-v1. Models come by digest from the Sovereign's registry or at a pinned revision from the model hub. The Service is ClusterIP; the platform's model gateway is the one caller.
     icon: bge.svg
     license: MIT
-    tags: [embeddings, reranker, rag, sentence-transformers, ai]
-    docs: https://huggingface.co/BAAI
+    tags: [embeddings, reranker, rag, ai]
+    docs: https://github.com/michaelfeil/infinity
   visibility: listed
   class: ai-service
   lifecycle: experimental
+  configSchema:
+    type: object
+    required: [home, enabled, embedding]
+    additionalProperties: false
+    properties:
+      home:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_HOME. Workloads render only when home and enabled are both true.
+      enabled:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_EMBEDDINGS.
+      embedding:
+        type: object
+        required: [source, servedName, dimensions]
+        additionalProperties: false
+        properties:
+          source:
+            type: string
+            pattern: ^(oci://[a-z0-9./_-]+@sha256:[a-f0-9]{64}|hf://[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)$
+            description: A model image of the Sovereign's registry by digest, or a model of the hub.
+          revision:
+            type: string
+            pattern: ^[a-f0-9]{40}$
+            description: Required when source starts with hf://. The exact commit.
+          servedName:
+            type: string
+            pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+          dimensions:
+            type: integer
+            minimum: 64
+            maximum: 4096
+            description: The length of the vector. The function test asserts it.
+      reranker:
+        type: object
+        required: [source, servedName]
+        additionalProperties: false
+        properties:
+          source:
+            type: string
+            pattern: ^(oci://[a-z0-9./_-]+@sha256:[a-f0-9]{64}|hf://[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)$
+          revision:
+            type: string
+            pattern: ^[a-f0-9]{40}$
+          servedName:
+            type: string
+            pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+      cache:
+        type: object
+        required: [sizeGi]
+        additionalProperties: false
+        properties:
+          sizeGi:
+            type: integer
+            minimum: 10
+            description: Size of the weights volume.
+          storageClass:
+            type: string
+            default: ""
+            description: "\"\" is the Sovereign's default class."
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -174,38 +233,17 @@ spec:
     chart: bp-bge
     version: 1.0.0
   topology:
-    supported: [active-active, singleton]
+    supported: [singleton]
     defaults:
-      multi-region: active-active
+      multi-region: singleton
       single-region: singleton
     perTopology:
-      active-active:
-        replication:
-          backend: none
-          mode: none
-        switchover:
-          mechanism: none
-        placement:
-          tier: rtz
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: active
       singleton:
         placement:
           tier: rtz
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
-  endpoints:
-  - name: ui
-    hostnameTemplate: bge.{{ "{{" }}.OrgDomain{{ "}}" }}
-    port: 443
-    protocol: https
-    tls: true
-    visibility: public
-    launchDefault: true
-    ssoEnabled: false
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
