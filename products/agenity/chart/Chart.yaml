@@ -373,7 +373,8 @@ version: 0.5.39
 # are fitted and inert.
 # 0.9.10 (AIP-152): the embedded openova-mcp reads its bearer file at every call.
 # 0.9.11 (AIP-154): the embedded openova-mcp gives an agent acting for an admin tier admin.
-appVersion: "0.9.11"
+# 0.9.12 (AIP-157): the embedded openova-mcp reads no bearer from the environment.
+appVersion: "0.9.12"
 keywords:
   - agenity
   - agent-runtime
