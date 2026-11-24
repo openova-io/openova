@@ -520,6 +520,12 @@ jobs:
       - name: 'compliance-live-reads | The compliance code of catalyst-api reads the cluster directly no more often'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/compliance-live-reads
+      - name: 'check-compliance-model | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/check-compliance-model
+      - name: 'check-compliance-model | The compliance model and the policies agree, exemptions only shrink'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/check-compliance-model
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

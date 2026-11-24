@@ -1,0 +1,94 @@
+# The reason of every platform exemption of the compliance model
+# (ADR-0029, CMP-041). Schema: schema/exemptions.schema.json.
+#
+# A namespace in an excludeNamespaces or extraExcludeNamespaces list of
+# values.yaml is exempt from that policy's check. templates/compliance-model.yaml
+# builds ComplianceModel.spec.exemptions from those lists and takes the
+# reason and owner of each namespace from here; a listed namespace with no
+# entry here fails the render with "exemption <namespace> has no reason".
+# The set of exempt namespaces may only shrink
+# (scripts/baselines/policy-exemptions.json, held by
+# tools/guards/cmd/check-compliance-model). A reason is the first sentence
+# of the comment beside the namespace in values.yaml, or the sentence for a
+# platform namespace where values.yaml gives none.
+namespaces:
+  kube-system:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  flux-system:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  cilium:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  cilium-gateway:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  dragonfly:
+    reason: >-
+      bp-dragonfly is the peer-to-peer registry-distribution layer: the per-node
+      daemon is containerd's local mirror, core image-path plumbing beside cilium.
+    owner: sovereign-admin
+  cert-manager:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  openova-system:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  catalyst:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  kyverno:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  monitoring:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  ingress:
+    reason: Platform namespace installed before or beside the policy engine.
+    owner: sovereign-admin
+  sso-bridge:
+    reason: >-
+      The bp-sso-bridge reconciler is single-writer by design: parallel ticks
+      would race the Keycloak client upserts and the OpenBao secret writes.
+    owner: sovereign-admin
+  falco:
+    reason: >-
+      Host-eBPF runtime-security DaemonSet whose main container needs host root
+      and a writable root filesystem.
+    owner: sovereign-admin
+  cnpg:
+    reason: >-
+      The CloudNativePG operator creates the Services and Jobs of the bp-cnpg-pair
+      clusters with no Flux label or owner.
+    owner: sovereign-admin
+  shared-data:
+    reason: >-
+      The CloudNativePG operator creates the Services and Jobs of the
+      bp-postgres-shared cluster with no Flux label or owner.
+    owner: sovereign-admin
+  powerdns-admin:
+    reason: >-
+      The CloudNativePG operator creates the Services and Jobs of the
+      bp-powerdns-admin database cluster with no Flux label or owner.
+    owner: sovereign-admin
+  trivy-system:
+    reason: >-
+      The trivy-operator spawns its scan Jobs with no Flux owner and with scanner
+      images it cannot re-tag through the Sovereign's Harbor.
+    owner: sovereign-admin
+  powerdns:
+    reason: >-
+      bp-powerdns pulls its pdns-auth and dnsdist images from docker.io, because
+      the Harbor docker proxy is not pullable by a node at first boot.
+    owner: sovereign-admin
+  org-services:
+    reason: >-
+      The provisioning Deployment mixes a proxied utility init image with a
+      native openova-io main image in one Pod.
+    owner: sovereign-admin
+  crossplane-system:
+    reason: >-
+      bp-crossplane pulls the upstream control-plane image from
+      xpkg.upbound.io, which the Sovereign's Harbor does not mirror.
+    owner: sovereign-admin
