@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T03:30:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-24T03:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8293](https://github.com/openova-io/openova/issues/8293) | NET-270 Spike: firewall attachment | Other |
 | [#8298](https://github.com/openova-io/openova/issues/8298) | SVC-250 Spike: composite resources in a release; bucket provisioning for an Orga | Other |
 | [#8302](https://github.com/openova-io/openova/issues/8302) | PRD-061 Spike: vector search with the readable principals on the chunk row | Other |
 | [#8306](https://github.com/openova-io/openova/issues/8306) | NET-251 Decision record: firewall mechanism and the package list of epic NET-250 | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8711](https://github.com/openova-io/openova/issues/8711) | FND-202 Decision record 0035: one telemetry pipeline, alert events, declared obj | Other |
 | [#8713](https://github.com/openova-io/openova/issues/8713) | CTL-820 Region-loss gate check | Other |
 | [#8716](https://github.com/openova-io/openova/issues/8716) | FND-163 Console regression: jobs, resource views, cloud and infrastructure read  | Other |
+| [#8723](https://github.com/openova-io/openova/issues/8723) | FND-G21 rows 241 and 242: the live gate job passes GATE_PARENT_URL and GATE_PARE | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T03:41 | [#8722](https://github.com/openova-io/openova/pull/8722) | #7087 | docs(ledger): plan update |
+| 2026-11-24T03:43 | [#8721](https://github.com/openova-io/openova/pull/8721) | #8711 | docs(adr): record 0035 on one telemetry pipeline per cluster |
 | 2026-11-24T02:59 | [#8718](https://github.com/openova-io/openova/pull/8718) | #7087 | docs(ledger): plan update |
 | 2026-11-24T03:14 | [#8717](https://github.com/openova-io/openova/pull/8717) | #8702 | The registry warm-up does not try to copy the image of an un |
 | 2026-11-24T02:50 | [#8715](https://github.com/openova-io/openova/pull/8715) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-23T21:21 | [#8669](https://github.com/openova-io/openova/pull/8669) | #2634 | INF-G01: the chargeback database is back within the limit af |
 | 2026-11-23T20:52 | [#8666](https://github.com/openova-io/openova/pull/8666) | #7087 | docs(ledger): plan update |
 | 2026-11-23T20:43 | [#8663](https://github.com/openova-io/openova/pull/8663) | #7087 | docs(ledger): plan update |
-| 2026-11-23T20:53 | [#8661](https://github.com/openova-io/openova/pull/8661) | #8599 | fix(gate): a dial Pod is dialed again until its network work |
-| 2026-11-23T20:54 | [#8660](https://github.com/openova-io/openova/pull/8660) | #8599 | fix(gate): NET-G07 starts a port forward that ended again an |
 
 ---
 
