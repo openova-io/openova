@@ -22,6 +22,7 @@ name: Test — Bootstrap API (Go)
 # The test TestSchemasMatchSources of internal/intent reads the definition files
 # its schema bundle is built from (CTL-160):
 #   products/catalyst/chart/crds/**                   the CRDs and their samples
+#   products/continuum/chart/crds/**                  the Continuum CRD (CTL-815)
 #   platform/crossplane-claims/chart/templates/crds/** the UserAccess CRD
 # The test TestDefaultsAreTheContracts of internal/sovself reads the published
 # schema of the variables document (SOV-180):
@@ -70,6 +71,7 @@ on:
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
+      - 'products/continuum/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
       - 'docs/contracts/c5-upstream-variables.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
@@ -97,6 +99,7 @@ on:
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
+      - 'products/continuum/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
       - 'docs/contracts/c5-upstream-variables.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
