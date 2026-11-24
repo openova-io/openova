@@ -41,6 +41,9 @@ func TestMain(m *testing.M) {
 	if scenario := os.Getenv(fakeKubectlEnv); scenario != "" && len(os.Args) > 1 && os.Args[1] == "--kubeconfig" {
 		os.Exit(fakeKubectl(scenario, os.Args[1:]))
 	}
+	// Every check test dials once per row; TestDialer_DialsAgainUntilTheNetworkWorks
+	// measures the wait for a Pod's network on its own.
+	dialNetworkWait = 0
 	os.Exit(m.Run())
 }
 

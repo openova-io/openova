@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
@@ -351,5 +352,54 @@ func TestDialer_OnePodPerSource(t *testing.T) {
 	}
 	if err := d.Stop(context.Background()); err != nil || strings.Join(f.deleted, " ") != "default/pol-dial-r1-1 gitea/pol-dial-r1-2" {
 		t.Errorf("Stop deleted %v: %v", f.deleted, err)
+	}
+}
+
+// TestDialer_DialsAgainUntilTheNetworkWorks: a Pod whose control dial does not
+// connect yet (hw307, NET-G10: the cluster DNS name did not resolve in the
+// first 10 s after Ready) is dialed again until it does; a dial whose control
+// connected is never repeated, and a Pod that never gets a network gives the
+// last result after dialNetworkWait.
+func TestDialer_DialsAgainUntilTheNetworkWorks(t *testing.T) {
+	wait, every := dialNetworkWait, dialNetworkEvery
+	t.Cleanup(func() { dialNetworkWait, dialNetworkEvery = wait, every })
+	dialNetworkWait, dialNetworkEvery = 2*time.Second, 10*time.Millisecond
+	control, target := dialControlHost+":53", "169.254.169.254:80"
+	for name, c := range map[string]struct {
+		controls []string // the control outcome of each exec; the last one repeats
+		execs    int
+		want     string // the control of the result
+	}{
+		"network from the start":  {[]string{"connected"}, 1, DialConnected},
+		"network after two dials": {[]string{"unresolved", "timed-out", "connected"}, 3, DialConnected},
+		"never a network":         {[]string{"unresolved"}, 0, DialUnresolved},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &dialFake{t: t}
+			execs := 0
+			kubectl := func(r kube.Region, ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+				if args[2] == "exec" {
+					f.answers = map[string]string{control: c.controls[min(execs, len(c.controls)-1)], target: "timed-out"}
+					execs++
+				}
+				return f.kubectl(r, ctx, stdin, args...)
+			}
+			d := &Dialer{Kubectl: kubectl, Region: kube.Region{ID: "region-a"}, Run: "r1"}
+			src := DialSource{Namespace: "default"}
+			if err := d.Start(context.Background(), []DialSource{src}); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			res, err := d.Dial(context.Background(), src, DialTarget{Address: "169.254.169.254", Port: 80})
+			if err != nil || res.Control != c.want || res.Outcome != DialTimedOut {
+				t.Errorf("want control %s and the target timed-out, got %+v, %v", c.want, res, err)
+			}
+			if c.execs > 0 && execs != c.execs {
+				t.Errorf("want %d dials, got %d", c.execs, execs)
+			}
+			if c.execs == 0 && (execs < 2 || time.Since(start) < dialNetworkWait) {
+				t.Errorf("a Pod without a network must be dialed again for %s, got %d dials in %s", dialNetworkWait, execs, time.Since(start))
+			}
+		})
 	}
 }

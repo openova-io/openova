@@ -34,12 +34,14 @@ import (
 // products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
 // (orgTenantBPOpenClaw / orgTenantBPStalwart) — directly from the generic
 // generator. The HRs are HOST files (helm-controller runs on the host, NOT
-// inside a per-Org vCluster — #3055) installed INTO the Org vCluster via the
+// inside a per-Org vCluster — #3055). The per-Organization platform stack
+// (newapi, openclaw, agenity) installs on the host `<slug>` namespace, where
+// the APIs its charts need are served (hostPlacedHelmReleaseApps); the
+// customer-scope app stalwart-mail installs INTO the Org vCluster via the
 // same HR-level kubeConfig mechanism generateCNPGPair uses for its replica
-// side — the `tenant-<slug>-kubeconfig` mirror — for every Organization on
-// every plan (#4292). Each HR ships its own bp-* HelmRepository (flux-system)
-// so a fresh funnel Org resolves the sourceRef without the org-controller
-// having to seed it.
+// side — the `tenant-<slug>-kubeconfig` mirror. Each HR ships its own bp-*
+// HelmRepository (flux-system) so a fresh funnel Org resolves the sourceRef
+// without the org-controller having to seed it.
 //
 // DIVERGENCE FROM THE BSS DOOR (intentional): the generic funnel path does NOT
 // emit a per-tenant bp-keycloak (the BSS door's Step-6 does). So these HRs
@@ -70,6 +72,73 @@ var helmReleaseAppSlugs = map[string]bool{
 // must not also try to route them).
 func isHelmReleaseApp(slug string) bool {
 	return helmReleaseAppSlugs[slug]
+}
+
+// hostPlacedHelmReleaseApps are the HelmRelease-shaped apps that install on
+// the HOST `<slug>` namespace — no spec.kubeConfig — instead of INTO the
+// Organization's vCluster. They are the per-Organization platform stack: the
+// same three releases core/controllers/organization/internal/gitops/
+// platform_scope.go recognises (bp-newapi, bp-openclaw, bp-agenity).
+//
+// THE DEFECT THIS CLOSES (gate run of 21 Nov 2026 on hw307, check BSS-G01
+// step 6, both runs). An Organization that bought the smallest plan with
+// openclaw got bp-newapi and bp-openclaw installed into its vCluster, and
+// neither came up:
+//
+//   - bp-newapi renders its CNPG Cluster only where postgresql.cnpg.io/v1 is
+//     served (platform/newapi/chart/templates/cnpg-cluster.yaml). The vCluster
+//     serves no CNPG API, so no Cluster and no `<cluster>-app` Secret existed;
+//     the post-install hook db-dsn-sync and the admin-promote CronJob, which
+//     mount that Secret, waited for it until the install failed ("failed
+//     post-install: timed out waiting for the condition", 4 attempts).
+//   - bp-openclaw renders the CiliumNetworkPolicy its /readyz needs only where
+//     cilium.io/v2 is served (templates/cilium-ingress-networkpolicy.yaml),
+//     and its K8s NetworkPolicy, synced out by the vCluster, can no longer
+//     name the host keycloak namespace. The JWKS fetch hung, the readiness
+//     probe timed out for 15 hours, and the install ended "context deadline
+//     exceeded". Its pull Secret ghcr-pull exists in the host namespace, not
+//     in the vCluster (FailedToRetrieveImagePullSecret), so on a node without
+//     the image cached the pull itself failed.
+//   - both charts' HTTPRoutes (openclaw.<slug>.<parent>, api.<slug>.<parent>)
+//     existed only inside the vCluster: loft vcluster 0.33.4 copies no
+//     HTTPRoute to the host (#4993), so the host gateway had the listener and
+//     no route, and every request answered 404 for 30 minutes.
+//
+// Every other part of the design already puts these releases on the host:
+// the BSS door renders them in the host `<slug>` namespace with no kubeConfig
+// (products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+// orgTenantBPNewAPI / orgTenantBPOpenClaw / orgTenantBPAgenity); the
+// platform-quota of the Organization is sized for exactly those host pods and
+// its Kyverno Policy stamps them, while it EXCLUDES every pod the vCluster
+// syncer writes (platform_scope.go, #7067); the organization fence selects
+// only synced pods and leaves "the platform stack of the namespace" to the
+// policies of its charts (manifests.go, NET-170); and the funnel's own CNPG
+// primary already stays on the host for the same missing API (#4293
+// BLOCKER-1). On the host every chart above renders whole: the CNPG operator
+// writes the `-app` Secret, the CiliumNetworkPolicies exist, ghcr-pull
+// resolves, and the charts' own routes are host objects parented to
+// cilium-gateway-console.
+//
+// When it last worked: before 322e8a52de (2026-09-10, "every Organization is
+// vCluster-backed - remove the funnel tier gate") the smallest plans (s, free,
+// "") rendered these HelmReleases with no kubeConfig, on the host. That
+// commit made the vCluster kubeConfig unconditional for every HelmRelease
+// app; for the larger plans bp-newapi had never had a database in the
+// vCluster at all. The customer's own applications still install into the
+// vCluster: stalwart-mail is the customer-scope HelmRelease app and keeps the
+// kubeConfig.
+var hostPlacedHelmReleaseApps = map[string]bool{
+	"newapi":   true,
+	"openclaw": true,
+	"agenity":  true,
+}
+
+// HelmReleaseAppInstallsOnHost reports whether a HelmRelease-shaped app
+// installs on the host `<slug>` namespace (see hostPlacedHelmReleaseApps). The
+// provisioning workflow's readiness waits read it to look for the app's pods
+// in their host shape.
+func HelmReleaseAppInstallsOnHost(slug string) bool {
+	return hostPlacedHelmReleaseApps[slug]
 }
 
 // hasHelmReleaseApp reports whether any slug in the cart renders as a
@@ -164,11 +233,11 @@ type helmReleaseAppOpts struct {
 	// per-app from ManifestGenerator.HelmReleaseAppVersions.
 	chartVersion string
 	// kubeSecret, when non-empty, is the flux-system Secret holding the Org
-	// vCluster kubeconfig (`tenant-<slug>-kubeconfig`). The funnel ALWAYS sets
-	// it — every Organization is vCluster-backed (#4292) — so the host
-	// helm-controller installs the chart INTO the vcluster. Empty renders no
-	// kubeConfig block (the HR then installs on the host `<slug>` ns); only
-	// unit fixtures exercise that shape, no funnel path produces it.
+	// vCluster kubeconfig (`tenant-<slug>-kubeconfig`): the host
+	// helm-controller then installs the chart INTO the vcluster. The funnel
+	// sets it for the customer-scope apps (stalwart-mail). Empty renders no
+	// kubeConfig block and the HR installs on the host `<slug>` ns: the shape
+	// of the per-Organization platform stack (hostPlacedHelmReleaseApps).
 	kubeSecret string
 	// sharedRealmIssuer, when non-empty, is the resolvable SHARED-realm OIDC
 	// issuer (`https://auth.<sovereign-fqdn>/realms/sovereign`) the HR templates
@@ -362,6 +431,16 @@ spec:
         namespace: kube-system
     networkPolicy:
       enabled: true
+      # The controller reads the JWKS from internalIssuerURL above:
+      # keycloak.keycloak.svc port 80, whose target is the keycloak pod's http
+      # port 8080 (measured on hw307: Service http:80->http, container 8080).
+      # A NetworkPolicy port is the pod's port, so the chart default 8443
+      # (an https listener keycloak does not run) would drop the fetch on the
+      # host, where this policy is enforced as written, and /readyz would
+      # time out.
+      controller:
+        egress:
+          keycloakPort: 8080
       ingress:
         allowGatewayEntity: true
       # #4272 (the TITULAR egress gap): the controller's /readyz fetches the
@@ -681,7 +760,6 @@ spec:
 `, helmRepoBlock("bp-stalwart-tenant"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		primaryDomain, mailHost, adminEmail, keycloakRealm)
 }
-
 
 // DefaultHRAppChartVersions is the built-in CATALYST_HR_APP_CHART_VERSIONS
 // value — the chart version every HelmRelease-shaped funnel app installs at

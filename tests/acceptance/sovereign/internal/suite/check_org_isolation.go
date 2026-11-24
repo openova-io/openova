@@ -35,7 +35,9 @@ import (
 // until GET /api/v1/organizations/{id} says done for both
 // (failed ends the wait). Before it ends, also when a step failed, it deletes
 // every Organization it created with DELETE /api/v1/organizations/{id} and
-// waits until their host namespaces are gone in every region.
+// waits until their host namespaces are gone in every region, and the
+// namespace of its positive control in the regions that created one; it fails
+// naming each namespace that is left and its region.
 //
 // The kubeconfig of an Organization. In every region the vCluster of an
 // Organization writes its kubeconfig into the Secrets vc-vcluster and
@@ -141,6 +143,7 @@ const (
 	isoManagedBy       = "vcluster.loft.sh/managed-by"
 	isoKubeletPort     = 10250
 	isoForwardWait     = 30 * time.Second // the longest wait for kubectl port-forward to print its local address
+	isoForwardRetries  = 3                // how often a call that the port forward refused is sent again
 	isoVClusterAPIPort = 443
 	// isoGlobal and isoShared are the Cilium annotations of a ClusterMesh
 	// global Service: Cilium merges the Services of that name and namespace
@@ -432,10 +435,65 @@ func (j *isoJourney) reach(ctx context.Context, o *isoOrg, region kube.Region, e
 
 // vcKubectl is kubectl of the vCluster v: the kubeconfig of its Organization,
 // the server of the port forward, and the certificate checked for the host of
-// the kubeconfig.
+// the kubeconfig. A call that the port forward refused never reached the
+// vCluster: once the forward listens again (portForward starts a forward
+// that ended again), the call is sent again with the same input, at most
+// isoForwardRetries times.
 func (j *isoJourney) vcKubectl(v *isoVC) kubectlFunc {
 	return func(r kube.Region, ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
-		return j.c.kubectl(r, ctx, stdin, append([]string{"--server", v.server, "--tls-server-name", v.sni}, args...)...)
+		var in []byte
+		if stdin != nil {
+			b, err := io.ReadAll(stdin)
+			if err != nil {
+				return nil, err
+			}
+			in = b
+		}
+		full := append([]string{"--server", v.server, "--tls-server-name", v.sni}, args...)
+		local := strings.TrimPrefix(v.server, "https://")
+		for attempt := 0; ; attempt++ {
+			var body io.Reader
+			if stdin != nil {
+				body = bytes.NewReader(in)
+			}
+			out, err := j.c.kubectl(r, ctx, body, full...)
+			if err == nil || attempt == isoForwardRetries || !forwardRefused(err, local) || waitListening(ctx, local) != nil {
+				return out, err
+			}
+		}
+	}
+}
+
+// forwardRefused says whether err is kubectl's own answer to a refused
+// connection to the local address of a port forward. Only kubectl's
+// client-side messages for that address count: every error of a vCluster
+// call carries the address in its arguments (--server, kube.Region.once), and
+// a refusal on the API path while the forward is up ("error dialing backend:
+// dial tcp 10.42.x:10250: connect: connection refused", a webhook) reached the
+// vCluster and is returned at once.
+func forwardRefused(err error, local string) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "The connection to the server "+local+" was refused") ||
+		strings.Contains(msg, "dial tcp "+local+": connect: connection refused")
+}
+
+// waitListening waits until addr accepts a TCP connection, for at most
+// isoForwardWait.
+func waitListening(ctx context.Context, addr string) error {
+	deadline := time.Now().Add(isoForwardWait)
+	for {
+		c, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", addr)
+		if err == nil {
+			return c.Close()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the port forward on %s did not listen again in %s: %v", addr, isoForwardWait, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
 }
 
@@ -1114,7 +1172,16 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 			return nil
 		})
 	}
+	// What must be gone, per region: the host namespace of every Organization
+	// deleted, in every region, and the namespace of the positive control in
+	// the regions that created it.
 	var gone []string
+	want := map[string][]string{}
+	for _, region := range j.cc.Regions {
+		if j.controls[region.ID] != nil {
+			want[region.ID] = append(want[region.ID], "iso-ctl-"+j.tag)
+		}
+	}
 	for _, o := range j.orgs() {
 		if !o.created {
 			continue
@@ -1139,20 +1206,31 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 			gone = append(gone, o.namespace)
 		}
 	}
-	if len(gone) == 0 {
+	controls := len(want) > 0
+	if len(gone) == 0 && !controls {
 		return
 	}
-	j.step("ISO: the host namespaces "+strings.Join(gone, " and ")+" are gone in every region", func(ev Evidence) error {
+	for _, region := range j.cc.Regions {
+		want[region.ID] = append(want[region.ID], gone...)
+	}
+	name := "ISO: the host namespaces " + strings.Join(gone, " and ") + " are gone in every region"
+	switch {
+	case len(gone) == 0:
+		name = "ISO: the namespace of the positive control is gone in the regions that created it"
+	case controls:
+		name += ", and the namespace of the positive control in the regions that created it"
+	}
+	j.step(name, func(ev Evidence) error {
 		_, err := poll(cctx, j.c.waits.gone, j.c.waits.every, func() (bool, string, error) {
-			var left []string
+			left := []string{}
 			for _, region := range j.cc.Regions {
-				for _, ns := range gone {
+				for _, ns := range want[region.ID] {
 					out, err := j.c.kubectl(region, cctx, nil, "get", "namespace", ns, "--ignore-not-found", "-o", "name")
-					if err != nil {
-						return false, err.Error(), nil
-					}
-					if strings.TrimSpace(string(out)) != "" {
-						left = append(left, ns+" in "+region.ID)
+					switch {
+					case err != nil:
+						left = append(left, "Namespace "+ns+" in "+region.ID+" (not read: "+err.Error()+")")
+					case strings.TrimSpace(string(out)) != "":
+						left = append(left, "Namespace "+ns+" in "+region.ID)
 					}
 				}
 			}
@@ -1166,42 +1244,113 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 // portForward starts `kubectl port-forward` to port of the Service and
 // returns the local address that kubectl prints. The forward ends when stop
 // is called.
+//
+// kubectl port-forward ends for good on the first error of any one forwarded
+// connection ("lost connection to pod"), and every later call through it is
+// refused: on hw307 (23 November 2026) three forwards to vClusters ended
+// within 20 seconds, each right after a dial had run through it, and 31 rows
+// of NET-G07 failed on "connection to the server 127.0.0.1:<port> was
+// refused". So when kubectl ends before stop is called, the forward starts
+// again on the same local address and prints why the previous one ended;
+// vcKubectl sends a call that the forward refused once more.
 func portForward(ctx context.Context, region kube.Region, namespace, service string, port int) (string, func(), error) {
+	fctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	where := fmt.Sprintf("[%s] kubectl port-forward %s/%s", region.ID, namespace, service)
+	f, err := startForward(fctx, region, namespace, service, ":"+strconv.Itoa(port))
+	if err != nil {
+		cancel()
+		return "", nil, fmt.Errorf("%s %v", where, err)
+	}
+	addr := f.addr
+	_, local, _ := net.SplitHostPort(addr)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			why := f.wait()
+			if fctx.Err() != nil {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "%s on %s ended (%s); it starts again on the same address\n", where, addr, why)
+			for {
+				next, err := startForward(fctx, region, namespace, service, local+":"+strconv.Itoa(port))
+				if err == nil {
+					f = next
+					break
+				}
+				select {
+				case <-fctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+			}
+		}
+	}()
+	stop := func() {
+		cancel()
+		<-done
+	}
+	return addr, stop, nil
+}
+
+// forwardProc is one running `kubectl port-forward`.
+type forwardProc struct {
+	addr string
+	done chan struct{} // closed when kubectl has ended
+	why  string        // what kubectl wrote to stderr, or how it ended
+}
+
+// wait waits until kubectl ends and says why.
+func (f *forwardProc) wait() string {
+	<-f.done
+	return f.why
+}
+
+// startForward starts `kubectl port-forward service/<service> <ports>` on
+// 127.0.0.1 and waits until kubectl prints its local address.
+func startForward(ctx context.Context, region kube.Region, namespace, service, ports string) (*forwardProc, error) {
 	bin := region.Kubectl
 	if bin == "" {
 		bin = "kubectl"
 	}
-	args := []string{"-n", namespace, "port-forward", "service/" + service, ":" + strconv.Itoa(port)}
+	args := []string{"-n", namespace, "port-forward", "--address", "127.0.0.1", "service/" + service, ports}
 	if region.Kubeconfig != "" {
 		args = append([]string{"--kubeconfig", region.Kubeconfig}, args...)
 	}
-	fctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	cmd := exec.CommandContext(fctx, bin, args...) //nolint:gosec // G204: the kubectl of the region, with arguments of the check
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // G204: the kubectl of the region, with arguments of the check
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return "", nil, err
-	}
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = pw, &stderr
 	if err := cmd.Start(); err != nil {
-		cancel()
-		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s: %v", region.ID, namespace, service, err)
+		return nil, err
 	}
-	stop := func() {
-		cancel()
-		_ = cmd.Wait()
-	}
+	f := &forwardProc{done: make(chan struct{})}
+	go func() {
+		err := cmd.Wait()
+		_ = pw.Close()
+		f.why = strings.TrimSpace(stderr.String())
+		if f.why == "" && err != nil {
+			f.why = err.Error()
+		}
+		close(f.done)
+	}()
 	found := make(chan string, 1)
 	go func() {
 		addr := ""
-		sc := bufio.NewScanner(out)
+		// kubectl writes "Handling connection for <port>" to stdout for every
+		// forwarded connection. The reader keeps reading to EOF after the
+		// address line, and drains whatever the scanner stops on (a line over
+		// its 64 KiB limit): a stdout nobody reads blocks exec's copy, so Wait
+		// would never return after kubectl ended and the forward would never
+		// start again.
+		sc := bufio.NewScanner(pr)
 		for sc.Scan() {
 			if m := forwardRE.FindStringSubmatch(sc.Text()); m != nil && addr == "" {
 				addr = m[1]
 				found <- addr
 			}
 		}
+		_, _ = io.Copy(io.Discard, pr)
 		if addr == "" {
 			found <- ""
 		}
@@ -1209,13 +1358,13 @@ func portForward(ctx context.Context, region kube.Region, namespace, service str
 	select {
 	case addr := <-found:
 		if addr != "" {
-			return addr, stop, nil
+			f.addr = addr
+			return f, nil
 		}
-		stop()
-		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s ended before it printed its local address: %s", region.ID, namespace, service, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("ended before it printed its local address: %s", f.wait())
 	case <-time.After(isoForwardWait):
-		stop()
-		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s printed no local address in %s: %s", region.ID, namespace, service, isoForwardWait, strings.TrimSpace(stderr.String()))
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("printed no local address in %s: %s", isoForwardWait, f.wait())
 	}
 }
 

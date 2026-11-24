@@ -78,6 +78,14 @@ spec:
               value: {{ .Values.continuum.tickSeconds | quote }}
             - name: LEASE_TTL_SECONDS
               value: {{ .Values.continuum.lease.ttlSeconds | quote }}
+            - name: REBOOT_HOLD
+              value: {{ .Values.continuum.rebootAgent.hold | quote }}
+            - name: REBOOT_AGENT_NAMESPACE
+              value: {{ .Values.continuum.rebootAgent.namespace | quote }}
+            - name: REBOOT_HOLD_TTL_SECONDS
+              value: {{ .Values.continuum.rebootAgent.holdTTLSeconds | quote }}
+            - name: REBOOT_WAIT_SECONDS
+              value: {{ .Values.continuum.rebootAgent.waitSeconds | quote }}
             {{- range $k, $v := .Values.continuum.env }}
             - name: {{ $k | quote }}
               value: {{ $v | quote }}

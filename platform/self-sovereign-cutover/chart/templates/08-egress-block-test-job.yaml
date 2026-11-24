@@ -388,6 +388,15 @@ data:
             value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.csiDrivers | default (list "evs.csi.huaweicloud.com") | join " " | quote }}
           {{- /* SOV-344 — the OpenTofu CLI configuration the pre-hold lint reads (values tofuProviders). */}}
           {{- include "bp-self-sovereign-cutover.tofuProvidersEnv" . | nindent 10 }}
+          {{- /* The Workspace wait (values egressTest.workspaceSettle); the org-tenants pair the #3526 check pokes. */}}
+          - name: WS_SETTLE_SECONDS
+            value: {{ .Values.egressTest.workspaceSettle.timeoutSeconds | quote }}
+          - name: WS_SETTLE_INTERVAL_SECONDS
+            value: {{ .Values.egressTest.workspaceSettle.intervalSeconds | quote }}
+          - name: ORG_TENANTS_GITREPO
+            value: {{ .Values.helmRepositories.orgTenantsSource.gitRepositoryName | quote }}
+          - name: ORG_TENANTS_KUSTOMIZATION
+            value: {{ .Values.helmRepositories.orgTenantsSource.kustomizationName | quote }}
         volumeMounts:
           {{- /*
            #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
@@ -644,6 +653,7 @@ data:
             _selfheal_ghcr_user=""; _selfheal_ghcr_pat=""
             _selfheal_moth_user=""; _selfheal_moth_pat=""
 
+            {{- include "bp-self-sovereign-cutover.skopeoFetch" . | nindent 12 }}
             self_heal_ensure_skopeo() {
               [ "${_selfheal_skopeo_ready}" = "1" ] && return 0
               if command -v skopeo >/dev/null 2>&1; then
@@ -651,22 +661,11 @@ data:
                 return 0
               fi
               echo "[egress-block-test] self-heal: skopeo not on PATH; downloading static binary (same pinned build step-03 harbor-prewarm uses)"
-              _sh_url="https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
-              _sh_try=1
-              while [ "${_sh_try}" -le 3 ]; do
-                if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${_sh_url}" -o /work/skopeo 2>&1 \
-                  && chmod +x /work/skopeo \
-                  && /work/skopeo --version >/dev/null 2>&1; then
-                  export PATH="/work:${PATH}"
-                  _selfheal_skopeo_ready=1
-                  echo "[egress-block-test] self-heal: skopeo static binary installed: $(skopeo --version)"
-                  return 0
-                fi
-                echo "[egress-block-test] self-heal: skopeo download attempt ${_sh_try}/3 failed; retrying in 5s"
-                _sh_try=$((_sh_try+1))
-                sleep 5
-              done
-              rm -f /work/skopeo
+              if skopeo_fetch /work "[egress-block-test] self-heal:"; then
+                _selfheal_skopeo_ready=1
+                echo "[egress-block-test] self-heal: skopeo static binary installed: $(skopeo --version)"
+                return 0
+              fi
               echo "[egress-block-test] self-heal: skopeo unavailable after 3 download attempts — warm path disabled this run"
               return 1
             }
@@ -1017,47 +1016,10 @@ data:
             fi
 
             {{- /*
-             ── #5650 FLUX SOURCE HOST LINT ────────────────────────────────
-             WHY this exists as a SEPARATE assertion from the hold. The hold
-             applies a cluster-wide default-deny egress CCNP, runs for
-             ${DURATION}s, and is then TORN DOWN. It therefore proves exactly
-             one thing: nothing external was REACHABLE during that window. It
-             cannot prove the Sovereign has no external DEPENDENCY, and those
-             are different claims — Pillar 5 / ADR-0002 assert the second.
-
-             The concrete miss (hw292, dep 1c56518035a83e03): HelmRepository
-             vcluster-system/loft -> https://charts.loft.sh, spec.interval 15m,
-             not suspended, referenced by a live HelmRelease. A 15m interval can
-             straddle a 600s hold entirely, so the tether need never fire while
-             the policy is up; its artifact was then re-fetched from the public
-             internet at 18:36:28Z, ~10h AFTER cutoverComplete=true was set.
-             The hold passed and was correct to pass. The gap is that nothing
-             asserted over the object graph.
-
-             SCOPE NOTE — why the step-04 redirect exemption does NOT apply
-             here. run_podspec_refhost_lint exempts HOST_PROJECT_MAP hosts
-             because containerd rewrites IMAGE pulls via certs.d/<host>/
-             hosts.toml. Flux's source-controller fetches HelmRepository /
-             GitRepository / OCIRepository URLs itself over HTTPS and never
-             traverses containerd, so a certs.d redirect cannot cover it. The
-             exemption set here is therefore strictly the Sovereign's OWN
-             hosts plus in-cluster DNS — anything else is a live tether.
-             #5359 (hw292, dep 1c56518035a83e03) — the lint MUST run PER REGION.
-             It shipped in 0.1.162 measuring ONE cluster, which is the same
-             shape as the defect it exists to catch: on hw292 region-a held 69
-             HelmRepositories on the local Harbor and 0 on ghcr, while region-b
-             held 0 local and 64 on ghcr, and cutoverComplete=true was set from
-             the region-a measurement alone. A fleet property asserted from a
-             single-region sample is not asserted at all.
-
-             ARGS: $1 = region label (for the operator-facing message), $2 =
-             kubeconfig path ("" = this Job's own in-cluster context = the
-             primary). The `_fs_kubectl` shim is written on ONE line on purpose:
-             chart/tests/flux-source-host-lint.sh extracts this function out of
-             the RENDER with an awk range that terminates on the first bare `}`
-             line, so a nested multi-line function definition would silently
-             truncate the function under test and leave the suite validating a
-             fragment (the #5646 drift shape).
+             #5650 Flux source host lint, per region (#5359): described above values
+             egressTest.fluxSourceHostLint. $1 region label, $2 kubeconfig ("" = the primary).
+             _fs_kubectl stays on ONE line: tests/flux-source-host-lint.sh cuts this function
+             at its first bare "}".
             */}}
             run_flux_source_host_lint() {
               _fs_region="${1:-primary}"
@@ -1547,23 +1509,9 @@ data:
               echo "[egress-block-test] #7900 front door: clean before the hold (${FRONT_DOOR_HOSTS}; ${FRONT_DOOR_SAMPLES} request(s) each) — judged in the window"
             fi
 
-            {{- /*
-             SOV-344 — the cloud Workspaces. provider-opentofu runs tofu init for each
-             Workspace on its own reconcile loop. A Workspace is neither a HelmRelease nor
-             a Kustomization, and the Kustomization that applies the claims does not
-             health-check them: a hold that counted only those passed while 21 of 24
-             Workspaces could not reach registry.opentofu.org. ws_read lists both kinds of
-             a region into /work/ws_now, one row "<kind>/<namespace>/<name> Ready=<s>
-             Synced=<s>". A kind the region does not serve has no rows; a list that cannot
-             be read for another reason returns 1, which fails the proof. ws_baseline keeps
-             the Workspaces that are Ready and Synced before the hold (the others are named
-             and excluded). In the window ws_regressed names, by kind, namespace and name,
-             each of them that is no longer both, or is gone. Workspaces that exist with none
-             in the baseline are NOT MEASURED: said with both numbers, not a failure, never a
-             pass, recorded as step.egress-block-test.region.<region>.workspaces.
-            */}}
+            {{- /* SOV-344 — the cloud Workspaces through the hold: described above values egressTest.workspaceSettle. */}}
             # workspace-hold BEGIN
-            ws_jp='{range .items[*]}{.metadata.namespace}/{.metadata.name} Ready={.status.conditions[?(@.type=="Ready")].status} Synced={.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'
+            ws_jp='{range .items[*]}{.metadata.namespace}/{.metadata.name} Ready={.status.conditions[?(@.type=="Ready")].status} Synced={.status.conditions[?(@.type=="Synced")].status} why={.status.conditions[?(@.type=="Ready")].reason}/{.status.conditions[?(@.type=="Synced")].reason}{"\n"}{end}'
             ws_kubectl() { if [ -n "${ws_kc}" ]; then kubectl --kubeconfig="${ws_kc}" "$@"; else kubectl "$@"; fi; }
             ws_take() {
               if [ "$2" = 0 ]; then
@@ -1586,12 +1534,24 @@ data:
               ws_take workspaces.opentofu.m.upbound.io "${_wr_g}" || _wr_rc=1
               return "${_wr_rc}"
             }
+            ws_settle() {
+              while ws_read "$1" "$2"; do
+                _ws_w=$(grep -cvE ' Ready=True Synced=True( |$)| why=(Deleting/.*|.*/ReconcilePaused)$' /work/ws_now || true)
+                [ "${_ws_w}" != 0 ] || return 0
+                : "${ws_until:=$(($(date +%s) + WS_SETTLE_SECONDS))}"
+                [ "$(date +%s)" -lt "${ws_until}" ] || return 0
+                echo "[egress-block-test] region $1: ${_ws_w} cloud Workspace(s) not yet Ready and Synced; waiting, $((ws_until - $(date +%s)))s left of ${WS_SETTLE_SECONDS}s"
+                sleep "${WS_SETTLE_INTERVAL_SECONDS}"
+              done
+              return 1
+            }
             ws_baseline() {
-              ws_read "$1" "$2" || return 1
-              { grep -E ' Ready=True Synced=True$' /work/ws_now || true; } | cut -d' ' -f1 | sort -u >"/work/ws_base_$1.txt"
-              { grep -vE ' Ready=True Synced=True$' /work/ws_now || true; } | sed "s/^/  baseline[$1] WS (not Ready and Synced before the hold, excluded) /"
+              ws_settle "$1" "$2" || return 1
+              { grep -E ' Ready=True Synced=True( |$)' /work/ws_now || true; } | cut -d' ' -f1 | sort -u >"/work/ws_base_$1.txt"
+              { grep -vE ' Ready=True Synced=True( |$)' /work/ws_now || true; } | sed "s/^/  baseline[$1] WS (not Ready and Synced when the wait ended: NOT MEASURED) /"
               _wb_n=$(grep -c . /work/ws_now || true)
               _wb_b=$(grep -c . "/work/ws_base_$1.txt" || true)
+              ws_n=$((ws_n + _wb_n)); ws_b=$((ws_b + _wb_b))
               if [ "${_wb_n}" -gt 0 ] && [ "${_wb_b}" = 0 ]; then
                 echo "[egress-block-test] region $1: cloud Workspaces NOT MEASURED — ${_wb_n} exist, 0 were Ready and Synced before the hold, so the window judges none of them (not a failure, not a pass)"
                 echo "$1 (${_wb_n} exist, 0 in the baseline)" >>/work/ws_not_measured.txt
@@ -1600,6 +1560,11 @@ data:
               fi
               echo "[egress-block-test] region $1: ${_wb_b} cloud Workspace(s) Ready and Synced before the hold, judged in the window"
               _wb_r="judged: ${_wb_b} of ${_wb_n} in the baseline"
+              if [ "${_wb_b}" -lt "${_wb_n}" ]; then
+                echo "[egress-block-test] region $1: $((_wb_n - _wb_b)) of ${_wb_n} cloud Workspace(s) NOT MEASURED (named above; not a failure, not a pass)"
+                echo "$1 (${_wb_b} of ${_wb_n} judged)" >>/work/ws_not_measured.txt
+                _wb_r="${_wb_r}; not-measured: $((_wb_n - _wb_b))"
+              fi
               [ "${_wb_n}" -gt 0 ] || _wb_r="none: no cloud Workspace exists"
               status_record "step.egress-block-test.region.$1.workspaces" "${_wb_r}"
             }
@@ -1610,18 +1575,7 @@ data:
                 END { exit bad }' /work/ws_now "/work/ws_base_$1.txt"
             }
             # workspace-hold END
-            {{- /*
-             SOV-344 — the OpenTofu CLI configuration, before the hold. Every tofu init of a
-             Workspace installs its providers as the key .tofurc of the ConfigMap
-             TOFU_NAMESPACE/TOFU_CLI_CM says; the provider pod mounts it, and step 11 moves
-             its OCI mirror into the Sovereign's registry. The lint reads the live ConfigMap
-             and the file in every running pod that mounts it: each repository_template
-             names LOCAL_REGISTRY_HOST, registry.SOVEREIGN_FQDN or harbor.SOVEREIGN_FQDN, and
-             no direct, network_mirror, filesystem_mirror or dev_overrides block exists.
-             Without the ConfigMap tofu init takes the implied configuration, which installs
-             from registry.opentofu.org: a region passes without it only when it serves no
-             Workspace kind.
-            */}}
+            {{- /* SOV-344 — the OpenTofu CLI configuration lint before the hold: described above values tofuProviders. */}}
             # tofu-cli-lint BEGIN
             tofu_cli_judge() {
               grep -vE '^[[:space:]]*(#|//)' "$1" >/work/tofu_cli_code || true
@@ -1690,12 +1644,14 @@ data:
             # tofu-cli-lint END
             {{- /* SOV-344 — in every region, before the hold: the CLI configuration lint, then the Workspace baseline. */}}
             # tofu-pre-hold BEGIN
-            _ws_verdict=0
+            _ws_verdict=0; ws_n=0; ws_b=0
             : >/work/ws_not_measured.txt
             for _ws_t in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
               run_tofu_cli_config_host_lint "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
               ws_baseline "${_ws_t%%=*}" "${_ws_t#*=}" || _ws_verdict=1
             done
+            ws_tally="cloud Workspaces: ${ws_b} of ${ws_n} judged"
+            [ "${ws_b}" = "${ws_n}" ] || ws_tally="${ws_tally}, $((ws_n - ws_b)) NOT MEASURED, not covered by this proof"
             if [ "${_ws_verdict}" != 0 ]; then
               echo "[egress-block-test] the OpenTofu CLI configuration lint or the cloud Workspace baseline FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false)"
               exit 1
@@ -2874,18 +2830,20 @@ data:
              verdict to cover EVERY route to an empty POLICY_APPLIED, also one
              written later (measured 2026-08-14).
             */}}
-            {{- /*
-             Last step of the chain: past its verdict it releases kured's install hold in every region
-             (values rebootHold) by writing the ConfigMap slot 04b reads; one line per region (#7922).
-            */}}
+            {{- /* Releases kured's install hold in every region, retried; see values rebootHold. */}}
             reboot_hold_release() {
+              rh_left=""
               for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
                 [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
-                kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
-                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
-                  || { echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"; continue; }
-                echo "[egress-block-test] reboot hold released in region $(basename "${rh_kc:-primary}" .yaml): ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present; bp-kured (interval 1m) applies it within a minute"
+                rh_r=$(basename "${rh_kc:-primary}" .yaml); rh_try=1
+                until kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
+                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1; do
+                  [ "${rh_try}" -lt {{ .Values.rebootHold.releaseAttempts }} ] || { rh_left="${rh_left} ${rh_r}"; continue 2; }
+                  rh_try=$((rh_try + 1)); sleep {{ .Values.rebootHold.releaseRetrySeconds }}
+                done
+                echo "[egress-block-test] reboot hold released in region ${rh_r}: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present"
               done
+              [ -z "${rh_left}" ] || { echo "[egress-block-test] FATAL: the reboot hold is NOT released in region(s):${rh_left}: {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} not written in {{ .Values.rebootHold.releaseAttempts }} tries; cutoverComplete stays false" >&2; exit 1; }
             }
             {{- /* SOV-344 — a region whose Workspaces were not measured is named next to the verdict, never inside it. */}}
             if [ -s /work/ws_not_measured.txt ]; then
@@ -2901,11 +2859,11 @@ data:
                ship `true`; tests/cutover-contract.sh fails an unpinned overlay). Its
                result is never called a proof: the word PASSED is not printed here.
               */}}
-              echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — but egressTest.enforceCIDRBlock=false, so NO egress was ever denied: this is a survival poll, NOT the ADR-0002 sovereignty proof (#6309)"
+              echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — but egressTest.enforceCIDRBlock=false, so NO egress was ever denied: this is a survival poll, NOT the ADR-0002 sovereignty proof (#6309; ${ws_tally})"
               reboot_hold_release
               exit 0
             fi
-            echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED"
+            echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED (${ws_tally})"
             reboot_hold_release
         resources:
           requests: { cpu: 50m, memory: 64Mi }

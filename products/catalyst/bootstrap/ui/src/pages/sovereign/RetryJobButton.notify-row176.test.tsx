@@ -52,7 +52,7 @@ beforeEach(() => {
   cleanup()
 })
 
-const jobId = 'd1:task-syft-sbom'
+const jobId = 'd1:task-trivy-security-scan'
 
 /** NotificationProbe — reads the live notification context and flattens every
  *  raised item into one node, so a raised notification is OBSERVED rather than
@@ -89,7 +89,7 @@ describe('row 176 — a failed re-run is not silent', () => {
     nextBody = {
       error: 'not-directly-retryable',
       detail:
-        'CronJob syft-grype/syft-grype backing the "syft-sbom" row is not installed: reconciler is aggregate or operator-managed; not directly retryable',
+        'jobs "trivy-security-scan" not found in any namespace: reconciler is aggregate or operator-managed; not directly retryable',
     }
     renderWithNotifications()
     fireEvent.click(screen.getByTestId(`jobs-retry-${jobId}`))
@@ -101,7 +101,7 @@ describe('row 176 — a failed re-run is not silent', () => {
       )
     })
     expect(screen.getByTestId('notification-list').textContent).toContain(
-      'CronJob syft-grype/syft-grype',
+      'jobs "trivy-security-scan" not found in any namespace',
     )
   })
 

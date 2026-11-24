@@ -23,6 +23,11 @@ export interface UninstallDialogProps {
   applicationName: string
   /** Org namespace. */
   namespace?: string
+  /**
+   * An Organization session (useConsoleScope().orgScoped): uninstall
+   * through /org/applications/{name} — the Sovereign route refuses it.
+   */
+  orgScoped?: boolean
   /** Fired after a successful DELETE. */
   onUninstalled?: () => void
   /** Test seam. */
@@ -35,6 +40,7 @@ export function UninstallDialog({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   onUninstalled,
   disableNetwork = false,
 }: UninstallDialogProps) {
@@ -54,7 +60,7 @@ export function UninstallDialog({
     setBusy(true)
     setError(null)
     try {
-      await deleteApplication(sovereignId, applicationName, { namespace })
+      await deleteApplication(sovereignId, applicationName, { namespace, orgScoped })
       onUninstalled?.()
       onClose()
     } catch (e) {

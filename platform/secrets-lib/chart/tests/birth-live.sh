@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# secrets-lib — the birth Job against two REAL OpenBao servers (SEC-200,
+# SEC-140).
+#
+# Two `bao server -dev` processes stand for two regions, A (the primary) and
+# B. Each is configured by bp-openbao's own reconciler
+# (platform/openbao/chart/files/openbao-config-reconcile.sh) from bp-openbao's
+# own desired state, rendered for its region of a two-region registry with
+# peerTrust.birthNamespaces [acme]. The birth script and plan are cut from the
+# render of a chart that uses this library in namespace acme, in region A:
+#
+#   L1  first run: exit 0; the shared value acme/shared/token/e1 is present
+#       in A AND in B, at version 1, the same 40 characters (4 symbols); the
+#       value of this region only (acme/sa/app/key/e1) is in A and not in B;
+#   L2  second run: exit 0, writes nothing, fails on no region: every
+#       version and value is unchanged, the log says present for each region;
+#   L3  the rights: the Job's token in A reads no value and cannot mint the
+#       identity token of another listed namespace (other2); its token in B
+#       (identity token of A, role secrets-birth-acme on B's jwt-peer-<A>)
+#       may create below mounted/data/acme/ and is refused reading,
+#       overwriting, listing and creating below another namespace;
+#   L4  a peer that lost the value: the run rewrites it there, fails with exit
+#       3 and names region B;
+#   L5  an unreachable peer: exit 1, names region B, and nothing is written in
+#       A either;
+#   L6  a namespace that peerTrust.birthNamespaces does not list (other): no
+#       identity token for the peers, exit 1, nothing is written in A.
+#
+# The ONLY stand-in: the Job and the reconciler log in through a `jwt` mount
+# (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
+# the login request has the same shape). The Job's stand-in role carries the
+# policies of the rendered role secrets-birth and maps the token's claims to
+# the alias metadata service_account_namespace and service_account_name, as
+# Kubernetes auth does (the same stand-in as tests/e2e/bp-openbao-config-live.sh).
+#
+# Tools: bash, helm, jq, openssl, curl, wget, tar. The bao binary: BAO_BIN,
+# else the OpenBao release tarball of OPENBAO_VERSION (the version the
+# bp-openbao chart runs) is downloaded once into the temporary directory.
+set -euo pipefail
+
+LIB="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
+ROOT="$(cd "$LIB/../../.." && pwd)"
+OB="$ROOT/platform/openbao/chart"
+OPENBAO_VERSION="${OPENBAO_VERSION:-2.7.2}"
+for t in helm jq openssl curl wget tar; do command -v "$t" >/dev/null || { echo "FAIL: $t required"; exit 2; }; done
+TMP="$(mktemp -d)"
+PIDS=()
+cleanup() { for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done; rm -rf "$TMP"; }
+trap cleanup EXIT
+FAIL=0
+pass() { echo "  PASS  $1"; }
+fail() { echo "  FAIL  $1"; FAIL=1; }
+die() { echo "FATAL: $1"; for f in "$TMP"/*.log; do [ -f "$f" ] || continue; echo "--- $f"; tail -20 "$f"; done; exit 1; }
+
+# ── the bao binary ────────────────────────────────────────────────────────
+mkdir -p "$TMP/bin"
+if [ -n "${BAO_BIN:-}" ]; then
+  ln -s "$BAO_BIN" "$TMP/bin/bao"
+else
+  url="https://github.com/openbao/openbao/releases/download/v${OPENBAO_VERSION}/openbao_${OPENBAO_VERSION}_linux_amd64.tar.gz"
+  curl -sSfL --retry 3 --max-time 300 -o "$TMP/bao.tgz" "$url" || die "downloading $url failed"
+  tar -xzf "$TMP/bao.tgz" -C "$TMP/bin" bao || die "the tarball holds no bao"
+fi
+export PATH="$TMP/bin:$PATH"
+bao version >/dev/null || die "bao does not run"
+printf 'tries = 2\ntimeout = 10\n' > "$TMP/wgetrc"; export WGETRC="$TMP/wgetrc"
+
+# ── two free port pairs (a dev server also binds port+1) ──────────────────
+open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+for _ in $(seq 40); do
+  PA=$(( 20000 + RANDOM % 30000 )); PB=$(( PA + 10 ))
+  open "$PA" || open "$((PA + 1))" || open "$PB" || open "$((PB + 1))" || break
+done
+A="hw-me-east-215-a-rtz-prod"; B="hw-me-east-215-b-rtz-prod"
+AURL="http://127.0.0.1:$PA"; BURL="http://127.0.0.1:$PB"
+host() { printf 'http://openbao-%s.openbao.svc.cluster.local:8200' "$1"; }
+
+# ── bp-openbao's desired state for each region ────────────────────────────
+(cd "$OB" && { ls charts/*.tgz >/dev/null 2>&1 || helm dependency build >/dev/null; }) || die "helm dependency build of bp-openbao failed"
+REG='[{"cloudRegion":"'"$A"'"},{"cloudRegion":"'"$B"'"}]'
+for r in A B; do
+  self="$A"; [ "$r" = B ] && self="$B"
+  jq -n --arg s "$self" --arg g "$REG" '{baoAddress: "http://x", peerTrust: {selfRegion: $s, regions: $g, birthNamespaces: ["acme", "other2"]}}' > "$TMP/ob-$r.json"
+  helm template openbao "$OB" --namespace openbao -f "$TMP/ob-$r.json" --show-only templates/config-reconciler.yaml > "$TMP/ob-$r.yaml"
+  d="$TMP/desired-$r"; mkdir -p "$d"
+  awk '/^  manifest: \|/ { on = 1; next } on && /^  [^ ]/ { exit } on { sub(/^    /, ""); if ($0 != "") print }' "$TMP/ob-$r.yaml" > "$d/manifest"
+  grep -E '^  [A-Za-z0-9._-]+\.json: "' "$TMP/ob-$r.yaml" | while IFS= read -r line; do
+    k="${line#  }"; k="${k%%: *}"
+    printf '%s' "${line#*: }" | jq -r . | sed "s|$(host "$A")|$AURL|g; s|$(host "$B")|$BURL|g" > "$d/$k"
+  done
+  [ -s "$d/manifest" ] && [ -s "$d/auth.kubernetes.role.secrets-birth.json" ] || die "the desired state of $r has no role secrets-birth"
+done
+sed "s|$(host "$A")|$AURL|g; s|$(host "$B")|$BURL|g" -i "$TMP/desired-A/manifest" "$TMP/desired-B/manifest"
+
+# ── the birth Job of a chart in namespace acme, region A ─────────────────
+FX="$TMP/fx"; mkdir -p "$FX/templates"
+printf 'apiVersion: v2\nname: fx\nversion: 0.1.0\ndependencies:\n  - name: secrets-lib\n    version: 0.1.0\n    repository: "file://%s"\n' "$LIB" > "$FX/Chart.yaml"
+echo '{{- include "openova.generatedSecrets" (dict "ctx" . "secrets" .Values.generatedSecrets "peers" .Values.peers "primary" .Values.primary "self" .Values.self) }}' > "$FX/templates/all.yaml"
+cat > "$FX/values.yaml" <<EOF
+self: $A
+peers: [$B]
+primary: true
+generatedSecrets:
+  token: {delivery: mounted, epoch: 1, scope: shared, length: 40, symbols: 4}
+  key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false}
+EOF
+helm dependency build "$FX" >/dev/null
+helm template fx "$FX" --namespace acme > "$TMP/fx.yaml"
+block() { awk -v k="$1" '$0 == "  " k ": |" { on = 1; next } on && (/^  [^ ]/ || /^[^ ]/) { exit } on { sub(/^    /, ""); print }' "$TMP/fx.yaml"; }
+block birth.sh > "$TMP/birth.sh"
+block plan | grep . > "$TMP/plan"
+envof() { sed -n "s/^ *- {name: $1, value: \"\{0,1\}\([^\"}]*\)\"\{0,1\}}\$/\1/p" "$TMP/fx.yaml" | head -n 1; }
+[ "$(envof PEER_TOKEN_ROLE)" = openbao-peer-birth-acme ] && [ "$(envof PEER_ROLE)" = secrets-birth-acme ] && [ "$(envof BAO_ROLE)" = secrets-birth ] \
+  || die "the rendered Job does not name roles secrets-birth, secrets-birth-acme and openbao-peer-birth-acme"
+[ "$(envof PEERS)" = "$B=$(host "$B")" ] || die "the rendered Job does not name peer $B: $(envof PEERS)"
+
+# ── the login stand-in ────────────────────────────────────────────────────
+openssl genrsa -out "$TMP/jwt.key" 2048 2>/dev/null
+openssl rsa -in "$TMP/jwt.key" -pubout -out "$TMP/jwt.pub" 2>/dev/null
+b64() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+mint() {  # $1 namespace $2 service account -> RS256 JWT for audience openbao-live
+  local now h p s
+  now="$(date +%s)"
+  h="$(printf '{"alg":"RS256","typ":"JWT"}' | b64)"
+  p="$(printf '{"iss":"live-test","sub":"system:serviceaccount:%s:%s","aud":"openbao-live","iat":%s,"nbf":%s,"exp":%s,"kubernetes.io":{"namespace":"%s","sa":"%s"}}' \
+    "$1" "$2" "$now" "$((now - 5))" "$((now + 900))" "$1" "$2" | b64)"
+  s="$(printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -sign "$TMP/jwt.key" -binary | b64)"
+  printf '%s.%s.%s' "$h" "$p" "$s"
+}
+RT=(-H "X-Vault-Token: root")
+setup() {  # $1 address $2 desired dir: what the self-initialisation leaves behind
+  export BAO_ADDR="$1" BAO_TOKEN=root
+  bao auth enable kubernetes >/dev/null
+  bao auth enable -path=login-jwt jwt >/dev/null
+  bao secrets disable secret >/dev/null
+  bao write auth/login-jwt/config jwt_validation_pubkeys=@"$TMP/jwt.pub" bound_issuer=live-test >/dev/null
+  jq -r .policy "$2/sys.policies.acl.openbao-config-admin.json" > "$TMP/config-admin.hcl"
+  bao policy write openbao-config-admin "$TMP/config-admin.hcl" >/dev/null
+  bao write auth/login-jwt/role/openbao-config-admin role_type=jwt user_claim=sub bound_audiences=openbao-live \
+    bound_subject=system:serviceaccount:openbao:openbao-config token_policies=openbao-config-admin token_ttl=1h >/dev/null
+  unset BAO_TOKEN
+}
+reconcile() {  # $1 address $2 desired dir
+  mint openbao openbao-config > "$TMP/sa-config.jwt"
+  BAO_ADDR="$1" BAO_K8S_AUTH_PATH=login-jwt BAO_ROLE=openbao-config-admin INTERVAL_SECONDS=0 MAX_TICKS=1 \
+    CONFIG_DIR="$2" SA_TOKEN_FILE="$TMP/sa-config.jwt" HEARTBEAT_FILE="$TMP/hb" \
+    timeout 120 sh "$OB/files/openbao-config-reconcile.sh" >> "$TMP/reconcile.log" 2>&1 || true
+}
+mkdir -p "$TMP/home-a" "$TMP/home-b"
+HOME="$TMP/home-a" bao server -dev -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PA" > "$TMP/devA.log" 2>&1 & PIDS+=($!)
+HOME="$TMP/home-b" bao server -dev -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PB" > "$TMP/devB.log" 2>&1 & PIDS+=($!)
+for u in "$AURL" "$BURL"; do
+  for _ in $(seq 120); do curl -s -o /dev/null --max-time 5 "$u/v1/sys/health" && break; sleep 0.5; done
+  curl -s -o /dev/null --max-time 5 "$u/v1/sys/health" || die "the dev server at $u did not come up"
+done
+setup "$AURL" "$TMP/desired-A"; setup "$BURL" "$TMP/desired-B"
+reconcile "$AURL" "$TMP/desired-A"; reconcile "$BURL" "$TMP/desired-B"; reconcile "$AURL" "$TMP/desired-A"
+curl -sf "${RT[@]}" "$BURL/v1/auth/jwt-peer-$A/role/secrets-birth-acme" >/dev/null || die "B's reconciler did not write role secrets-birth-acme on jwt-peer-$A"
+pols="$(jq -c .policies "$TMP/desired-A/auth.kubernetes.role.secrets-birth.json")"
+curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"bound_claims\":{\"/kubernetes.io/sa\":\"secrets-birth\"},\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":$pols,\"token_ttl\":\"15m\"}" \
+  "$AURL/v1/auth/login-jwt/role/secrets-birth" || die "the stand-in role secrets-birth was refused"
+
+# run <namespace> <log> [PEERS] -> the exit code of one birth run in region A
+run() {
+  local rc=0 peers="${3:-$B=$BURL}"
+  mkdir -p "$TMP/work"; mint "$1" secrets-birth > "$TMP/job.jwt"
+  BAO_ADDR="$AURL" BAO_K8S_AUTH_PATH=login-jwt BAO_ROLE="$(envof BAO_ROLE)" JWT_FILE="$TMP/job.jwt" \
+    SELF_REGION="$(envof SELF_REGION)" PEERS="$peers" PEER_ROLE="secrets-birth-$1" PEER_TOKEN_ROLE="openbao-peer-birth-$1" \
+    PLAN_FILE="${PLAN:-$TMP/plan}" WORK_DIR="$TMP/work" MOUNT="$(envof MOUNT)" timeout 120 sh "$TMP/birth.sh" > "$2" 2>&1 || rc=$?
+  return "$rc"
+}
+rd() { curl -s "${RT[@]}" "$1/v1/mounted/data/$2" | jq -r '.data.data.password // empty'; }
+ver() { curl -s "${RT[@]}" "$1/v1/mounted/metadata/$2" | jq -r '.data.current_version // 0'; }
+TOK=acme/shared/token/e1; KEY=acme/sa/app/key/e1
+
+# ── L1 ────────────────────────────────────────────────────────────────────
+rc=0; run acme "$TMP/run1.log" || rc=$?
+va="$(rd "$AURL" $TOK)"; vb="$(rd "$BURL" $TOK)"
+sym="$(printf '%s' "$va" | tr -d 'A-Za-z0-9' | wc -c)"
+if [ "$rc" = 0 ] && [ -n "$va" ] && [ "$va" = "$vb" ] && [ "${#va}" = 40 ] && [ "$sym" = 4 ] \
+   && [ "$(ver "$AURL" $TOK)$(ver "$BURL" $TOK)" = 11 ] && [ -n "$(rd "$AURL" $KEY)" ] && [ "$(ver "$BURL" $KEY)" = 0 ]; then
+  pass "L1 one run: $TOK is present in A and B, version 1, one value (40 characters, 4 symbols); $KEY only in A"
+else fail "L1 rc=$rc A=${#va} B=${#vb} symbols=$sym versions=$(ver "$AURL" $TOK)$(ver "$BURL" $TOK) key=$(ver "$AURL" $KEY)/$(ver "$BURL" $KEY): $(tr '\n' ' ' < "$TMP/run1.log")"; fi
+
+# ── L2 ────────────────────────────────────────────────────────────────────
+rc=0; run acme "$TMP/run2.log" || rc=$?
+if [ "$rc" = 0 ] && [ "$(rd "$AURL" $TOK)" = "$va" ] && [ "$(rd "$BURL" $TOK)" = "$va" ] \
+   && [ "$(ver "$AURL" $TOK)$(ver "$BURL" $TOK)$(ver "$AURL" $KEY)" = 111 ] \
+   && ! grep -q ': written in ' "$TMP/run2.log" \
+   && grep -qx "secrets-birth: $TOK: present in $A" "$TMP/run2.log" && grep -qx "secrets-birth: $TOK: present in $B" "$TMP/run2.log"; then
+  pass "L2 second run: exit 0, nothing written, present in A and B, versions and value unchanged"
+else fail "L2 rc=$rc: $(tr '\n' ' ' < "$TMP/run2.log")"; fi
+
+# ── L3 ────────────────────────────────────────────────────────────────────
+login() { curl -s -X POST -d "{\"role\":\"$2\",\"jwt\":\"$3\"}" "$1" | jq -r '.auth.client_token // empty'; }
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+ta="$(login "$AURL/v1/auth/login-jwt/login" secrets-birth "$(mint acme secrets-birth)")"
+idt="$(curl -s -H "X-Vault-Token: $ta" "$AURL/v1/identity/oidc/token/openbao-peer-birth-acme" | jq -r '.data.token // empty')"
+tb="$(login "$BURL/v1/auth/jwt-peer-$A/login" secrets-birth-acme "$idt")"
+l3=""
+[ -n "$ta" ] && [ -n "$tb" ] || l3="$l3 login(A=${ta:+ok} B=${tb:+ok})"
+[ "$(code -H "X-Vault-Token: $ta" "$AURL/v1/mounted/data/$TOK")" = 403 ] || l3="$l3 A-read"
+[ "$(code -H "X-Vault-Token: $ta" "$AURL/v1/identity/oidc/token/openbao-peer-birth-other2")" = 403 ] || l3="$l3 A-mints-other2"
+[ "$(code -H "X-Vault-Token: $tb" "$BURL/v1/mounted/data/$TOK")" = 403 ] || l3="$l3 B-read"
+[ "$(code -H "X-Vault-Token: $tb" -X POST -d '{"data":{"password":"x"}}' "$BURL/v1/mounted/data/$TOK")" = 403 ] || l3="$l3 B-overwrite"
+[ "$(code -H "X-Vault-Token: $tb" -X LIST "$BURL/v1/mounted/metadata/acme")" = 403 ] || l3="$l3 B-list"
+[ "$(code -H "X-Vault-Token: $tb" "$BURL/v1/mounted/metadata/$TOK")" = 403 ] || l3="$l3 B-metadata"
+[ "$(code -H "X-Vault-Token: $tb" -X POST -d '{"data":{"password":"x"}}' "$BURL/v1/mounted/data/other/shared/x/e1")" = 403 ] || l3="$l3 B-other-namespace"
+[ "$(code -H "X-Vault-Token: $tb" -X POST -d '{"data":{"password":"x"}}' "$BURL/v1/mounted/data/acme/shared/probe/e1")" = 200 ] || l3="$l3 B-create"
+[ "$(rd "$BURL" $TOK)" = "$va" ] || l3="$l3 B-value-changed"
+[ -z "$l3" ] && pass "L3 rights: A's token reads no value and mints no other namespace's token; B's create-only role creates below acme/ and is refused read, overwrite, list, metadata and another namespace" || fail "L3:$l3"
+
+# ── L4 ────────────────────────────────────────────────────────────────────
+curl -sf "${RT[@]}" -X DELETE "$BURL/v1/mounted/metadata/$TOK" >/dev/null
+rc=0; run acme "$TMP/run4.log" || rc=$?
+if [ "$rc" = 3 ] && grep -q "FATAL: region $B: $TOK was missing there" "$TMP/run4.log" && [ "$(rd "$AURL" $TOK)" = "$va" ]; then
+  pass "L4 a peer that lost the value: exit 3, region $B named, A unchanged"
+else fail "L4 rc=$rc: $(tr '\n' ' ' < "$TMP/run4.log")"; fi
+
+# ── L5 / L6 ───────────────────────────────────────────────────────────────
+printf 'acme/shared/fresh/e1 32 0 - all\n' > "$TMP/plan5"
+rc=0; PLAN="$TMP/plan5" run acme "$TMP/run5.log" "$B=http://127.0.0.1:$((PB + 5))" || rc=$?
+if [ "$rc" = 1 ] && grep -q "FATAL: region $B: " "$TMP/run5.log" && [ "$(ver "$AURL" acme/shared/fresh/e1)" = 0 ]; then
+  pass "L5 an unreachable peer: exit 1, region $B named, nothing written in A"
+else fail "L5 rc=$rc: $(tr '\n' ' ' < "$TMP/run5.log")"; fi
+printf 'other/shared/fresh/e1 32 0 - all\n' > "$TMP/plan6"
+rc=0; PLAN="$TMP/plan6" run other "$TMP/run6.log" || rc=$?
+if [ "$rc" = 1 ] && grep -q "no identity token of role openbao-peer-birth-other for peer $B" "$TMP/run6.log" && [ "$(ver "$AURL" other/shared/fresh/e1)" = 0 ]; then
+  pass "L6 a namespace that is not listed: no identity token for the peers, exit 1, nothing written in A"
+else fail "L6 rc=$rc: $(tr '\n' ' ' < "$TMP/run6.log")"; fi
+
+if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
+echo "PASS: secrets-lib birth Job — a shared tier B value in every region, a second run changes nothing"

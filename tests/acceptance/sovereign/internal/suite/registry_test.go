@@ -306,3 +306,42 @@ func TestSampleRecord(t *testing.T) {
 		t.Fatalf("the record is not a version 2 record: %s", b)
 	}
 }
+
+// TestTheNodeRebootCheckRunsFirst: the node-reboot check judges every
+// container of a region and stops on one that waits on an image; BSS-G01, before
+// it in the manifest, leaves the Organization it bought until the end of the
+// run. So the check that needs node-reboot runs before every other check, and
+// the others keep their manifest order.
+func TestTheNodeRebootCheckRunsFirst(t *testing.T) {
+	order := []string{}
+	check := func(id string) fakeCheck {
+		return fakeCheck{id: id, run: func(_ *CheckContext, rec StepRecorder) error {
+			order = append(order, id)
+			return stepHolds(nil, rec)
+		}}
+	}
+	reboot := entry("INF-G01", StateRequired, "cloud")
+	reboot.Needs = []string{"node-reboot"}
+	m := &Manifest{Checks: []ManifestCheck{entry("BSS-G01", StateExpectedFail, "cloud"), entry("CLD-G06", StateRequired, "cloud"),
+		reboot, entry("NET-G07", StateRequired, "cloud")}}
+	checks := []Check{check("BSS-G01"), check("CLD-G06"), check("INF-G01"), check("NET-G07")}
+	r := &runner{out: io.Discard, run: &Run{Mode: "run"}}
+	r.runChecks(context.Background(), m, checks, &CheckContext{Caps: map[string]bool{"node-reboot": true}}, true)
+	recorded := []string{}
+	for _, c := range r.run.Checks {
+		recorded = append(recorded, c.ID+" "+c.Status)
+	}
+	if got := strings.Join(order, ","); got != "INF-G01,BSS-G01,CLD-G06,NET-G07" {
+		t.Errorf("checks ran in the order %s, want INF-G01 first and the others in manifest order", got)
+	}
+	if got := strings.Join(recorded, ","); got != "INF-G01 PASS,BSS-G01 PASS,CLD-G06 PASS,NET-G07 PASS" {
+		t.Errorf("results recorded: %s", got)
+	}
+	// A run that does not declare node-reboot skips the check, first too.
+	order = order[:0]
+	r = &runner{out: io.Discard, run: &Run{Mode: "run"}}
+	r.runChecks(context.Background(), m, checks, &CheckContext{Caps: map[string]bool{}}, true)
+	if got := strings.Join(order, ","); got != "BSS-G01,CLD-G06,NET-G07" || r.run.Checks[0].ID != "INF-G01" || r.run.Checks[0].Status != Skip {
+		t.Errorf("without node-reboot: ran %s, first result %+v", got, r.run.Checks[0])
+	}
+}

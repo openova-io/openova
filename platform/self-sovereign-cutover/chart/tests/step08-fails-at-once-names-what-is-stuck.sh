@@ -79,7 +79,7 @@ cat >"${TMP}/pods.json" <<JSON
     {"name": "registryctl", "ready": false, "image": "${CTL_IMG}", "state": {"waiting": {"reason": "ImagePullBackOff"}}}]}}]}
 JSON
 mkdir -p "${TMP}/bin"
-printf '#!/bin/sh\necho "skopeo version 1.15.2"\n' >"${TMP}/bin/skopeo"
+printf '#!/bin/sh\necho "skopeo version 1.16.1"\n' >"${TMP}/bin/skopeo"
 chmod +x "${TMP}/bin/skopeo"
 
 # The stubs. kubectl answers the workloads, the registry Deployment and its Pods, and

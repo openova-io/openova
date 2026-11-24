@@ -1,6 +1,39 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/appmanage"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
+)
+
+// ownOrgApplication resolves the caller's own Organization namespace (the
+// tenant registry plus the #4110 own-Organization binding; a forged sibling
+// host is 403 org-scope-mismatch) and the local Sovereign deployment id.
+func ownOrgApplication(h *handler.Handler) appmanage.OwnOrg {
+	return func(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+		tenant, ok := h.ResolveOrganization(w, r)
+		if !ok {
+			return "", "", false
+		}
+		return tenant.OrganizationNamespace, h.SelfDeploymentID(r), true
+	}
+}
+
+// orgApplicationRoutes are the Sovereign Application handlers the
+// Organization routes run.
+func orgApplicationRoutes(h *handler.Handler) appmanage.Routes {
+	return appmanage.Routes{
+		Get:             h.HandleApplicationGet,
+		Status:          h.HandleApplicationStatus,
+		Update:          h.HandleApplicationUpdate,
+		Delete:          h.HandleApplicationDelete,
+		UpgradePreview:  h.HandleApplicationUpgradePreview,
+		TopologyPreview: h.HandleApplicationTopologyPreview,
+	}
+}
 
 func registerSessionOrg(rg chi.Router, d routeDeps) {
 	h := d.h
@@ -42,6 +75,16 @@ func registerSessionOrg(rg chi.Router, d routeDeps) {
 	// with a working Open link. Already on the OrgScopeGuard allowlist
 	// (org_scope.go orgSafePathPrefixes) — no surface widening.
 	rg.Get("/api/v1/org/applications", h.HandleOrgApplications)
+
+	// A customer reads, upgrades and uninstalls their OWN Application. The
+	// Sovereign routes /api/v1/sovereigns/{id}/applications/{name}[/status]
+	// are refused by OrgScopeGuard for an Organization session, so before
+	// these a customer could install but never upgrade, remove or read the
+	// status of what they installed. appmanage.Confine resolves the own
+	// Organization (the #4110 binding) and forces its namespace, then runs
+	// the same Sovereign handler. Under the allowlisted
+	// /api/v1/org/applications prefix — no surface widening.
+	appmanage.RegisterOrgRoutes(rg, ownOrgApplication(h), orgApplicationRoutes(h))
 
 	// BSS landing KPI rollup (Refs #1949, TBD-A58). Read-only feed
 	// for the /console/bss landing surface (BssLandingPage.tsx →

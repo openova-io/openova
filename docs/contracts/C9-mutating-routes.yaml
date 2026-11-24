@@ -79,6 +79,10 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/internal/organizations/{id}/suspend", today: C, writeClass: git, operation: "", disposition: migrate, batch: B, package: CTL-190, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/ops/incidents/{id}/actions", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/applications", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: DELETE, path: "/api/v1/org/applications/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: PUT, path: "/api/v1/org/applications/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/org/applications/{name}/topology/preview", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
+  - {component: catalyst-api, method: POST, path: "/api/v1/org/applications/{name}/upgrade/preview", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/billing/purchase", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/billing/vouchers/issue", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/org/billing/vouchers/revoke/{code}", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}

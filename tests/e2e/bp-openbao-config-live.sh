@@ -10,7 +10,8 @@
 #
 #   L1  reconciler, two dev servers A and B (each rendered for its own region
 #       of a two-region registry): round 1 converges both; every desired
-#       policy reads back byte-identical, every desired role exists, and the
+#       policy reads back byte-identical (with the accessor of the login mount
+#       in place of AUTH_ACCESSOR_KUBERNETES), every desired role exists, and the
 #       kv mount secret/ (removed from each dev server first) is created by
 #       the reconciler as kv version 2;
 #   L2  round 2 is a no-op: the sys/policy listing, every policy body, every
@@ -27,10 +28,28 @@
 #       OIDC role logs in to A; create + read + update under
 #       secret/data/openova/apps/x work; delete, metadata delete and any path
 #       outside openova/apps are denied; a token minted by A itself is refused.
+#   L8  SEC-190, on A: the state key is exportable, backup-able and not
+#       deletable, token role tofu-state is an orphan, not renewable, 1h;
+#       eso-ns of namespace a creates mounted/data/a/sa/x/t once, cannot
+#       rewrite or read it, cannot write below b; workload of a/x reads it
+#       and a/shared, not a/sa/y nor b/shared; a token minted at
+#       auth/token/create/tofu-state by tofu-state-mint of crossplane-system
+#       uses the key and reaches nothing under secret/ nor the backup; a job
+#       identity encrypts and decrypts; the administrators take the one
+#       wrapped backup and read no value; a login with only the OIDC baseline
+#       sso-operator-read lists but gets no value, no backup and no export of
+#       the key, nor does an administrator export it; config-admin cannot use
+#       the key.
 #
 # The ONLY stand-ins: the reconciler and the B-side ESO log in through a
 # `jwt` mount (`login-jwt`) instead of Kubernetes TokenReview (there is no
-# apiserver here; the login request shape is identical). The seal, the
+# apiserver here; the login request shape is identical). For L8 a stand-in
+# role per generic role carries the same policies and maps the token's
+# kubernetes.io claim to the alias metadata service_account_namespace and
+# service_account_name, which Kubernetes auth sets; the policies of SEC-190
+# are written by the reconciler with the accessor of login-jwt; the stand-ins
+# of a person (admin, viewer) also carry sso-operator-read, the baseline of the
+# OIDC role, written from the render of the sign-on reconciler. The seal, the
 # self-initialisation itself and the audit device run in a real pod in the
 # workflow test-bp-openbao-fresh-prov.
 #
@@ -138,7 +157,7 @@ key, sub = sys.argv[1:]
 b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()
 now = int(time.time())
 h = b(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
-p = b(json.dumps({"iss": "live-test", "sub": sub, "aud": "openbao-live", "iat": now, "nbf": now - 5, "exp": now + 900}).encode())
+p = b(json.dumps({"iss": "live-test", "sub": sub, "aud": "openbao-live", "iat": now, "nbf": now - 5, "exp": now + 900, "kubernetes.io": dict(zip(("namespace", "sa"), sub.split(":")[2:]))}).encode())
 sig = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key], input=f"{h}.{p}".encode(), capture_output=True, check=True).stdout
 print(f"{h}.{p}.{b(sig)}")
 PYEOF
@@ -221,15 +240,15 @@ for line in open(f"{d}/manifest"):
         assert path[len("sys/auth/"):] + "/" in mounts, path
     elif kind == "secrets-mount":
         got = smounts[path[len("sys/mounts/"):] + "/"]
-        assert got["type"] == body["type"] and got["options"] == body["options"], (path, got)
+        assert got["type"] == body["type"] and got["options"] == body.get("options", {}), (path, got)
     elif path.startswith("sys/policies/acl/"):
-        assert call(path)["data"]["policy"] == body["policy"], path
+        assert call(path)["data"]["policy"] == body["policy"].replace("AUTH_ACCESSOR_KUBERNETES", mounts["login-jwt/"]["accessor"]), path
     elif path.startswith("identity/oidc/role/"):
         got = call(path)["data"]
         assert got["key"] == body["key"] and got["client_id"] == body["client_id"] and json.loads(got["template"]) == json.loads(body["template"]), (path, got)
     elif path.startswith("auth/") and "/role/" in path:
         got = call(path)["data"]
-        for k in ("bound_service_account_names", "bound_service_account_namespaces", "bound_audiences", "bound_claims"):
+        for k in ("bound_service_account_names", "bound_service_account_namespaces", "bound_audiences", "bound_claims", "audience"):
             if k in body: assert got.get(k) == body[k], (path, k, got.get(k), body[k])
         pol = body.get("policies") or body.get("token_policies")
         have = got.get("token_policies") or got.get("policies") or []
@@ -317,5 +336,74 @@ fi
 SELF_JWT="$(BAO_TOKEN="$ESO_A" timeout 20 bao read -field=token identity/oidc/token/openbao-peer-push)"
 [ "$(code -X POST -d "{\"role\":\"openbao-peer-push\",\"jwt\":\"$SELF_JWT\"}" "$BAO_ADDR/v1/auth/jwt-peer-$B/login")" = 400 ] && pass "L6 a token minted by A itself is refused at jwt-peer-$B" || fail "L6 A's own token was accepted as B's"
 
+# ── L8 SEC-190: mounts, templated policies, generic roles, state key (on A) ──
+export BAO_ADDR="http://127.0.0.1:$PA" BAO_TOKEN=root
+RT=(-H "X-Vault-Token: root")
+# sso-operator-read as the sign-on reconciler writes it: the baseline
+# (token_policies) of every OIDC login, so both stand-ins of a person carry it.
+READ_POLICY="$(sed -n "s/^ *READ_POLICY_PAYLOAD='\(.*\)'\$/\1/p" "$TMP/render-A.yaml")"
+[ "$(code "${RT[@]}" -X PUT -d "$READ_POLICY" "$BAO_ADDR/v1/sys/policies/acl/sso-operator-read")" = 204 ] || fail "L8 could not write sso-operator-read from the render"
+for r in workload=workload eso-ns=eso-ns tofu-state-mint=eso-ns,tofu-state-mint tofu-state=tofu-state admin=sso-operator-read,sovereign-admin,tofu-state-backup viewer=sso-operator-read; do
+  pols="\"$(printf '%s' "${r#*=}" | sed 's/,/","/g')\""
+  "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":[$pols],\"token_ttl\":\"15m\"}" \
+    "$BAO_ADDR/v1/auth/login-jwt/role/sim-${r%%=*}"
+done
+login_as() {  # $1 stand-in role, $2 namespace, $3 service account -> client token
+  "${CURL[@]}" -X POST -d "{\"role\":\"sim-$1\",\"jwt\":\"$(mint "system:serviceaccount:$2:$3")\"}" "$BAO_ADDR/v1/auth/login-jwt/login" | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p'
+}
+has() { printf '%s' "$1" | grep -q -F -- "$2"; }   # $1 text, $2 fixed string
+K="$("${CURL[@]}" "${RT[@]}" "$BAO_ADDR/v1/transit/keys/tofu-state")"
+has "$K" '"type":"aes256-gcm96"' && has "$K" '"exportable":true' && has "$K" '"allow_plaintext_backup":true' && has "$K" '"deletion_allowed":false' \
+  && pass "L8 key transit/keys/tofu-state: aes256-gcm96, exportable, plaintext backup allowed, not deletable" || fail "L8 state key $K"
+TR="$("${CURL[@]}" "${RT[@]}" "$BAO_ADDR/v1/auth/token/roles/tofu-state")"
+has "$TR" '"allowed_policies":["tofu-state"]' && has "$TR" '"orphan":true' && has "$TR" '"renewable":false' && has "$TR" '"token_explicit_max_ttl":3600' \
+  && pass "L8 token role tofu-state: policy tofu-state, orphan, not renewable, at most 1h" || fail "L8 token role $TR"
+
+ESO="$(login_as eso-ns a eso-reader)"; E=(-H "X-Vault-Token: $ESO")
+[ -n "$ESO" ] && [ "$(code "${E[@]}" -X POST -d '{"data":{"v":"seed"}}' "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 200 ] \
+  && pass "L8 eso-ns of namespace a creates mounted/data/a/sa/x/t" || fail "L8 eso-ns could not seed mounted/data/a/sa/x/t"
+[ "$(code "${E[@]}" -X POST -d '{"data":{"v":"again"}}' "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 403 ] && pass "L8 eso-ns cannot rewrite a value (create only)" || fail "L8 eso-ns rewrote a value"
+[ "$(code "${E[@]}" "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 403 ] && pass "L8 eso-ns cannot read the value it created" || fail "L8 eso-ns read a value below mounted/"
+[ "$(code "${E[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/b/shared/t")" = 403 ] && pass "L8 eso-ns of a cannot write below namespace b" || fail "L8 eso-ns of a wrote below b"
+for p in b/shared/t a/sa/y/t a/shared/t; do "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d '{"data":{"v":"root"}}' "$BAO_ADDR/v1/mounted/data/$p"; done
+WL="$(login_as workload a x)"; W=(-H "X-Vault-Token: $WL")
+[ -n "$WL" ] && [ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 200 ] && [ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/a/shared/t")" = 200 ] \
+  && pass "L8 workload a/x reads mounted/data/a/sa/x/t and a/shared/t" || fail "L8 workload a/x could not read its own paths"
+[ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/b/shared/t")" = 403 ] && [ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/a/sa/y/t")" = 403 ] \
+  && pass "L8 workload a/x is refused b/shared/t and a/sa/y/t" || fail "L8 workload a/x read another namespace or service account"
+
+MINT="$(login_as tofu-state-mint crossplane-system eso-reader)"
+ST="$("${CURL[@]}" -H "X-Vault-Token: $MINT" -X POST -d '{}' "$BAO_ADDR/v1/auth/token/create/tofu-state" | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p')"
+S=(-H "X-Vault-Token: $ST")
+LS="$("${CURL[@]}" "${S[@]}" "$BAO_ADDR/v1/auth/token/lookup-self")"
+[ -n "$ST" ] && has "$LS" '"policies":["default","tofu-state"]' && has "$LS" '"orphan":true' && has "$LS" '"renewable":false' \
+  && [ "$(code "${S[@]}" -X POST -d '{}' "$BAO_ADDR/v1/transit/datakey/plaintext/tofu-state")" = 200 ] \
+  && pass "L8 a token minted at auth/token/create/tofu-state (orphan, not renewable) gets a data key" || fail "L8 minted state token: $LS"
+[ "$(code "${S[@]}" "$BAO_ADDR/v1/secret/data/x")" = 403 ] && [ "$(code "${S[@]}" -X POST -d '{"data":{"k":"v"}}' "$BAO_ADDR/v1/secret/data/x")" = 403 ] \
+  && [ "$(code "${S[@]}" "$BAO_ADDR/v1/transit/backup/tofu-state")" = 403 ] && [ "$(code -H "X-Vault-Token: $MINT" -X POST -d '{}' "$BAO_ADDR/v1/transit/datakey/plaintext/tofu-state")" = 403 ] \
+  && pass "L8 the state token reaches nothing under secret/ nor the backup; the minter cannot use the key" || fail "L8 the state token or its minter reached too far"
+JOB="$(login_as tofu-state catalyst sovereign-ops)"; J=(-H "X-Vault-Token: $JOB")
+CT="$("${CURL[@]}" "${J[@]}" -X POST -d '{}' "$BAO_ADDR/v1/transit/datakey/plaintext/tofu-state" | sed -n 's/.*"ciphertext":"\([^"]*\)".*/\1/p')"
+[ -n "$CT" ] && [ "$(code "${J[@]}" -X POST -d "{\"ciphertext\":\"$CT\"}" "$BAO_ADDR/v1/transit/decrypt/tofu-state")" = 200 ] \
+  && pass "L8 a job identity of role tofu-state encrypts and decrypts with the state key" || fail "L8 job identity could not use the state key"
+
+ADM="$(login_as admin openbao human)"; AD=(-H "X-Vault-Token: $ADM")
+WRAP="$("${CURL[@]}" "${AD[@]}" -H 'X-Vault-Wrap-TTL: 1h' "$BAO_ADDR/v1/transit/backup/tofu-state" | sed -n 's/.*"wrap_info":{"token":"\([^"]*\)".*/\1/p')"
+[ -n "$WRAP" ] && has "$("${CURL[@]}" -H "X-Vault-Token: $WRAP" -X POST "$BAO_ADDR/v1/sys/wrapping/unwrap")" '"backup":"' \
+  && pass "L8 the administrators take the wrapped backup of the state key and unwrap it once" || fail "L8 wrapped backup of the state key"
+[ "$(code "${AD[@]}" "$BAO_ADDR/v1/secret/data/x")" = 403 ] && [ "$(code "${AD[@]}" "$BAO_ADDR/v1/mounted/data/a/shared/t")" = 403 ] \
+  && [ "$(code "${AD[@]}" -X LIST "$BAO_ADDR/v1/secret/metadata")" = 200 ] && [ "$(code "${AD[@]}" "$BAO_ADDR/v1/sys/mounts")" = 200 ] \
+  && [ "$(code "${AD[@]}" -X PUT -d '{"policy":"path \"*\" { capabilities = [\"sudo\"] }"}' "$BAO_ADDR/v1/sys/policies/acl/x")" = 403 ] && [ "$(code "${AD[@]}" -X PUT "$BAO_ADDR/v1/sys/seal")" = 403 ] \
+  && pass "L8 sovereign-admin lists metadata and mounts, reads no value, writes no policy, cannot seal" || fail "L8 sovereign-admin scope"
+VWR="$(login_as viewer openbao human)"; V=(-H "X-Vault-Token: $VWR")
+[ -n "$VWR" ] && [ "$(code "${V[@]}" -X LIST "$BAO_ADDR/v1/secret/metadata")" = 200 ] \
+  && [ "$(code "${V[@]}" "$BAO_ADDR/v1/transit/backup/tofu-state")" = 403 ] && [ "$(code "${V[@]}" "$BAO_ADDR/v1/transit/export/encryption-key/tofu-state")" = 403 ] \
+  && [ "$(code "${AD[@]}" "$BAO_ADDR/v1/transit/export/encryption-key/tofu-state")" = 403 ] \
+  && [ "$(code "${V[@]}" "$BAO_ADDR/v1/mounted/data/a/shared/t")" = 403 ] && [ "$(code "${V[@]}" "$BAO_ADDR/v1/secret/data/openova/apps/x")" = 403 ] \
+  && pass "L8 the OIDC baseline lists but is refused the backup and export of the state key and every value; an administrator cannot export the key" || fail "L8 the OIDC baseline sso-operator-read reached a value or the state key"
+[ "$(code "${H[@]}" -X POST -d '{}' "$BAO_ADDR/v1/transit/datakey/plaintext/tofu-state")" = 403 ] && [ "$(code "${H[@]}" "$BAO_ADDR/v1/transit/backup/tofu-state")" = 403 ] \
+  && [ "$(code "${H[@]}" -X POST -d '{}' "$BAO_ADDR/v1/auth/token/create/tofu-state")" = 403 ] \
+  && pass "L8 config-admin cannot use the state key, back it up or mint a state token" || fail "L8 config-admin reached the state key"
+
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao live config / peer trust"; exit 1; fi
-echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B"
+echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B, mounts, generic roles and the state key"

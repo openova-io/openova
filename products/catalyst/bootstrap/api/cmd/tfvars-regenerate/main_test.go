@@ -35,8 +35,9 @@ func pinEnv(t *testing.T) {
 	t.Setenv("CATALYST_DEFAULT_ADMIN_CIDRS", "203.0.113.0/24")
 }
 
-// request is a deployment request with every optional field set, the fields
-// that a record does not hold among them. Every value is made up.
+// request is a deployment request with every optional field set, the
+// credentials among them. Every value is made up. TestRebuildGivesBackTheRequest
+// fails when a field of the request is left unset here.
 func request(provider string) provisioner.Request {
 	addedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	off := false
@@ -44,6 +45,8 @@ func request(provider string) provisioner.Request {
 		OrgName: "Regenerate Org", OrgEmail: "owner@example.com",
 		SovereignFQDN: "rg.example.com", SovereignDomainMode: "pool",
 		SovereignPoolDomain: "example.com", SovereignSubdomain: "rg",
+		SovereignTimeZone: "Asia/Muscat",
+		MailRelay:         &provisioner.MailRelay{Host: "smtp.example.org", Port: "2525", From: "noreply@example.org"},
 		ParentDomains: []provisioner.ParentDomain{
 			{Name: "example.com", Role: provisioner.ParentDomainRolePrimary, RegistrarKind: "dynadot", RegistrarCredsRef: "registrar-example-com", AddedAt: addedAt},
 			{Name: "orgs.example.net", Role: provisioner.ParentDomainRoleOrgPool, RegistrarKind: "dynadot", RegistrarCredsRef: "registrar-example-net", AddedAt: addedAt},
@@ -67,6 +70,7 @@ func request(provider string) provisioner.Request {
 	case "huawei":
 		r.Credentials = map[string]string{"access_key": "test-huawei-access-key", "secret_key": "test-huawei-secret-key", "project_id": "test-huawei-project", "region": "region-1"}
 		r.ObjectStorageRegion = "region-1"
+		r.StorageClass = "csi-disk-ssd"
 		r.Regions = []provisioner.RegionSpec{
 			{Provider: "huawei", CloudRegion: "region-1-a", ControlPlaneSize: "m7n.large.8", WorkerSize: "m7n.xlarge.8", WorkerCount: 4, Code: "region-1-a", Role: "primary"},
 			{Provider: "huawei", CloudRegion: "region-1-b", ControlPlaneSize: "m7n.large.8", WorkerSize: "m7n.xlarge.8", WorkerCount: 3, Code: "region-1-b", Role: "secondary"},
@@ -76,6 +80,7 @@ func request(provider string) provisioner.Request {
 		r.BcpTopology = provisioner.BcpTopologySingleRegion
 		r.Credentials = map[string]string{"hcloud_token": "test-hetzner-token-" + strings.Repeat("0", 64), "hcloud_project_id": "test-hetzner-project"}
 		r.ObjectStorageRegion = "fsn1"
+		r.StorageClass = "hcloud-volumes"
 		r.Regions = []provisioner.RegionSpec{
 			{Provider: "hetzner", CloudRegion: "fsn1", ControlPlaneSize: "cx43", WorkerSize: "cx53", WorkerCount: 3, Code: "fsn1", Role: "primary"},
 		}
@@ -183,14 +188,16 @@ func TestCredentialKeys(t *testing.T) {
 	}
 }
 
-// TestEveryKeptFieldMatters: blanking any one field of the kept file that
-// the command reads (a field of type kept or a credential that the file
-// holds) changes the file written again, so none of them is dead and the
-// round trip above really covers each one.
+// TestEveryKeptFieldMatters: for a record of an older engine, blanking any
+// one field of the kept file that the command reads (a field of type kept or
+// a credential that the file holds) changes the file written again, so none
+// of them is dead and TestRoundTrip_RecordOfAnOlderEngine really covers each
+// one.
 func TestEveryKeptFieldMatters(t *testing.T) {
 	pinEnv(t)
 	req := request("huawei")
 	recordPath, work := deployment(t, req)
+	olderRecord(t, recordPath)
 	path := filepath.Join(work, tfvarsName)
 	original := readFile(t, path)
 	var doc map[string]any

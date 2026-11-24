@@ -1,0 +1,3 @@
+# The tests run from the source tree; a consumer's package carries only the
+# templates.
+tests/

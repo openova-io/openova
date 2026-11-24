@@ -234,6 +234,58 @@ kubernetesAuth:
     serviceAccountName: catalyst-api-cutover-driver
     serviceAccountNamespace: catalyst-system
 
+# ─── Mounts and the state key (SEC-190) ───────────────────────────────────
+# Secrets engines the configuration reconciler enables, one secrets-mount
+# operation per key (templates/_config.tpl); the key is the mount path and the
+# value is the payload of sys/mounts/<key>. Its configuration grant may enable
+# exactly these mounts and the kv mount above.
+#   mounted/  values a pod reads as a mounted file: written once per path
+#             (create only) by its namespace's External Secrets identity
+#             (role eso-ns), read by the pod's own identity (role workload)
+#             at mounted/data/<ns>/sa/<sa>/... and mounted/data/<ns>/shared/...
+#   transit/  the key that encrypts infrastructure state (stateKey below)
+engines:
+  mounted:
+    type: kv
+    options:
+      version: "2"
+  transit:
+    type: transit
+# The transit key for infrastructure state, transit/keys/<name>, type
+# aes256-gcm96. It is created exportable and with a plaintext backup allowed
+# (both one-way) so that the one offline backup can be taken
+# (docs/RUNBOOKS.md §2.17), and it can never be deleted. Token role
+# tofu-state mints the short-lived token a provider pod hands to OpenTofu.
+stateKey:
+  name: tofu-state
+  # Service accounts that log in themselves and use the key (auth role
+  # tofu-state, policy tofu-state). Kubernetes auth binds the listed names in
+  # the listed namespaces: every name in every namespace of the list.
+  jobIdentities:
+    - serviceAccount: sovereign-ops
+      namespace: catalyst
+  # Service accounts that may read the wrapped backup of the key (auth role
+  # tofu-state-backup, policy tofu-state-backup, 15 minutes). Empty renders
+  # no role; the human group sovereign-admins carries the policy.
+  backupIdentities: []
+
+# ── Snapshot backup to object storage (SEC-180) ──────────────────────────
+# CronJob openbao-backup (templates/backup-snapshot.yaml) puts one raft snapshot
+# at s3://<bucket>/<prefix><peerTrust.selfRegion>/<UTC time>.snap, then deletes
+# this region's snapshots older than retentionDays. It logs in as auth role
+# openbao-snapshot, whose policy reads only sys/storage/raft/snapshot. Secret
+# bucketSecretName, in the release namespace, carries the keys of the
+# object-storage Secret: s3-endpoint (a URL), s3-region, s3-access-key,
+# s3-secret-key. Restoring: docs/RUNBOOKS.md §2.18. The kit switches it on.
+backup:
+  enabled: false
+  schedule: "17 */6 * * *"
+  bucket: ""
+  bucketSecretName: object-storage
+  prefix: openbao/
+  retentionDays: 30
+  image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support
 # with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
@@ -241,9 +293,10 @@ kubernetesAuth:
 # `secret/sso/openbao` + ExternalSecret in this namespace.
 #
 # bp-openbao opens its UI + CLI to OIDC users via the `oidc` auth method,
-# bound to the realm `sovereign-admins` group → sso-operator-admin policy
-# (write-everything-anywhere). The self-initialisation revokes its root token
-# at once; the only privileged login surface is OIDC.
+# bound to the realm `sovereign-admins` group → sovereign-admin policy
+# (read-mostly: metadata, mounts, policies and leases, no value and no write
+# of configuration; SEC-190). The self-initialisation revokes its root token
+# at once; break-glass is cluster administration, never an OIDC login.
 sso:
   enabled: true
   realm: sovereign
@@ -263,7 +316,8 @@ sso:
   # (sovereign-ops is the third privileged group). ALL THREE must be in the
   # OIDC role's bound_claims or OpenBao rejects the callback with "claim
   # groups does not match any associated bound claim values". Policy uplift:
-  #   adminGroup / opsGroup → sso-operator-admin (read/write/sudo everywhere)
+  #   adminGroup            → sovereign-admin + tofu-state-backup (SEC-190)
+  #   opsGroup              → sovereign-admin
   #   viewerGroup           → sso-operator-read  (read+list, role baseline)
   # delivered via external identity-group aliases on the oidc mount.
   adminGroup: sovereign-admins

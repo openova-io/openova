@@ -144,7 +144,7 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 	ready := map[string]bool{}
 	for _, pod := range list.Items {
 		slug := podOwnerSlug(pod.Metadata.Name, wanted)
-		if slug == "" {
+		if slug == "" || !podTruthCounts(pod.Metadata.Name, pod.Metadata.Labels, slug) {
 			continue
 		}
 		if pod.Status.Phase != "Running" {

@@ -698,43 +698,24 @@ data:
     }
 
     while true; do
-      desired=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
-        | jq -r '.data.registriesYamlActive // "v1"' 2>/dev/null \
-        || echo "v1")
-      desired=${desired:-v1}
+      # One read of the status ConfigMap per sweep; the rules of a sweep: values.yaml registryPivot.
+      if ! st=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null) \
+        || ! desired=$(printf '%s' "${st}" | jq -er '.data.registriesYamlActive // "v1"' 2>/dev/null); then
+        echo "[registry-pivot] WARN status ConfigMap not read on ${NODE_NAME}: keeping ${last_state:-<none>}, retry next sweep"
+        sleep 15; continue
+      fi
 
-      # #5007 — reconcile the local-registry /etc/hosts pin every sweep while v2 is
-      # desired (idempotent; self-heals a node whose /etc/hosts was rewritten, and
-      # completes the pin once the gateway VIP is assigned after the first v2 sweep
-      # — a fast grep no-op once pinned). On v1/rollback apply_state removes it.
       [ "${desired}" = "v2" ] && write_local_registry_pin
 
-      # #4639 — re-apply v2 if the cluster-wide dfdaemon flip has not yet been
-      # confirmed (guard dragonflyUpstream != local). apply_state fires only
-      # ONCE per state, so if the upstream flip (e.g. the Harbor CA anchor or a
-      # ConfigMap patch) missed on the first v2 sweep it would be skipped
-      # forever. This retries the flip on a later sweep WITHOUT re-applying every
-      # tick once converged.
       needs_flip_retry=0
       if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ]; then
-        cur_up=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
-          | jq -r '.data.dragonflyUpstream // empty' 2>/dev/null || true)
+        cur_up=$(printf '%s' "${st}" | jq -r '.data.dragonflyUpstream // empty')
         [ "${cur_up}" != "local" ] && needs_flip_retry=1
       fi
 
-      # #4637 — re-apply v2 if THIS node's v2 ack is still missing (its local
-      # dfdaemon was not serving on the first sweep — the live #4649 condition).
-      # The cluster-wide flip (needs_flip_retry) may already be `local`, so that
-      # guard would NOT re-fire apply_state; without this a node whose dfdaemon
-      # came up late never re-probes/re-acks → its node.<NODE>.registriesYaml
-      # stays absent → catalyst-api's per-node-ack wait never reaches
-      # acks==desired → the cutover stalls at step-04 instead of greening once
-      # the mirror is live. Cheap (one CM GET) and self-limiting (stops the
-      # instant the ack lands).
       needs_ack_retry=0
       if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ] && [ "${needs_flip_retry}" = "0" ]; then
-        my_ack=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
-          | jq -r --arg k "node.${NODE_NAME}.registriesYaml" '.data[$k] // empty' 2>/dev/null || true)
+        my_ack=$(printf '%s' "${st}" | jq -r --arg k "node.${NODE_NAME}.registriesYaml" '.data[$k] // empty')
         [ "${my_ack}" != "v2" ] && needs_ack_retry=1
       fi
 

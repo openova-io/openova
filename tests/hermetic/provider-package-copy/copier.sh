@@ -2,7 +2,7 @@
 # copier.sh - the part of provider-package-copy-test.sh that runs in the copier container (the
 # image of cutover step 03), in the network namespace of the two registries: localhost:5001 (the
 # origin) and localhost:5002 (the Sovereign's registry). /w holds the packages, the publisher's
-# ORAS and step 03's skopeo (bin/), the code cut from the render (cut.sh), its environment (env.sh)
+# ORAS and step 03's skopeo (bin/), skopeo 1.15.2 for the control (bin/old/), the code cut from the render (cut.sh), its environment (env.sh)
 # and the list (list); each case writes /w/out/case-<name>.txt, one "ok" or "FAIL" line per check.
 set -u
 export PATH="/w/bin:${PATH}"
@@ -57,6 +57,36 @@ printf '{"imageLayoutVersion":"1.0.0"}' >"${O}/oci-layout"
 oras cp --from-oci-layout "${O}:1.0" localhost:5001/ordinary/app:1.0 --to-ca-file "${CA}" --to-plain-http=false >/dev/null \
   || { echo "FAIL — oras could not push the ordinary list" >"${OUT}/case-ordinary.txt"; exit 1; }
 echo "pushed the ordinary list localhost:5001/ordinary/app:1.0 at ${ORD_DIGEST}"
+
+# A first-party list as docker/build-push-action pushes it (catalyst-api:4166721 on 23 Nov 2026):
+# an OCI index of one linux/amd64 image and its attestation manifest (platform unknown/unknown,
+# one in-toto layer), as an image layout, pushed to the first registry at openova-io/openova/app.
+O=/tmp/ppc-buildx
+mkdir -p "${O}/blobs/sha256" /tmp/ppc-layers/bx
+printf 'a first-party image\n' >/tmp/ppc-layers/bx/hello.txt
+tar -C /tmp/ppc-layers/bx -cf /tmp/ppc-layers/bx.tar hello.txt
+gzip -n -c /tmp/ppc-layers/bx.tar >/tmp/ppc-layers/bx.tgz
+set -- $(blob /tmp/ppc-layers/bx.tgz); ld=$1; ls=$2
+printf '{"architecture":"amd64","os":"linux","config":{},"rootfs":{"type":"layers","diff_ids":["sha256:%s"]}}' "$(sha256sum </tmp/ppc-layers/bx.tar | awk '{print $1}')" >/tmp/ppc-layers/bx.cfg
+set -- $(blob /tmp/ppc-layers/bx.cfg); cd_=$1; cs=$2
+printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"%s","size":%s},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","digest":"%s","size":%s}]}' \
+  "${cd_}" "${cs}" "${ld}" "${ls}" >/tmp/ppc-layers/bx.man
+set -- $(blob /tmp/ppc-layers/bx.man); BX_CHILD=$1; bxs=$2
+printf '{"_type":"https://in-toto.io/Statement/v0.1","predicateType":"https://slsa.dev/provenance/v0.2","subject":[{"name":"_","digest":{"sha256":"%s"}}],"predicate":{"buildType":"https://mobyproject.org/buildkit@v1"}}' "${BX_CHILD#sha256:}" >/tmp/ppc-layers/att.json
+set -- $(blob /tmp/ppc-layers/att.json); al=$1; als=$2
+printf '{"architecture":"unknown","os":"unknown","config":{},"rootfs":{"type":"layers","diff_ids":["%s"]}}' "${al}" >/tmp/ppc-layers/att.cfg
+set -- $(blob /tmp/ppc-layers/att.cfg); ac=$1; acs=$2
+printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"%s","size":%s},"layers":[{"mediaType":"application/vnd.in-toto+json","digest":"%s","size":%s,"annotations":{"in-toto.io/predicate-type":"https://slsa.dev/provenance/v0.2"}}]}' \
+  "${ac}" "${acs}" "${al}" "${als}" >/tmp/ppc-layers/att.man
+set -- $(blob /tmp/ppc-layers/att.man)
+printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"%s","size":%s,"platform":{"architecture":"amd64","os":"linux"}},{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"%s","size":%s,"annotations":{"vnd.docker.reference.digest":"%s","vnd.docker.reference.type":"attestation-manifest"},"platform":{"architecture":"unknown","os":"unknown"}}]}' \
+  "${BX_CHILD}" "${bxs}" "$1" "$2" "${BX_CHILD}" >/tmp/ppc-layers/bx.index
+set -- $(blob /tmp/ppc-layers/bx.index); BX_DIGEST=$1
+printf '{"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":%s,"annotations":{"org.opencontainers.image.ref.name":"1.0"}}]}' "$1" "$2" >"${O}/index.json"
+printf '{"imageLayoutVersion":"1.0.0"}' >"${O}/oci-layout"
+oras cp --from-oci-layout "${O}:1.0" localhost:5001/openova-io/openova/app:1.0 --to-ca-file "${CA}" --to-plain-http=false >/dev/null \
+  || { echo "FAIL — oras could not push the first-party list" >"${OUT}/case-warmup.txt"; exit 1; }
+echo "pushed the first-party list localhost:5001/openova-io/openova/app:1.0 at ${BX_DIGEST} (linux/amd64 child ${BX_CHILD})"
 
 # The list ConfigMap is the one stub: a kubectl first on PATH answers its read from /w/list. A curl
 # first on PATH records every manifest PUT (the registry-API branch) in PUTS, then runs curl; a
@@ -161,19 +191,74 @@ else
   echo "FAIL — order: the index PUT before its entries answered ${code} ${body}: this registry does not show the order" >"${OUT}/case-order.txt"
 fi
 
-echo "── case control: skopeo's own copy of the index, every manifest present, digests preserved ──"
+echo "── case whole: skopeo alone at step 03's version copies each package index whole, digests preserved ──"
+: >"${OUT}/whole.out"
+{
+  while read -r source version digest; do
+    repo="${source#registry.opentofu.org/}"; rc=0
+    sh -c 'set -eu; . /w/env.sh; . "$1"; offlinemirror_skopeo_copy "${TOFU_ORIGIN_PREFIX}/$2@$4" "" "${HARBOR_HOST}/whole/$2:$3" --multi-arch all' \
+      sh /w/cut.sh "${repo}" "${version}" "${digest}" </dev/null >>"${OUT}/whole.out" 2>&1 || rc=$?
+    if [ "${rc}" -eq 0 ]; then echo "ok   — whole: $(skopeo --version) copies ${repo}:${version} in one call (--multi-arch all, --preserve-digests), exit 0"
+    else echo "FAIL — whole: $(skopeo --version) copying ${repo}:${version} in one call exits ${rc}: $(grep -h 'level=fatal' "${OUT}/whole.out" | tail -n 1 | cut -c1-240)"; fi
+    judge whole "openova-io/tofu-providers/${repo}" "whole/${repo}" "${version}" "${digest}"
+  done </w/list
+} >"${OUT}/case-whole.txt" 2>&1
+sed 's/^/    /' "${OUT}/whole.out"
+
+echo "── case control: the same whole copy with skopeo 1.15.2, the version before, is refused as measured ──"
+read -r source version digest </w/list
+repo="${source#registry.opentofu.org/}"
 sh -c '
-  set -eu; . /w/env.sh; . "$1"
-  src="${TOFU_ORIGIN_PREFIX}/$2"; dst="${HARBOR_HOST}/${TOFU_LOCAL_PATH}/control/$2"
-  for m in $(skopeo inspect --raw --tls-verify=true "docker://${src}@$4" | jq -r ".manifests[].digest"); do
-    offlinemirror_skopeo_copy "${src}@${m}" "" "${dst}@${m}" --multi-arch all
-  done
-  offlinemirror_skopeo_copy "${src}@$4" "" "${dst}:$3" --multi-arch index-only
+  set -eu; . /w/env.sh; . "$1"; export PATH="/w/bin/old:${PATH}"; skopeo --version
+  offlinemirror_skopeo_copy "${TOFU_ORIGIN_PREFIX}/$2@$4" "" "${HARBOR_HOST}/control/$2:$3" --multi-arch all
 ' sh /w/cut.sh "${repo}" "${version}" "${digest}" >"${OUT}/control.out" 2>&1 && crc=0 || crc=$?
 sed 's/^/    /' "${OUT}/control.out"
-if [ "${crc}" -ne 0 ] && grep -q 'Instructed to preserve digests' "${OUT}/control.out"; then
-  echo "ok   — control: skopeo refuses to write the index of ${repo}:${version} unchanged, as measured on 21 Nov 2026" >"${OUT}/case-control.txt"
+if [ "${crc}" -ne 0 ] && grep -qx 'skopeo version 1.15.2' "${OUT}/control.out" && grep -q 'Instructed to preserve digests' "${OUT}/control.out"; then
+  echo "ok   — control: skopeo 1.15.2 refuses the whole copy of ${repo}:${version}, as measured on 21 Nov 2026" >"${OUT}/case-control.txt"
 else
-  echo "FAIL — control: skopeo's own index copy exited ${crc} without the measured refusal: the packages no longer have the shape that failed, and this test cannot see the defect" >"${OUT}/case-control.txt"
+  echo "FAIL — control: skopeo 1.15.2's whole copy exited ${crc} without the measured refusal: the packages no longer have the shape that failed, and this test cannot see the defect" >"${OUT}/case-control.txt"
+fi
+
+echo "── case warmup: the warm-up's copy step, run as written, for a ref without the cut script, copies a first-party list from ghcr.io whole ──"
+# A skopeo first on PATH sends every docker://ghcr.io/ reference to the first registry. The step
+# runs in /w/gh, the ref being warmed (its list names app:1.0); /w/rt is the RUNNER_TEMP the
+# install step wrote the copy functions to. The step sources them itself, or nothing copies.
+mkdir -p /tmp/ppc-warmup-stub
+cat >/tmp/ppc-warmup-stub/skopeo <<'STUB'
+#!/bin/sh
+for a in "$@"; do case "${a}" in docker://ghcr.io/*) a="docker://localhost:5001/${a#docker://ghcr.io/}" ;; esac; set -- "$@" "${a}"; shift; done
+exec /w/bin/skopeo "$@"
+STUB
+chmod +x /tmp/ppc-warmup-stub/skopeo
+warmup_step() { (cd "$1" && . /w/warmup-env.sh && PATH="/tmp/ppc-warmup-stub:${PATH}" bash --noprofile --norc -eo pipefail /w/warmup-step.sh); }
+rc=0
+warmup_step /w/gh >"${OUT}/warmup.out" 2>&1 || rc=$?
+cat /tmp/warmup-copies/*.log >>"${OUT}/warmup.out" 2>/dev/null
+sed 's/^/    /' "${OUT}/warmup.out"
+{
+  if [ "${rc}" -eq 0 ] && ls /tmp/warmup-copies/*.ok >/dev/null 2>&1; then echo "ok   — warmup: the copy step exits 0 and marks the image ok"
+  else echo "FAIL — warmup: the copy step exits ${rc}, $(cat /tmp/warmup-copies/*.fail 2>/dev/null || echo 'no .ok')"; fi
+  judge warmup openova-io/openova/app openova-io/openova/app 1.0 "${BX_DIGEST}"
+} >"${OUT}/case-warmup.txt" 2>&1
+
+echo "── case warmup-fail: a copy that fails fails the copy step (its list names an image ghcr does not have) ──"
+frc=0
+warmup_step /w/gh-fail >"${OUT}/warmup-fail.out" 2>&1 || frc=$?
+sed 's/^/    /' "${OUT}/warmup-fail.out"
+if [ "${frc}" -ne 0 ] && ls /tmp/warmup-copies/*absent*.fail >/dev/null 2>&1; then
+  echo "ok   — warmup-fail: the copy of absent:1.0 is marked failed and the step exits ${frc}" >"${OUT}/case-warmup-fail.txt"
+else
+  echo "FAIL — warmup-fail: the step exits ${frc} with $(ls /tmp/warmup-copies/ 2>/dev/null | tr '\n' ' '): a copy that fails must fail the warm-up job" >"${OUT}/case-warmup-fail.txt"
+fi
+
+echo "── case warmup-control: skopeo at its default, the warm-up's copy before 24 Nov 2026, writes the child ──"
+crc=0
+/w/bin/skopeo copy --insecure-policy docker://localhost:5001/openova-io/openova/app:1.0 docker://localhost:5002/warmup-control/app:1.0 >"${OUT}/warmup-control.out" 2>&1 || crc=$?
+sed 's/^/    /' "${OUT}/warmup-control.out"
+tag=$(get 5002 manifests warmup-control/app 1.0 /tmp/ppc.wc)
+if [ "${crc}" -eq 0 ] && [ "${tag}" = "${BX_CHILD}" ] && [ "${tag}" != "${BX_DIGEST}" ]; then
+  echo "ok   — warmup-control: skopeo at its default writes the linux/amd64 child ${tag} under the tag, not the list ${BX_DIGEST}: one tag, two digests" >"${OUT}/case-warmup-control.txt"
+else
+  echo "FAIL — warmup-control: skopeo at its default exited ${crc} and the tag serves ${tag} (child ${BX_CHILD}, list ${BX_DIGEST}): this test cannot see the defect" >"${OUT}/case-warmup-control.txt"
 fi
 exit 0

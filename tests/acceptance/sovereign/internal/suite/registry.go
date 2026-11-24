@@ -275,12 +275,35 @@ func (c checkRecorder) Skip(id, name, reason string) {
 	_, _ = fmt.Fprintf(c.r.out, "  %s %-6s SKIP %s\n", c.id, id, reason)
 }
 
-// runChecks records one result for every selected check, in manifest order.
-// A check whose needs the run did not declare is skipped and not run. When
-// discovery failed no check is run: each is recorded SKIP with that reason.
+// rebootNeed is the capability of the check that restarts nodes (INF-G01).
+const rebootNeed = "node-reboot"
+
+// rebootFirst returns checks with every check that needs node-reboot first,
+// the others after them, each group in manifest order. The node-reboot check
+// judges every container of a region and stops on one that waits on an image;
+// a check that runs before it may leave what it bought or installed there
+// until the end of the run (BSS-G01 removes its Organization at the end), so
+// it runs before any check has created anything. The journeys run before every
+// check, and J5 removes the Application of J1.
+func rebootFirst(m *Manifest, checks []Check) []Check {
+	first, rest := []Check{}, []Check{}
+	for _, c := range checks {
+		if slices.Contains(m.entry(c.ID()).Needs, rebootNeed) {
+			first = append(first, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return append(first, rest...)
+}
+
+// runChecks records one result for every selected check, in manifest order,
+// except that a check that needs node-reboot runs first (rebootFirst). A check
+// whose needs the run did not declare is skipped and not run. When discovery
+// failed no check is run: each is recorded SKIP with that reason.
 func (r *runner) runChecks(ctx context.Context, m *Manifest, checks []Check, cc *CheckContext, discovered bool) {
 	cc.Prior = append([]*Step(nil), r.run.Steps...)
-	for _, c := range checks {
+	for _, c := range rebootFirst(m, checks) {
 		e := m.entry(c.ID())
 		res := CheckResult{ID: e.ID, StateAtRun: e.State, Status: Pass}
 		rec := checkRecorder{r: r, id: e.ID}

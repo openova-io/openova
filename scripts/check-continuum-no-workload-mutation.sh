@@ -16,6 +16,14 @@
 #      (continuums/status, applications/status, leases for in-region leader
 #      election, events).
 #
+# One lock is allowed besides the leases: the reboot agent's. While a
+# transition of its region runs, Continuum holds kured's own lock (an
+# annotation of the DaemonSet named kured) so that kured starts no drain
+# (internal/reboot). Allowed exactly: the one merge-patch call in
+# internal/reboot/reboot.go, and an RBAC rule on daemonsets with patch as its
+# only write verb and resourceNames ["kured"]. Any other DaemonSet write, or
+# that rule without resourceNames, still fails.
+#
 # Usage:
 #   scripts/check-continuum-no-workload-mutation.sh              # scan the tree
 #   scripts/check-continuum-no-workload-mutation.sh --self-test  # prove both directions
@@ -29,7 +37,7 @@ src, rbac = sys.argv[1], sys.argv[2]
 bad = []
 WRITE = re.compile(r'\.(Create|Update|UpdateStatus|Delete|DeleteCollection|Apply|ApplyStatus)\(\s*ctx')
 PATCH = re.compile(r'\.Patch\(')
-STATUS_PATCH = re.compile(r'Resource\((ContinuumGVR|observe\.ApplicationGVR|ApplicationGVR)\).*\.Patch\(.*"status"\)')
+STATUS_PATCH = re.compile(r'Resource\((ContinuumGVR|observe\.ApplicationGVR|ApplicationGVR)\).*\.Patch\(.*"status"\)|Resource\(kuredDaemonSetGVR\)\.Namespace\(a\.ns\(\)\)\.Patch\(ctx, a\.name\(\), types\.MergePatchType, body, metav1\.PatchOptions\{\}\)')
 FORBIDDEN = [
     (re.compile(r'"k8s\.io/client-go/tools/remotecommand"'), 'pod exec (remotecommand)'),
     (re.compile(r'pods/exec|SubResource\("exec"\)'), 'pod exec'),
@@ -55,10 +63,10 @@ for root, _, files in os.walk(src):
 READ = {'get', 'list', 'watch'}
 ALLOWED = {'continuums/status', 'applications/status', 'leases', 'events'}
 text = open(rbac, encoding='utf-8').read()
-for m in re.finditer(r'resources:\s*\[([^\]]*)\]\s*\n\s*verbs:\s*\[([^\]]*)\]', text):
+for m in re.finditer(r'resources:\s*\[([^\]]*)\]\s*\n\s*verbs:\s*\[([^\]]*)\](\s*\n\s*resourceNames:\s*\["kured"\])?', text):
     res = {x.strip().strip('"\'') for x in m.group(1).split(',') if x.strip()}
     verbs = {x.strip().strip('"\'') for x in m.group(2).split(',') if x.strip()}
-    if verbs - READ and not res <= ALLOWED:
+    if verbs - READ and not res <= ALLOWED and not (m.group(3) and res == {"daemonsets"} and verbs - READ <= {"patch"}):
         bad.append(f'{rbac}: write verbs {sorted(verbs - READ)} on {sorted(res - ALLOWED)} — Continuum may write only {sorted(ALLOWED)}')
 if bad:
     print('check-continuum-no-workload-mutation: FAIL — Continuum must act through Git only (ADR-0015 D8):')
@@ -79,6 +87,7 @@ func f() {
 	_, _ = c.Dyn.Resource(ContinuumGVR).Namespace(ns).Patch(ctx, name, types.MergePatchType, body, metav1.PatchOptions{}, "status")
 	_, _ = c.Dyn.Resource(observe.HelmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	_, err = a.Dyn.Resource(kuredDaemonSetGVR).Namespace(a.ns()).Patch(ctx, a.name(), types.MergePatchType, body, metav1.PatchOptions{})
 }
 GO
   cat >"$tmp/clean/rbac.yaml" <<'YAML'
@@ -89,6 +98,10 @@ rules:
   - apiGroups: ["dr.openova.io"]
     resources: ["continuums/status"]
     verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["kured"]
 YAML
   cat >"$tmp/dirty/bad.go" <<'GO'
 package x
@@ -96,6 +109,7 @@ func f() {
 	_, _ = c.Dyn.Resource(CNPGClusterGVR).Namespace(ns).Patch(ctx, name, types.MergePatchType, body, metav1.PatchOptions{})
 	_ = c.Dyn.Resource(PodGVR).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, pdnsURL, nil)
+	_, _ = c.Dyn.Resource(kuredDaemonSetGVR).Namespace(ns).Patch(ctx, "kube-proxy", types.MergePatchType, body, metav1.PatchOptions{})
 }
 GO
   cat >"$tmp/dirty/rbac.yaml" <<'YAML'
@@ -103,17 +117,20 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "patch"]
 YAML
   if ! scan "$tmp/clean" "$tmp/clean/rbac.yaml" >/dev/null; then
     echo "self-test FAIL: clean fixture rejected"; exit 1
   fi
   out="$(scan "$tmp/dirty" "$tmp/dirty/rbac.yaml" || true)"
-  for want in "Patch outside" "Kubernetes write verb" "non-GET HTTP" "write verbs ['patch'] on ['clusters']"; do
+  for want in "Patch outside" "Kubernetes write verb" "non-GET HTTP" "write verbs ['patch'] on ['clusters']" "kube-proxy" "write verbs ['patch'] on ['daemonsets']"; do
     if ! grep -qF "$want" <<<"$out"; then
       echo "self-test FAIL: dirty fixture not caught: $want"; echo "$out"; exit 1
     fi
   done
-  echo "check-continuum-no-workload-mutation: self-test OK (clean passes; CNPG patch, pod delete, PowerDNS POST and RBAC write all caught; no cluster contacted)"
+  echo "check-continuum-no-workload-mutation: self-test OK (clean passes, the kured lock included; CNPG patch, pod delete, PowerDNS POST, another DaemonSet patch and RBAC writes all caught; no cluster contacted)"
   exit 0
 fi
 

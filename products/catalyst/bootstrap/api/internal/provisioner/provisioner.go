@@ -1612,6 +1612,12 @@ type Result struct {
 	// to single-region.
 	MaterializedRegions []string `json:"materializedRegions,omitempty"`
 
+	// PreCreated — the objects the cloud adapter created before the plan,
+	// each imported into the state at its resource address
+	// (providers.PreflightResult.Imports, precreated.go): the record names
+	// what the engine put in the cloud outside OpenTofu's own allocation.
+	PreCreated []providers.StateImport `json:"preCreated,omitempty"`
+
 	// HandoverURL — fully-qualified handover redirect URL (issues
 	// #764 + #768). Shape:
 	//
@@ -2244,21 +2250,34 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// of the cloud that cannot be raised from code is refused here, before any
 	// resource exists, instead of minutes into `tofu apply`. ProtectedIDs holds
 	// every live deployment (#4614, reclaimProtectSet), so an in-band reclaim
-	// never touches a live Sovereign.
+	// never touches a live Sovereign. The objects the adapter creates for the
+	// plan are imported after `tofu init` (precreated.go).
+	inState, err := stateAddresses(deployDir)
+	if err != nil {
+		return nil, err
+	}
+	var preCreated []providers.StateImport
 	if pf, ok, _ := providers.As[providers.Preflighter](req.Provider); ok {
 		in := providers.PreflightInput{
 			Spec:         capabilitySpec(req),
 			ProtectedIDs: reclaimProtectSet(req.DeploymentID),
+			InState:      inState,
 			Progress:     func(msg string) { emit("tofu-init", "info", msg) },
 		}
-		if err := pf.Preflight(ctx, in); err != nil {
+		res, err := pf.Preflight(ctx, in)
+		if err != nil {
 			return nil, err
 		}
+		preCreated = res.Imports
 	}
 
 	emit("tofu-init", "info", "Initialising OpenTofu working directory")
 	if err := p.runTofuInitWithRetry(ctx, deployDir, emit); err != nil {
 		return nil, fmt.Errorf("tofu init: %w", err)
+	}
+	preCreated, err = p.importPreCreated(ctx, deployDir, preCreated, inState, emit)
+	if err != nil {
+		return nil, err
 	}
 
 	emit("tofu-plan", "info", "Planning cloud resources (network, firewall, servers, load balancers, DNS)")
@@ -2442,6 +2461,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		ConsoleURL:            fmt.Sprintf("https://console.%s", req.SovereignFQDN),
 		GitOpsRepoURL:         fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
 		MaterializedRegions:   materialised,
+		PreCreated:            preCreated,
 	}
 
 	// Only enforce when the operator declared >=2 regions AND the

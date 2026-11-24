@@ -9,13 +9,19 @@
 #   copy     every tag serves the listed digest; the index, every manifest and every blob are
 #            byte-equal on both sides;
 #   again    a second run copies nothing;
-#   control  skopeo's own copy of the index, digests preserved, is refused as measured on
-#            21 Nov 2026: if it is not, the test can no longer see the defect and the job fails.
+#   whole    skopeo alone at step 03's version copies each package index whole, digests equal;
+#   control  the same whole copy with skopeo 1.15.2 is refused as measured on 21 Nov 2026: if
+#            it is not, the test can no longer see the defect and the job fails;
+#   warmup   the copy_one of warmup-bastion-harbor.yaml (the parent's hosted project), with the
+#            step 03 functions it sources (scripts/cutover-copy-functions.sh), copies a
+#            first-party list (an image and its attestation) whole: the tag keeps the list's
+#            digest; its control shows skopeo's default writes the linux/amd64 child instead.
 # Both registries and the copier share one network namespace with no other network: nothing
 # publishes a port and nothing uses a node port. No cluster is read or written.
 #
 # Triggers: a pull request or a push to main that changes the cutover chart (the copy), the
-# publisher (its command, its workflow) or the lists of packages, the test or this workflow;
+# publisher (its command, its workflow), the lists of packages, the warm-up and its cut script,
+# the test or this workflow;
 # workflow_dispatch runs it on any branch.
 name: test-provider-package-copy-hermetic
 
@@ -25,6 +31,8 @@ on:
       - 'platform/self-sovereign-cutover/**'
       - 'tools/guards/cmd/tofu-providers/**'
       - '.github/workflows/mirror-tofu-providers.yaml'
+      - '.github/workflows/warmup-bastion-harbor.yaml'
+      - 'scripts/cutover-copy-functions.sh'
       - 'infra/providers/*/tofu-providers.txt'
       - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
       - 'tests/hermetic/provider-package-copy/**'
@@ -35,6 +43,8 @@ on:
       - 'platform/self-sovereign-cutover/**'
       - 'tools/guards/cmd/tofu-providers/**'
       - '.github/workflows/mirror-tofu-providers.yaml'
+      - '.github/workflows/warmup-bastion-harbor.yaml'
+      - 'scripts/cutover-copy-functions.sh'
       - 'infra/providers/*/tofu-providers.txt'
       - 'clusters/_template/infrastructure/providers/base/opentofu-providers.yaml'
       - 'tests/hermetic/provider-package-copy/**'

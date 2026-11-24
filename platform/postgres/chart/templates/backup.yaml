@@ -1,0 +1,27 @@
+{{- /*
+ScheduledBackup of the database cluster (decision record 0036, B1 database
+row; FND-183; the helpers bp-postgres.backup* of _helpers.tpl). It renders
+with the Cluster (the same enabled and CNPG API gates as cluster.yaml and
+replica-cluster.yaml) when backup.objectStore.bucket is set: a base backup of
+the Cluster this release renders, on backup.schedule (six fields, seconds
+first), owned by the ScheduledBackup, and one at once when it is created, so
+that the archived write-ahead log has a base from the start.
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (include "bp-postgres.backupOn" .) }}
+{{- $cluster := include "bp-postgres.backupCluster" . }}
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ printf "%s-daily" $cluster }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/role: backup-schedule
+spec:
+  schedule: {{ .Values.backup.schedule | default "0 0 2 * * *" | quote }}
+  immediate: true
+  backupOwnerReference: self
+  method: barmanObjectStore
+  cluster:
+    name: {{ $cluster }}
+{{- end }}

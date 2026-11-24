@@ -20,7 +20,9 @@
 //     Jobs view projects as type `topology-transition`).
 //
 // Its only writes are Git commits (lease file + the two transition fields of a
-// region file) and status subresources of Continuum / Application CRs. It
+// region file), status subresources of Continuum / Application CRs, and the
+// reboot agent's own lock (kured's lock annotation on its DaemonSet, held
+// while a transition of this region is in progress — internal/reboot). It
 // never creates, patches or deletes a workload object — CNPG, Flux, the
 // chart's own Services/routes and PowerDNS records act from Git.
 // scripts/check-continuum-no-workload-mutation.sh enforces that.
@@ -45,6 +47,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/observe"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/reboot"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/transition"
 	"github.com/openova-io/openova/core/controllers/pkg/regionfile"
 )
@@ -60,9 +63,17 @@ const (
 	DefaultPhaseTimeout = 15 * time.Minute
 )
 
-// PeerFetcher reads another region's observations.
+// PeerFetcher reads another region's observations and its reboot agent (nil
+// when the region does not report it).
 type PeerFetcher interface {
-	Fetch(ctx context.Context, region string, targets []observe.Target) (map[string]transition.MemberStatus, error)
+	Fetch(ctx context.Context, region string, targets []observe.Target) (map[string]transition.MemberStatus, *transition.RebootStatus, error)
+}
+
+// RebootAgent is this region's reboot agent (internal/reboot.Agent): read it,
+// and hold it while a transition of this region is in progress.
+type RebootAgent interface {
+	Read(ctx context.Context, now time.Time) transition.RebootStatus
+	Sync(ctx context.Context, mode reboot.Mode, now time.Time) error
 }
 
 // LocalObserver reads this region's observations.
@@ -84,9 +95,20 @@ type Controller struct {
 	LeaseTTL time.Duration
 	Log      *slog.Logger
 	Now      func() time.Time
+	// Reboot is this region's reboot agent (nil = a move neither holds nor
+	// waits for it in this region).
+	Reboot RebootAgent
+	// RebootWait bounds a move's wait for a region's reboot agent, and how
+	// long a Failed move keeps holding it (0 = transition.DefaultRebootWait).
+	RebootWait time.Duration
 
 	mu       sync.Mutex
 	lastSeen map[string]time.Time
+	// The tick in progress: this region's reboot agent as read when the tick
+	// began, and what the groups need of it.
+	localReboot *transition.RebootStatus
+	holdWanted  bool
+	holdUnknown bool
 }
 
 func (c *Controller) now() time.Time {
@@ -204,6 +226,8 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 		}
 		return fmt.Errorf("list Continuums: %w", err)
 	}
+	now := c.now()
+	c.beginTick(ctx, now)
 	byKey := map[string]member{}
 	var governed []transition.Member
 	for i := range list.Items {
@@ -222,13 +246,83 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 		}
 	}
 	var errs []string
+	if len(gerrs) > 0 {
+		// A member that forms no group may be in the middle of a move whose
+		// record was not read: leave the hold as it is.
+		c.noteHold(groupStatus{})
+	}
 	for _, g := range groups {
 		if err := c.reconcileGroup(ctx, g, byKey); err != nil {
+			// A group that failed (a lease write refused, say) may not have
+			// said what it needs of the reboot agent: leave the hold as it
+			// is, neither renewed nor released, so it lapses at its TTL if
+			// the failure lasts.
+			c.noteHold(groupStatus{})
 			errs = append(errs, err.Error())
 		}
 	}
+	if err := c.syncReboot(ctx, now); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// beginTick reads this region's reboot agent for the tick's views and clears
+// what the groups need of it.
+func (c *Controller) beginTick(ctx context.Context, now time.Time) {
+	var local *transition.RebootStatus
+	if c.Reboot != nil {
+		s := c.Reboot.Read(ctx, now)
+		local = &s
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.localReboot, c.holdWanted, c.holdUnknown = local, false, false
+}
+
+// noteHold records what one group needs of this region's reboot agent: the
+// hold while a transition that moves from or to this region is in progress
+// and can still act (st.hold, transition.HoldOf). A Failed transition (a step
+// past its phase deadline) is still evaluated and may still commit, so it
+// keeps the hold, but at most RebootWait after it failed; a transition whose
+// demotion re-issue bound is exhausted releases it, and so does one whose
+// record is still in flight while this tick's evaluation is Converged, Pending
+// or Blocked (Plan walks it no more). A group whose record
+// could not be read leaves the hold as it is: it is then neither renewed nor
+// released, and lapses at its TTL if that lasts.
+func (c *Controller) noteHold(st groupStatus) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !st.known {
+		c.holdUnknown = true
+		return
+	}
+	if st.hold != nil && st.hold.Held {
+		c.holdWanted = true
+	}
+}
+
+// syncReboot holds this region's reboot agent while a transition of this
+// region is in progress and releases it when none is.
+func (c *Controller) syncReboot(ctx context.Context, now time.Time) error {
+	if c.Reboot == nil {
+		return nil
+	}
+	c.mu.Lock()
+	want, unknown := c.holdWanted, c.holdUnknown
+	c.mu.Unlock()
+	mode := reboot.Release
+	switch {
+	case want:
+		mode = reboot.Hold
+	case unknown:
+		mode = reboot.Leave
+	}
+	if err := c.Reboot.Sync(ctx, mode, now); err != nil {
+		return fmt.Errorf("reboot agent hold: %w", err)
 	}
 	return nil
 }
@@ -246,6 +340,15 @@ type groupStatus struct {
 	desired   string
 	lease     transition.LeaseFile
 	record    *transition.Record
+	// known — the group's lease and record were read this tick.
+	known bool
+	// interruption is the named reason outside the transition that holds it
+	// up (the Interrupted condition).
+	interruption *transition.Interruption
+	// hold says whether the transition holds this region's reboot agent (the
+	// RebootAgentHeld condition; nil = no transition of this region in
+	// progress).
+	hold *transition.RebootHold
 }
 
 func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byKey map[string]member) error {
@@ -271,6 +374,7 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 			policy.PhaseTimeout = pm.policy.PhaseTimeout
 		}
 	}
+	policy.RebootWait = c.RebootWait
 
 	// Region files (from the writer Gitea).
 	view := transition.View{Now: now, Files: map[string]map[string]transition.FileView{}, Regions: map[string]transition.RegionView{}}
@@ -335,7 +439,8 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 	}
 
 	res := transition.Plan(g, lease.Transition, view, policy)
-	st := groupStatus{group: g.ID, outcome: res.Outcome, message: res.Message, committed: res.Committed, desired: res.Desired, lease: lease, record: lease.Transition}
+	st := groupStatus{group: g.ID, outcome: res.Outcome, message: res.Message, committed: res.Committed, desired: res.Desired, lease: lease, record: lease.Transition,
+		known: true, interruption: res.Interruption}
 
 	changed := res.Record != nil && !reflect.DeepEqual(normalize(res.Record), normalize(lease.Transition))
 	transitioning := res.Outcome == transition.OutcomeTransitioning || res.Outcome == transition.OutcomeFailed
@@ -351,6 +456,7 @@ func (c *Controller) reconcileGroup(ctx context.Context, g transition.Group, byK
 		// Another region holds the lease: it acts; this region mirrors.
 		if lease.Transition != nil {
 			st.outcome, st.message = lease.Transition.Outcome, lease.Transition.Message
+			st.interruption = lease.Transition.Interruption
 		}
 		if st.outcome == "" {
 			st.outcome, st.message = res.Outcome, res.Message
@@ -418,11 +524,15 @@ func (c *Controller) observeRegion(ctx context.Context, region string, targets [
 	c.mu.Unlock()
 
 	var obs map[string]transition.MemberStatus
+	var rb *transition.RebootStatus
 	var err error
 	if region == c.Region {
 		obs = c.Local.Observe(ctx, targets)
+		c.mu.Lock()
+		rb = c.localReboot
+		c.mu.Unlock()
 	} else if c.Peers != nil {
-		obs, err = c.Peers.Fetch(ctx, region, targets)
+		obs, rb, err = c.Peers.Fetch(ctx, region, targets)
 	} else {
 		err = fmt.Errorf("no peer transport")
 	}
@@ -433,7 +543,7 @@ func (c *Controller) observeRegion(ctx context.Context, region string, targets [
 		return transition.RegionView{Reachable: false, LastSeen: c.lastSeen[region]}
 	}
 	c.lastSeen[region] = now
-	return transition.RegionView{Reachable: true, LastSeen: now, Members: obs}
+	return transition.RegionView{Reachable: true, LastSeen: now, Members: obs, Reboot: rb}
 }
 
 func (c *Controller) commitRegionFile(ctx context.Context, repo Repo, cm transition.Commit, fs fileState, rec *transition.Record) error {
@@ -471,6 +581,12 @@ func (c *Controller) commitRegionFile(ctx context.Context, repo Repo, cm transit
 // ── status ────────────────────────────────────────────────────────────────
 
 func (c *Controller) statusAll(ctx context.Context, members []member, st groupStatus) error {
+	if st.known {
+		// The hold follows this tick's outcome: the record as read may be a
+		// move Plan no longer walks (Converged, Pending, Blocked).
+		st.hold = transition.HoldOf(st.outcome, st.record, c.Region, c.RebootWait, c.now())
+	}
+	c.noteHold(st)
 	for _, pm := range members {
 		c.writeStatus(ctx, pm, st)
 	}
@@ -534,23 +650,51 @@ func (c *Controller) writeStatus(ctx context.Context, pm member, st groupStatus)
 	if cur == nil {
 		cur = map[string]interface{}{}
 	}
-	ltt := c.now().Format(time.RFC3339)
-	if conds, ok := cur["conditions"].([]interface{}); ok {
-		for _, x := range conds {
-			if cm, ok := x.(map[string]interface{}); ok && cm["type"] == "Ready" && cm["status"] == ready && cm["reason"] == reason {
-				if t, ok := cm["lastTransitionTime"].(string); ok {
-					ltt = t
+	// A condition keeps its lastTransitionTime while its status and reason
+	// stay the same.
+	since := func(typ, status, reason string) string {
+		ltt := c.now().Format(time.RFC3339)
+		if conds, ok := cur["conditions"].([]interface{}); ok {
+			for _, x := range conds {
+				if cm, ok := x.(map[string]interface{}); ok && cm["type"] == typ && cm["status"] == status && cm["reason"] == reason {
+					if t, ok := cm["lastTransitionTime"].(string); ok {
+						ltt = t
+					}
 				}
 			}
 		}
+		return ltt
+	}
+	conditions := []interface{}{map[string]interface{}{
+		"type": "Ready", "status": ready, "reason": reason, "message": st.message, "lastTransitionTime": since("Ready", ready, reason),
+	}}
+	// Interrupted — present while something outside the transition holds it
+	// up: a node drain or the reboot hold it waits for, a demotion issued
+	// again, or the bound of either being over (transition.Reason*).
+	if in := st.interruption; in != nil {
+		conditions = append(conditions, map[string]interface{}{
+			"type": "Interrupted", "status": "True", "reason": in.Reason, "message": in.Message, "lastTransitionTime": since("Interrupted", "True", in.Reason),
+		})
+	}
+	// RebootAgentHeld — present while a transition of this region is in
+	// progress and this region's Continuum holds the reboot agent for it:
+	// True while it holds it, False once it released it at its bound or
+	// because the move is Blocked
+	// (transition.Reason{HeldForMove,ReleasedFailedMove,ReleasedReissueExhausted,ReleasedBlockedMove}).
+	if h := st.hold; h != nil && c.Reboot != nil {
+		held := "False"
+		if h.Held {
+			held = "True"
+		}
+		conditions = append(conditions, map[string]interface{}{
+			"type": "RebootAgentHeld", "status": held, "reason": h.Reason, "message": h.Message, "lastTransitionTime": since("RebootAgentHeld", held, h.Reason),
+		})
 	}
 	status := map[string]interface{}{
 		"phase":              phase,
 		"observedGeneration": pm.cr.GetGeneration(),
-		"conditions": []interface{}{map[string]interface{}{
-			"type": "Ready", "status": ready, "reason": reason, "message": st.message, "lastTransitionTime": ltt,
-		}},
-		"activity": memberActivity(st.record, pm.m),
+		"conditions":         conditions,
+		"activity":           memberActivity(st.record, pm.m),
 	}
 	if st.committed != "" {
 		status["primaryRegion"] = st.committed

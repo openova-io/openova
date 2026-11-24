@@ -5,7 +5,7 @@ counts:
   G1.name-without-bp-prefix: 0
   G2.visibility-missing: 0
   G2.api-version-not-v1: 1
-  G3.wizard-groups-entries: 46
+  G3.wizard-groups-entries: 45
   G3.hand-seed-blueprints: 0
   G3.storefront-seed-rows: 31
   G3.provisioning-map-keys: 15

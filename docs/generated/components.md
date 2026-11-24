@@ -79,6 +79,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/reflector | bp-reflector | bp-reflector | unlisted | 05a |
 | platform/reloader | bp-reloader | bp-reloader | unlisted | 28 |
 | platform/seaweedfs | bp-seaweedfs | bp-seaweedfs | unlisted | 18 |
+| platform/secrets-lib | secrets-lib | - | - | - |
 | platform/self-sovereign-cutover | bp-self-sovereign-cutover | bp-self-sovereign-cutover | unlisted | 06a |
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |

@@ -53,6 +53,8 @@ export interface PlacementEditorProps {
   applicationName: string
   /** Org namespace for the Application CR. */
   namespace?: string
+  /** An Organization session: apply through /org/applications/{name}. */
+  orgScoped?: boolean
   /** The current targets to seed the editor (empty ⇒ a single Primary row). */
   initialTargets: PlacementTarget[]
   /** The blueprint capability — gates >1 Primary. */
@@ -105,6 +107,7 @@ export function PlacementEditor({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   initialTargets,
   capability,
   availableRegions,
@@ -230,7 +233,7 @@ export function PlacementEditor({
             ownedDependencies: owned.map((o) => ({ name: o.name, follow: o.follow })),
           },
         },
-        { namespace },
+        { namespace, orgScoped },
       )
       setInfo('Placement submitted; the controller is reconciling.')
       onApplied?.()

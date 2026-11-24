@@ -80,7 +80,7 @@ function makeSnapshot(): K8sSnapshot {
       },
       { timeZone: 'Asia/Muscat' },
     ),
-    // A late run: slot 18:30, started 02:33 next day (the hw307 syft shape).
+    // A late run: slot 18:30, started 02:33 next day (a shape measured on hw307).
     childJob(
       'openbao-snapshot-save-29894070',
       'openbao',
@@ -324,17 +324,17 @@ describe('CronScheduleView — scheduled vs actual (P3)', () => {
 
   it('a CronJob whose LATEST run fired late carries the late flag on its row', async () => {
     const snap: K8sSnapshot = new Map([
-      cronjob('syft', 'syft-grype', '30 2 * * *'),
+      cronjob('trivy-security-scan', 'trivy-system', '30 2 * * *'),
       childJob(
-        'syft-1',
-        'syft-grype',
-        'syft',
+        'trivy-security-scan-1',
+        'trivy-system',
+        'trivy-security-scan',
         { startTime: '2026-11-03T02:33:04Z', succeeded: 1 },
         { 'batch.kubernetes.io/cronjob-scheduled-timestamp': '2026-11-02T18:30:00Z' },
       ),
     ])
     renderSchedule(snap)
     await screen.findByTestId('sov-cron-schedule-table')
-    expect(screen.getByTestId('sov-cron-late-cronjob-syft-grype-syft').textContent).toMatch(/late \+8h 03m/)
+    expect(screen.getByTestId('sov-cron-late-cronjob-trivy-system-trivy-security-scan').textContent).toMatch(/late \+8h 03m/)
   })
 })

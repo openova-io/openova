@@ -3,6 +3,7 @@ DELETE /api/v1/auth/session handler.(*Handler).HandleAuthLogout-fm 1
 DELETE /api/v1/deployments/{depId}/admin/user-access/{name} handler.(*Handler).DeleteUserAccess-fm 2
 DELETE /api/v1/deployments/{id} handler.(*Handler).DeleteDeployment-fm 3
 DELETE /api/v1/deployments/{id}/release-subdomain handler.(*Handler).ReleaseSubdomain-fm 3
+DELETE /api/v1/org/applications/{name} Confine.(closure) 2
 DELETE /api/v1/org/billing/vouchers/revoke/{code} handler.(*Handler).HandleRevokeOrgBillingVoucher-fm 2
 DELETE /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceDelete-fm 2
 DELETE /api/v1/org/users/{uuid} handler.(*Handler).HandleDeleteOrgUser-fm 2
@@ -54,6 +55,8 @@ GET /api/v1/ops/incidents/{id} *opsproxy.Proxy 2
 GET /api/v1/ops/judgements *opsproxy.Proxy 2
 GET /api/v1/ops/stream *opsproxy.Proxy 2
 GET /api/v1/org/applications handler.(*Handler).HandleOrgApplications-fm 2
+GET /api/v1/org/applications/{name} Confine.(closure) 2
+GET /api/v1/org/applications/{name}/status Confine.(closure) 2
 GET /api/v1/org/billing/revenue handler.(*Handler).HandleGetOrgBillingRevenue-fm 2
 GET /api/v1/org/billing/vouchers/list handler.(*Handler).HandleListOrgBillingVouchers-fm 2
 GET /api/v1/org/bss/overview handler.(*Handler).HandleGetOrgBssOverview-fm 2
@@ -181,6 +184,8 @@ POST /api/v1/internal/organizations/{id}/resume handler.(*Handler).HandleInterna
 POST /api/v1/internal/organizations/{id}/suspend handler.(*Handler).HandleInternalSuspendOrganization-fm 1
 POST /api/v1/ops/incidents/{id}/actions *opsproxy.Proxy 2
 POST /api/v1/org/applications handler.(*Handler).HandleOrgApplicationInstall-fm 2
+POST /api/v1/org/applications/{name}/topology/preview Confine.(closure) 2
+POST /api/v1/org/applications/{name}/upgrade/preview Confine.(closure) 2
 POST /api/v1/org/billing/purchase handler.(*Handler).HandleOrgBillingPurchase-fm 2
 POST /api/v1/org/billing/vouchers/issue handler.(*Handler).HandleIssueOrgBillingVoucher-fm 2
 POST /api/v1/org/billing/vouchers/revoke/{code} handler.(*Handler).HandleRevokeOrgBillingVoucher-fm 2
@@ -227,6 +232,7 @@ PUT /api/v1/catalog/{name}/iac handler.(*Handler).HandleCatalogBlueprintIaCEdit-
 PUT /api/v1/deployments/{depId}/admin/user-access/{name} handler.(*Handler).UpdateUserAccess-fm 2
 PUT /api/v1/deployments/{id}/cloudinit-log handler.(*Handler).PutCloudInitLog-fm 1
 PUT /api/v1/deployments/{id}/kubeconfig handler.(*Handler).PutKubeconfig-fm 1
+PUT /api/v1/org/applications/{name} Confine.(closure) 2
 PUT /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceUpdate-fm 2
 PUT /api/v1/sovereign/release lifecycle.(*ReleaseRoute).Request-fm 2
 PUT /api/v1/sovereigns/{id}/applications/{name} handler.(*Handler).HandleApplicationUpdate-fm 2

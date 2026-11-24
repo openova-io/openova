@@ -1625,7 +1625,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.5.19
+  version: 1.5.20
   card:
     title: Keycloak
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
@@ -1658,7 +1658,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: 1.5.19
+    version: 1.5.20
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1832,7 +1832,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.58
+  version: 1.0.59
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1867,7 +1867,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.58
+    version: 1.0.59
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -2517,7 +2517,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.84
+  version: 1.2.87
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
@@ -2537,7 +2537,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: 1.2.84
+    version: 1.2.87
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2798,7 +2798,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.38
+  version: 0.2.39
   card:
     title: PostgreSQL
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
@@ -2870,7 +2870,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-postgres
-    version: 0.2.38
+    version: 0.2.39
   topology:
     supported: [singleton, active-hot-standby]
     defaults:
@@ -2916,7 +2916,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.30
+  version: 1.2.31
   card:
     title: PowerDNS
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
@@ -2934,7 +2934,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: 1.2.30
+    version: 1.2.31
   topology:
     supported: [singleton]
     defaults:
@@ -3191,7 +3191,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.252
+  version: 0.1.256
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3206,7 +3206,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.252
+    version: 0.1.256
   topology:
     supported: [singleton]
     defaults:
@@ -3291,7 +3291,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.29
+  version: 0.2.30
   card:
     title: SSO Bridge
     summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
@@ -3306,7 +3306,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: 0.2.29
+    version: 0.2.30
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -4084,7 +4084,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.6.7
+  version: 0.6.9
   card:
     title: WordPress (per-Organization)
     summary: Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired.
@@ -4125,7 +4125,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: 0.6.7
+    version: 0.6.9
   regionLocalVolumes:
   - name: wp-content
     template: chart/templates/pvc.yaml

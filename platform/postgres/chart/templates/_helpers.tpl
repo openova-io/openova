@@ -776,3 +776,64 @@ promotionToken: {{ $tok | quote }}
 openova.io/topology-primary: {{ (include "openova.topology.get" . | fromJson).primary | quote }}
 {{- end }}
 {{- end -}}
+
+{{- /*
+Scheduled backup of the database cluster (decision record 0036, B1 database
+row, B3 and B7; FND-183). An installation that names the Sovereign's bucket
+(backup.objectStore.bucket) gets the backup; it must then also give the
+bucket's endpoint, the canonical region label of the path (backup.region) and
+the Secret in the Cluster's namespace that holds the bucket's key pair
+(backup.objectStore.secretName, keys s3-access-key, s3-secret-key and
+s3-region, the keys of the Sovereign's object-storage Secret), or the render
+fails. The chart renders no Secret: the operator takes a static object-store
+key only as a Secret reference, and that Secret is the register entry
+database-backup-bucket. The write-ahead log is archived continuously to
+s3://<bucket>/database/<region>/<namespace>/<cluster>/, and a ScheduledBackup
+(templates/backup.yaml) takes a base backup on backup.schedule, kept for
+backup.retentionPolicy.
+*/ -}}
+{{- define "bp-postgres.backupOn" -}}
+{{- if ne (toString (dig "objectStore" "bucket" "" (.Values.backup | default dict))) "" -}}true{{- end -}}
+{{- end -}}
+
+{{- /* The Cluster this release renders: the replica half or the primary. */ -}}
+{{- define "bp-postgres.backupCluster" -}}
+{{- if include "bp-postgres.renderReplicaHalf" . -}}
+{{- include "bp-postgres.replicaName" . -}}
+{{- else -}}
+{{- include "bp-postgres.instanceName" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* One required value of the backup: key is a path below backup. */ -}}
+{{- define "bp-postgres.backupValue" -}}
+{{- $b := .ctx.Values.backup | default dict -}}
+{{- $v := "" -}}
+{{- if eq .key "region" -}}
+{{- $v = $b.region -}}
+{{- else -}}
+{{- $v = get (dig "objectStore" dict $b) (trimPrefix "objectStore." .key) -}}
+{{- end -}}
+{{- required (printf "bp-postgres: backup.%s is required when backup.objectStore.bucket is set (decision record 0036, B1 database row)" .key) $v -}}
+{{- end -}}
+
+{{- /* The spec.backup block of the Cluster. */ -}}
+{{- define "bp-postgres.backupSpec" -}}
+{{- $secret := include "bp-postgres.backupValue" (dict "ctx" . "key" "objectStore.secretName") -}}
+backup:
+  retentionPolicy: {{ .Values.backup.retentionPolicy | default "30d" | quote }}
+  barmanObjectStore:
+    destinationPath: {{ printf "s3://%s/database/%s/%s" (include "bp-postgres.backupValue" (dict "ctx" . "key" "objectStore.bucket")) (include "bp-postgres.backupValue" (dict "ctx" . "key" "region")) (include "bp-postgres.namespace" .) | quote }}
+    serverName: {{ include "bp-postgres.backupCluster" . | quote }}
+    endpointURL: {{ include "bp-postgres.backupValue" (dict "ctx" . "key" "objectStore.endpoint") | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: {{ $secret | quote }}
+        key: s3-access-key
+      secretAccessKey:
+        name: {{ $secret | quote }}
+        key: s3-secret-key
+      region:
+        name: {{ $secret | quote }}
+        key: s3-region
+{{- end -}}

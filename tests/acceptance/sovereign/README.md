@@ -20,7 +20,7 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CATALYST_SESSION` | — | Value of an owner `catalyst_session` cookie. Never printed. |
+| `CATALYST_SESSION` | — | Value of an owner `catalyst_session` cookie. Never printed. A run may outlive it (a minted session lives 3 hours): when the console answers a call HTTP 401, the suite mints one with the same issuer and e-mail from the Sovereign's own signer, read with `kubectl exec` from `catalyst-api` of the first region that gives it (`internal/suite/signin.go`), and sends the call once more; a second 401 fails the call with its own message. |
 | `ACCEPT_MINT=1` | off | Use this when `CATALYST_SESSION` is unset. The script mints a session with the same claims as PIN login. It reads the signer from region A's `catalyst-api` with `kubectl exec` and pipes it straight into the minter, so the key never touches disk. |
 | `ACCEPT_KUBECONFIG_A` / `_B` | `~/.kube/sovereigns/<env>-a.yaml` / `-b.yaml` | A starts as Primary, B as Standby. |
 | `ACCEPT_CONSOLE` | `https://console.<env>.omani.works` | |
@@ -102,7 +102,7 @@ last state it observed, so the error says what the system was doing.
 | J3.6 | Every post written so far, and the byte-equal media, are served after the move | HTTPS |
 | J3.7 | A new write in < 5 s succeeds, appears on B (writer) and replicates to A | REST and psql |
 | J4.* | J3 again, back to A | |
-| J5.1–2 | `DELETE …/applications/{name}` → 2xx. In **both** regions the Application, HelmReleases, CNPG Clusters and PVCs are gone, and the API GET returns 404 | |
+| J5.1–2 | `DELETE …/applications/{name}` → 2xx. In **both** regions the Application, HelmReleases, CNPG Clusters, PVCs and the Secrets of its namespace named after it are gone, and the API GET returns 404; the failure names each object left, with its region | |
 
 A requested journey that never ran counts as **SKIP**, and any SKIP makes the run FAIL.
 A `discover` record never certifies a journey.
@@ -258,8 +258,11 @@ BSS-G01 writes through the console API and the storefront, never with
 service mails to an address of the gate lane's mailbox, creates one
 Organization `g01-<run>`, places one order paid from that voucher and starts
 its provisioning, as the checkout page does. At the end of the run the
-customer deletes the Organization (`DELETE /api/tenant/orgs/{id}`), the check
-waits until no region holds it or its namespace, and the voucher is revoked.
+customer deletes the Organization (`DELETE /api/tenant/orgs/{id}`, which ends
+its subscription), the sovereign-admin deletes it through the platform as the
+console does (`DELETE /api/v1/organizations/{id}`) and revokes the voucher,
+and the check waits until no region holds the Organization object or its
+namespace; it fails naming each one left, with its kind and region.
 The mailbox is read over IMAP with `EXAMINE` and `BODY.PEEK`: nothing in it is
 changed. With all four of `BSS_GATE_MAILBOX_IMAP` (`host:port`, implicit TLS),
 `BSS_GATE_MAILBOX_USER`, `BSS_GATE_MAILBOX_PASSWORD` and
@@ -278,7 +281,10 @@ Otherwise the check fails at its first step and sends nothing.
 A gate check is one entry of `docs/ledger/gates.yaml`. Its code is a file
 `internal/suite/check_<name>.go` that calls `RegisterCheck` in `init()` and
 holds the identifier of the check as a string literal. The contract is in
-`internal/suite/registry.go`.
+`internal/suite/registry.go`. The checks run in the order of the manifest,
+except that a check that needs `node-reboot` runs before all the others: it
+judges every container of a region, and a check before it may leave what it
+bought there until the end of the run (BSS-G01 removes its Organization then).
 
 | Flag (variable) | Default | Meaning |
 |---|---|---|
@@ -356,7 +362,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 
 | Check | File | It fails when |
 |---|---|---|
-| FND-G01 Candidate identity | `check_candidate.go` | The suite was not built from the candidate commit. A HelmRelease that is not suspended runs another chart version than `clusters/_template/bootstrap-kit/*.yaml` pins for it in the checkout of `--repo-root`. A container of a platform namespace has no image digest. One image reference has two digests. In its `self` form, in a run in self, there is no checkout and no candidate: the commit of the suite and the pins are not judged, and a HelmRelease that is not suspended runs another chart version than its own `spec.chart.spec.version` names; a HelmRelease whose spec names no version is not compared. The digest rules are the same. |
+| FND-G01 Candidate identity | `check_candidate.go` | The suite was not built from the candidate commit. A HelmRelease that is not suspended runs another chart version than `clusters/_template/bootstrap-kit/*.yaml` pins for it in the checkout of `--repo-root`. A container of a platform namespace has no image digest; a Pod that has not finished and has a container without one yet (the Pod of a CronJob seconds after it started) is read again every 5 seconds for up to 2 minutes and judged as last read, and one that is gone by then is listed and not judged. One image reference has two digests. In its `self` form, in a run in self, there is no checkout and no candidate: the commit of the suite and the pins are not judged, and a HelmRelease that is not suspended runs another chart version than its own `spec.chart.spec.version` names; a HelmRelease whose spec names no version is not compared. The digest rules are the same. |
 | FND-G02 Zero touch | `check_zero_touch.go` | A HelmRelease, or a Deployment or DaemonSet of `catalyst-system`, `cnpg-system` or `kube-system`, has a field manager named `kubectl` or `kubectl-…`. A Deployment, DaemonSet or StatefulSet of those namespaces or of `flux-system` has the annotation `kubectl.kubernetes.io/restartedAt` on its pod template. The clusters are looked at twice: before the journeys (steps `FND-G02.start.*`) and when the checks run. |
 | FND-G03 Nodes | `check_nodes.go` | The Ready nodes of a region differ from `--nodes-requested`, in either direction, or the run did not say the number. |
 | FND-G04 Releases and pods | `check_releases.go` | A HelmRelease that is not suspended is not `Ready=True`, or is stalled. A container of a platform namespace is in `CrashLoopBackOff`, or has more than 3 restarts. |
@@ -368,7 +374,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 | FND-G11 Planned move | `check_journeys.go` | Journey J3 or J4 recorded no step, or one of its steps is not PASS. |
 | FND-G12 Clean delete | `check_journeys.go` | Journey J5 recorded no step, or one of its steps is not PASS. |
 | FND-G13 Clean wipe | `check_wipe.go` | Step 1: the run did not get `--previous-deployment-id` and `--previous-wipe-orphans`, the previous deployment is the deployment under test, or the number of orphans is not `0`. Step 2: the run did not get `--preflight`; one of the kinds `servers`, `volumes`, `addresses`, `load_balancers`, `networks`, `security_groups`, `buckets` and `dns_records` has no count of leftovers; a kind has a count of leftovers above `0`; `networks` or `volumes` lacks its used or its allowed count; a kind has more used than allowed; or the numbers were not read before the environment was created (the earliest creation of the namespace `kube-system` in the regions), or that time cannot be read. |
-| BSS-G01 Self-service onboarding | `check_bss_onboarding.go` | The run holds no mailbox: neither the gate lane's nor the Sovereign's own (see "What the suite writes"). The storefront lists no plan without a product and with a price, or no deployable application that is not a backing service. The voucher worth twice the cheapest plan is not issued. No sign-in mail reaches the address within 5 minutes, the code is refused, or the customer is a sovereign-admin. The voucher preview shows another credit, or the checkout of that plan with the application of the fewest backing services is not paid from credit. Within 30 minutes no region holds the Organization with `Ready=True`, the ResourceQuota `plan-quota` in its namespace and an HTTPRoute whose host `<application>.<organization>.*` answers 200. A call of the customer's steps was made with the console session. The price document lists the package bought within 5 minutes and the assertion of BSS-G02 then fails; when it does not list it, the evidence `price_list_state` is `not-seen` and the check does not fail. At the end of the run the Organization is still held by a region after 10 minutes, or the voucher cannot be revoked. Later checks of the billing area use the Organization of this journey (`onboardedOrg`). |
+| BSS-G01 Self-service onboarding | `check_bss_onboarding.go` | The run holds no mailbox: neither the gate lane's nor the Sovereign's own (see "What the suite writes"). The storefront lists no plan without a product and with a price, or no deployable application that is not a backing service. The voucher worth twice the cheapest plan is not issued. No sign-in mail reaches the address within 5 minutes, the code is refused, or the customer is a sovereign-admin. The voucher preview shows another credit, or the checkout of that plan with the application of the fewest backing services is not paid from credit. Within 30 minutes no region holds the Organization with `Ready=True`, the ResourceQuota `plan-quota` in its namespace and an HTTPRoute whose host `<application>.<organization>.*` answers 200. A call of the customer's steps was made with the console session. The price document lists the package bought within 5 minutes and the assertion of BSS-G02 then fails; when it does not list it, the evidence `price_list_state` is `not-seen` and the check does not fail. At the end of the run, after the customer's delete, the platform's delete (`DELETE /api/v1/organizations/{id}`; 404 is no failure by itself) and the revocation of the voucher, a region still holds the Organization object or its namespace after 10 minutes (a region that serves no kind Organization holds no such object), the reason naming each one left with its region and what each delete answered; or the platform's delete or the revocation answers neither 2xx nor 404. Later checks of the billing area use the Organization of this journey (`onboardedOrg`). |
 | CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
 | CTL-G04 The lock holds | `check_ctl_lock.go` | `scripts/intent-lock-report.py --kubeconfig <region>` fails for a region, or its report has no stage. No stage of the intent lock is at deny. A stage at deny is not at zero: a manager other than Flux owns `spec` of one of its objects, or its audit count is not 0 or null. A kind at deny has no live object to copy, or in a region that serves it a create of a copy is not refused by the lock. The service account of Deployment `catalyst-system/catalyst-api` may create, update, patch or delete a kind at deny. The report of each region is kept as evidence. |

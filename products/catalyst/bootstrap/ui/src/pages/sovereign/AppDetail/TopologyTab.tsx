@@ -55,6 +55,8 @@ export interface TopologyTabProps {
   applicationName: string
   /** Org namespace. */
   namespace?: string
+  /** An Organization session: read and change through /org/applications/{name}. */
+  orgScoped?: boolean
   /** Test seam — pre-fill data, skip network. */
   initialApp?: ApplicationStatus
   /** Test seam — bypass apply network call. */
@@ -90,6 +92,7 @@ export function TopologyTab({
   sovereignId,
   applicationName,
   namespace,
+  orgScoped = false,
   initialApp,
   disableNetwork = false,
   isBootstrap = false,
@@ -106,6 +109,7 @@ export function TopologyTab({
     sovereignId,
     applicationName,
     namespace,
+    orgScoped,
     initialApp,
     disableNetwork,
     isBootstrap,
@@ -361,6 +365,7 @@ export function TopologyTab({
             sovereignId={sovereignId}
             applicationName={applicationName}
             namespace={namespace}
+            orgScoped={orgScoped}
             initialTargets={targets}
             capability={capability}
             availableRegions={availableRegions}
