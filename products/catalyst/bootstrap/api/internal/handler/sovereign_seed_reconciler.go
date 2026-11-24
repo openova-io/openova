@@ -1,22 +1,20 @@
 // sovereign_seed_reconciler.go — #4877. LEVEL-TRIGGERED self-heal for the
-// three OpenBao seed seams (newapi-admin-token / anthropic / mcp-bearer).
+// two OpenBao seed seams (newapi-admin-token / anthropic).
 //
 // THE GAP this file closes:
 //
-//	seedNewapiAdminToken, seedAnthropicToken and seedMCPBearer are each fired
-//	from EXACTLY ONE place — runOrganizationPipeline
-//	(organization_provisioning.go, Step 1) — once per HTTP Org-create, with NO
-//	retry and NO reconcile. If that single write misses (catalyst-api OOM
-//	mid-pipeline #4811, or a prereq — the NewAPI bridge Secret, the Anthropic
-//	env cred, the handover signer — not yet reflected at that instant), the
-//	OpenBao paths
+//	seedNewapiAdminToken and seedAnthropicToken are each fired from EXACTLY
+//	ONE place — runOrganizationPipeline (organization_provisioning.go,
+//	Step 1) — once per HTTP Org-create, with NO retry and NO reconcile. If
+//	that single write misses (catalyst-api OOM mid-pipeline #4811, or a
+//	prereq — the NewAPI bridge Secret, the Anthropic env cred — not yet
+//	reflected at that instant), the OpenBao paths
 //	  - secret/catalyst/newapi/admin-token
 //	  - secret/catalyst/anthropic/token
-//	  - secret/catalyst/agenity/<slug>/mcp-bearer
 //	are NEVER written. The ExternalSecrets that read them then stay
 //	READY=False / SecretSyncedError FOREVER (unified-rbac 401s; the agenity
-//	agent never gets its Anthropic cred or its Catalyst MCP bearer), because
-//	nothing re-fires the producer — the Org is already "created".
+//	agent never gets its Anthropic cred), because nothing re-fires the
+//	producer — the Org is already "created".
 //
 // THE FIX (this file):
 //
@@ -31,29 +29,19 @@
 //
 // READ-BEFORE-WRITE (why we don't blindly re-PutKVv2 every pass):
 //
-//	seedMCPBearer MINTS A FRESH bearer (new jti + new exp) on every call, so a
-//	blind re-seed every interval would churn the OpenBao value → ExternalSecret
-//	→ per-Org agenity-mcp-bearer Secret on every tick, growing KV version
-//	history and re-writing a healthy Secret needlessly. So each pass first
-//	READS the target path (GetKVv2) and seeds ONLY when it is absent or its
-//	expected property is empty — i.e. exactly the #4877 gap ("never written").
-//	A path that already holds a valid value is a true no-op (zero writes, zero
-//	log noise). The mcp-bearer's own doc comment frames periodic re-mint as an
-//	expiry-refresh feature, but the minted bearer is 1-year TTL and env-
-//	projected into the agenity StatefulSet (no hot-reload, no reloader on the
-//	chart), so a healthy bearer never needs refreshing between reconciles —
-//	self-heal of an ABSENT path is the whole job here.
+//	A blind re-seed every interval would churn the OpenBao value →
+//	ExternalSecret → Secret on every tick, growing KV version history and
+//	re-writing a healthy Secret needlessly. So each pass first READS the
+//	target path (GetKVv2) and seeds ONLY when it is absent, its expected
+//	property is empty, or (anthropic) the stored value cannot authenticate.
+//	A path that already holds a valid value is a true no-op (zero writes,
+//	zero log noise).
 //
-// Global vs per-Org scope:
-//
-//	newapi-admin-token + anthropic are Sovereign-GLOBAL (one cluster-shared
-//	path each) → checked/seeded unconditionally once per pass. mcp-bearer is
-//	PER-ORG (the path carries the Org slug) → we enumerate the Organizations
-//	the Sovereign knows about the SAME way the console directory + the
-//	tenant-registry reconcile do (orgResponsesFromCRs → list every
-//	orgs.openova.io CR via the in-cluster dynamic client) and check/seed each.
-//	Out-of-cluster / CI (no dynamic client) yields zero Orgs and the per-Org
-//	leg is a no-op, matching every other dynamic-client path in this package.
+// Both seams are Sovereign-GLOBAL (one cluster-shared path each) and are
+// checked/seeded once per pass. No per-Organization path is seeded: the
+// one-year Organization tool bearer this loop once re-minted per Org is gone
+// (AIP-156); an Organization's tool identity is short-lived and renewed in
+// its own workspace.
 //
 // Per docs/PRINCIPLES.md #10 (credential hygiene): this never logs any token,
 // bearer, key or PEM — only outcome classes + byte-free identifiers.
@@ -78,7 +66,7 @@ const (
 	// prereq that lands after startup. Overridable per docs/PRINCIPLES.md #4.
 	defaultSeedReconcileInterval = 10 * time.Minute
 	// seedReconcileWarmup delays the first pass so the Org-create pipeline +
-	// the OpenBao/handover-signer/org-deps wiring settle first — a redundant
+	// the OpenBao wiring settle first — a redundant
 	// early pass is harmless (read-before-write no-ops), this just keeps the
 	// startup logs clean.
 	seedReconcileWarmup = 45 * time.Second
@@ -86,8 +74,7 @@ const (
 
 // StartSovereignSeedReconciler launches the #4877 seed self-heal loop in a
 // background goroutine. Returns immediately; ctx cancellation stops the loop.
-// Run from main.go AFTER the OpenBao client, handover signer and Organization
-// deps are wired (all three are seed prerequisites).
+// Run from main.go AFTER the OpenBao client is wired (the seeds' prerequisite).
 //
 // Dormant (returns without spawning) when:
 //   - CATALYST_SEED_RECONCILER_ENABLED=false (kill switch), or
@@ -113,7 +100,7 @@ func (h *Handler) StartSovereignSeedReconciler(ctx context.Context) {
 
 	interval := durationEnv("CATALYST_SEED_RECONCILE_INTERVAL", defaultSeedReconcileInterval)
 	if h.log != nil {
-		h.log.Info("[SEED-RECONCILE] starting (self-heal for newapi-admin-token / anthropic / per-Org mcp-bearer seeds, #4877)",
+		h.log.Info("[SEED-RECONCILE] starting (self-heal for newapi-admin-token / anthropic seeds, #4877)",
 			"intervalSec", int(interval.Seconds()),
 			"warmupSec", int(seedReconcileWarmup.Seconds()),
 		)
@@ -142,14 +129,13 @@ func (h *Handler) StartSovereignSeedReconciler(ctx context.Context) {
 }
 
 // runSeedReconcilePass performs one idempotent, best-effort self-heal pass:
-// for each of the three OpenBao seed paths it READS the current value and
+// for each of the two OpenBao seed paths it READS the current value and
 // re-runs the producing seed ONLY when the path is absent / empty (the #4877
 // gap). Exposed (unexported-but-package-visible) for the reconciler test.
 //
 // Never fatal: every seed already folds its own failures to a logged skip, and
 // a panic anywhere in the pass is recovered so a self-heal attempt can NEVER
-// crash catalyst-api. A read/list error skips just that leg and retries next
-// tick.
+// crash catalyst-api. A read error skips just that leg and retries next tick.
 func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 	if h == nil || h.openbao == nil {
 		return
@@ -205,7 +191,7 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 	// Non-fatal by construction, like every other leg: refreshAnthropicCredential
 	// folds each failure into a loud ERROR and returns an outcome, so a provider
 	// outage degrades to "the credential expires on schedule, loudly" — exactly
-	// the pre-#6317 behaviour — and never starves the mcp-bearer leg below.
+	// the pre-#6317 behaviour — and never skips the seed leg below.
 	h.refreshAnthropicCredential(ctx)
 
 	h.reconcileGlobalSeed(ctx,
@@ -215,49 +201,6 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 		func() { _ = h.seedAnthropicToken(ctx) },
 		anthropicStoredCredentialUsable,
 	)
-
-	// (3) per-Org mcp-bearer. Enumerate every Organization CR (the single
-	// source of truth both the BSS door and the marketplace funnel write) and
-	// self-heal each Org's per-slug bearer path. Global seeds above already
-	// ran, so a list failure here never starves them.
-	orgs, _, err := h.orgResponsesFromCRs(ctx)
-	if err != nil {
-		if h.log != nil {
-			h.log.Warn("[SEED-RECONCILE] list Organizations failed; per-Org mcp-bearer self-heal skipped this pass — retry next tick",
-				"err", err)
-		}
-		return
-	}
-	healed := 0
-	for i := range orgs {
-		slug := strings.TrimSpace(orgs[i].Subdomain)
-		if slug == "" {
-			continue
-		}
-		present, perr := h.openbaoPathHasProperty(ctx,
-			mcpBearerMountPath, mcpBearerSecretPath(slug), mcpBearerKVBearerProperty)
-		if perr != nil {
-			if h.log != nil {
-				h.log.Warn("[SEED-RECONCILE] mcp-bearer presence check failed; skipping Org this pass",
-					"slug", slug, "err", perr)
-			}
-			continue
-		}
-		if present {
-			continue // healthy — no churn.
-		}
-		if h.log != nil {
-			h.log.Info("[SEED-RECONCILE] mcp-bearer OpenBao path absent for Org — self-healing (#4877)",
-				"slug", slug)
-		}
-		if out := h.seedMCPBearer(ctx, slug, orgs[i].AdminEmail); out == MCPBearerSeedOutcomeSeeded {
-			healed++
-		}
-	}
-	if healed > 0 && h.log != nil {
-		h.log.Info("[SEED-RECONCILE] per-Org mcp-bearer self-heal complete",
-			"orgs", len(orgs), "healed", healed)
-	}
 }
 
 // SeedHealOutcome — the VERIFIED result of one reconcileGlobalSeed attempt.
@@ -383,8 +326,9 @@ func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path st
 	return SeedHealUnhealed
 }
 
-// openbaoPathHasProperty reports whether the KV-v2 path exists AND at least one
-// of the named properties holds a non-empty string.
+// openbaoPathIsHealthy reports whether the KV-v2 path exists AND at least one
+// of the named properties holds a non-empty string, plus, when `usable` is
+// supplied, a verdict on the VALUE rather than only on its emptiness (#6250).
 //
 //   - NotFound / empty body  → (false, nil): the #4877 gap ("never written") —
 //     the caller seeds.
@@ -393,14 +337,8 @@ func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path st
 //     the caller re-seeds to fill it.
 //   - transport error           → (false, err): the caller skips this pass and
 //     retries next tick (a write would fail against the same blip).
-func (h *Handler) openbaoPathHasProperty(ctx context.Context, mount, path string, props ...string) (bool, error) {
-	return h.openbaoPathIsHealthy(ctx, mount, path, props, nil)
-}
-
-// openbaoPathIsHealthy is openbaoPathHasProperty plus, when `usable` is
-// supplied, a verdict on the VALUE rather than only on its emptiness (#6250).
 //
-// A nil predicate is the presence-only semantics documented above, unchanged.
+// A nil predicate is the presence-only semantics above.
 // A non-nil one runs ONLY after presence passes, so an absent or hollow path is
 // still reported as the #4877 gap and never handed to a predicate that has
 // nothing to judge. The predicate answering false means "present but cannot do

@@ -1353,21 +1353,6 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// short-lived OAuth blob fresh.
 		_ = h.seedAnthropicToken(ctx)
 
-		// #4276 (hop 7/7b) — seed the per-Org OpenBao
-		// `secret/catalyst/agenity/<slug>/mcp-bearer` with an Org-scoped
-		// Catalyst session bearer + the RS256 verify pubkey (PEM) so this
-		// Org's bp-agenity MCP authenticates create_application against
-		// catalyst-api. Without it the spawned claude-code agent reaches
-		// the openova MCP with NO bearer → -32001 unauthenticated, even
-		// after the Anthropic key (#4277) is seeded (that only authenticates
-		// claude-code to ANTHROPIC, not to CATALYST). Same posture as
-		// seedAnthropicToken: idempotent (PutKVv2 overwrites — refreshes the
-		// bearer's expiry every reconcile) and NEVER fails the pipeline (a
-		// signer/OpenBao gap only leaves the MCP create path unauthenticated;
-		// the agenity dashboard still serves). rec.Subdomain is the Org slug
-		// the bearer is scoped to; rec.AdminEmail is the owner subject.
-		_ = h.seedMCPBearer(ctx, rec.Subdomain, rec.AdminEmail)
-
 		// #4477 (secondary; ADR-0003 §3.2/§6) — propagate NewAPI's bridge
 		// ADMIN_SECRET (the bearer the sandbox-bridge validates with
 		// subtle.ConstantTimeCompare) into the Sovereign's OpenBao
@@ -1377,7 +1362,7 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// authenticates. Without it that ExternalSecret stays
 		// SecretSyncedError (the live fault on 91dc0591) and admin-API calls
 		// 401. The path is cluster-shared, so the FIRST Org-create converges
-		// the whole Sovereign. Same posture as the two seeds above:
+		// the whole Sovereign. Same posture as the seed above:
 		// idempotent (PutKVv2 overwrites) and NEVER fails the pipeline (a
 		// missing bridge Secret only leaves unified-rbac's admin path
 		// unauthenticated until NewAPI's token-signing-key Secret renders).

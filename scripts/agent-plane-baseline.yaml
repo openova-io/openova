@@ -53,7 +53,7 @@ rules:
     - platform/openclaw/chart/templates/per-user-pod-template.yaml
     - platform/openclaw/chart/tests/render-toggles.sh
   G6:
-    max: 11
+    max: 10
     allow:
     - core/services/provisioning/gitops/helmrelease_apps.go
     - products/agenity/README.md
@@ -63,7 +63,6 @@ rules:
     - products/catalyst/bootstrap/api/internal/handler/application_parameters_test.go
     - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
     - products/catalyst/bootstrap/api/internal/handler/organization_provisioning_test.go
-    - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
     - products/openova-mcp/README.md
     - products/openova-mcp/cmd/openova-mcp/main.go
   G7d:
