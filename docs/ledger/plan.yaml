@@ -17230,13 +17230,13 @@ packages:
   - id: A3
     run: "cd core/controllers && go vet ./organization/internal/gitops/ && go test -count=1 ./organization/internal/gitops/ > /dev/null && test \"$(grep -c -F '\"create\", \"update\", \"patch\"' organization/internal/gitops/manifests.go || true)\" = 0 && grep -q -F 'grants create; the provisioning SA creates nothing' organization/internal/gitops/manifests_test.go"
   - id: A4
-    run: "test -z \"$(git grep -n -F mirrorVClusterKubeconfig -- core)\" && grep -q -x -F core/services/provisioning/handlers/kubeconfig_reconciler.go docs/ledger/deleted-paths.txt && python3 scripts/check-repo-hygiene.py paths > /dev/null && test -z \"$(gofmt -l core/services/provisioning/gitops/rbac_test.go core/services/provisioning/handlers/consumer.go core/controllers/organization/internal/gitops/manifests.go core/controllers/organization/internal/gitops/manifests_test.go core/controllers/organization/internal/gitops/region_local.go)\""
+    run: "test -z \"$(git grep -n -F mirrorVClusterKubeconfig -- core)\" && test -z \"$(git grep -n -E 'create the kubeconfig mirror|mirror step' -- core products/catalyst/chart/templates/org-services)\" && grep -q -x -F core/services/provisioning/handlers/kubeconfig_reconciler.go docs/ledger/deleted-paths.txt && python3 scripts/check-repo-hygiene.py paths > /dev/null && test -z \"$(gofmt -l core/services/provisioning/gitops/rbac_test.go core/services/provisioning/handlers/consumer.go core/controllers/organization/internal/gitops/manifests.go core/controllers/organization/internal/gitops/manifests_test.go core/controllers/organization/internal/gitops/region_local.go)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The Organization kubeconfig has one producer, the Organization's boundary tree (the vCluster writes it, bp-reflector copies it into flux-system); the provisioning service account may only read Secrets in the Organization namespace and in flux-system, the two copies of its namespaced Role and the platform chart's flux-system Role say so, no comment names the deleted kubeconfig copy, and the deleted reconciler file is listed in the deleted-paths ledger.
 - id: NET-090
