@@ -287,7 +287,7 @@ epics:
 - id: CMP-040
   title: 'Epic: model and posture hub'
   wave: W2
-  packages: [CMP-036, CMP-041, CMP-045, CMP-052, CMP-053]
+  packages: [CMP-036, CMP-041, CMP-042, CMP-045, CMP-052, CMP-053]
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
@@ -26466,7 +26466,7 @@ packages:
   dropped: false
   delivers: Kit slot 27a reads the optional ConfigMap compliance-policy-values, passes the hand-over variable SOVEREIGN_CONSUME to the policy chart as compliancePolicies.sovereignConsume, lets Helm create and replace the chart's definitions on install and upgrade, and a guard that runs on every pull request holds these three things.
 - id: CMP-041
-  title: 'ComplianceModel: definition, data files, chart template, loader, exemptions'
+  title: 'ComplianceModel: definition, data files, chart template, exemptions, guard'
   area: CMP
   epic: CMP-040
   type: new
@@ -26474,7 +26474,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-016, CMP-032, CMP-036, CMP-014]
-  after: [FND-011, SVC-040, SVC-041, CMP-073]
+  after: [FND-011, FND-028, FND-059, FND-096, FND-099, FND-102, CLD-211, SOV-035, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-230, CTL-815, CMP-073, INF-110, INF-130, INF-133, INF-135, INF-140]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/**
@@ -26482,13 +26482,53 @@ packages:
   - platform/kyverno-policies/chart/tests/model-render.sh
   - scripts/baselines/policy-suites.json
   - scripts/baselines/policy-exemptions.json
-  - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
-  - products/catalyst/bootstrap/api/internal/compliance/model.go
-  - products/catalyst/bootstrap/api/internal/compliance/readmodel.go
-  - tests/acceptance/sovereign/internal/suite/check_compliance_model.go
-  - docs/ledger/gates.yaml
   - scripts/run-policy-chart-tests.sh
   - tools/guards/cmd/check-compliance-model/**
+  - .github/workflows/tree-guards.yaml
+  - tools/guards/README.md
+  - docs/generated/custom-resources.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: CMP-042
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Module kind with ten axes and 22 checks, 23 exemptions with reasons, catalogue and module-kind guards
+- id: CMP-042
+  title: 'ComplianceModel: the per-cluster loader of catalyst-api, and check CMP-G03'
+  area: CMP
+  epic: CMP-040
+  type: new
+  wave: W1b
+  size: M
+  lane: CHARTS
+  depends_on: [CMP-041]
+  after: [FND-011, FND-077, FND-095, FND-131, FND-151, FND-154, FND-157, FND-207, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-211, NET-097, NET-103, NET-150, NET-213, NET-255, SVC-040, SVC-205, CTL-151, CTL-320, BSS-060, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133]
+  touches:
+  - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
+  - products/catalyst/bootstrap/api/internal/k8scache/k8scache_test.go
+  - products/catalyst/bootstrap/api/internal/compliance/readmodel.go
+  - products/catalyst/bootstrap/api/internal/compliance/readmodel_test.go
+  - products/catalyst/bootstrap/api/internal/compliance/testdata/model-default.yaml
+  - products/catalyst/bootstrap/api/internal/compliance/adapters/policyreport.go
+  - products/catalyst/bootstrap/api/internal/handler/compliance.go
+  - products/catalyst/bootstrap/api/internal/handler/compliance_model_test.go
+  - products/catalyst/bootstrap/api/internal/handler/compliance_test.go
+  - products/catalyst/bootstrap/api/internal/handler/fleet_test.go
+  - products/catalyst/bootstrap/api/internal/handler/iter12_phase2_codemods_test.go
+  - products/catalyst/bootstrap/api/internal/handler/testdata/golden/cmp-041-after.json
+  - products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+  - tests/acceptance/sovereign/internal/suite/check_compliance_model.go
+  - tests/acceptance/sovereign/internal/suite/check_compliance_model_test.go
+  - tests/acceptance/sovereign/README.md
+  - docs/ledger/gates.yaml
   resources: []
   flips: [CMP-G03]
   implements: []
@@ -26502,7 +26542,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Module kind with ten axes and 22 checks, 23 exemptions with reasons, per-cluster loader, catalogue and module-kind guards
+  delivers: 'Per-cluster loader: catalyst-api loads each cluster''s object default of kind ComplianceModel and scores that cluster with it; a cluster without one has no score (model not loaded); check CMP-G03 is required.'
 - id: CMP-045
   title: Posture routes and the change stream
   area: CMP
@@ -26511,7 +26551,7 @@ packages:
   wave: W1b
   size: M
   lane: CONTROL
-  depends_on: [CMP-041, CTL-035]
+  depends_on: [CTL-035, CMP-042]
   after: [SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -26914,7 +26954,7 @@ packages:
   wave: W2
   size: M
   lane: CONTROL
-  depends_on: [CMP-036, CMP-041, CMP-052, CMP-S6, CTL-045, CTL-160, CMP-075]
+  depends_on: [CMP-036, CMP-052, CMP-S6, CTL-045, CTL-160, CMP-075, CMP-042]
   after: [FND-011, SOV-190, SVC-040, SVC-180, SVC-230, CTL-231, CTL-320, CTL-345, CMP-022, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
