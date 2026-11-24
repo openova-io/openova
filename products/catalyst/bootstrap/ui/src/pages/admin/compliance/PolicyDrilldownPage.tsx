@@ -5,7 +5,8 @@
  *        `/compliance/policy/$policyName` (chroot).
  *
  * Layout per the brief:
- *   • Policy metadata (description, severity, default mode + U5 toggle)
+ *   • Policy metadata (description, severity, mode as the policy list
+ *     states it; read-only here)
  *   • Bar chart: pass-rate per Environment
  *   • Table: every offending resource (kind/namespace/name + violating
  *     field + suggested fix from Kyverno's `validate.message`)
@@ -22,13 +23,11 @@ import { useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { PortalShell } from '@/pages/sovereign/PortalShell'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { PolicyModeToggle } from '@/widgets/compliance/PolicyModeToggle'
 import {
   getPolicies,
   getPolicyByName,
   getViolations,
   scoreColor,
-  type PolicyMode,
   type PolicyView,
   type Violation,
 } from './compliance.api'
@@ -67,13 +66,11 @@ export function PolicyDrilldownPage({
     enabled: !initialPolicies && !!deploymentId,
     staleTime: 30_000,
   })
-  // Drilldown for one policy uses the global violations endpoint and
-  // filters client-side. Server-side per-policy filter is a candidate
-  // refinement; current contract only supports `app=` filter.
+  // The violations of this one policy, filtered on the server.
   const violationsQ = useQuery({
-    queryKey: ['compliance', deploymentId, 'violations'],
-    queryFn: () => getViolations(deploymentId, { limit: 500 }),
-    enabled: !initialViolations && !!deploymentId,
+    queryKey: ['compliance', deploymentId, 'violations', policyName],
+    queryFn: () => getViolations(deploymentId, { policy: policyName, limit: 500 }),
+    enabled: !initialViolations && !!deploymentId && !!policyName,
     staleTime: 15_000,
   })
 
@@ -124,7 +121,6 @@ export function PolicyDrilldownPage({
   return (
     <PortalShell deploymentId={deploymentId} pageTitle={`Compliance — ${policyName}`}>
       <div data-testid="policy-drilldown-page" className="mx-auto max-w-7xl px-6 py-4">
-        {/* Breadcrumb (TC-055): Admin > Compliance > Policy */}
         <nav
           aria-label="breadcrumb"
           data-testid="policy-drilldown-breadcrumb"
@@ -136,62 +132,13 @@ export function PolicyDrilldownPage({
           <span className="mx-1">/</span>
           <span className="text-[var(--color-text)]">Policy</span>
         </nav>
-        {/* Page-identity strip (qa-loop Fix #175, TC-026 / TC-037 /
-            TC-038 / TC-051 / TC-057). Mirrors the Fix #168 PR #1371
-            (SREDashboardPage) remedy: the Playwright accessibility-tree
-            snapshot the executor consumes does NOT serialise
-            `data-testid` attribute values, so every literal token the
-            matrix asserts MUST live in visible body text on a stable,
-            unconditional code path — AND must NOT be fragmented by
-            `<code>` element boundaries that split the substring.
-            Tokens surfaced here as plain body text:
-              - "Rule" (TC-026) — Kyverno Rule list vocabulary
-              - "Enforce" (TC-037 / TC-057) — enforcement-action label
-              - "not found" (TC-038) — empty-state when policy missing
-              - "preconditions" (TC-051) — Kyverno preconditions block
-            All five tokens are emitted on first paint, no conditional.
-            Detailed in-context renders below still surface them in
-            their natural narrative — this strip is the safety net so
-            the matrix never depends on `query.data` resolving. */}
-        <p
-          data-testid="policy-detail-page-identity"
-          className="mb-2 text-[11px] text-[var(--color-text-dim)]"
-        >
-          Policy drill-down: Rule list, preconditions, and validate / deny blocks per
-          Kyverno ClusterPolicy. Mode toggle flips between Audit and Enforce — Enforce
-          blocks admission, Audit only records. If the policy name is not found in the
-          registry, an HTTP 404 empty-state renders below.
-        </p>
         {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-[var(--color-text-strong)]" data-testid="policy-drilldown-title">
             Policy: <code className="font-mono">{policyName}</code>
           </h1>
-          {/* Per qa-loop iter-1 prefetch Fix #99 (TC-026/TC-037/TC-051/
-              TC-057): emit the Kyverno policy vocabulary unconditionally
-              so the matrix's must_contain assertions for `Rule`,
-              `Enforce`, and `preconditions` succeed even when the policy
-              metadata is still loading or cannot be resolved. The same
-              tokens render again contextualised inside <PolicyMetadata>
-              when the policy is resolved — duplication is intentional;
-              the operator sees the canonical vocabulary either way. */}
-          <p
-            className="mt-1 text-[11px] text-[var(--color-text-dim)]"
-            data-testid="policy-drilldown-vocabulary"
-          >
-            Kyverno policy vocabulary:{' '}
-            <code className="font-mono">Rule</code> list,{' '}
-            <code className="font-mono">match</code>,{' '}
-            <code className="font-mono">preconditions</code>,{' '}
-            <code className="font-mono">validate</code> /{' '}
-            <code className="font-mono">deny</code> blocks. Mode toggle:{' '}
-            <code className="font-mono">Audit</code> ↔{' '}
-            <code className="font-mono">Enforce</code>{' '}
-            (PUT <code className="font-mono">/api/v1/sovereigns/{deploymentId || '{id}'}/environments/{'{env}'}/policy</code>).
-            Live updates over <code className="font-mono">text/event-stream</code>.
-          </p>
           {policy ? (
-            <PolicyMetadata policy={policy} sovereignId={deploymentId} violations={violations.length} />
+            <PolicyMetadata policy={policy} violations={violations.length} />
           ) : !policiesQ.isLoading && !policyByNameQ.isLoading && !policyByNameQ.isFetching ? (
             <p className="mt-2 text-sm text-[var(--color-text-dim)]" data-testid="policy-drilldown-not-found">
               Policy "{policyName}" not found. Has it been disabled in this environment, or is it
@@ -202,20 +149,6 @@ export function PolicyDrilldownPage({
             <p className="mt-2 text-sm text-[var(--color-text-dim)]">Loading policy metadata…</p>
           )}
         </div>
-
-        {/* qa-loop iter-15 Fix #64 (TC-038/TC-049/TC-053/TC-043):
-            surface the canonical compliance-stack tokens (the SSE
-            content-type the live stream uses, the empty-state
-            label, the not-found copy, and the platform Org slug)
-            in the page body so the matrix's text-content checks pass
-            regardless of which sub-state the page lands in. */}
-        <p
-          data-testid="policy-drilldown-stream-info"
-          className="mb-3 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]"
-        >
-          live stream: text/event-stream · scope: omantel-platform Org · empty body shown as
-          "No data" or "not found" depending on lookup vs zero-result
-        </p>
 
         {/* Pass-rate per environment — bar chart */}
         <div
@@ -298,16 +231,10 @@ export function PolicyDrilldownPage({
 
 interface PolicyMetadataProps {
   policy: PolicyView
-  sovereignId: string
   violations: number
 }
 
-function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps) {
-  // Mode toggle: U5. The brief says "as a row action on U1/U2 + inline
-  // on U4". Inline-on-U4 lives here. Environment is the ONE the violations
-  // came from; with multi-env support we might render N toggles — for now,
-  // surface "default" and let the future expansion split it.
-  const mode = (policy.mode as PolicyMode) ?? 'permissive'
+function PolicyMetadata({ policy, violations }: PolicyMetadataProps) {
   const severity = (policy.severity ?? '').toLowerCase()
   const rules = policy.rules ?? []
   return (
@@ -354,26 +281,14 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
         Violations:{' '}
         <code className="font-mono text-[var(--color-text)]">{violations}</code>
       </span>
-      <span className="text-[var(--color-text-dim)]">Mode:</span>
-      <PolicyModeToggle
-        sovereignId={sovereignId}
-        environmentRef="default"
-        policyName={policy.name}
-        currentMode={mode}
-        passingCount={undefined}
-        failingCount={violations}
-      />
-      {/* Per qa-loop iter-15 Fix #62 (TC-027/TC-028/TC-037/TC-057):
-          surface the Kyverno-canonical mode label (Audit / Enforce)
-          alongside the OpenOva normalized vocabulary so the matrix
-          can assert against either form, and the operator immediately
-          recognises the Kyverno toggle they're flipping. */}
-      <span className="text-[var(--color-text-dim)]" data-testid="policy-drilldown-kyverno-mode">
-        Kyverno mode:{' '}
+      <span className="text-[var(--color-text-dim)]" data-testid="policy-drilldown-mode">
+        Mode:{' '}
         <code className="font-mono text-[var(--color-text)]">
-          {mode === 'enforcing' ? 'Enforce' : 'Audit'}
-        </code>{' '}
-        (toggle: Audit ↔ Enforce)
+          {policy.mode === 'enforcing' ? 'Enforce' : 'Audit'}
+        </code>
+      </span>
+      <span className="text-[var(--color-text-dim)]" data-testid="policy-drilldown-mode-note">
+        Mode is changed from the Policies screen
       </span>
       {policy.description ? (
         <p className="basis-full pt-1 text-[var(--color-text)]">{policy.description}</p>
@@ -388,23 +303,10 @@ function PolicyMetadata({ policy, sovereignId, violations }: PolicyMetadataProps
               </li>
             ))}
           </ul>
-          {/* Per qa-loop iter-15 Fix #62 (TC-051): mention the Kyverno
-              `preconditions` block so the rule view advertises that
-              precondition matchers are part of the rule body even when
-              the API doesn't yet stream them per-rule. The literal
-              `preconditions` token is what the matrix asserts. */}
-          <p className="mt-1 text-xs text-[var(--color-text-dim)]" data-testid="policy-drilldown-rule-shape">
-            Rules may declare <code className="font-mono">match</code>,{' '}
-            <code className="font-mono">preconditions</code>, and a{' '}
-            <code className="font-mono">validate</code> /{' '}
-            <code className="font-mono">deny</code> block; click any rule above to view its body.
-          </p>
         </div>
       ) : (
         <span className="basis-full pt-1 text-[var(--color-text-dim)]" data-testid="policy-drilldown-rules-empty">
           Rule list: <code className="font-mono">(none reported by ClusterPolicy)</code>.
-          Rules typically include <code className="font-mono">preconditions</code> and a{' '}
-          <code className="font-mono">validate</code> block.
         </span>
       )}
     </div>

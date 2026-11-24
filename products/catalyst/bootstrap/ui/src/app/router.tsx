@@ -92,7 +92,6 @@ import { ParentDomainsPage } from '@/pages/admin/parent-domains/ParentDomainsPag
 import { PublishPage as BlueprintPublishPage } from '@/pages/admin/blueprints/PublishPage'
 import { CuratePage as BlueprintCuratePage } from '@/pages/admin/blueprints/CuratePage'
 import { SREDashboardPage } from '@/pages/admin/compliance/SREDashboardPage'
-import { SecLeadDashboardPage } from '@/pages/admin/compliance/SecLeadDashboardPage'
 import { PolicyDrilldownPage } from '@/pages/admin/compliance/PolicyDrilldownPage'
 // Wave-2 Family-E (#1583, C11-008): standalone Falco runtime-alerts page.
 import { RuntimeAlertsPage } from '@/pages/admin/compliance/RuntimeAlertsPage'
@@ -1270,23 +1269,16 @@ const provisionNotificationsRoute = createRoute({
  * same provisionAuthGuard used by every other admin surface.
  *
  *   /admin/compliance/sre                  — SRE Lead dashboard (U1)
- *   /admin/compliance/security             — Security Lead dashboard (U2)
  *   /admin/compliance/policy/$policyName   — per-policy drill-down (U4)
  *
  * Chroot Sovereign Console mirrors live under `/sre/compliance`,
- * `/sec/compliance`, `/compliance/policy/$policyName` (added below in
- * the consoleLayoutRoute children).
+ * `/compliance/policy/$policyName` (added below in the
+ * consoleLayoutRoute children).
  */
 const adminComplianceSREDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin/compliance/sre',
   component: SREDashboardPage,
-  beforeLoad: provisionAuthGuard,
-})
-const adminComplianceSecurityDashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/admin/compliance/security',
-  component: SecLeadDashboardPage,
   beforeLoad: provisionAuthGuard,
 })
 const adminCompliancePolicyDrilldownRoute = createRoute({
@@ -1720,7 +1712,7 @@ const consoleOrgRolesRoute = createRoute({
 
 /* ── Compliance dashboards — chroot Sovereign Console (slice U, #1096) ──
  *
- * Chroot mounts: `/sre/compliance`, `/sec/compliance`,
+ * Chroot mounts: `/sre/compliance`,
  * `/compliance/policy/$policyName`. Pages are the same components as
  * the mother-side `/admin/compliance/*` routes — `useResolvedDeploymentId`
  * resolves the active sovereign id from `/api/v1/sovereign/self` so the
@@ -1730,11 +1722,6 @@ const consoleSREComplianceRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/sre/compliance',
   component: SREDashboardPage,
-})
-const consoleSecComplianceRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/sec/compliance',
-  component: SecLeadDashboardPage,
 })
 const consoleCompliancePolicyDrilldownRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -2015,8 +2002,7 @@ const consoleLegacyCloudRedirectRoutes = LEGACY_CLOUD_REDIRECTS.map((r) =>
  * `/app/$deploymentId/<feature>/<sub>` — `applications`, `resources`,
  * `rbac`, `users`, `blueprints`, `install`, `networking`,
  * `shells`, `organizations`, `settings`, plus mothership-level
- * `/app/dashboard`, `/app/install/*`, `/app/sre/compliance`, and
- * `/app/sec/compliance`.
+ * `/app/dashboard`, `/app/install/*` and `/app/sre/compliance`.
  *
  * These routes are mounted as ALIASES that re-use the canonical page
  * components from /provision/$deploymentId/* and /admin/* — there is
@@ -2050,17 +2036,12 @@ const appInstallBlueprintRoute = createRoute({
   },
 })
 
-// /app/sre/compliance + /app/sec/compliance — mother-side compliance
-// dashboards (sister to /admin/compliance/{sre,security}).
+// /app/sre/compliance — mother-side compliance dashboard (sister to
+// /admin/compliance/sre).
 const appSREComplianceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/sre/compliance',
   component: SREDashboardPage,
-})
-const appSecComplianceRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/sec/compliance',
-  component: SecLeadDashboardPage,
 })
 
 // /app/$deploymentId — landing (re-uses AppsPage like /provision/$deploymentId).
@@ -2330,7 +2311,6 @@ const routeTree = rootRoute.addChildren([
           appInstallRoute,
           appInstallBlueprintRoute,
           appSREComplianceRoute,
-          appSecComplianceRoute,
           // /app/$deploymentId tree.
           appDeploymentRoute,
           appAppsRoute,
@@ -2407,7 +2387,6 @@ const routeTree = rootRoute.addChildren([
   provisionNotificationsRoute,
   // Compliance — slice U (#1096). Mother-side admin routes.
   adminComplianceSREDashboardRoute,
-  adminComplianceSecurityDashboardRoute,
   adminCompliancePolicyDrilldownRoute,
   // Wave-2 Family-E (#1583, C11-008): standalone Falco runtime alerts.
   adminComplianceRuntimeRoute,
@@ -2458,7 +2437,6 @@ const routeTree = rootRoute.addChildren([
     consoleOrgRolesRoute,
     // Compliance dashboards — chroot routes (slice U, #1096).
     consoleSREComplianceRoute,
-    consoleSecComplianceRoute,
     consoleCompliancePolicyDrilldownRoute,
     // Wave-2 Family-E (#1583, C11-008): chroot Falco runtime alerts.
     consoleComplianceRuntimeRoute,
