@@ -134,6 +134,13 @@ override_resource {
   }
 }
 
+override_resource {
+  target = random_password.keycloak_client_secret_salt
+  values = {
+    result = "SEC060saltSEC060saltSEC060saltSEC060saltSEC060sa"
+  }
+}
+
 # SEC-152: the control-plane cloud-init carries the seal key of the seal
 # hook (module.seal, contract C8). Its random_bytes are unknown under
 # `command = plan` too; this override fixes the key to 32 known bytes, so the
@@ -1267,6 +1274,13 @@ run "post_back_render_fits_the_size_guards_with_room" {
     target = random_password.k3s_agent_token
     values = {
       result = "FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00"
+    }
+  }
+
+  override_resource {
+    target = random_password.keycloak_client_secret_salt
+    values = {
+      result = "SEC060saltSEC060saltSEC060saltSEC060saltSEC060sa"
     }
   }
 
