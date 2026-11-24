@@ -46,7 +46,10 @@
 #             shape docker/build-push-action pushes (a linux/amd64 image and its attestation
 #             manifest) from ghcr.io (a skopeo first on PATH sends ghcr.io to the first registry):
 #             the tag serves the list's digest, the list, both manifests and every blob are
-#             byte-equal. The workflow fetches that skopeo and has no skopeo of its own;
+#             byte-equal. The workflow's code lines (not its comments) cut the functions, fetch
+#             that skopeo, put it on PATH and source the functions; it sets
+#             PREWARM_DEST_TLS_VERIFY 'true' (the function defaults to false) and has no skopeo
+#             of its own;
 #   warmup-control  skopeo at its default (--multi-arch system), the warm-up's copy before
 #             24 Nov 2026, writes the linux/amd64 child under the tag, not the list: the list has
 #             the shape that gave one tag two digests (gate records of 23 Nov 2026,
@@ -137,12 +140,20 @@ cat >"${W}/warmup-env.sh" <<ENV
 export HARBOR_HOST=localhost:5002 HARBOR_USERNAME=admin HARBOR_PASSWORD=pw GHCR_USER=bot GHCR_PAT=tok
 export PREWARM_COPY_ATTEMPTS=1 PREWARM_SKOPEO_TIMEOUT=120s PREWARM_DEST_TLS_VERIFY="${WARMUP_TLS}" cpdir=/tmp/ppc-warmup-copies
 ENV
+# The wiring is judged on the workflow's code lines, whole and trimmed: a comment cannot pass it.
+sed -e '/^[[:space:]]*#/d' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "${WARMUP_WF}" >"${W}/warmup-wf-code.txt"
+wired() { grep -qxF -- "$1" "${W}/warmup-wf-code.txt" || { echo "FAIL — warmup: ${WARMUP_WF##*/} has no code line: $1"; return 1; }; }
 {
-  if grep -q 'scripts/cutover-copy-functions.sh' "${WARMUP_WF}" && grep -q 'skopeo_fetch "' "${WARMUP_WF}"; then
-    echo "ok   — warmup: the workflow sources step 03's copy functions and fetches step 03's skopeo with skopeo_fetch"
-  else
-    echo "FAIL — warmup: ${WARMUP_WF##*/} does not source scripts/cutover-copy-functions.sh and fetch skopeo with skopeo_fetch"
+  # shellcheck disable=SC2016 # the lines are matched as written in the workflow, unexpanded
+  if wired 'sh openova-src/scripts/cutover-copy-functions.sh openova-src/platform/self-sovereign-cutover/chart >"${RUNNER_TEMP}/copy-functions.sh"' \
+    && wired 'sh -c '\''. "$1"; skopeo_fetch "$2" "[warmup]"'\'' sh "${RUNNER_TEMP}/copy-functions.sh" "${RUNNER_TEMP}/skopeo"' \
+    && wired 'echo "${RUNNER_TEMP}/skopeo" >>"${GITHUB_PATH}"' \
+    && wired '. "${RUNNER_TEMP}/copy-functions.sh"'; then
+    echo "ok   — warmup: the workflow cuts step 03's copy functions, fetches step 03's skopeo with skopeo_fetch, puts it on PATH and sources the functions"
   fi
+  # The shared function defaults TLS verification off; the parent's front door must be verified.
+  if [ "${WARMUP_TLS}" = true ]; then echo "ok   — warmup: the workflow sets PREWARM_DEST_TLS_VERIFY: 'true' (the destination's certificate is verified)"
+  else echo "FAIL — warmup: ${WARMUP_WF##*/} does not set PREWARM_DEST_TLS_VERIFY: 'true' (read '${WARMUP_TLS}'): the copy would run with TLS verification off"; fi
   if grep -qE 'apt-get install.*skopeo' "${WARMUP_WF}"; then echo "FAIL — warmup: ${WARMUP_WF##*/} installs a skopeo of its own (apt), a second version"
   else echo "ok   — warmup: the workflow installs no skopeo of its own"; fi
 } >"${W}/out/case-warmup-workflow.txt"
