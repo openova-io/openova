@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T01:45:03Z` |
+| Last refreshed | `2026-11-24T02:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T01:59 | [#8707](https://github.com/openova-io/openova/pull/8707) | #8701 | docs(adr): record 0027 on the region-loss contract, a follow |
 | 2026-11-24T01:26 | [#8706](https://github.com/openova-io/openova/pull/8706) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:12 | [#8705](https://github.com/openova-io/openova/pull/8705) | #8700 | docs(ledger): result of the inspection CTL-170, where chart- |
 | 2026-11-24T01:28 | [#8704](https://github.com/openova-io/openova/pull/8704) | #8694 | feat(gitea): scheduled Git bundles of every repository to th |
+| 2026-11-24T01:45 | [#8702](https://github.com/openova-io/openova/pull/8702) | The cutover's image copy keeps the digest, so a restarted Po |  |
 | 2026-11-24T00:37 | [#8698](https://github.com/openova-io/openova/pull/8698) | #7087 | docs(ledger): plan update |
 | 2026-11-24T00:34 | [#8697](https://github.com/openova-io/openova/pull/8697) | #8690 | docs(ledger): result of the spike FND-201, what the telemetr |
 | 2026-11-24T00:21 | [#8693](https://github.com/openova-io/openova/pull/8693) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-23T10:23 | [#8656](https://github.com/openova-io/openova/pull/8656) | #8655 | feat(secrets-lib): a library chart for namespaced stores and |
 | 2026-11-23T09:53 | [#8654](https://github.com/openova-io/openova/pull/8654) | #7087 | docs(ledger): plan update |
 | 2026-11-23T08:44 | [#8653](https://github.com/openova-io/openova/pull/8653) | #7087 | docs(ledger): plan update |
-| 2026-11-23T08:24 | [#8652](https://github.com/openova-io/openova/pull/8652) | #8651 | feat(openbao): a six-hourly raft snapshot of OpenBao to obje |
-| 2026-11-23T07:19 | [#8650](https://github.com/openova-io/openova/pull/8650) | #7087 | docs(ledger): plan update |
 
 ---
 
