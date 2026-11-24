@@ -811,7 +811,7 @@ checks:
   asserts: The shown mode is the engine's mode
   implementation: tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
   implemented_by: CMP-010
-  delivered_by: CMP-020
+  delivered_by: CMP-021
 - id: CMP-G03
   title: The model is loaded in every region and agrees with the policies
   owner: CMP
