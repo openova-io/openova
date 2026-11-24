@@ -22,12 +22,14 @@ import (
 // complianceAPI answers the compliance routes of the console API from its fields.
 type complianceAPI struct {
 	sync.Mutex
-	num, den   int
-	violations []map[string]string
-	policies   []map[string]string
-	frames     chan string // each text goes to the open stream as the data of one frame
-	waiting    bool        // the seed is applied and its frame is not sent yet
-	early      int         // requests that arrived while waiting
+	num, den     int
+	resources    map[string][2]int // the numerator and the denominator of one subject, by its key kind/namespace/name
+	everySubject [2]int            // when set, the score of every subject that resources has no entry for
+	violations   []map[string]string
+	policies     []map[string]string
+	frames       chan string // each text goes to the open stream as the data of one frame
+	waiting      bool        // the seed is applied and its frame is not sent yet
+	early        int         // requests that arrived while waiting
 }
 
 func (a *complianceAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +56,14 @@ func (a *complianceAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch route {
 	case "scorecard":
 		body = map[string]any{"sovereign": map[string]int{"numerator": a.num, "denominator": a.den}}
+	case "resource": // a subject without a verdict answers zero and zero, as the API does
+		q := r.URL.Query()
+		key := q.Get("kind") + "/" + q.Get("ns") + "/" + q.Get("name")
+		s, found := a.resources[key]
+		if !found && a.everySubject != [2]int{} {
+			s, found = a.everySubject, true
+		}
+		body = map[string]any{"resource": key, "found": found, "numerator": s[0], "denominator": s[1]}
 	case "violations": // one item per page: the check must read every page
 		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 		body = map[string]any{"total": len(a.violations),
@@ -84,15 +94,26 @@ func TestCompliancePush(t *testing.T) {
 		"empty":     "scorecard empty",
 		"refused":   "admission webhook denied the request",
 		"silent":    "no frame named the seed",
-		"uncounted": "numerator 90 and denominator 100 (before the seed 90 and 100)",
-		"passes":    "numerator 95 and denominator 105 (before the seed 90 and 100)",
+		"uncounted": "the seed's own score numerator 0 and denominator 0 (before the seed 0 and 0)",
+		"passes":    "the seed's own score numerator 5 and denominator 5 (before the seed 0 and 0)",
 		"unlisted":  "0 violations of the seed",
 		"kept":      "the violations still list the seed 2 times",
+		// Other resources leave the cluster between the two readings: the
+		// Sovereign denominator falls while the seed is counted. It passes.
+		"churn": "",
+		// Other resources join the cluster: the Sovereign denominator and its
+		// failures rise while the seed's own subject is not counted. It fails.
+		"others": "the seed's own score numerator 0 and denominator 0 (before the seed 0 and 0), the Sovereign score numerator 93 and denominator 105",
+		// The route answers the same score for a subject that does not exist yet.
+		"preexisting": "has denominator 5 before the seed exists",
 	} {
 		t.Run("fault="+fault, func(t *testing.T) {
-			a := &complianceAPI{num: 90, den: 100, frames: make(chan string, 8)}
-			if fault == "empty" {
+			a := &complianceAPI{num: 90, den: 100, resources: map[string][2]int{}, frames: make(chan string, 8)}
+			switch fault {
+			case "empty":
 				a.den = 0
+			case "preexisting":
+				a.everySubject = [2]int{3, 5}
 			}
 			calls := []string{}
 			kubectl := func(_ kube.Region, _ context.Context, stdin io.Reader, args ...string) ([]byte, error) {
@@ -125,7 +146,9 @@ func TestCompliancePush(t *testing.T) {
 						a.Lock()
 						defer a.Unlock()
 						a.waiting = false
-						a.num, a.den = 93, 105
+						a.num, a.den = 93, 105 // the seed adds 3 passes and 2 failures
+						a.resources[key] = [2]int{3, 5}
+						a.resources["deployment/other/cmp-bad"] = [2]int{1, 2}
 						a.violations = []map[string]string{{"resource": "deployment/other/cmp-bad", "namespace": "other", "policy": "p"},
 							{"resource": key, "namespace": ns, "policy": "topology-spread"}, {"resource": key, "namespace": ns, "policy": "multi-replica-drainability"}}
 						switch fault {
@@ -133,8 +156,14 @@ func TestCompliancePush(t *testing.T) {
 							return
 						case "uncounted":
 							a.num, a.den = 90, 100
+							delete(a.resources, key)
 						case "passes":
 							a.num = 95
+							a.resources[key] = [2]int{5, 5}
+						case "churn": // 8 passing subjects of other resources are gone again, as on 24 November
+							a.num, a.den = 85, 97
+						case "others": // other resources add the 3 passes and 2 failures, the seed's own subject is not counted
+							delete(a.resources, key)
 						case "unlisted":
 							a.violations = a.violations[:1]
 						}
