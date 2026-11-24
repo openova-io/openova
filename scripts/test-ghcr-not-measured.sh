@@ -27,12 +27,23 @@
 #   6 ghcr_tags alone: flaky / down / 404           0 / 2 / 3, tries counted
 #   7 cases 1 to 4 pass on a copy of this checkout that sits between the two commits of an
 #     umbrella release (its chart version one patch above its kit pin)
+#   8 catalog-seed --pr-base, on a fixture repository (a base commit and a pull request's tree)
+#     whose registry lists 1.0.0 and 3.0.0 and has no package bp-newchart:
+#     a  the pull request adds bp-newchart 0.1.0 and pins 0.1.0, as a pull request  exit 0, GHCR NEW
+#     b  the same tree checked as on main (no --pr-base)                          exit 1, GHCR MISS
+#     c  the same tree with --pr-base on a push event                             exit 2, refused
+#     d  the pull request adds bp-newchart 0.1.0 and pins 0.1.1                   exit 1, GHCR MISS
+#     e  it pins bp-beta 2.0.0, a chart of the base it does not change            exit 1, GHCR MISS
+#     f  it moves bp-alpha 1.0.0 -> 1.1.0 and pins 1.1.0                          exit 0, GHCR NEW
+#     g  it edits bp-beta's Chart.yaml but keeps 2.0.0, and pins 2.0.0            exit 1, GHCR MISS
 # On main cases 2, 3 and 5 fail: the first failed listing counts as missing (exit 1). Before the
-# fixture tree, case 7 failed: cases 1 to 4 read the drift of the copy (exit 1).
+# fixture tree, case 7 failed: cases 1 to 4 read the drift of the copy (exit 1). Before --pr-base,
+# cases 8a and 8f failed: the guard knew no --pr-base (exit 2), and without it a pull request
+# that adds a seeded chart (pull request 8772) could not pass.
 #
 # Usage: bash scripts/test-ghcr-not-measured.sh
 #   GHCR_SELFTEST_FIXTURE_ONLY=1 runs cases 1 to 4 only (case 7 runs the copy so).
-# Needs: bash, yq (the catalog-seed guard), helm (the catalog-seed guard renders the umbrella).
+# Needs: bash, git, yq (the catalog-seed guard), helm (the catalog-seed guard renders the umbrella).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -194,6 +205,79 @@ else
     ok "7 cases 1 to 4 pass on a copy between the two commits of an umbrella release (chart ${next}, pin ${pin})"
   else bad "7 on a copy between the two commits of an umbrella release (chart ${next}, pin ${pin}): exit $RC; $(grep -E '^FAIL' "$TMP/window-out" | head -n 4)"; fi
 fi
+
+# 8: the catalog-seed guard of this checkout on a fixture repository. The base commit holds three
+# charts and a seed that pins two of them; each case writes a pull request's tree on top of it.
+S="$TMP/seed"
+SEED_FILE="$S/products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
+mkdir -p "$S/scripts/lib" "$(dirname "$SEED_FILE")" "$S/platform/alpha/chart" "$S/platform/beta/chart" "$S/platform/gamma/chart"
+cp "$ROOT/scripts/check-catalog-seed-lockstep.sh" "$S/scripts/"
+cp "$ROOT/scripts/lib/ghcr-tags.sh" "$ROOT/scripts/lib/parse-catalog-seed-pins.awk" "$S/scripts/lib/"
+printf 'unpublished: []\n' > "$S/scripts/expected-unpublished-catalog-seed-pins.yaml"
+printf 'apiVersion: v2\nname: bp-catalyst-platform\nversion: 1.0.0\n' > "$S/products/catalyst/chart/Chart.yaml"
+seed_chart() { # <folder> <chart> <version>
+  mkdir -p "$S/platform/$1/chart"
+  printf 'apiVersion: v2\nname: %s\nversion: %s\n' "$2" "$3" > "$S/platform/$1/chart/Chart.yaml"
+}
+seed_pin() { # <chart> <version>: one Blueprint of the seed, in the shape scripts/lib/parse-catalog-seed-pins.awk reads
+  printf -- '---\napiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: %s\nspec:\n  visibility: unlisted\n  source:\n    chart: %s\n    version: %s\n' \
+    "$1" "$1" "$2" >> "$SEED_FILE"
+}
+seed_chart alpha bp-alpha 1.0.0
+seed_chart beta bp-beta 2.0.0
+seed_chart gamma bp-gamma 3.0.0
+: > "$SEED_FILE"
+seed_pin bp-alpha 1.0.0
+seed_pin bp-gamma 3.0.0
+git -c init.defaultBranch=main init -q "$S"
+git -C "$S" add -A
+git -C "$S" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q -m base
+BASE="$(git -C "$S" rev-parse HEAD)"
+printf '1.0.0\n3.0.0\n' > "$TMP/seed-tags"
+printf 'bp-newchart\n' > "$TMP/seed-absent"
+TAGS="$TMP/seed-tags"
+ABSENT="$TMP/seed-absent"
+pr_tree() { git -C "$S" checkout -q -- . && git -C "$S" clean -q -f -d; } # back to the base tree
+GUARD="$S/scripts/check-catalog-seed-lockstep.sh"
+
+pr_tree; seed_chart newchart bp-newchart 0.1.0; seed_pin bp-newchart 0.1.0
+run "8a new chart, pin = its version, pull request" "" "" env GITHUB_EVENT_NAME=pull_request bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 0 ] && has "GHCR NEW  bp-newchart: bp-newchart:0.1.0" && has "platform/newchart/chart/Chart.yaml is added by this pull request" \
+  && has "1 published by this merge" && has "; 0 failure(s);" && ! has "GHCR MISS"; then
+  ok "8a a pull request that adds a chart and pins its first version passes: published by this merge"
+else bad "8a new chart on a pull request: exit $RC; $(grep -E 'GHCR (NEW|MISS)|GHCR-checked|ERROR|not published' "$TMP/out" | head -n 4)"; fi
+run "8b the same tree, as on main" "" "" env GITHUB_EVENT_NAME=push bash "$GUARD" --check-ghcr
+if [ "$RC" = 1 ] && has "GHCR MISS bp-newchart: bp-newchart:0.1.0" && ! has "GHCR NEW"; then
+  ok "8b the same tree checked as on main fails: GHCR MISS, exit 1"
+else bad "8b the same tree as on main: exit $RC; $(grep -E 'GHCR (NEW|MISS)|GHCR-checked|ERROR' "$TMP/out" | head -n 4)"; fi
+run "8c --pr-base on a push event" "" "" env GITHUB_EVENT_NAME=push bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 2 ] && has "ERROR: --pr-base is for the check of a pull request" && ! has "GHCR NEW"; then
+  ok "8c --pr-base on a push event is refused, exit 2"
+else bad "8c --pr-base on a push event: exit $RC; $(grep -E 'GHCR (NEW|MISS)|ERROR' "$TMP/out" | head -n 4)"; fi
+
+pr_tree; seed_chart newchart bp-newchart 0.1.0; seed_pin bp-newchart 0.1.1
+run "8d new chart, pin != its version" "" "" env GITHUB_EVENT_NAME=pull_request bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 1 ] && has "GHCR MISS bp-newchart: bp-newchart:0.1.1" && has "the pin is not the version platform/newchart/chart/Chart.yaml sets in this tree (0.1.0)" && ! has "GHCR NEW"; then
+  ok "8d a pin other than the added chart's version fails, exit 1"
+else bad "8d new chart, other pin: exit $RC; $(grep -E 'GHCR (NEW|MISS)|not published|ERROR' "$TMP/out" | head -n 4)"; fi
+
+pr_tree; seed_pin bp-beta 2.0.0
+run "8e existing chart, missing tag" "" "" env GITHUB_EVENT_NAME=pull_request bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 1 ] && has "GHCR MISS bp-beta: bp-beta:2.0.0" && has "sets 2.0.0 on the base too" && ! has "GHCR NEW"; then
+  ok "8e an existing chart with a missing tag fails as before, exit 1"
+else bad "8e existing chart, missing tag: exit $RC; $(grep -E 'GHCR (NEW|MISS)|not published|ERROR' "$TMP/out" | head -n 4)"; fi
+
+pr_tree; seed_chart alpha bp-alpha 1.1.0; : > "$SEED_FILE"; seed_pin bp-alpha 1.1.0; seed_pin bp-gamma 3.0.0
+run "8f existing chart, version moved by the pull request" "" "" env GITHUB_EVENT_NAME=pull_request bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 0 ] && has "GHCR NEW  bp-alpha: bp-alpha:1.1.0" && has "moves platform/alpha/chart/Chart.yaml from 1.0.0 to 1.1.0" && ! has "GHCR MISS"; then
+  ok "8f a pull request that moves a chart's version and pins it passes: published by this merge"
+else bad "8f moved version: exit $RC; $(grep -E 'GHCR (NEW|MISS)|not published|ERROR' "$TMP/out" | head -n 4)"; fi
+
+pr_tree; printf 'description: edited\n' >> "$S/platform/beta/chart/Chart.yaml"; seed_pin bp-beta 2.0.0
+run "8g existing chart edited, version kept" "" "" env GITHUB_EVENT_NAME=pull_request bash "$GUARD" --check-ghcr --pr-base "$BASE"
+if [ "$RC" = 1 ] && has "GHCR MISS bp-beta: bp-beta:2.0.0" && ! has "GHCR NEW"; then
+  ok "8g a chart edited without a version move does not pass: the release bumps it, exit 1"
+else bad "8g edited chart, same version: exit $RC; $(grep -E 'GHCR (NEW|MISS)|not published|ERROR' "$TMP/out" | head -n 4)"; fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "test-ghcr-not-measured: all cases passed"; exit 0; fi

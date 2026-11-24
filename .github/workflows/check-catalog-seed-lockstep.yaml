@@ -115,6 +115,10 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On a pull request the check compares with the commit the pull request
+          # merges into: the first parent of the merge commit checked out here.
+          fetch-depth: 2
       - name: Install yq + helm
         run: |
           set -e
@@ -127,4 +131,13 @@ jobs:
           # `gh` defers to GH_TOKEN on a runner; pass the workflow token so the
           # package-listing call picks up the `packages: read` scope above.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
+        # A pull request cannot find on GHCR the first version of a chart it adds
+        # itself: the release of its merge publishes it. --pr-base lets exactly
+        # that pin pass (see the script header). On push, schedule and dispatch,
+        # and in the release's hard gate, every pin must already be published.
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            bash scripts/check-catalog-seed-lockstep.sh --check-ghcr --pr-base HEAD^1
+          else
+            bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
+          fi
