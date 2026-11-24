@@ -2517,7 +2517,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.87
+  version: 1.2.88
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
@@ -2537,7 +2537,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: 1.2.87
+    version: 1.2.88
   topology:
     supported: [active-passive, singleton]
     defaults:
