@@ -1199,12 +1199,13 @@ checks:
 - id: CTL-G10
   title: 'Region loss: recovery within the numbers of decision record 0027'
   owner: CTL
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Region loss: recovery within the numbers of decision record 0027'
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_region_loss.go
   delivered_by: CTL-820
 - id: CTL-G11
   title: Access grant from Git
