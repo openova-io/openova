@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T12:45:04Z` |
+| Last refreshed | `2026-11-24T14:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8358](https://github.com/openova-io/openova/issues/8358) | FND-076 The standing environment is updated through the release route by a workf | Other |
 | [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
 | [#8363](https://github.com/openova-io/openova/issues/8363) | AIP-151 Tool answers are fitted and made inert | Other |
 | [#8364](https://github.com/openova-io/openova/issues/8364) | AIP-250 Spike: agent workspace on the Organization's own sign-in with a short-li | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8765](https://github.com/openova-io/openova/issues/8765) | CMP-041 ComplianceModel: definition, data files, chart template, exemptions, gua | Other |
 | [#8770](https://github.com/openova-io/openova/issues/8770) | SOV-721 The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a pe | Other |
 | [#8776](https://github.com/openova-io/openova/issues/8776) | CMP-075 Policy files in every region's folder: the alignment function at start-u | Other |
+| [#8779](https://github.com/openova-io/openova/issues/8779) | AIP-157 Nothing reads the long-lived bearer | Other |
 
 ---
 
@@ -307,11 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
+| 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:37 | [#8775](https://github.com/openova-io/openova/pull/8775) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:52 | [#8773](https://github.com/openova-io/openova/pull/8773) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:41 | [#8771](https://github.com/openova-io/openova/pull/8771) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:05 | [#8769](https://github.com/openova-io/openova/pull/8769) | #7087 | docs(ledger): plan update |
 | 2026-11-24T10:51 | [#8768](https://github.com/openova-io/openova/pull/8768) | #7087 | docs(ledger): plan update |
+| 2026-11-24T12:59 | [#8767](https://github.com/openova-io/openova/pull/8767) | #8765 | feat(compliance): ComplianceModel definition, data files, ch |
 | 2026-11-24T11:01 | [#8766](https://github.com/openova-io/openova/pull/8766) | #8762 | refactor(compliance): policy files in every region folder: s |
 | 2026-11-24T10:24 | [#8764](https://github.com/openova-io/openova/pull/8764) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:31 | [#8763](https://github.com/openova-io/openova/pull/8763) | #8761 | chore(catalyst-api): delete the long-lived bearer seed; no o |
@@ -327,16 +330,13 @@ flowchart LR
 | 2026-11-24T08:43 | [#8748](https://github.com/openova-io/openova/pull/8748) | #7087 | docs(ledger): plan update |
 | 2026-11-24T08:48 | [#8747](https://github.com/openova-io/openova/pull/8747) | #8746 | feat(organization): every Organization namespace gets the Ex |
 | 2026-11-24T07:53 | [#8745](https://github.com/openova-io/openova/pull/8745) | #7087 | docs(ledger): plan update |
+| 2026-11-24T14:31 | [#8744](https://github.com/openova-io/openova/pull/8744) | #8613 | refactor(bge): the embeddings chart serves one pinned model  |
 | 2026-11-24T08:05 | [#8743](https://github.com/openova-io/openova/pull/8743) | #8692 | test(gate): the browser tests of the Organizations, users an |
 | 2026-11-24T06:59 | [#8742](https://github.com/openova-io/openova/pull/8742) | #8737 | docs(ledger): result of the lab test NET-253, the native fir |
 | 2026-11-24T06:53 | [#8741](https://github.com/openova-io/openova/pull/8741) | #8730 | docs(ledger): result of the spike INF-350, change events fro |
 | 2026-11-24T06:46 | [#8740](https://github.com/openova-io/openova/pull/8740) | #7087 | docs(ledger): plan update |
 | 2026-11-24T09:43 | [#8739](https://github.com/openova-io/openova/pull/8739) | #8734 | refactor(wizard): the component step shows the generated kit |
 | 2026-11-24T06:54 | [#8738](https://github.com/openova-io/openova/pull/8738) | #8729 | chore(crds): keep the one Continuum definition file in the C |
-| 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
-| 2026-11-24T06:42 | [#8733](https://github.com/openova-io/openova/pull/8733) | #8728 | test(gate): check CMP-G02 is required now that the pinned ca |
-| 2026-11-24T06:20 | [#8731](https://github.com/openova-io/openova/pull/8731) | #7087 | docs(ledger): plan update |
-| 2026-11-24T05:59 | [#8727](https://github.com/openova-io/openova/pull/8727) | #7087 | docs(ledger): plan update |
 
 ---
 

@@ -1,160 +1,74 @@
-# Catalyst Blueprint scratch chart for BGE — no upstream Helm chart is
-# published by BAAI. All values consumed by templates/ in this chart.
+# bp-bge: one embedding model and at most one reranker, served on CPU by one
+# Infinity server (README.md). Every name below is read by templates/.
 #
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every
-# operationally-meaningful value (model ID, batch size, max length,
-# replicas) is configurable; cluster overlays in clusters/<sovereign>/
-# may override any of these without rebuilding the Blueprint OCI
-# artifact.
+# The five keys home, enabled, embedding, reranker and cache are the Blueprint's
+# configSchema (blueprint.yaml). The chart refuses at render what that schema
+# refuses (templates/_helpers.tpl, "bp-bge.validate").
 
-catalystBlueprint:
-  upstream:
-    chart: ""               # scratch chart — no upstream Helm chart
-    version: ""
-    repo: ""
-    images:
-      tei: "ghcr.io/huggingface/text-embeddings-inference"
+# Set by the kit slot from MODEL_PLANE_HOME. The chart renders its workloads
+# only when home and enabled are both true; otherwise it renders the Namespace
+# only.
+home: false
+# Set by the kit slot from MODEL_PLANE_EMBEDDINGS.
+enabled: false
 
-# ─── BGE embeddings + reranker ──────────────────────────────────────────
-bge:
-  enabled: true
+# The embedding model. source is oci://<host>/<path>@sha256:<64 hex> (a model
+# image of the Sovereign's registry, README.md "Model image") or
+# hf://<owner>/<name>, which needs revision, the 40-character commit.
+# dimensions is the length of the vector; the function test asserts it.
+embedding:
+  source: hf://ibm-granite/granite-embedding-107m-multilingual
+  revision: d6cffd338414d6a1c1f5decfad5fec62eebc90d5
+  servedName: granite-embedding-107m-multilingual
+  dimensions: 384
 
-  # Solo-Sovereign minimum — single replica. Embeddings are
-  # horizontally scalable (stateless), so per-Sovereign overlays bump
-  # for HA + throughput.
-  replicas: 1
+# The reranker, optional. Same rules for source and revision. Both models come
+# from the same kind of source.
+reranker:
+  source: hf://cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+  revision: 1427fd652930e4ba29e8149678df786c240d8825
+  servedName: mmarco-mminilmv2-l12-h384-v1
 
-  # Pinned upstream image tag. The CPU image runs sentence-transformers
-  # / BGE models on x86 without GPU. Per docs/INVIOLABLE-PRINCIPLES.md
-  # #4 we pin a real tag — DO NOT use `:latest`.
-  image:
-    repository: ghcr.io/huggingface/text-embeddings-inference
-    tag: "cpu-1.5"            # CPU image — bp-bge defaults to CPU
-    pullPolicy: IfNotPresent
+# The weights volume. Without cache it is an emptyDir of 10Gi; with it a
+# PersistentVolumeClaim of sizeGi (at least 10) in storageClass ("" is the
+# Sovereign's default class).
+# cache:
+#   sizeGi: 10
+#   storageClass: ""
 
-  # ─── Embeddings endpoint ──────────────────────────────────────────────
-  embeddings:
-    enabled: true
-    # Default to bge-small-en-v1.5 — 384-dim, English, fits on CPU.
-    # Per-Sovereign overlays override to BAAI/bge-m3 (multilingual,
-    # 1024-dim, hybrid sparse+dense) on GPU Sovereigns.
-    model: "BAAI/bge-small-en-v1.5"
-    port: 8080
-    args:
-      maxBatchSize: 32          # --max-batch-tokens divided by avg seq length
-      maxConcurrentRequests: 512
-      maxClientBatchSize: 32
-      pooling: "cls"            # cls | mean | last
-      hfApiTimeout: "60"        # seconds for HF Hub model download
+# ── Not part of the configSchema ────────────────────────────────────────────
 
-  # ─── Reranker endpoint (cross-encoder) ────────────────────────────────
-  # Reranker runs as a sidecar container in the same Pod with its own
-  # listener on port 8081. Disable on Sovereigns that only need
-  # embeddings (saves ~500MB RAM).
-  reranker:
-    enabled: true
-    model: "BAAI/bge-reranker-base"
-    port: 8081
-    args:
-      maxBatchSize: 16
-      maxConcurrentRequests: 256
+# The server image, by digest (MIT, github.com/michaelfeil/infinity).
+image: docker.io/michaelf34/infinity:0.0.78-cpu@sha256:5401a057f16f82a7a1202369f674dc15695fe37d8517f3c0263fdfb88b2e2717
+port: 7997
 
-  # HuggingFace token — for gated/private models. Defaults disabled
-  # because bge-* models are public.
-  huggingfaceToken:
-    enabled: false
-    secretName: ""
-    secretKey: "token"
+resources:
+  requests:
+    cpu: "2"
+    memory: 5Gi
+  limits:
+    cpu: "4"
+    memory: 8Gi
 
-  # Model cache — emptyDir by default so a fresh Sovereign smoke-tests
-  # without provisioning storage. Production overlays switch to a PVC
-  # bound to longhorn / SeaweedFS so model weights survive restarts.
-  modelCache:
-    type: emptyDir              # emptyDir | pvc
-    pvc:
-      claimName: ""
-      storageClass: ""
-      size: "10Gi"
+# A model-hub token for a gated hf:// model: the name of a SecretProviderClass
+# in the release namespace whose object hf-token is the token. It is mounted by
+# the Secrets Store CSI driver as /var/run/secrets/openova/hf-token. "" mounts
+# nothing.
+hubToken:
+  secretProviderClass: ""
 
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "1Gi"
-    limits:
-      cpu: "4"
-      memory: "4Gi"
-
-  # SecurityContext — non-root. TEI container runs as UID 1000.
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 1000
-    fsGroup: 1000
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-    capabilities:
-      drop: ["ALL"]
-
-  probes:
-    liveness:
-      path: /health
-      initialDelaySeconds: 120
-      periodSeconds: 30
-      timeoutSeconds: 10
-    readiness:
-      path: /health
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-
-# ─── Service ─────────────────────────────────────────────────────────────
-# Two-port Service: 8080 for embeddings, 8081 for reranking.
-# Annotated for bp-llm-gateway discovery — the gateway watches Services
-# tagged with `catalyst.openova.io/llm-gateway-route` and routes
-# inbound /v1/embeddings calls here automatically.
-service:
-  type: ClusterIP
-  annotations:
-    catalyst.openova.io/llm-gateway-route: "embeddings"
-    catalyst.openova.io/llm-gateway-port: "8080"
-
-# ─── ServiceAccount ──────────────────────────────────────────────────────
-serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
-
-# ─── ConfigMap ───────────────────────────────────────────────────────────
-configMap:
-  enabled: true
-  # Extra env vars rendered into the Deployment (sentence-transformers
-  # tunables, HuggingFace cache paths, etc.)
-  extraEnv: {}
-
-# ─── ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
-# TEI exposes Prometheus metrics on /metrics on the embeddings port.
-serviceMonitor:
-  enabled: false
-  interval: "30s"
-  scrapeTimeout: "10s"
-  path: "/metrics"
-  labels: {}
-
-# ─── NetworkPolicy ───────────────────────────────────────────────────────
+# The NetworkPolicy of the release: ingress on the serving port only from
+# gatewayNamespace and from the release's own function test; egress to cluster
+# DNS, and to the model hub on TCP 443 only when hubEgress is true. An hf://
+# source with the policy on and hubEgress false is refused at render: the
+# server could not fetch its model.
 networkPolicy:
-  enabled: false
-  # Namespace where bp-llm-gateway runs (slot 40)
-  llmGatewayNamespace: "ai-runtime"
-  # Allow egress to HuggingFace Hub for model download. Disable on
-  # air-gapped Sovereigns where models are pre-loaded into the PVC.
-  allowHuggingfaceEgress: true
+  enabled: true
+  gatewayNamespace: model-gateway
+  hubEgress: false
 
-# ─── HorizontalPodAutoscaler — DEFAULT FALSE ─────────────────────────────
-# BGE is CPU-bound and stateless, so HPA scales linearly with load.
-# Per-Sovereign overlays enable on multi-tenant Sovereigns.
-hpa:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 6
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
+# The function test (templates/tests/function-test.yaml). timeoutSeconds is the
+# bound T of docs/RUNBOOKS.md section 4.5; the kit slot states it.
+functionTest:
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+  timeoutSeconds: 300

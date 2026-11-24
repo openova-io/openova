@@ -253,56 +253,31 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-bge",
     "slug": "bge",
-    "title": "BGE Embeddings + Reranker",
-    "summary": "BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.",
+    "title": "Embeddings and reranker",
+    "summary": "One CPU server for one embedding model and at most one reranker, reached only through the platform's model gateway.",
     "icon": "bge.svg",
     "tagline": null,
     "tags": [
       "embeddings",
       "reranker",
       "rag",
-      "sentence-transformers",
       "ai"
     ],
     "visibility": "listed",
     "class": "ai-service",
     "lifecycle": "experimental",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
     "topology": {
       "supported": [
-        "active-active",
         "singleton"
       ],
-      "multiRegion": "active-active",
+      "multiRegion": "singleton",
       "singleRegion": "singleton",
       "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
         "singleton": {
           "replication": null,
           "switchover": null,
@@ -318,7 +293,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         }
       }
     },
-    "hasUserUIEndpoint": true
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-catalyst-edge-routes",
@@ -398,7 +373,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.4.2315",
+    "version": "1.4.2320",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2091,7 +2066,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.60",
+    "version": "1.0.61",
     "depends": [],
     "shareable": false,
     "contextSchema": null,

@@ -1,0 +1,28 @@
+{
+  "allow": [],
+  "counts": {
+    "policy_exempt_namespaces": {
+      "catalyst": 1,
+      "cert-manager": 1,
+      "cilium": 1,
+      "cilium-gateway": 1,
+      "cnpg": 1,
+      "crossplane-system": 1,
+      "dragonfly": 1,
+      "falco": 1,
+      "flux-system": 1,
+      "ingress": 1,
+      "kube-system": 1,
+      "kyverno": 1,
+      "monitoring": 1,
+      "openova-system": 1,
+      "org-services": 1,
+      "powerdns": 1,
+      "powerdns-admin": 1,
+      "shared-data": 1,
+      "sso-bridge": 1,
+      "trivy-system": 1
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

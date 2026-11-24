@@ -1,0 +1,106 @@
+{{- /*
+Function test of bp-bge (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It sends one text to POST /v1/embeddings of the release's Service, for the
+embedding model embedding.servedName, and passes when the answer holds a
+vector of exactly embedding.dimensions numbers. It sends no credential and
+writes nothing. It renders only when the chart renders its workloads (home and
+enabled both true).
+
+The release's network policy (templates/networkpolicy.yaml) selects this Pod
+too: it lets the Pod reach cluster DNS and the server's port, and lets the
+server admit it. The Pod's name label differs from the server's, so the
+Service never selects it.
+
+The image is the kubectl image the kit already pulls, which carries curl and
+jq; functionTest.image overrides it. The server fetches and loads its models
+after the install, so the test waits: it asks GET /health every 5 seconds
+until 60 seconds before its bound T, and fails naming the health route when
+the server has not answered 200 by then. T is functionTest.timeoutSeconds, the
+Pod's activeDeadlineSeconds; the kit states the install timeout of its release
+there; without it T is 300. The script never writes two dollar signs in a row:
+Kubernetes turns them into one in a container's args before the shell reads
+them.
+*/ -}}
+{{- if include "bp-bge.serving" . }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 60 }}
+{{- $root := printf "http://%s.%s.svc.cluster.local:%v" (include "bp-bge.fullname" .) .Release.Namespace .Values.port }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}-function-test
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: {{ $bound }}
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  containers:
+    - name: function-test
+      image: {{ $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: BASE_URL
+          value: {{ printf "%s/v1" $root | quote }}
+        - name: HEALTH_URL
+          value: {{ printf "%s/health" $root | quote }}
+        - name: MODEL
+          value: {{ .Values.embedding.servedName | quote }}
+        - name: DIMENSIONS
+          value: {{ int .Values.embedding.dimensions | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          step="the wait for GET ${HEALTH_URL}"
+          trap 'fail "the bound of {{ $bound }} seconds ended during ${step}"' TERM
+          code=""
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
+            code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "${HEALTH_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "the server did not answer GET ${HEALTH_URL} with 200 within {{ $wait }} seconds (last: ${code:-none} $(head -c 200 /tmp/error 2>/dev/null))"
+          step="POST ${BASE_URL}/embeddings"
+          body="$(jq -cn --arg m "${MODEL}" '{model: $m, input: ["function test of bp-bge"]}')"
+          code="$(curl -sS --max-time 60 -o /tmp/answer -w '%{http_code}' -H 'Content-Type: application/json' -d "${body}" "${BASE_URL}/embeddings" 2>/tmp/error)" || fail "POST ${BASE_URL}/embeddings failed: $(head -c 200 /tmp/error)"
+          [ "${code}" = "200" ] || fail "POST ${BASE_URL}/embeddings answered ${code}: $(head -c 200 /tmp/answer)"
+          n="$(jq -r '.data[0].embedding | if type == "array" and all(type == "number") then length else "none" end' /tmp/answer 2>/dev/null)" || n="none"
+          [ "${n}" = "${DIMENSIONS}" ] || fail "${MODEL} returned a vector of ${n} numbers, not ${DIMENSIONS}"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} ${MODEL} returned a vector of ${DIMENSIONS} numbers"
+  volumes:
+    - name: tmp
+      emptyDir:
+        sizeLimit: 16Mi
+{{- end }}
