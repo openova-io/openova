@@ -48,7 +48,7 @@ import { resolveApplications, reverseDependencies, findApplication, type Applica
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
-import { findComponent } from '@/pages/wizard/steps/componentGroups'
+import { findComponent } from '@/shared/lib/kitComponents'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { PATTERN_NOT_REPORTED } from '@/shared/lib/placement'
 import { useSession } from '@/shared/lib/useSession'

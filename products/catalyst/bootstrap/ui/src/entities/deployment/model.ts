@@ -1,4 +1,4 @@
-import { computeDefaultSelection } from '@/pages/wizard/steps/componentGroups'
+import { KIT_COMPONENT_IDS } from '@/shared/lib/kitComponents'
 
 // Re-export the branded `DeploymentID` (and helpers) so existing
 // imports from `@/entities/deployment/model` continue to work and
@@ -226,7 +226,6 @@ export interface WizardState {
    *  Review step so operators can sanity-check what they're about to
    *  apply. */
   sshFingerprint: string
-  componentGroups: Record<string, string[]>
   componentsAppliedForProfile: string | null
   /**
    * Selected Blueprints from the unified marketplace card grid in
@@ -463,73 +462,6 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
   solo: ['Region 1'],
 }
 
-/** Base defaults: all M + all R in required blocks; optional blocks empty */
-export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
-  pilot:    ['flux', 'crossplane', 'gitea', 'vcluster'],
-  // UAT row W5 / #5575: `envoy` and `frpc` dropped. This table is a SECOND
-  // component catalog — it seeds INITIAL_WIZARD_STATE.componentGroups — and
-  // nothing validated it against componentGroups.ts, so removing the cards
-  // alone would still have left both ids pre-selected on every fresh wizard
-  // run. componentGroups.catalog-integrity.5575.test.ts now cross-checks
-  // this table too.
-  spine:    ['cilium', 'powerdns', 'external-dns', 'netbird'],
-  surge:    ['vpa', 'reloader', 'continuum'],
-  silo:     ['seaweedfs', 'velero', 'harbor'],
-  guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'sigstore', 'keycloak'],
-  insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo'],
-  fabric:   [],
-  cortex:   [],
-  relay:    [],
-}
-
-/**
- * Profile-based defaults — adjusts optional block recommendations based on
- * org industry, compliance requirements, and size.
- */
-export function getProfileDefaults(
-  orgIndustry: string,
-  orgCompliance: string[],
-  orgSize: string,
-): Record<string, string[]> {
-  const ind  = orgIndustry.toLowerCase()
-  const comp = orgCompliance.map(c => c.toLowerCase())
-
-  const isFinancial  = /financ|bank|insur|fintech/.test(ind)
-  const isHealthcare = /health|pharma|life sci|medical/.test(ind)
-  const isTech       = /tech|software|saas|cloud|it services/.test(ind)
-  const isRetail     = /retail|commerce|ecomm/.test(ind)
-  const isLarge      = /10[,.]?000|50[,.]?000|100[,.]?000/.test(orgSize)
-  // NOTE: `hasAuditComp` (comp matches pci dss / hipaa / soc 2 / iso 27001 /
-  // gdpr) lived here until #5979 removed the strongSwan rule below — its only
-  // consumer. It was left behind unread, which is a `tsc` TS6133 error under
-  // this project's `noUnusedLocals`, and it broke `npm run build` (and so the
-  // catalyst-ui image) on every main push from 05d3f639c onward. Re-introduce
-  // it together with the rule that reads it, not before.
-
-  const defaults: Record<string, string[]> = { ...DEFAULT_COMPONENT_GROUPS }
-
-  // FABRIC: data-heavy and regulated industries
-  if (isFinancial || isHealthcare || isRetail || isLarge || comp.includes('gdpr')) {
-    defaults.fabric = ['cnpg', 'valkey']
-  }
-
-  // CORTEX: AI/tech companies and large enterprises
-  if (isTech || isLarge) {
-    defaults.cortex = ['kserve', 'knative', 'axon']
-  }
-
-  // RELAY: keep opt-in; no profile auto-enables it
-
-  // The strongSwan IPsec profile rule is REMOVED, not re-pointed — UAT row
-  // W5 / #5575. `strongswan` resolved to no Blueprint, so for a financial /
-  // healthcare / audit-bound org this rule silently pre-selected an IPsec
-  // gateway that could never be installed: the profile most likely to
-  // actually need site-to-site VPN was the one handed a card that deploys
-  // nothing. Re-add the rule when a bp-strongswan exists.
-
-  return defaults
-}
-
 export const INITIAL_WIZARD_STATE: WizardState = {
   orgName: ORG_DEFAULTS.name, orgDomain: ORG_DEFAULTS.domain, orgEmail: ORG_DEFAULTS.email,
   orgIndustry: ORG_DEFAULTS.industry, orgSize: ORG_DEFAULTS.size,
@@ -557,7 +489,6 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   objectStorageRegion: '', objectStorageAccessKey: '', objectStorageSecretKey: '',
   objectStorageValidated: false,
   sshPublicKey: '', sshKeyGeneratedThisSession: false, sshPrivateKeyOnce: '', sshFingerprint: '',
-  componentGroups: { ...DEFAULT_COMPONENT_GROUPS },
   componentsAppliedForProfile: null,
   // Empty by default — the user opts in to marketplace Blueprints in
   // StepComponents. Mandatory infra (bp-cilium, bp-flux, bp-crossplane, ...)
@@ -579,7 +510,7 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // hardcoded class would be wrong for whichever provider the operator
   // ends up picking. The StepProvider override input fills it on demand.
   storageClass: '',
-  haEnabled: false, selectedComponents: [...computeDefaultSelection()].sort(),
+  haEnabled: false, selectedComponents: [...KIT_COMPONENT_IDS],
   // Marketplace mode (issue #710 wave 3a) — DEFAULT ON for D27 zero-touch.
   // Founder ruling 2026-05-16: a Sovereign is provisioned ready to host
   // hosted Organizations (D27-D31). Operator can still flip the toggle

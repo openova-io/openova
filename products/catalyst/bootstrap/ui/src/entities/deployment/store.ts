@@ -4,7 +4,6 @@ import {
   type WizardState,
   INITIAL_WIZARD_STATE,
   type Region,
-  type SelectedComponent,
   type CloudProvider,
   type NodeSize,
   type TopologyTemplate,
@@ -14,46 +13,11 @@ import {
   WIZARD_PERSIST_VERSION,
 } from './model'
 import { parseDeploymentID } from '@/shared/types/deployment'
-import {
-  findComponent,
-  findProduct,
-  isMandatory as isMandatoryComponent,
-  resolveTransitiveDependencies,
-  resolveTransitiveDependents,
-  resolveProductComponentClosure,
-  componentsByProduct,
-  productByComponent,
-  MANDATORY_COMPONENT_IDS,
-  computeDefaultSelection,
-} from '@/pages/wizard/steps/componentGroups'
+import { KIT_COMPONENT_IDS } from '@/shared/lib/kitComponents'
 
-/**
- * Normalise any caller-supplied component list (legacy SelectedComponent[]
- * records OR plain string[]) to a sorted, de-duplicated string[]. The
- * marketplace-style wizard stores ids only and treats the catalog as the
- * single source of truth for tier / description / dependency metadata.
- */
-function normaliseComponentIds(input: unknown): string[] {
-  if (!Array.isArray(input)) return []
-  const ids = input
-    .map((entry) => {
-      if (typeof entry === 'string') return entry
-      if (entry && typeof entry === 'object' && 'id' in entry) {
-        return String((entry as { id: unknown }).id)
-      }
-      return null
-    })
-    .filter((v): v is string => !!v)
-  return [...new Set(ids)].sort()
-}
-
-/**
- * Initial selection at first wizard run: every mandatory + recommended
- * component plus their transitive deps. Persisted state overrides this on
- * subsequent runs (see merge() below).
- */
+/** The selection: every kit release. The wizard installs every ring and has no selection. */
 function computeInitialComponentSelection(): string[] {
-  return [...computeDefaultSelection()].sort()
+  return [...KIT_COMPONENT_IDS]
 }
 
 interface WizardActions {
@@ -138,54 +102,15 @@ interface WizardActions {
   setAirgap: (airgap: boolean) => void
 
   // Step 5 — Components
-  setGroupComponents: (groupId: string, componentIds: string[]) => void
-  toggleGroupComponent: (groupId: string, componentId: string, allIds: string[]) => void
   setComponentsAppliedForProfile: (hash: string | null) => void
   /** Toggle a Blueprint in the unified marketplace card grid (StepComponents). */
   toggleBlueprint: (blueprintId: string) => void
   /** Replace the entire selectedBlueprints list (e.g. when a preset is picked). */
   setSelectedBlueprints: (ids: string[]) => void
 
-  // Step 5 — Corporate platform components (the 60+ catalog)
-  /**
-   * Add a component to the selection. Cascades: every transitive dep listed
-   * in componentGroups.ts is added too. Idempotent — re-adding an
-   * already-selected id is a no-op. Returns the new sorted selection.
-   */
-  addComponent: (id: string) => void
-  /**
-   * Remove a component from the selection. Cascades: every component that
-   * (transitively) depends on it is removed too. Mandatory components
-   * cannot be removed — call is a no-op. Idempotent. Returns the new
-   * sorted selection.
-   */
-  removeComponent: (id: string) => void
-  /** Replace the entire component selection (used by tests + presets). */
-  setSelectedComponents: (ids: string[]) => void
-  /** Reset the component selection back to "all mandatory + all recommended + their deps". */
+  // Step 5 — the kit releases (read-only in the wizard)
+  /** Reset the component selection back to every kit release. */
   resetSelectedComponentsToDefault: () => void
-
-  /**
-   * Add an entire product family — every component in the product, every
-   * component in transitively-reached `familyDependencies` products, plus
-   * every component-level transitive dep of those. Idempotent: no-op for
-   * products already fully selected.
-   *
-   * Used by the "Select entire product" header CTA in StepComponents and
-   * indirectly when cascading from a single component pulls its full
-   * product family in (see addComponent → product cascade).
-   */
-  addProduct: (productId: string) => void
-
-  /**
-   * Remove an entire product family — every NON-mandatory component in the
-   * product. Mandatory components are protected even when the operator
-   * chooses "Remove product" (they're foundational infra). Components
-   * outside the product that aren't mandatory but transitively depend on
-   * one of the product's components are also dropped (cascade-remove
-   * semantics, mirrored after `removeComponent`).
-   */
-  removeProduct: (productId: string) => void
 
   // Step 7 — Provisioning result (captured by SSE done event)
   setLastProvisionResult: (result: ProvisionResult | null) => void
@@ -207,9 +132,6 @@ interface WizardActions {
   // partial so callers can edit one field at a time.
   setMarketplaceEnabled: (enabled: boolean) => void
   setMarketplaceBrand: (brand: Partial<MarketplaceBrand>) => void
-
-  toggleComponent: (component: SelectedComponent) => void
-  setComponents: (components: SelectedComponent[]) => void
 }
 
 type WizardStore = WizardState & WizardActions
@@ -487,26 +409,8 @@ export const useWizardStore = create<WizardStore>()(
 
         setAirgap: (airgap) => set({ airgap }, false, 'wizard/setAirgap'),
 
-        setGroupComponents: (groupId, componentIds) =>
-          set(
-            (s) => ({ componentGroups: { ...s.componentGroups, [groupId]: componentIds } }),
-            false,
-            'wizard/setGroupComponents'
-          ),
         setComponentsAppliedForProfile: (componentsAppliedForProfile) =>
           set({ componentsAppliedForProfile }, false, 'wizard/setComponentsAppliedForProfile'),
-        toggleGroupComponent: (groupId, componentId, allIds) =>
-          set(
-            (s) => {
-              const current = s.componentGroups[groupId] ?? []
-              const next = current.includes(componentId)
-                ? current.filter((id) => id !== componentId)
-                : [...current, componentId]
-              return { componentGroups: { ...s.componentGroups, [groupId]: allIds.filter((id) => next.includes(id)) } }
-            },
-            false,
-            'wizard/toggleGroupComponent'
-          ),
         toggleBlueprint: (blueprintId) =>
           set(
             (s) => ({
@@ -548,152 +452,6 @@ export const useWizardStore = create<WizardStore>()(
             (s) => ({ marketplaceBrand: { ...s.marketplaceBrand, ...brand } }),
             false,
             'wizard/setMarketplaceBrand',
-          ),
-
-        toggleComponent: (component) =>
-          // Legacy action — kept for back-compat with any old call site that
-          // hands a SelectedComponent record. Internally we just toggle the
-          // id in the new string[] selectedComponents form.
-          set(
-            (s) => {
-              const has = s.selectedComponents.includes(component.id)
-              return {
-                selectedComponents: has
-                  ? s.selectedComponents.filter((id) => id !== component.id)
-                  : [...s.selectedComponents, component.id].sort(),
-              }
-            },
-            false,
-            'wizard/toggleComponent'
-          ),
-        setComponents: (selectedComponents) =>
-          // Legacy: accept either string[] or SelectedComponent[] and
-          // normalise to string[]. Empty arrays come through unchanged.
-          set(
-            { selectedComponents: normaliseComponentIds(selectedComponents as unknown) },
-            false,
-            'wizard/setComponents',
-          ),
-
-        addComponent: (id) =>
-          set(
-            (s) => {
-              if (s.selectedComponents.includes(id)) return s
-              const comp = findComponent(id)
-              if (!comp) return s
-              const next = new Set(s.selectedComponents)
-              next.add(id)
-              for (const dep of resolveTransitiveDependencies(id)) {
-                next.add(dep)
-              }
-              // Product-family cascade — issue #175 fix B. Walk only the
-              // ids newly-added by this addComponent call (the seed plus
-              // its component-level deps). For each, if its owning
-              // product has `cascadeOnMemberSelection: true`, pull in
-              // the rest of that product (and every product reached via
-              // familyDependencies). Iterates so a chain like
-              // <out-of-family seed> → BGE → CORTEX (BGE belongs to
-              // CORTEX, which cascades the rest of CORTEX) resolves in
-              // one pass. Specter was that seed until its card was
-              // removed under UAT row W5 / #6183.
-              //
-              // Restricting to NEWLY-added ids avoids spurious cascades
-              // from mandatory cross-product members that were already
-              // selected — e.g. KServe is mandatory in CORTEX, so a
-              // pre-existing selection containing KServe must NOT cause
-              // every subsequent addComponent call to drag CORTEX in.
-              //
-              // Per operator intent (issue #175) CORTEX is the only
-              // product flagged for member-selection cascade today: "BGE
-              // alone doesn't have much meaning unless we have Cortex."
-              const before = new Set(s.selectedComponents)
-              const queue: string[] = [...next].filter((cid) => !before.has(cid))
-              while (queue.length > 0) {
-                const cid = queue.shift()!
-                const owner = productByComponent(cid)
-                if (
-                  owner &&
-                  owner.tier !== 'mandatory' &&
-                  owner.cascadeOnMemberSelection
-                ) {
-                  for (const member of resolveProductComponentClosure(owner.id)) {
-                    if (!next.has(member)) {
-                      next.add(member)
-                      // Newly-added — recurse so its product (if any
-                      // with cascadeOnMemberSelection) triggers too.
-                      queue.push(member)
-                    }
-                  }
-                }
-              }
-              return { selectedComponents: [...next].sort() }
-            },
-            false,
-            'wizard/addComponent',
-          ),
-
-        addProduct: (productId) =>
-          set(
-            (s) => {
-              const p = findProduct(productId)
-              if (!p) return s
-              const next = new Set(s.selectedComponents)
-              for (const cid of resolveProductComponentClosure(productId)) {
-                next.add(cid)
-              }
-              return { selectedComponents: [...next].sort() }
-            },
-            false,
-            'wizard/addProduct',
-          ),
-
-        removeProduct: (productId) =>
-          set(
-            (s) => {
-              const p = findProduct(productId)
-              if (!p) return s
-              const drop = new Set<string>()
-              for (const c of componentsByProduct(productId)) {
-                if (c.tier === 'mandatory') continue
-                drop.add(c.id)
-                // Cascade — anything that depends on this component must
-                // also leave (mirrors removeComponent behavior).
-                for (const dep of resolveTransitiveDependents(c.id)) {
-                  if (!isMandatoryComponent(dep)) drop.add(dep)
-                }
-              }
-              if (drop.size === 0) return s
-              return {
-                selectedComponents: s.selectedComponents.filter((cid) => !drop.has(cid)).sort(),
-              }
-            },
-            false,
-            'wizard/removeProduct',
-          ),
-
-        removeComponent: (id) =>
-          set(
-            (s) => {
-              if (isMandatoryComponent(id)) return s
-              if (!s.selectedComponents.includes(id)) return s
-              const drop = new Set<string>([id, ...resolveTransitiveDependents(id)])
-              // Mandatory deps cannot be removed even via cascade — guard.
-              for (const d of [...drop]) {
-                if (isMandatoryComponent(d) && d !== id) drop.delete(d)
-              }
-              return {
-                selectedComponents: s.selectedComponents.filter((cid) => !drop.has(cid)).sort(),
-              }
-            },
-            false,
-            'wizard/removeComponent',
-          ),
-
-        setSelectedComponents: (ids) =>
-          set(
-            { selectedComponents: normaliseComponentIds(ids) },
-            false,
-            'wizard/setSelectedComponents',
           ),
 
         resetSelectedComponentsToDefault: () =>
@@ -882,25 +640,9 @@ export const useWizardStore = create<WizardStore>()(
           // accidentally retained them.
           p.sshPrivateKeyOnce = ''
           p.sshKeyGeneratedThisSession = false
-          // Coerce selectedComponents from any legacy shape (SelectedComponent[]
-          // records, undefined) to a sorted string[]. Always ensure mandatory
-          // components are present — they cannot be opted out of.
-          {
-            const ids = normaliseComponentIds(p.selectedComponents as unknown)
-            const present = new Set(ids)
-            // First-run fallback: if persisted state is empty, seed with
-            // default selection (all mandatory + all recommended + deps).
-            if (ids.length === 0) {
-              for (const id of computeInitialComponentSelection()) present.add(id)
-            } else {
-              for (const id of MANDATORY_COMPONENT_IDS) present.add(id)
-            }
-            // Drop any persisted ids that no longer exist in the catalog.
-            for (const id of [...present]) {
-              if (!findComponent(id)) present.delete(id)
-            }
-            p.selectedComponents = [...present].sort()
-          }
+          // The selection is every kit release, whatever a persisted draft
+          // named: the wizard installs every ring and has no selection.
+          p.selectedComponents = computeInitialComponentSelection()
           // Re-validate the persisted deploymentId against the branded
           // shape (issues #749 + #754). A legacy localStorage payload
           // could carry a malformed value (truncated id, uppercased,
@@ -922,35 +664,9 @@ export const useWizardStore = create<WizardStore>()(
               }
             }
           }
-          // Strip old component group IDs — replaced by pilot/spine/surge/silo/guardian/insights/fabric/cortex/relay
-          const validGroupIds = ['pilot','spine','surge','silo','guardian','insights','fabric','cortex','relay']
-          if (p.componentGroups) {
-            const migrated: Record<string, string[]> = {}
-            for (const [k, v] of Object.entries(p.componentGroups)) {
-              if (validGroupIds.includes(k)) {
-                // Migrate minio → seaweedfs, then drop any id with no
-                // ComponentDef — the SAME rule the selectedComponents block
-                // above already applies, which this map was missing.
-                //
-                // StepReview reads BOTH: `selectedComponentEntries` resolves
-                // each id through findComponent() and skips the misses, while
-                // the section header counts the raw array length. So a
-                // retired id survives here as a count with no card behind it
-                // — the exact counter-vs-cards inconsistency UAT row W5
-                // asserts against, arriving from localStorage rather than
-                // from source. Live for every id #5575 retired (envoy, frpc,
-                // strongswan, superset, ntfy) and for `specter` from #6183.
-                migrated[k] = (v as string[])
-                  .map(id => id === 'minio' ? 'seaweedfs' : id)
-                  .filter(id => !!findComponent(id))
-              }
-            }
-            // Ensure vcluster is in pilot defaults
-            if (migrated.pilot && !migrated.pilot.includes('vcluster')) {
-              migrated.pilot = [...migrated.pilot, 'vcluster']
-            }
-            p.componentGroups = migrated
-          }
+          // The product families are gone: the family map (componentGroups) of a
+          // persisted draft is dropped, not carried into the state.
+          delete (p as Record<string, unknown>).componentGroups
           return { ...current, ...p }
         },
       }
