@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T14:00:03Z` |
+| Last refreshed | `2026-11-24T14:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
 | 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:37 | [#8775](https://github.com/openova-io/openova/pull/8775) | #7087 | docs(ledger): plan update |
 | 2026-11-24T11:52 | [#8773](https://github.com/openova-io/openova/pull/8773) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T09:43 | [#8739](https://github.com/openova-io/openova/pull/8739) | #8734 | refactor(wizard): the component step shows the generated kit |
 | 2026-11-24T06:54 | [#8738](https://github.com/openova-io/openova/pull/8738) | #8729 | chore(crds): keep the one Continuum definition file in the C |
 | 2026-11-24T06:27 | [#8735](https://github.com/openova-io/openova/pull/8735) | #7087 | docs(ledger): plan update |
-| 2026-11-24T06:42 | [#8733](https://github.com/openova-io/openova/pull/8733) | #8728 | test(gate): check CMP-G02 is required now that the pinned ca |
 
 ---
 
