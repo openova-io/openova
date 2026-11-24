@@ -791,7 +791,7 @@ checks:
 - id: CMP-G01
   title: The score moves by push
   owner: CMP
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
