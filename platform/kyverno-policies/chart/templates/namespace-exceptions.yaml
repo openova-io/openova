@@ -1,0 +1,15 @@
+{{- /*
+namespace-exceptions.yaml - the one namespace whose PolicyException objects the
+engine honours (CMP-061). The engine chart (bp-kyverno) sets
+features.policyExceptions.namespace to this name under its `kyverno:` key; an
+exception in any other namespace is accepted by the API with a warning and has
+no effect (spike CMP-S1). The namespace holds exceptions only, never a workload.
+*/ -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-policy-exceptions
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: policy-exceptions
+    pod-security.kubernetes.io/enforce: restricted
