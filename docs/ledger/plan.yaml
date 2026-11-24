@@ -5180,7 +5180,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CTL-800, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -14095,7 +14095,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -14128,7 +14128,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -14161,7 +14161,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -15760,7 +15760,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -15915,7 +15915,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -16070,7 +16070,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-750, NET-252, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -23448,16 +23448,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/CTL-170.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CTL-170.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/CTL-170.md | cut -d' ' -f1 | grep -qx 7d623ae30091c165cd5fb7c560cd555c782a096b0a7a3d48170b9dc35e6d5747"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A yes/no answer whether any reader uses a follower region's chart-seeded Application, selecting variant A or B of CTL-174
+  delivers: The repository holds the result of the inspection of where the chart-seeded platform Applications live and who reads them, with the answer that no reader uses the chart-seeded Application of a follower region, which selects variant A of CTL-174.
 - id: CTL-172
   title: Platform charts take placement from values
   area: CTL
@@ -25588,7 +25588,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055]
-  after: [FND-106, FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: []
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
@@ -25596,16 +25596,32 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0027-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0027-region-loss-contract.md | cut -d' ' -f1)\" = 2375180edd7bc720ce89bc72b052e3257e12db270694020308e3392348e772dd && test \"$(ls docs/adr | grep -c '^0027-')\" = 1"
+  - id: A2
+    run: "f=docs/adr/0027-region-loss-contract.md; test \"$(sed -n 3p \"$f\")\" = 'Status: Accepted' && test \"$(sed -n 4p \"$f\")\" = 'Date: 2026-11-24' && test \"$(grep '^Unfreezes: ' \"$f\" | sort | tr '\\n' ' ')\" = 'Unfreezes: application-controller Unfreezes: topology-continuum Unfreezes: topology-journeys Unfreezes: topology-region-git-layout ' && test \"$(grep -c -E '^(Retires-Check|Supersedes|Status):' \"$f\")\" = 1 && test \"$(grep -c '^| R[0-9]' \"$f\")\" = 10 && for n in 1 2 3 4 5 6 7 8 9 10; do test \"$(grep -c \"^| R$n | [*][*][A-Z]\" \"$f\")\" = 1; done && test \"$(grep -c '^## What is open$' \"$f\")\" = 1"
+  - id: A3
+    run: "n=0; for id in $(sed -n 's/^Unfreezes: //p' docs/adr/0027-region-loss-contract.md); do grep -q -x -F \"  - id: $id\" docs/ledger/stability.yaml; n=$((n + 1)); done; echo \"$n entries\"; test \"$n\" = 4"
+  - id: A4
+    run: "test \"$(grep -c -x -F '| [0027](0027-region-loss-contract.md) | Region-loss contract: recovery point and recovery time per data class, a follower Git server with its own database fed by a push mirror, promotion of the writer by one commit fenced by the lease-witness Worker | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '(0027-' docs/adr/README.md)\" = 1 && test \"$(grep -c -x -F '| 0027 | Region-loss contract: recovery point and recovery time per data class | CTL-800 |' docs/adr/README.md)\" = 1 && grep -o '^| \\[[0-9]\\{4\\}\\](' docs/adr/README.md | tr -dc '0-9\\n' | awk '$1 == \"0027\" {seen = 1} NR > 1 && $1 + 0 <= p + 0 {exit 1} {p = $1} END {exit !(seen && NR >= 30)}'"
+  - id: A5
+    run: "n=0; for p in $(grep -o '`\\(docs\\|platform\\|products\\|scripts\\|infra\\|clusters\\|core\\|tests\\)/[^`*<> ]*`' docs/adr/0027-region-loss-contract.md | tr -d '`' | sort -u); do q=$p; ok=0; test -e \"$p\" && ok=1; while [ \"$ok\" = 0 ] && [ -n \"$q\" ]; do grep -q -x -F -e \"$q\" -e \"$q/\" docs/ledger/deleted-paths.txt && ok=1; case \"$q\" in */*) q=${q%/*} ;; *) q= ;; esac; done; test \"$ok\" = 1 || { echo \"missing: $p\"; exit 1; }; n=$((n + 1)); done; echo \"$n paths\"; test \"$n\" -ge 20"
+  - id: A6
+    run: "n=0; for id in $(grep -o -E '\\b[A-Z]{3}-(G[0-9]{2}|[0-9]{3})\\b' docs/adr/0027-region-loss-contract.md | sort -u); do if grep -q -x -F -e \"- id: $id\" docs/ledger/gates.yaml; then n=$((n + 1)); continue; fi; awk -v id=\"$id\" '$0 == \"- id: \" id {f = 1; next} f && /^- id: / {exit} f && $0 == \"  dropped: false\" {ok = 1} END {exit !ok}' docs/ledger/plan.yaml || { echo \"unknown or dropped: $id\"; exit 1; }; n=$((n + 1)); done; echo \"$n identifiers\"; test \"$n\" -ge 12"
+  - id: A7
+    run: "f=docs/adr/0027-region-loss-contract.md; test -s \"$f\" && test \"$(grep -c -i -E '\\bmvp\\b|\\biterat(ion|ions|ive|ively)\\b|\\bout[ _-]of[ _-]scope\\b|\\bblockers?\\b|huawei|hetzner|kom4dc|hcloud|annex' \"$f\")\" = 0"
   rollback: revert
   adr: 27
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Record 0027 from text the ticket carries; the architect writes it with area NET for the mesh part. It holds: recovery point and recovery time per data class as numbers, with recovery in minutes by operator-approved promotion through a Git commit; the follower''s Git copy after the spike; the dr-leases bucket; whether the outside-witness worker is the write lease; lock stage topology; the record shape of per-Application DNS that follows the Primary; what remains of the mesh loop in the API; the package that implements promotion; one Unfreezes line for each topology entry that CTL-810, CTL-815, CTL-816 and CTL-820 touch, and a table of what the lines permit that names each of these packages with its change, as record 0021 has (CTL-816: the Continuum observer serves its region''s serving verdict at GET /v1/serving with read rights on HTTPRoutes and Services, and the application controller asks the peer region''s observer; entries topology-continuum and application-controller).'
+  delivers: Decision record 0027 states the recovery point and recovery time per data class when one region of two is lost, gives the follower region's Git server its own database fed by a push mirror, makes the promotion of a surviving region to writer one Git commit fenced by the lease-witness Worker outside both regions, decides the bucket dr-leases, lock stage topology, the per-Application DNS record and the mesh loop of the API, carries one Unfreezes line for each of four topology entries with a table of what each permits, and is listed in the index in number order.
 - id: CTL-810
   title: Delete the legacy promoter and failback templates
   area: CTL
@@ -26003,11 +26019,12 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-020]
-  after: [FND-094, SOV-190, SVC-040, SVC-180]
+  after: []
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/lib/compliance.api.ts
   - products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx
+  - products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.test.tsx
   - products/catalyst/bootstrap/ui/src/app/router.tsx
   - products/catalyst/bootstrap/ui/e2e/compliance-dashboards.spec.ts
   - docs/ledger/deleted-paths.txt
@@ -26015,16 +26032,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files products/catalyst/bootstrap/ui/src/pages/admin/compliance | grep -c SecLeadDashboardPage.tsx"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/ui && npm ci --no-audit --no-fund > /dev/null && npm run typecheck > /dev/null && o=\"$(NO_COLOR=1 npx vitest run src/pages/admin/compliance --reporter=verbose)\" && test \"$(printf '%s\\n' \"$o\" | grep -cF -e 'asks for the violations of this policy only' -e 'shows the mode from the policy list, read-only' -e 'renders no regulatory-framework chip strip')\" = 3"
+  - id: A2
+    run: "test \"$(grep -rlE 'COMPLIANCE_FRAMEWORKS|SecLeadDashboardPage|PolicyModeToggle' products/catalyst/bootstrap/ui/src | wc -l)\" = 0"
+  - id: A3
+    run: "test \"$(grep -c 'PCI DSS' products/catalyst/bootstrap/ui/src/pages/admin/compliance/compliance.api.ts)\" = 0"
+  - id: A4
+    run: "test \"$(grep -cE \"path: '/(admin/compliance/security|sec/compliance)'\" products/catalyst/bootstrap/ui/src/app/router.tsx)\" = 0 && test \"$(grep -cF -e \"path: '/sre/compliance'\" -e \"path: '/compliance/policy/\" -e \"path: '/compliance/runtime'\" -e \"path: '/admin/compliance/sre'\" -e \"path: '/admin/compliance/policy/\" -e \"path: '/admin/compliance/runtime'\" products/catalyst/bootstrap/ui/src/app/router.tsx)\" = 7"
+  - id: A5
+    run: "test \"$(grep -cE \"^  test\\('U[0-9]:\" products/catalyst/bootstrap/ui/e2e/compliance-dashboards.spec.ts)\" = 3 && test \"$(grep -cE 'admin/compliance/security|policy-mode-toggle|PolicyModeToggle' products/catalyst/bootstrap/ui/e2e/compliance-dashboards.spec.ts)\" = 0"
+  - id: A6
+    run: "for p in products/catalyst/bootstrap/ui/src/pages/admin/compliance/SecLeadDashboardPage.tsx products/catalyst/bootstrap/ui/src/pages/admin/compliance/FrameworkFilter.tsx products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.test.tsx; do test ! -e \"$p\"; grep -qxF \"$p\" docs/ledger/deleted-paths.txt; done; python3 scripts/check-repo-hygiene.py paths"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Security Lead page, framework chips, mode toggle and token-only text removed; policies table added; old browser spec trimmed
+  delivers: The sovereign-admin console has no Security Lead page and none of its three routes, no regulatory-framework list or chip strip, and no policy mode toggle; the page of one policy asks the API for the violations of that policy only and shows its mode read-only, and the old browser specification has no case for the deleted page or the toggle.
 - id: CMP-030
   title: 'Package internal/compliance: types and pure score functions'
   area: CMP
@@ -26222,7 +26253,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CTL-360, FND-161]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/**
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
@@ -26255,7 +26286,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-072, CMP-093, CMP-101]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/widgets/compliance/**
@@ -26585,7 +26616,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-036, CMP-041, CMP-052, CMP-071, CMP-S6, CTL-045, CTL-160]
-  after: [FND-011, SOV-190, SVC-040, SVC-180, CTL-231, CTL-320, CTL-345, BSS-040, AIP-120, AIP-227]
+  after: [FND-011, SOV-190, SVC-040, SVC-180, CTL-231, CTL-320, CTL-345, CMP-022, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -26759,7 +26790,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-081, FND-161]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionsTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionDrawer.tsx
@@ -26947,7 +26978,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-091, CMP-092, FND-161]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/security/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/SBOMTab.tsx
@@ -27004,7 +27035,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-320, AIP-111]
+  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-320, CMP-022, AIP-111]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -27080,7 +27111,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-111, NET-212]
-  after: [FND-011, SOV-190, SVC-040, SVC-041, SVC-180]
+  after: [FND-011, SOV-190, SVC-040, SVC-041, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/continuity.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -27179,7 +27210,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-121, FND-161]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworksTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
@@ -27243,7 +27274,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-300, CTL-320, AIP-111, AIP-120]
+  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, CTL-300, CTL-320, CMP-022, AIP-111, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -27313,7 +27344,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-091, CMP-101, CMP-111, CTL-150, FND-151]
-  after: [SOV-190, SVC-040, SVC-180]
+  after: [SOV-190, SVC-040, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -31258,7 +31289,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [AIP-226, AIP-227]
-  after: [SOV-190, SVC-180]
+  after: [SOV-190, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/ops/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35372,7 +35403,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [MIG-151, CTL-360, MIG-102]
-  after: [SOV-190, SVC-180]
+  after: [SOV-190, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/sources/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/plans/**
@@ -35401,7 +35432,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-152]
-  after: [SOV-190, SVC-180]
+  after: [SOV-190, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/migrations/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35428,7 +35459,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-147, MIG-153]
-  after: [SOV-190, SVC-180]
+  after: [SOV-190, SVC-180, CMP-022]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/extensions/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -35924,7 +35955,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-232, CTL-233]
-  after: [SOV-190, SOV-322, SVC-040, SVC-180, CTL-045, CTL-340, CTL-345, BSS-040, AIP-120, AIP-227]
+  after: [SOV-190, SOV-322, SVC-040, SVC-180, CTL-045, CTL-340, CTL-345, CMP-022, BSS-040, AIP-120, AIP-227]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/shells_issue.go
   - products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go
@@ -36348,7 +36379,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [ACC-121, CTL-360]
-  after: [SOV-190, SEC-103, SVC-180, ACC-050]
+  after: [SOV-190, SEC-103, SVC-180, CMP-022, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/access/
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -36632,7 +36663,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [ACC-122, ACC-203]
-  after: [FND-088, SOV-190, SVC-180, CTL-345, BSS-040, AIP-227]
+  after: [FND-088, SOV-190, SVC-180, CTL-345, CMP-022, BSS-040, AIP-227]
   touches:
   - core/controllers/access/internal/review/action.go
   - core/controllers/access/internal/broker/sessions.go
