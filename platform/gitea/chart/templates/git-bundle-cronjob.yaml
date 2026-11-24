@@ -1,0 +1,203 @@
+{{- /*
+FND-184: scheduled Git bundles of every repository of this Gitea (decision
+record 0036, B1 Git row, B3 and B5). An installation that names the
+Sovereign's bucket (gitBundle.objectStore.bucket) gets one CronJob; it must
+then also give the bucket's endpoint and the Secret in this namespace that
+holds the bucket's key pair (gitBundle.objectStore.secretName, keys
+s3-access-key, s3-secret-key and s3-region, the keys of the Sovereign's
+object-storage Secret), or the render fails. The chart renders no Secret; that
+Secret is register entry git-bundle-bucket. It renders in the region whose
+Gitea takes the writes only: platformRepos.writerRegionId empty or equal to
+platformRepos.regionId (bootstrap-kit slot 10), as platform-repos-job.yaml.
+
+Each run lists every repository through the API as the site administrator,
+reads the head of each repository's default branch, and for a head that has no
+bundle yet clones the repository and writes `git bundle create --all` to
+git/<owner>/<repository>/<head>.bundle of the bucket. A repository with no
+commit gets no bundle. It then deletes all but the gitBundle.keep newest
+bundles of each repository it listed; a repository deleted from Gitea is not
+listed, so its bundles stay. A schedule, not a poll: a run keeps no state
+between runs. The bucket's key pair and the administrator login reach curl on
+its standard input and git through its environment, never a command line. A
+failed repository fails the run after the others are done.
+*/ -}}
+{{- $gb := .Values.gitBundle | default dict }}
+{{- $os := $gb.objectStore | default dict }}
+{{- $pr := .Values.platformRepos | default dict }}
+{{- if and (ne (toString ($os.bucket | default "")) "") (or (not $pr.writerRegionId) (eq (toString $pr.regionId) (toString $pr.writerRegionId))) }}
+{{- $need := "is required when gitBundle.objectStore.bucket is set (decision record 0036, B1 Git row)" }}
+{{- $endpoint := required (printf "bp-gitea: gitBundle.objectStore.endpoint %s" $need) $os.endpoint }}
+{{- $secret := required (printf "bp-gitea: gitBundle.objectStore.secretName %s" $need) $os.secretName }}
+{{- $keep := int (required (printf "bp-gitea: gitBundle.keep %s" $need) $gb.keep) }}
+{{- if lt $keep 1 }}{{ fail "bp-gitea: gitBundle.keep must be 1 or more" }}{{ end }}
+{{- $svc := printf "%s-http" (ternary .Release.Name (printf "%s-gitea" .Release.Name) (contains "gitea" .Release.Name)) }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-git-bundle
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: git-bundle
+spec:
+  schedule: {{ $gb.schedule | default "*/15 * * * *" | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        # The Job is not an object of the release: Kyverno flux-managed reads this.
+        app.kubernetes.io/managed-by: flux
+        catalyst.openova.io/blueprint: bp-gitea
+        catalyst.openova.io/component: git-bundle
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-gitea
+            catalyst.openova.io/component: git-bundle
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: bundle
+              image: {{ required (printf "bp-gitea: gitBundle.image %s" $need) $gb.image | quote }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              env:
+                - name: GITEA_URL
+                  value: "http://{{ $svc }}.{{ .Release.Namespace }}.svc.cluster.local:3000"
+                - name: BUCKET
+                  value: {{ $os.bucket | quote }}
+                - name: ENDPOINT
+                  value: {{ $endpoint | quote }}
+                - name: KEEP
+                  value: {{ $keep | quote }}
+                - name: HOME
+                  value: /tmp
+                - name: TMPDIR
+                  value: /tmp
+                - name: GIT_TERMINAL_PROMPT
+                  value: "0"
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  admin="${GITEA_ADMIN_DIR:-/etc/gitea-admin}"
+                  store="${OBJECT_STORE_DIR:-/etc/object-storage}"
+                  work="$(mktemp -d)"
+                  auth="$(printf '%s:%s' "$(cat "$admin/username")" "$(cat "$admin/password")" | base64 | tr -d '\n')"
+                  region="$(cat "$store/s3-region")"
+                  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic ${auth}"
+                  log() { echo "[git-bundle] $*"; }
+                  # s3 <method> <key or ?query> [curl options]: path-style, signed with SigV4.
+                  s3() {
+                    m="$1"; p="$2"; shift 2
+                    printf 'user = "%s:%s"\n' "$(cat "$store/s3-access-key")" "$(cat "$store/s3-secret-key")" |
+                      curl -sS -f --max-time 900 -K - --aws-sigv4 "aws:amz:${region}:s3" \
+                        -H 'x-amz-content-sha256: UNSIGNED-PAYLOAD' -X "$m" "$@" "${ENDPOINT%/}/${BUCKET}/${p}"
+                  }
+                  # objects <prefix>: one line "<last modified> <key>" per bundle of the
+                  # repository, the keys <prefix><commit id>.bundle only.
+                  objects() {
+                    s3 GET "?list-type=2&prefix=$(printf '%s' "$1" | sed 's#/#%2F#g')" > "$work/list.xml" || return 1
+                    tr '<' '\n' < "$work/list.xml" |
+                      awk -F'>' -v p="$1" '$1=="Contents"{k="";t=""} $1=="Key"{k=$2} $1=="LastModified"{t=$2}
+                        $1=="/Contents" && index(k,p)==1 && substr(k,length(p)+1) ~ /^[0-9a-f]+\.bundle$/ {print t" "k}' > "$work/objects"
+                  }
+                  has() { awk -v k="$1" '$2==k{f=1} END{exit !f}' "$work/objects"; }
+                  bundle() {
+                    r="$1"; prefix="git/$1/"; url="${GITEA_URL}/$1.git"
+                    out="$(git ls-remote "$url" HEAD)" || return 1
+                    tip="$(printf '%s\n' "$out" | cut -f1 | sed -n 1p)"
+                    if [ -z "$tip" ]; then log "$r: no commit, no bundle"; return 0; fi
+                    objects "$prefix" || return 1
+                    if has "${prefix}${tip}.bundle"; then
+                      log "$r: head $tip has its bundle"
+                    else
+                      rm -rf "$work/mirror" "$work/b.bundle"
+                      git clone -q --mirror "$url" "$work/mirror" || return 1
+                      tip="$(git -C "$work/mirror" rev-parse HEAD)" || return 1
+                      if ! has "${prefix}${tip}.bundle"; then
+                        git -C "$work/mirror" bundle create -q "$work/b.bundle" --all || return 1
+                        git -C "$work/mirror" bundle verify -q "$work/b.bundle" > /dev/null 2>&1 || return 1
+                        s3 PUT "${prefix}${tip}.bundle" -T "$work/b.bundle" > /dev/null || return 1
+                        log "$r: wrote ${prefix}${tip}.bundle"
+                      fi
+                      rm -rf "$work/mirror" "$work/b.bundle"
+                      objects "$prefix" || return 1
+                    fi
+                    sort -r "$work/objects" | tail -n "+$((KEEP + 1))" | cut -d' ' -f2 > "$work/old"
+                    for key in $(cat "$work/old"); do
+                      s3 DELETE "$key" > /dev/null || return 1
+                      log "$r: deleted $key"
+                    done
+                  }
+                  : > "$work/repos"
+                  page=1
+                  while [ "$page" -le 10000 ]; do
+                    code="$(printf 'header = "Authorization: Basic %s"\n' "$auth" |
+                      curl -sS -K - -o "$work/page.json" -w '%{http_code}' --max-time 60 \
+                        "${GITEA_URL}/api/v1/repos/search?limit=50&page=${page}")" || code=000
+                    if [ "$code" != 200 ]; then log "FATAL: the repository list, page $page, answered $code" >&2; exit 1; fi
+                    grep -o '"clone_url":"[^"]*"' "$work/page.json" > "$work/urls" || break
+                    sed -n 's#.*/\([^/]*\)/\([^/"]*\)\.git"$#\1/\2#p' "$work/urls" >> "$work/repos"
+                    page=$((page + 1))
+                  done
+                  sort -u -o "$work/repos" "$work/repos"
+                  total="$(grep -c . "$work/repos" || true)"
+                  failed=0
+                  for r in $(cat "$work/repos"); do
+                    if ! bundle "$r"; then log "$r: FAILED" >&2; failed=$((failed + 1)); fi
+                  done
+                  rm -rf "$work"
+                  log "$total repositories, $failed failed"
+                  [ "$failed" = 0 ]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                - name: gitea-admin
+                  mountPath: /etc/gitea-admin
+                  readOnly: true
+                - name: object-storage
+                  mountPath: /etc/object-storage
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: gitea-admin
+              secret:
+                secretName: {{ .Values.giteaAdmin.secretName | default "gitea-admin-secret" }}
+            - name: object-storage
+              secret:
+                secretName: {{ $secret | quote }}
+                items:
+                  - key: s3-access-key
+                    path: s3-access-key
+                  - key: s3-secret-key
+                    path: s3-secret-key
+                  - key: s3-region
+                    path: s3-region
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ $gb.scratchSizeLimit | default "2Gi" | quote }}
+{{- end }}
