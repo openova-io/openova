@@ -34,17 +34,14 @@ import {
 } from '@/widgets/compliance/scorecardToTreemapNodes'
 import type { ComplianceTreemapNode } from '@/widgets/compliance/ComplianceTreemapNode'
 import {
-  COMPLIANCE_FRAMEWORKS,
   getScorecard,
   normalizeScorecard,
   scoreColor,
   scoreLabel,
   type ColorPalette,
-  type ComplianceFrameworkId,
   type Score,
   type ScorecardResponse,
 } from './compliance.api'
-import { FrameworkFilter } from './FrameworkFilter'
 import { FalcoAlerts } from './FalcoAlerts'
 
 export interface SREDashboardPageProps {
@@ -52,23 +49,11 @@ export interface SREDashboardPageProps {
   disableStream?: boolean
   /** Test seam — bypass React Query with synthetic data. */
   initialDataOverride?: ScorecardResponse
-  /** Test seam — title override (used by Security-Lead reuse). */
-  titleOverride?: string
-  /** Test seam — palette override (Security-Lead uses 'security'). */
-  paletteOverride?: ColorPalette
-  /** Test seam — policy-domain filter (Security-Lead applies one). */
-  policyDomainFilter?: ReadonlySet<string>
-  /** Test seam — sub-route (sre vs security) so navigation knows where it is. */
-  routeKey?: 'sre' | 'security'
 }
 
 export function SREDashboardPage({
   disableStream = false,
   initialDataOverride,
-  titleOverride,
-  paletteOverride,
-  policyDomainFilter,
-  routeKey = 'sre',
 }: SREDashboardPageProps = {}) {
   const { deploymentId: resolved } = useResolvedDeploymentId()
   const deploymentId = resolved ?? ''
@@ -105,35 +90,8 @@ export function SREDashboardPage({
   const [envFilter, setEnvFilter] = useState<string | null>(initialEnvFilter)
   const [resourceFilter, setResourceFilter] = useState<string | null>(initialResourceFilter)
 
-  // C11-009: framework-filter chip set (PCI / ISO27001 / SOC2 / GDPR /
-  // HIPAA / DORA / NIS2 / FedRAMP). Multi-select; the URL accepts a
-  // comma-separated `framework=` deep-link so per-audit views can be
-  // bookmarked. Currently the filter is presentational at the dashboard
-  // level — per-policy framework tagging lands when the Kyverno
-  // policy chart annotates each rule with `compliance.framework=<id>`.
-  const initialFrameworks = (() => {
-    if (typeof window === 'undefined') return new Set<ComplianceFrameworkId>()
-    const raw = new URLSearchParams(window.location.search).get('framework')
-    if (!raw) return new Set<ComplianceFrameworkId>()
-    const validIds = new Set(COMPLIANCE_FRAMEWORKS.map((f) => f.id as string))
-    const out = new Set<ComplianceFrameworkId>()
-    for (const id of raw.split(',').map((s) => s.trim())) {
-      if (validIds.has(id)) out.add(id as ComplianceFrameworkId)
-    }
-    return out
-  })()
-  const [selectedFrameworks, setSelectedFrameworks] = useState<Set<ComplianceFrameworkId>>(initialFrameworks)
-  function toggleFramework(id: ComplianceFrameworkId) {
-    setSelectedFrameworks((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const palette: ColorPalette = paletteOverride ?? 'resilience'
-  const title = titleOverride ?? 'SRE Lead — Compliance Dashboard'
+  const palette: ColorPalette = 'resilience'
+  const title = 'SRE Lead — Compliance Dashboard'
 
   // Cold-start REST fetch (sovereign + rollups). Updates flow via SSE.
   const query = useQuery<ScorecardResponse>({
@@ -193,7 +151,7 @@ export function SREDashboardPage({
   }, [merged, orgFilter, envFilter, resourceFilter])
 
   const treemapNodes: ComplianceTreemapNode[] = useMemo(() => {
-    const perAppNodes = scorecardToTreemapNodes(filteredApps, policyDomainFilter)
+    const perAppNodes = scorecardToTreemapNodes(filteredApps)
     if (perAppNodes.length > 0) return perAppNodes
     // G86b #2633 (2026-06-01): per-app rollups are absent (workloads
     // lack catalyst app labels → enrichResourceState produces 0
@@ -204,7 +162,7 @@ export function SREDashboardPage({
     // placeholder. Per-app rollups remain the primary path — this
     // only fires when they're empty AND categoryScores has data.
     return categoryScoresToTreemapNodes(merged?.categoryScores)
-  }, [filteredApps, policyDomainFilter, merged?.categoryScores])
+  }, [filteredApps, merged?.categoryScores])
 
   // Filter chips dropdown options.
   const orgOptions = useMemo(() => {
@@ -232,7 +190,7 @@ export function SREDashboardPage({
     // Drill into the per-policy U4 page using the first failing policy
     // for this resource. If none, navigate to the policies list view.
     navigate({
-      to: routeKey === 'security' ? '/compliance/policy/$policyName' : '/admin/compliance/policy/$policyName',
+      to: '/admin/compliance/policy/$policyName',
       params: { policyName: policyKey } as never,
     } as never)
   }
@@ -252,8 +210,8 @@ export function SREDashboardPage({
 
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Compliance">
-      <div data-testid={`compliance-dashboard-${routeKey}`} className="mx-auto max-w-7xl px-6 py-4">
-        {/* Breadcrumb (TC-055): Admin > Compliance > SRE | Security */}
+      <div data-testid="compliance-dashboard-sre" className="mx-auto max-w-7xl px-6 py-4">
+        {/* Breadcrumb (TC-055): Admin > Compliance > SRE */}
         <nav
           aria-label="breadcrumb"
           data-testid="compliance-breadcrumb"
@@ -263,9 +221,7 @@ export function SREDashboardPage({
           <span className="mx-1">/</span>
           <span>Compliance</span>
           <span className="mx-1">/</span>
-          <span className="text-[var(--color-text)]">
-            {routeKey === 'security' ? 'Security' : 'SRE'}
-          </span>
+          <span className="text-[var(--color-text)]">SRE</span>
         </nav>
         {/* Page-identity strip (qa-loop iter-16 Fix #168, TC-044 / TC-049
             / TC-053 / TC-055). Mirrors the Fix #161 PR #1362 (AppDetail)
@@ -287,7 +243,7 @@ export function SREDashboardPage({
           data-testid="compliance-page-identity"
           className="mb-2 text-[11px] text-[var(--color-text-dim)]"
         >
-          Admin surface: Compliance — {routeKey === 'security' ? 'Security' : 'SRE'} Lead role.
+          Admin surface: Compliance — SRE Lead role.
           Empty cells render as "No data" placeholders per scoring domain. Live updates stream
           over text/event-stream (SSE). Click any policy tile to drill into{' '}
           /admin/compliance/policy/&lt;policyName&gt; for per-policy violations.
@@ -377,19 +333,6 @@ export function SREDashboardPage({
           </span>
         </div>
 
-        {/* Wave-2 Family-E (C11-009): regulatory-framework chip strip.
-            Multi-select PCI / ISO27001 / SOC2 / GDPR / HIPAA / DORA /
-            NIS2 / FedRAMP — scope the dashboard down to "what's in
-            scope for THIS audit". Renders on BOTH SRE-Lead and
-            Security-Lead surfaces (SecLead reuses this component). */}
-        <div className="mb-4">
-          <FrameworkFilter
-            selected={selectedFrameworks}
-            onToggle={toggleFramework}
-            onClear={() => setSelectedFrameworks(new Set())}
-          />
-        </div>
-
         {/* Treemap */}
         <div
           className="relative rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4"
@@ -444,7 +387,7 @@ export function SREDashboardPage({
             every policy keyed across `merged.applications`, so the
             matrix can assert `/admin/compliance/policy/` is present
             in the DOM without needing a treemap-leaf click first. */}
-        <PolicyDrilldownIndex apps={merged?.applications ?? []} routeKey={routeKey} />
+        <PolicyDrilldownIndex apps={merged?.applications ?? []} />
 
         {/* Legend */}
         <ComplianceLegend palette={palette} />
@@ -572,7 +515,6 @@ function CategoryDataStatus({ apps, categoryScores }: CategoryDataStatusProps) {
 
 interface PolicyDrilldownIndexProps {
   apps: Score[]
-  routeKey: 'sre' | 'security'
 }
 
 /**
@@ -583,14 +525,14 @@ interface PolicyDrilldownIndexProps {
  * the scorecard is empty — emits the URL prefix as a literal so
  * the must_contain check passes on cold-start sovereigns too.
  */
-function PolicyDrilldownIndex({ apps, routeKey }: PolicyDrilldownIndexProps) {
+function PolicyDrilldownIndex({ apps }: PolicyDrilldownIndexProps) {
   const policies = new Set<string>()
   for (const app of apps) {
     const results = (app as Score & { policyResults?: Record<string, unknown> }).policyResults ?? {}
     for (const k of Object.keys(results)) policies.add(k)
   }
   const list = Array.from(policies).sort().slice(0, 12)
-  const prefix = routeKey === 'security' ? '/compliance/policy/' : '/admin/compliance/policy/'
+  const prefix = '/admin/compliance/policy/'
   return (
     <div
       className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-2 text-xs"

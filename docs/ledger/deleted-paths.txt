@@ -213,3 +213,7 @@ platform/openmeter
 platform/catalyst-platform
 platform/llm-gateway
 platform/anthropic-adapter
+products/catalyst/bootstrap/ui/src/pages/admin/compliance/SecLeadDashboardPage.tsx
+products/catalyst/bootstrap/ui/src/pages/admin/compliance/FrameworkFilter.tsx
+products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx
+products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.test.tsx

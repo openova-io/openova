@@ -212,10 +212,11 @@ export async function getPolicies(sovereignId: string): Promise<PoliciesResponse
 
 export async function getViolations(
   sovereignId: string,
-  opts: { app?: string; limit?: number; offset?: number } = {},
+  opts: { app?: string; policy?: string; limit?: number; offset?: number } = {},
 ): Promise<ViolationsResponse> {
   const params = new URLSearchParams()
   if (opts.app) params.set('app', opts.app)
+  if (opts.policy) params.set('policy', opts.policy)
   if (opts.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts.offset !== undefined) params.set('offset', String(opts.offset))
   const qs = params.toString()
@@ -422,48 +423,10 @@ export const SECURITY_DOMAIN_POLICIES: ReadonlySet<string> = new Set([
 
 /* ── Wave-2 Family-E: runtime + supply-chain compliance ─────────────
  *
- * Three additional surfaces wired by compliance_runtime.go:
+ * Two additional surfaces wired by compliance_runtime.go:
  *   - Falco runtime alerts        (C11-008)
  *   - Trivy SBOM + CVE rollups    (C11-010)
- *   - Framework filter catalog    (C11-009)
- *
- * Per docs/INVIOLABLE-PRINCIPLES.md #4 the framework list lives here
- * as a single source of truth so the chip strip + URL deep-link
- * parser + per-app evidence packs all read from the same catalogue.
  */
-
-export type ComplianceFrameworkId =
-  | 'pci'
-  | 'iso27001'
-  | 'soc2'
-  | 'gdpr'
-  | 'hipaa'
-  | 'dora'
-  | 'nis2'
-  | 'fedramp'
-
-export interface ComplianceFramework {
-  id: ComplianceFrameworkId
-  label: string
-  description: string
-}
-
-/**
- * COMPLIANCE_FRAMEWORKS — supported regulatory frameworks. The chip
- * strip (FrameworkFilter) iterates over this list in order. Adding a
- * new framework requires (1) appending here and (2) tagging policy
- * rules with the framework id in the Kyverno chart annotations.
- */
-export const COMPLIANCE_FRAMEWORKS: ReadonlyArray<ComplianceFramework> = [
-  { id: 'pci', label: 'PCI DSS', description: 'Payment Card Industry Data Security Standard v4.0' },
-  { id: 'iso27001', label: 'ISO 27001', description: 'Information security management — ISO/IEC 27001:2022' },
-  { id: 'soc2', label: 'SOC 2', description: 'AICPA SOC 2 Trust Services Criteria (Security/Availability/Confidentiality)' },
-  { id: 'gdpr', label: 'GDPR', description: 'EU General Data Protection Regulation (Reg. 2016/679)' },
-  { id: 'hipaa', label: 'HIPAA', description: 'US Health Insurance Portability and Accountability Act Security Rule' },
-  { id: 'dora', label: 'DORA', description: 'EU Digital Operational Resilience Act (Reg. 2022/2554)' },
-  { id: 'nis2', label: 'NIS 2', description: 'EU Network and Information Security Directive 2 (Dir. 2022/2555)' },
-  { id: 'fedramp', label: 'FedRAMP', description: 'US Federal Risk and Authorization Management Program (Moderate baseline)' },
-]
 
 /* ── Falco runtime alerts (C11-008) ─────────────────────────────── */
 
