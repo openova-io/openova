@@ -37,25 +37,13 @@ func TestGenerateProvisioningTenantRBAC(t *testing.T) {
 		t.Fatalf("expected SA binding to org-services/provisioning, got: %s", got)
 	}
 
-	// #3376: the secrets rule MUST grant create+get+update+patch so the
-	// #4785 dual-namespace kubeconfig mirror (mirrorVClusterKubeconfig) can
-	// upsert tenant-<slug>-kubeconfig INTO this tenant NS (POST, then PUT on
-	// 409). Before this, secrets was read-only here → `create secrets -n
-	// <slug>` 403'd → provisioning failed → no per-Org app ever reconciled.
-	// It must still be least-privilege: NO delete on secrets (the mirror
-	// never removes a tenant secret; teardown deletes only the flux-system
-	// copy, and the tenant-NS copy is GC'd with the namespace).
+	// The secrets rule is read only. The service writes no Secret through the
+	// API: tenant-<slug>-kubeconfig has one producer, the Organization's
+	// boundary tree (the vCluster writes it, bp-reflector copies it into
+	// flux-system), and the service only waits until it is held.
 	secretsVerbs := verbsForResource(got, `resources: ["secrets"]`)
-	if secretsVerbs == "" {
-		t.Fatalf("expected a secrets rule, got: %s", got)
-	}
-	for _, v := range []string{"create", "get", "update", "patch"} {
-		if !strings.Contains(secretsVerbs, `"`+v+`"`) {
-			t.Fatalf("secrets rule must grant %q for the kubeconfig mirror, got: %s", v, secretsVerbs)
-		}
-	}
-	if strings.Contains(secretsVerbs, `"delete"`) {
-		t.Fatalf("secrets rule must NOT grant delete (least-privilege), got: %s", secretsVerbs)
+	if want := `verbs: ["get", "list", "watch"]`; strings.TrimSpace(secretsVerbs) != want {
+		t.Fatalf("secrets rule must be exactly %s (read only), got: %q", want, secretsVerbs)
 	}
 
 	// The vcluster-dns-kick (waitForVclusterDNSOrKick) deletes vcluster-0, so

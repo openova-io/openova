@@ -213,3 +213,4 @@ platform/openmeter
 platform/catalyst-platform
 platform/llm-gateway
 platform/anthropic-adapter
+core/services/provisioning/handlers/kubeconfig_reconciler.go

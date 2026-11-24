@@ -106,16 +106,22 @@ func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
 	}
 	rbac, ok := vc["vcluster/host-apps/"+provisioningRBACDoc]
 	if !ok {
-		t.Fatalf("vcluster tier: missing vcluster/host-apps/%s — provisioning SA can't create the kubeconfig mirror Secret → mirror step 403s and the whole provision aborts (#4991)", provisioningRBACDoc)
+		t.Fatalf("vcluster tier: missing vcluster/host-apps/%s — provisioning SA can't read the kubeconfig Secret or bounce vcluster-0 and the whole provision aborts (#4991)", provisioningRBACDoc)
 	}
 	for _, want := range []string{
 		"kind: Role", "kind: RoleBinding", "name: provisioning-tenant",
 		"namespace: acme", "name: provisioning", "namespace: org-services",
-		"create", "delete",
+		"delete",
+		// The secrets rule is read only: the funnel writes no Secret through
+		// the API; tenant-<slug>-kubeconfig has one producer (region_local.go).
+		"    resources: [\"secrets\"]\n    verbs: [\"get\", \"list\", \"watch\"]\n",
 	} {
 		if !strings.Contains(string(rbac), want) {
 			t.Errorf("provisioning-rbac.yaml missing %q\n%s", want, string(rbac))
 		}
+	}
+	if strings.Contains(string(rbac), "create") {
+		t.Errorf("provisioning-rbac.yaml grants create; the provisioning SA creates nothing in the Organization namespace\n%s", string(rbac))
 	}
 	// host-apps kustomization enumerates BOTH the CNP and the RBAC.
 	hk := string(vc["vcluster/host-apps/kustomization.yaml"])
@@ -146,7 +152,7 @@ func TestRender_ProvisioningRBACAndVclusterTargetNS_4991(t *testing.T) {
 		t.Fatalf("Render(s): %v", err)
 	}
 	if _, ok := hs["vcluster/host-apps/"+provisioningRBACDoc]; !ok {
-		t.Errorf("plan s: provisioning RBAC must be delivered (the SA mirrors the kubeconfig + kicks vcluster-0 in the host ns)")
+		t.Errorf("plan s: provisioning RBAC must be delivered (the SA reads the kubeconfig + kicks vcluster-0 in the host ns)")
 	}
 	if _, ok := hs["vcluster/apps/"+appsNamespaceDoc]; !ok {
 		t.Errorf("plan s: must emit vcluster/apps/namespace.yaml — the kubeConfig-targeted apps Kustomization creates the `bob` namespace INSIDE the vCluster for every Organization (#4991); the removed tier gate used to skip it for s")
