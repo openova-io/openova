@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +18,7 @@ import (
 // (read-before-write existence check) and the PUT (seed write) the #4877
 // reconciler issues. GETs resolve from a canned map keyed by KV data-path
 // ("catalyst/anthropic/token", …); an absent key returns 404 so
-// openbaoPathHasProperty reports the #4877 gap. Every PUT is recorded so a test
+// openbaoPathIsHealthy reports the #4877 gap. Every PUT is recorded so a test
 // can assert exactly which paths the reconciler (re)seeded — and, crucially,
 // that a healthy path is NEVER re-written (no churn).
 type rwKVServer struct {
@@ -90,39 +91,39 @@ func (s *rwKVServer) client() *openbao.Client {
 	return &openbao.Client{Addr: s.srv.URL, Token: "test-token", HTTP: s.srv.Client()}
 }
 
-// Test_openbaoPathHasProperty covers the read-before-write existence check:
-// absent path → false, present-with-value → true, present-but-empty → false.
-func Test_openbaoPathHasProperty(t *testing.T) {
+// Test_openbaoPathIsHealthy_Presence covers the read-before-write existence
+// check with no predicate: absent path → false, present-with-value → true,
+// present-but-empty → false.
+func Test_openbaoPathIsHealthy_Presence(t *testing.T) {
 	srv := newRWKVServer(t)
 	// #6250: an apiKey with an EMPTY credentialsJson is NOT a healthy path —
 	// claude-code authenticates from the OAuth blob. A genuinely all-present
 	// pass needs a credential that can authenticate.
 	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "FAKE-not-a-real-api-key", "credentialsJson": validAnthropicCredentialsJSON()})
-	srv.seedPresent("catalyst/agenity/hollow/mcp-bearer", map[string]any{"bearer": "  "})
+	srv.seedPresent("catalyst/newapi/hollow", map[string]any{"ADMIN_API_TOKEN": "  "})
 
 	h := &Handler{log: silentLogger()}
 	h.openbao = srv.client()
 	ctx := context.Background()
 
 	// Present with a non-empty property.
-	if ok, err := h.openbaoPathHasProperty(ctx, "secret", "catalyst/anthropic/token", "apiKey", "credentialsJson"); err != nil || !ok {
+	if ok, err := h.openbaoPathIsHealthy(ctx, "secret", "catalyst/anthropic/token", []string{"apiKey", "credentialsJson"}, nil); err != nil || !ok {
 		t.Errorf("anthropic present: got (%v,%v), want (true,nil)", ok, err)
 	}
 	// Absent path.
-	if ok, err := h.openbaoPathHasProperty(ctx, "secret", "catalyst/newapi/admin-token", "ADMIN_API_TOKEN"); err != nil || ok {
+	if ok, err := h.openbaoPathIsHealthy(ctx, "secret", "catalyst/newapi/admin-token", []string{"ADMIN_API_TOKEN"}, nil); err != nil || ok {
 		t.Errorf("newapi absent: got (%v,%v), want (false,nil)", ok, err)
 	}
 	// Present but the only property is whitespace → treated as empty (re-seed).
-	if ok, err := h.openbaoPathHasProperty(ctx, "secret", "catalyst/agenity/hollow/mcp-bearer", "bearer"); err != nil || ok {
-		t.Errorf("hollow bearer: got (%v,%v), want (false,nil)", ok, err)
+	if ok, err := h.openbaoPathIsHealthy(ctx, "secret", "catalyst/newapi/hollow", []string{"ADMIN_API_TOKEN"}, nil); err != nil || ok {
+		t.Errorf("hollow token: got (%v,%v), want (false,nil)", ok, err)
 	}
 }
 
 // Test_runSeedReconcilePass_NoChurnWhenAllPresent is the safety guarantee: when
 // every global path already holds a valid value, the pass issues ZERO PUTs — a
 // healthy Sovereign is never re-written (no OpenBao version churn, no downstream
-// Secret/pod churn). The per-Org leg is a no-op here (no dynamic client → zero
-// Orgs), which is asserted implicitly by the total write count being 0.
+// Secret/pod churn).
 func Test_runSeedReconcilePass_NoChurnWhenAllPresent(t *testing.T) {
 	srv := newRWKVServer(t)
 	srv.seedPresent("catalyst/newapi/admin-token", map[string]any{"ADMIN_API_TOKEN": "bridge-secret"})
@@ -173,12 +174,12 @@ func Test_runSeedReconcilePass_SelfHealsAbsentGlobalSeed(t *testing.T) {
 	}
 }
 
-// Test_runSeedReconcilePass_PerOrgMCPBearerSelfHeal proves the per-Org
-// enumeration: the reconciler lists every Organization CR (orgResponsesFromCRs)
-// and self-heals the absent per-slug mcp-bearer path for each — while leaving an
-// Org whose bearer already exists untouched (no churn).
-func Test_runSeedReconcilePass_PerOrgMCPBearerSelfHeal(t *testing.T) {
-	// Two funnel Orgs (parentDomain set → both carry a pool console host).
+// Test_runSeedReconcilePass_MintsNoOrgBearer proves AIP-156: the pass seeds no
+// per-Organization path. Two Organizations are listed, neither has a tool
+// bearer in OpenBao, and a signer is wired, so the deleted per-Org leg would
+// have minted and written one bearer for each. Both global paths hold valid
+// values, so the only correct number of writes is zero.
+func Test_runSeedReconcilePass_MintsNoOrgBearer(t *testing.T) {
 	h, _ := newOrgHandlerWithSeededCRs(t,
 		orgReadyCR("acme", "Acme", "omani.homes", "owner@acme.omani.homes", "Ready"),
 		orgReadyCR("globex", "Globex", "omani.homes", "owner@globex.omani.homes", "Ready"),
@@ -186,28 +187,28 @@ func Test_runSeedReconcilePass_PerOrgMCPBearerSelfHeal(t *testing.T) {
 	srv := newRWKVServer(t)
 	h.openbao = srv.client()
 	h.handoverSigner = newTestSigner(t)
-	// Make the two GLOBAL paths present so this test isolates the per-Org leg.
 	srv.seedPresent("catalyst/newapi/admin-token", map[string]any{"ADMIN_API_TOKEN": "bridge-secret"})
-	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "sk-ant-x"})
-	// globex ALREADY has a healthy bearer → must NOT be re-written; acme is absent.
-	srv.seedPresent("catalyst/agenity/globex/mcp-bearer", map[string]any{"bearer": "existing-bearer"})
+	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "FAKE-not-a-real-api-key", "credentialsJson": validAnthropicCredentialsJSON()})
+
+	// Precondition: the fixture really lists the two Organizations; without
+	// it a zero write count would prove nothing.
+	orgs, _, err := h.orgResponsesFromCRs(context.Background())
+	if err != nil {
+		t.Fatalf("precondition: list Organizations: %v", err)
+	}
+	slugs := make([]string, 0, len(orgs))
+	for _, o := range orgs {
+		slugs = append(slugs, o.Subdomain)
+	}
+	sort.Strings(slugs)
+	if strings.Join(slugs, ",") != "acme,globex" {
+		t.Fatalf("precondition: the fixture lists Organizations %v, want [acme globex]", slugs)
+	}
 
 	h.runSeedReconcilePass(context.Background())
 
-	writes := srv.writes()
-	wantAcme := "catalyst/agenity/acme/mcp-bearer"
-	dontWantGlobex := "catalyst/agenity/globex/mcp-bearer"
-	sawAcme := false
-	for _, p := range writes {
-		if p == wantAcme {
-			sawAcme = true
-		}
-		if p == dontWantGlobex {
-			t.Errorf("globex bearer was present but got re-written (churn): %v", writes)
-		}
-	}
-	if !sawAcme {
-		t.Fatalf("expected a self-heal write to %s, got writes=%v", wantAcme, writes)
+	if got := srv.writes(); len(got) != 0 {
+		t.Fatalf("the pass wrote %v; it must write nothing (no per-Organization bearer, and both global paths are healthy)", got)
 	}
 }
 
