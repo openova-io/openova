@@ -46,7 +46,7 @@ import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { PortalShell } from './PortalShell'
 import { readyClaim } from './readyClaim'
 import { resolveApplications, resolveServerApplication, type ApplicationDescriptor } from './applicationCatalog'
-import { findComponent } from '@/pages/wizard/steps/componentGroups'
+import { findComponent } from '@/shared/lib/kitComponents'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import {
   PLATFORM_CLASS,

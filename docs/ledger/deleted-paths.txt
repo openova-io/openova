@@ -220,3 +220,12 @@ products/catalyst/bootstrap/ui/src/pages/admin/compliance/SecLeadDashboardPage.t
 products/catalyst/bootstrap/ui/src/pages/admin/compliance/FrameworkFilter.tsx
 products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx
 products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.test.tsx
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.catalog-integrity.5575.test.ts
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/stepComponentsCopy.ts
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/logoTone.ts
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepComponents.test.tsx
+products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepComponents.counter-identities.3969.test.tsx
+products/catalyst/bootstrap/ui/src/pages/marketplace/MarketplaceFamilyPage.tsx
+products/catalyst/bootstrap/ui/src/pages/marketplace/MarketplaceProductPage.tsx
+products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts

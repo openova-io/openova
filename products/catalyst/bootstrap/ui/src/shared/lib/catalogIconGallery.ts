@@ -21,7 +21,7 @@
  * unit-testable in isolation and cheap to import into the picker.
  */
 
-import { ALL_COMPONENTS } from '@/pages/wizard/steps/componentGroups'
+import { ALL_COMPONENTS } from '@/shared/lib/kitComponents'
 import { isRenderableSrc } from './resolveCatalogIcon'
 
 /** One selectable icon in the visual picker gallery. */

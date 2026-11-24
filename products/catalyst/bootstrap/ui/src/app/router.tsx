@@ -58,8 +58,6 @@ import { WizardPage } from '@/pages/wizard/WizardPage'
 import { SuccessPage } from '@/pages/success/SuccessPage'
 import { DesignShowcase } from '@/pages/designs/DesignShowcase'
 import { JobsDepsVizDemo } from '@/pages/designs/JobsDepsVizDemo'
-import { MarketplaceFamilyPage } from '@/pages/marketplace/MarketplaceFamilyPage'
-import { MarketplaceProductPage } from '@/pages/marketplace/MarketplaceProductPage'
 import { ProvisionPage } from '@/pages/provision/ProvisionPage'
 import { AppsPage } from '@/pages/sovereign/AppsPage'
 import { CatalogPage } from '@/pages/sovereign/CatalogPage'
@@ -1332,21 +1330,6 @@ const designsJobsDepsVizRoute = createRoute({
   component: JobsDepsVizDemo,
 })
 
-// Marketplace — long-form family portfolio + product detail surfaces
-// reachable from the wizard's component-card chips (family) and card body
-// (product). Wizard state lives in zustand+persist (localStorage) so
-// navigation across these routes never drops the operator's selection.
-const marketplaceFamilyRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/marketplace/family/$familyId',
-  component: MarketplaceFamilyPage,
-})
-const marketplaceProductRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/marketplace/product/$componentId',
-  component: MarketplaceProductPage,
-})
-
 /* ── Sovereign Console routes (issue #607) ────────────────────────────
  *
  * Route tree for Sovereign mode (console.<sov-fqdn>):
@@ -2394,8 +2377,6 @@ const routeTree = rootRoute.addChildren([
   designsRoute,
   designsJobsDepsVizRoute,
   sovereigntyPreviewRoute,
-  marketplaceFamilyRoute,
-  marketplaceProductRoute,
   consoleLayoutRoute.addChildren([
     consoleDashboardRoute,
     consoleAppsRoute,

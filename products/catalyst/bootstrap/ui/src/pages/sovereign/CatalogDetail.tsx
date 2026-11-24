@@ -9,7 +9,7 @@ import {
   getCatalogBlueprintIaC,
   type CatalogItem,
 } from '@/lib/catalog.api'
-import { findComponent } from '@/pages/wizard/steps/componentGroups'
+import { findComponent } from '@/shared/lib/kitComponents'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'

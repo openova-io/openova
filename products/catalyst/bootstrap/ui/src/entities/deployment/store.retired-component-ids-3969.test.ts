@@ -5,21 +5,10 @@
  * does not change what is already sitting in an operator's browser: the
  * wizard store is `persist`-wrapped under `openova-catalyst-wizard`, and
  * `partialize()` strips only four credential fields, so a draft written
- * before the removal still names the retired id — in TWO places, not one.
- *
- *   • `selectedComponents: string[]` — the payload the wizard provisions.
- *   • `componentGroups: Record<groupId, string[]>` — the second, older
- *     catalog, which seeds `INITIAL_WIZARD_STATE` and which StepReview
- *     reads for its section header count and its per-component cards.
- *
- * The two are handled by different blocks of `merge()` and only the first
- * one filtered against the catalog. StepReview counts the raw array length
- * (`totalComponents`, StepReview.tsx:627) while resolving each id through
- * `findComponent()` and silently skipping the misses (:641-642) — so a
- * retired id survives there as a count with no card behind it. That is the
- * same counter-versus-cards inconsistency row W5 asserts against, arriving
- * from localStorage instead of from source, and it is live for every id
- * #5575 retired as well as for `specter`.
+ * before the removal still names the retired id: in `selectedComponents`
+ * (the payload the wizard provisions) and in `componentGroups`, the family
+ * map that the store no longer has (SVC-230). `merge()` sets the selection
+ * to every kit release and drops the family map.
  *
  * These tests prove the rehydration is safe rather than reasoning about it.
  * `specter` is the subject; `envoy` (retired under #5575) is included so the
@@ -29,7 +18,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useWizardStore } from './store'
 import { INITIAL_WIZARD_STATE } from './model'
-import { findComponent, MANDATORY_COMPONENT_IDS } from '@/pages/wizard/steps/componentGroups'
+import { findComponent, KIT_COMPONENT_IDS } from '@/shared/lib/kitComponents'
 
 const PERSIST_KEY = 'openova-catalyst-wizard'
 const CURRENT_VERSION = 1
@@ -64,10 +53,10 @@ describe('wizard store — a draft naming a retired component id rehydrates clea
     expect(findComponent('grafana')).toBeTruthy()
   })
 
-  it('selectedComponents drops the retired id and keeps everything else', async () => {
+  it('selectedComponents rehydrates to every kit release, whatever the draft named', async () => {
     seedPayload({
       sovereignSubdomain: 'draft-payload-was-read',
-      selectedComponents: [...MANDATORY_COMPONENT_IDS, 'grafana', 'litmus', 'specter', 'envoy'].sort(),
+      selectedComponents: ['grafana', 'litmus', 'specter', 'envoy'],
     })
 
     await useWizardStore.persist.rehydrate()
@@ -78,63 +67,27 @@ describe('wizard store — a draft naming a retired component id rehydrates clea
     // assertion below for the wrong reason.
     expect(s.sovereignSubdomain).toBe('draft-payload-was-read')
 
-    expect(s.selectedComponents).not.toContain('specter')
-    expect(s.selectedComponents).not.toContain('envoy')
-    // The operator's real picks survive — this is a filter, not a wipe.
-    expect(s.selectedComponents).toContain('grafana')
-    expect(s.selectedComponents).toContain('litmus')
-    for (const id of MANDATORY_COMPONENT_IDS) {
-      expect(s.selectedComponents).toContain(id)
-    }
-    // Every surviving id resolves to a card.
+    expect(KIT_COMPONENT_IDS.length).toBeGreaterThan(0)
+    expect(s.selectedComponents).toEqual([...KIT_COMPONENT_IDS])
     for (const id of s.selectedComponents) {
-      expect(findComponent(id), `${id} survived rehydration with no ComponentDef`).toBeTruthy()
+      expect(findComponent(id), `${id} is a kit release with no Blueprint`).toBeTruthy()
     }
   })
 
-  it('componentGroups drops the retired id too, so the StepReview count matches its cards', async () => {
+  it('a persisted product-family map (componentGroups) is dropped; minio is not carried, seaweedfs is a kit release', async () => {
     seedPayload({
       sovereignSubdomain: 'draft-payload-was-read',
-      componentGroups: {
-        insights: ['grafana', 'opentelemetry', 'specter'],
-        spine: ['cilium', 'envoy'],
-        // A retired group key must still be dropped whole (pre-existing rule).
-        'legacy-group': ['grafana'],
-      },
+      componentGroups: { insights: ['grafana', 'specter'], silo: ['minio', 'velero'], 'legacy-group': ['envoy'] },
+      selectedComponents: ['minio'],
     })
 
     await useWizardStore.persist.rehydrate()
     const s = useWizardStore.getState()
 
     expect(s.sovereignSubdomain).toBe('draft-payload-was-read')
-    expect(s.componentGroups.insights).toEqual(['grafana', 'opentelemetry'])
-    expect(s.componentGroups.spine).toEqual(['cilium'])
-    expect(s.componentGroups['legacy-group']).toBeUndefined()
-
-    // The identity StepReview depends on: its header counts the raw array
-    // lengths, its cards resolve through findComponent(). Every id must
-    // therefore resolve, or the two disagree.
-    const ids = Object.values(s.componentGroups).flat()
-    expect(ids.length).toBeGreaterThan(0)
-    for (const id of ids) {
-      expect(findComponent(id), `${id} would be counted with no card behind it`).toBeTruthy()
-    }
-  })
-
-  it('the pre-existing minio → seaweedfs migration still runs alongside the filter', async () => {
-    // The filter was added to the same expression as this rename. Both must
-    // survive: the rename runs FIRST, or `minio` would be filtered out as an
-    // unknown id and the operator would silently lose their storage pick.
-    seedPayload({
-      sovereignSubdomain: 'draft-payload-was-read',
-      componentGroups: { silo: ['minio', 'velero', 'specter'] },
-    })
-
-    await useWizardStore.persist.rehydrate()
-    const s = useWizardStore.getState()
-
-    expect(s.sovereignSubdomain).toBe('draft-payload-was-read')
-    expect(s.componentGroups.silo).toEqual(['seaweedfs', 'velero'])
+    expect(Object.keys(s)).not.toContain('componentGroups')
+    expect(s.selectedComponents).not.toContain('minio')
+    expect(s.selectedComponents).toContain('seaweedfs')
   })
 
   it('a draft that names ONLY retired ids does not crash and falls back to the defaults', async () => {
@@ -150,12 +103,6 @@ describe('wizard store — a draft naming a retired component id rehydrates clea
     const s = useWizardStore.getState()
 
     expect(s.sovereignSubdomain).toBe('draft-payload-was-read')
-    expect(s.selectedComponents.length).toBeGreaterThan(0)
-    for (const id of MANDATORY_COMPONENT_IDS) {
-      expect(s.selectedComponents).toContain(id)
-    }
-    for (const id of s.selectedComponents) {
-      expect(findComponent(id)).toBeTruthy()
-    }
+    expect(s.selectedComponents).toEqual([...KIT_COMPONENT_IDS])
   })
 })
