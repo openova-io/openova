@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-24T02:15:04Z` |
+| Last refreshed | `2026-11-24T02:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8280](https://github.com/openova-io/openova/issues/8280) | AIP-030 Spike: agent runtime proof (kagent 1.x on k3s, Cilium, vcluster) | Other |
-| [#8284](https://github.com/openova-io/openova/issues/8284) | SVC-170 Contract C1: class and lifecycle on every Blueprint, with their readers | Other |
 | [#8287](https://github.com/openova-io/openova/issues/8287) | BSS-S1 Spike: suite sign-in, suite access to the engine API, and the price list  | Other |
 | [#8292](https://github.com/openova-io/openova/issues/8292) | INF-710 Spike: the host security service on the operator-hosted stack | Other |
 | [#8293](https://github.com/openova-io/openova/issues/8293) | NET-270 Spike: firewall attachment | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8699](https://github.com/openova-io/openova/issues/8699) | CMP-022 The console stops claiming what does not exist | Other |
 | [#8700](https://github.com/openova-io/openova/issues/8700) | CTL-170 Inspection: where chart-seeded Applications live and who reads them | Other |
 | [#8701](https://github.com/openova-io/openova/issues/8701) | CTL-800 Decision record 0027: the region-loss contract | Other |
+| [#8710](https://github.com/openova-io/openova/issues/8710) | CTL-172 Platform charts take placement from values | Other |
+| [#8711](https://github.com/openova-io/openova/issues/8711) | FND-202 Decision record 0035: one telemetry pipeline, alert events, declared obj | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-24T02:27 | [#8709](https://github.com/openova-io/openova/pull/8709) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:59 | [#8707](https://github.com/openova-io/openova/pull/8707) | #8701 | docs(adr): record 0027 on the region-loss contract, a follow |
 | 2026-11-24T01:26 | [#8706](https://github.com/openova-io/openova/pull/8706) | #7087 | docs(ledger): plan update |
 | 2026-11-24T01:12 | [#8705](https://github.com/openova-io/openova/pull/8705) | #8700 | docs(ledger): result of the inspection CTL-170, where chart- |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-23T16:01 | [#8657](https://github.com/openova-io/openova/pull/8657) | #7087 | docs(ledger): plan update |
 | 2026-11-23T10:23 | [#8656](https://github.com/openova-io/openova/pull/8656) | #8655 | feat(secrets-lib): a library chart for namespaced stores and |
 | 2026-11-23T09:53 | [#8654](https://github.com/openova-io/openova/pull/8654) | #7087 | docs(ledger): plan update |
-| 2026-11-23T08:44 | [#8653](https://github.com/openova-io/openova/pull/8653) | #7087 | docs(ledger): plan update |
 
 ---
 
