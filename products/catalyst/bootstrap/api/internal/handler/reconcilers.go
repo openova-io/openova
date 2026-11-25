@@ -24,9 +24,9 @@
 //                      HelmRelease so an exhausted install actually retries
 //                      (#6795 — requestedAt alone is a no-op on Stalled=
 //                      RetriesExceeded)
-//          suspend   → merge-patch spec.suspend=true
-//          resume    → merge-patch spec.suspend=false
-//        via the IN-CLUSTER DYNAMIC CLIENT only — NEVER a shell-out
+//          suspend, resume → 409 managed-by-git: Git owns spec.suspend
+//        reconcile is an operation, audited before and after it, via the
+//        IN-CLUSTER DYNAMIC CLIENT only — NEVER a shell-out
 //        (PRINCIPLES #61). Owner-checked (404 cross-tenant) + RBAC-gated to
 //        operator tier (403 otherwise), the SAME gate jobs_retry.go uses.
 package handler
@@ -50,6 +50,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
@@ -138,7 +139,9 @@ func (h *Handler) ListReconcilers(w http.ResponseWriter, r *http.Request) {
 //	400 — missing path params / unknown kind / unsupported action.
 //	403 — caller lacks operator RBAC.
 //	404 — unknown deployment / cross-tenant.
+//	409 — suspend or resume: managed-by-git, nothing is written.
 //	502 — the in-cluster client/patch write failed.
+//	503 — audit-unavailable: the stream did not take the intent, nothing is written.
 func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 	depID := strings.TrimSpace(chi.URLParam(r, "depId"))
 	kind := strings.TrimSpace(chi.URLParam(r, "kind"))
@@ -171,15 +174,18 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 	if dep == nil {
 		return
 	}
-	// RBAC: mutating a reconciler is an operator action — reuse the SAME
-	// operator-tier gate the jobs-retry endpoint uses (403 for viewers; nil
-	// claims pass for CI/tests).
+	// RBAC: the operator-tier gate of jobs-retry (403 for viewers; nil claims pass).
 	claims := auth.ClaimsFromContext(r.Context())
 	if !jobRetryCallerAuthorized(claims, dep) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error":  "forbidden",
 			"detail": "managing a reconciler requires operator tier or higher",
 		})
+		return
+	}
+	if action != "reconcile" {
+		clusterwrite.Refuse(w, kind+" "+ns+"/"+name, fmt.Sprintf(
+			"%s changes spec.suspend of %s %s/%s, which Git owns; change it in Git", action, kind, ns, name))
 		return
 	}
 
@@ -195,48 +201,31 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
+	// "Reconcile now" as `flux reconcile` writes it (the annotation of
+	// triggerReconcileAnnotation). #6795: on a HelmRelease whose retries are
+	// exhausted (Stalled, RetriesExceeded) requestedAt alone is a no-op, so
+	// it also gets forceAt and resetAt with the SAME value (the #5261 shape
+	// of clustermesh.go); other kinds have no failure counters.
 	now := time.Now().UTC()
-	var patch []byte
-	// The annotation keys a reconcile actually wrote, echoed in the response so
-	// a caller can tell a counter-clearing retry from a bare nudge (#6795).
-	var wroteTokens []string
-	switch action {
-	case "reconcile":
-		// The Flux-native "reconcile now" primitive (the same annotation
-		// `flux reconcile` writes). Reuse the exact constant + shape
-		// jobs_retry.go's triggerReconcileAnnotation uses.
-		//
-		// #6795 — requestedAt ALONE is a no-op on the object an operator
-		// actually reaches for this endpoint about. A HelmRelease whose
-		// install retries are exhausted carries Stalled=True
-		// (RetriesExceeded); helm-controller reads requestedAt, sees the
-		// failure counter still above the limit, and does nothing. Measured
-		// on hw307 (2026-09-02): bp-chargeback at installFailures=6 ignored
-		// repeated requestedAt patches and only moved once resetAt landed.
-		// So for a HelmRelease this stamps all three tokens with the SAME
-		// value — resetAt clears the failure counters, forceAt makes the
-		// controller act on a release that is otherwise unchanged, and
-		// matching values are what make helm-controller honour them
-		// (the proven #5261 shape in clustermesh.go). Other kinds have no
-		// failure counters and keep the single-token patch.
-		tokens := map[string]string{reconcileRequestedAtAnnotation: now.Format(time.RFC3339Nano)}
-		if kind == helmwatch.ManageKindHelmRelease {
-			tokens[fluxReconcileForceAtAnnotation] = now.Format(time.RFC3339Nano)
-			tokens[fluxReconcileResetAtAnnotation] = now.Format(time.RFC3339Nano)
-		}
-		annotations := make([]string, 0, len(tokens))
-		for _, key := range sortedAnnotationKeys(tokens) {
-			annotations = append(annotations, fmt.Sprintf("%q:%q", key, tokens[key]))
-		}
-		patch = []byte(fmt.Sprintf(`{"metadata":{"annotations":{%s}}}`, strings.Join(annotations, ",")))
-		wroteTokens = sortedAnnotationKeys(tokens)
-	case "suspend":
-		patch = []byte(`{"spec":{"suspend":true}}`)
-	case "resume":
-		patch = []byte(`{"spec":{"suspend":false}}`)
+	tokens := map[string]string{reconcileRequestedAtAnnotation: now.Format(time.RFC3339Nano)}
+	if kind == helmwatch.ManageKindHelmRelease {
+		tokens[fluxReconcileForceAtAnnotation] = now.Format(time.RFC3339Nano)
+		tokens[fluxReconcileResetAtAnnotation] = now.Format(time.RFC3339Nano)
 	}
+	annotations := make([]string, 0, len(tokens))
+	for _, key := range sortedAnnotationKeys(tokens) {
+		annotations = append(annotations, fmt.Sprintf("%q:%q", key, tokens[key]))
+	}
+	patch := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%s}}}`, strings.Join(annotations, ",")))
 
-	if _, err := dyn.Resource(gvr).Namespace(ns).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+	finish, allowed := clusterwrite.Operation(w, r, h.auditBus, clusterwrite.Op{
+		Cluster: depID, Name: "reconcile", Target: kind + " " + ns + "/" + name})
+	if !allowed {
+		return
+	}
+	_, err = dyn.Resource(gvr).Namespace(ns).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	finish(r.Context(), err)
+	if err != nil {
 		h.log.Warn("ReconcilerAction: patch failed",
 			"depId", depID, "kind", kind, "ns", ns, "name", name, "action", action, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
@@ -246,7 +235,7 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operator := retrycall.Caller(r)
+	operator := clusterwrite.Actor(claims, r)
 	RecordRetryCall(h, dep, "", retrycall.RouteReconciler, retrycall.ReconcilerTarget(action, kind, ns, name), r)
 	h.log.Info("ReconcilerAction applied",
 		"depId", depID, "kind", kind, "ns", ns, "name", name,
@@ -258,7 +247,7 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 		"action":      action,
 		"requestedAt": now.Format(time.RFC3339),
 		"requestedBy": operator,
-		"annotations": wroteTokens,
+		"annotations": sortedAnnotationKeys(tokens), // a counter-clearing retry or a bare nudge (#6795)
 	})
 }
 

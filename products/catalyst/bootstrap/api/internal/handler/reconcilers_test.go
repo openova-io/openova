@@ -1,7 +1,7 @@
 // reconcilers_test.go — coverage for the #3996 lightweight ArgoCD/Flux
-// management surface: LIST (status + revision + suspended), the
-// reconcile/suspend/resume action patches via the dynamic client (no
-// shell-out), and the RBAC 403 / unknown-kind 400 gates.
+// management surface: LIST (status + revision + suspended), the audited
+// reconcile patch via the dynamic client (no shell-out), the 409 of suspend
+// and resume, and the RBAC 403 / unknown-kind 400 gates.
 package handler
 
 import (
@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -23,6 +24,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	kfake "k8s.io/client-go/kubernetes/fake"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -265,32 +267,66 @@ func TestReconcilerAction_Reconcile_NonHelmReleaseKeepsSingleToken(t *testing.T)
 	}
 }
 
-// Suspend then Resume flip spec.suspend on the live object.
-func TestReconcilerAction_SuspendResume(t *testing.T) {
-	r, h, depID := manageHarness(t, "",
-		helmReleaseObj("bp-keycloak", true, false, "0.4.1"))
-	dyn, _ := h.dynamicFactory("")
+// Suspend and resume change spec.suspend, which Git owns: each answers 409
+// managed-by-git naming the reconciler, writes nothing and records nothing.
+func TestReconcilerAction_SuspendResumeRefused(t *testing.T) {
+	for _, c := range []struct {
+		action    string
+		suspended bool // spec.suspend before the request, and after it
+	}{{"suspend", false}, {"resume", true}} {
+		r, h, depID := manageHarness(t, "", helmReleaseObj("bp-keycloak", true, c.suspended, "0.4.1"))
+		pub := &resourceAuditRecorder{}
+		h.SetAuditBus(audit.NewBus(audit.BusConfig{Publisher: pub}))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", "flux-system", "bp-keycloak", c.action,
+			&auth.Claims{Email: "ops@t99.omani.works", Tier: "operator"}))
+		var body map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != http.StatusConflict ||
+			body["error"] != "managed-by-git" || body["owner"] != "HelmRelease flux-system/bp-keycloak" {
+			t.Fatalf("%s: got %d %s, want 409 managed-by-git with owner HelmRelease flux-system/bp-keycloak", c.action, rec.Code, rec.Body.String())
+		}
+		dyn, _ := h.dynamicFactory("")
+		got, err := dyn.Resource(helmwatch.HelmReleaseGVR).Namespace("flux-system").Get(context.Background(), "bp-keycloak", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("%s: get: %v", c.action, err)
+		}
+		if s, found, _ := unstructured.NestedBool(got.Object, "spec", "suspend"); !found || s != c.suspended || len(pub.events) != 0 {
+			t.Fatalf("%s: spec.suspend %v (found %v), %d audit events; want %v unchanged and none", c.action, s, found, len(pub.events), c.suspended)
+		}
+	}
+}
 
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-keycloak", "suspend", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("suspend want 200, got %d; body=%s", rec.Code, rec.Body.String())
-	}
-	got, _ := dyn.Resource(helmwatch.HelmReleaseGVR).Namespace(helmwatch.FluxNamespace).
-		Get(context.Background(), "bp-keycloak", metav1.GetOptions{})
-	if s, _, _ := unstructured.NestedBool(got.Object, "spec", "suspend"); !s {
-		t.Fatalf("after suspend want spec.suspend=true, got %v", got.Object["spec"])
-	}
-
-	rec = httptest.NewRecorder()
-	r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-keycloak", "resume", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("resume want 200, got %d; body=%s", rec.Code, rec.Body.String())
-	}
-	got, _ = dyn.Resource(helmwatch.HelmReleaseGVR).Namespace(helmwatch.FluxNamespace).
-		Get(context.Background(), "bp-keycloak", metav1.GetOptions{})
-	if s, _, _ := unstructured.NestedBool(got.Object, "spec", "suspend"); s {
-		t.Fatalf("after resume want spec.suspend=false, got %v", got.Object["spec"])
+// Reconcile is an operation: recorded on the audit stream before the patch
+// and after it. When the stream does not take the intent event (a bus
+// without a Publisher) the answer is 503 audit-unavailable and nothing is
+// patched.
+func TestReconcilerAction_Reconcile_Audited(t *testing.T) {
+	for _, durable := range []bool{true, false} {
+		r, h, depID := manageHarness(t, "", helmReleaseObj("bp-keycloak", true, false, "0.4.1"))
+		pub, config := &resourceAuditRecorder{}, audit.BusConfig{}
+		if durable {
+			config.Publisher = pub
+		}
+		h.SetAuditBus(audit.NewBus(config))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", "flux-system", "bp-keycloak", "reconcile",
+			&auth.Claims{Email: "ops@t99.omani.works", Tier: "operator"}))
+		dyn, _ := h.dynamicFactory("")
+		got, err := dyn.Resource(helmwatch.HelmReleaseGVR).Namespace("flux-system").Get(context.Background(), "bp-keycloak", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("durable=%v: get: %v", durable, err)
+		}
+		requested := got.GetAnnotations()[reconcileRequestedAtAnnotation]
+		if !durable {
+			if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"error":"audit-unavailable"`) || requested != "" {
+				t.Fatalf("no stream: got %d %s, requestedAt %q; want 503 audit-unavailable and no patch", rec.Code, rec.Body.String(), requested)
+			}
+			continue
+		}
+		if rec.Code != http.StatusOK || requested == "" || !strings.Contains(rec.Body.String(), `"requestedBy":"ops@t99.omani.works"`) {
+			t.Fatalf("got %d %s, requestedAt %q; want 200 by ops@t99.omani.works and the annotation", rec.Code, rec.Body.String(), requested)
+		}
+		wantOperation(t, "reconcile", pub.events, "reconcile", "HelmRelease flux-system/bp-keycloak", "ops@t99.omani.works", "ok")
 	}
 }
 

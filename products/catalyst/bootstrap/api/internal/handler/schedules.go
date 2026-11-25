@@ -23,8 +23,7 @@
 // CronJob and admits an object only when it carries
 // `app.kubernetes.io/managed-by: flux` OR a `helm.toolkit.fluxcd.io/name`
 // / `kustomize.toolkit.fluxcd.io/name` label. A console-created CronJob is
-// NOT Flux-managed — saying so would be a lie that also routes every later
-// edit through the Gitea-PR path (isFluxManaged) — so it carries
+// NOT Flux-managed — saying so would be a lie — so it carries
 // `app.kubernetes.io/managed-by: catalyst-api` plus the source's RELEASE
 // ATTRIBUTION labels (helm.toolkit.fluxcd.io/{name,namespace},
 // catalyst.openova.io/{blueprint,component}, …): true statements about
@@ -61,8 +60,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // ── Contract constants ──────────────────────────────────────────────
@@ -354,7 +354,7 @@ func (h *Handler) HandleScheduleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clone, err := buildScheduleClone(source, body, retrycall.Caller(r))
+	clone, err := buildScheduleClone(source, body, clusterwrite.Actor(auth.ClaimsFromContext(r.Context()), r))
 	if err != nil {
 		writeBadRequest(w, "invalid-source", err.Error())
 		return

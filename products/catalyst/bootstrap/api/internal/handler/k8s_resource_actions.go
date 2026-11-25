@@ -20,6 +20,7 @@
 // that Git owns is refused with 409 managed-by-git, and any other object is
 // written only by break-glass (owner tier and a reason: the body field
 // reason, for DELETE the query parameter reason), audited before and after.
+// Restart is an operation: no reason, audited the same way.
 //
 // All resource resolution flows through the per-cluster dynamic client
 // owned by k8scache.Factory (DynamicClientFor). No second per-cluster
@@ -195,8 +196,14 @@ func (h *Handler) HandleK8sResourceRestart(w http.ResponseWriter, r *http.Reques
 		},
 	}
 	patchBytes, _ := json.Marshal(patch)
+	finish, allowed := clusterwrite.Operation(w, r, h.auditBus, clusterwrite.Op{
+		Cluster: clusterID, Name: "restart", Target: kind.GVR.Resource + " " + ns + "/" + name})
+	if !allowed {
+		return
+	}
 	updated, patchErr := dyn.Resource(kind.GVR).Namespace(ns).Patch(
 		r.Context(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	finish(r.Context(), patchErr)
 	if patchErr != nil {
 		writeResourceMutationError(w, patchErr, "restart")
 		return
