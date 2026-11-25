@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T11:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-25T11:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8389](https://github.com/openova-io/openova/issues/8389) | SOV-323 Relay mode: sign-in mail through a relay with a credential for that chil | Other |
 | [#8391](https://github.com/openova-io/openova/issues/8391) | AIP-225 MCP endpoint and console HTTP routes inside the service | Other |
 | [#8396](https://github.com/openova-io/openova/issues/8396) | FND-157 A gate run reads the storefront's sign-in code from a mailbox on the Sov | Other |
 | [#8398](https://github.com/openova-io/openova/issues/8398) | PRD-204 cortex ingestion of uploads: job table, upload and document routes, inde | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8793](https://github.com/openova-io/openova/issues/8793) | SVC-200 Catalogue edits may change card fields only | Other |
 | [#8797](https://github.com/openova-io/openova/issues/8797) | CTL-232 Operations audited; reconciler suspend and resume refused | Other |
 | [#8801](https://github.com/openova-io/openova/issues/8801) | CMP-062 Validate policies to ValidatingPolicy, batch 1 (7 policies) | Other |
+| [#8806](https://github.com/openova-io/openova/issues/8806) | AIP-158 The purchase funnel's install path wires no long-lived bearer | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T11:09 | [#8805](https://github.com/openova-io/openova/pull/8805) | #7087 | docs(ledger): plan update |
 | 2026-11-25T10:26 | [#8804](https://github.com/openova-io/openova/pull/8804) | #7087 | docs(ledger): plan update |
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
 | 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T09:46 | [#8755](https://github.com/openova-io/openova/pull/8755) | #7087 | docs(ledger): plan update |
 | 2026-11-24T09:09 | [#8754](https://github.com/openova-io/openova/pull/8754) | #7087 | docs(ledger): plan update |
 | 2026-11-24T09:22 | [#8752](https://github.com/openova-io/openova/pull/8752) | #7087 | docs(ledger): plan update |
-| 2026-11-24T09:30 | [#8751](https://github.com/openova-io/openova/pull/8751) | #8749 | fix(kyverno): engine and command-line tool on v1.19.2, the n |
 
 ---
 
