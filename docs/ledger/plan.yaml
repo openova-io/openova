@@ -135,7 +135,7 @@ epics:
 - id: CLD-100
   title: 'Epic: the engine drives the port'
   wave: W1d
-  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-106, CLD-115, CLD-107]
+  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-115, CLD-106, CLD-107]
 - id: CLD-110
   title: 'Epic: handlers and controllers stop naming providers'
   wave: W1d
@@ -347,7 +347,7 @@ epics:
 - id: AIP-100
   title: 'EPIC: Axon as the simulation back end'
   wave: W2
-  packages: [AIP-101, AIP-108, AIP-102, AIP-103, AIP-104, AIP-105, AIP-106, AIP-107]
+  packages: [AIP-101, AIP-108, AIP-102, AIP-103, AIP-104, AIP-105, AIP-109, AIP-106, AIP-107]
 - id: AIP-110
   title: 'EPIC: model-meter'
   wave: W2
@@ -7031,15 +7031,26 @@ packages:
   epic: CLD-100
   type: refactor
   wave: W1b
-  size: S
+  size: M
   lane: CONTROL
   depends_on: [CLD-103, SEC-190, SEC-211]
-  after: [FND-011, CLD-030, CLD-104, CLD-113, SOV-035, SOV-322, SEC-060, NET-080, SVC-040, SVC-190, SVC-205, CTL-150, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, AIP-153, INF-135]
+  after: [FND-011, FND-014, CLD-030, CLD-104, CLD-105, CLD-111, CLD-113, CLD-115, SOV-030, SOV-035, SOV-322, SOV-323, SOV-338, SOV-721, SEC-060, NET-080, SVC-040, SVC-190, SVC-205, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, CMP-032, CMP-075, BSS-040, AIP-120, AIP-153, INF-054, INF-135]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/deployments.go
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/chart/templates/api-deployment-kustomize.yaml
   - products/catalyst/chart/values.yaml
+  - products/catalyst/bootstrap/api/cmd/api/main.go
+  - products/catalyst/bootstrap/api/internal/handler/deployments_huawei_dispatch_test.go
+  - products/catalyst/bootstrap/api/internal/handler/deployments_invalid_field_test.go
+  - products/catalyst/bootstrap/api/internal/handler/janitor_reap_protection_test.go
+  - products/catalyst/bootstrap/api/internal/handler/wipe.go
+  - products/catalyst/bootstrap/api/internal/handler/wipe_async_creds_rewipe_test.go
+  - products/catalyst/bootstrap/api/internal/handler/wipe_credentials_test.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/preflight_eip.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provider_wire_schema_test.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/chart/tests/operator-cloud-credentials-mount.sh
   resources: []
   flips: []
   implements: []
@@ -15038,6 +15049,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Library chart secrets-lib gives a platform chart its namespaced External Secrets reader, its generated values and the entrypoint shim; a tier B value is born only by a create-only birth Job, which writes a shared value into this region's OpenBao and, through bp-openbao's peer trust with one create-only role per namespace, into every peer region, so that a second run writes nothing and fails on no region.
+- id: SEC-201
+  title: The birth Job writes a named key and an empty placeholder
+  area: SEC
+  epic: null
+  type: new
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-200]
+  after: [FND-011, SVC-040, SVC-041]
+  touches:
+  - platform/secrets-lib/chart/templates/_generated-secrets.tpl
+  - platform/secrets-lib/chart/templates/_birth.tpl
+  - platform/secrets-lib/chart/tests/render.sh
+  - platform/secrets-lib/chart/tests/birth-live.sh
+  - platform/secrets-lib/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: AIP-160
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A mounted value of generatedSecrets can name its key (default password, unchanged) and can be a placeholder: the birth Job then creates, create-only, a document that holds that key with an empty string, so a CSI mount of that path succeeds before the real value exists; a later writer with update rights replaces it, and the Job never writes it again.'
 - id: SEC-205
   title: Stores in Organization namespaces
   area: SEC
@@ -30493,7 +30534,7 @@ packages:
   wave: W2
   size: M
   lane: SUBSTRATE
-  depends_on: [AIP-105, FND-032, SEC-190, SEC-211, SVC-160]
+  depends_on: [AIP-105, FND-032, SEC-190, SEC-211, SVC-160, SEC-192, SEC-201, AIP-109]
   after: [FND-011, FND-062, FND-063, SOV-151, SOV-175, SOV-322, SEC-104, NET-040, CTL-041, CTL-346, INF-050]
   touches:
   - products/axon/chart/**
@@ -30508,8 +30549,8 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_aip_g06.go
   - docs/ledger/gates.yaml
   resources: []
-  flips: [AIP-G06]
-  implements: []
+  flips: []
+  implements: [AIP-G06]
   proven_by: null
   precondition: null
   acceptance: []
@@ -30520,7 +30561,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Axon installed in the primary region with CSI-mounted credential, fenced ports 3000 and 3001, zero replicas elsewhere
+  delivers: 'Axon installed in the primary region with CSI-mounted credential, fenced ports 3000 and 3001, zero replicas elsewhere. Slot 82 asks the birth Job of the secrets library (SEC-201) for the empty document mounted/data/axon/sa/axon/model-credential/e1 with key document (a placeholder with sharedAcrossRegions false: each region''s Job creates its own, so no peer-trust entry is needed), so that the CSI mount succeeds and the Pod becomes Ready on a fresh install before AIP-160 writes the real document; Axon reports the credential state absent until then. The egress hosts (the API host and the token host of src/credential.ts) are in products/axon/chart/values.yaml; guard G1 counts that file and stands at 8 of 8 after AIP-109. Check AIP-G06 enters as expected-fail; AIP-160 makes it required.'
 - id: AIP-107
   title: Images and structured output in Axon
   area: AIP
@@ -30611,6 +30652,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: 'Axon keeps only its Claude path: the vLLM provider, the Valkey cache and the conversation store are gone from its source, its dependencies and its chart, which renders one Deployment and one Service.'
+- id: AIP-109
+  title: The old gateway's values drop a commented channel example that names the vendor's host
+  area: AIP
+  epic: AIP-100
+  type: delete
+  wave: W2
+  size: XS
+  lane: SUBSTRATE
+  depends_on: []
+  after: [FND-011, SVC-040, SVC-041, CTL-172, AIP-040, AIP-050, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-155, AIP-156, AIP-157, AIP-158]
+  touches:
+  - platform/newapi/chart/values.yaml
+  - scripts/agent-plane-baseline.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The old gateway''s values file names no vendor host: its commented claude channel example is gone, and guard G1 counts 7 files with the stored max at 8, which leaves AIP-106 room for its chart values. No rendered object changes.'
 - id: AIP-111
   title: Move the sidecar, take identity from the gateway, publish quantity
   area: AIP
@@ -31377,7 +31445,7 @@ packages:
   - docs/ledger/gates.yaml
   - scripts/agent-plane-baseline.yaml
   resources: []
-  flips: [AIP-G13]
+  flips: [AIP-G13, AIP-G06]
   implements: []
   proven_by: null
   precondition: null
