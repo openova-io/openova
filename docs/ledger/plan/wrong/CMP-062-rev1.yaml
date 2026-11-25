@@ -1,0 +1,40 @@
+schema: openova.io/plan-wrong/v1
+id: CMP-062
+ticket_rev: 1
+base_commit: cb816304dc010aa5c7ce68eb52e09c0c97b8a06b
+stage: check
+ref: field 14 (stop condition 2)
+command: |
+    KYVERNO_BIN=kyverno-v1.13.4 bash products/chargeback/docrender/chart/tests/kyverno-policies.sh
+    KYVERNO_BIN=kyverno-v1.19.2 bash products/chargeback/docrender/chart/tests/kyverno-policies.sh
+expected: |
+    Field 4: products/chargeback/docrender/chart/tests/kyverno-policies.sh passes with the change.
+    Field 7: the chargeback charts still satisfy every policy of the chart.
+    Field 14 lists products/chargeback/docrender/chart/tests/kyverno-policies.sh, and no other
+    file may change. It does not list .github/workflows/build-docrender.yaml.
+actual: |
+    On pull request 8802 (branch wp/CMP-062, head d52f00a4fc) the check
+    'docrender — tests, chart gates, image' is red: run 45587769425, job 139113667946.
+    That job installs the kyverno CLI from .github/workflows/build-docrender.yaml lines 56-57
+    (KYVERNO_VERSION v1.13.4). v1.13.4 does not evaluate policies.kyverno.io/v1 ValidatingPolicy,
+    so the seven rewritten policies are dropped without a message. Job log, last lines:
+      [kyverno] 24 policies rendered at canonical actions
+      [kyverno] pass=13 fail=0 warn=0 error=0 skip=2
+      FAIL [single replica]: the gate reported 0 failures on a render that violates 'multi-replica-drainability' — it is not actually checking.
+      FAIL [no hostname spread]: the gate reported 0 failures on a render that violates 'topology-spread' — it is not actually checking.
+      GATE BROKEN: the self-test could not make this gate fail.
+      ##[error]Process completed with exit code 2.
+    The same script on wp/CMP-062, run on this host with each CLI (archive sha256 checked):
+      v1.13.4 (abd318dbb971ab6de2bbe3b7226f4a03230d5c9c651df8a29b6b5e085a55aeeb): exit 2, 13 rule evaluations, self-test FAIL
+      v1.19.2 (357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a): exit 0, 18 rule evaluations, self-test PASS, ALL PASS
+    The repair is .github/workflows/build-docrender.yaml lines 56-57: KYVERNO_VERSION v1.19.2 and
+    KYVERNO_SHA256 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a, the pin of
+    .github/workflows/policy-chart-tests.yaml lines 30-31. That file is outside field 14.
+    The review of 8802 also found, for the amendment:
+      - Field 18: no acceptance command runs kyverno test on the seven suites or either chargeback gate.
+      - products/chargeback/docrender/chart/tests/kyverno-policies.sh lines 126-129: the Enforce-name guard
+        greps the policy file, so it passes when the CLI drops the policy (resource-requests is now a
+        ValidatingPolicy); it does not prove the CLI evaluated it.
+      - products/catalyst/bootstrap/api/internal/handler/compliance_test.go lines 926-930: the test never
+        holds the state where both objects of a rewrite exist, so field 3.6 (prefer the legacy kind) is untested.
+reported_at: 2026-11-25T09:51:54Z
