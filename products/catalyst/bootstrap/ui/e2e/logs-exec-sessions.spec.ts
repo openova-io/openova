@@ -1,15 +1,12 @@
 /**
  * logs-exec-sessions.spec.ts — EPIC-4 Slice X2+E (#1099) — visual +
- * click-through coverage for the LogViewer / ExecPanel / SessionsPage.
+ * click-through coverage for the LogViewer / ExecPanel.
  *
- * Captures ≥5 1440x900 snapshots covering the brief's deliverables:
+ * Captures 1440x900 snapshots:
  *   - LogViewer renders with ANSI colors visible
  *   - LogViewer search box opens
  *   - ExecPanel idle state with Open Shell button
- *   - ExecPanel iframe loaded after click
- *   - ExecPanel fallback when iframe blocked (forced via timeout)
- *   - SessionsPage list view
- *   - SessionsPage filter panel
+ *   - ExecPanel after the click (the direct WebSocket shell)
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), URLs are
  * playwright.config-driven.
@@ -31,7 +28,7 @@ async function clearLocalStorage(page: Page) {
   })
 }
 
-test.describe('EPIC-4 X2+E — logs viewer + exec + sessions (#1099)', () => {
+test.describe('EPIC-4 X2+E — logs viewer + exec (#1099)', () => {
   test.beforeEach(async ({ page }) => {
     await clearLocalStorage(page)
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -74,7 +71,7 @@ test.describe('EPIC-4 X2+E — logs viewer + exec + sessions (#1099)', () => {
     })
   })
 
-  test('ExecPanel Open Shell click triggers session create flow', async ({ page }) => {
+  test('ExecPanel Open Shell click opens the WebSocket shell', async ({ page }) => {
     await page.goto(`provision/${DEPLOYMENT_ID}/cloud/resource/pod/default/wp-1/exec`)
     await page.waitForLoadState('domcontentloaded')
     await page.waitForSelector('[data-testid="exec-panel-open"]', { timeout: 10_000 }).catch(() => undefined)
@@ -82,31 +79,11 @@ test.describe('EPIC-4 X2+E — logs viewer + exec + sessions (#1099)', () => {
     if ((await openBtn.count()) > 0) {
       await openBtn.click().catch(() => undefined)
     }
-    // Either iframe-loading or error state appears; both are valid for
-    // the snapshot since the dev fixture has no real api.
+    // Either the connecting shell or the error state appears; both are
+    // valid for the snapshot since the dev fixture has no real api.
     await page.waitForTimeout(500)
     await page.screenshot({
       path: `e2e/screenshots/e1-exec-panel-after-click.png`,
-      fullPage: false,
-    })
-  })
-
-  test('SessionsPage renders the list shell', async ({ page }) => {
-    await page.goto(`provision/${DEPLOYMENT_ID}/sessions`)
-    await page.waitForLoadState('domcontentloaded')
-    await page.waitForSelector('[data-testid="sessions-page"]', { timeout: 10_000 }).catch(() => undefined)
-    await page.screenshot({
-      path: `e2e/screenshots/e3-sessions-page.png`,
-      fullPage: false,
-    })
-  })
-
-  test('SessionsPage filter form is visible', async ({ page }) => {
-    await page.goto(`provision/${DEPLOYMENT_ID}/sessions`)
-    await page.waitForLoadState('domcontentloaded')
-    await page.waitForSelector('[data-testid="sessions-filter"]', { timeout: 10_000 }).catch(() => undefined)
-    await page.screenshot({
-      path: `e2e/screenshots/e3-sessions-filter.png`,
       fullPage: false,
     })
   })
