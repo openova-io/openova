@@ -15,7 +15,7 @@
 //   - async destroy kickoff (WipeDeployment responds before the purge
 //     finishes, and the purge survives cancellation of the ORIGINAL
 //     request context)
-//   - the operator-creds env fallback (deploymentCredentials + the
+//   - the operator-creds fallback, files since CLD-106 (deploymentCredentials + the
 //     HTTP-level 400 guard)
 //   - idempotent re-wipe of a stranded `wiping` record
 package handler
@@ -173,22 +173,19 @@ func TestWipeDeployment_PurgeSurvivesRequestContextCancellation(t *testing.T) {
 	}
 }
 
-// ── operator-creds env fallback ──────────────────────────────────────
+// ── operator-creds fallback ──────────────────────────────────────────
 
-// TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400 is the
+// TestWipeDeployment_HuaweiOperatorCredsFallbackAvoids400 is the
 // HTTP-level integration proof for #5193 fix 2. A Huawei deployment
 // whose body, in-memory Request, AND per-deployment PVC tfvars are ALL
 // empty of credentials (the exact hw268 shape: a partial destroy wiped
 // the tfvars, a Pod roll wiped dep.Request, the operator re-fires with
 // an empty body) must NOT 400 "credentials required" when the
-// huawei-operator-creds env is present on catalyst-api — it must fall
-// back to it, exactly like the janitor's discoverHuaweiCreds already
+// operator's credential files are mounted on catalyst-api — it must fall
+// back to them, exactly like the janitor's discoverHuaweiCreds already
 // does for the orphan sweep.
-func TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-operator-secret")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "sk-operator-secret")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-operator-secret")
-	t.Setenv("CATALYST_HUAWEI_REGION", "me-east-215")
+func TestWipeDeployment_HuaweiOperatorCredsFallbackAvoids400(t *testing.T) {
+	operatorCredentialFiles(t, "huawei", huaweiOperator)
 	// No per-deployment tfvars on disk — points at an empty workdir root
 	// so the variables-file source honestly misses (simulating the
 	// partial-destroy-already-deleted-tfvars shape).
@@ -214,11 +211,11 @@ func TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400(t *testing.T) {
 	// Empty body — the operator re-fires the canonical bare wipe, same
 	// as the manual recovery this issue documents having to bypass via
 	// port-forward + explicit creds. With the fix, the empty body alone
-	// must be enough because the env fallback fills it in.
+	// must be enough because the operator fallback fills it in.
 	w := callWipeDeployment(h, dep.ID, "", `{}`)
 
 	if w.Code == http.StatusBadRequest {
-		t.Fatalf("wipe 400'd despite huawei-operator-creds env being set — the env fallback did not fire: body=%s", w.Body.String())
+		t.Fatalf("wipe 400'd despite the operator's credential files — the operator fallback did not fire: body=%s", w.Body.String())
 	}
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status=%d, want 202 — body=%s", w.Code, w.Body.String())
@@ -228,14 +225,11 @@ func TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400(t *testing.T) {
 }
 
 // TestWipeDeployment_HuaweiNoCredsAnywhereStill400s is the negative
-// cross-check: WITHOUT the operator-creds env set (and without body/
+// cross-check: WITHOUT operator credential files (and without body/
 // tfvars/in-memory creds), the wipe must still 400 — the fallback must
 // not mask a genuinely unconfigured catalyst-api.
 func TestWipeDeployment_HuaweiNoCredsAnywhereStill400s(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
-	t.Setenv("CATALYST_HUAWEI_REGION", "")
+	operatorCredentialFiles(t, "huawei", nil)
 	t.Setenv("CATALYST_TOFU_WORKDIR", t.TempDir())
 
 	h := NewWithPDM(silentLogger(), &fakePDM{})
