@@ -14,21 +14,17 @@ import (
 // Check ACC-G01, Gateway closed by default. In every region: (1) the Deployment oidc-gate/oidc-gate-guacamole is
 // absent, or its container oauth2-proxy has accessGateUpstreamArg, or the groups it admits (a member of any one of its
 // --allowed-group and OAUTH2_PROXY_ALLOWED_GROUPS entries; none admits every realm user) are exactly accessGateGroup;
-// (2) the Cluster guacamole/guacamole-pg exists and its database has no system permission and no connection
-// sovereign-node, or namespace guacamole holds neither a Cluster nor the Deployment guacamole-server; (3) the DaemonSet
-// catalyst-system/k8s-ws-proxy has ALLOWED_NAMESPACES=catalyst-system or no SHARED_SECRET_FILE. A part that was not
-// measured fails. The check only reads (kubectl get, one SELECT).
+// (2) namespace guacamole holds no Deployment guacamole-server and no CloudNativePG Cluster: the web application and
+// its database are removed (ACC-102, ADR-0033 decision A3); (3) the DaemonSet catalyst-system/k8s-ws-proxy has
+// ALLOWED_NAMESPACES=catalyst-system or no SHARED_SECRET_FILE. A part that was not measured fails. The check only
+// reads (kubectl get).
 const accessGateID = "ACC-G01"
 
 const (
 	accessGateGroup       = "sovereign-admins"
 	accessGateUpstreamArg = "--upstream=http://access-controller.guacamole.svc.cluster.local:8080"
-	accessGateCluster     = "guacamole-pg"
 	accessGateWebapp      = "guacamole-server"
-	// accessGateQuery prints "<system permission rows>/<sovereign-node connections>".
-	accessGateQuery = "SELECT (SELECT count(*) FROM guacamole_system_permission) || '/' || " +
-		"(SELECT count(*) FROM guacamole_connection WHERE connection_name = 'sovereign-node')"
-	accessGateAllowed = "catalyst-system"
+	accessGateAllowed     = "catalyst-system"
 )
 
 type accessGateCheck struct{}
@@ -44,7 +40,7 @@ func (accessGateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecord
 	parts := []struct {
 		key   string
 		judge func(context.Context, kube.Region) (string, error)
-	}{{"gate", accessGateGate}, {"database", accessGateDatabase}, {"proxy", accessGateProxy}}
+	}{{"gate", accessGateGate}, {"store", accessGateStore}, {"proxy", accessGateProxy}}
 	for i, region := range cc.Regions {
 		rec.Step(accessGateID+"."+strconv.Itoa(i+1), "the access gateway is closed by default in region "+region.ID, func(ev Evidence) error {
 			var fails []string
@@ -124,7 +120,8 @@ func accessGateGate(ctx context.Context, region kube.Region) (string, error) {
 	return "allowed-group sovereign-admins", nil
 }
 
-func accessGateDatabase(ctx context.Context, region kube.Region) (string, error) {
+// accessGateStore passes when namespace guacamole holds no Deployment guacamole-server and no CloudNativePG Cluster.
+func accessGateStore(ctx context.Context, region kube.Region) (string, error) {
 	clusters, err := region.GetList(ctx, cnpgResource, "guacamole")
 	if err != nil {
 		return "", err
@@ -133,27 +130,16 @@ func accessGateDatabase(ctx context.Context, region kube.Region) (string, error)
 	if err != nil {
 		return "", err
 	}
+	names := make([]string, 0, len(clusters))
 	for _, c := range clusters {
-		if c.Name() != accessGateCluster {
-			continue
-		}
-		pod := c.Str("status", "currentPrimary")
-		if pod == "" {
-			return "no primary", fmt.Errorf("the Cluster guacamole/%s has no current primary: the gateway database was not measured", accessGateCluster)
-		}
-		out, err := region.PSQLSelect(ctx, "guacamole", pod, "guacamole_db", accessGateQuery)
-		if err != nil {
-			return "", err
-		}
-		if out != "0/0" {
-			return out, fmt.Errorf("the gateway database on guacamole/%s holds %s (system permissions/sovereign-node connections), want 0/0", pod, out)
-		}
-		return out, nil
+		names = append(names, c.Name())
 	}
 	if len(clusters) == 0 && w == nil {
-		return "no gateway", nil
+		return "no web application, no database", nil
 	}
-	return "not measured", fmt.Errorf("namespace guacamole holds %d Cluster(s) and the Deployment %s is present=%v, but no Cluster %s: the gateway database was not measured", len(clusters), accessGateWebapp, w != nil, accessGateCluster)
+	return fmt.Sprintf("Deployment %s present=%v, Clusters [%s]", accessGateWebapp, w != nil, strings.Join(names, ",")),
+		fmt.Errorf("namespace guacamole holds the Deployment %s: %v, and the CloudNativePG Clusters [%s]; want neither: the web application and its database are not removed",
+			accessGateWebapp, w != nil, strings.Join(names, ","))
 }
 
 func accessGateProxy(ctx context.Context, region kube.Region) (string, error) {

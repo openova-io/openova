@@ -12,16 +12,15 @@ true) for its slot-installed HelmRelease; the application-controller
 ADOPTS it (status-only reconcile mirroring spec.helmRelease Ready),
 never re-rendering — the install already belongs to the slot HR.
 
-Gates (bp-valkey idiom — no top-level .Values.enabled here; the chart's
-own CC3 master switch is .Values.guacamole.enabled, but the CR opt-in is
-purely .Values.bootstrapOwned.enabled so it tracks the slot, not the
-upstream subchart toggle): `.Values.bootstrapOwned.enabled` (defaults
+Gates (bp-valkey idiom — the CR opt-in is purely
+.Values.bootstrapOwned.enabled so it tracks the slot; since ACC-102 this is
+the only object the chart renders): `.Values.bootstrapOwned.enabled` (defaults
 false; the slot opts in) AND the Capabilities apps.openova.io/v1 gate
 (benign skip pre-CRD; CR materialises on the first post-CRD upgrade).
 Leaf platform app — no shareable Context, so spec.parameters is empty.
 */ -}}
-{{- /* #5358: the Application CR represents the ONE Guacamole instance; only the
-   crossRegion `primary` region self-registers it (no double-carding). */ -}}
+{{- /* #5358: the Application CR represents the ONE access-plane instance; only
+   the crossRegion `primary` region self-registers it (no double-carding). */ -}}
 {{- if and .Values.bootstrapOwned.enabled (not (include "bp-guacamole.isMeshSecondary" .)) (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
 {{- /* DESIRED STATE belongs to the operator once the Application exists:
      the Topology edit (console → Application CR + Git) owns spec.placement
