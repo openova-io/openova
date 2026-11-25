@@ -75,7 +75,6 @@ import { Dashboard } from '@/pages/sovereign/Dashboard'
 import { CloudPage } from '@/pages/sovereign/CloudPage'
 import { ResourceDetailRoute } from '@/pages/sovereign/cloud-list/ResourceDetailRoute'
 import { normaliseCloudKind } from '@/pages/sovereign/cloud-list/normaliseKind'
-import { SessionsRoute } from '@/pages/sovereign/sessions/SessionsRoute'
 import { DecommissionPage } from '@/pages/sovereign/DecommissionPage'
 import { UserAccessListPage } from '@/pages/admin/user-access/UserAccessListPage'
 import { UserAccessEditPage } from '@/pages/admin/user-access/UserAccessEditPage'
@@ -1032,14 +1031,6 @@ const provisionResourceDetailRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
-// EPIC-4 Slice E3 (#1099) — Guacamole session list + replay.
-const provisionSessionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/provision/$deploymentId/sessions',
-  component: SessionsRoute,
-  beforeLoad: provisionAuthGuard,
-})
-
 // 301 redirects for the legacy P3 sub-routes. Each one redirects to
 // the consolidated `/cloud?view=…&kind=…` shape and renders nothing
 // itself — tanstack-router runs `beforeLoad` before the component
@@ -1495,12 +1486,6 @@ const consoleResourceDetailRoute = createRoute({
   component: ResourceDetailRoute,
 })
 
-// EPIC-4 Slice E3 (#1099) — Guacamole session list + replay (chroot).
-const consoleSessionsRoute = createRoute({
-  getParentRoute: () => consoleLayoutRoute,
-  path: '/sessions',
-  component: SessionsRoute,
-})
 const consoleUsersRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/users',
@@ -2163,20 +2148,6 @@ const appSettingsRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
-// /app/$deploymentId/shells/sessions{,/$sessionId}.
-const appShellsSessionsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/shells/sessions',
-  component: SessionsRoute,
-  beforeLoad: provisionAuthGuard,
-})
-const appShellsSessionDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/$deploymentId/shells/sessions/$sessionId',
-  component: SessionsRoute,
-  beforeLoad: provisionAuthGuard,
-})
-
 // /app/$deploymentId/networking{,/$slug} — qa-loop iter-11 Fix #48.
 // The index route mounts at the bare `/networking` URL and the
 // sub-route at `/networking/$slug` (policies | clustermesh | netbird |
@@ -2313,8 +2284,6 @@ const routeTree = rootRoute.addChildren([
           appRBACAuditRoute,
           appOrgMembersRoute,
           appSettingsRoute,
-          appShellsSessionsRoute,
-          appShellsSessionDetailRoute,
           appNetworkingIndexRoute,
           appNetworkingRoute,
           // Resources — static sub-paths first.
@@ -2345,7 +2314,6 @@ const routeTree = rootRoute.addChildren([
   provisionDecommissionRoute,
   provisionCloudRoute.addChildren(legacyCloudRedirectRoutes),
   provisionResourceDetailRoute,
-  provisionSessionsRoute,
   provisionInfrastructureRoute.addChildren([
     provisionInfrastructureIndexRoute,
     ...infraLegacyRedirectRoutes,
@@ -2396,7 +2364,6 @@ const routeTree = rootRoute.addChildren([
     consoleJobDetailRoute,
     consoleCloudRoute.addChildren(consoleLegacyCloudRedirectRoutes),
     consoleResourceDetailRoute,
-    consoleSessionsRoute,
     consoleUsersRoute,
     consoleUsersNewRoute,
     consoleUsersEditRoute,

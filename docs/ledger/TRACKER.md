@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T14:15:05Z` |
+| Last refreshed | `2026-11-25T19:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
+| 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
+| 2026-11-25T15:38 | [#8833](https://github.com/openova-io/openova/pull/8833) | #8787 | bp-speech declares that it renders nothing by default, so th |
+| 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
+| 2026-11-25T14:40 | [#8830](https://github.com/openova-io/openova/pull/8830) | #8826 | feat(secrets-lib): the birth Job writes a named key and an e |
 | 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:53 | [#8828](https://github.com/openova-io/openova/pull/8828) | #7087 | docs(ledger): plan update |
+| 2026-11-25T14:35 | [#8827](https://github.com/openova-io/openova/pull/8827) | #8825 | refactor(kyverno): five validate policies rewritten in place |
 | 2026-11-25T13:43 | [#8824](https://github.com/openova-io/openova/pull/8824) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:14 | [#8820](https://github.com/openova-io/openova/pull/8820) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:07 | [#8818](https://github.com/openova-io/openova/pull/8818) | #7087 | docs(ledger): plan update |
@@ -323,20 +329,14 @@ flowchart LR
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
-| 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
+| 2026-11-25T14:56 | [#8798](https://github.com/openova-io/openova/pull/8798) | #8792 | feat(api): the providers routes list the packs and serve the |
 | 2026-11-25T12:07 | [#8796](https://github.com/openova-io/openova/pull/8796) | #8793 | fix(catalyst-api): a catalogue edit may change only the card |
+| 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:43 | [#8789](https://github.com/openova-io/openova/pull/8789) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
 | 2026-11-25T14:05 | [#8787](https://github.com/openova-io/openova/pull/8787) | #8786 | feat(speech): the transcription chart serves one pinned Whis |
 | 2026-11-24T16:27 | [#8785](https://github.com/openova-io/openova/pull/8785) | #7087 | docs(ledger): plan update |
-| 2026-11-25T08:45 | [#8784](https://github.com/openova-io/openova/pull/8784) | #8783 | refactor(kyverno): exceptions honoured in one namespace, the |
-| 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
-| 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
-| 2026-11-25T07:48 | [#8780](https://github.com/openova-io/openova/pull/8780) | #8779 | chore(catalyst-api): nothing reads the long-lived bearer; no |
-| 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
-| 2026-11-24T15:31 | [#8777](https://github.com/openova-io/openova/pull/8777) | #8776 | refactor(compliance): policy files in every region folder: t |
-| 2026-11-24T12:37 | [#8775](https://github.com/openova-io/openova/pull/8775) | #7087 | docs(ledger): plan update |
 
 ---
 

@@ -7103,7 +7103,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: catalyst-api reads the operator cloud credentials from the files cloud-credential.<provider>.<key> in the directory of its flag --cloud-credentials-dir, default /var/run/secrets/openova, which a read-only CSI volume of the Secrets Store CSI driver fills from OpenBao; no environment variable and no Secret volume carries them, and the variables CATALYST_HUAWEI_ACCESS_KEY, CATALYST_HUAWEI_SECRET_KEY, CATALYST_HUAWEI_PROJECT_ID, CATALYST_HUAWEI_REGION and every reference to Secret huawei-operator-creds are removed.
 - id: CLD-107

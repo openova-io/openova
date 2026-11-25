@@ -21,6 +21,10 @@ generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
     serviceAccount: ""       # mounted + scope sa: required
     sharedAcrossRegions: true   # default true: one value in every region,
                              # born by the primary
+    key: password            # mounted only (SEC-201): the key of the document;
+                             # default password; [A-Za-z0-9][-._A-Za-z0-9]*
+    placeholder: false       # mounted only (SEC-201): true = the document holds
+                             # the key with an empty string (no length, no symbols)
     mountedCopies: []        # synced only: [{serviceAccount: x}], one copy
                              # of the synced value as a mounted file each
 
@@ -31,6 +35,9 @@ delivery mounted, scope shared: mounted/<ns>/shared/<name>/e<epoch>
   for a shared value of the primary also in every peer region, through the
   peer trust of bp-openbao. A region that is not the primary
   renders nothing for a shared value: the primary writes it there.
+  A placeholder is created once, empty, so a CSI mount of the path succeeds
+  before the real value exists; a later writer with update rights replaces
+  it and the Job never writes it again.
 delivery synced:   Password generator <name>-e<epoch>, PushSecret
   <name>-e<epoch> (IfNotExists) into SecretStore openbao at
   openova/apps/<ns>/<name>/e<epoch>, plus ClusterSecretStore vault-<peer> per
@@ -86,6 +93,17 @@ Settings, under .Values.openova.secrets (all optional):
 {{- if eq $delivery "mounted" -}}
 {{- if ne $reg "" }}{{ fail (printf "%s: registerId is only for delivery synced" $where) }}{{ end -}}
 {{- if $mc }}{{ fail (printf "%s: mountedCopies is only for delivery synced" $where) }}{{ end -}}
+{{- $key := "password" -}}
+{{- if hasKey $spec "key" -}}
+{{- if not (regexMatch "^[A-Za-z0-9][-._A-Za-z0-9]*$" (toString $spec.key)) }}{{ fail (printf "%s: key %q must match [A-Za-z0-9][-._A-Za-z0-9]*" $where (toString $spec.key)) }}{{ end -}}
+{{- $key = toString $spec.key -}}
+{{- end -}}
+{{- $ph := false -}}
+{{- if hasKey $spec "placeholder" -}}
+{{- if not (kindIs "bool" $spec.placeholder) }}{{ fail (printf "%s: placeholder must be true or false" $where) }}{{ end -}}
+{{- $ph = $spec.placeholder -}}
+{{- end -}}
+{{- if and $ph (or (hasKey $spec "length") (hasKey $spec "symbols")) }}{{ fail (printf "%s: a placeholder is empty: it takes no length or symbols" $where) }}{{ end -}}
 {{- $scope := $spec.scope | default "sa" -}}
 {{- if not (has $scope (list "sa" "shared")) }}{{ fail (printf "%s: scope %q is neither sa nor shared" $where $scope) }}{{ end -}}
 {{- $path := printf "%s/shared/%s/e%d" $ns $name $epoch -}}
@@ -95,9 +113,13 @@ Settings, under .Values.openova.secrets (all optional):
 {{- $path = printf "%s/sa/%s/%s/e%d" $ns $sa $name $epoch -}}
 {{- end -}}
 {{- if not $waits -}}
-{{- $plan = append $plan (printf "%s %d %d - %s" $path $len $sym (ternary "all" "self" $toPeers)) -}}
+{{- $line := printf "%s %d %d - %s" $path $len $sym (ternary "all" "self" $toPeers) -}}
+{{- if $ph }}{{ $line = printf "%s 0 0 empty %s" $path (ternary "all" "self" $toPeers) }}{{ end -}}
+{{- if ne $key "password" }}{{ $line = printf "%s %s" $line $key }}{{ end -}}
+{{- $plan = append $plan $line -}}
 {{- end -}}
 {{- else -}}
+{{- if or (hasKey $spec "key") (hasKey $spec "placeholder") }}{{ fail (printf "%s: key and placeholder are only for delivery mounted" $where) }}{{ end -}}
 {{- if eq $reg "" }}{{ fail (printf "%s: registerId is required for delivery synced" $where) }}{{ end -}}
 {{- if not $waits }}
 ---
@@ -182,7 +204,7 @@ spec:
 {{- if $plan -}}
 {{- $peerList := list -}}
 {{- $anyAll := false -}}
-{{- range $plan }}{{ if hasSuffix " all" . }}{{ $anyAll = true }}{{ end }}{{ end -}}
+{{- range $plan }}{{ if eq (index (splitList " " .) 4) "all" }}{{ $anyAll = true }}{{ end }}{{ end -}}
 {{- if $anyAll -}}
 {{- if eq (toString $self) "" }}{{ fail "openova.generatedSecrets: self (or openova.topology.self) is required when a shared value goes to the peers" }}{{ end -}}
 {{- range $peers }}{{ $peerList = append $peerList (printf "%s=http://openbao-%s.%s.svc.cluster.local:8200" . . $baoNs) }}{{ end -}}
@@ -211,7 +233,7 @@ metadata:
     app.kubernetes.io/name: secrets-birth
     secrets.openova.io/library: secrets-lib
 data:
-  # <path under mounted/> <length> <symbols> <source: - = new random value | file> <reach: all | self>
+  # <path under mounted/> <length> <symbols> <source: - = new random value | empty = placeholder | file> <reach: all | self> [<key>, default password]
   plan: |
 {{ join "\n" $plan | indent 4 }}
   birth.sh: |

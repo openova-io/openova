@@ -9,9 +9,11 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/agenttoken"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobauth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providersapi"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/sovself"
 )
 
@@ -29,6 +31,8 @@ type routeDeps struct {
 	// tokens serves the agent-token issue route and the signer key set
 	// route (internal/agenttoken). buildRouter makes it.
 	tokens *agenttoken.Tokens
+	// providers serves the cloud profile routes. buildRouter makes it.
+	providers *providersapi.Routes
 }
 
 // buildRouter builds the router of catalyst-api: the middleware of every
@@ -42,6 +46,7 @@ func buildRouter(d routeDeps) chi.Router {
 	corsOrigin, log, h := d.corsOrigin, d.log, d.h
 	d.self = sovself.New(h.SovereignSelf, log)
 	d.tokens = agenttoken.New(h.GetHandoverSigner(), jobauth.InCluster, h.AuditBus(), log)
+	d.providers = providersapi.New(cloudprofile.DefaultDir, providersapi.FromCluster(jobauth.InCluster))
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -116,6 +121,7 @@ func buildRouter(d routeDeps) chi.Router {
 		registerSessionWhoami(rg, d)
 		registerSessionSovereigns(rg, d)
 		registerSessionDeployments(rg, d)
+		registerSessionProviders(rg, d)
 		registerSessionRegistrar(rg, d)
 		registerSessionHandover(rg, d)
 		registerSessionActions(rg, d)

@@ -1,0 +1,200 @@
+# Inputs of the suite secret-not-in-env.
+
+# 1. A Pod with a plaintext PASSWORD: not compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: plaintext-password
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      env:
+        - name: DB_PASSWORD
+          value: hunter2
+---
+# 2. A Pod that sources its password from a Secret: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-ref
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db
+              key: password
+        - name: LOG_LEVEL
+          value: info
+---
+# 3. A Pod with a lower-case secret-shaped name: not compliant (the match ignores case).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lowercase-token
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      env:
+        - name: api_token
+          value: abc
+---
+# 4. A Pod whose env name holds KEY inside a word: not compliant (the match is a substring).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: substring-key
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      env:
+        - name: MONKEY_MODE
+          value: "on"
+---
+# 5. A Pod with a secret-shaped name and an empty value: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: empty-secret-value
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      env:
+        - name: SECRET_PATH
+          value: ""
+---
+# 6. A Pod whose init container has a plaintext PASSWORD and whose container
+#    has no env: not judged (init containers are not read).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-plaintext
+  namespace: example
+spec:
+  initContainers:
+    - name: seed
+      image: ghcr.io/example/seed:v1.0.0
+      env:
+        - name: ADMIN_PASSWORD
+          value: hunter2
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+---
+# 7. A Deployment with a plaintext TOKEN in its second container: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plaintext-token
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: plaintext-token
+  template:
+    metadata:
+      labels:
+        app: plaintext-token
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+        - name: sidecar
+          image: ghcr.io/example/sidecar:v1.0.0
+          env:
+            - name: GITHUB_TOKEN
+              value: ghp_example
+---
+# 8. A StatefulSet without env: not judged (no env entry to read).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: no-env
+  namespace: example
+spec:
+  serviceName: no-env
+  selector:
+    matchLabels:
+      app: no-env
+  template:
+    metadata:
+      labels:
+        app: no-env
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 9. A Job with a plaintext SECRET: not compliant.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: plaintext-secret
+  namespace: example
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: task
+          image: ghcr.io/example/task:v1.0.0
+          env:
+            - name: CLIENT_SECRET
+              value: s3cr3t
+---
+# 10. A CronJob with a plaintext PASSWORD: not judged. The legacy rule read the
+#     containers at spec.containers or spec.template.spec.containers, and a
+#     CronJob has neither (measured on the legacy policy).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-plaintext
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: task
+              image: ghcr.io/example/task:v1.0.0
+              env:
+                - name: DB_PASSWORD
+                  value: hunter2
+---
+# 11. A DaemonSet with a plaintext PASSWORD in an excluded namespace: not judged.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: plaintext-agent
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: plaintext-agent
+  template:
+    metadata:
+      labels:
+        app: plaintext-agent
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:v1.0.0
+          env:
+            - name: AGENT_PASSWORD
+              value: hunter2

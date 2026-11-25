@@ -38,5 +38,17 @@
 #
 # Refs #5559 #4432 #960
 
-# Empty since SVC-162: the two charts it named were scaffolds, and their Blueprints are deleted.
-unpublished: []
+unpublished:
+  # platform/speech/chart (PRD-304, merged 73c37302f8) carries version 1.0.0
+  # and its seed pin, but its first release push failed during a GitHub
+  # incident and left the package ghcr.io/openova-io/bp-speech private, with
+  # one untagged version and no access for this repository's Actions token:
+  # every release since gets 403 DENIED (run 45647479716). A commit cannot
+  # repair the package; an organisation admin deletes it or grants Actions
+  # access. Until then the seed entry is unlisted and nothing installs it.
+  # Retire this row, and set visibility back to listed in
+  # platform/speech/blueprint.yaml, once 1.0.0 is published.
+  - chart: bp-speech
+    version: "1.0.0"
+    issue: 8786
+    reason: "the bp-speech package on ghcr.io refuses this repository's release token (403), so 1.0.0 cannot be published yet"

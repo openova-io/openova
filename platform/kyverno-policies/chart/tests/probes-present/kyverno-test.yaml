@@ -1,0 +1,72 @@
+# Suite of the policy probes-present (templates/baseline/04-probes.yaml), CMP-063.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+# On the legacy kind the CLI reports an excluded resource as "Excluded" and
+# accepts that for any expected result; the ValidatingPolicy gives it a skip.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/probes-present
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: probes-present-test
+policies:
+  - policy.yaml
+resources:
+  - ../fixtures/probes-present/pass-deployment.yaml
+  - ../fixtures/probes-present/fail-deployment.yaml
+  - resources.yaml
+results:
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/pass-probes
+    result: pass
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/fail-probes
+    result: fail
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - example/two-containers-probed
+    result: pass
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - example/sidecar-unready
+    result: fail
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/liveness-only
+    result: fail
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/empty-liveness
+    result: fail
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/init-without-probes
+    result: pass
+  - policy: probes-present
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - kube-system/no-probes
+    result: skip

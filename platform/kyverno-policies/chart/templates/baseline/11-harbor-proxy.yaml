@@ -2,8 +2,8 @@
 K1 - harbor-proxy-pull (governance, ENFORCING default).
 
 Container images must be pulled through the Sovereign's local Harbor
-proxy. The Harbor-proxy glob is operator-configurable via
-.Values.compliancePolicies.harborProxyPull.allowedImagePattern.
+proxy. The allowed globs are operator-configurable via
+.Values.compliancePolicies.harborProxyPull.allowedImagePatterns.
 Default glob "harbor.STAR/proxy-STAR/STAR" matches every Sovereign's
 proxy paths and is future-proof for new proxy sources.
 
@@ -12,17 +12,36 @@ through G58) patched the regex_match + foreach + element.X expression
 without ever asking the architectural question. ALL hit Kyverno's
 JMESPath nil-substitution edge cases somewhere (empty initContainers,
 sidecar injection, autogen Deployment variant, autogen=none + Pod
-CREATE).
+CREATE). G60 moved to the legacy kind's validate.anyPattern + glob, with
+one rule per workload PATH-SHAPE (Pod / template-bearing / CronJob,
+2026-06-11) because autogen did not path-expand anyPattern.
 
-G60 drops the foreach + regex_match + element.X primitive entirely.
-Replaces with Kyverno's CANONICAL validate.pattern + glob - the
-oldest + most stable Kyverno primitive. Pattern validation uses
-request.object-direct data, no JMESPath substitution path, no
-element.X nil race possible.
+A ValidatingPolicy of policies.kyverno.io since CMP-063 (the legacy
+ClusterPolicy of the same name before); tests/harbor-proxy-pull holds its
+suite. The check is the one anyPattern made: the object passes when ONE
+allowed pattern matches EVERY image of its containers and init containers.
+A pattern is a glob as the legacy kind read it: `*` is any run of
+characters (`/` included), `?` one character, and `|` separates
+alternatives of which one must match. The chart turns each into anchored
+regular expressions at render time; a pattern with an operator of the
+legacy pattern language (`&`, or an alternative that starts with `!`, `<`
+or `>`) has no such reading and fails the render.
 */}}
 {{- if .Values.compliancePolicies.harborProxyPull.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+{{- $patterns := list }}
+{{- range $pat := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
+{{- $alternatives := list }}
+{{- range $glob := splitList "|" $pat }}
+{{- $glob = trimAll " " $glob }}
+{{- if or (contains "&" $glob) (hasPrefix "!" $glob) (hasPrefix "<" $glob) (hasPrefix ">" $glob) }}
+{{- fail (printf "compliancePolicies.harborProxyPull.allowedImagePatterns: %q is not a glob (an operator of the legacy pattern language)" $pat) }}
+{{- end }}
+{{- $alternatives = append $alternatives (printf "r'^%s$'" (regexQuoteMeta $glob | replace "\\*" ".*" | replace "\\?" ".")) }}
+{{- end }}
+{{- $patterns = append $patterns (printf "[%s]" (join ", " $alternatives)) }}
+{{- end }}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: harbor-proxy-pull
   labels:
@@ -31,11 +50,7 @@ metadata:
     catalyst.openova.io/policy-tier: compliance
     catalyst.openova.io/policy-domain: governance
   annotations:
-    # Autogen is OFF because this policy uses validate.anyPattern, which
-    # Kyverno autogen does NOT path-expand for workload controllers (it
-    # would silently leave the rule at the non-existent Pod path on a
-    # Deployment → deny-everything). Each workload PATH-SHAPE is covered
-    # by its own explicit rule below instead.
+    # Autogen OFF: each workload PATH-SHAPE is read at its own path.
     pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: Container images must pull through the Sovereign Harbor proxy
     policies.kyverno.io/category: catalyst-compliance
@@ -45,161 +60,72 @@ metadata:
       registry. Operator configures the allowed glob via
       .Values.compliancePolicies.harborProxyPull.allowedImagePattern.
 spec:
-  # Empirically-determined root cause (kind + kyverno v1.18 harness,
-  # 2026-06-11): the prior SINGLE rule wrote the container path as
-  # `spec.containers` (the Pod path) and relied on Kyverno's autogen to
-  # rewrite it to `spec.template.spec.containers` for Deployment /
-  # StatefulSet / DaemonSet. Kyverno autogen does NOT expand
-  # `validate.anyPattern` rules (only `validate.pattern` and a few other
-  # forms) — verified live: the autogen status produced ZERO template-path
-  # rules, so the policy was evaluated against `/spec/containers/` on a
-  # Deployment, that path does not exist, and EVERY workload was denied at
-  # `path /spec/containers/`. The glob `*/proxy-*/*` itself is correct (it
-  # matches a compliant Pod and a deep path like
-  # `harbor.x/proxy-ghcr/cloudnative-pg/postgresql:16.4-1` — `*` spans `/`).
-  #
-  # Fix: pin `autogen-controllers: none` and write one rule per workload
-  # PATH-SHAPE with the explicit container path (Pod / template-bearing /
-  # CronJob). Each rule's anyPattern lets an image pass if it matches ANY
-  # allowed glob (proxy-cache `*/proxy-*/*` OR native-push `*/openova-io/*`).
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
-  background: true
-  rules:
-    {{- $excludeNs := .Values.compliancePolicies.harborProxyPull.excludeNamespaces }}
-    {{- $pats := .Values.compliancePolicies.harborProxyPull.allowedImagePatterns }}
-    {{- $msg := "Container image does not match any allowed Harbor-source glob (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`). Re-tag the image to pull through the Sovereign's local Harbor (e.g. registry.<sov-fqdn>/proxy-ghcr/... or registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>)." }}
-    {{- $extraExcludeNs := .Values.compliancePolicies.harborProxyPull.extraExcludeNamespaces }}
-    - name: image-from-harbor-proxy-pod
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-                {{- /*
-                  2026-06-13: per-policy extra excludes (NOT the shared anchor).
-                  bp-powerdns pulls pdns-auth-50 + dnsdist-19 from raw docker.io
-                  because the proxy-docker Harbor project is not bootstrap-pullable
-                  on a fresh prov (#3380-D's reroute wedged hw131 + hw132).
-                  powerdns is a trusted first-party bootstrap component; exempt it
-                  from the image-source glob HERE only — it stays subject to every
-                  other policy. Same shape as flux-managed.extraExcludeNamespaces.
-                */}}
-                {{- range $ns := $extraExcludeNs }}
-                - {{ $ns }}
-                {{- end }}
-          {{- /*
-            #3859 (2026-06-19, first proven walkorg on hw167): a per-Org CUSTOMER
-            vCluster syncs its OWN system pods (coredns, then the customer's apps)
-            DOWN to its host namespace (`<svc>-x-kube-system-x-vcluster`). Those
-            upstream images (coredns, the in-vCluster k8s payload) are NOT pulled
-            through the Sovereign Harbor, so harbor-proxy-pull (Enforce) denies the
-            synced pod → the vCluster never finishes bringing up its control plane
-            → the customer Org stays VClusterProvisioning → #3376 funnel can never
-            reach ACTIVE. Platform vClusters (mgmt/rtz/dmz) escape via the static
-            excludeNamespaces; customer Org namespaces are slug-named (UNBOUNDED),
-            so exempt by the `openova.io/organization` label the org-controller
-            stamps on every per-Org vCluster namespace. The image-supply-chain
-            governance for the CUSTOMER's chosen apps is enforced INSIDE the
-            vCluster's own policy set, not on the host syncer shadow Pods.
-          */}}
-          - resources:
-              namespaceSelector:
-                matchExpressions:
-                  - key: openova.io/organization
-                    operator: Exists
-      validate:
-        message: {{ $msg | quote }}
-        anyPattern:
-          {{- range $pat := $pats }}
-          # =(initContainers) is a conditional anchor — when the Pod has no
-          # initContainers the clause is a no-op; when present, every init
-          # image must match too.
-          - spec:
-              =(initContainers):
-                - image: {{ $pat | quote }}
-              containers:
-                - image: {{ $pat | quote }}
-          {{- end }}
-    - name: image-from-harbor-proxy-workload
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-                {{- /* 2026-06-13: see image-from-harbor-proxy-pod rule above — powerdns docker.io carve-out. */}}
-                {{- range $ns := $extraExcludeNs }}
-                - {{ $ns }}
-                {{- end }}
-          {{- /* #3859: per-Org customer vCluster syncs upstream system pods to its host ns — exempt by the org-controller's namespace label (see image-from-harbor-proxy-pod rule above). */}}
-          - resources:
-              namespaceSelector:
-                matchExpressions:
-                  - key: openova.io/organization
-                    operator: Exists
-      validate:
-        message: {{ $msg | quote }}
-        anyPattern:
-          {{- range $pat := $pats }}
-          - spec:
-              template:
-                spec:
-                  =(initContainers):
-                    - image: {{ $pat | quote }}
-                  containers:
-                    - image: {{ $pat | quote }}
-          {{- end }}
-    - name: image-from-harbor-proxy-cronjob
-      match:
-        any:
-          - resources:
-              kinds:
-                - CronJob
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-                {{- /* 2026-06-13: see image-from-harbor-proxy-pod rule above — powerdns docker.io carve-out. */}}
-                {{- range $ns := $extraExcludeNs }}
-                - {{ $ns }}
-                {{- end }}
-          {{- /* #3859: per-Org customer vCluster syncs upstream system pods to its host ns — exempt by the org-controller's namespace label (see image-from-harbor-proxy-pod rule above). */}}
-          - resources:
-              namespaceSelector:
-                matchExpressions:
-                  - key: openova.io/organization
-                    operator: Exists
-      validate:
-        message: {{ $msg | quote }}
-        anyPattern:
-          {{- range $pat := $pats }}
-          - spec:
-              jobTemplate:
-                spec:
-                  template:
-                    spec:
-                      =(initContainers):
-                        - image: {{ $pat | quote }}
-                      containers:
-                        - image: {{ $pat | quote }}
-          {{- end }}
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.harborProxyPull.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    {{- /*
+      2026-06-13: per-policy extra excludes (NOT the shared anchor).
+      bp-powerdns pulls pdns-auth-50 + dnsdist-19 from raw docker.io
+      because the proxy-docker Harbor project is not bootstrap-pullable
+      on a fresh prov (#3380-D's reroute wedged hw131 + hw132).
+      powerdns is a trusted first-party bootstrap component; exempt it
+      from the image-source glob HERE only — it stays subject to every
+      other policy. Same shape as flux-managed.extraExcludeNamespaces.
+    */}}
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" (concat .Values.compliancePolicies.harborProxyPull.excludeNamespaces .Values.compliancePolicies.harborProxyPull.extraExcludeNamespaces) | quote }}
+    {{- /*
+      #3859 (2026-06-19, first proven walkorg on hw167): a per-Org CUSTOMER
+      vCluster syncs its OWN system pods (coredns, then the customer's apps)
+      DOWN to its host namespace (`<svc>-x-kube-system-x-vcluster`). Those
+      upstream images (coredns, the in-vCluster k8s payload) are NOT pulled
+      through the Sovereign Harbor, so harbor-proxy-pull (Enforce) denies the
+      synced pod → the vCluster never finishes bringing up its control plane
+      → the customer Org stays VClusterProvisioning → #3376 funnel can never
+      reach ACTIVE. Platform vClusters (mgmt/rtz/dmz) escape via the static
+      excludeNamespaces; customer Org namespaces are slug-named (UNBOUNDED),
+      so exempt by the `openova.io/organization` label the org-controller
+      stamps on every per-Org vCluster namespace. The image-supply-chain
+      governance for the CUSTOMER's chosen apps is enforced INSIDE the
+      vCluster's own policy set, not on the host syncer shadow Pods.
+    */}}
+    - name: exclude-organization-namespaces
+      expression: "!('openova.io/organization' in namespaceObject.?metadata.?labels.orValue({}))"
+  variables:
+    # The Pod spec at the real path of each kind.
+    - name: podSpec
+      expression: >-
+        object.kind == 'Pod' ? object.spec :
+        object.kind == 'CronJob' ? object.spec.jobTemplate.spec.template.spec :
+        object.spec.template.spec
+    # Every image of the containers and init containers.
+    - name: images
+      expression: >-
+        variables.podSpec.containers.map(c, c.?image.orValue('')) +
+        variables.podSpec.?initContainers.orValue([]).map(c, c.?image.orValue(''))
+    # One list of anchored expressions per allowed pattern, one expression
+    # per `|` alternative.
+    - name: patterns
+      expression: >-
+        [{{ join ", " $patterns }}]
+  validations:
+    - expression: >-
+        variables.patterns.exists(p, variables.images.all(i, p.exists(r, i.matches(r))))
+      message: "Container image does not match any allowed Harbor-source glob (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`). Re-tag the image to pull through the Sovereign's local Harbor (e.g. registry.<sov-fqdn>/proxy-ghcr/... or registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>)."
 {{- end -}}

@@ -65,11 +65,14 @@ GET /api/v1/org/orders handler.(*Handler).HandleListOrgOrders-fm 2
 GET /api/v1/org/users handler.(*Handler).HandleListOrgUsers-fm 2
 GET /api/v1/organizations handler.(*Handler).HandleListOrganizations-fm 2
 GET /api/v1/organizations/{id} handler.(*Handler).HandleGetOrganization-fm 2
+GET /api/v1/providers providersapi.(*Routes).List-fm 2
+GET /api/v1/providers/{provider} providersapi.(*Routes).Profile-fm 2
 GET /api/v1/refs/organizations handler.(*Handler).HandleListRefOrganizations-fm 2
 GET /api/v1/refs/organizations/{org}/environments handler.(*Handler).HandleListRefEnvironments-fm 2
 GET /api/v1/refs/regions handler.(*Handler).HandleListRefRegions-fm 2
 GET /api/v1/sovereign/apps handler.(*Handler).HandleSovereignApps-fm 2
 GET /api/v1/sovereign/cloud handler.(*Handler).HandleSovereignCloud-fm 2
+GET /api/v1/sovereign/cloud-profile providersapi.(*Routes).Sovereign-fm 2
 GET /api/v1/sovereign/cutover/events handler.(*Handler).HandleCutoverEvents-fm 2
 GET /api/v1/sovereign/cutover/status handler.(*Handler).HandleCutoverStatus-fm 2
 GET /api/v1/sovereign/jobs handler.(*Handler).HandleSovereignJobs-fm 2
