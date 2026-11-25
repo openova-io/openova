@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T21:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-25T22:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8426](https://github.com/openova-io/openova/issues/8426) | CLD-133 Secondary-region suspend keys are set for every provider | Other |
 | [#8427](https://github.com/openova-io/openova/issues/8427) | NET-252 Lab test: HTTPS through the front listener, and cilium-envoy memory with | Other |
 | [#8433](https://github.com/openova-io/openova/issues/8433) | SOV-132 Nodes boot with a local-first registry file, a wildcard entry and the pu | Other |
 | [#8436](https://github.com/openova-io/openova/issues/8436) | SVC-205 Lock stage blueprints to deny | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8838](https://github.com/openova-io/openova/issues/8838) | AIP-109 The old gateway's values drop a commented channel example that names the | Other |
 | [#8842](https://github.com/openova-io/openova/issues/8842) | SOV-170 The Sovereign repository is seeded at bootstrap and serves the root | Other |
 | [#8845](https://github.com/openova-io/openova/issues/8845) | CMP-064 Validate policies to ValidatingPolicy, batch 3 (7 policies) | Other |
+| [#8848](https://github.com/openova-io/openova/issues/8848) | ACC-102 The web application, its database, the seed Job and the CronJob leave th | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T21:53 | [#8847](https://github.com/openova-io/openova/pull/8847) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:43 | [#8844](https://github.com/openova-io/openova/pull/8844) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:33 | [#8841](https://github.com/openova-io/openova/pull/8841) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:40 | [#8840](https://github.com/openova-io/openova/pull/8840) | #8838 | chore(newapi): the old gateway values drop a commented chann |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
-| 2026-11-25T14:56 | [#8798](https://github.com/openova-io/openova/pull/8798) | #8792 | feat(api): the providers routes list the packs and serve the |
 
 ---
 
