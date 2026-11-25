@@ -12,8 +12,8 @@ import (
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
 
-// The node probe of gate checks SEC-G01 and SEC-G02. In every region it
-// creates a namespace of its own, starts one Pod on every control-plane node,
+// The node probe of gate checks SEC-G01, SEC-G02 and SOV-G01. In every region it
+// creates a namespace of its own, starts one Pod on every node of its selector,
 // runs secProbeScript in each Pod with `kubectl exec`, and deletes the
 // namespace, also when a step failed. The Pod mounts /var/lib and
 // /etc/rancher/k3s of its node read-only and runs as root with no capability.
@@ -125,9 +125,12 @@ func (v probeValues) one(name string) string {
 // pod and script may be empty: they default to secProbePod and secProbeScript.
 // A pod of its own is a JSON format with the same four %q verbs (name,
 // namespace, node, image) and a container named probe (SEC-G03).
+// selector is the label selector of the nodes, secControlPlane when empty;
+// first is the number of the last step the check recorded before the probe.
 type secProbe struct {
 	id, prefix, mode, what string
-	pod, script            string
+	pod, script, selector  string
+	first                  int
 	kubectl                kubectlFunc
 	setup                  func(ctx context.Context, region kube.Region, ns string) ([]string, error)
 	judge                  func(v probeValues, ev Evidence) error
@@ -139,21 +142,24 @@ func (p secProbe) run(ctx context.Context, cc *CheckContext, rec StepRecorder) e
 	if len(cc.Regions) == 0 {
 		return errors.New("the run has no region")
 	}
-	n := 0
+	n, selector, which := p.first, cmp.Or(p.selector, secControlPlane), "control-plane node"
+	if p.selector != "" {
+		which = "node with the label " + p.selector
+	}
 	for _, region := range cc.Regions {
 		ns := p.prefix + "-" + strings.ToLower(NewRunID(time.Now()))
 		var nodes, args []string
 		created := false
 		n++
-		started := checkStep(rec, p.id, n, "a probe Pod is Ready on every control-plane node of region "+region.ID, func(ev Evidence) error {
-			out, err := p.kubectl(region, ctx, nil, "get", "nodes", "-l", secControlPlane, "-o", "jsonpath={.items[*].metadata.name}")
+		started := checkStep(rec, p.id, n, "a probe Pod is Ready on every "+which+" of region "+region.ID, func(ev Evidence) error {
+			out, err := p.kubectl(region, ctx, nil, "get", "nodes", "-l", selector, "-o", "jsonpath={.items[*].metadata.name}")
 			if err != nil {
 				return err
 			}
 			nodes = strings.Fields(string(out))
 			ev["namespace"], ev["nodes"] = ns, nodes
 			if len(nodes) == 0 {
-				return fmt.Errorf("region %s has no node with the label %s", region.ID, secControlPlane)
+				return fmt.Errorf("region %s has no node with the label %s", region.ID, selector)
 			}
 			if _, err := p.kubectl(region, ctx, nil, "create", "namespace", ns); err != nil {
 				return err

@@ -2282,12 +2282,13 @@ checks:
 - id: SOV-G01
   title: Born local
   owner: SOV
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Born local
+  implementation: tests/acceptance/sovereign/internal/suite/check_born_local.go
   delivered_by: SOV-170
 - id: SOV-G02
   title: Zero-touch hand-over
