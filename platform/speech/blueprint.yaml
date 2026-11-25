@@ -12,7 +12,7 @@ spec:
     license: MIT
     tags: [transcription, speech, whisper, ai]
     docs: https://github.com/speaches-ai/speaches
-  visibility: listed
+  visibility: unlisted
   class: ai-service
   lifecycle: experimental
   owner:
