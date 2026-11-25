@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T15:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-25T15:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
 | 2026-11-25T14:40 | [#8830](https://github.com/openova-io/openova/pull/8830) | #8826 | feat(secrets-lib): the birth Job writes a named key and an e |
 | 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:53 | [#8828](https://github.com/openova-io/openova/pull/8828) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T08:45 | [#8784](https://github.com/openova-io/openova/pull/8784) | #8783 | refactor(kyverno): exceptions honoured in one namespace, the |
 | 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
 | 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
-| 2026-11-25T07:48 | [#8780](https://github.com/openova-io/openova/pull/8780) | #8779 | chore(catalyst-api): nothing reads the long-lived bearer; no |
 
 ---
 
