@@ -49,6 +49,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 )
 
 // ── Audit-type names ─────────────────────────────────────────────────
@@ -351,11 +352,8 @@ func (h *Handler) HandleK8sExecSession(w http.ResponseWriter, r *http.Request) {
 	// Authorization FIRST (qa-loop iter-9 Fix #43, Cluster-A).
 	claims := auth.ClaimsFromContext(r.Context())
 	if !execSessionCallerAuthorized(claims) {
-		// G78a (2026-06-01): surface ACTUAL claims in the 403 body so
-		// operators can see WHY their session was rejected (catalyst-
-		// admin/owner realm-role mapper might be misconfigured; tier
-		// claim might be empty/viewer). This is a diagnosability
-		// improvement on the way to a permanent fix.
+		// G78a: the 403 body names the realm roles and tier it saw, so a
+		// misconfigured role mapper or an empty tier claim is visible.
 		var rolesDbg string
 		var tierDbg string
 		if claims != nil {
@@ -395,23 +393,30 @@ func (h *Handler) HandleK8sExecSession(w http.ResponseWriter, r *http.Request) {
 		User:      user,
 	}
 
+	// Opening a shell is an operation: audited before and after it.
+	finish, allowed := clusterwrite.Operation(w, r, h.auditBus, clusterwrite.Op{
+		Cluster: sovereignID, Name: "exec", Target: "pods " + ns + "/" + pod + "/" + container})
+	if !allowed {
+		return
+	}
 	var sess GuacamoleSession
 	var err error
 	if c := h.guacamoleClient(); c != nil {
 		sess, err = c.CreateSession(sovereignID, params)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":  "guacamole-create-failed",
-				"detail": err.Error(),
-			})
-			return
-		}
 	} else {
 		// In-memory fallback: synthesize a session with the canonical
 		// `guacamole.<sov-fqdn>` URL convention so the UI's iframe
 		// branch + audit trail still exercise.
 		sess = synthesizeSession(sovereignID, params)
 		h.ensureInMemoryStore().Add(sovereignID, sess)
+	}
+	finish(r.Context(), err)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "guacamole-create-failed",
+			"detail": err.Error(),
+		})
+		return
 	}
 
 	// Always populate the FallbackWebSocketURL so the UI can pre-stage

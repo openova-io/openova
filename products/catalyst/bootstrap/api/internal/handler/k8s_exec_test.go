@@ -26,6 +26,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
@@ -46,7 +49,8 @@ type k8sExecRig struct {
 func newExecRig(t *testing.T, withGuac bool) *k8sExecRig {
 	t.Helper()
 	h := NewWithPDM(quietK8sExecLogger(), &fakePDM{})
-	bus := audit.NewBus(audit.BusConfig{RingCapacity: 100})
+	// A Publisher, so the stream takes the intent event of the operation exec.
+	bus := audit.NewBus(audit.BusConfig{RingCapacity: 100, Publisher: &resourceAuditRecorder{}})
 	h.SetAuditBus(bus)
 	rig := &k8sExecRig{h: h, bus: bus}
 	if withGuac {
@@ -264,6 +268,101 @@ func TestHandleK8sExecSession_GuacError_BadGateway(t *testing.T) {
 	rig.router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status: got %d want 502; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// wantOperation fails unless events are exactly the intent and the result
+// of one operation of clusterwrite: audit type operation-<name>, the actor,
+// the detail "<name> <target>", and the result ok or error.
+func wantOperation(t *testing.T, what string, events []audit.Event, name, target, actor, result string) {
+	t.Helper()
+	if len(events) != 2 {
+		t.Fatalf("%s: %d audit events %+v, want the intent and the result of %s", what, len(events), events, name)
+	}
+	in, out := events[0], events[1]
+	if in.AuditType != "operation-"+name || in.Phase != audit.PhaseIntent || in.Actor != actor || in.Detail != name+" "+target || in.ID == "" ||
+		out.AuditType != "operation-"+name || out.Phase != audit.PhaseResult || out.Actor != actor || out.Result != result ||
+		!strings.HasPrefix(out.Detail, name+" "+target+" (intent "+in.ID+")") {
+		t.Fatalf("%s: audit events %+v, want intent and %s result of operation-%s %q by %s", what, events, result, name, target, actor)
+	}
+}
+
+// Opening a shell and a restart are operations: recorded on the audit
+// stream before they run and after they end, needing no reason and no
+// owner tier. When the stream does not take the intent event (a bus
+// without a Publisher) the answer is 503 audit-unavailable and nothing runs.
+func TestSovereignOperations_AuditedBeforeAndAfter(t *testing.T) {
+	restartedAt := func(rig *k8sResourceTestRig) string {
+		got, err := rig.dyn.Resource(schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}).
+			Namespace("default").Get(context.Background(), "wp", metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("the Deployment default/wp is gone: %v", err)
+		}
+		at, _, _ := unstructured.NestedString(got.Object, "spec", "template", "metadata", "annotations", "kubectl.kubernetes.io/restartedAt")
+		return at
+	}
+	for _, c := range []struct {
+		durable, guacDown bool
+		code              int
+		result            string
+	}{{true, false, http.StatusOK, "ok"}, {true, true, http.StatusBadGateway, "error"}, {false, false, http.StatusServiceUnavailable, ""}} {
+		pub, config := &resourceAuditRecorder{}, audit.BusConfig{}
+		if c.durable {
+			config.Publisher = pub
+		}
+		exec := newExecRig(t, true)
+		exec.h.SetAuditBus(audit.NewBus(config))
+		if c.guacDown {
+			exec.guac.createErr = errors.New("guac is down")
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/exec/default/wp-1/web/session", nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: "developer", Email: "dev@example.test"}))
+		rec := httptest.NewRecorder()
+		exec.router().ServeHTTP(rec, req)
+		what := fmt.Sprintf("exec durable=%v guacDown=%v", c.durable, c.guacDown)
+		if rec.Code != c.code {
+			t.Fatalf("%s: got %d %s, want %d", what, rec.Code, rec.Body.String(), c.code)
+		}
+		switch {
+		case !c.durable:
+			if !strings.Contains(rec.Body.String(), `"error":"audit-unavailable"`) || len(exec.guac.createCalls) != 0 {
+				t.Fatalf("%s: %s with %d sessions created, want audit-unavailable and none", what, rec.Body.String(), len(exec.guac.createCalls))
+			}
+		case c.guacDown:
+			wantOperation(t, what, pub.events, "exec", "pods default/wp-1/web", "dev@example.test", "error")
+		default:
+			if len(pub.events) != 3 || pub.events[2].AuditType != AuditTypeGuacamoleSessionOpened {
+				t.Fatalf("%s: audit events %+v, want the operation and then guacamole-session-opened", what, pub.events)
+			}
+			wantOperation(t, what, pub.events[:2], "exec", "pods default/wp-1/web", "dev@example.test", "ok")
+		}
+		if c.guacDown {
+			continue
+		}
+
+		pub = &resourceAuditRecorder{}
+		if c.durable {
+			config.Publisher = pub
+		}
+		rig := newResourceRig(t, newDeploymentObj("default", "wp", 2))
+		t.Cleanup(rig.stop)
+		rig.h.SetAuditBus(audit.NewBus(config))
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/deployment/default/wp/restart", nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: "admin", Email: "admin@example.test"}))
+		rec = httptest.NewRecorder()
+		rig.router().ServeHTTP(rec, req)
+		what = fmt.Sprintf("restart durable=%v", c.durable)
+		if rec.Code != c.code {
+			t.Fatalf("%s: got %d %s, want %d", what, rec.Code, rec.Body.String(), c.code)
+		}
+		if c.durable {
+			wantOperation(t, what, pub.events, "restart", "deployments default/wp", "admin@example.test", "ok")
+			if restartedAt(rig) == "" {
+				t.Fatalf("%s: the Deployment was not restarted", what)
+			}
+		} else if !strings.Contains(rec.Body.String(), `"error":"audit-unavailable"`) || restartedAt(rig) != "" {
+			t.Fatalf("%s: %s, restartedAt %q; want audit-unavailable and no restart", what, rec.Body.String(), restartedAt(rig))
+		}
 	}
 }
 
