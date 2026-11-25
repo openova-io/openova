@@ -6,28 +6,6 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
-// agenityMCPBearerSecretName is the in-namespace K8s Secret the agenity
-// chart's externalsecret-mcp-bearer.yaml materialises and the StatefulSet
-// projects as OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM. Fixed by
-// contract with products/agenity/chart/values.yaml (openovaMCP.mcpBearer
-// .secretName) AND the BSS-door GitOps overlay (orgTenantBPAgenity) so the
-// two create doors emit byte-identical wiring.
-const agenityMCPBearerSecretName = "agenity-mcp-bearer"
-
-// agenityMCPBearerStoreRef / Kind — the region-1 ClusterSecretStore the
-// agenity ExternalSecret authenticates to OpenBao through. Same store the
-// anthropic + mcp-bearer ExternalSecrets already use.
-const (
-	agenityMCPBearerStoreRef  = "vault-region1"
-	agenityMCPBearerStoreKind = "ClusterSecretStore"
-)
-
-// agenityMCPBearerRemoteKeyPrefix + the Org slug build the per-Org OpenBao
-// KV-v2 path the producer (seedMCPBearer) writes and the ExternalSecret
-// reads — secret/catalyst/agenity/<slug>/mcp-bearer (properties bearer +
-// pubkeyPem). MUST match mcpBearerSecretPath() in sovereign_mcp_bearer_seed.go.
-const agenityMCPBearerRemoteKeyPrefix = "catalyst/agenity/"
-
 // defaultedParameters returns the value to stamp into
 // `Application.spec.parameters` for a newly-created Application CR.
 //
@@ -80,24 +58,6 @@ const agenityMCPBearerRemoteKeyPrefix = "catalyst/agenity/"
 // never sets it themselves); a caller that DID pin it wins (we never
 // overwrite a non-empty explicit value).
 //
-// For bp-agenity we ALSO stamp the `openovaMCP` mcpBearer wiring (#4610). The
-// chart defaults leave the per-Org bearer ExternalSecret DISABLED
-// (mcpBearer.externalSecret.enabled=false, remoteKey="", and
-// rs256PubkeySecret pointed at the host `catalyst-handover-jwt` Secret which
-// is the MOTHERSHIP key — absent in the Org namespace anyway). So an agenity
-// installed via the Application-CR door projected NO OPENOVA_MCP_BEARER, and
-// the only bearer the MCP saw was a hand-injected MOTHERSHIP-signed token the
-// Sovereign's catalyst-api rejects on EVERY endpoint (whoami/organizations/
-// org/applications all 401 `unauthenticated`, because catalyst-api validates
-// against the Sovereign's LOCAL handover-signer key — NOT the mothership
-// key). The BSS-door overlay (orgTenantBPAgenity) wires this; the install
-// door did not. We mirror that overlay so BOTH doors point the chart at the
-// in-namespace `agenity-mcp-bearer` Secret — fed from the per-Org OpenBao
-// path the producer (seedMCPBearer) writes with a LOCAL-signer-signed bearer
-// + its matching verify pubkey. orgSlug is the leading DNS label of the
-// caller's Org ref (the path is secret/catalyst/agenity/<slug>/mcp-bearer);
-// empty orgSlug ⇒ skip the mcpBearer stamp (we can't scope the path).
-//
 // For bp-agenity we ALSO stamp `openovaMCP.tenantHost` with the ORG's public
 // console host (#4624, live-proven on hw220 2026-07-04). The openova-MCP
 // forwards this value as `X-Tenant-Host` on the org-scoped install path
@@ -122,8 +82,10 @@ const agenityMCPBearerRemoteKeyPrefix = "catalyst/agenity/"
 // sovereignFQDN is the Sovereign's own FQDN (e.g. "omantel.biz"); empty on
 // the mothership / Catalyst-Zero, where the agenity install is not a
 // production path — leaving sovereignFqdn unset keeps the chart's existing
-// fail-closed default behaviour.
-func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsoleHost string, explicit map[string]interface{}) map[string]interface{} {
+// fail-closed default behaviour. The fourth argument, the caller's Org ref,
+// is not read: it scoped the two tool-bearer stamps that AIP-157 deleted, and
+// the two callers still pass it.
+func defaultedParameters(blueprint, topology, sovereignFQDN, _, orgConsoleHost string, explicit map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(explicit)+1)
 	for k, v := range explicit {
 		out[k] = v
@@ -131,7 +93,6 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 
 	if isAgenityBlueprint(blueprint) {
 		stampAgenitySovereignFqdn(out, sovereignFQDN)
-		stampAgenityMCPBearer(out, orgSlug)
 		stampAgenityMCPTenantHost(out, orgConsoleHost)
 		stampAgenityGateHost(out, orgConsoleHost)
 	}
@@ -142,7 +103,7 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 	// that exists today (bp-agenity's embedded stdio child arrives the same
 	// way). See stampOpenovaMCPOrgParameters for the full rationale.
 	if isOpenovaMCPBlueprint(blueprint) {
-		stampOpenovaMCPOrgParameters(out, sovereignFQDN, orgSlug, orgConsoleHost)
+		stampOpenovaMCPOrgParameters(out, sovereignFQDN, orgConsoleHost)
 	}
 
 	// #5752 — bp-stalwart-tenant (catalog slug stalwart-mail) never had a
@@ -317,67 +278,6 @@ func stampAgenitySovereignFqdn(params map[string]interface{}, sovereignFQDN stri
 	params["sovereignFqdn"] = fqdn
 }
 
-// stampAgenityMCPBearer wires the chart's openova-MCP bearer ExternalSecret
-// (#4610) so the install-door agenity gets OPENOVA_MCP_BEARER +
-// OPENOVA_MCP_RS256_PUBKEY_PEM from the per-Org OpenBao path the producer
-// (seedMCPBearer) writes — secret/catalyst/agenity/<slug>/mcp-bearer. This is
-// the exact block the BSS-door GitOps overlay (orgTenantBPAgenity) emits, so
-// both doors deliver the same LOCAL-signer-signed bearer the Sovereign's
-// catalyst-api accepts. Without it the chart's `enabled:false` default leaves
-// the bearer undelivered and the MCP forwards an unaccepted token → 401.
-//
-// No-op when:
-//   - orgSlug is empty (we can't scope the OpenBao path / a forged cross-Org
-//     scope would defeat the seedMCPBearer own-Org guarantee), or
-//   - the caller already pinned a non-empty openovaMCP block (we never
-//     clobber an explicit value — same deference as sovereignFqdn).
-//
-// The merge is additive: we set ONLY the wiring keys the chart needs
-// (bearerSecret / rs256PubkeySecret / mcpBearer.externalSecret), preserving
-// any other openovaMCP sub-keys an explicit caller supplied.
-func stampAgenityMCPBearer(params map[string]interface{}, orgSlug string) {
-	// The OpenBao path the producer scopes per-Org is keyed by the Org SLUG
-	// (leading DNS label), matching mcpBearerSecretPath(). A dotted FQDN ref
-	// (e.g. "nstar2.omani.homes") must collapse to "nstar2".
-	slug := leadingDNSLabel(orgSlug)
-	if slug == "" {
-		return
-	}
-
-	mcp, _ := params["openovaMCP"].(map[string]interface{})
-	if mcp == nil {
-		mcp = map[string]interface{}{}
-	}
-
-	// bearerSecret + rs256PubkeySecret point the StatefulSet at the in-ns
-	// Secret the ExternalSecret materialises (both keys live in one Secret so
-	// the bearer travels with the pubkey that verifies it — #4228).
-	setIfAbsentMap(mcp, "bearerSecret", map[string]interface{}{
-		"name": agenityMCPBearerSecretName,
-		"key":  "bearer",
-	})
-	setIfAbsentMap(mcp, "rs256PubkeySecret", map[string]interface{}{
-		"name": agenityMCPBearerSecretName,
-		"key":  "pubkeyPem",
-	})
-
-	mcpBearer, _ := mcp["mcpBearer"].(map[string]interface{})
-	if mcpBearer == nil {
-		mcpBearer = map[string]interface{}{}
-	}
-	setIfAbsentMap(mcpBearer, "externalSecret", map[string]interface{}{
-		"enabled":              true,
-		"secretStoreRef":       agenityMCPBearerStoreRef,
-		"secretStoreKind":      agenityMCPBearerStoreKind,
-		"remoteKey":            agenityMCPBearerRemoteKeyPrefix + slug + "/mcp-bearer",
-		"remoteBearerProperty": "bearer",
-		"remotePubkeyProperty": "pubkeyPem",
-	})
-	mcp["mcpBearer"] = mcpBearer
-
-	params["openovaMCP"] = mcp
-}
-
 // stampAgenityMCPTenantHost sets `parameters.openovaMCP.tenantHost` to the
 // Org's public console host (console.<slug>.<poolParentDomain>, e.g.
 // console.nstar.omani.homes) so the chart's OPENOVA_MCP_TENANT_HOST env — the
@@ -397,7 +297,7 @@ func stampAgenityMCPBearer(params map[string]interface{}, orgSlug string) {
 //     clobber an explicit value — same deference as stampAgenitySovereignFqdn).
 //
 // The merge is additive on the openovaMCP block, preserving any other
-// sub-keys (bearerSecret / mcpBearer / …) a caller or sibling stamp supplied.
+// sub-keys a caller supplied.
 func stampAgenityMCPTenantHost(params map[string]interface{}, orgConsoleHost string) {
 	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
 	if host == "" {
@@ -500,24 +400,17 @@ const openovaMCPOrgHTTPRouteParentRef = "cilium-gateway-console"
 //     slot-13d shape and is the WRONG gateway/host for a per-Org install
 //     (the exact #5206 gap-1 DNS-and-gateway mismatch class, applied here to
 //     the per-Org door before it ships the same bug a second time).
-//   - auth.rs256PubkeySecret — best-effort: points at the SAME in-namespace
-//     `agenity-mcp-bearer` Secret the agenity-embedded stdio child already
-//     consumes (fed by the existing per-Org OpenBao producer, seedMCPBearer
-//     / #4610 — no second producer/path needed). The chart's secretKeyRef is
-//     optional:true (products/openova-mcp/chart/templates/deployment.yaml),
-//     so an Org that has not (also) installed bp-agenity in this namespace
-//     still schedules Ready — the binary degrades to the #5175
-//     whoami-delegation path instead of crash-looping on an absent Secret.
+//
+// auth.rs256PubkeySecret is not stamped: the chart's own default applies.
 //
 // Deference (same as every stampAgenity* sibling): every field is set only
 // when the caller did not already pin a non-empty value; nothing here is
 // forced onto an explicit install request.
-func stampOpenovaMCPOrgParameters(params map[string]interface{}, sovereignFQDN, orgSlug, orgConsoleHost string) {
+func stampOpenovaMCPOrgParameters(params map[string]interface{}, sovereignFQDN, orgConsoleHost string) {
 	setIfAbsentString(params, "mode", "organization")
 	stampOpenovaMCPSovereignFqdn(params, sovereignFQDN)
 	stampOpenovaMCPTenantHost(params, orgConsoleHost)
 	stampOpenovaMCPGateHost(params, orgConsoleHost)
-	stampOpenovaMCPBearer(params, orgSlug)
 }
 
 // stampOpenovaMCPSovereignFqdn sets `parameters.sovereignFqdn` — see
@@ -582,28 +475,6 @@ func stampOpenovaMCPGateHost(params map[string]interface{}, orgConsoleHost strin
 		"name": openovaMCPOrgHTTPRouteParentRef,
 	})
 	params["httpRoute"] = hr
-}
-
-// stampOpenovaMCPBearer wires `parameters.auth.rs256PubkeySecret` at the SAME
-// in-namespace Secret the agenity-embedded stdio child consumes — see
-// stampOpenovaMCPOrgParameters. No-op when orgSlug is empty (we can't scope
-// the OpenBao-fed Secret name any tighter than "the agenity convention", but
-// we at least require SOME Org identity) or the caller already pinned a
-// non-empty auth.rs256PubkeySecret.
-func stampOpenovaMCPBearer(params map[string]interface{}, orgSlug string) {
-	slug := leadingDNSLabel(orgSlug)
-	if slug == "" {
-		return
-	}
-	auth, _ := params["auth"].(map[string]interface{})
-	if auth == nil {
-		auth = map[string]interface{}{}
-	}
-	setIfAbsentMap(auth, "rs256PubkeySecret", map[string]interface{}{
-		"name": agenityMCPBearerSecretName,
-		"key":  "pubkeyPem",
-	})
-	params["auth"] = auth
 }
 
 // orgConsoleHostFor resolves the Org's public console host
@@ -691,8 +562,7 @@ func setIfAbsentString(dst map[string]interface{}, key, val string) {
 
 // leadingDNSLabel returns the first DNS label (everything before the first
 // dot) of an Org ref, lower-cased + trimmed. "nstar2.omani.homes" → "nstar2";
-// "acme" → "acme"; "" → "". Matches the per-Org OpenBao path slug the
-// producer (seedMCPBearer / mcpBearerSecretPath) scopes by.
+// "acme" → "acme"; "" → "".
 func leadingDNSLabel(ref string) string {
 	r := strings.ToLower(strings.TrimSpace(ref))
 	if i := strings.IndexByte(r, '.'); i >= 0 {

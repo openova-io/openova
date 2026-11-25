@@ -93,16 +93,17 @@ func TestPerOrgNewAPIDoesNotEnableCatalystIntegration(t *testing.T) {
 	}
 
 	// CONTROL — this change must not switch OFF the per-Org seams that
-	// legitimately work. The agenity mcp-bearer ExternalSecret reads
-	// catalyst/agenity/<subdomain>/mcp-bearer and is SecretSynced=True on
-	// hw293; ssoBridgeSync/oidc wiring likewise stays untouched. If this
-	// control goes red the change has over-reached from "disable one
-	// Sovereign-scoped seam" into "disable per-Org secret wiring".
+	// legitimately work. The per-Org Stalwart OIDC ExternalSecret reads its
+	// client secret from the Org's own OpenBao path; it stays untouched. If
+	// this control goes red the change has over-reached from "disable one
+	// Sovereign-scoped seam" into "disable per-Org secret wiring". (Until
+	// AIP-157 this control named the agenity tool-bearer path: AIP-156 deleted
+	// its writer and AIP-157 its reader.)
 	all := strings.Join(overlayManifests(files), "\n")
-	if !strings.Contains(all, "catalyst/agenity/") {
-		t.Errorf("CONTROL FAILED: the per-Org agenity mcp-bearer OpenBao path " +
-			"(catalyst/agenity/<subdomain>/mcp-bearer, SecretSynced=True on hw293) " +
-			"disappeared — this fix must not touch working per-Org secret seams")
+	wantOIDC := "key: sovereign/" + d31TestRec().OTECHFQDN + "/stalwart/" + d31TestRec().OrganizationID + "/oidc"
+	if !strings.Contains(all, wantOIDC) {
+		t.Errorf("CONTROL FAILED: the per-Org Stalwart OIDC OpenBao path (%s) "+
+			"disappeared — this fix must not touch working per-Org secret seams", wantOIDC)
 	}
 	// CONTROL — the Sovereign-level install is a DIFFERENT code path
 	// (clusters/_template/bootstrap-kit/80-newapi.yaml) and must keep the

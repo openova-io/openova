@@ -129,7 +129,8 @@ version: 0.1.13
 # 24,000 characters.
 # 0.2.10 (AIP-152): the stdio server reads its bearer file at every call.
 # 0.2.11 (AIP-154): an agent token acting for a person of tier admin has tier admin.
-appVersion: "0.2.11"
+# 0.2.12 (AIP-157): the stdio server reads no bearer from the environment.
+appVersion: "0.2.12"
 keywords:
   - mcp
   - agent

@@ -17,11 +17,16 @@ import (
 	"github.com/openova-io/openova/products/openova-mcp/internal/tools"
 )
 
-// AIP-152. fileServer is the stdio server as main builds it from the two
-// variables, over a stub catalyst-api that records each forwarded bearer.
+// envBearerVar is the environment bearer the stdio server read until AIP-157:
+// the name of the bearer-file variable without its _FILE suffix.
+var envBearerVar = strings.TrimSuffix(fallbackFileVar, "_FILE")
+
+// AIP-152. fileServer is the stdio server as main builds it, with the bearer
+// file variable set to bearerFile and the old environment bearer set to
+// fromEnv, over a stub catalyst-api that records each forwarded bearer.
 func fileServer(t *testing.T, bearerFile, fromEnv string) (call func(method, tool string, args any) string, forwarded *[]string) {
 	t.Setenv(fallbackFileVar, bearerFile)
-	t.Setenv(fallbackVar, fromEnv)
+	t.Setenv(envBearerVar, fromEnv)
 	forwarded = new([]string)
 	api := catalystapi.New("https://console.acme.omani.homes").WithHTTPClient(&http.Client{Transport: stubRoundTrip(func(r *http.Request) (*http.Response, error) {
 		*forwarded = append(*forwarded, r.Header.Get("Authorization"))
@@ -96,7 +101,16 @@ func TestBearerFileGoneMeansNoBearer(t *testing.T) {
 	}
 }
 
-func TestBearerFileUnsetKeepsTheStartBearer(t *testing.T) {
-	call, _ := fileServer(t, "", acme(t, "env@acme.test", "developer"))
-	must(t, strings.Contains(call("tools/call", "whoami", nil), "env@acme.test"), "without a bearer file the fallback must stay the env bearer")
+// AIP-157. With no bearer file, a valid bearer in the environment is never
+// used: a call without _auth has no bearer at all.
+func TestEnvironmentBearerIsNotRead(t *testing.T) {
+	// The name is written in two pieces, as scripts/check-agent-plane.py writes
+	// its patterns: this test holds no bearer and is not counted as holding one.
+	must(t, envBearerVar == "OPENOVA_MCP"+"_BEARER", "the old environment bearer variable is named wrongly: "+envBearerVar)
+	call, forwarded := fileServer(t, "", acme(t, "env@acme.test", "org-admin"))
+	r := call("tools/call", "whoami", nil)
+	must(t, strings.Contains(r, `"code":-32001,"message":"unauthenticated","data":"no bearer`), "with no bearer file tools/call must have no bearer, never the environment's: "+r)
+	r = call("tools/call", "list_applications", nil)
+	must(t, strings.Contains(r, `"code":-32001,"message":"unauthenticated","data":"no bearer`) && len(*forwarded) == 0, "with no bearer file nothing may be forwarded: "+r)
+	must(t, !strings.Contains(call("tools/list", "", nil), `"name"`), "with no bearer file tools/list must offer nothing")
 }
