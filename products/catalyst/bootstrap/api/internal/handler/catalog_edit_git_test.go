@@ -23,9 +23,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
 )
 
 // TestMergeCatalogEditIntoBlueprintYAML_FreshCR — with no existing CR the
@@ -163,6 +165,7 @@ func TestWriteCatalogEditToGit_CommitsAndReadsBack(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "cilium", "singleton", "active-active")
 
 	edit := catalogEdit{
 		Slug:                "cilium",
@@ -229,6 +232,7 @@ func TestFetchCatalogEditsMerged_GitSourceWinsOverStore(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "grafana")
 
 	// Seed the git source: grafana carries a git-committed edit.
 	if _, err := h.writeCatalogEditToGit(context.Background(), catalogEdit{
@@ -276,6 +280,7 @@ func TestCommitCatalogAppEditToGit_DecodesCommerceAppBody(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "redis", "singleton")
 
 	// Body shape == commerce.api.ts CommerceApp $set (a full merged row).
 	body := []byte(`{"_id":"abc","slug":"redis","name":"Redis (Edited)","tagline":"In-memory KV","published":true,"icon_light":"l.svg","icon_dark":"d.svg","supported_topologies":["single-region"]}`)
@@ -313,6 +318,7 @@ func TestCommitCatalogAppEditToGit_CanonicalizesHotStandby(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "postgres", "active-active", "active-hot-standby")
 
 	body := []byte(`{"slug":"postgres","name":"Postgres","published":true,"supported_topologies":["active-active","active-hotstandby"]}`)
 	h.commitCatalogAppEditToGit(context.Background(), body)
@@ -359,7 +365,7 @@ func TestWriteCatalogEditToGit_FirstEditSeedsFullCRFromLiveSpec(t *testing.T) {
 	h.SetGiteaClient(fg)
 	// The live CR (resolved via the catalog client) carries the full spec —
 	// real version + manifests — exactly as the in-cluster Blueprint does.
-	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
+	h.SetCatalogClient(newFakeCatalog(withC1(sampleWordpressBlueprint())))
 
 	// A first edit changing only the card summary (no Gitea file yet).
 	edit := catalogEdit{Slug: "wordpress", Tagline: "Edited via console"}
@@ -420,6 +426,7 @@ func TestCommitCatalogAppEditToGit_SlowGiteaStillCommits(t *testing.T) {
 	fg := newFakeGitea()
 	fg.putFileSleep = 3 * time.Second // far over the dead 1500ms probe budget
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "alloy", "singleton")
 
 	body := []byte(`{"slug":"alloy","name":"Alloy (IaC write test)","tagline":"telemetry","supported_topologies":["single-region"]}`)
 	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
@@ -481,6 +488,7 @@ func TestCommitCatalogAppEditToGit_ByteIdenticalIsDurable(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "alloy")
 
 	body := []byte(`{"slug":"alloy","name":"Alloy","tagline":"telemetry"}`)
 	if c, _ := h.commitCatalogAppEditToGit(context.Background(), body); !c {
@@ -513,7 +521,7 @@ func TestWriteCatalogEditToGit_MirrorsToFluxAggregator(t *testing.T) {
 	// Blueprint has on a Sovereign. The first edit seeds the per-Blueprint
 	// file from it, so the curation fields AND version/source are present
 	// pre-strip, making the #4415 strip assertion meaningful.
-	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
+	h.SetCatalogClient(newFakeCatalog(withC1(sampleWordpressBlueprint())))
 
 	edit := catalogEdit{
 		Slug:    "wordpress",
@@ -593,6 +601,7 @@ func TestWriteCatalogEditToGit_NoAggregatorOnMothership(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "alloy")
 
 	if _, err := h.writeCatalogEditToGit(context.Background(),
 		catalogEdit{Slug: "alloy", Name: "X", Tagline: "y"}); err != nil {
@@ -795,6 +804,8 @@ metadata:
 spec:
   version: "0.4.12"
   visibility: listed
+  class: application
+  lifecycle: supported
   card:
     title: WordPress Turnkey
     summary: curated summary
@@ -869,6 +880,7 @@ func TestCommitCatalogAppEditToGit_AggregatorFailureSurfaced(t *testing.T) {
 		return nil
 	}
 	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "wordpress")
 
 	body := []byte(`{"slug":"wordpress","name":"WordPress","tagline":"edited"}`)
 	committed, reason := h.commitCatalogAppEditToGit(context.Background(), body)
@@ -888,4 +900,119 @@ func fileKeys(f *fakeGiteaClient) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// seedLiveBlueprint commits the live Blueprint bp-<slug> (valid C1) that a
+// card edit is compared with, holding the given spec.topology.supported.
+func seedLiveBlueprint(fg *fakeGiteaClient, slug string, topologies ...string) {
+	doc := "apiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-" + slug + "\nspec:\n  version: 1.0.0\n" +
+		"  class: application\n  lifecycle: supported\n  visibility: listed\n  card:\n    title: " + slug + "\n"
+	if len(topologies) > 0 {
+		doc += "  topology:\n    supported: [" + strings.Join(topologies, ", ") + "]\n"
+	}
+	fg.files[giteaKey(catalogSovereignOrg, "bp-"+slug, catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(doc)
+}
+
+// withC1 adds the class and lifecycle that contract C1 requires to a sample.
+func withC1(bp *CatalogBlueprint) *CatalogBlueprint {
+	spec := bp.Raw["spec"].(map[string]interface{})
+	spec["class"], spec["lifecycle"] = "application", "supported"
+	return bp
+}
+
+// TestWriteCatalogEditToGit_ContractFieldEditIsRefused (SVC-200) — a card
+// edit that changes the live topology, or that has no live Blueprint (the
+// merge would invent a 0.0.0 CR with no class), commits nothing.
+func TestWriteCatalogEditToGit_ContractFieldEditIsRefused(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "alloy", "singleton")
+	before := fileKeys(fg)
+	_, err := h.writeCatalogEditToGit(context.Background(), catalogEdit{Slug: "alloy", Name: "A", SupportedTopologies: []string{"active-active"}})
+	var cf *blueprintedit.ContractFieldError
+	if !errors.As(err, &cf) || strings.Join(cf.Paths, ",") != "spec.topology.supported" {
+		t.Fatalf("a topology change must be contract-field-read-only; got %v", err)
+	}
+	_, err = h.writeCatalogEditToGit(context.Background(), catalogEdit{Slug: "ghost", Name: "Ghost"})
+	var se *blueprintedit.SchemaError
+	if !errors.As(err, &se) || len(fg.changes) != 0 || len(fileKeys(fg)) != len(before) {
+		t.Fatalf("an edit with no live Blueprint must fail the schema check and commit nothing; got %v, %d commits", err, len(fg.changes))
+	}
+}
+
+// TestOrgCommerceAppsEdit_ContractFieldIs422BeforeTheStore (SVC-200) — the
+// card route answers 422 for a topology change and never forwards it to the
+// commerce store; a title edit still reaches the store and Git.
+func TestOrgCommerceAppsEdit_ContractFieldIs422BeforeTheStore(t *testing.T) {
+	hits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"slug":"alloy"}`))
+	}))
+	defer upstream.Close()
+	defer overrideOrgCatalog(upstream.URL)()
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetOrgJWTSecret(orgBillingTestSecret)
+	fg := newFakeGitea()
+	h.SetGiteaClient(fg)
+	seedLiveBlueprint(fg, "alloy", "singleton")
+	r := chi.NewRouter()
+	r.Put("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceUpdate)
+	for _, c := range []struct {
+		body, want string
+		code, hits int
+	}{
+		{`{"slug":"alloy","name":"A","supported_topologies":["active-active"]}`, `"contract-field-read-only"`, 422, 0},
+		{`{"slug":"alloy","name":"A (edited)","supported_topologies":["single-region"]}`, `"committed":true`, 200, 1},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, withSovereignAdminClaims(httptest.NewRequest(http.MethodPut, "/api/v1/org/commerce/apps/alloy", strings.NewReader(c.body))))
+		if rec.Code != c.code || !strings.Contains(rec.Body.String(), c.want) || hits != c.hits {
+			t.Fatalf("%s: got %d %s with %d store writes; want %d %s with %d", c.body, rec.Code, rec.Body.String(), hits, c.code, c.want, c.hits)
+		}
+	}
+}
+
+// TestOrgCommerceAppsEdit_UnreadableLiveIs502BeforeTheStore (SVC-200) — when
+// the live Blueprint cannot be read (a file that does not parse, or a catalog
+// that fails for another reason than not-found) the card route cannot tell
+// which fields an edit changes: it answers 502, writes nothing to the store
+// and commits nothing.
+func TestOrgCommerceAppsEdit_UnreadableLiveIs502BeforeTheStore(t *testing.T) {
+	for _, c := range []struct {
+		name, file, want string
+		catalogErr       error
+	}{
+		{"file does not parse", "a: [", `"error":"gitea-upstream"`, nil},
+		{"catalog fails", "", `get the live Blueprint bp-alloy: catalog down`, errors.New("catalog down")},
+	} {
+		hits := 0
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits++
+			_, _ = w.Write([]byte(`{"slug":"alloy"}`))
+		}))
+		restore := overrideOrgCatalog(upstream.URL)
+		h := NewWithPDM(silentLogger(), &fakePDM{})
+		h.SetOrgJWTSecret(orgBillingTestSecret)
+		fg := newFakeGitea()
+		h.SetGiteaClient(fg)
+		if c.file != "" {
+			fg.files[giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)] = []byte(c.file)
+		}
+		cat := newFakeCatalog()
+		cat.getErr = c.catalogErr
+		h.SetCatalogClient(cat)
+		r := chi.NewRouter()
+		r.Put("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceUpdate)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, withSovereignAdminClaims(httptest.NewRequest(http.MethodPut, "/api/v1/org/commerce/apps/alloy",
+			strings.NewReader(`{"slug":"alloy","name":"A (edited)"}`))))
+		restore()
+		upstream.Close()
+		if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), c.want) || hits != 0 || len(fg.changes) != 0 {
+			t.Fatalf("%s: got %d %s with %d store writes and %d commits; want 502 %s, none of either",
+				c.name, rec.Code, rec.Body.String(), hits, len(fg.changes), c.want)
+		}
+	}
 }

@@ -47,6 +47,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
 )
 
 // ── GiteaBlueprintClient interface (test seam) ───────────────────────
@@ -400,6 +401,18 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	srcBytes, decErr := src.Decoded()
+	if decErr != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-decode",
+			"detail": fmt.Sprintf("decode source blueprint.yaml: %v", decErr),
+		})
+		return
+	}
+	// Checked before the Org and repo are ensured: a refused curate leaves nothing behind.
+	if blueprintedit.Answer(w, checkCatalogWrite(ctx, h, body.BlueprintName, body.BlueprintName, srcBytes)) {
+		return
+	}
 	if _, err := h.giteaClient.EnsureOrg(ctx, catalogSovereignOrg, "Sovereign-curated catalog", "Curated Blueprints visible to every Org", "public"); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "gitea-upstream",
@@ -411,15 +424,6 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "gitea-upstream",
 			"detail": fmt.Sprintf("ensure repo %s/%s: %v", catalogSovereignOrg, body.BlueprintName, err),
-		})
-		return
-	}
-
-	srcBytes, decErr := src.Decoded()
-	if decErr != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "gitea-decode",
-			"detail": fmt.Sprintf("decode source blueprint.yaml: %v", decErr),
 		})
 		return
 	}

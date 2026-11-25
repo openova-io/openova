@@ -3,6 +3,7 @@
 // back what it changed (the summary, the name, the icon, the committed blueprint.yaml).
 import { test, expect, consoleURL, stateOf } from '../fixtures.ts'
 import type { Page } from '@playwright/test'
+import { JSON_SCHEMA, dump, load } from 'js-yaml'
 import { RUN_TOKEN, catalogNameOf, editorYaml, openCatalog, setEditorYaml } from './lib.ts'
 
 const PROOF = `RECONCILE-PROOF-${RUN_TOKEN}`
@@ -315,27 +316,19 @@ test.describe.serial('Alloy: the full blueprint in Edit IaC', () => {
     }
   })
 
-  test('154 A non-card field edit (version) persists: the whole CR is editable, not a 7-field overlay: acceptance headline 3', async ({ page }) => {
+  // SVC-200: spec.version has one writer, the Blueprint's own source; a catalogue edit may change only
+  // the card fields and spec.visibility, so this row now proves the refusal and that nothing was committed.
+  test('154 A non-card field edit (version) is refused with 422 contract-field-read-only and the committed blueprint.yaml keeps its version', async ({ page }) => {
     const alloy = await catalogNameOf(page, 'Alloy', 'bp-alloy')
-    await openCatalog(page, alloy)
-    await page.getByTestId('catalog-detail-edit-iac').click()
-    const before = await editorYaml(page)
-    let bumped = ''
-    const after = before.replace(/^(\s+version:\s*)['"]?([0-9][^'"\s]*)['"]?\s*$/m, (_l, k: string, v: string) => {
-      bumped = `${v.replace(/\+.*$/, '')}+gate.${RUN_TOKEN.replace(/[^0-9a-z]/gi, '')}`
-      return `${k}${bumped}`
-    })
-    expect(bumped, 'the editor holds spec.version').not.toBe('')
-    try {
-      await setEditorYaml(page, after)
-      await page.getByTestId('yaml-editor-apply').click()
-      await expect(page.getByTestId('yaml-editor-apply-ok')).toContainText('Committed to IaC ✓')
-      await page.reload()
-      await page.getByTestId('catalog-detail-edit-iac').click()
-      expect(await editorYaml(page)).toContain(`version: ${bumped}`)
-    } finally {
-      await commitIaC(page, alloy, before)
-    }
+    const before = await committedIaC(page, alloy)
+    const doc = load(before, { schema: JSON_SCHEMA }) as { spec?: { version?: unknown } }
+    const version = typeof doc.spec?.version === 'string' ? doc.spec.version : ''
+    expect(version, 'the committed blueprint.yaml holds spec.version').not.toBe('')
+    doc.spec!.version = `${version.replace(/\+.*$/, '')}+gate.${RUN_TOKEN.replace(/[^0-9a-z]/gi, '')}`
+    const r = await page.request.put(consoleURL(`/api/v1/catalog/${encodeURIComponent(alloy)}/iac`), { data: { blueprintYaml: dump(doc, { schema: JSON_SCHEMA }) } })
+    expect(r.status(), `PUT /api/v1/catalog/${alloy}/iac with another spec.version`).toBe(422)
+    expect(await r.json()).toMatchObject({ error: 'contract-field-read-only', paths: ['spec.version'] })
+    expect(await committedIaC(page, alloy)).toBe(before)
   })
 })
 

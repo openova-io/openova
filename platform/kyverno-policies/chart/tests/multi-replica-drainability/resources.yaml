@@ -1,0 +1,107 @@
+# Inputs of the suite multi-replica-drainability. The two shared fixtures
+# (tests/fixtures/multi-replica/) are listed in kyverno-test.yaml beside this file.
+
+# 1. A StatefulSet that declares 3 replicas: compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: three-replicas
+  namespace: example
+spec:
+  replicas: 3
+  serviceName: three-replicas
+  selector:
+    matchLabels:
+      app: three-replicas
+  template:
+    metadata:
+      labels:
+        app: three-replicas
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 2. A StatefulSet that does not declare spec.replicas: not compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: replicas-unset
+  namespace: example
+spec:
+  serviceName: replicas-unset
+  selector:
+    matchLabels:
+      app: replicas-unset
+  template:
+    metadata:
+      labels:
+        app: replicas-unset
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 3. One replica with the label openova.io/singleton-db: "true": excluded.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: singleton-db
+  namespace: example
+  labels:
+    openova.io/singleton-db: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: singleton-db
+  template:
+    metadata:
+      labels:
+        app: singleton-db
+    spec:
+      containers:
+        - name: db
+          image: ghcr.io/example/db:v1.0.0
+---
+# 4. One replica with the label set to "false": not excluded, not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: singleton-db-false
+  namespace: example
+  labels:
+    openova.io/singleton-db: "false"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: singleton-db-false
+  template:
+    metadata:
+      labels:
+        app: singleton-db-false
+    spec:
+      containers:
+        - name: db
+          image: ghcr.io/example/db:v1.0.0
+---
+# 5. One replica in an excluded namespace: excluded.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: one-replica
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: one-replica
+  template:
+    metadata:
+      labels:
+        app: one-replica
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

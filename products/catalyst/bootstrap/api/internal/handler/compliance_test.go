@@ -883,33 +883,65 @@ func mkClusterPolicy(name, action, ruleAction string) *unstructured.Unstructured
 	}}
 }
 
-// TestCompliance_EnginePolicyMode — the mode is read from the engine's
-// policy object, never from a configuration of catalyst-api.
-func TestCompliance_EnginePolicyMode(t *testing.T) {
-	validating := func(actions ...any) *unstructured.Unstructured {
-		return &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
-			"metadata": map[string]any{"name": "v"},
-			"spec":     map[string]any{"validationActions": actions},
-		}}
-	}
-	cases := []struct {
-		name string
-		obj  *unstructured.Unstructured
-		want string
-	}{
-		{"ValidatingPolicy with Deny", validating("Audit", "Deny"), "enforce"},
-		{"ValidatingPolicy with Audit only", validating("Audit", "Warn"), "audit"},
-		{"ClusterPolicy Enforce", mkClusterPolicy("a", "Enforce", ""), "enforce"},
-		{"ClusterPolicy enforce in lower case", mkClusterPolicy("a", "enforce", ""), "enforce"},
-		{"ClusterPolicy Audit", mkClusterPolicy("a", "Audit", ""), "audit"},
-		{"ClusterPolicy Audit with one rule Enforce", mkClusterPolicy("a", "Audit", "Enforce"), "enforce"},
-		{"ClusterPolicy with no action", mkClusterPolicy("a", "", ""), "audit"},
-	}
-	for _, c := range cases {
-		if got := enginePolicyMode(c.obj); got != c.want {
-			t.Errorf("%s: want %s, got %s", c.name, c.want, got)
+// mkValidatingPolicy builds a ValidatingPolicy of group policies.kyverno.io
+// with the given validationActions.
+func mkValidatingPolicy(name string, actions ...any) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "policies.kyverno.io/v1", "kind": "ValidatingPolicy",
+		"metadata": map[string]any{
+			"name":        name,
+			"annotations": map[string]any{"policies.kyverno.io/severity": "high"},
+		},
+		"spec": map[string]any{"validationActions": actions},
+	}}
+}
+
+// TestCompliance_PolicyModeOfTheNewKinds — a ValidatingPolicy is listed with
+// the mode of its validationActions, and a policy rewritten in place (CMP-062:
+// same name, the legacy ClusterPolicy deleted and a ValidatingPolicy created
+// by one Helm upgrade, in either order) stays listed with the mode of the
+// object the engine has: the ClusterPolicy while it exists, then the
+// ValidatingPolicy. It leaves the list only when neither exists.
+func TestCompliance_PolicyModeOfTheNewKinds(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	modes := func() map[string]string {
+		out := map[string]string{}
+		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
+			out[p.Name] = p.Mode + "/" + p.Severity
 		}
+		return out
+	}
+	deleted := func(kind string, obj *unstructured.Unstructured) {
+		f.Publish(k8scache.Event{Cluster: "acme", Kind: kind, Type: k8scache.EventDeleted, Object: obj, At: time.Now()})
+	}
+
+	publishToFactory(f, k8scache.KindValidatingPolicy, mkValidatingPolicy("new-enforced", "Deny"))
+	publishToFactory(f, k8scache.KindValidatingPolicy, mkValidatingPolicy("new-audited", "Audit"))
+	waitFor(t, 1*time.Second, func() bool { return len(modes()) == 2 })
+	if got := modes(); got["new-enforced"] != "enforcing/high" || got["new-audited"] != "permissive/high" {
+		t.Fatalf("ValidatingPolicy modes: want new-enforced enforcing/high and new-audited permissive/high, got %v", got)
+	}
+
+	// Order 1: the new object first, then the legacy object is deleted.
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("moved-a", "Audit", ""))
+	waitFor(t, 1*time.Second, func() bool { return modes()["moved-a"] == "permissive/medium" })
+	publishToFactory(f, k8scache.KindValidatingPolicy, mkValidatingPolicy("moved-a", "Deny"))
+	deleted("clusterpolicy", mkClusterPolicy("moved-a", "Audit", ""))
+	waitFor(t, 1*time.Second, func() bool { return modes()["moved-a"] == "enforcing/high" })
+
+	// Order 2: the legacy object is deleted first, then the new object comes.
+	publishToFactory(f, "clusterpolicy", mkClusterPolicy("moved-b", "Enforce", ""))
+	waitFor(t, 1*time.Second, func() bool { return modes()["moved-b"] == "enforcing/medium" })
+	deleted("clusterpolicy", mkClusterPolicy("moved-b", "Enforce", ""))
+	waitFor(t, 1*time.Second, func() bool { _, ok := modes()["moved-b"]; return !ok })
+	publishToFactory(f, k8scache.KindValidatingPolicy, mkValidatingPolicy("moved-b", "Audit"))
+	waitFor(t, 1*time.Second, func() bool { return modes()["moved-b"] == "permissive/high" })
+
+	// The last object of a name gone: the name leaves the list.
+	deleted(k8scache.KindValidatingPolicy, mkValidatingPolicy("moved-a", "Deny"))
+	waitFor(t, 1*time.Second, func() bool { _, ok := modes()["moved-a"]; return !ok })
+	if got := modes(); len(got) != 3 || got["moved-b"] != "permissive/high" {
+		t.Fatalf("after the deletes: want new-enforced, new-audited and moved-b permissive/high, got %v", got)
 	}
 }
 

@@ -48,6 +48,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -148,12 +149,12 @@ type Score struct {
 //
 // Per `feedback_no_mvp_no_workarounds.md` (TC-026 qa-loop iter-8
 // Cluster-B): the per-policy drill-down MUST surface Severity + the
-// rule list straight off the live ClusterPolicy CR rather than
-// rendering an empty section. Severity comes from the canonical
+// rule list straight off the live policy object of the engine rather
+// than rendering an empty section. Severity comes from the canonical
 // `policies.kyverno.io/severity` annotation (low | medium | high |
-// critical); Rules is the spec.rules[].name list. Both are
-// populated when the compliance aggregator ingests a `clusterpolicy`
-// SSE event.
+// critical); Rules is the spec.rules[].name list of a ClusterPolicy (a
+// ValidatingPolicy has no rule names). Both are populated when the
+// compliance aggregator ingests an event of a policy kind of the engine.
 type PolicyView struct {
 	Name        string   `json:"name"`
 	Weight      int      `json:"weight"`
@@ -168,9 +169,9 @@ type PolicyView struct {
 	Category    string   `json:"category,omitempty"` // policies.kyverno.io/category
 }
 
-// policyMeta carries per-policy metadata captured from ClusterPolicy
-// SSE events. Populated by ingestKyvernoClusterPolicy on every
-// clusterpolicy add/update; consumed by policiesFor when building the
+// policyMeta carries per-policy metadata captured from the SSE events of
+// the engine's policy kinds. Populated by ingestEnginePolicy on every
+// add/update of such an object; consumed by policiesFor when building the
 // PolicyView slice. Description / Severity / Rules / Title / Category
 // match the matrix-asserted PolicyDrilldownPage fields.
 type policyMeta struct {
@@ -180,7 +181,7 @@ type policyMeta struct {
 	category    string
 	description string
 	// mode — "enforce" or "audit": the mode the engine's policy object
-	// carries (enginePolicyMode). It is the only source of
+	// carries (adapters.PolicyMode). It is the only source of
 	// PolicyView.Mode.
 	mode string
 }
@@ -294,7 +295,7 @@ type ScorecardResponse struct {
 type ComplianceConfig struct {
 	// SubscribeKinds — kinds the aggregator subscribes to on the
 	// k8scache.Factory fanout. Default:
-	//   policyreport, clusterpolicyreport, compliance-evaluator
+	//   policyreport, clusterpolicyreport, compliance-evaluator + the policy kinds
 	SubscribeKinds []string
 
 	// WorkloadEnrichKinds — kinds whose labels and controller owner
@@ -325,14 +326,11 @@ func (c *ComplianceConfig) defaults() {
 		c.SubscribeKinds = []string{
 			"policyreport",
 			"clusterpolicyreport",
-			// `clusterpolicy` lets the aggregator capture the live
-			// ClusterPolicy CR's metadata (severity, rules, title,
-			// category, description) so the per-policy drill-down
-			// surface (TC-026) renders without an extra apiserver
-			// round-trip per request.
-			"clusterpolicy",
 			k8scache.KindComplianceEvaluator,
 		}
+		// The policy kinds: each live policy's metadata and mode for the
+		// per-policy drill-down (TC-026), without an apiserver round-trip.
+		c.SubscribeKinds = append(c.SubscribeKinds, enginePolicyKinds...)
 	}
 	if len(c.WorkloadEnrichKinds) == 0 {
 		// Workload kinds whose labels and controller owner the
@@ -400,17 +398,21 @@ type ComplianceHandler struct {
 	resolver *compliance.CacheResolver
 	model    *compliance.ReadModel
 
-	// mu guards policyMetaByName.
+	// mu guards policyMetaByName and policyObjects.
 	mu sync.RWMutex
 
-	// policyMetaByName carries the live ClusterPolicy CR's metadata
-	// (severity / rules / title / category / description) so the
+	// policyMetaByName carries the live policy object's metadata
+	// (severity / rules / title / category / description / mode) so the
 	// per-policy drill-down (TC-026, slice U4) can render Severity +
 	// Rule lists without round-tripping the apiserver per request.
 	// Keyed clusterID → policy name: each cluster's engine has its own
-	// objects. Written by `clusterpolicy` events, dropped on their delete;
-	// read by policiesFor.
+	// objects. Derived from policyObjects by setPolicyObject; read by
+	// policiesFor.
 	policyMetaByName map[string]map[string]policyMeta
+
+	// policyObjects: the metadata of each policy object by {clusterID, name,
+	// informer kind}; during an in-place rewrite two kinds share a name.
+	policyObjects map[[3]string]policyMeta
 
 	// SSE subscribers — listeners on /compliance/stream.
 	subMu       sync.Mutex
@@ -475,6 +477,7 @@ func NewComplianceHandler(
 		resolver:         resolver,
 		model:            compliance.NewReadModel(compliance.DefaultModel(), resolver, adapters.PolicyReport{}, adapters.Evaluator{}),
 		policyMetaByName: map[string]map[string]policyMeta{},
+		policyObjects:    map[[3]string]policyMeta{},
 		subscribers:      map[int64]*complianceSubscriber{},
 		stop:             make(chan struct{}),
 		ready:            make(chan struct{}),
@@ -553,8 +556,8 @@ func (c *ComplianceHandler) runWatch(ctx context.Context) {
 
 // onEvent processes one SSE event. A report event goes to the read model and
 // every subject it touched is published; a workload event updates the
-// resolver and the facts of its subject; a clusterpolicy event updates the
-// policy metadata of its cluster.
+// resolver and the facts of its subject; an event of a policy kind of the
+// engine (enginePolicyKinds) updates the policy metadata of its cluster.
 //
 // #5352 — a DELETED report removes its findings, and a subject left with none
 // loses its gauge series: before, every churning Pod or Job left a series
@@ -564,13 +567,11 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 		return
 	}
 	switch {
-	case ev.Kind == "clusterpolicy" && ev.Type == k8scache.EventDeleted:
-		// A removed policy leaves the list and the by-name route of its own cluster.
-		c.mu.Lock()
-		delete(c.policyMetaByName[ev.Cluster], ev.Object.GetName())
-		c.mu.Unlock()
-	case ev.Kind == "clusterpolicy":
-		c.ingestKyvernoClusterPolicy(ev)
+	case slices.Contains(enginePolicyKinds, ev.Kind) && ev.Type == k8scache.EventDeleted:
+		// The name leaves its cluster's list unless another kind holds it.
+		c.setPolicyObject(ev.Cluster, ev.Object.GetName(), ev.Kind, nil)
+	case slices.Contains(enginePolicyKinds, ev.Kind):
+		c.ingestEnginePolicy(ev)
 	case c.model.Handles(ev.Kind):
 		current, gone := c.model.Apply(ev)
 		c.publishChanges(ctx, ev.Cluster, current, gone)
@@ -582,26 +583,28 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 	}
 }
 
-// ingestKyvernoClusterPolicy captures the per-policy metadata from a
-// ClusterPolicy CR so the per-policy drill-down (TC-026, slice U4) can
-// render Severity + Rule list off in-memory state without the apiserver
-// round-trip. Reads:
+// ingestEnginePolicy captures the per-policy metadata from a policy object
+// of the engine (a ClusterPolicy, ValidatingPolicy or MutatingPolicy) so the
+// per-policy drill-down (TC-026, slice U4) can render Severity + Rule list
+// off in-memory state without the apiserver round-trip. Reads:
 //
 //   - metadata.annotations[policies.kyverno.io/severity]    → Severity
 //   - metadata.annotations[policies.kyverno.io/title]       → Title
 //   - metadata.annotations[policies.kyverno.io/category]    → Category
 //   - metadata.annotations[policies.kyverno.io/description] → Description
-//   - spec.rules[].name                                      → Rules
+//   - spec.rules[].name (the legacy kind only)               → Rules
+//   - adapters.PolicyMode (no entry for an object it reads not) → Mode
 //
-// Updates `policyMetaByName[ev.Cluster]` keyed on the policy name: one
-// process watches several clusters (chroot secondaries, the mothership's
+// Updates the cluster's entry of the policy name: one process watches
+// several clusters (chroot secondaries, the mothership's
 // Sovereigns), and the same name may carry a different mode in each.
-func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
+func (c *ComplianceHandler) ingestEnginePolicy(ev k8scache.Event) {
 	if ev.Object == nil {
 		return
 	}
 	name := ev.Object.GetName()
-	if name == "" {
+	mode, ok := adapters.PolicyMode{}.Mode(ev.Object)
+	if name == "" || !ok {
 		return
 	}
 	annotations := ev.Object.GetAnnotations()
@@ -610,7 +613,7 @@ func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
 		title:       strings.TrimSpace(annotations["policies.kyverno.io/title"]),
 		category:    strings.TrimSpace(annotations["policies.kyverno.io/category"]),
 		description: strings.TrimSpace(annotations["policies.kyverno.io/description"]),
-		mode:        enginePolicyMode(ev.Object),
+		mode:        mode,
 	}
 	if rules, ok, _ := unstructured.NestedSlice(ev.Object.Object, "spec", "rules"); ok {
 		for _, ri := range rules {
@@ -625,43 +628,35 @@ func (c *ComplianceHandler) ingestKyvernoClusterPolicy(ev k8scache.Event) {
 			}
 		}
 	}
-	c.mu.Lock()
-	if c.policyMetaByName[ev.Cluster] == nil {
-		c.policyMetaByName[ev.Cluster] = map[string]policyMeta{}
-	}
-	c.policyMetaByName[ev.Cluster][name] = meta
-	c.mu.Unlock()
+	c.setPolicyObject(ev.Cluster, name, ev.Kind, &meta)
 }
 
-// enginePolicyMode returns the mode a policy object of the engine
-// carries: "enforce" or "audit". A ValidatingPolicy enforces when
-// spec.validationActions holds Deny. A legacy ClusterPolicy enforces
-// when spec.validationFailureAction is Enforce, or when
-// validate.failureAction of one of its rules is. Every other policy
-// audits. Upper and lower case are the same.
-func enginePolicyMode(obj *unstructured.Unstructured) string {
-	if actions, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "validationActions"); ok {
-		for _, a := range actions {
-			if s, _ := a.(string); strings.EqualFold(strings.TrimSpace(s), "Deny") {
-				return "enforce"
-			}
+// enginePolicyKinds are the informer kinds of the engine's policy objects,
+// the legacy kind first.
+var enginePolicyKinds = adapters.PolicyMode{}.Kinds()
+
+// setPolicyObject records (meta not nil) or drops (meta nil) one policy object
+// and sets the cluster's entry of its name to the first kind of
+// enginePolicyKinds that holds the name: one Helm upgrade of an in-place
+// rewrite creates the new object and deletes the old one in either order.
+func (c *ComplianceHandler) setPolicyObject(cluster, name, kind string, meta *policyMeta) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if meta != nil {
+		c.policyObjects[[3]string{cluster, name, kind}] = *meta
+	} else {
+		delete(c.policyObjects, [3]string{cluster, name, kind})
+	}
+	if c.policyMetaByName[cluster] == nil {
+		c.policyMetaByName[cluster] = map[string]policyMeta{}
+	}
+	delete(c.policyMetaByName[cluster], name)
+	for _, k := range enginePolicyKinds {
+		if m, ok := c.policyObjects[[3]string{cluster, name, k}]; ok {
+			c.policyMetaByName[cluster][name] = m
+			break
 		}
 	}
-	if vfa, _, _ := unstructured.NestedString(obj.Object, "spec", "validationFailureAction"); strings.EqualFold(strings.TrimSpace(vfa), "Enforce") {
-		return "enforce"
-	}
-	if rules, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "rules"); ok {
-		for _, ri := range rules {
-			r, ok := ri.(map[string]any)
-			if !ok {
-				continue
-			}
-			if fa, _, _ := unstructured.NestedString(r, "validate", "failureAction"); strings.EqualFold(strings.TrimSpace(fa), "Enforce") {
-				return "enforce"
-			}
-		}
-	}
-	return "audit"
 }
 
 // isWorkloadKind returns true when the SSE event came in for a kind

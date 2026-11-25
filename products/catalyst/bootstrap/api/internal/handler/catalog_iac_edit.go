@@ -1,19 +1,13 @@
 // Package handler — catalog_iac_edit.go: #3668 §5D — the FULL-CR catalog
 // IaC editor endpoint.
 //
-// The card-edit path (org_commerce.go → catalog_edit_git.go) commits the 7
-// card fields to catalog-sovereign/<bp>/blueprint.yaml. The full-CR editor
-// (the console's "Edit IaC" mode mounting widgets/cloud-list/YamlEditor)
-// must be able to edit the WHOLE blueprint — spec.source / spec.manifests /
-// spec.sso / spec.placementSchema / spec.endpoints / shareable /
-// contextSchema — fields the 7-field form can never touch (§3D).
-//
-// Both paths write the SAME Gitea file (§6: "Both paths write the SAME Gitea
-// file; the page re-reads after save"). This endpoint commits the full YAML
-// the admin supplies directly to catalog-sovereign/<bp>/blueprint.yaml —
-// validated as a Blueprint CR first (reusing validateBlueprintYAML), under
-// the dedicated catalogEditGitBudget (NOT the commerce probe budget), with
-// the git verdict surfaced (committed / reason).
+// The card-edit path (org_commerce.go → catalog_edit_git.go) and the full-CR
+// editor (the console's "Edit IaC" mode, widgets/cloud-list/YamlEditor) both
+// write the SAME Gitea file, catalog-sovereign/<bp>/blueprint.yaml. The editor
+// shows the whole Blueprint, but over a live one a save may change only the
+// card fields and spec.visibility (blueprintedit.Check): any other field, or a
+// result blueprint.schema.json refuses, is a 422. It runs under the dedicated
+// catalogEditGitBudget with the git verdict surfaced.
 //
 // #4896 / #5018 — the commit is a DUAL write, exactly like the card path:
 //
@@ -27,9 +21,7 @@
 //     aggregator leg (writeCatalogSovereignAggregatorBytes). This is what
 //     actually reaches the LIVE in-cluster Blueprint CR; without it the
 //     commit is silently inert (the exact hw242 #5018 finding — UAT rows
-//     148/154). Unlike the card path there is NO #4415 delivery-field strip:
-//     an explicit whole-CR commit legitimately edits spec.version (DoD §9.7).
-//     A failure of this leg is SURFACED (502 committed:false), never
+//     148/154). A failure of this leg is SURFACED (502 committed:false), never
 //     swallowed — "Committed ✓" on an unreconciled edit is the false-green
 //     #5018 called out.
 //
@@ -52,6 +44,7 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
 )
 
 // catalogIaCEditRequest is the body of PUT /api/v1/catalog/{name}/iac — the
@@ -132,6 +125,9 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 	// Source write under the dedicated git budget (NOT the commerce probe).
 	ctx, cancel := context.WithTimeout(r.Context(), catalogEditGitBudgetDuration())
 	defer cancel()
+	if blueprintedit.Answer(w, checkCatalogWrite(ctx, h, h.resolveCatalogEditRepo(ctx, bpName), bpName, yamlBytes)) {
+		return
+	}
 
 	repo, committed, err := h.writeCatalogFullBlueprintToGit(ctx, bpName, yamlBytes)
 	if err != nil {
@@ -153,8 +149,8 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 	// in-cluster Blueprint CR. metadata.name is stamped to the canonical CR
 	// identity (bp-<slug> — the same bridge reconcileBlueprintBareName applies
 	// on the dry-run path, #4898) so Flux SSA-patches the existing CR instead
-	// of minting a bare-named duplicate; no #4415 delivery-field strip — the
-	// admin's explicit full-CR edit owns spec.version/spec.source (DoD §9.7).
+	// of minting a bare-named duplicate. blueprintedit.Check above has already
+	// refused any change outside the card fields and spec.visibility.
 	var aggCommitted bool
 	var aggErr error
 	if aggBytes := stampBlueprintCRForFluxAggregator(yamlBytes, bpName); len(aggBytes) == 0 {
@@ -392,8 +388,7 @@ func blueprintSpecVersionMissing(doc map[string]interface{}) bool {
 }
 
 // fillBlueprintSpecVersion sets spec.version to the supplied version when the
-// document lacks one. Never overwrites an authored version — the admin owns
-// an explicit spec.version (DoD §9.7).
+// document lacks one. Never overwrites an authored version.
 func fillBlueprintSpecVersion(doc map[string]interface{}, version string) {
 	v := strings.TrimSpace(version)
 	if v == "" || !blueprintSpecVersionMissing(doc) {
@@ -410,9 +405,9 @@ func fillBlueprintSpecVersion(doc map[string]interface{}, version string) {
 // writeCatalogFullBlueprintToGit commits the FULL supplied blueprint.yaml to
 // catalog-sovereign/<repo>/blueprint.yaml — the same file + repo the read
 // path resolves (resolveCatalogEditRepo), so both editors drive the SAME
-// Gitea source of truth (§6). Unlike the card path this is NOT a card
-// merge: the admin owns the whole document, so it is committed verbatim
-// (after the caller's validateBlueprintYAML).
+// Gitea source of truth (§6). Unlike the card path this is NOT a card merge:
+// the document is committed verbatim, after the caller's
+// validateCatalogBlueprintYAML and blueprintedit.Check.
 //
 // Returns (repo, wroteBytes, err): repo is the per-Blueprint repo actually
 // written (bare or bp-prefixed — whichever the read path resolves);
@@ -496,9 +491,7 @@ func (h *Handler) resolveCatalogEditRepo(ctx context.Context, bpName string) str
 // dropped while Helm ownership labels/annotations are preserved
 // (stripBlueprintCRMapForGit); spec.version/spec.source are KEPT —
 // spec.version is CRD-required, so a version-less file wedges the whole
-// Kustomization whenever the CR doesn't already exist (#5113 Facet A), and
-// an explicit whole-CR commit owns its delivery fields anyway (DoD §9.7;
-// UAT row 154's version round-trip).
+// Kustomization whenever the CR doesn't already exist (#5113 Facet A).
 //
 // Returns nil on an unparsable document — the callers surface that as a
 // failed render rather than committing a wrong-named/unparsable CR.
@@ -527,8 +520,8 @@ func stampBlueprintCRMapForFluxAggregator(doc map[string]interface{}, bpName str
 
 // validateCatalogBlueprintYAML enforces the structural Blueprint invariants
 // the full-CR catalog editor must hold before a commit, WITHOUT requiring a
-// version match (the admin may legitimately bump spec.version in the editor —
-// that round-trip is DoD §9.7). Unlike blueprints.go's validateBlueprintYAML
+// version match (whether spec.version may change is blueprintedit.Check's
+// decision: it may not). Unlike blueprints.go's validateBlueprintYAML
 // (which pins metadata.name + spec.version to a publish request), this checks:
 // the document parses; apiVersion present; kind == Blueprint; metadata.name
 // addresses THIS blueprint (so an edit can't be retargeted to another bp's

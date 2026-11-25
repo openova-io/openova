@@ -217,6 +217,9 @@ metadata:
   name: ` + name + `
 spec:
   version: ` + version + `
+  class: application
+  lifecycle: supported
+  visibility: listed
   card:
     title: Test Blueprint
   manifests:
@@ -627,5 +630,28 @@ func TestParseBlueprintMeta_Roundtrip(t *testing.T) {
 	}
 	if title != "Test Blueprint" {
 		t.Fatalf("title: got %q", title)
+	}
+}
+
+// TestHandleBlueprintCurate_ContractFieldIs422OverALiveBlueprint (SVC-200)
+// — a curate over a live Blueprint may change only its card fields and
+// visibility: a source at another version answers 422 and changes nothing.
+func TestHandleBlueprintCurate_ContractFieldIs422OverALiveBlueprint(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-curate-422")
+	target := giteaKey(catalogSovereignOrg, "bp-acme-internal", blueprintBranch, "blueprint.yaml")
+	gc.files[target] = []byte(validBlueprintYAML("bp-acme-internal", "1.0.0"))
+	gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, "bp-acme-internal/blueprint.yaml")] =
+		[]byte(validBlueprintYAML("bp-acme-internal", "2.0.0"))
+
+	rec := callUserAccess(t, h, http.MethodPost, "/api/v1/sovereigns/"+dep.ID+"/blueprints/curate",
+		blueprintCurateRequest{SourceOrg: "acme", BlueprintName: "bp-acme-internal"}, registerBlueprintRoutes)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"paths":["spec.version"]`) {
+		t.Fatalf("got %d %s; want 422 contract-field-read-only [spec.version]", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(string(gc.files[target]), "version: 1.0.0") {
+		t.Fatalf("a refused curate must leave the live Blueprint as it was; got %s", gc.files[target])
 	}
 }
