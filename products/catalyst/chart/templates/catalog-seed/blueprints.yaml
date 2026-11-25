@@ -481,7 +481,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.70
+  version: 0.1.71
   card:
     title: Chargeback
     summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
@@ -503,7 +503,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-chargeback
-    version: 0.1.70
+    version: 0.1.71
   topology:
     supported: [singleton]
     defaults:
