@@ -399,6 +399,19 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.nosk" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: a delivery's settled-roll pre-flight does not gate a release that is stalled
+    # when the candidate changes its pin (srp_candidate_pins; Phase A2-pins reads the kit
+    # through prewarm_kit_fetch; the Phase A0 comments moved to values.yaml), in EVERY
+    # topology: step 03 changes; not the follower gitea leg. While origin/main lacks
+    # srp_candidate_pins, the step-03 document is left out of BOTH trees;
+    # tests/delivery-repairs-stalled-release.sh executes the change. The axis switches itself
+    # off once origin/main holds it.
+    if ! grep -q 'srp_candidate_pins() {' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nosrp"
+        mv "${TMP}/${t}.nosrp" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
