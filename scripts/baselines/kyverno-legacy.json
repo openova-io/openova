@@ -28,8 +28,6 @@
       "platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml": 1,
       "platform/kyverno-policies/chart/templates/mutate/00-stamp-cilium-enforced-label.yaml": 1,
       "platform/kyverno-policies/chart/templates/mutate/01-inject-gitea-source-secretref.yaml": 1,
-      "platform/kyverno/chart/templates/clusterpolicy-mutate-add-openova-labels.yaml": 1,
-      "platform/kyverno/chart/templates/clusterpolicy-validate-require-openova-labels.yaml": 1,
       "products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml": 19
     }
   },
