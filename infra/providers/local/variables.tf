@@ -159,7 +159,7 @@ variable "pdm_basic_auth_pass" {
 variable "k3s_version" {
   type        = string
   description = "k3s release that every machine installs."
-  default     = "v1.31.8+k3s1"
+  default     = "v1.31.14+k3s1"
   validation {
     condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$", var.k3s_version))
     error_message = "k3s_version must look like v1.31.8+k3s1."

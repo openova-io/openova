@@ -3323,7 +3323,7 @@ func writeTfvars(deployDir string, req Request) error {
 // moduleK3sVersion is the default of variable k3s_version in both provider
 // modules. writeTfvars does not set k3s_version, so it is what a new
 // Sovereign runs. TestModuleK3sVersionIsTheModuleDefault fails when they differ.
-const moduleK3sVersion = "v1.31.8+k3s1"
+const moduleK3sVersion = "v1.31.14+k3s1"
 
 // legacyOwnVariables returns the name and the variables document of a parent
 // without a ConfigMap flux-system/sovereign-variables of its own (every
