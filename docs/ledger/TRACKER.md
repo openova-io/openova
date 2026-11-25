@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T12:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-25T12:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T12:31 | [#8813](https://github.com/openova-io/openova/pull/8813) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:11 | [#8809](https://github.com/openova-io/openova/pull/8809) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:54 | [#8808](https://github.com/openova-io/openova/pull/8808) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:09 | [#8805](https://github.com/openova-io/openova/pull/8805) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T12:31 | [#8763](https://github.com/openova-io/openova/pull/8763) | #8761 | chore(catalyst-api): delete the long-lived bearer seed; no o |
 | 2026-11-24T10:09 | [#8760](https://github.com/openova-io/openova/pull/8760) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:39 | [#8759](https://github.com/openova-io/openova/pull/8759) | #8757 | test(gate): the browser tests of the compliance, sovereignty |
-| 2026-11-24T10:29 | [#8758](https://github.com/openova-io/openova/pull/8758) | #8753 | refactor(api): remove the second matcher job handling from t |
 
 ---
 
