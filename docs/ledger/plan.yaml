@@ -79,7 +79,7 @@ epics:
 - id: FND-020
   title: Plan as data and the executor protocol
   wave: W0
-  packages: [FND-021, FND-022, FND-023]
+  packages: [FND-021, FND-022, FND-023, FND-042]
 - id: FND-030
   title: Gate manifest, record and checks
   wave: W0
@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-068, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-068, CMP-067, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -1893,6 +1893,32 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The acceptance suite selects a manifest entry only when its implementation is a Go file under tests/acceptance/sovereign; an entry implemented by a script or by browser specs is proven by its own job and is left out; a selected entry without a registered check still stops the run.
+- id: FND-042
+  title: The ticket linter refuses an acceptance loop that counts only its last pass and an unguarded pipe
+  area: FND
+  epic: FND-020
+  type: guard
+  wave: W0
+  size: XS
+  lane: RAILS
+  depends_on: [FND-023]
+  after: []
+  touches:
+  - scripts/ticket-lint.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: scripts/ticket-lint.py refuses an acceptance command with a loop that does not stop at its first failing pass (no || exit 1 in its body) and one that pipes a tested command without set -o pipefail; merged tickets are not judged by the new rule.
 - id: FND-051
   title: Billing-engine and tool-server tests run on pull requests
   area: FND
@@ -12558,7 +12584,7 @@ packages:
   wave: W0
   size: M
   lane: SUBSTRATE
-  depends_on: [SOV-139]
+  depends_on: [SOV-139, SOV-722]
   after: []
   touches:
   - infra/providers/huawei/variables.tf
@@ -12601,6 +12627,38 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Fresh installs run k3s v1.31.14+k3s1, whose node mirror bounds every request to a peer to one or two seconds, so a pull through a peer that accepts a connection and never answers goes on to the registry within a minute instead of failing after five; the registry-drain harness proves it with a case that reproduces such a peer and a control on v1.31.8+k3s1 that still hangs.
+- id: SOV-722
+  title: 'Spike: the k3s release that passes both registry-drain cases shared and silent-peer'
+  area: SOV
+  epic: null
+  type: spike
+  wave: W0
+  size: S
+  lane: SPIKE
+  depends_on: [SOV-139]
+  after: []
+  touches:
+  - docs/ledger/plan/spikes/SOV-722.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-722.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-722.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-722.md"
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 5
+    lines: 800
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A spike record naming the k3s release on which the corrected registry-drain harness passes both the case shared (peers receive the images imported on one node) and the case silent-peer (a pull finishes from the registry within 60 seconds when a peer accepts the connection and never answers), with the runs that prove it; SOV-721 moves the kit to that release.
 - id: SOV-725
   title: k3s default moves to the 1.32 line
   area: SOV
@@ -24535,6 +24593,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The resource views of the sovereign-admin console name the Git owner of an object from its detail payload or from a 409 managed-by-git answer, show Managed by Git with that owner and offer no scale, edit or delete for it, send the reason of every other direct write (the body field reason, for DELETE the query parameter reason), and no longer read giteaPRUrl, send commitMessage or open the edit pull request (resource.api.ts of cloud-list and resources.api.ts of resources), with their tests.
+- id: CTL-234
+  title: The second shell route is audited like the exec session route
+  area: CTL
+  epic: null
+  type: refactor
+  wave: W1c
+  size: S
+  lane: CONTROL
+  depends_on: [CTL-232]
+  after: [CLD-021, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-141, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, CTL-030, CTL-035, CTL-045, CTL-223, CTL-240, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, CMP-032, BSS-040, AIP-120, AIP-156, AIP-157, AIP-227]
+  touches:
+  - products/catalyst/bootstrap/api/internal/handler/shells_issue.go
+  - products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go
+  - docs/contracts/C9-mutating-routes.yaml
+  - scripts/baselines/mutating-routes.json
+  - scripts/baselines/api-structure.json
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'POST /api/v1/sovereigns/{id}/shells/issue opens its session through clusterwrite.Operation with operation exec: it is recorded on the audit stream before it runs and after it ends, and does not run when the stream does not take the record; contract C9 names the route''s operation and this package, and its baselines follow.'
 - id: CTL-240
   title: 'Batch G: catalogue writers onto the library'
   area: CTL
@@ -26580,7 +26668,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-041]
-  after: [FND-011, FND-077, FND-095, FND-131, FND-151, FND-154, FND-157, FND-207, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-211, NET-097, NET-103, NET-150, NET-213, NET-255, SVC-040, SVC-205, CTL-151, CTL-320, CMP-061, CMP-062, BSS-060, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133]
+  after: [FND-011, FND-077, FND-095, FND-096, FND-099, FND-102, FND-131, FND-151, FND-154, FND-157, FND-207, SOV-035, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-211, NET-097, NET-103, NET-150, NET-213, NET-255, SVC-040, SVC-205, CTL-151, CTL-320, CTL-815, CMP-061, CMP-062, BSS-060, INF-051, INF-052, INF-054, INF-056, INF-057, INF-110, INF-130, INF-133, INF-135, INF-140]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/k8scache/k8scache_test.go
@@ -26599,6 +26687,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_compliance_model_test.go
   - tests/acceptance/sovereign/README.md
   - docs/ledger/gates.yaml
+  - docs/generated/custom-resources.md
   resources: []
   flips: [CMP-G03]
   implements: []
@@ -26808,6 +26897,7 @@ packages:
   depends_on: [CMP-061, CMP-073]
   after: [FND-011]
   touches:
+  - .github/workflows/build-docrender.yaml
   - platform/kyverno-policies/chart/templates/_helpers.tpl
   - platform/kyverno-policies/chart/templates/baseline/01-multi-replica.yaml
   - platform/kyverno-policies/chart/templates/baseline/03-topology-spread.yaml
@@ -26850,7 +26940,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Seven validate policies of the policy chart are ValidatingPolicy objects of group policies.kyverno.io with the same names, labels, annotations, values keys and exclusions, each judged by a test suite that gives the same verdicts on the same resources as the legacy policy did; catalyst-api, the chart's function test and the chargeback gates read the new kind.
 - id: CMP-063
@@ -26969,6 +27059,41 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: One legacy policy object is left, the image-signature rule of SEC-272, until SEC-275 moves it to the newer kind; the stub and the test-only set are deleted; the access policy moves into the policy chart; the engine gate check is required
+- id: CMP-067
+  title: The kit's own workloads pass the enforced policies, and a guard proves it on every pull request
+  area: CMP
+  epic: CMP-060
+  type: fix
+  wave: W2
+  size: M
+  lane: CHARTS
+  depends_on: [CMP-061, FND-193]
+  after: [FND-011, FND-028, FND-184, CLD-211, SOV-160, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-230, CTL-172, CMP-041]
+  touches:
+  - platform/kyverno-policies/chart/templates/exceptions/**
+  - platform/huawei-evs-csi/chart/templates/node-daemonset.yaml
+  - platform/huawei-evs-csi/chart/templates/controller-deployment.yaml
+  - platform/huawei-evs-csi/chart/values.yaml
+  - platform/huawei-evs-csi/chart/tests/**
+  - platform/gitea/chart/values.yaml
+  - platform/sigstore/chart/values.yaml
+  - tools/guards/cmd/kit-policies/**
+  - tools/guards/README.md
+  - .github/workflows/tree-guards.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Every workload the kit installs passes the policies that enforce after the window, or carries a named exception: one PolicyException per upstream chart that has no value for the missing probes (crossplane, external-secrets, opentelemetry-operator), probes on every container of the EVS CSI driver, the upstream gitea connection test switched off, the sigstore cleanup hook through the proxy with requests. A tree-guards step renders every kit release and judges it with the pinned policy tool against the enforced policies and their exceptions, so a chart that the policies would refuse at its next upgrade is refused at its pull request.'
 - id: CMP-068
   title: 'Pod security: enforce baseline on Organization namespaces'
   area: CMP
@@ -31198,6 +31323,34 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: No install door wires the seeded bearer, and the stdio tool server reads no bearer from the environment.
+- id: AIP-158
+  title: The purchase funnel's install path wires no long-lived bearer
+  area: AIP
+  epic: null
+  type: delete
+  wave: W2
+  size: XS
+  lane: CONTROL
+  depends_on: [AIP-157]
+  after: [SOV-183, CTL-040, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111]
+  touches:
+  - core/services/provisioning/gitops/helmrelease_apps.go
+  - core/services/provisioning/gitops/agenity_mcp_bearer_parity_test.go
+  - scripts/agent-plane-baseline.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The purchase funnel's install path writes no bearerSecret, rs256PubkeySecret or mcpBearer.externalSecret into the bp-agenity values of an Organization, as the BSS door does since AIP-157; openovaMCP.tenantHost stays; the parity test asserts the absence, and guard G6 counts one file fewer.
 - id: AIP-160
   title: Simulation credential routes
   area: AIP
