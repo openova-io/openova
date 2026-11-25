@@ -102,6 +102,8 @@ spec:
        namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO stores substrate"}
     - {file: 15b-storage-ready.yaml, hr: storage-ready, vcluster: host, target: host,
        namespace: flux-system, justification: "HOST-MINIMUM §4 — storage gate: holds the database operator until the default StorageClass exists"}
+    - {file: 15b-bp-secrets-store-csi.yaml, hr: bp-secrets-store-csi, vcluster: host, target: host,
+       namespace: kube-system, justification: "HOST-MINIMUM §4 — node CSI driver: the host kubelet mounts every Pod volume, also of Pods synced from a virtual cluster"}
     - {file: 16-cnpg.yaml, hr: bp-cnpg, vcluster: host, target: host,
        namespace: cnpg-system, justification: "HOST-MINIMUM §4 — CNPG operator substrate (reconciles synced Cluster CRs)"}
     - {file: 19c-opentelemetry-operator.yaml, hr: bp-opentelemetry-operator, vcluster: host, target: host,

@@ -1,0 +1,50 @@
+# Catalyst-curated values for bp-secrets-store-csi. Everything below is passed
+# to the upstream subchart secrets-store-csi-driver 1.6.2.
+secrets-store-csi-driver:
+  # Secret sync stays off: the chart renders no Role that lets the driver
+  # create, update or delete a Secret, and no SecretProviderClass in this
+  # repository names a Secret to sync into (gate check
+  # SEC-G08 proves the first; a source scan of platform and products the
+  # second). Never switch it on to make a mount work.
+  syncSecret:
+    enabled: false
+  # The driver re-reads every mounted object once an hour. One hour equals the
+  # default lease of a dynamic database user, so a Pod that mounts a
+  # db/creds/... path causes one new user per hour and not one per poll. A
+  # changed static value does not wait for the poll: its epoch bump changes
+  # the Pod template and the Pod rolls.
+  enableSecretRotation: true
+  rotationPollInterval: 3600s
+  # The kubelet hands the driver a token of the Pod's service account with
+  # audience openbao, and the OpenBao provider logs in with it (role
+  # workload). The provider then needs no right to mint tokens itself
+  # (measured in spike SEC-140, path B).
+  tokenRequests:
+    - audience: openbao
+  linux:
+    enabled: true
+    # Images come through the Harbor proxy: the kyverno policy
+    # harbor-proxy-pull admits only */proxy-*/* and */openova-io/*, and the
+    # cutover's registry pivot rewrites harbor.openova.io to the Sovereign's
+    # own Harbor.
+    image:
+      repository: harbor.openova.io/proxy-k8s/csi-secrets-store/driver
+      tag: v1.6.2
+    crds:
+      enabled: true
+      image:
+        repository: harbor.openova.io/proxy-k8s/csi-secrets-store/driver-crds
+        tag: v1.6.2
+      # The kyverno policy resource-requests admits no container without
+      # requests; the upstream hook Jobs have none.
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits: { cpu: 100m, memory: 128Mi }
+    registrarImage:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/csi-node-driver-registrar
+      tag: v2.16.0
+    livenessProbeImage:
+      repository: harbor.openova.io/proxy-k8s/sig-storage/livenessprobe
+      tag: v2.18.0
+  windows:
+    enabled: false
