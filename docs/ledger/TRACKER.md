@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T23:15:03Z` |
+| Last refreshed | `2026-11-25T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T23:18 | [#8851](https://github.com/openova-io/openova/pull/8851) | #7087 | docs(ledger): plan update |
 | 2026-11-25T22:02 | [#8850](https://github.com/openova-io/openova/pull/8850) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:53 | [#8847](https://github.com/openova-io/openova/pull/8847) | #7087 | docs(ledger): plan update |
 | 2026-11-25T22:44 | [#8846](https://github.com/openova-io/openova/pull/8846) | #8845 | refactor(kyverno): seven validate policies rewritten in plac |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T11:54 | [#8808](https://github.com/openova-io/openova/pull/8808) | #7087 | docs(ledger): plan update |
 | 2026-11-25T14:09 | [#8807](https://github.com/openova-io/openova/pull/8807) | #8806 | chore(provisioning): the purchase funnel install path wires  |
 | 2026-11-25T11:09 | [#8805](https://github.com/openova-io/openova/pull/8805) | #7087 | docs(ledger): plan update |
-| 2026-11-25T10:26 | [#8804](https://github.com/openova-io/openova/pull/8804) | #7087 | docs(ledger): plan update |
 
 ---
 
