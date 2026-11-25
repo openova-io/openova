@@ -269,6 +269,33 @@ stateKey:
   # no role; the human group sovereign-admins carries the policy.
   backupIdentities: []
 
+# ─── Producer identities (SEC-192, ADR-0018 S20) ──────────────────────────
+# A party that puts a value into another namespace's path of mounted/ gets one
+# policy and one auth role, both named producer-<name>: create and update on
+# each pattern of `paths` below mounted/data/, read and delete on the matching
+# metadata, never a read of a value. The role binds serviceAccount in
+# namespace, audience openbao, 15 minutes, at most 1h. A pattern is
+# <ns>/sa/<sa>/<name>... or <ns>/shared/<name>..., "+" standing for one
+# segment, and ends in <name>*, <name>/* or <name>/e<epoch>; any other
+# pattern, a name outside [a-z0-9-]+ or a name listed twice fails the render.
+# An area that needs a producer adds its entry in its own package.
+#   catalyst-api  the service account of the catalyst-api Deployment
+#                 (products/catalyst/chart): the robot tokens it reads back
+#                 under its own subtree (policy workload), the simulation back
+#                 end's model credential, enrolment credentials, migration
+#                 source credentials and the values a manager stores through
+#                 the API.
+producers:
+  - name: catalyst-api
+    serviceAccount: catalyst-api-cutover-driver
+    namespace: catalyst-system
+    paths:
+      - "catalyst-system/sa/catalyst-api-cutover-driver/gitea-robot-*"
+      - "axon/sa/axon/model-credential/*"
+      - "+/shared/enrol-*"
+      - "vm-migration-system/sa/vm-migration-worker/source-*"
+      - "+/shared/user-*"
+
 # ── Snapshot backup to object storage (SEC-180) ──────────────────────────
 # CronJob openbao-backup (templates/backup-snapshot.yaml) puts one raft snapshot
 # at s3://<bucket>/<prefix><peerTrust.selfRegion>/<UTC time>.snap, then deletes

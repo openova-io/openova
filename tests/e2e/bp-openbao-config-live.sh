@@ -40,11 +40,18 @@
 #       sso-operator-read lists but gets no value, no backup and no export of
 #       the key, nor does an administrator export it; config-admin cannot use
 #       the key.
+#   L9  SEC-192, on A: producer catalyst-api creates and updates a value in
+#       another namespace (+/shared/user-*), cannot read it back, reads and
+#       deletes its metadata, and is refused every path outside its patterns;
+#       a pod of that namespace reads the value; catalyst-api reads back the
+#       robot token it wrote only through its own workload identity;
+#       axon-credential reads the model credential catalyst-api seeded,
+#       writes it back with check-and-set and reaches nothing else.
 #
 # The ONLY stand-ins: the reconciler and the B-side ESO log in through a
 # `jwt` mount (`login-jwt`) instead of Kubernetes TokenReview (there is no
-# apiserver here; the login request shape is identical). For L8 a stand-in
-# role per generic role carries the same policies and maps the token's
+# apiserver here; the login request shape is identical). For L8 and L9 a
+# stand-in role per generic role carries the same policies and maps the token's
 # kubernetes.io claim to the alias metadata service_account_namespace and
 # service_account_name, which Kubernetes auth sets; the policies of SEC-190
 # are written by the reconciler with the accessor of login-jwt; the stand-ins
@@ -343,7 +350,7 @@ RT=(-H "X-Vault-Token: root")
 # (token_policies) of every OIDC login, so both stand-ins of a person carry it.
 READ_POLICY="$(sed -n "s/^ *READ_POLICY_PAYLOAD='\(.*\)'\$/\1/p" "$TMP/render-A.yaml")"
 [ "$(code "${RT[@]}" -X PUT -d "$READ_POLICY" "$BAO_ADDR/v1/sys/policies/acl/sso-operator-read")" = 204 ] || fail "L8 could not write sso-operator-read from the render"
-for r in workload=workload eso-ns=eso-ns tofu-state-mint=eso-ns,tofu-state-mint tofu-state=tofu-state admin=sso-operator-read,sovereign-admin,tofu-state-backup viewer=sso-operator-read; do
+for r in workload=workload eso-ns=eso-ns tofu-state-mint=eso-ns,tofu-state-mint tofu-state=tofu-state admin=sso-operator-read,sovereign-admin,tofu-state-backup viewer=sso-operator-read producer=producer-catalyst-api axon=axon-credential; do
   pols="\"$(printf '%s' "${r#*=}" | sed 's/,/","/g')\""
   "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":[$pols],\"token_ttl\":\"15m\"}" \
     "$BAO_ADDR/v1/auth/login-jwt/role/sim-${r%%=*}"
@@ -405,5 +412,38 @@ VWR="$(login_as viewer openbao human)"; V=(-H "X-Vault-Token: $VWR")
   && [ "$(code "${H[@]}" -X POST -d '{}' "$BAO_ADDR/v1/auth/token/create/tofu-state")" = 403 ] \
   && pass "L8 config-admin cannot use the state key, back it up or mint a state token" || fail "L8 config-admin reached the state key"
 
+# ── L9 SEC-192: producer identities and axon-credential (on A) ──
+PRD="$(login_as producer catalyst-system catalyst-api-cutover-driver)"; PR=(-H "X-Vault-Token: $PRD")
+UV="$BAO_ADDR/v1/mounted/data/o1/shared/user-db/e1"
+[ -n "$PRD" ] && [ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"one"}}' "$UV")" = 200 ] && [ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"two"}}' "$UV")" = 200 ] \
+  && pass "L9 producer catalyst-api creates and updates mounted/data/o1/shared/user-db/e1 of namespace o1" || fail "L9 producer catalyst-api could not write its pattern +/shared/user-*"
+[ "$(code "${PR[@]}" "$UV")" = 403 ] && [ "$(code "${PR[@]}" "$BAO_ADDR/v1/mounted/metadata/o1/shared/user-db/e1")" = 200 ] \
+  && [ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/o1/shared/user-tmp/e1")" = 200 ] \
+  && [ "$(code "${PR[@]}" -X DELETE "$BAO_ADDR/v1/mounted/metadata/o1/shared/user-tmp/e1")" = 204 ] \
+  && pass "L9 the producer cannot read the value it wrote, and reads and deletes its metadata" || fail "L9 the producer read a value, or not its metadata"
+for p in o1/shared/other/e1 o1/sa/x/user-db/e1 axon/sa/axon/other/e1; do "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d '{"data":{"v":"root"}}' "$BAO_ADDR/v1/mounted/data/$p"; done
+[ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/o1/shared/other/e1")" = 403 ] \
+  && [ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/o1/sa/x/user-db/e1")" = 403 ] \
+  && [ "$(code "${PR[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/secret/data/openova/apps/o1/x")" = 403 ] \
+  && pass "L9 the producer is refused paths outside its patterns (o1/shared/other, o1/sa/x, secret/)" || fail "L9 the producer wrote outside its patterns"
+CW="$(login_as workload o1 app)"
+has "$("${CURL[@]}" -H "X-Vault-Token: $CW" "$UV")" '"data":{"v":"two"}' \
+  && pass "L9 a pod of namespace o1 reads the value the producer wrote, at its second version" || fail "L9 the consumer could not read the produced value"
+RB="$BAO_ADDR/v1/mounted/data/catalyst-system/sa/catalyst-api-cutover-driver/gitea-robot-r1/e1"
+OWN="$(login_as workload catalyst-system catalyst-api-cutover-driver)"
+[ "$(code "${PR[@]}" -X POST -d '{"data":{"token":"t"}}' "$RB")" = 200 ] && [ "$(code "${PR[@]}" "$RB")" = 403 ] && [ "$(code -H "X-Vault-Token: $OWN" "$RB")" = 200 ] \
+  && pass "L9 catalyst-api writes a robot token as producer and reads it back only through its own workload identity" || fail "L9 robot token write or read-back"
+MC="$BAO_ADDR/v1/mounted/data/axon/sa/axon/model-credential/e1"
+[ "$(code "${PR[@]}" -X POST -d '{"data":{"document":"seed"}}' "$MC")" = 200 ] && [ "$(code "${PR[@]}" "$MC")" = 403 ] \
+  && pass "L9 catalyst-api seeds the simulation back end's model credential and cannot read it" || fail "L9 catalyst-api seed of the model credential"
+AX="$(login_as axon axon axon)"; AXH=(-H "X-Vault-Token: $AX")
+[ -n "$AX" ] && has "$("${CURL[@]}" "${AXH[@]}" "$MC")" '"data":{"document":"seed"}' \
+  && [ "$(code "${AXH[@]}" -X POST -d '{"options":{"cas":1},"data":{"document":"refreshed"}}' "$MC")" = 200 ] \
+  && has "$("${CURL[@]}" "${AXH[@]}" "$MC")" '"data":{"document":"refreshed"}' \
+  && pass "L9 axon-credential reads its model credential and writes it back with check-and-set" || fail "L9 axon-credential own-path read or write-back"
+[ "$(code "${AXH[@]}" "$BAO_ADDR/v1/mounted/data/axon/sa/axon/other/e1")" = 403 ] && [ "$(code "${AXH[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/axon/shared/x/e1")" = 403 ] \
+  && [ "$(code "${AXH[@]}" -X DELETE "$BAO_ADDR/v1/mounted/metadata/axon/sa/axon/model-credential/e1")" = 403 ] && [ "$(code "${AXH[@]}" "$UV")" = 403 ] \
+  && pass "L9 axon-credential reaches nothing beside its model-credential path and cannot delete it" || fail "L9 axon-credential reached too far"
+
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao live config / peer trust"; exit 1; fi
-echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B, mounts, generic roles and the state key"
+echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B, mounts, generic roles, the state key and the producer identities"
