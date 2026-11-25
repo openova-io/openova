@@ -26,8 +26,17 @@
 #      the mid-roll one; and a dependent that also waits on a mid-roll release
 #      stays gated;
 #   4. the first cutover (no delivery): FATAL as before, the candidate's pins
-#      are not read, and only the delivery environment changes the verdict.
-# On the tree before the change, cases 1, 2, 3 and 4 fail.
+#      are not read, and only the delivery environment changes the verdict;
+#   5. the pins name charts, not releases: a stalled release the kit does not
+#      apply (an Organization's bp-keycloak in a namespace without the
+#      Organization label; a flux-system release without the bootstrap-kit
+#      label) stays FATAL, as does a chart the candidate pins at two versions;
+#      a dependent of a dependent is repaired; an override is recorded beside;
+#   6. the production srp_candidate_pins (no stub): the PAT read, the Gitea
+#      listing at release/<candidate>, the real extractor with the local
+#      prefix; and a listing that fails keeps the delivery FATAL.
+# On the tree before the change, cases 1, 2, 3 and 4 fail; case 5 fails before
+# the repair is restricted to the releases the kit applies.
 #
 # Usage: bash tests/delivery-repairs-stalled-release.sh [CHART_DIR]
 set -uo pipefail
@@ -63,6 +72,7 @@ case "$*" in
     case "$*" in *"-l openova.io/organization"*) ;; *) echo "stub: namespace listing without the organization selector: $*" >&2; exit 9 ;; esac
     printf '{"items":[]}' ;;
   *"get helmreleases"*) cat "${HR_FIXTURE:?}" ;;
+  *"get secret catalyst-gitea-token -o jsonpath={.data.token}"*) printf '%s' "${KIT_PAT:?}" | base64 ;;
   *"get deployments,statefulsets"*) printf '{"items":[]}' ;;
   *"patch configmap"*) printf '%s\n' "$*" >>"${PATCH_LOG:?}" ;;
   *) echo "stub: unhandled kubectl $*" >&2; exit 9 ;;
@@ -76,6 +86,50 @@ chmod +x "${TMP}/bin/kubectl"
   cat "${TMP}/block.sh"
 } >"${TMP}/gate.sh"
 
+# The production srp_candidate_pins and the prewarm_kit_fetch it calls, as the
+# chart renders them, over the extractor the chart renders (its ConfigMap); only
+# the two mount paths point into the scratch folder.
+sed -n '/^  name: cutover-bootstrap-kit-pins$/,/^---$/p' "${TMP}/render.yaml" \
+  | awk '/^  extract-pins\.sh: \|$/{f=1;next} f && /^  [^ ]|^---$/{f=0} f{print}' | sed -e 's/^    //' >"${TMP}/extract-pins.sh"
+grep -q '^bootstrapkit_pins() {$' "${TMP}/extract-pins.sh" || { echo "FAIL: could not extract extract-pins.sh from the rendered ConfigMap"; exit 1; }
+awk '/^prewarm_kit_fetch\(\) \{$/{f=1} f{print} f && /^srp_candidate_pins\(\) \{$/{s=1} s && /^}$/{exit}' "${TMP}/runsh.txt" \
+  | sed -e "s#/pin-extractor/extract-pins.sh#${TMP}/extract-pins.sh#g" -e "s#/tmp/bootstrap-kit-pins#${TMP}/kit-pins#g" >"${TMP}/fetch.sh"
+grep -q '^srp_candidate_pins() {$' "${TMP}/fetch.sh" && grep -q 'bootstrapkit_pins ' "${TMP}/fetch.sh" && [ "$(tail -n 1 "${TMP}/fetch.sh")" = '}' ] \
+  || { echo "FAIL: could not extract prewarm_kit_fetch and srp_candidate_pins from the rendered step 03"; exit 1; }
+{ echo 'set -eu'; cat "${TMP}/fetch.sh" "${TMP}/block.sh"; } >"${TMP}/gate-real.sh"
+# The local Gitea: the token, the listing and each raw file, all at the
+# candidate's branch; anything else answers as curl -f does on a 404.
+cat >"${TMP}/bin/curl" <<'STUB'
+#!/bin/sh
+out=""; auth=""; url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -H) auth="$2"; shift 2 ;;
+    --retry|--retry-delay) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+printf '%s\n' "${url}" >>"${CURL_LOG:?}"
+[ "${auth}" = "Authorization: token ${KIT_PAT:?}" ] || exit 22
+case "${url}" in *"?ref=${KIT_REF:?}") ;; *) exit 22 ;; esac
+base=http://gitea-http.gitea.svc:3000/api/v1/repos/openova/openova
+case "${url}" in
+  "${base}/contents/clusters/_template/bootstrap-kit?"*)
+    [ "${KIT_LISTING:-ok}" = ok ] || exit 22
+    printf '[{"type":"dir","name":"0-sub"}'
+    for f in "${KIT_DIR:?}"/*; do printf ',{"type":"file","name":"%s"}' "${f##*/}"; done
+    printf ']' ;;
+  "${base}/raw/clusters/_template/bootstrap-kit/"*)
+    f="${url#"${base}/raw/clusters/_template/bootstrap-kit/"}"; f="${f%%\?*}"
+    [ -f "${KIT_DIR}/${f}" ] || exit 22
+    cp "${KIT_DIR}/${f}" "${out:?}" ;;
+  *) exit 22 ;;
+esac
+STUB
+chmod +x "${TMP}/bin/curl"
+
 CAND=20261125T101500Z-abc1234
 # run <dir> <hr fixture> <pins fixture> <delivery: yes|no|branch>: the gate's
 # output in <dir>/out, its exit code in <dir>/rc, the ConfigMap patches in
@@ -87,11 +141,17 @@ run() {
     branch) set -- "$@" "${CAND}" "main" ;;
     *) set -- "$@" "" "main" ;;
   esac
-  ( export HR_FIXTURE="$2" PINS_FIXTURE="$3" PATCH_LOG="$1/patch.log" PINS_LOG="$1/pins.log"
+  : >"$1/curl.log"
+  ( export HR_FIXTURE="$2" PINS_FIXTURE="$3" PATCH_LOG="$1/patch.log" PINS_LOG="$1/pins.log" CURL_LOG="$1/curl.log"
     export PATH="${TMP}/bin:${PATH}" STATUS_CONFIGMAP_NAME=self-sovereign-cutover-status STATUS_CONFIGMAP_NAMESPACE=catalyst
     export SETTLED_ROLL_PREFLIGHT=true UPSTREAM_BRANCH="$6"
+    # Read only by the production srp_candidate_pins (case 6, GATE=gate-real.sh).
+    export PAT_SOURCE_NAMESPACE=gitea PAT_SOURCE_SECRET_NAME=catalyst-gitea-token PAT_SOURCE_KEY=token
+    export GITEA_INTERNAL_URL=http://gitea-http.gitea.svc:3000/ GITEA_ORG=openova GITEA_REPO=openova
+    export UPSTREAM_PREFIX=oci://ghcr.io/openova-io HARBOR_PUBLIC_URL=https://registry.sov.example.test/
+    export KIT_PAT=pat-of-the-local-gitea KIT_DIR="${TMP}/kit" KIT_REF="release/${CAND}" KIT_LISTING="${KIT_LISTING:-ok}"
     if [ -n "$5" ]; then export CANDIDATE="$5"; else unset CANDIDATE; fi
-    sh "${TMP}/gate.sh" ) >"$1/out" 2>&1
+    sh "${GATE:-${TMP}/gate.sh}" ) >"$1/out" 2>&1
   echo "$?" >"$1/rc"
 }
 rc_of() { cat "$1/rc"; }
@@ -99,14 +159,16 @@ midroll() { grep '^  mid-roll: ' "$1/out" >"$1/midroll" || true; }
 
 # The measured state: bp-powerdns stalled on 1.2.32 after the rollback to
 # 1.2.30; its two dependents DependencyNotReady on it; their other
-# dependencies settled.
-settled() { printf '{"metadata":{"name":"%s","namespace":"flux-system","generation":2},"spec":{"chart":{"spec":{"chart":"%s","version":"%s"}}},"status":{"observedGeneration":2,"lastAttemptedRevision":"%s","conditions":[{"type":"Ready","status":"True","reason":"UpgradeSucceeded","message":"Helm upgrade succeeded"}]}}' "$1" "$1" "$2" "$2"; }
+# dependencies settled. Every release the kit applies carries the labels Flux's
+# Kustomization bootstrap-kit stamps on what it applies.
+KIT='"labels":{"kustomize.toolkit.fluxcd.io/name":"bootstrap-kit","kustomize.toolkit.fluxcd.io/namespace":"flux-system"}'
+settled() { printf '{"metadata":{"name":"%s","namespace":"flux-system",%s,"generation":2},"spec":{"chart":{"spec":{"chart":"%s","version":"%s"}}},"status":{"observedGeneration":2,"lastAttemptedRevision":"%s","conditions":[{"type":"Ready","status":"True","reason":"UpgradeSucceeded","message":"Helm upgrade succeeded"}]}}' "$1" "${KIT}" "$1" "$2" "$2"; }
 cat >"${TMP}/measured.json" <<EOF
 {"items":[
 $(settled bp-cert-manager 1.4.0),
 $(settled bp-reflector 1.0.2),
 $(settled bp-cnpg 1.0.0),
-{"metadata":{"name":"bp-powerdns","namespace":"flux-system","generation":7},
+{"metadata":{"name":"bp-powerdns","namespace":"flux-system",${KIT},"generation":7},
  "spec":{"chart":{"spec":{"chart":"bp-powerdns","version":"1.2.32","sourceRef":{"kind":"HelmRepository","name":"bp-powerdns"}}},"dependsOn":[{"name":"bp-cert-manager"}]},
  "status":{"observedGeneration":7,"lastAttemptedRevision":"1.2.32",
   "history":[{"chartName":"bp-powerdns","chartVersion":"1.2.30","status":"deployed","version":9},{"chartName":"bp-powerdns","chartVersion":"1.2.32","status":"failed","version":8}],
@@ -114,10 +176,10 @@ $(settled bp-cnpg 1.0.0),
    {"type":"Ready","status":"False","reason":"RollbackSucceeded","message":"Helm rollback to previous release powerdns/powerdns.v8 with chart bp-powerdns@1.2.30 succeeded"},
    {"type":"Released","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release powerdns/powerdns with chart bp-powerdns@1.2.32: admission webhook denied the request"},
    {"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to upgrade after 1 attempt(s)"}]}},
-{"metadata":{"name":"bp-external-dns","namespace":"flux-system","generation":4},
+{"metadata":{"name":"bp-external-dns","namespace":"flux-system",${KIT},"generation":4},
  "spec":{"chart":{"spec":{"chart":"bp-external-dns","version":"1.1.5"}},"dependsOn":[{"name":"bp-cert-manager"},{"name":"bp-powerdns"},{"name":"bp-reflector"}]},
  "status":{"observedGeneration":3,"conditions":[{"type":"Ready","status":"False","reason":"DependencyNotReady","message":"dependency 'flux-system/bp-powerdns' is not ready"}]}},
-{"metadata":{"name":"bp-powerdns-admin","namespace":"flux-system","generation":3},
+{"metadata":{"name":"bp-powerdns-admin","namespace":"flux-system",${KIT},"generation":3},
  "spec":{"chart":{"spec":{"chart":"bp-powerdns-admin","version":"0.1.9"}},"dependsOn":[{"name":"bp-powerdns","namespace":"flux-system"},{"name":"bp-cnpg","namespace":"flux-system"}]},
  "status":{"observedGeneration":3,"conditions":[{"type":"Ready","status":"False","reason":"DependencyNotReady","message":"dependency 'flux-system/bp-powerdns' is not ready"}]}}
 ]}
@@ -194,6 +256,115 @@ run "$d" "${TMP}/measured.json" "${TMP}/pins-moved.tsv" branch
 # The control: the same fixture and pins with the delivery environment pass.
 # Only the delivery changes the verdict (case 1 runs exactly this).
 [ "$(rc_of "${TMP}/c1")" = 0 ] && [ "$(rc_of "$d")" != 0 ] && pass "only the delivery environment changes the verdict" || fail "the verdict does not follow the delivery environment (delivery rc $(rc_of "${TMP}/c1"), first cutover rc $(rc_of "$d"))"
+
+echo "[delivery-repairs] 5. the pins name charts, not releases: a stalled release the kit does not apply stays FATAL"
+# An Organization's releases as organization_gitops.go writes them (<org-ns>/bp-keycloak,
+# version "*", bp-newapi depending on it) in a namespace WITHOUT the Organization
+# label, which the gate treats as platform; the candidate pins another bp-keycloak.
+cat >"${TMP}/org-shape.json" <<'EOF'
+{"items":[
+{"metadata":{"name":"bp-keycloak","namespace":"delta-corp","generation":4},
+ "spec":{"chart":{"spec":{"chart":"bp-keycloak","version":"*"}}},
+ "status":{"observedGeneration":4,"lastAttemptedRevision":"1.3.9",
+  "history":[{"chartName":"bp-keycloak","chartVersion":"1.3.8","status":"deployed","version":3}],
+  "conditions":[{"type":"Ready","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release delta-corp/keycloak"},
+   {"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to upgrade after 1 attempt(s)"}]}},
+{"metadata":{"name":"bp-newapi","namespace":"delta-corp","generation":2},
+ "spec":{"chart":{"spec":{"chart":"bp-newapi","version":"*"}},"dependsOn":[{"name":"bp-keycloak"}]},
+ "status":{"observedGeneration":2,"conditions":[{"type":"Ready","status":"False","reason":"DependencyNotReady","message":"dependency 'delta-corp/bp-keycloak' is not ready"}]}}
+]}
+EOF
+printf 'bp-keycloak\t1.4.0\nbp-newapi\t0.2.0\n' >"${TMP}/pins-keycloak.tsv"
+d="${TMP}/c5"; mkdir -p "$d"
+run "$d" "${TMP}/org-shape.json" "${TMP}/pins-keycloak.tsv" yes
+midroll "$d"
+[ "$(rc_of "$d")" != 0 ] && pass "the pre-flight fails" || fail "the pre-flight passed a stalled release the promote never touches"
+for n in bp-keycloak bp-newapi; do
+  grep -qF "HelmRelease/delta-corp/${n}" "$d/midroll" && pass "delta-corp/${n} is still named mid-roll" || fail "delta-corp/${n} is not named mid-roll"
+done
+grep -qF 'N HelmRelease/delta-corp/bp-keycloak: the kit does not apply it' "$d/out" \
+  && pass "it says the kit does not apply delta-corp/bp-keycloak" || fail "it does not say why delta-corp/bp-keycloak is not repaired"
+grep -qE '^  [RD] ' "$d/out" && fail "a release the kit does not apply was counted as repaired: $(grep -E '^  [RD] ' "$d/out" | tr '\n' ' ')" || pass "nothing is counted as repaired"
+grep -q '=' "$d/patch.log" && fail "a refused delivery recorded an exclusion" || pass "nothing is recorded"
+d="${TMP}/c5b"; mkdir -p "$d"
+jq '(.items[] | select(.metadata.name == "bp-powerdns")) |= del(.metadata.labels)' "${TMP}/measured.json" >"${TMP}/unlabelled.json"
+run "$d" "${TMP}/unlabelled.json" "${TMP}/pins-moved.tsv" yes
+midroll "$d"
+[ "$(rc_of "$d")" != 0 ] && [ "$(grep -c . "$d/midroll")" = 3 ] && pass "a flux-system bp-powerdns that the Kustomization bootstrap-kit did not apply stays FATAL with its dependents" \
+  || fail "a flux-system release without the bootstrap-kit label was repaired (rc $(rc_of "$d")): $(tr '\n' ' ' <"$d/midroll")"
+grep -qF 'N HelmRelease/flux-system/bp-powerdns: the kit does not apply it' "$d/out" && pass "it says why" || fail "it does not say why bp-powerdns is not repaired"
+d="${TMP}/c5c"; mkdir -p "$d"
+{ cat "${TMP}/pins-moved.tsv"; printf 'bp-powerdns\t1.2.34\n'; } >"${TMP}/pins-two.tsv"
+run "$d" "${TMP}/measured.json" "${TMP}/pins-two.tsv" yes
+[ "$(rc_of "$d")" != 0 ] && pass "a chart the candidate pins at two versions stays FATAL" || fail "the pre-flight passed a chart pinned at two versions"
+grep -qF 'N HelmRelease/flux-system/bp-powerdns: the candidate kit pins bp-powerdns at several versions (1.2.33, 1.2.34)' "$d/out" \
+  && pass "it names both versions" || fail "it does not say the chart is pinned at several versions"
+d="${TMP}/c5d"; mkdir -p "$d"
+jq --argjson kit "{${KIT}}" '.items += [
+  {"metadata":({"name":"bp-pdns-dashboard","namespace":"flux-system","generation":2} + $kit),
+   "spec":{"chart":{"spec":{"chart":"bp-pdns-dashboard","version":"0.1.0"}},"dependsOn":[{"name":"bp-powerdns-admin"}]},
+   "status":{"observedGeneration":2,"conditions":[{"type":"Ready","status":"False","reason":"DependencyNotReady","message":"dependency flux-system/bp-powerdns-admin is not ready"}]}},
+  {"metadata":({"name":"bp-velero","namespace":"flux-system","generation":3,"annotations":{"catalyst.openova.io/cutover-settled-roll-override":"quota-wedged, ticket 5393"}} + $kit),
+   "spec":{"chart":{"spec":{"chart":"bp-velero","version":"1.0.4"}}},
+   "status":{"observedGeneration":3,"lastAttemptedRevision":"1.0.4","conditions":[{"type":"Ready","status":"False","reason":"UpgradeFailed","message":"quota exceeded"},{"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to upgrade after 1 attempt(s)"}]}}]' \
+  "${TMP}/measured.json" >"${TMP}/chain.json"
+run "$d" "${TMP}/chain.json" "${TMP}/pins-moved.tsv" yes
+[ "$(rc_of "$d")" = 0 ] && pass "a dependent of a dependent and an override beside the repair pass" || fail "the pre-flight refused (rc $(rc_of "$d")): $(grep -m1 FATAL "$d/out")"
+grep -qF 'D HelmRelease/flux-system/bp-pdns-dashboard: DependencyNotReady only on flux-system/bp-powerdns-admin' "$d/out" \
+  && pass "the dependent of a dependent is named" || fail "bp-pdns-dashboard is not named as a dependent"
+grep -F 'settledRollOverrides' "$d/patch.log" >"$d/record" || true
+for r in 'flux-system/bp-velero=quota-wedged, ticket 5393' 'flux-system/bp-powerdns=the delivery of' 'flux-system/bp-pdns-dashboard=DependencyNotReady only on'; do
+  grep -qF "$r" "$d/record" && pass "the record carries ${r%%=*}" || fail "the record lacks ${r%%=*}"
+done
+
+echo "[delivery-repairs] 6. the production srp_candidate_pins: the candidate's pins read from the local Gitea at release/<candidate>"
+# The candidate's kit at release/<candidate>: bp-powerdns re-pinned to 1.2.33 on
+# the already-pivoted local repository, bp-cert-manager on the upstream one, and
+# a file that is no slot.
+mkdir -p "${TMP}/kit"
+cat >"${TMP}/kit/30-powerdns.yaml" <<'EOF'
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bp-powerdns
+  namespace: flux-system
+spec:
+  type: oci
+  url: oci://registry.sov.example.test/openova-io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-powerdns
+  namespace: flux-system
+spec:
+  chart:
+    spec:
+      chart: bp-powerdns
+      # 1.2.33 repairs the refused 1.2.32
+      version: 1.2.33
+      sourceRef:
+        kind: HelmRepository
+        name: bp-powerdns
+        namespace: flux-system
+EOF
+sed -e 's/powerdns/cert-manager/g' -e 's,registry\.sov\.example\.test,ghcr.io,' -e 's/1\.2\.33/1.4.0/g' -e 's/^      # .*$/      # unchanged/' \
+  "${TMP}/kit/30-powerdns.yaml" >"${TMP}/kit/02-cert-manager.yaml"
+printf 'resources: []\n' >"${TMP}/kit/kustomization.yaml"
+d="${TMP}/c6"; mkdir -p "$d"
+GATE="${TMP}/gate-real.sh" run "$d" "${TMP}/measured.json" /dev/null yes
+[ "$(rc_of "$d")" = 0 ] && pass "the pre-flight passes on the pins it read" || fail "the pre-flight refused the delivery (rc $(rc_of "$d")): $(grep -m1 FATAL "$d/out")"
+grep -qF 'R HelmRelease/flux-system/bp-powerdns: bp-powerdns 1.2.32 (last attempted; deployed 1.2.30) -> 1.2.33' "$d/out" \
+  && pass "it read bp-powerdns 1.2.33 off the local repository" || fail "bp-powerdns 1.2.33 was not read: $(grep -m2 'FATAL\|could not' "$d/out" | tr '\n' ' ')"
+grep -qF "contents/clusters/_template/bootstrap-kit?ref=release/${CAND}" "$d/curl.log" && pass "it listed the kit at release/${CAND}" || fail "it did not list the kit at release/${CAND}"
+[ "$(grep -c '/raw/' "$d/curl.log")" = 2 ] && pass "it fetched the two slot files and no other" || fail "it fetched: $(grep '/raw/' "$d/curl.log" | tr '\n' ' ')"
+d="${TMP}/c6b"; mkdir -p "$d"
+KIT_LISTING=fail GATE="${TMP}/gate-real.sh" run "$d" "${TMP}/measured.json" /dev/null yes
+midroll "$d"
+[ "$(rc_of "$d")" != 0 ] && [ "$(grep -c . "$d/midroll")" = 3 ] && pass "a listing that fails keeps the delivery FATAL on all three" || fail "the delivery passed without its pins (rc $(rc_of "$d"))"
+grep -qF "could not read its candidate's kit pins at release/${CAND}" "$d/out" && pass "it says it could not read the pins" || fail "it does not say the pins were unreadable"
+grep -q '=' "$d/patch.log" && fail "a refused delivery recorded an exclusion" || pass "nothing is recorded"
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "delivery-repairs-stalled-release: ${FAILURES} failure(s)"; exit 1; fi

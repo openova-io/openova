@@ -259,9 +259,11 @@ data:
      A delivery's repaired set (see the head of Phase A0), over the gated releases: "R\t<ns>/<name>\t<chart>\t<from>\t<deployed>\t<to>"
      per terminal release the candidate's pin ($pins: chart -> its versions) moves, "D\t<ns>/<name>\t<deps>" per dependent that waits
      on those alone, and "N\t<ns>/<name>\t<why>" per terminal release the candidate does not change. No field is empty.
+     The pins name charts, not releases: only a release the kit applies (flux-system, Kustomization bootstrap-kit) can be R.
     */}}
     SRP_REPAIR_JQ='
       def _key: "\(.metadata.namespace // "")/\(.metadata.name // "")";
+      def _kit_applied: ((.metadata.namespace // "") == "flux-system") and ((((.metadata.labels // {})["kustomize.toolkit.fluxcd.io/name"]) // "") == "bootstrap-kit");
       def _settled: (((_cond("Ready").status) // "Unknown") == "True") and ((.status.observedGeneration // -1) >= (.metadata.generation // 0));
       def _deps: (.metadata.namespace // "") as $dns | [(.spec.dependsOn // [])[] | "\(.namespace // $dns)/\(.name)"];
       def _or($v): if . == "" then $v else . end;
@@ -274,8 +276,10 @@ data:
           | (.status.lastAttemptedRevision // "") as $att
           | ((([(.status.history // [])[] | select(.status == "deployed") | .chartVersion] | .[0]) // .status.lastAppliedRevision) // "") as $dep
           | (($pins[$c]) // []) as $pv
+          | _kit_applied as $kit
           | {key: _key, chart: ($c | _or("-")), from: ($att | _or($want) | _or("-")), deployed: ($dep | _or("-")), to: ($pv | join(" ") | _or("-")),
              why: (if $c == "" then "it names no chart (spec.chart.spec.chart)"
+                   elif ($kit | not) then "the kit does not apply it (only flux-system HelmReleases of the Kustomization bootstrap-kit), so the candidate pinning \($c) does not change it"
                    elif ($pv | length) == 0 then "the candidate kit pins no version of \($c)"
                    elif ($pv | length) > 1 then "the candidate kit pins \($c) at several versions (\($pv | join(", ")))"
                    elif ($pv[0] == $want) or ($pv[0] == $att) or ($pv[0] == $dep) then "the candidate pins \($c) \($pv[0]), not a new version for it (desired \($want | _or("-")), last attempted \($att | _or("-")), deployed \($dep | _or("-")))"

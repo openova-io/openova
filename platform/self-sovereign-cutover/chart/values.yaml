@@ -765,7 +765,9 @@ prewarm:
   # GET /sovereign/cutover/status; recording failure is itself FATAL.
   #
   # A DELIVERY (PUT /api/v1/sovereign/release: CANDIDATE set, UPSTREAM_BRANCH = release/<candidate>)
-  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ) when the candidate's kit pins
+  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ), that the kit applies (namespace
+  # flux-system, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit: the pins name charts, and an
+  # unlabelled namespace's bp-keycloak shares a kit chart name), when the candidate's kit pins
   # its chart at ONE version that is neither its desired, last attempted nor deployed one: the promote
   # gives Flux that version, which Phase A2-pins mirrors. Nor a DependencyNotReady release whose every
   # dependency is settled or such a release. Each is named with both versions and recorded as an
