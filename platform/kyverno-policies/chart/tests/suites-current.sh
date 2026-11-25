@@ -10,8 +10,9 @@
 #   C2 the render holds no ValidatingPolicy named like the suite;
 #   C3 policy.yaml is not the render of the template with the chart defaults;
 # and it fails when
-#   C4 a suite under tests/ holds a ValidatingPolicy and is not in SUITES.
-# CMP-063 and CMP-064 add the suites of their batches to SUITES.
+#   C4 a suite under tests/ holds a ValidatingPolicy and is not in SUITES,
+#      unless it is in ELSEWHERE and the test named there exists and names it.
+# CMP-064 adds the suites of its batch to SUITES.
 #
 # Usage:
 #   bash suites-current.sh              run the test on the chart above this file
@@ -42,6 +43,17 @@ SUITES=(
   "hpa-effective baseline/08-hpa-effective.yaml"
   "runasnonroot-readonlyrootfs baseline/17-runasnonroot-readonlyrootfs.yaml"
   "substrate-stays-on-host baseline/22-substrate-on-host.yaml"
+  "probes-present baseline/04-probes.yaml"
+  "harbor-proxy-pull baseline/11-harbor-proxy.yaml"
+  "image-tag-pinned baseline/12-image-tag-pinned.yaml"
+  "secret-not-in-env baseline/19-secret-not-in-env.yaml"
+  "forbid-local-path-storage baseline/23-forbid-local-path.yaml"
+)
+
+# A suite whose copy holds more than one policy is kept current by its own
+# test: <suite directory> <that test under tests/>.
+ELSEWHERE=(
+  "crossplane-package-runtime-admitted crossplane-runtime-suite-current.sh"
 )
 
 # check_suite <chart> <name> <template>: C1 to C3 for one suite. Prints one
@@ -73,7 +85,8 @@ check_suite() {
 }
 
 # check_listed <chart>: C4. Prints one line per suite that holds a
-# ValidatingPolicy and is not in SUITES. Returns 1 when there is one.
+# ValidatingPolicy and is neither in SUITES nor in ELSEWHERE with a test that
+# exists and names it. Returns 1 when there is one.
 check_listed() {
   local chart="$1" copy name entry listed rc=0
   for copy in "$chart"/tests/*/policy.yaml; do
@@ -83,6 +96,12 @@ check_listed() {
     listed=0
     for entry in "${SUITES[@]}"; do
       if [ "${entry%% *}" = "$name" ]; then listed=1; fi
+    done
+    for entry in "${ELSEWHERE[@]}"; do
+      if [ "${entry%% *}" = "$name" ] && [ -f "$chart/tests/${entry#* }" ] &&
+        grep -q -F "tests/$name\"" "$chart/tests/${entry#* }"; then
+        listed=1
+      fi
     done
     if [ "$listed" -eq 0 ]; then
       echo "$TAG FAIL C4 $name: the suite holds a ValidatingPolicy and is not in SUITES of this file"
@@ -159,8 +178,14 @@ self_test() {
   st_case "7 C4 every suite with a ValidatingPolicy listed, a legacy suite not: passes" 0 check_listed "$ST_TMP/chart"
   printf '%s\n' "${doc/s1/s2}" > "$ST_TMP/chart/tests/s2/policy.yaml"
   st_case "8 C4 a suite with a ValidatingPolicy that is not listed fails" 1 check_listed "$ST_TMP/chart"
+  # shellcheck disable=SC2016 # the line is the text a test names its suite by
+  printf '%s\n' 'SUITE="$CHART/tests/s2"' > "$ST_TMP/chart/tests/s2-current.sh"
+  ELSEWHERE=("s2 s2-current.sh")
+  st_case "9 C4 a suite in ELSEWHERE whose test exists and names it passes" 0 check_listed "$ST_TMP/chart"
+  rm "$ST_TMP/chart/tests/s2-current.sh"
+  st_case "10 C4 a suite in ELSEWHERE whose test does not exist fails" 1 check_listed "$ST_TMP/chart"
 
-  echo "self-test: 8 cases passed"
+  echo "self-test: 10 cases passed"
 }
 
 TMP="$(mktemp -d)"

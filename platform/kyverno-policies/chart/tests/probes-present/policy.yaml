@@ -1,0 +1,42 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: probes-present
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Containers must declare liveness and readiness probes
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Every primary container in a Deployment / StatefulSet / DaemonSet
+      must declare both livenessProbe and readinessProbe. Without
+      probes, kubelet can't detect a wedged process and Service can't
+      gate traffic during startup.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    # A probe counts when it is a non-empty object, whatever its handler
+    # (httpGet, exec, tcpSocket, grpc); an empty `{}` does not count, as the
+    # legacy filter `containers[?livenessProbe]` did not count it (measured).
+    - expression: >-
+        object.spec.template.spec.containers.all(c,
+        size(c.?livenessProbe.orValue({})) > 0 && size(c.?readinessProbe.orValue({})) > 0)
+      messageExpression: >-
+        'Every container in ' + object.kind + '/' + object.metadata.name +
+        ' must declare both livenessProbe and readinessProbe.'

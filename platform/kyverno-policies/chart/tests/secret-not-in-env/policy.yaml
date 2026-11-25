@@ -1,0 +1,52 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: secret-not-in-env
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Plaintext secrets must not appear in container env
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Container env entries with names matching *PASSWORD* / *TOKEN* /
+      *KEY* / *SECRET* must use valueFrom.secretKeyRef, not a
+      plaintext value.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    - name: containers-with-env
+      expression: >-
+        object.spec.?containers.orValue(object.spec.?template.?spec.?containers.orValue([])).exists(c,
+        size(c.?env.orValue([])) > 0)
+  validations:
+    - expression: >-
+        object.spec.?containers.orValue(object.spec.?template.?spec.?containers.orValue([])).all(c,
+        c.?env.orValue([]).all(e,
+        e.?value.orValue('') == '' || !e.name.matches('(?i)(PASSWORD|TOKEN|KEY|SECRET)')))
+      message: >-
+        A container env entry with a secret-shaped name carries a
+        plaintext value. Use valueFrom.secretKeyRef to source it from
+        a Secret instead.

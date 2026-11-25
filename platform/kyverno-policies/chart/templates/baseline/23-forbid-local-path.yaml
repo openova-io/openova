@@ -27,29 +27,34 @@ This is the THIRD of three layers that make local-path impossible:
   + the Phase-1 provisioning DoD gate (catalyst-api) FAILS a prov whose
     resolved default StorageClass is still local-path.
 
-WHY action IS HARDCODED Enforce (NOT the bootstrapMode helper)
-==============================================================
+WHY THE ACTION IS HARDCODED Deny (NOT the bootstrap-window helper)
+=================================================================
 Every OTHER policy in this chart resolves its action through
-`bp-kyverno-policies.action`, which downgrades to Audit while
-`compliancePolicies.bootstrapMode` is true (the Phase-1 window) so
-not-yet-ready workloads aren't fail-closed-blocked. This policy is the
-EXCEPTION: it is a structural data-durability safety invariant, and the
-local-path PVCs it forbids are created DURING that very bootstrap window. An
-Audit-during-bootstrap downgrade would let every stateful PVC land on
-ephemeral disk before the post-handover flip to Enforce — exactly the failure
-#3971 exists to prevent. It is therefore hardcoded `Enforce`. This is safe
-because the cloud CSI default class is guaranteed Ready before any PVC binds
-(layer 2), so NO legitimate bootstrap PVC needs local-path — the policy never
-blocks a well-formed prov.
+`bp-kyverno-policies.actions` (or the legacy `bp-kyverno-policies.action`),
+which downgrades to Audit while `compliancePolicies.bootstrapMode` is true
+(the Phase-1 window) so not-yet-ready workloads aren't fail-closed-blocked.
+This policy is the EXCEPTION: it is a structural data-durability safety
+invariant, and the local-path PVCs it forbids are created DURING that very
+bootstrap window. An Audit-during-bootstrap downgrade would let every
+stateful PVC land on ephemeral disk before the post-handover flip to
+Enforce — exactly the failure #3971 exists to prevent. Its
+validationActions are therefore hardcoded `[Deny]`. This is safe because
+the cloud CSI default class is guaranteed Ready before any PVC binds
+(layer 2), so NO legitimate bootstrap PVC needs local-path — the policy
+never blocks a well-formed prov.
 
 Operator override: `--set compliancePolicies.forbidLocalPath.enabled=false`
 disables it entirely (e.g. an air-gapped single-node Sovereign deliberately
 running on node-local disk with no cloud volumes). Per-namespace escape via
-`.excludeNamespaces`.
+`.excludeNamespaces` (claims only: classes and volumes have no namespace).
+
+A ValidatingPolicy of policies.kyverno.io since CMP-063 (the legacy
+ClusterPolicy of the same name before, with one rule per kind);
+tests/forbid-local-path-storage holds its suite.
 */}}
 {{- if .Values.compliancePolicies.forbidLocalPath.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: forbid-local-path-storage
   labels:
@@ -70,87 +75,56 @@ metadata:
       only default StorageClass. This policy fail-closes any PVC / StorageClass
       / PV that references local-path.
 spec:
-  # HARDCODED Enforce — NOT the bootstrapMode helper. See the header comment:
+  # HARDCODED Deny — NOT the bootstrap-window helper. See the header comment:
   # the local-path PVCs this forbids are created during the Phase-1 bootstrap
   # window, so an Audit-during-bootstrap downgrade would defeat the guard.
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    # ── Rule 1: PVCs may not request the local-path StorageClass ──────────
-    - name: pvc-no-local-path-storageclass
-      match:
-        any:
-          - resources:
-              kinds:
-                - PersistentVolumeClaim
-      {{- with .Values.compliancePolicies.forbidLocalPath.excludeNamespaces }}
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range . }}
-                - {{ . }}
-                {{- end }}
-      {{- end }}
-      validate:
-        message: >-
-          PersistentVolumeClaim
-          {{ `{{request.object.metadata.namespace}}/{{request.object.metadata.name}}` }}
-          requests the FORBIDDEN local-path StorageClass. local-path is
-          ephemeral node-local disk (no cloud block volume) — #3971 forbids it.
-          Omit storageClassName to bind to the durable cluster-default cloud
-          CSI (hcloud-volumes on Hetzner), or name an explicit durable class.
-        deny:
-          conditions:
-            any:
-              - key: {{ `"{{ request.object.spec.storageClassName || '' }}"` }}
-                operator: AnyIn
-                value:
-                  - local-path
-                  - rancher.io/local-path
-    # ── Rule 2: no StorageClass may use the local-path provisioner ────────
+  validationActions: [Deny]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims", "persistentvolumes"]
+      - apiGroups: ["storage.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["storageclasses"]
+  matchConditions:
+    # A StorageClass and a PersistentVolume have the namespace '', which is in
+    # no list of namespaces: only claims can be excluded.
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.forbidLocalPath.excludeNamespaces | quote }}
+  validations:
+    # ── PVCs may not request the local-path StorageClass ──────────────────
+    - expression: >-
+        object.kind != 'PersistentVolumeClaim' ||
+        !(object.spec.?storageClassName.orValue('') in ['local-path', 'rancher.io/local-path'])
+      message: >-
+        This PersistentVolumeClaim requests the FORBIDDEN local-path
+        StorageClass. local-path is ephemeral node-local disk (no cloud block
+        volume) — #3971 forbids it. Omit storageClassName to bind to the
+        durable cluster-default cloud CSI (hcloud-volumes on Hetzner), or name
+        an explicit durable class.
+    # ── no StorageClass may use the local-path provisioner ────────────────
     #    (also catches a StorageClass literally named `local-path`).
-    - name: storageclass-no-local-path-provisioner
-      match:
-        any:
-          - resources:
-              kinds:
-                - StorageClass
-      validate:
-        message: >-
-          StorageClass {{ `{{request.object.metadata.name}}` }} uses the
-          FORBIDDEN local-path provisioner (rancher.io/local-path) or is named
-          `local-path`. #3971: local-path is ephemeral node-local disk — use a
-          durable cloud CSI provisioner (csi.hetzner.cloud) instead.
-        deny:
-          conditions:
-            any:
-              - key: {{ `"{{ request.object.provisioner || '' }}"` }}
-                operator: AnyIn
-                value:
-                  - rancher.io/local-path
-                  - local-path
-              - key: {{ `"{{ request.object.metadata.name }}"` }}
-                operator: Equals
-                value: local-path
-    # ── Rule 3: no PV may declare the local-path StorageClass ─────────────
-    - name: pv-no-local-path-storageclass
-      match:
-        any:
-          - resources:
-              kinds:
-                - PersistentVolume
-      validate:
-        message: >-
-          PersistentVolume {{ `{{request.object.metadata.name}}` }} declares the
-          FORBIDDEN local-path StorageClass. #3971: local-path is ephemeral
-          node-local disk — back PVs with a durable cloud CSI instead.
-        deny:
-          conditions:
-            any:
-              - key: {{ `"{{ request.object.spec.storageClassName || '' }}"` }}
-                operator: AnyIn
-                value:
-                  - local-path
-                  - rancher.io/local-path
+    - expression: >-
+        object.kind != 'StorageClass' ||
+        (!(object.?provisioner.orValue('') in ['rancher.io/local-path', 'local-path']) &&
+        object.metadata.name != 'local-path')
+      message: >-
+        This StorageClass uses the FORBIDDEN local-path provisioner
+        (rancher.io/local-path) or is named `local-path`. #3971: local-path is
+        ephemeral node-local disk — use a durable cloud CSI provisioner
+        (csi.hetzner.cloud) instead.
+    # ── no PV may declare the local-path StorageClass ─────────────────────
+    - expression: >-
+        object.kind != 'PersistentVolume' ||
+        !(object.spec.?storageClassName.orValue('') in ['local-path', 'rancher.io/local-path'])
+      message: >-
+        This PersistentVolume declares the FORBIDDEN local-path StorageClass.
+        #3971: local-path is ephemeral node-local disk — back PVs with a
+        durable cloud CSI instead.
 {{- end }}
