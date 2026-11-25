@@ -7,7 +7,6 @@ rules:
   G1:
     max: 8
     allow:
-    - platform/newapi/chart/values.yaml
     - products/agenity/README.md
     - products/agenity/chart/Chart.yaml
     - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml

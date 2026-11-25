@@ -618,15 +618,6 @@ adminSeed:
 #     attestation:
 #       kind: in-cluster
 #       owner: "<sovereign-operator>"
-#   - name: claude
-#     type: anthropic
-#     endpoint: https://api.anthropic.com
-#     existingSecret: "newapi-channel-anthropic"
-#     models: ["claude-sonnet-4-6", "claude-haiku-4-5"]
-#     attestation:
-#       kind: commercial-contract
-#       accountId: "<anthropic-account-id>"
-#       contractRef: "<internal-doc-link>"
 #   - name: byok
 #     type: byok-passthrough
 #     attestation:
