@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T22:00:04Z` |
+| Last refreshed | `2026-11-25T22:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T22:02 | [#8850](https://github.com/openova-io/openova/pull/8850) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:53 | [#8847](https://github.com/openova-io/openova/pull/8847) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:43 | [#8844](https://github.com/openova-io/openova/pull/8844) | #7087 | docs(ledger): plan update |
+| 2026-11-25T22:00 | [#8843](https://github.com/openova-io/openova/pull/8843) | #8842 | test(gate): check SOV-G01 reads the registry file of each no |
 | 2026-11-25T21:33 | [#8841](https://github.com/openova-io/openova/pull/8841) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:40 | [#8840](https://github.com/openova-io/openova/pull/8840) | #8838 | chore(newapi): the old gateway values drop a commented chann |
 | 2026-11-25T21:43 | [#8839](https://github.com/openova-io/openova/pull/8839) | #8833 | fix(release): the candidate cut accepts the speech chart's C |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-25T11:09 | [#8805](https://github.com/openova-io/openova/pull/8805) | #7087 | docs(ledger): plan update |
 | 2026-11-25T10:26 | [#8804](https://github.com/openova-io/openova/pull/8804) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
-| 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
-| 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
 
 ---
 
