@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T21:15:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-25T21:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8418](https://github.com/openova-io/openova/issues/8418) | SOV-522 The release stage applies the provider pivot again where a candidate cha | Other |
 | [#8423](https://github.com/openova-io/openova/issues/8423) | AIP-131 Model checks AIP-G02 to AIP-G05 as expected-fail | Other |
 | [#8426](https://github.com/openova-io/openova/issues/8426) | CLD-133 Secondary-region suspend keys are set for every provider | Other |
 | [#8427](https://github.com/openova-io/openova/issues/8427) | NET-252 Lab test: HTTPS through the front listener, and cilium-envoy memory with | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8826](https://github.com/openova-io/openova/issues/8826) | SEC-201 The birth Job writes a named key and an empty placeholder | Other |
 | [#8831](https://github.com/openova-io/openova/issues/8831) | ACC-101 Delete the fabricated session surface in the API and the console | Other |
 | [#8838](https://github.com/openova-io/openova/issues/8838) | AIP-109 The old gateway's values drop a commented channel example that names the | Other |
+| [#8842](https://github.com/openova-io/openova/issues/8842) | SOV-170 The Sovereign repository is seeded at bootstrap and serves the root | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T21:16 | [#8837](https://github.com/openova-io/openova/pull/8837) | #7087 | docs(ledger): plan update |
 | 2026-11-25T20:25 | [#8836](https://github.com/openova-io/openova/pull/8836) | #8788 | A delivery can repair a release that is stalled when the can |
 | 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
 | 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:43 | [#8789](https://github.com/openova-io/openova/pull/8789) | #7087 | docs(ledger): plan update |
-| 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
 
 ---
 
