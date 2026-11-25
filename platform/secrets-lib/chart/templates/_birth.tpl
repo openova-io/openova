@@ -1,8 +1,10 @@
 {{- /*
 openova.birthScript (SEC-200) — the script of the birth Job that
-openova.generatedSecrets renders. It is the ONLY writer of a tier B value
+openova.generatedSecrets renders. It is the ONLY creator of a tier B value
 (SEC-140 step 2: External Secrets cannot create a value with create-only
 rights, and the same holds for a peer push: no PushSecret writes mounted/).
+A placeholder (SEC-201) is created here empty; its real value is written
+later by a writer with update rights, and this Job never writes it again.
 
 Input (environment of the Job):
   BAO_ADDR BAO_K8S_AUTH_PATH BAO_ROLE JWT_FILE   this region's OpenBao and the
@@ -15,9 +17,12 @@ Input (environment of the Job):
                        auth/jwt-peer-<self> as PEER_ROLE (create only on
                        mounted/data/<ns>/*: no read, no update, no list)
   PLAN_FILE            one line per value: <path> <length> <symbols>
-                       <source> <reach>; source "-" = a new random value,
-                       else a file whose content is copied; reach "all" =
-                       this region and every peer, "self" = this region only
+                       <source> <reach> [<key>]; source "-" = a new random
+                       value, "empty" = the empty string (a placeholder),
+                       else a file (an absolute path) whose content is
+                       copied; reach "all" = this region and every peer,
+                       "self" = this region only; key = the document's key,
+                       default password
   WORK_DIR MOUNT       a private directory; the mount (mounted)
 
 Per value, in order: this region first, then each peer.
@@ -83,10 +88,10 @@ can_create() {
     | req "$WORK_DIR/tok-$1" POST "$(cat "$WORK_DIR/addr-$1")/v1/sys/capabilities-self" --data-binary @-)" || true
   printf '%s\n' "$_o" | grep -q "\"$MOUNT/data/$2\":\[[^]]*\"create\""
 }
-# put <region> <path> <value>: written | refused | error <status>.
+# put <region> <path> <key> <value>: written | refused | error <status>.
 put() {
-  _e="$(printf '%s' "$3" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  _o="$(printf '{"options":{"cas":0},"data":{"password":"%s"}}' "$_e" \
+  _e="$(printf '%s' "$4" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  _o="$(printf '{"options":{"cas":0},"data":{"%s":"%s"}}' "$3" "$_e" \
     | req "$WORK_DIR/tok-$1" POST "$(cat "$WORK_DIR/addr-$1")/v1/$MOUNT/data/$2" --data-binary @-)" || true
   case "$(last "$_o")" in
     200|204) echo written ;;
@@ -106,8 +111,12 @@ state() {
     *) echo "error $(last "$_o")" ;;
   esac
 }
-# value <length> <symbols> <source>: a new random value, or the file's content.
+# value <length> <symbols> <source>: a new random value, the empty string of
+# a placeholder, or the file's content.
 value() {
+  if [ "$3" = empty ]; then
+    return 0
+  fi
   if [ "$3" != - ]; then
     [ -s "$3" ] || return 1
     cat "$3"
@@ -126,7 +135,7 @@ out="$(printf '{"role":"%s","jwt":"%s"}' "$BAO_ROLE" "$(cat "$JWT_FILE")" \
   | req - POST "$BAO_ADDR/v1/auth/$BAO_K8S_AUTH_PATH/login" --data-binary @-)" || true
 keep self "$BAO_ADDR" "$out" || die "$HERE" "login as $BAO_ROLE on auth/$BAO_K8S_AUTH_PATH refused (HTTP $(last "$out"))"
 PEER_IDS=""
-if grep -q ' all$' "$PLAN_FILE" && [ -n "${PEERS:-}" ]; then
+if grep -qE '^[^ ]+ [^ ]+ [^ ]+ [^ ]+ all( |$)' "$PLAN_FILE" && [ -n "${PEERS:-}" ]; then
   [ -n "$SELF" ] || die "$HERE" "SELF_REGION is empty: the peers cannot name this region's trust"
   for p in $PEERS; do
     id="${p%%=*}"; addr="${p#*=}"
@@ -141,7 +150,7 @@ if grep -q ' all$' "$PLAN_FILE" && [ -n "${PEERS:-}" ]; then
   done
 fi
 # 2. Every region must grant create on every path before anything is written.
-while read -r path len sym src reach; do
+while read -r path len sym src reach key; do
   [ -n "$path" ] || continue
   can_create self "$path" || die "$HERE" "no create right on $MOUNT/data/$path"
   if [ "$reach" = all ]; then
@@ -150,8 +159,9 @@ while read -r path len sym src reach; do
 done < "$PLAN_FILE"
 # 3. Write: here first, then each peer.
 DIVERGED=""
-while read -r path len sym src reach; do
+while read -r path len sym src reach key; do
   [ -n "$path" ] || continue
+  key="${key:-password}"
   st="$(state "$path")"
   case "$st" in
     present|absent) ;;
@@ -160,7 +170,7 @@ while read -r path len sym src reach; do
   esac
   v="$(value "$len" "$sym" "$src")" || die "$HERE" "the source $src of $path is missing or empty"
   if [ "$st" = absent ]; then
-    r="$(put self "$path" "$v")"
+    r="$(put self "$path" "$key" "$v")"
     case "$r" in
       written) WROTE=1; say "$path: written in $HERE" ;;
       *) die "$HERE" "writing $MOUNT/data/$path failed ($r)" ;;
@@ -170,7 +180,7 @@ while read -r path len sym src reach; do
   fi
   if [ "$reach" = all ]; then
     for id in $PEER_IDS; do
-      r="$(put "$id" "$path" "$v")"
+      r="$(put "$id" "$path" "$key" "$v")"
       case "$r" in
         written)
           WROTE=1
