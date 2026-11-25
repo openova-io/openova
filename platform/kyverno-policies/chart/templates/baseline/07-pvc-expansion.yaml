@@ -13,10 +13,14 @@ is checked when the StorageClass itself is admitted (via context.apiCall
 in a sibling rule).
 
 Default mode permissive per §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/pvc-volume-expansion holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.pvcExpansion.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: pvc-volume-expansion
   labels:
@@ -33,42 +37,45 @@ metadata:
       allowVolumeExpansion=true so storage can grow without rebuilding
       the volume.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.pvcExpansion.action) }}
-  background: true
-  rules:
-    - name: storageclass-must-allow-expansion
-      match:
-        any:
-          - resources:
-              kinds:
-                - PersistentVolumeClaim
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.pvcExpansion.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      preconditions:
-        all:
-          - key: "{{ `{{ request.object.spec.storageClassName || ''}}` }}"
-            operator: NotEquals
-            value: ""
-      context:
-        - name: scExpansion
-          apiCall:
-            urlPath: "/apis/storage.k8s.io/v1/storageclasses/{{ `{{request.object.spec.storageClassName}}` }}"
-            jmesPath: "allowVolumeExpansion || `false`"
-      validate:
-        message: >-
-          PVC {{ `{{request.object.metadata.name}}` }} references
-          StorageClass {{ `{{request.object.spec.storageClassName}}` }} which
-          does not allow volume expansion. Choose a StorageClass with
-          allowVolumeExpansion=true, or extend the existing one.
-        deny:
-          conditions:
-            any:
-              - key: "{{ `{{ scExpansion }}` }}"
-                operator: NotEquals
-                value: true
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.pvcExpansion.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.pvcExpansion.excludeNamespaces | quote }}
+    # A claim that names no StorageClass (unset or "") is not judged, as the
+    # legacy rule's precondition left it out.
+    - name: storageclass-named
+      expression: "object.spec.?storageClassName.orValue('') != ''"
+  {{- /*
+    The lookup needs read on storage.k8s.io/storageclasses, which
+    templates/rbac-storageclass-read.yaml grants (#6832;
+    tests/apicall-rbac-correspondence.sh checks the grant).
+  */}}
+  variables:
+    - name: storageClass
+      expression: resource.Get("storage.k8s.io/v1", "storageclasses", "", object.spec.storageClassName)
+  validations:
+    # resource.Get answers null for a StorageClass that does not exist, and
+    # reading the name of null fails the evaluation: such a claim gets an
+    # error, as the legacy rule's failed GET gave one (case 4 of
+    # tests/pvc-volume-expansion). The validations run in order, so the next
+    # one never sees null.
+    - expression: "variables.storageClass.metadata.name == object.spec.storageClassName"
+      message: The StorageClass read is not the one the claim names.
+    # An unset allowVolumeExpansion counts as false, as the legacy `|| false`
+    # did.
+    - expression: "variables.storageClass.?allowVolumeExpansion.orValue(false) == true"
+      messageExpression: >-
+        'PVC ' + object.metadata.name + ' references StorageClass ' +
+        object.spec.storageClassName + ' which does not allow volume
+        expansion. Choose a StorageClass with allowVolumeExpansion=true, or
+        extend the existing one.'
 {{- end -}}

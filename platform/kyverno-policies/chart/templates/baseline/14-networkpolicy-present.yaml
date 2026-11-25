@@ -6,16 +6,21 @@ CiliumNetworkPolicy. Without one, all east-west traffic is wide-open
 within the namespace (default-allow). Industry consensus is to enforce
 a default-deny baseline + explicit allow rules per workload.
 
-This rule fires on Namespace creation/update — context.apiCall queries
-the namespace for NetworkPolicy / CiliumNetworkPolicy and denies if the
-list is empty. Per-workload coverage (does any policy actually select
+This policy fires on Namespace creation/update — two lookups
+(resource.List) list the NetworkPolicies and CiliumNetworkPolicies of the
+namespace, and it denies when both lists are empty.
+Per-workload coverage (does any policy actually select
 THIS Pod) is inspectable but expensive — deferred to W2 evaluator.
 
 Default mode permissive per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/networkpolicy-present holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.networkpolicyPresent.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: networkpolicy-present
   labels:
@@ -31,43 +36,41 @@ metadata:
       Namespaces must contain at least one NetworkPolicy or
       CiliumNetworkPolicy so east-west traffic is mediated.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.networkpolicyPresent.action) }}
-  background: true
-  rules:
-    - name: namespace-must-have-networkpolicy
-      match:
-        any:
-          - resources:
-              kinds:
-                - Namespace
-      exclude:
-        any:
-          - resources:
-              names:
-                {{- range $ns := .Values.compliancePolicies.networkpolicyPresent.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      context:
-        - name: npCount
-          apiCall:
-            urlPath: "/apis/networking.k8s.io/v1/namespaces/{{ `{{request.object.metadata.name}}` }}/networkpolicies"
-            jmesPath: "length(items)"
-        - name: cnpCount
-          apiCall:
-            urlPath: "/apis/cilium.io/v2/namespaces/{{ `{{request.object.metadata.name}}` }}/ciliumnetworkpolicies"
-            jmesPath: "length(items) || `0`"
-      validate:
-        message: >-
-          Namespace {{ `{{request.object.metadata.name}}` }} contains no
-          NetworkPolicy and no CiliumNetworkPolicy. Add at least one
-          policy to mediate east-west traffic.
-        deny:
-          conditions:
-            all:
-              - key: '{{ `{{ npCount }}` }}'
-                operator: Equals
-                value: 0
-              - key: '{{ `{{ cnpCount }}` }}'
-                operator: Equals
-                value: 0
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.networkpolicyPresent.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["namespaces"]
+  matchConditions:
+    # The policy judges Namespaces, so the list excludes them by name, as the
+    # legacy rule's exclude by names did.
+    - name: exclude-namespaces
+      expression: "!(object.metadata.name in [{{ range $i, $ns := .Values.compliancePolicies.networkpolicyPresent.excludeNamespaces }}{{ if $i }}, {{ end }}'{{ $ns }}'{{ end }}])"
+  {{- /*
+    The CiliumNetworkPolicy lookup needs read on cilium.io, which
+    templates/rbac-cilium-read.yaml grants (#5505); Kyverno's own roles cover
+    networking.k8s.io. tests/apicall-rbac-correspondence.sh checks both.
+    Without the Cilium kind the list fails and the result is an error, as the
+    legacy apiCall's was.
+  */}}
+  variables:
+    - name: networkPolicies
+      expression: >-
+        dyn(resource.List("networking.k8s.io/v1", "networkpolicies",
+        object.metadata.name).items)
+    - name: ciliumNetworkPolicies
+      expression: >-
+        dyn(resource.List("cilium.io/v2", "ciliumnetworkpolicies",
+        object.metadata.name).items)
+  validations:
+    - expression: "size(variables.networkPolicies) > 0 || size(variables.ciliumNetworkPolicies) > 0"
+      messageExpression: >-
+        'Namespace ' + object.metadata.name + ' contains no NetworkPolicy and
+        no CiliumNetworkPolicy. Add at least one policy to mediate east-west
+        traffic.'
 {{- end -}}

@@ -16,10 +16,14 @@ namespace has at least one CCNP applied (which the W2 evaluator's
 `hubble.go` already inspects).
 
 Default mode enforcing per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/cilium-l7-mtls holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.ciliumL7Mtls.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: cilium-l7-mtls
   labels:
@@ -38,35 +42,25 @@ metadata:
       "is there an actual selecting CNP/CCNP" check lives in the W2
       hubble evaluator.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.ciliumL7Mtls.action) }}
-  background: true
-  rules:
-    - name: cilium-enforced-label
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.ciliumL7Mtls.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          Workload
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
-          missing label `policy.cilium.io/enforced: "true"` on
-          spec.template.metadata.labels. The catalyst-network controller
-          uses this label to attach the Pod to the L7 mTLS mesh.
-        pattern:
-          spec:
-            template:
-              metadata:
-                labels:
-                  policy.cilium.io/enforced: "true"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.ciliumL7Mtls.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.ciliumL7Mtls.excludeNamespaces | quote }}
+  validations:
+    - expression: >-
+        object.spec.template.?metadata.?labels[?'policy.cilium.io/enforced'].orValue('') == 'true'
+      messageExpression: >-
+        'Workload ' + object.kind + '/' + object.metadata.name + ' is missing
+        label `policy.cilium.io/enforced: "true"` on
+        spec.template.metadata.labels. The catalyst-network controller uses
+        this label to attach the Pod to the L7 mTLS mesh.'
 {{- end -}}

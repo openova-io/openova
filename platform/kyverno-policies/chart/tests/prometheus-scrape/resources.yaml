@@ -1,0 +1,146 @@
+# Inputs of the suite prometheus-scrape. One workload per case; the number is
+# the case of kyverno-test.yaml.
+
+# 1. A Deployment whose Pod template is annotated prometheus.io/scrape "true".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrape-annotated
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: scrape-annotated
+  template:
+    metadata:
+      labels:
+        app: scrape-annotated
+      annotations:
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 2. A StatefulSet labelled monitoring.coreos.com/managed "true" on the
+# workload (an operator-managed PodMonitor or ServiceMonitor).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: operator-managed
+  namespace: example
+  labels:
+    monitoring.coreos.com/managed: "true"
+spec:
+  serviceName: operator-managed
+  selector:
+    matchLabels:
+      app: operator-managed
+  template:
+    metadata:
+      labels:
+        app: operator-managed
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 3. A DaemonSet with neither.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: unobserved
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: unobserved
+  template:
+    metadata:
+      labels:
+        app: unobserved
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. The annotation says "false".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrape-false
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: scrape-false
+  template:
+    metadata:
+      labels:
+        app: scrape-false
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 5. The annotation on the workload, not on its Pod template.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: annotation-on-workload
+  namespace: example
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    matchLabels:
+      app: annotation-on-workload
+  template:
+    metadata:
+      labels:
+        app: annotation-on-workload
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 6. The managed label on the Pod template, not on the workload.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: label-on-template
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: label-on-template
+  template:
+    metadata:
+      labels:
+        app: label-on-template
+        monitoring.coreos.com/managed: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 7. Case 3 in kube-system, a namespace the chart defaults exclude.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: unobserved
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: unobserved
+  template:
+    metadata:
+      labels:
+        app: unobserved
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

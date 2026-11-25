@@ -1,0 +1,64 @@
+# Suite of the policy cilium-l7-mtls (templates/baseline/09-cilium-l7-mtls.yaml), CMP-064.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+# On the legacy kind the CLI reports the excluded case 7 as "Excluded" and
+# accepts that for any expected result; the ValidatingPolicy gives it a skip.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/cilium-l7-mtls
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cilium-l7-mtls-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/enforced
+    result: pass
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/unlabelled
+    result: fail
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - example/label-false
+    result: fail
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - example/label-on-workload
+    result: fail
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - example/enforced-daemonset
+    result: pass
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/no-template-metadata
+    result: fail
+  - policy: cilium-l7-mtls
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - kube-system/unlabelled
+    result: skip
