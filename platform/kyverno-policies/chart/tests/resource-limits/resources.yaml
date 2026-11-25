@@ -1,0 +1,129 @@
+# Inputs of the suite resource-limits.
+
+# 1. A Deployment whose container sets cpu and memory limits: compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: limits-set
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: limits-set
+  template:
+    metadata:
+      labels:
+        app: limits-set
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# 2. A DaemonSet whose container sets cpu and memory limits: compliant.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ds-limits-set
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: ds-limits-set
+  template:
+    metadata:
+      labels:
+        app: ds-limits-set
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:v1.0.0
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# 3. A Deployment without limits: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-limits
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: no-limits
+  template:
+    metadata:
+      labels:
+        app: no-limits
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. A Job whose container sets a memory limit only: not compliant.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-memory-limit-only
+  namespace: example
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          resources:
+            limits:
+              memory: 256Mi
+---
+# 5. A CronJob whose container sets both limits at the CronJob path. The policy
+#    reads spec.template, which a CronJob does not have, so it is not compliant
+#    (measured on the legacy policy; kept as it is: CMP-062 changes no verdict).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-limits-set
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: app
+              image: ghcr.io/example/app:v1.0.0
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+---
+# 6. A StatefulSet without limits in an excluded namespace: excluded.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sts-no-limits
+  namespace: kube-system
+spec:
+  replicas: 2
+  serviceName: sts-no-limits
+  selector:
+    matchLabels:
+      app: sts-no-limits
+  template:
+    metadata:
+      labels:
+        app: sts-no-limits
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

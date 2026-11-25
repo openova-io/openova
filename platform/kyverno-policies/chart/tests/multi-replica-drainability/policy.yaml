@@ -1,0 +1,43 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: multi-replica-drainability
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Workloads must declare 2+ replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Deployments and StatefulSets must declare spec.replicas >= 2 so
+      voluntary disruptions (node drains, rolling updates) can preserve
+      at least one healthy replica.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    - name: exclude-singleton-db
+      expression: "!(object.metadata.?labels[?'openova.io/singleton-db'].orValue('') == 'true')"
+  validations:
+    - expression: "has(object.spec.replicas) && object.spec.replicas >= 2"
+      message: >-
+        This workload declares fewer than 2 replicas. Drainability requires
+        spec.replicas >= 2 so voluntary disruptions can keep at least one
+        replica serving traffic. Bump spec.replicas, exempt this workload by
+        adding its namespace to
+        .Values.compliancePolicies.multiReplica.excludeNamespaces, or — for a
+        deliberate single-replica stateful singleton (database/cache) — label
+        it `openova.io/singleton-db: "true"`.

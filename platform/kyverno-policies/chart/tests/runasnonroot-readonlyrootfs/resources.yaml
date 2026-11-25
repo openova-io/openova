@@ -1,0 +1,161 @@
+# Inputs of the suite runasnonroot-readonlyrootfs.
+
+# 1. runAsNonRoot at Pod level, read-only root filesystem: compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-level-nonroot
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pod-level-nonroot
+  template:
+    metadata:
+      labels:
+        app: pod-level-nonroot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          securityContext:
+            readOnlyRootFilesystem: true
+---
+# 2. runAsNonRoot on every container, read-only root filesystem: compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: container-level-nonroot
+  namespace: example
+spec:
+  replicas: 2
+  serviceName: container-level-nonroot
+  selector:
+    matchLabels:
+      app: container-level-nonroot
+  template:
+    metadata:
+      labels:
+        app: container-level-nonroot
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+        - name: sidecar
+          image: ghcr.io/example/sidecar:v1.0.0
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+---
+# 3. runAsNonRoot at Pod level, writable root filesystem: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writable-rootfs
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: writable-rootfs
+  template:
+    metadata:
+      labels:
+        app: writable-rootfs
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. Read-only root filesystem, runAsNonRoot nowhere: not compliant.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: root-user
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: root-user
+  template:
+    metadata:
+      labels:
+        app: root-user
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:v1.0.0
+          securityContext:
+            readOnlyRootFilesystem: true
+---
+# 5. runAsNonRoot on one of two containers only, read-only root filesystem on
+#    both: not compliant.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: one-container-nonroot
+  namespace: example
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+        - name: sidecar
+          image: ghcr.io/example/sidecar:v1.0.0
+          securityContext:
+            readOnlyRootFilesystem: true
+---
+# 6. A CronJob that is compliant at the CronJob path. The policy reads
+#    spec.template, which a CronJob does not have, so it is not compliant
+#    (measured on the legacy policy; kept as it is: CMP-062 changes no verdict).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-compliant-template
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+          containers:
+            - name: app
+              image: ghcr.io/example/app:v1.0.0
+              securityContext:
+                readOnlyRootFilesystem: true
+---
+# 7. Root user and writable root filesystem in an excluded namespace: excluded.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: root-writable
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: root-writable
+  template:
+    metadata:
+      labels:
+        app: root-writable
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:v1.0.0

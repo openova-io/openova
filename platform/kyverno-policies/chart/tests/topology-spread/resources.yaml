@@ -1,0 +1,218 @@
+# Inputs of the suite topology-spread.
+
+# 1. Three replicas spread across hostname: compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spread-hostname
+  namespace: example
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: spread-hostname
+  template:
+    metadata:
+      labels:
+        app: spread-hostname
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: spread-hostname
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 2. Two replicas spread across zone: compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spread-zone
+  namespace: example
+spec:
+  replicas: 2
+  serviceName: spread-zone
+  selector:
+    matchLabels:
+      app: spread-zone
+  template:
+    metadata:
+      labels:
+        app: spread-zone
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: spread-zone
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 3. Two replicas and no spread constraint: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-spread
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: no-spread
+  template:
+    metadata:
+      labels:
+        app: no-spread
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. Two replicas spread across another key only: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spread-other-key
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spread-other-key
+  template:
+    metadata:
+      labels:
+        app: spread-other-key
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: example.com/rack
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: spread-other-key
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 5. Two constraints, hostname and another key: every constraint must name
+#    hostname or zone, so not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spread-mixed-keys
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spread-mixed-keys
+  template:
+    metadata:
+      labels:
+        app: spread-mixed-keys
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: spread-mixed-keys
+        - maxSkew: 1
+          topologyKey: example.com/rack
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: spread-mixed-keys
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 6. Two replicas and an empty constraint list: passes (the legacy pattern
+#    passed it too; measured).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spread-empty-list
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spread-empty-list
+  template:
+    metadata:
+      labels:
+        app: spread-empty-list
+    spec:
+      topologySpreadConstraints: []
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 7. One replica and no spread constraint: not judged (skipped).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: one-replica
+  namespace: example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: one-replica
+  template:
+    metadata:
+      labels:
+        app: one-replica
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 8. spec.replicas not declared: counts as 0, not judged (skipped).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replicas-unset
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: replicas-unset
+  template:
+    metadata:
+      labels:
+        app: replicas-unset
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 9. Two replicas and no spread constraint in an excluded namespace: excluded.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-spread
+  namespace: kube-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: no-spread
+  template:
+    metadata:
+      labels:
+        app: no-spread
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

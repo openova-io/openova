@@ -92,6 +92,24 @@ func TestPolicyReportFindings(t *testing.T) {
 	}
 }
 
+// TestPolicyReportValidatingPolicyResult — a result the engine writes for a
+// ValidatingPolicy (measured by spike CMP-S1: source KyvernoValidatingPolicy,
+// no rule) is a finding of the source kyverno with no rule property, so the
+// check of that policy (source kyverno) keeps it after CMP-062 rewrites the
+// policy in place.
+func TestPolicyReportValidatingPolicyResult(t *testing.T) {
+	r := res("multi-replica-drainability", "fail", "KyvernoValidatingPolicy", "Deployment", "web")
+	delete(r, "rule")
+	rep := reportObj("wgpolicyk8s.io/v1alpha2", nil, r)
+	fs := PolicyReport{}.Apply(k8scache.Event{Cluster: "c", Kind: "policyreport", Type: k8scache.EventAdded, Object: rep, At: at}, resolver())
+	if len(fs) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(fs), fs)
+	}
+	if f := fs[0]; f.Check != "multi-replica-drainability" || f.Source != compliance.SourceKyverno || f.Result != compliance.Fail || f.Properties != nil {
+		t.Errorf("want check multi-replica-drainability, source %q, result fail and no properties, got %+v", compliance.SourceKyverno, f)
+	}
+}
+
 func TestPolicyReportReadsOnlyItsGroupAndNothingOnDelete(t *testing.T) {
 	r := resolver()
 	other := reportObj("example.io/v1", nil, res("a", "fail", "", "Deployment", "web"))

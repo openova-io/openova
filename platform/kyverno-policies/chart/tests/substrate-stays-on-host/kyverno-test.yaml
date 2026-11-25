@@ -1,0 +1,39 @@
+# Suite of the policy substrate-stays-on-host (templates/baseline/22-substrate-on-host.yaml), CMP-062.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/substrate-stays-on-host
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: substrate-stays-on-host-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: substrate-stays-on-host
+    isValidatingPolicy: true
+    kind: HelmRelease
+    resources:
+      - flux-system/bp-cilium
+      - flux-system/bp-kyverno
+    result: fail
+  - policy: substrate-stays-on-host
+    isValidatingPolicy: true
+    kind: HelmRelease
+    resources:
+      - flux-system/bp-cnpg
+    result: pass
+  - policy: substrate-stays-on-host
+    isValidatingPolicy: true
+    kind: HelmRelease
+    resources:
+      - org-acme/bp-wordpress
+    result: skip
