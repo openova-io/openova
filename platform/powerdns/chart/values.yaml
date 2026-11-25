@@ -432,6 +432,22 @@ dnsdist:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits:   { cpu: 250m, memory: 256Mi }
+  # Timings of the two probes of the dnsdist container. Both are a TCP
+  # connect to its own DNS listener (port 53, the dns-tcp port) on the pod's
+  # address, in both modes (templates/dnsdist.yaml). The ClusterPolicy
+  # probes-present enforces both probes after the bootstrap window: without
+  # them every change to the workload is refused at admission.
+  probes:
+    liveness:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 2
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
   config: |
     -- Catalyst dnsdist policy. Forwards to the in-cluster powerdns
     -- Service; rate-limits per source IP. Lua-records-ready downstream.
