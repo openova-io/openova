@@ -3221,6 +3221,62 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
+  name: bp-secrets-store-csi
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 0.1.0
+  card:
+    title: Secrets Store CSI driver
+    summary: Mounts values from OpenBao into a Pod as memory-backed files. Secret sync is off, so a mounted value never becomes a Secret object.
+    documentation: ./README.md
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
+  configSchema:
+    type: object
+    properties: {}
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+  manifests:
+    chart: ./chart
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-secrets-store-csi
+    version: 0.1.0
+  depends:
+  - blueprint: bp-openbao
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
   name: bp-self-sovereign-cutover
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -3229,7 +3285,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.257
+  version: 0.1.256
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3244,7 +3300,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.257
+    version: 0.1.256
   topology:
     supported: [singleton]
     defaults:

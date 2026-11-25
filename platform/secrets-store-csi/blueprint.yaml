@@ -1,0 +1,46 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-secrets-store-csi
+spec:
+  version: 0.1.0
+  card:
+    title: Secrets Store CSI driver
+    summary: Mounts values from OpenBao into a Pod as memory-backed files. Secret sync is off, so a mounted value never becomes a Secret object.
+    documentation: ./README.md
+  visibility: unlisted              # mandatory infra, installed by bootstrap-kit slot 15b
+  class: platform-component
+  lifecycle: experimental
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties: {}
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # a node DaemonSet on every region
+  manifests:
+    chart: ./chart
+  depends:
+    - blueprint: bp-openbao          # the OpenBao CSI provider (openbao.csi.enabled, slot 08)
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false

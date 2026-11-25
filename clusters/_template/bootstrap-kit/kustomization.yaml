@@ -117,6 +117,10 @@ resources:
   # depends on it instead of on a cloud-specific disk-driver release. MUST be
   # registered here or Flux never creates the HelmRelease.
   - 15b-storage-ready.yaml
+  # bp-secrets-store-csi (slot 15b) — the Secrets Store CSI driver, Secret
+  # sync off (SEC-211). dependsOn bp-openbao, whose OpenBao CSI provider it
+  # talks to. MUST be registered here or Flux never creates the HelmRelease.
+  - 15b-bp-secrets-store-csi.yaml
   - 16-cnpg.yaml
   # bp-postgres-shared (slot 16a) — ADR-0010 reusable/shareable backing-
   # services model (#3191, Refs #3188). ONE shared CNPG Cluster that BOTH
