@@ -79,7 +79,7 @@ epics:
 - id: FND-020
   title: Plan as data and the executor protocol
   wave: W0
-  packages: [FND-021, FND-022, FND-023, FND-042]
+  packages: [FND-021, FND-022, FND-023, FND-042, FND-043]
 - id: FND-030
   title: Gate manifest, record and checks
   wave: W0
@@ -1894,17 +1894,20 @@ packages:
   dropped: false
   delivers: The acceptance suite selects a manifest entry only when its implementation is a Go file under tests/acceptance/sovereign; an entry implemented by a script or by browser specs is proven by its own job and is left out; a selected entry without a registered check still stops the run.
 - id: FND-042
-  title: The ticket linter refuses an acceptance loop that counts only its last pass and an unguarded pipe
+  title: An acceptance command of a ticket pipes a tested command only after set -o pipefail
   area: FND
   epic: FND-020
   type: guard
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: [FND-023]
-  after: []
+  after: [FND-028, FND-059, FND-078, CLD-211, SEC-095, SEC-153, SEC-154, SVC-230, CMP-020, CMP-041]
   touches:
-  - scripts/ticket-lint.py
+  - .github/workflows/tree-guards.yaml
+  - tools/guards/README.md
+  - tools/guards/cmd/acceptance-exit/main.go
+  - tools/guards/cmd/acceptance-exit/main_test.go
   resources: []
   flips: []
   implements: []
@@ -1918,7 +1921,35 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: scripts/ticket-lint.py refuses an acceptance command with a loop that does not stop at its first failing pass (no || exit 1 in its body) and one that pipes a tested command without set -o pipefail; merged tickets are not judged by the new rule.
+  delivers: The Go guard tools/guards/cmd/acceptance-exit, run by two steps of tree-guards.yaml, refuses an acceptance command of a ticket that pipes a tested command without set -o pipefail at its top, and a command it cannot read; a ticket whose done marker carries its ticket_rev keeps its text and is not judged. The loop rule is FND-043.
+- id: FND-043
+  title: An acceptance loop of a ticket stops at its first failing pass
+  area: FND
+  epic: FND-020
+  type: guard
+  wave: W0
+  size: XS
+  lane: RAILS
+  depends_on: [FND-042]
+  after: [SEC-153, SEC-154, SVC-230, CMP-041]
+  touches:
+  - tools/guards/README.md
+  - tools/guards/cmd/acceptance-exit/main.go
+  - tools/guards/cmd/acceptance-exit/main_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The guard acceptance-exit also refuses a for, while or until loop whose body holds no || exit 1 (or || { ...; exit 1; }), so an acceptance loop has the status of its first failing pass. It also corrects the acceptance loops it would refuse: PRD-304 A1 and SOV-721 A4 by ticket revisions of those packages, which a plan update publishes before it merges (a work package may not change a ticket). CTL-232 A4 keeps its text: CTL-232 is merged, and a ticket of a merged package cannot be revised (scripts/plan.py counts a package merged only while its done marker carries the plan''s ticket_rev, and a plan update copies no ticket whose done marker is on main), so the guard, which reads only tickets of packages that are not merged, does not judge it.'
 - id: FND-051
   title: Billing-engine and tool-server tests run on pull requests
   area: FND
@@ -14874,6 +14905,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_sec_backup_test.go
   - tests/acceptance/sovereign/internal/suite/check_sec_seal.go
   - tests/acceptance/sovereign/internal/suite/check_sec_seal_test.go
+  - tests/e2e/bootstrap-kit/bootstrap_seed_upgrade_test.go
   resources: []
   flips: [SEC-G10]
   implements: []
@@ -14897,7 +14929,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Before each six-hourly OpenBao backup, CronJob openbao-restore-drill writes a fresh canary under its own path, restores this region's next snapshot from the bucket into a scratch OpenBao in its own pod and reads the canary back with a token of at most 15 minutes that the configuration identity mints for that one path, and records the result; kit slot 08 switches the backup and the drill on with the bucket key reflected into namespace openbao, and the required gate check SEC-G10 proves on every region that a snapshot younger than 7 hours returned the canary written before it.
 - id: SEC-190
