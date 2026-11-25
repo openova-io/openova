@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T16:30:03Z` |
+| Last refreshed | `2026-11-25T16:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -329,8 +329,8 @@ flowchart LR
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
 | 2026-11-25T14:56 | [#8798](https://github.com/openova-io/openova/pull/8798) | #8792 | feat(api): the providers routes list the packs and serve the |
-| 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:07 | [#8796](https://github.com/openova-io/openova/pull/8796) | #8793 | fix(catalyst-api): a catalogue edit may change only the card |
+| 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:43 | [#8789](https://github.com/openova-io/openova/pull/8789) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
