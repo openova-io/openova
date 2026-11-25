@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T14:00:03Z` |
+| Last refreshed | `2026-11-25T14:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,14 +307,17 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:53 | [#8828](https://github.com/openova-io/openova/pull/8828) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:43 | [#8824](https://github.com/openova-io/openova/pull/8824) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:14 | [#8820](https://github.com/openova-io/openova/pull/8820) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:07 | [#8818](https://github.com/openova-io/openova/pull/8818) | #7087 | docs(ledger): plan update |
+| 2026-11-25T14:12 | [#8817](https://github.com/openova-io/openova/pull/8817) | #8814 | docs(ledger): result of the lab test SOV-722, the k3s releas |
 | 2026-11-25T12:53 | [#8816](https://github.com/openova-io/openova/pull/8816) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:31 | [#8813](https://github.com/openova-io/openova/pull/8813) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:11 | [#8809](https://github.com/openova-io/openova/pull/8809) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:54 | [#8808](https://github.com/openova-io/openova/pull/8808) | #7087 | docs(ledger): plan update |
+| 2026-11-25T14:09 | [#8807](https://github.com/openova-io/openova/pull/8807) | #8806 | chore(provisioning): the purchase funnel install path wires  |
 | 2026-11-25T11:09 | [#8805](https://github.com/openova-io/openova/pull/8805) | #7087 | docs(ledger): plan update |
 | 2026-11-25T10:26 | [#8804](https://github.com/openova-io/openova/pull/8804) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
@@ -325,6 +328,7 @@ flowchart LR
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:43 | [#8789](https://github.com/openova-io/openova/pull/8789) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
+| 2026-11-25T14:05 | [#8787](https://github.com/openova-io/openova/pull/8787) | #8786 | feat(speech): the transcription chart serves one pinned Whis |
 | 2026-11-24T16:27 | [#8785](https://github.com/openova-io/openova/pull/8785) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:45 | [#8784](https://github.com/openova-io/openova/pull/8784) | #8783 | refactor(kyverno): exceptions honoured in one namespace, the |
 | 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
 | 2026-11-24T15:31 | [#8777](https://github.com/openova-io/openova/pull/8777) | #8776 | refactor(compliance): policy files in every region folder: t |
 | 2026-11-24T12:37 | [#8775](https://github.com/openova-io/openova/pull/8775) | #7087 | docs(ledger): plan update |
-| 2026-11-24T11:52 | [#8773](https://github.com/openova-io/openova/pull/8773) | #7087 | docs(ledger): plan update |
-| 2026-11-24T11:41 | [#8771](https://github.com/openova-io/openova/pull/8771) | #7087 | docs(ledger): plan update |
-| 2026-11-24T11:05 | [#8769](https://github.com/openova-io/openova/pull/8769) | #7087 | docs(ledger): plan update |
-| 2026-11-24T10:51 | [#8768](https://github.com/openova-io/openova/pull/8768) | #7087 | docs(ledger): plan update |
 
 ---
 
