@@ -178,6 +178,21 @@ func oldBootstrapSecrets() []liveSecret {
 	}
 }
 
+// upgradedBootstrapSecrets are those Secrets as the upgrade must leave them:
+// every type and value as first boot wrote it, and on flux-system/object-storage
+// the four reflector annotations that keep its one copy openbao/object-storage
+// for the OpenBao snapshot backup and its restore drill (SEC-181, register
+// entry openbao-snapshot-bucket). The first boot before SEC-181 wrote none.
+func upgradedBootstrapSecrets() []liveSecret {
+	out := oldBootstrapSecrets()
+	for i := range out {
+		if out[i].id() == "flux-system/object-storage" {
+			out[i].annotations = reflection("openbao")
+		}
+	}
+	return out
+}
+
 // seedFixture is one region: the stub's Secrets, its calls and the work
 // folder (the Job's emptyDir).
 type seedFixture struct {
@@ -900,17 +915,18 @@ func manifestReferences(t *testing.T, root string) []string {
 	return sortedKeys(seen)
 }
 
-// compareWithOld lists every difference between the rendered Secrets and the
-// old ones: the set of Secrets, and per Secret its type, keys, values and
-// reflector annotations.
-func compareWithOld(old []liveSecret, rendered []renderedSecret) []string {
+// compareWithOld lists every difference between the rendered Secrets and
+// want (the old ones, or the old ones as the upgrade must leave them): the set
+// of Secrets, and per Secret its type, keys, values and reflector annotations.
+// The annotations are compared only when type and values are equal.
+func compareWithOld(want []liveSecret, rendered []renderedSecret) []string {
 	var diffs []string
 	byID := map[string]renderedSecret{}
 	for _, r := range rendered {
 		byID[r.id()] = r
 	}
-	if len(rendered) != len(old) {
-		diffs = append(diffs, fmt.Sprintf("%d Secrets rendered, %d before", len(rendered), len(old)))
+	if len(rendered) != len(want) {
+		diffs = append(diffs, fmt.Sprintf("%d Secrets rendered, want %d", len(rendered), len(want)))
 	}
 	reflectorOnly := func(m map[string]string) map[string]string {
 		out := map[string]string{}
@@ -921,24 +937,25 @@ func compareWithOld(old []liveSecret, rendered []renderedSecret) []string {
 		}
 		return out
 	}
-	for _, o := range old {
+	for _, o := range want {
 		r, ok := byID[o.id()]
 		switch {
 		case !ok:
 			diffs = append(diffs, o.id()+" is not rendered")
 		case r.typ != o.typ:
-			diffs = append(diffs, fmt.Sprintf("%s type %s, before %s", o.id(), r.typ, o.typ))
+			diffs = append(diffs, fmt.Sprintf("%s type %s, want %s", o.id(), r.typ, o.typ))
 		case !reflect.DeepEqual(r.data, o.data):
-			diffs = append(diffs, fmt.Sprintf("%s values %q, before %q", o.id(), r.data, o.data))
+			diffs = append(diffs, fmt.Sprintf("%s values %q, want %q", o.id(), r.data, o.data))
 		case !reflect.DeepEqual(reflectorOnly(r.annotations), reflectorOnly(o.annotations)):
-			diffs = append(diffs, fmt.Sprintf("%s reflector annotations %v, before %v", o.id(), reflectorOnly(r.annotations), reflectorOnly(o.annotations)))
+			diffs = append(diffs, fmt.Sprintf("%s reflector annotations %v, want %v", o.id(), reflectorOnly(r.annotations), reflectorOnly(o.annotations)))
 		}
 	}
 	return diffs
 }
 
-// (c) The four manifests rendered from the seed the builder makes equal the
-// four Secrets as they were, and a second run changes nothing.
+// (c) The manifests rendered from the seed the builder makes equal the
+// Secrets as they were, with every value, and flux-system/object-storage gains
+// the reflector annotations of SEC-181; a second run changes nothing.
 func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 	root := repoRoot(t)
 	old := oldBootstrapSecrets()
@@ -949,8 +966,14 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 	}
 	seed, _ := f.get(t, seedNamespace, seedSecret)
 	rendered := renderBootstrapSecrets(t, root, seed)
-	for _, d := range compareWithOld(old, rendered) {
+	for _, d := range compareWithOld(upgradedBootstrapSecrets(), rendered) {
 		t.Errorf("rendered from the built seed: %s", d)
+	}
+	// Against the Secrets as first boot wrote them, the one difference is the
+	// annotations gained by flux-system/object-storage: no value is lost and no
+	// other Secret changes.
+	if d := compareWithOld(old, rendered); len(d) != 1 || !strings.HasPrefix(d[0], "flux-system/object-storage reflector annotations ") {
+		t.Errorf("against the Secrets first boot wrote, want only the reflector annotations of flux-system/object-storage gained, got %q", d)
 	}
 	for _, r := range rendered {
 		f.put(t, r.ns, r.name, r.data)
@@ -982,10 +1005,30 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 		"a value":               func(s *liveSecret) { s.data = map[string]string{"token": "another"} },
 		"a type":                func(s *liveSecret) { s.typ = "kubernetes.io/basic-auth" },
 	} {
-		changed := oldBootstrapSecrets()
+		changed := upgradedBootstrapSecrets()
 		edit(&changed[0])
 		if len(compareWithOld(changed, rendered)) == 0 {
 			t.Errorf("%s changed is not found", what)
+		}
+	}
+	// ... and a render of flux-system/object-storage that loses a value, or
+	// lacks the annotations, is found.
+	for what, edit := range map[string]func(*renderedSecret){
+		"a lost value":             func(r *renderedSecret) { delete(r.data, "s3-bucket") },
+		"no reflector annotations": func(r *renderedSecret) { r.annotations = map[string]string{} },
+	} {
+		broken, n := renderBootstrapSecrets(t, root, seed), 0
+		for i := range broken {
+			if broken[i].id() == "flux-system/object-storage" {
+				edit(&broken[i])
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("flux-system/object-storage is rendered %d times, want 1", n)
+		}
+		if len(compareWithOld(upgradedBootstrapSecrets(), broken)) == 0 {
+			t.Errorf("flux-system/object-storage rendered with %s is not found", what)
 		}
 	}
 }
@@ -1010,8 +1053,9 @@ func sec153Seed(t *testing.T, root string) map[string]string {
 // (d) On a region whose seed lacks the values of ghcr-pull and object-storage
 // (installed between SEC-153 and SEC-154), the builder adds
 // them from those Secrets with one patch, never changes a value the seed holds,
-// renders every Secret as it was, keeps the kit reconciling, and on a missing
-// Secret writes nothing; a second run adds nothing.
+// renders every Secret as it was (flux-system/object-storage with the reflector
+// annotations of SEC-181), keeps the kit reconciling, and on a missing Secret
+// writes nothing; a second run adds nothing.
 func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 	root := repoRoot(t)
 	partial := sec153Seed(t, root)
@@ -1030,7 +1074,7 @@ func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 	if want := builtSeed(t, root); !reflect.DeepEqual(seed, want) {
 		t.Errorf("the completed seed %v differs from the seed built from the Secrets %v", sortedKeys(seed), sortedKeys(want))
 	}
-	for _, d := range compareWithOld(oldBootstrapSecrets(), renderBootstrapSecrets(t, root, seed)) {
+	for _, d := range compareWithOld(upgradedBootstrapSecrets(), renderBootstrapSecrets(t, root, seed)) {
 		t.Errorf("rendered from the completed seed: %s", d)
 	}
 	if work, _ := os.ReadDir(filepath.Join(f.dir, "work")); len(work) != 0 {
