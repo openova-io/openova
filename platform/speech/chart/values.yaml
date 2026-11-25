@@ -1,0 +1,76 @@
+# bp-speech: one Whisper model, served on CPU by one speaches server
+# (README.md). Every name below is read by templates/.
+#
+# The five keys home, enabled, model, cache and startup are the Blueprint's
+# configSchema (blueprint.yaml). The chart refuses at render what that schema
+# refuses (templates/_helpers.tpl, "bp-speech.validate").
+
+# Set by the kit slot from MODEL_PLANE_HOME. The chart renders its workloads
+# only when home and enabled are both true; otherwise it renders nothing. It
+# never renders the Namespace (templates/deployment.yaml).
+home: false
+# Set by the kit slot from MODEL_PLANE_TRANSCRIPTION.
+enabled: false
+
+# The model: a Whisper model in CTranslate2 form. source is
+# oci://<host>/<path>@sha256:<64 hex> (a model image of the Sovereign's
+# registry, README.md "Model image") or hf://<owner>/<name>, which needs
+# revision, the 40-character commit. servedName is the name a request gives
+# as its model, the upstreamModel of the gateway's alias.
+model:
+  source: hf://deepdml/faster-whisper-large-v3-turbo-ct2
+  revision: 4df90f75321148c3a29a9e2351b7ddf8f5b115a8
+  servedName: whisper-large-v3-turbo
+
+# The weights volume. Without cache it is an emptyDir of 10Gi; with it a
+# PersistentVolumeClaim of sizeGi (at least 10) in storageClass ("" is the
+# Sovereign's default class).
+# cache:
+#   sizeGi: 10
+#   storageClass: ""
+
+# loadSeconds is the measured cold start of the server with this model; the
+# start-up probe allows loadSeconds x 1.5 before its first failure counts.
+# The server answered in about 3 seconds when measured; the model itself loads
+# on the first request (README.md "Operations").
+startup:
+  loadSeconds: 30
+
+# ── Not part of the configSchema ────────────────────────────────────────────
+
+# The server image, by digest (MIT, github.com/speaches-ai/speaches). Its user
+# is the name ubuntu, uid 1000, so the Pod names that uid.
+image: ghcr.io/speaches-ai/speaches:0.8.3-cpu@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8
+port: 8000
+
+# The server's CPU threads follow limits.cpu (whole CPUs).
+resources:
+  requests:
+    cpu: "2"
+    memory: 3Gi
+  limits:
+    cpu: "4"
+    memory: 5Gi
+
+# A model-hub token for a gated hf:// model: the name of a SecretProviderClass
+# in the release namespace whose object hf-token is the token. It is mounted by
+# the Secrets Store CSI driver as /var/run/secrets/openova/hf-token into the
+# container that fetches the model. "" mounts nothing.
+hubToken:
+  secretProviderClass: ""
+
+# The NetworkPolicy of the release: ingress on the serving port only from
+# gatewayNamespace and from the release's own function test; egress to cluster
+# DNS, and to the model hub on TCP 443 only when hubEgress is true. An hf://
+# source with the policy on and hubEgress false is refused at render: the
+# model could not be fetched.
+networkPolicy:
+  enabled: true
+  gatewayNamespace: model-gateway
+  hubEgress: false
+
+# The function test (templates/tests/function-test.yaml). timeoutSeconds is the
+# bound T of docs/RUNBOOKS.md section 4.5; the kit slot states it.
+functionTest:
+  image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+  timeoutSeconds: 300

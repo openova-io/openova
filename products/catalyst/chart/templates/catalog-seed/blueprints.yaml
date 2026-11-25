@@ -3377,6 +3377,103 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
+  name: bp-speech
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 1.0.0
+  card:
+    title: Transcription
+    summary: One CPU server for one speech-to-text model, reached only through the platform's model gateway.
+    description: A speaches server on CPU serves one Whisper model in CTranslate2 form with int8 weights, by default faster-whisper-large-v3-turbo. Callers send audio in segments of at most 30 seconds. The model comes by digest from the Sovereign's registry or at a pinned revision from the model hub. The Service is ClusterIP; the platform's model gateway is the one caller.
+    icon: speech.svg
+    license: MIT
+    tags: [transcription, speech, whisper, ai]
+    docs: https://github.com/speaches-ai/speaches
+  visibility: listed
+  class: ai-service
+  lifecycle: experimental
+  configSchema:
+    type: object
+    required: [home, enabled, model, startup]
+    additionalProperties: false
+    properties:
+      home:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_HOME. Workloads render only when home and enabled are both true.
+      enabled:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_TRANSCRIPTION.
+      model:
+        type: object
+        required: [source, servedName]
+        additionalProperties: false
+        properties:
+          source:
+            type: string
+            pattern: ^(oci://[a-z0-9./_-]+@sha256:[a-f0-9]{64}|hf://[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)$
+            description: A model image of the Sovereign's registry by digest, or a model of the hub.
+          revision:
+            type: string
+            pattern: ^[a-f0-9]{40}$
+            description: Required when source starts with hf://. The exact commit.
+          servedName:
+            type: string
+            pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+            description: "The name a request gives as its model: the upstreamModel of the gateway's alias."
+      cache:
+        type: object
+        required: [sizeGi]
+        additionalProperties: false
+        properties:
+          sizeGi:
+            type: integer
+            minimum: 10
+            description: Size of the weights volume.
+          storageClass:
+            type: string
+            default: ""
+            description: "\"\" is the Sovereign's default class."
+      startup:
+        type: object
+        required: [loadSeconds]
+        additionalProperties: false
+        properties:
+          loadSeconds:
+            type: integer
+            minimum: 30
+            description: Measured cold start of the server with this model. The start-up probe allows loadSeconds x 1.5.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-speech
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-speech
+    version: 1.0.0
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
   name: bp-sso-bridge
   labels:
     catalyst.openova.io/managed-by: catalog-seed

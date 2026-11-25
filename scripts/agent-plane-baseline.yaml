@@ -53,9 +53,8 @@ rules:
     - platform/openclaw/chart/templates/per-user-pod-template.yaml
     - platform/openclaw/chart/tests/render-toggles.sh
   G6:
-    max: 6
+    max: 5
     allow:
-    - core/services/provisioning/gitops/helmrelease_apps.go
     - products/agenity/README.md
     - products/agenity/chart/Chart.yaml
     - products/agenity/chart/templates/statefulset.yaml
