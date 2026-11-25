@@ -1,0 +1,7 @@
+== 2026-11-25T10:56:17Z harness a3d54858a7 case silent-peer k3s v1.32.13+k3s1
+== image list sha256 8f462e1974b8166be0dd81a1210b545082cfa7b45f8e45e8372f24d71e61ed59
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+== harness file scripts/check-registry-drain-datapackets.sh
+[registry-drain] k3s v1.32.13+k3s1 (the kit's: v1.32.13+k3s1); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+Error response from daemon: failed to resolve reference "docker.io/rancher/k3s:v1.32.13-k3s1": failed to do request: Head "https://registry-1.docker.io/v2/rancher/k3s/manifests/v1.32.13-k3s1": dial tcp [2600:1f18:2148:bc01:1292:9f86:9953:7fb5]:443: connect: network is unreachable
+== exit 1 after 2 s; k3s image rancher/k3s@sha256:7534b63e02277917f77c584ed5532b31562c760d6bb8fe88059002e9bdeee033

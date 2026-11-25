@@ -1,0 +1,14 @@
+== 2026-11-25T11:00:59Z harness a3d54858a7 case silent-peer k3s v1.33.13+k3s2
+== image list sha256 bb9b2afee19e08135cc81b5cabb6a2e7b14e2354091178a17a9cb22ca63e0711
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+== harness file scripts/check-registry-drain-datapackets.sh
+[registry-drain] k3s v1.33.13+k3s2 (the kit's: v1.33.13+k3s2); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+curl: (7) Failed to connect to 127.0.0.1 port 5139 after 0 ms: Connection refused
+[registry-drain] the outside is cut: a pull of docker.io/library/alpine:3.20.3 fails (exit 1: ctr: failed to resolve image: failed to do request: Head "https://registry-1.docker.io/v2/library/alpine/manifests/3.20.3": dial tcp 184.72.244.236:443: connect)
+[registry-drain] rd-agent-1 holds registry.test/probe/drain@sha256:0494ddb59f28287de811805d8a30e98965c80a3f7efabdb6c22bb663745c5337, taken from the registry
+[registry-drain] witness: with no copy of the registry, rd-agent-2 took the probe from rd-agent-1 through the nodes' mirror
+[registry-drain] before the drop, rd-agent-1's registry port 172.29.139.11:6443 completes a TLS handshake in 0.004083 s (curl exit 0)
+[registry-drain] rd-agent-1's registry port sends nothing after its SYN-ACK: it accepts a connection in 0.000156 s and completes no TLS handshake within 10 s
+[registry-drain] the pull finished in 1 s, within 60 s; rd-agent-2 sent 3 data packets to the silent peer, which withheld 9 packets; the registry answered 4 requests of the probe's manifest
+PASS silent-peer in 80 s
+== exit 0 after 82 s; k3s image rancher/k3s@sha256:ada5ff2e138120efe877f76d514dedda65b304122112b982eab532732c028c89

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Local only (this host's docker socket needs root): docker through sudo; a file that docker save
+# writes is given back to the calling user.
+out="" prev=""
+for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
+sudo -n /usr/bin/docker "$@"
+rc=$?
+if [ "$1" = save ] && [ -n "$out" ] && [ -e "$out" ]; then sudo -n chown "$(id -u):$(id -g)" "$out"; fi
+exit "$rc"

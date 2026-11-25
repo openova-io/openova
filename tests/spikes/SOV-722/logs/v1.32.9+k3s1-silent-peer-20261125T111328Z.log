@@ -1,0 +1,122 @@
+== 2026-11-25T11:13:29Z harness a3d54858a7 case silent-peer k3s v1.32.9+k3s1
+== image list sha256 f690a8433e159c65c462df2a0a12cfc071b4d026a612246ef2e50f627fd7a33e
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+== harness file scripts/check-registry-drain.sh
+[registry-drain] k3s v1.32.9+k3s1 (the kit's: v1.32.9+k3s1); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+curl: (7) Failed to connect to 127.0.0.1 port 5139 after 0 ms: Connection refused
+[registry-drain] the outside is cut: a pull of docker.io/library/alpine:3.20.3 fails (exit 1: ctr: failed to resolve image: failed to do request: Head "https://registry-1.docker.io/v2/library/alpine/manifests/3.20.3": dial tcp 54.211.250.45:443: connect:)
+[registry-drain] rd-agent-1 holds registry.test/probe/drain@sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2, taken from the registry
+[registry-drain] witness: with no copy of the registry, rd-agent-2 took the probe from rd-agent-1 through the nodes' mirror
+[registry-drain] before the drop, rd-agent-1's registry port 172.29.139.11:6443 completes a TLS handshake in 0.003694 s (curl exit 0)
+[registry-drain] rd-agent-1's registry port sends nothing after its SYN-ACK: it accepts a connection in 0.000120 s and completes no TLS handshake within 10 s
+FAIL silent-peer: the pull did not finish within 60 s (the limit is 60 s) (rd-agent-2 through the silent rd-agent-1: 1 connections to it, 46 packets withheld; the registry answered 0 requests of the probe's manifest)
+──── evidence of the failed case ────
+NAME         STATUS                     ROLES                  AGE    VERSION        INTERNAL-IP     EXTERNAL-IP   OS-IMAGE           KERNEL-VERSION      CONTAINER-RUNTIME
+rd-agent-1   Ready,SchedulingDisabled   <none>                 114s   v1.32.9+k3s1   172.29.139.11   <none>        K3s v1.32.9+k3s1   5.15.0-76-generic   containerd://2.1.4-k3s1.32
+rd-agent-2   Ready                      <none>                 114s   v1.32.9+k3s1   172.29.139.12   <none>        K3s v1.32.9+k3s1   5.15.0-76-generic   containerd://2.1.4-k3s1.32
+rd-server    Ready                      control-plane,master   2m2s   v1.32.9+k3s1   172.29.139.10   <none>        K3s v1.32.9+k3s1   5.15.0-76-generic   containerd://2.1.4-k3s1.32
+NAMESPACE        NAME                       READY   STATUS    RESTARTS   AGE    IP          NODE         NOMINATED NODE   READINESS GATES
+kube-system      coredns-64fd4b4794-5hqfc   1/1     Running   0          117s   10.42.0.2   rd-server    <none>           <none>
+registry-drain   registry-c8bd4c56b-kd9k2   1/1     Running   0          87s    10.42.4.3   rd-agent-2   <none>           <none>
+default          118s        Normal    Synced                           node/rd-server                  Node synced successfully
+kube-system      117s        Normal    SuccessfulCreate                 replicaset/coredns-64fd4b4794   Created pod: coredns-64fd4b4794-5hqfc
+kube-system      117s        Normal    Pulled                           pod/coredns-64fd4b4794-5hqfc    Container image "rancher/mirrored-coredns-coredns:1.12.3" already present on machine
+kube-system      116s        Normal    Started                          pod/coredns-64fd4b4794-5hqfc    Started container coredns
+kube-system      116s        Normal    Created                          pod/coredns-64fd4b4794-5hqfc    Created container: coredns
+default          114s        Normal    NodeAllocatableEnforced          node/rd-agent-1                 Updated Node Allocatable limit across pods
+default          114s        Normal    NodeHasSufficientPID             node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasSufficientPID
+default          114s        Warning   FreeDiskSpaceFailed              node/rd-agent-1                 Failed to garbage collect required amount of images. Attempted to free 7150562508 bytes, but only found 0 bytes eligible to free.
+default          114s        Normal    CertificateExpirationOK          node/rd-agent-1                 Node and Certificate Authority certificates managed by k3s are OK
+default          114s        Normal    CIDRAssignmentFailed             node/rd-agent-1                 Node rd-agent-1 status is now: CIDRAssignmentFailed
+default          114s        Normal    Synced                           node/rd-agent-1                 Node synced successfully
+default          114s        Warning   InvalidDiskCapacity              node/rd-agent-2                 invalid capacity 0 on image filesystem
+default          114s        Normal    NodeHasNoDiskPressure            node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasNoDiskPressure
+default          114s        Normal    CertificateExpirationOK          node/rd-agent-2                 Node and Certificate Authority certificates managed by k3s are OK
+default          114s        Normal    Starting                         node/rd-agent-2                 Starting kubelet.
+default          114s        Normal    NodeHasSufficientMemory          node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasSufficientMemory
+default          114s        Normal    Starting                         node/rd-agent-1                 Starting kubelet.
+default          114s        Normal    NodeAllocatableEnforced          node/rd-agent-2                 Updated Node Allocatable limit across pods
+default          114s        Normal    NodeHasSufficientPID             node/rd-agent-2                 Node rd-agent-2 status is now: NodeHasSufficientPID
+default          114s        Normal    NodeHasNoDiskPressure            node/rd-agent-2                 Node rd-agent-2 status is now: NodeHasNoDiskPressure
+default          114s        Normal    NodeHasSufficientMemory          node/rd-agent-2                 Node rd-agent-2 status is now: NodeHasSufficientMemory
+default          113s        Normal    RegisteredNode                   node/rd-agent-1                 Node rd-agent-1 event: Registered Node rd-agent-1 in Controller
+default          113s        Normal    RegisteredNode                   node/rd-agent-2                 Node rd-agent-2 event: Registered Node rd-agent-2 in Controller
+default          113s        Normal    NodeReady                        node/rd-agent-2                 Node rd-agent-2 status is now: NodeReady
+default          113s        Normal    Synced                           node/rd-agent-2                 Node synced successfully
+default          113s        Normal    NodeReady                        node/rd-agent-1                 Node rd-agent-1 status is now: NodeReady
+default          113s        Normal    CIDRAssignmentFailed             node/rd-agent-2                 Node rd-agent-2 status is now: CIDRAssignmentFailed
+registry-drain   108s        Normal    SuccessfulCreate                 replicaset/registry-c8bd4c56b   Created pod: registry-c8bd4c56b-5c6hw
+registry-drain   107s        Normal    Pulled                           pod/registry-c8bd4c56b-5c6hw    Container image "docker.io/library/registry:2.8.3" already present on machine
+registry-drain   107s        Normal    Created                          pod/registry-c8bd4c56b-5c6hw    Created container: registry
+registry-drain   107s        Normal    Started                          pod/registry-c8bd4c56b-5c6hw    Started container registry
+default          103s        Normal    NodeNotSchedulable               node/rd-agent-1                 Node rd-agent-1 status is now: NodeNotSchedulable
+registry-drain   91s         Normal    Killing                          pod/registry-c8bd4c56b-5c6hw    Stopping container registry
+registry-drain   91s         Normal    SuccessfulDelete                 replicaset/registry-c8bd4c56b   Deleted pod: registry-c8bd4c56b-5c6hw
+registry-drain   91s         Normal    ScalingReplicaSet                deployment/registry             Scaled down replica set registry-c8bd4c56b from 1 to 0
+registry-drain   87s         Normal    SuccessfulCreate                 replicaset/registry-c8bd4c56b   Created pod: registry-c8bd4c56b-kd9k2
+registry-drain   87s         Normal    ScalingReplicaSet                deployment/registry             Scaled up replica set registry-c8bd4c56b from 0 to 1
+registry-drain   86s         Normal    Created                          pod/registry-c8bd4c56b-kd9k2    Created container: registry
+registry-drain   86s         Normal    Started                          pod/registry-c8bd4c56b-kd9k2    Started container registry
+registry-drain   86s         Normal    Pulled                           pod/registry-c8bd4c56b-kd9k2    Container image "docker.io/library/registry:2.8.3" already present on machine
+── rd-server: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T11:13:51Z" level=info msg="Imported docker.io/rancher/mirrored-coredns-coredns:1.12.3"
+time="2026-11-25T11:13:51Z" level=info msg="Imported docker.io/rancher/mirrored-pause:3.6"
+time="2026-11-25T11:13:51Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.9+k3s1.tar in 295.784804ms"
+time="2026-11-25T11:13:53Z" level=info msg="running scheduled image state update" logger=spegel
+time="2026-11-25T11:13:53Z" level=info msg="Running kubelet --cloud-provider=external --config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d --containerd=/run/k3s/containerd/containerd.sock --eviction-hard=imagefs.available<1%,nodefs.available<1% --hostname-override=rd-server --image-gc-high-thr
+I1125 11:13:56.020396      55 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-server","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tru
+I1125 11:13:56.036135      55 image_gc_manager.go:383] "Disk usage on image filesystem is over the high threshold, trying to free bytes down to the low threshold" usage=77 highThreshold=70 amountToFree=7075290316 lowThreshold=60
+E1125 11:13:56.036176      55 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="Failed to garbage collect required amount of images. Attempted to free 7075290316 bytes, but only found 0 bytes eligible to free."
+E1125 11:13:56.096390      55 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 11:13:56.277887      55 controllermanager.go:765] "Started controller" controller="endpointslice-mirroring-controller"
+I1125 11:13:56.277995      55 endpointslicemirroring_controller.go:227] "Starting EndpointSliceMirroring controller"
+I1125 11:13:56.278006      55 shared_informer.go:313] Waiting for caches to sync for endpoint_slice_mirroring
+I1125 11:14:00.493289      55 shared_informer.go:320] Caches are synced for endpoint_slice_mirroring
+I1125 11:14:01.576851      55 kube.go:636] List of node(rd-server) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.10", "k3s.io/hostname":"rd-server", "k3s.io/internal-ip":"172.29.139.10", "k3s.io/node-args":"[\"server\",\"--node-ip\",\"172.29.139.10\",\"--disable\"
+I1125 11:14:03.151583      55 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="kube-system/coredns-64fd4b4794-5hqfc" podStartSLOduration=2.151570116 podStartE2EDuration="2.151570116s" podCreationTimestamp="2026-11-25 11:14:01 +0000 UTC" firstStartedPulling="0001-01-01 00:00:0
+── rd-agent-1: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+I1125 11:14:04.593195      42 image_gc_manager.go:383] "Disk usage on image filesystem is over the high threshold, trying to free bytes down to the low threshold" usage=78 highThreshold=70 amountToFree=7150562508 lowThreshold=60
+E1125 11:14:04.593234      42 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="Failed to garbage collect required amount of images. Attempted to free 7150562508 bytes, but only found 0 bytes eligible to free."
+E1125 11:14:04.652934      42 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 11:14:05.904137      42 kube.go:636] List of node(rd-agent-1) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.11", "k3s.io/hostname":"rd-agent-1", "k3s.io/internal-ip":"172.29.139.11", "k3s.io/node-args":"[\"agent\",\"--node-ip\",\"172.29.139.11\",\"--node-lab
+time="2026-11-25T11:14:27Z" level=error error="mirror with image component registry.test/probe/drain:1 could not be found" handler=mirror ip=127.0.0.1 latency=1.130555ms logger=spegel method=HEAD path=/v2/probe/drain/manifests/1 status=404
+time="2026-11-25T11:14:27Z" level=error error="mirror with image component sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2 could not be found" handler=mirror ip=127.0.0.1 latency=1.017123ms logger=spegel method=GET path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29ea
+time="2026-11-25T11:14:27Z" level=error error="mirror with image component sha256:a8099213faef1a386a2eb520eb1caf7bf16b508710c345d5b8a608f6ae39ea9a could not be found" handler=mirror ip=127.0.0.1 latency="960.799µs" logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:a8099213faef1a386a2eb520
+time="2026-11-25T11:14:27Z" level=error error="mirror with image component sha256:cf6a1b069ca1a9da06152f49295f14b67f634e9c6edae87f3a2b808709e2a8da could not be found" handler=mirror ip=127.0.0.1 latency="927.236µs" logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:cf6a1b069ca1a9da06152f49
+time="2026-11-25T11:14:27Z" level=info msg="received image event" image="registry.test/probe/drain:1@sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" logger=spegel type=CREATE
+time="2026-11-25T11:14:27Z" level=info msg="received image event" image="registry.test/probe/drain@sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" logger=spegel type=CREATE
+time="2026-11-25T11:14:31Z" level=info handler=manifest ip=172.29.139.12 latency="587.107µs" logger=spegel method=HEAD path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" status=200
+time="2026-11-25T11:14:31Z" level=info handler=manifest ip=172.29.139.12 latency="806.14µs" logger=spegel method=GET path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" status=200
+time="2026-11-25T11:14:31Z" level=info handler=blob ip=172.29.139.12 latency="426.482µs" logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:a8099213faef1a386a2eb520eb1caf7bf16b508710c345d5b8a608f6ae39ea9a" status=200
+time="2026-11-25T11:14:31Z" level=info handler=blob ip=172.29.139.12 latency="342.65µs" logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:cf6a1b069ca1a9da06152f49295f14b67f634e9c6edae87f3a2b808709e2a8da" status=200
+time="2026-11-25T11:14:48Z" level=info handler=v2 ip=172.29.139.1 latency="33.227µs" logger=spegel method=GET path=/v2/ status=200
+── rd-agent-2: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T11:14:04Z" level=info msg="running scheduled image state update" logger=spegel
+I1125 11:14:04.717705      41 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-agent-2","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tr
+E1125 11:14:04.729661      41 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="invalid capacity 0 on image filesystem"
+E1125 11:14:04.857349      41 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 11:14:06.117879      41 kube.go:636] List of node(rd-agent-2) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.12", "k3s.io/hostname":"rd-agent-2", "k3s.io/internal-ip":"172.29.139.12", "k3s.io/node-args":"[\"agent\",\"--node-ip\",\"172.29.139.12\",\"--node-lab
+I1125 11:14:11.795146      41 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="registry-drain/registry-c8bd4c56b-5c6hw" podStartSLOduration=1.795129041 podStartE2EDuration="1.795129041s" podCreationTimestamp="2026-11-25 11:14:10 +0000 UTC" firstStartedPulling="0001-01-01 00:0
+time="2026-11-25T11:14:31Z" level=info handler=mirror ip=127.0.0.1 latency=3.433399ms logger=spegel method=HEAD path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" status=200
+time="2026-11-25T11:14:31Z" level=info handler=mirror ip=127.0.0.1 latency=3.739005ms logger=spegel method=GET path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" status=200
+time="2026-11-25T11:14:31Z" level=info handler=mirror ip=127.0.0.1 latency=3.388666ms logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:a8099213faef1a386a2eb520eb1caf7bf16b508710c345d5b8a608f6ae39ea9a" status=200
+time="2026-11-25T11:14:31Z" level=info handler=mirror ip=127.0.0.1 latency=3.224054ms logger=spegel method=GET path="/v2/probe/drain/blobs/sha256:cf6a1b069ca1a9da06152f49295f14b67f634e9c6edae87f3a2b808709e2a8da" status=200
+time="2026-11-25T11:14:31Z" level=info msg="received image event" image="registry.test/probe/drain@sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" logger=spegel type=CREATE
+time="2026-11-25T11:14:31Z" level=info msg="received image event" image="registry.test/probe/drain@sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2" logger=spegel type=DELETE
+I1125 11:14:32.822891      41 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="registry-drain/registry-c8bd4c56b-kd9k2" podStartSLOduration=1.822876401 podStartE2EDuration="1.822876401s" podCreationTimestamp="2026-11-25 11:14:31 +0000 UTC" firstStartedPulling="0001-01-01 00:0
+time="2026-11-25T11:14:58Z" level=error error="could not get manifest content for digest sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2: content not found\ncontent digest sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f59842b4b1f888e6cc2: not found" handler=manifest ip=
+time="2026-11-25T11:14:58Z" level=error msg="request to mirror failed" attempt=1 error="expected mirror to respond with 200 OK but received: 404 Not Found" ip=127.0.0.1 logger=spegel mirror="172.29.139.12:6443" path="/v2/probe/drain/manifests/sha256:4fcc27c9091ae1c95e29eaba006286c296784e8c815e7f5984
+── the registry's last requests of the probe
+== exit 1 after 151 s; k3s image rancher/k3s@sha256:af1f66e58580ea4027eeef9a65ef95cc29554ff96c8eddb4fc1267c71fe15328

@@ -1,0 +1,123 @@
+== 2026-11-25T11:04:18Z harness a3d54858a7 case shared k3s v1.32.10+k3s1
+== image list sha256 885e6c36e2305e4dab638437bb99ea7bf9e23d6823913609d6e3ec0504e79e68
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+== harness file scripts/check-registry-drain.sh
+[registry-drain] k3s v1.32.10+k3s1 (the kit's: v1.32.10+k3s1); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+curl: (7) Failed to connect to 127.0.0.1 port 5139 after 0 ms: Connection refused
+[registry-drain] the outside is cut: a pull of docker.io/library/alpine:3.20.3 fails (exit 1: ctr: failed to resolve image: failed to do request: Head "https://registry-1.docker.io/v2/library/alpine/manifests/3.20.3": dial tcp 184.72.244.236:443: connect)
+[registry-drain] the registry and two bystanders run on rd-agent-1, the only node that holds their images
+[registry-drain] rd-agent-1 drained in 2 s; the registry's replacement is on rd-agent-2
+[registry-drain] rd-agent-1 is down for 60 s (the reboot)
+[registry-drain] rd-agent-1 is back and uncordoned; judging every 5 s for up to 420 s
+FAIL shared: not recovered 420 s after rd-agent-1 came back: waits on its image: Pod registry-drain/bystander-6b9dd8ddc6-5wk9f container wait image docker.io/library/busybox:1.36.1 (ImagePullBackOff) not Running: Pod registry-drain/bystander-6b9dd8ddc6-5wk9f is Pending on rd-agent-2 not Ready: Pod registry-drain/bystander-6b9dd8ddc6-5wk9f on rd-agent-2 waits on its image: Pod registry-drain/bystander-6b9dd8ddc6-tbn6w container wait image docker.io/library/busybox:1.36.1 (ImagePullBackOff) not Running: Pod registry-drain/bystander-6b9dd8ddc6-tbn6w is Pending on rd-agent-2 not Ready: Pod registry-drain/bystander-6b9dd8ddc6-tbn6w on rd-agent-2 waits on its image: Pod registry-drain/registry-c8bd4c56b-q9mz2 container registry image docker.io/library/registry:2.8.3 (ImagePullBackOff) not Running: Pod registry-drain/registry-c8bd4c56b-q9mz2 is Pending on rd-agent-2 not Ready: Pod registry-drain/registry-c8bd4c56b-q9mz2 on rd-agent-2
+──── evidence of the failed case ────
+NAME         STATUS   ROLES                  AGE     VERSION         INTERNAL-IP     EXTERNAL-IP   OS-IMAGE            KERNEL-VERSION      CONTAINER-RUNTIME
+rd-agent-1   Ready    <none>                 8m37s   v1.32.10+k3s1   172.29.139.11   <none>        K3s v1.32.10+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+rd-agent-2   Ready    <none>                 8m37s   v1.32.10+k3s1   172.29.139.12   <none>        K3s v1.32.10+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+rd-server    Ready    control-plane,master   8m43s   v1.32.10+k3s1   172.29.139.10   <none>        K3s v1.32.10+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+NAMESPACE        NAME                         READY   STATUS                  RESTARTS   AGE     IP          NODE         NOMINATED NODE   READINESS GATES
+kube-system      coredns-6d668d687-6vvbf      1/1     Running                 0          8m38s   10.42.0.2   rd-server    <none>           <none>
+registry-drain   bystander-6b9dd8ddc6-5wk9f   0/1     Init:ImagePullBackOff   0          8m13s   10.42.3.4   rd-agent-2   <none>           <none>
+registry-drain   bystander-6b9dd8ddc6-tbn6w   0/1     Init:ImagePullBackOff   0          8m13s   10.42.3.3   rd-agent-2   <none>           <none>
+registry-drain   registry-c8bd4c56b-q9mz2     0/1     ImagePullBackOff        0          8m13s   10.42.3.2   rd-agent-2   <none>           <none>
+default          8m27s       Normal    NodeNotSchedulable               node/rd-agent-2                   Node rd-agent-2 status is now: NodeNotSchedulable
+registry-drain   8m13s       Normal    Killing                          pod/bystander-6b9dd8ddc6-5jr7t    Stopping container sleep
+registry-drain   8m13s       Normal    SuccessfulCreate                 replicaset/registry-c8bd4c56b     Created pod: registry-c8bd4c56b-q9mz2
+registry-drain   8m13s       Normal    SuccessfulCreate                 replicaset/bystander-6b9dd8ddc6   Created pod: bystander-6b9dd8ddc6-5wk9f
+registry-drain   8m13s       Normal    SuccessfulCreate                 replicaset/bystander-6b9dd8ddc6   Created pod: bystander-6b9dd8ddc6-tbn6w
+registry-drain   8m13s       Normal    Killing                          pod/bystander-6b9dd8ddc6-7kznt    Stopping container sleep
+registry-drain   8m13s       Normal    Killing                          pod/registry-c8bd4c56b-hswrb      Stopping container registry
+default          8m6s        Normal    NodeSchedulable                  node/rd-agent-2                   Node rd-agent-2 status is now: NodeSchedulable
+default          7m23s       Normal    NodeNotReady                     node/rd-agent-1                   Node rd-agent-1 status is now: NodeNotReady
+default          7m7s        Normal    CertificateExpirationOK          node/rd-agent-1                   Node and Certificate Authority certificates managed by k3s are OK
+default          7m5s        Normal    NodeAllocatableEnforced          node/rd-agent-1                   Updated Node Allocatable limit across pods
+default          7m5s        Normal    NodeReady                        node/rd-agent-1                   Node rd-agent-1 status is now: NodeReady
+default          7m5s        Warning   InvalidDiskCapacity              node/rd-agent-1                   invalid capacity 0 on image filesystem
+default          7m5s        Normal    Starting                         node/rd-agent-1                   Starting kubelet.
+default          7m5s        Normal    NodeHasSufficientPID             node/rd-agent-1                   Node rd-agent-1 status is now: NodeHasSufficientPID
+default          7m5s        Normal    NodeHasNoDiskPressure            node/rd-agent-1                   Node rd-agent-1 status is now: NodeHasNoDiskPressure
+default          7m5s        Normal    NodeNotSchedulable               node/rd-agent-1                   Node rd-agent-1 status is now: NodeNotSchedulable
+default          7m5s        Normal    NodeHasSufficientMemory          node/rd-agent-1                   Node rd-agent-1 status is now: NodeHasSufficientMemory
+default          6m55s       Normal    NodeSchedulable                  node/rd-agent-1                   Node rd-agent-1 status is now: NodeSchedulable
+registry-drain   5m7s        Normal    Pulling                          pod/registry-c8bd4c56b-q9mz2      Pulling image "docker.io/library/registry:2.8.3"
+registry-drain   5m7s        Warning   Failed                           pod/registry-c8bd4c56b-q9mz2      Error: ErrImagePull
+registry-drain   5m7s        Warning   Failed                           pod/registry-c8bd4c56b-q9mz2      Failed to pull image "docker.io/library/registry:2.8.3": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/registry:2.8.3": failed to resolve reference "docker.io/library/registry:2.8.3": docker.io/library/registry:2.8.3: not found
+registry-drain   5m6s        Warning   Failed                           pod/bystander-6b9dd8ddc6-tbn6w    Failed to pull image "docker.io/library/busybox:1.36.1": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/busybox:1.36.1": failed to resolve reference "docker.io/library/busybox:1.36.1": docker.io/library/busybox:1.36.1: not found
+registry-drain   5m6s        Warning   Failed                           pod/bystander-6b9dd8ddc6-tbn6w    Error: ErrImagePull
+registry-drain   5m6s        Normal    Pulling                          pod/bystander-6b9dd8ddc6-tbn6w    Pulling image "docker.io/library/busybox:1.36.1"
+registry-drain   5m5s        Warning   Failed                           pod/bystander-6b9dd8ddc6-5wk9f    Error: ErrImagePull
+registry-drain   5m5s        Normal    Pulling                          pod/bystander-6b9dd8ddc6-5wk9f    Pulling image "docker.io/library/busybox:1.36.1"
+registry-drain   5m5s        Warning   Failed                           pod/bystander-6b9dd8ddc6-5wk9f    Failed to pull image "docker.io/library/busybox:1.36.1": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/busybox:1.36.1": failed to resolve reference "docker.io/library/busybox:1.36.1": docker.io/library/busybox:1.36.1: not found
+default          3m43s       Warning   FreeDiskSpaceFailed              node/rd-server                    Failed to garbage collect required amount of images. Attempted to free 6788959436 bytes, but only found 0 bytes eligible to free.
+default          3m43s       Warning   ImageGCFailed                    node/rd-server                    Failed to garbage collect required amount of images. Attempted to free 6788959436 bytes, but only found 0 bytes eligible to free.
+default          3m37s       Warning   ImageGCFailed                    node/rd-agent-2                   Failed to garbage collect required amount of images. Attempted to free 6788963532 bytes, but only found 0 bytes eligible to free.
+default          3m37s       Warning   FreeDiskSpaceFailed              node/rd-agent-2                   Failed to garbage collect required amount of images. Attempted to free 6788963532 bytes, but only found 0 bytes eligible to free.
+registry-drain   3m11s       Warning   Failed                           pod/registry-c8bd4c56b-q9mz2      Error: ImagePullBackOff
+registry-drain   3m11s       Warning   Failed                           pod/bystander-6b9dd8ddc6-tbn6w    Error: ImagePullBackOff
+registry-drain   3m8s        Warning   Failed                           pod/bystander-6b9dd8ddc6-5wk9f    Error: ImagePullBackOff
+registry-drain   2m58s       Normal    BackOff                          pod/bystander-6b9dd8ddc6-tbn6w    Back-off pulling image "docker.io/library/busybox:1.36.1"
+registry-drain   2m57s       Normal    BackOff                          pod/bystander-6b9dd8ddc6-5wk9f    Back-off pulling image "docker.io/library/busybox:1.36.1"
+registry-drain   2m41s       Normal    BackOff                          pod/registry-c8bd4c56b-q9mz2      Back-off pulling image "docker.io/library/registry:2.8.3"
+default          2m5s        Warning   FreeDiskSpaceFailed              node/rd-agent-1                   Failed to garbage collect required amount of images. Attempted to free 6797491404 bytes, but only found 0 bytes eligible to free.
+default          2m5s        Warning   ImageGCFailed                    node/rd-agent-1                   Failed to garbage collect required amount of images. Attempted to free 6797491404 bytes, but only found 0 bytes eligible to free.
+── rd-server: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T11:04:40Z" level=info msg="Imported docker.io/rancher/mirrored-pause:3.6"
+time="2026-11-25T11:04:40Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.10+k3s1.tar in 398.746348ms"
+time="2026-11-25T11:04:40Z" level=info msg="Running kubelet --cloud-provider=external --config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d --containerd=/run/k3s/containerd/containerd.sock --eviction-hard=imagefs.available<1%,nodefs.available<1% --hostname-override=rd-server --image-gc-high-thr
+time="2026-11-25T11:04:40Z" level=info msg="running state update" logger=spegel
+I1125 11:04:43.475273      60 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-server","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tru
+E1125 11:04:43.482625      60 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="invalid capacity 0 on image filesystem"
+E1125 11:04:43.520919      60 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 11:04:44.045823      60 controllermanager.go:765] "Started controller" controller="endpointslice-mirroring-controller"
+I1125 11:04:44.045880      60 endpointslicemirroring_controller.go:227] "Starting EndpointSliceMirroring controller"
+I1125 11:04:44.045915      60 shared_informer.go:313] Waiting for caches to sync for endpoint_slice_mirroring
+I1125 11:04:48.146295      60 shared_informer.go:320] Caches are synced for endpoint_slice_mirroring
+I1125 11:04:49.161711      60 kube.go:704] List of node(rd-server) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.10", "k3s.io/hostname":"rd-server", "k3s.io/internal-ip":"172.29.139.10", "k3s.io/node-args":"[\"server\",\"--node-ip\",\"172.29.139.10\",\"--disable\"
+I1125 11:04:50.622105      60 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="kube-system/coredns-6d668d687-6vvbf" podStartSLOduration=2.6220928 podStartE2EDuration="2.6220928s" podCreationTimestamp="2026-11-25 11:04:48 +0000 UTC" firstStartedPulling="0001-01-01 00:00:00 +00
+I1125 11:09:43.486303      60 image_gc_manager.go:383] "Disk usage on image filesystem is over the high threshold, trying to free bytes down to the low threshold" usage=77 highThreshold=70 amountToFree=6788959436 lowThreshold=60
+E1125 11:09:43.486330      60 kubelet.go:1551] "Image garbage collection failed multiple times in a row" err="Failed to garbage collect required amount of images. Attempted to free 6788959436 bytes, but only found 0 bytes eligible to free."
+── rd-agent-1: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T11:06:17Z" level=error msg="could not get bootstrap addresses" error="client not ready" logger=spegel/p2p
+time="2026-11-25T11:06:20Z" level=info msg="Importing images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.10+k3s1.tar"
+I1125 11:06:20.751206      26 kube.go:704] List of node(rd-agent-1) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.11", "flannel.alpha.coreos.com/backend-data":"{\"VNI\":1,\"VtepMAC\":\"ae:92:54:c8:f7:43\"}", "flannel.alpha.coreos.com/backend-type":"vxlan", "flanne
+time="2026-11-25T11:06:21Z" level=info msg="Imported docker.io/rancher/mirrored-coredns-coredns:1.13.1"
+time="2026-11-25T11:06:21Z" level=info msg="Imported docker.io/rancher/mirrored-pause:3.6"
+time="2026-11-25T11:06:21Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.10+k3s1.tar in 320.413041ms"
+time="2026-11-25T11:06:21Z" level=info msg="Importing images from /var/lib/rancher/k3s/agent/images/test-images.tar"
+time="2026-11-25T11:06:21Z" level=info msg="running state update" logger=spegel
+time="2026-11-25T11:06:21Z" level=info msg="Running kubelet --cloud-provider=external --config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d --containerd=/run/k3s/containerd/containerd.sock --eviction-hard=imagefs.available<1%,nodefs.available<1% --hostname-override=rd-agent-1 --image-gc-high-th
+I1125 11:06:21.260405      26 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-agent-1","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tr
+E1125 11:06:21.265679      26 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="invalid capacity 0 on image filesystem"
+E1125 11:06:21.310141      26 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+time="2026-11-25T11:06:21Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/test-images.tar in 280.663211ms"
+I1125 11:11:21.267488      26 image_gc_manager.go:383] "Disk usage on image filesystem is over the high threshold, trying to free bytes down to the low threshold" usage=77 highThreshold=70 amountToFree=6797491404 lowThreshold=60
+E1125 11:11:21.267538      26 kubelet.go:1551] "Image garbage collection failed multiple times in a row" err="Failed to garbage collect required amount of images. Attempted to free 6797491404 bytes, but only found 0 bytes eligible to free."
+── rd-agent-2: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+E1125 11:12:30.302977      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:12:32.302609      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/registry:2.8.3\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack imag
+E1125 11:12:34.302851      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:12:43.302679      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:12:43.302692      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/registry:2.8.3\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack imag
+E1125 11:12:45.303035      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:12:54.302958      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:12:57.302772      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/registry:2.8.3\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack imag
+E1125 11:12:58.302488      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:13:05.302533      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:13:09.302721      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/registry:2.8.3\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack imag
+E1125 11:13:12.302231      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:13:16.302807      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+E1125 11:13:24.302429      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"registry\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/registry:2.8.3\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack imag
+E1125 11:13:26.302687      42 pod_workers.go:1301] "Error syncing pod, skipping" err="failed to \"StartContainer\" for \"wait\" with ImagePullBackOff: \"Back-off pulling image \\\"docker.io/library/busybox:1.36.1\\\": ErrImagePull: rpc error: code = NotFound desc = failed to pull and unpack image \\
+== exit 1 after 550 s; k3s image rancher/k3s@sha256:0ccc2aec930ef9cecae69e097260159de27b3d2264b25ea41c9d6c9dee628965

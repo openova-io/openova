@@ -1,0 +1,126 @@
+== 2026-11-25T10:58:22Z harness a3d54858a7 case silent-peer k3s v1.32.13+k3s1
+== image list sha256 8f462e1974b8166be0dd81a1210b545082cfa7b45f8e45e8372f24d71e61ed59
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+== harness file scripts/check-registry-drain-datapackets.sh
+[registry-drain] k3s v1.32.13+k3s1 (the kit's: v1.32.13+k3s1); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+curl: (7) Failed to connect to 127.0.0.1 port 5139 after 0 ms: Connection refused
+[registry-drain] the outside is cut: a pull of docker.io/library/alpine:3.20.3 fails (exit 1: ctr: failed to resolve image: failed to do request: Head "https://registry-1.docker.io/v2/library/alpine/manifests/3.20.3": dial tcp 184.197.245.234:443: i/o ti)
+[registry-drain] rd-agent-1 holds registry.test/probe/drain@sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036, taken from the registry
+[registry-drain] witness: with no copy of the registry, rd-agent-2 took the probe from rd-agent-1 through the nodes' mirror
+[registry-drain] before the drop, rd-agent-1's registry port 172.29.139.11:6443 completes a TLS handshake in 0.003450 s (curl exit 0)
+[registry-drain] rd-agent-1's registry port sends nothing after its SYN-ACK: it accepts a connection in 0.000128 s and completes no TLS handshake within 10 s
+FAIL silent-peer: the pull did not finish within 60 s (the limit is 60 s) (rd-agent-2 through the silent rd-agent-1: 0 data packets to it, 70 packets withheld; the registry answered 4 requests of the probe's manifest)
+──── evidence of the failed case ────
+NAME         STATUS                     ROLES                  AGE     VERSION         INTERNAL-IP     EXTERNAL-IP   OS-IMAGE            KERNEL-VERSION      CONTAINER-RUNTIME
+rd-agent-1   Ready,SchedulingDisabled   <none>                 2m13s   v1.32.13+k3s1   172.29.139.11   <none>        K3s v1.32.13+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+rd-agent-2   Ready                      <none>                 2m13s   v1.32.13+k3s1   172.29.139.12   <none>        K3s v1.32.13+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+rd-server    Ready                      control-plane,master   2m18s   v1.32.13+k3s1   172.29.139.10   <none>        K3s v1.32.13+k3s1   5.15.0-76-generic   containerd://2.1.5-k3s1.32
+NAMESPACE        NAME                       READY   STATUS    RESTARTS   AGE     IP          NODE         NOMINATED NODE   READINESS GATES
+kube-system      coredns-9fc4f469d-fn8k9    1/1     Running   0          2m13s   10.42.2.2   rd-agent-2   <none>           <none>
+registry-drain   registry-c8bd4c56b-bx9v7   1/1     Running   0          88s     10.42.2.4   rd-agent-2   <none>           <none>
+default          2m13s       Normal    CIDRAssignmentFailed             node/rd-agent-2                 Node rd-agent-2 status is now: CIDRAssignmentFailed
+default          2m13s       Normal    NodeAllocatableEnforced          node/rd-agent-2                 Updated Node Allocatable limit across pods
+default          2m13s       Normal    NodeHasSufficientPID             node/rd-agent-2                 Node rd-agent-2 status is now: NodeHasSufficientPID
+default          2m13s       Normal    NodeHasSufficientMemory          node/rd-agent-2                 Node rd-agent-2 status is now: NodeHasSufficientMemory
+default          2m13s       Warning   InvalidDiskCapacity              node/rd-agent-2                 invalid capacity 0 on image filesystem
+default          2m13s       Normal    Starting                         node/rd-agent-2                 Starting kubelet.
+default          2m13s       Normal    Starting                         node/rd-agent-1                 Starting kubelet.
+default          2m13s       Warning   InvalidDiskCapacity              node/rd-agent-1                 invalid capacity 0 on image filesystem
+default          2m13s       Normal    Synced                           node/rd-agent-1                 Node synced successfully
+default          2m13s       Normal    Synced                           node/rd-server                  Node synced successfully
+default          2m13s       Normal    NodeReady                        node/rd-agent-1                 Node rd-agent-1 status is now: NodeReady
+kube-system      2m13s       Normal    DeletingManifest                 addon/traefik                   Deleting manifest at "/var/lib/rancher/k3s/server/manifests/traefik.yaml"
+default          2m13s       Normal    NodeHasSufficientPID             node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasSufficientPID
+kube-system      2m13s       Normal    AppliedManifest                  addon/runtimes                  Applied manifest at "/var/lib/rancher/k3s/server/manifests/runtimes.yaml"
+kube-system      2m13s       Normal    ApplyingManifest                 addon/runtimes                  Applying manifest at "/var/lib/rancher/k3s/server/manifests/runtimes.yaml"
+kube-system      2m13s       Normal    AppliedManifest                  addon/rolebindings              Applied manifest at "/var/lib/rancher/k3s/server/manifests/rolebindings.yaml"
+kube-system      2m13s       Normal    SuccessfulCreate                 replicaset/coredns-9fc4f469d    Created pod: coredns-9fc4f469d-fn8k9
+default          2m13s       Normal    NodeHasNoDiskPressure            node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasNoDiskPressure
+default          2m13s       Normal    NodeHasSufficientMemory          node/rd-agent-1                 Node rd-agent-1 status is now: NodeHasSufficientMemory
+kube-system      2m13s       Normal    ScalingReplicaSet                deployment/coredns              Scaled up replica set coredns-9fc4f469d from 0 to 1
+kube-system      2m13s       Normal    DeletingManifest                 addon/local-storage             Deleting manifest at "/var/lib/rancher/k3s/server/manifests/local-storage.yaml"
+kube-system      2m13s       Normal    ApplyingManifest                 addon/rolebindings              Applying manifest at "/var/lib/rancher/k3s/server/manifests/rolebindings.yaml"
+kube-system      2m12s       Normal    Pulled                           pod/coredns-9fc4f469d-fn8k9     Container image "rancher/mirrored-coredns-coredns:1.14.1" already present on machine
+kube-system      2m11s       Normal    Started                          pod/coredns-9fc4f469d-fn8k9     Started container coredns
+kube-system      2m11s       Normal    Created                          pod/coredns-9fc4f469d-fn8k9     Created container: coredns
+default          2m9s        Normal    RegisteredNode                   node/rd-agent-1                 Node rd-agent-1 event: Registered Node rd-agent-1 in Controller
+default          2m9s        Normal    RegisteredNode                   node/rd-agent-2                 Node rd-agent-2 event: Registered Node rd-agent-2 in Controller
+registry-drain   109s        Normal    SuccessfulCreate                 replicaset/registry-c8bd4c56b   Created pod: registry-c8bd4c56b-cvzrd
+registry-drain   108s        Normal    Created                          pod/registry-c8bd4c56b-cvzrd    Created container: registry
+registry-drain   108s        Normal    Pulled                           pod/registry-c8bd4c56b-cvzrd    Container image "docker.io/library/registry:2.8.3" already present on machine
+registry-drain   108s        Normal    Started                          pod/registry-c8bd4c56b-cvzrd    Started container registry
+default          103s        Normal    NodeNotSchedulable               node/rd-agent-1                 Node rd-agent-1 status is now: NodeNotSchedulable
+registry-drain   92s         Normal    Killing                          pod/registry-c8bd4c56b-cvzrd    Stopping container registry
+registry-drain   92s         Normal    SuccessfulDelete                 replicaset/registry-c8bd4c56b   Deleted pod: registry-c8bd4c56b-cvzrd
+registry-drain   92s         Normal    ScalingReplicaSet                deployment/registry             Scaled down replica set registry-c8bd4c56b from 1 to 0
+registry-drain   88s         Normal    Started                          pod/registry-c8bd4c56b-bx9v7    Started container registry
+registry-drain   88s         Normal    Created                          pod/registry-c8bd4c56b-bx9v7    Created container: registry
+registry-drain   88s         Normal    Pulled                           pod/registry-c8bd4c56b-bx9v7    Container image "docker.io/library/registry:2.8.3" already present on machine
+registry-drain   88s         Normal    SuccessfulCreate                 replicaset/registry-c8bd4c56b   Created pod: registry-c8bd4c56b-bx9v7
+registry-drain   88s         Normal    ScalingReplicaSet                deployment/registry             Scaled up replica set registry-c8bd4c56b from 0 to 1
+── rd-server: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T10:58:35Z" level=info msg="Tagged docker.io/rancher/mirrored-coredns-coredns@sha256:82b57287b29beb757c740dbbe68f2d4723da94715b563fffad5c13438b71b14a"
+time="2026-11-25T10:58:35Z" level=info msg="Imported docker.io/rancher/mirrored-pause:3.6"
+time="2026-11-25T10:58:35Z" level=info msg="Tagged docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893"
+time="2026-11-25T10:58:35Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.13+k3s1.tar in 450.425848ms"
+time="2026-11-25T10:58:35Z" level=info msg="Running kubelet --cloud-provider=external --config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d --containerd=/run/k3s/containerd/containerd.sock --eviction-hard=imagefs.available<1%,nodefs.available<1% --hostname-override=rd-server --image-gc-high-thr
+time="2026-11-25T10:58:35Z" level=info msg="waiting for store events" logger=spegel
+I1125 10:58:38.952606      87 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-server","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tru
+E1125 10:58:38.971336      87 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="invalid capacity 0 on image filesystem"
+E1125 10:58:39.013915      87 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 10:58:41.413164      87 controllermanager.go:765] "Started controller" controller="endpointslice-mirroring-controller"
+I1125 10:58:41.413238      87 endpointslicemirroring_controller.go:227] "Starting EndpointSliceMirroring controller"
+I1125 10:58:41.413247      87 shared_informer.go:313] Waiting for caches to sync for endpoint_slice_mirroring
+I1125 10:58:43.714978      87 shared_informer.go:320] Caches are synced for endpoint_slice_mirroring
+I1125 10:58:46.157366      87 kube.go:704] List of node(rd-server) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.10", "k3s.io/hostname":"rd-server", "k3s.io/internal-ip":"172.29.139.10", "k3s.io/node-args":"[\"server\",\"--node-ip\",\"172.29.139.10\",\"--disable\"
+time="2026-11-25T10:58:47Z" level=info msg="bootstrap completed connectivity is reached" duration=18.553872552s logger=spegel/p2p
+── rd-agent-1: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T10:58:43Z" level=info msg="Imported docker.io/rancher/mirrored-coredns-coredns:1.14.1"
+time="2026-11-25T10:58:43Z" level=info msg="Tagged docker.io/rancher/mirrored-coredns-coredns@sha256:82b57287b29beb757c740dbbe68f2d4723da94715b563fffad5c13438b71b14a"
+time="2026-11-25T10:58:43Z" level=info msg="Imported docker.io/rancher/mirrored-pause:3.6"
+time="2026-11-25T10:58:43Z" level=info msg="Tagged docker.io/rancher/mirrored-pause@sha256:74c4244427b7312c5b901fe0f67cbc53683d06f4f24c6faee65d4182bf0fa893"
+time="2026-11-25T10:58:43Z" level=info msg="Imported images from /var/lib/rancher/k3s/agent/images/k3s-images-v1.32.13+k3s1.tar in 389.958431ms"
+time="2026-11-25T10:58:44Z" level=info msg="Running kubelet --cloud-provider=external --config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d --containerd=/run/k3s/containerd/containerd.sock --eviction-hard=imagefs.available<1%,nodefs.available<1% --hostname-override=rd-agent-1 --image-gc-high-th
+I1125 10:58:44.034878      42 container_manager_linux.go:273] "Creating Container Manager object based on Node Config" nodeConfig={"NodeName":"rd-agent-1","RuntimeCgroupsName":"/k3s","SystemCgroupsName":"","KubeletCgroupsName":"/k3s","KubeletOOMScoreAdj":-999,"ContainerRuntime":"","CgroupsPerQOS":tr
+time="2026-11-25T10:58:44Z" level=info msg="waiting for store events" logger=spegel
+E1125 10:58:44.045544      42 kubelet.go:1555] "Image garbage collection failed once. Stats initialization may not have completed yet" err="invalid capacity 0 on image filesystem"
+E1125 10:58:44.096042      42 eviction_manager.go:267] "eviction manager: failed to check if we have separate container filesystem. Ignoring." err="no imagefs label for configured runtime"
+I1125 10:58:46.252396      42 kube.go:704] List of node(rd-agent-1) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.11", "k3s.io/hostname":"rd-agent-1", "k3s.io/internal-ip":"172.29.139.11", "k3s.io/node-args":"[\"agent\",\"--node-ip\",\"172.29.139.11\",\"--node-lab
+time="2026-11-25T10:59:24Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036" type=CREATE
+time="2026-11-25T10:59:24Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0da0c47fcb6c680a31b8325a44da635e2cc4d18dbf35ad2075f325eb56cbf2c6" type=CREATE
+time="2026-11-25T10:59:24Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0aa9d1b73100dba22851ee6f51e5d2e57c3bb79c5aa59b732078cc34c4708982" type=CREATE
+time="2026-11-25T10:59:24Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain:1" type=CREATE
+── rd-agent-2: the host tables of docker.io and registry.test; its last mirror and pull lines
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/docker.io/hosts.toml:[host."https://registry.test/v2/proxy-dockerhub"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://127.0.0.1:6443/v2"]
+/var/lib/rancher/k3s/agent/etc/containerd/certs.d/registry.test/hosts.toml:[host."https://registry.test"]
+time="2026-11-25T10:58:44Z" level=info msg="OCI event" logger=spegel ref="docker.io/library/registry:2.8.3" type=CREATE
+time="2026-11-25T10:58:44Z" level=info msg="OCI event" logger=spegel ref="docker.io/library/busybox:1.36.1" type=CREATE
+I1125 10:58:45.562471      43 kube.go:704] List of node(rd-agent-2) annotations: map[string]string{"alpha.kubernetes.io/provided-node-ip":"172.29.139.12", "k3s.io/hostname":"rd-agent-2", "k3s.io/internal-ip":"172.29.139.12", "k3s.io/node-args":"[\"agent\",\"--node-ip\",\"172.29.139.12\",\"--node-lab
+I1125 10:58:47.379524      43 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="kube-system/coredns-9fc4f469d-fn8k9" podStartSLOduration=3.379510289 podStartE2EDuration="3.379510289s" podCreationTimestamp="2026-11-25 10:58:44 +0000 UTC" firstStartedPulling="0001-01-01 00:00:00
+I1125 10:59:09.413266      43 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="registry-drain/registry-c8bd4c56b-cvzrd" podStartSLOduration=1.413250257 podStartE2EDuration="1.413250257s" podCreationTimestamp="2026-11-25 10:59:08 +0000 UTC" firstStartedPulling="0001-01-01 00:0
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036" type=CREATE
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0da0c47fcb6c680a31b8325a44da635e2cc4d18dbf35ad2075f325eb56cbf2c6" type=CREATE
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0aa9d1b73100dba22851ee6f51e5d2e57c3bb79c5aa59b732078cc34c4708982" type=CREATE
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036" type=DELETE
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0da0c47fcb6c680a31b8325a44da635e2cc4d18dbf35ad2075f325eb56cbf2c6" type=DELETE
+time="2026-11-25T10:59:28Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:0aa9d1b73100dba22851ee6f51e5d2e57c3bb79c5aa59b732078cc34c4708982" type=DELETE
+I1125 10:59:30.438784      43 pod_startup_latency_tracker.go:104] "Observed pod startup duration" pod="registry-drain/registry-c8bd4c56b-bx9v7" podStartSLOduration=1.438770141 podStartE2EDuration="1.438770141s" podCreationTimestamp="2026-11-25 10:59:29 +0000 UTC" firstStartedPulling="0001-01-01 00:0
+time="2026-11-25T10:59:57Z" level=error msg="request to mirror failed, retrying with next" attempt=1 error="Head \"https://172.29.139.11:6443/v2/probe/drain/manifests/sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036?ns=registry.test\": context deadline exceeded" logger=spegel 
+time="2026-11-25T10:59:59Z" level=error msg="request to mirror failed, retrying with next" attempt=1 error="Get \"https://172.29.139.11:6443/v2/probe/drain/manifests/sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036?ns=registry.test\": context deadline exceeded" logger=spegel m
+time="2026-11-25T10:59:59Z" level=info msg="OCI event" logger=spegel ref="registry.test/probe/drain@sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036" type=CREATE
+── the registry's last requests of the probe
+time="2026-11-25T10:59:57.119196065Z" level=info msg="response completed" go.version=go1.20.8 http.request.host=registry.test http.request.id=7df5d504-e890-40b2-89cd-1a88287d8931 http.request.method=HEAD http.request.remoteaddr="10.42.2.1:45791" http.request.uri="/v2/probe/drain/manifests/sha256:92d
+10.42.2.1 - - [25/Nov/2026:10:59:57 +0000] "HEAD /v2/probe/drain/manifests/sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036 HTTP/1.1" 200 401 "" "containerd/v2.1.5-k3s1.32"
+time="2026-11-25T10:59:59.134186112Z" level=info msg="response completed" go.version=go1.20.8 http.request.host=registry.test http.request.id=90339ef5-2c4a-4de6-a8f5-4862f278f835 http.request.method=GET http.request.remoteaddr="10.42.2.1:57150" http.request.uri="/v2/probe/drain/manifests/sha256:92d0
+10.42.2.1 - - [25/Nov/2026:10:59:59 +0000] "GET /v2/probe/drain/manifests/sha256:92d0af555d5e90835f4d3bd36c597b75d376a93d669c267f9773ce86e1dd9036 HTTP/1.1" 200 401 "" "containerd/v2.1.5-k3s1.32"
+== exit 1 after 157 s; k3s image rancher/k3s@sha256:7534b63e02277917f77c584ed5532b31562c760d6bb8fe88059002e9bdeee033

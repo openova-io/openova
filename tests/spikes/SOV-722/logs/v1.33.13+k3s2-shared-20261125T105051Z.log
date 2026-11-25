@@ -1,0 +1,13 @@
+== 2026-11-25T10:50:52Z harness a3d54858a7 case shared k3s v1.33.13+k3s2
+== image list sha256 bb9b2afee19e08135cc81b5cabb6a2e7b14e2354091178a17a9cb22ca63e0711
+== yq (https://github.com/mikefarah/yq/) version v4.44.3; docker 29.1.3; kernel 5.15.0-76-generic
+[registry-drain] k3s v1.33.13+k3s2 (the kit's: v1.33.13+k3s2); server pull flags: --embedded-registry --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h; agent pull flags: --disable-default-registry-endpoint --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h
+curl: (7) Failed to connect to 127.0.0.1 port 5139 after 0 ms: Connection refused
+[registry-drain] the outside is cut: a pull of docker.io/library/alpine:3.20.3 fails (exit 1: ctr: failed to resolve image: failed to do request: Head "https://registry-1.docker.io/v2/library/alpine/manifests/3.20.3": dial tcp 184.72.244.236:443: connect)
+[registry-drain] the registry and two bystanders run on rd-agent-1, the only node that holds their images
+[registry-drain] rd-agent-1 drained in 2 s; the registry's replacement is on rd-agent-2
+[registry-drain] rd-agent-1 is down for 60 s (the reboot)
+[registry-drain] rd-agent-1 is back and uncordoned; judging every 5 s for up to 420 s
+[registry-drain] recovered 0 s after rd-agent-1 came back: the registry runs on rd-agent-2, every Pod is Running and Ready
+PASS shared in 135 s
+== exit 0 after 136 s; k3s image rancher/k3s@sha256:ada5ff2e138120efe877f76d514dedda65b304122112b982eab532732c028c89
