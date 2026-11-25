@@ -313,7 +313,9 @@ spec:
       # resource-requests demand (the upstream defaults pull from quay.io and
       # declare none). The provider writes one Secret of its own,
       # openbao/openbao-csi-provider-hmac-key (register entry
-      # openbao-csi-provider-hmac-key).
+      # openbao-csi-provider-hmac-key). The chart keeps the upstream agent
+      # sidecar off (bp-openbao values, openbao.csi.agent): it declares no
+      # probes, and probes-present refuses the DaemonSet with it.
       csi:
         enabled: true
         image:
@@ -323,14 +325,6 @@ spec:
         resources:
           requests: { cpu: 20m, memory: 64Mi }
           limits: { cpu: 200m, memory: 128Mi }
-        agent:
-          image:
-            registry: harbor.openova.io
-            repository: proxy-quay/openbao/openbao
-            tag: "2.7.2"
-          resources:
-            requests: { cpu: 20m, memory: 64Mi }
-            limits: { cpu: 200m, memory: 256Mi }
     # ADR-0015 (Refs #7067) — peer-region trust: every region keeps its own
     # OpenBao; a multi-region Application's primary writes its shared material
     # into each peer's OpenBao over ClusterMesh (bp-openbao values §peerTrust).
