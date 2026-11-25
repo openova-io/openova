@@ -53,9 +53,10 @@ import (
 
 func policyModeListKinds() map[schema.GroupVersionResource]string {
 	return map[schema.GroupVersionResource]string{
-		EnvironmentPolicyGVR: "EnvironmentPolicyList",
-		EnvironmentGVR():     "EnvironmentList",
-		ClusterPolicyGVR():   "ClusterPolicyList",
+		EnvironmentPolicyGVR:  "EnvironmentPolicyList",
+		EnvironmentGVR():      "EnvironmentList",
+		ClusterPolicyGVR():    "ClusterPolicyList",
+		ValidatingPolicyGVR(): "ValidatingPolicyList",
 	}
 }
 
@@ -335,6 +336,31 @@ func TestHandleEnvironmentPolicyMode_RejectsUnknownPolicy(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "made-up-policy-name") {
 		t.Fatalf("expected unknown name in detail; got %s", rec.Body.String())
+	}
+}
+
+// TestHandleEnvironmentPolicyMode_AcceptsValidatingPolicy — a policy the
+// chart rewrote in place to a ValidatingPolicy (CMP-062) is a known policy:
+// its mode is written, and a name of neither kind is still refused.
+func TestHandleEnvironmentPolicyMode_AcceptsValidatingPolicy(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	vp := newFakeClusterPolicy("resource-requests")
+	vp.SetAPIVersion("policies.kyverno.io/v1")
+	vp.SetKind("ValidatingPolicy")
+	factory, _ := fakePolicyModeDynamicFactory(stdPolicyModeSeed("prod", vp)...)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-pol-validating")
+
+	rec := callPolicyMode(t, h, "/api/v1/sovereigns/"+dep.ID+"/environments/prod/policy",
+		policyModeRequest{Modes: map[string]string{"resource-requests": policyModeEnforcing}}, nil)
+	var resp policyModeResponse
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &resp) != nil || resp.Modes["resource-requests"] != policyModeEnforcing {
+		t.Fatalf("a ValidatingPolicy name: want 200 with modes[resource-requests]=%s, got %d %s", policyModeEnforcing, rec.Code, rec.Body.String())
+	}
+	rec = callPolicyMode(t, h, "/api/v1/sovereigns/"+dep.ID+"/environments/prod/policy",
+		policyModeRequest{Modes: map[string]string{"made-up-policy-name": policyModeEnforcing}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "resource-requests") {
+		t.Fatalf("an unknown name: want 400 listing resource-requests among the valid names, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 

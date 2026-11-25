@@ -1,0 +1,46 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: topology-spread
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Multi-replica workloads must spread across hostname or zone
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Deployments / StatefulSets with replicas >= 2 must declare
+      topologySpreadConstraints with topologyKey of kubernetes.io/hostname
+      or topology.kubernetes.io/zone, so a single host or AZ failure
+      can't take down every replica.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    # Not judged below 2 replicas; spec.replicas not declared counts as 0.
+    - name: replicas-at-least-two
+      expression: "object.spec.?replicas.orValue(0) >= 2"
+  validations:
+    # The field must be declared and every constraint must name hostname or
+    # zone (an empty list passes, as it did under the legacy pattern).
+    - expression: >-
+        has(object.spec.template.spec.topologySpreadConstraints) &&
+        object.spec.template.spec.topologySpreadConstraints.all(c,
+        c.?topologyKey.orValue('') in ['kubernetes.io/hostname', 'topology.kubernetes.io/zone'])
+      message: >-
+        This multi-replica workload is missing topologySpreadConstraints. Add
+        at least one constraint with topologyKey kubernetes.io/hostname or
+        topology.kubernetes.io/zone.

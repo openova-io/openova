@@ -1,0 +1,71 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: resource-requests
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    # Autogen is OFF and each workload PATH-SHAPE is read at its own path
+    # (#3374, 2026-06-14). ROOT CAUSE caught live on hw133: the prior SINGLE
+    # rule wrote the container path as `spec.template.spec.containers` (the
+    # Pod-controller path) and relied on Kyverno autogen to rewrite it to
+    # `spec.jobTemplate.spec.template.spec.containers` for CronJob. Autogen's
+    # CronJob expansion did NOT fire for a freshly-created helm hook CronJob:
+    # the `newapi-bp-newapi-admin-promote` CronJob (resources.requests PRESENT
+    # on its single container) was DENIED at path `/spec/template/` — the
+    # Pod-controller rule applied to a CronJob, which has no `spec.template`,
+    # so the pattern can never match → deny-everything for fresh CronJobs.
+    # (Live CronJobs created at bootstrap were merely grandfathered; kyverno
+    # validates on CREATE/UPDATE only.) This blocked bp-newapi's whole upgrade
+    # (#3455 / #3374). Same autogen-doesn't-expand-anyPattern/CronJob class as
+    # baseline/11-harbor-proxy.yaml (#2611), which already pins autogen off and
+    # writes one rule per shape. Fix mirrors it: Pod + template-bearing
+    # workload + CronJob, each at its real container path (three rules until
+    # CMP-062; since then the variable podSpec of the one validation below).
+    pod-policies.kyverno.io/autogen-controllers: none
+    policies.kyverno.io/title: Containers must declare CPU and memory requests
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Every container must declare resources.requests.cpu AND
+      resources.requests.memory. BestEffort Pods evict first under
+      pressure and can't be reasoned about for capacity planning or
+      per-Org cost rollups.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  variables:
+    # The Pod spec at the real path of each kind.
+    - name: podSpec
+      expression: >-
+        object.kind == 'Pod' ? object.spec :
+        object.kind == 'CronJob' ? object.spec.jobTemplate.spec.template.spec :
+        object.spec.template.spec
+  validations:
+    - expression: >-
+        has(variables.podSpec.containers) && variables.podSpec.containers.all(c,
+        string(c.?resources.?requests.?cpu.orValue('')) != '' &&
+        string(c.?resources.?requests.?memory.orValue('')) != '')
+      message: "Every container must declare resources.requests.cpu and resources.requests.memory."

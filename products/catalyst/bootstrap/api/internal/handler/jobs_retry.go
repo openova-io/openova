@@ -19,9 +19,10 @@
 //
 // Each remediation: (1) is owner-checked by the SAME checkOwnership gate the
 // GET endpoints use (404 on cross-tenant); (2) is RBAC-gated to operator tier
-// or higher (403 otherwise); (3) writes a NEW Execution on the same row with
-// the operator's identity in the first LogLine ("[retry] requested by <sub>
-// at <ts>") so attempt N+1 is an auditable record; (4) NEVER shells out.
+// or higher (403 otherwise); (3) is the operation job-retry, audited before
+// and after it runs (clusterwrite.Operation); (4) writes a NEW Execution on
+// the same row with the caller in the first LogLine ("[retry] requested by
+// <sub> at <ts>"); (5) NEVER shells out.
 package handler
 
 import (
@@ -41,6 +42,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
@@ -63,7 +65,7 @@ const reconcileRequestedAtAnnotation = "reconcile.fluxcd.io/requestedAt"
 //	404 — unknown deployment / cross-tenant / unknown job.
 //	409 — the activity is not in a Failed/degraded state (nothing to retry).
 //	502 — the in-cluster client/annotation write failed.
-//	503 — jobs store unavailable.
+//	503 — jobs store unavailable, or audit-unavailable (nothing is re-run).
 func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	st := h.jobsStore()
 	if st == nil {
@@ -98,9 +100,7 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return // 404 already written
 	}
 
-	// RBAC: remediation is an operator action. A viewer/developer session
-	// gets 403 — the canonical operator-or-higher gate. nil claims (CI /
-	// tests building Handler{} directly) pass through.
+	// RBAC: operator tier or higher, 403 otherwise; nil claims (tests) pass.
 	claims := auth.ClaimsFromContext(r.Context())
 	if !jobRetryCallerAuthorized(claims, dep) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
@@ -112,14 +112,9 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 
 	job, _, err := st.GetJob(depID, jobID)
 	if errors.Is(err, jobs.ErrNotFound) {
-		// Cold store (e.g. first hit after a Pod restart) — lazily seed the
-		// per-deployment store from the live cluster, then resolve again.
-		// Seeding ONLY when the leaf is missing is deliberate (#4731): the
-		// re-seed refreshes every leaf's status from the live cluster, and
-		// the retry path must NOT let that flip the status of the very leaf
-		// the operator is retrying (e.g. a Failed leaf whose stale completed
-		// Job object still lingers in-cluster). The /jobs read paths own the
-		// live-status refresh; here we only need the leaf to exist.
+		// Cold store (first hit after a Pod restart): seed it from the live
+		// cluster and resolve again. Only when the leaf is missing (#4731): a
+		// re-seed refreshes every leaf's status and must not flip this one's.
 		h.chrootSeedJobsStoreIfEmpty(r.Context(), dep)
 		job, _, err = st.GetJob(depID, jobID)
 	}
@@ -144,8 +139,7 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the dynamic client against the target cluster (in-cluster on a
-	// Sovereign chroot; the posted-back kubeconfig on the mother).
+	// The target cluster: in-cluster on a Sovereign, the posted-back kubeconfig on the parent.
 	dyn, err := h.sovereignDynamicClient(dep)
 	if err != nil {
 		h.log.Warn("RetryJob: dynamic client unavailable", "depId", depID, "err", err)
@@ -156,9 +150,15 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operator := retrycall.Caller(r)
+	finish, allowed := clusterwrite.Operation(w, r, h.auditBus, clusterwrite.Op{
+		Cluster: depID, Name: "job-retry", Target: job.Kind + " " + job.JobName})
+	if !allowed {
+		return
+	}
+	operator := clusterwrite.Actor(claims, r)
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
+	finish(r.Context(), rerr)
 	if rerr != nil {
 		// #3379: a cutover-step Re-run while the engine holds its single-run flag is a
 		// CONFLICT, as for a concurrent /start: a second engine would race the first.
@@ -190,13 +190,10 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RecordRetryCall(h, dep, "", retrycall.RouteJob, "job "+job.JobName+": "+action, r)
-	// Record attempt N+1 as a NEW Execution on the same row with the
-	// operator's identity in the first LogLine — the audit trail the
-	// Execution-per-attempt model (types.go:259) was built for.
+	// Attempt N+1 is a NEW Execution on the same row, the caller in its first LogLine.
 	execID := ""
 	if exec, e := st.StartExecution(depID, job.JobName, now); e != nil {
-		// The remediation already fired; failing to record the Execution
-		// must not 500 the operator — log + return the action.
+		// The remediation already fired: log, and still answer with the action.
 		h.log.Warn("RetryJob: record execution failed", "depId", depID, "jobId", jobID, "err", e)
 	} else {
 		execID = exec.ID

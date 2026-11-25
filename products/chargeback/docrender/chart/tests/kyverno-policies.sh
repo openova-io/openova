@@ -5,7 +5,7 @@
 # WHY THIS EXISTS
 # ───────────────
 # `helm lint` and `helm template` both pass on a chart that the cluster will
-# refuse. The Sovereign runs bp-kyverno-policies with six ClusterPolicies at
+# refuse. The Sovereign runs bp-kyverno-policies with policies (ClusterPolicy and ValidatingPolicy) at
 # validationFailureAction: Enforce, and a workload that trips one of them is
 # not "audited" — it is DENIED at admission, which is how bp-alloy shipped a
 # DaemonSet that could never start (#3988) and how bp-newapi's upgrade wedged
@@ -82,7 +82,7 @@ fi
 cat > "$work/filter.py" <<'PYEOF'
 """Split a helm render into the documents this gate reasons about.
 
-  mode=policies  keep every ClusterPolicy (the kyverno CLI ignores a file
+  mode=policies  keep every ClusterPolicy and ValidatingPolicy (the CLI ignores a file
                  carrying anything else, and reports "0 policy rule(s)" —
                  a silent no-op this gate must never ship on).
   mode=workload  keep the objects the docrender sub-chart owns, and stamp
@@ -95,7 +95,7 @@ mode, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
 docs = [d for d in yaml.safe_load_all(open(src)) if d]
 
 if mode == "policies":
-    keep = [d for d in docs if d.get("kind") == "ClusterPolicy"]
+    keep = [d for d in docs if d.get("kind") in ("ClusterPolicy", "ValidatingPolicy")]
 else:
     keep = [d for d in docs
             if str(d.get("metadata", {}).get("name", "")).startswith("chargeback-docrender")]
@@ -122,13 +122,13 @@ policy_count="$(python3 "$work/filter.py" policies "$work/policies-all.yaml" "$w
 
 # Vacuity control 1: an empty or truncated policy render makes every
 # assertion below pass trivially.
-[ "$policy_count" -ge 20 ] || die "only $policy_count ClusterPolicies rendered; the baseline has 20+. Refusing to report a pass against a policy set this thin."
+[ "$policy_count" -ge 20 ] || die "only $policy_count policies rendered; the baseline has 20+. Refusing to report a pass against a policy set this thin."
 for enforced in probes-present resource-requests cilium-l7-mtls flux-managed \
                 harbor-proxy-pull image-tag-pinned forbid-nodeport-service; do
   grep -q "name: $enforced" "$work/policies.yaml" \
     || die "the Enforce policy '$enforced' is not in the render — this gate cannot judge a policy set that is missing it."
 done
-echo "[kyverno] $policy_count ClusterPolicies rendered at canonical actions"
+echo "[kyverno] $policy_count policies rendered at canonical actions"
 
 # ── the workload, as the Sovereign installs it ────────────────────────────
 render_workload() { # <output> [extra helm args...]

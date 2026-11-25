@@ -14,10 +14,14 @@ compliance.modes.multiReplica.
 Per docs/INVIOLABLE-PRINCIPLES.md #4 every value here is configurable
 via .Values.compliancePolicies.multiReplica.* — operators override per
 Sovereign overlay.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-062 (the legacy
+ClusterPolicy of the same name before); tests/multi-replica-drainability
+holds its suite.
 */}}
 {{- if .Values.compliancePolicies.multiReplica.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: multi-replica-drainability
   labels:
@@ -34,54 +38,43 @@ metadata:
       voluntary disruptions (node drains, rolling updates) can preserve
       at least one healthy replica.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.multiReplica.action) }}
-  background: true
-  rules:
-    - name: replicas-at-least-two
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.multiReplica.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-          {{- /*
-            #4422 (2026-06-26): per-Org funnel cart stateful DBs (mysql/postgres
-            single-PVC `strategy:Recreate`, redis cache) are LEGITIMATELY
-            single-replica — a 2nd replica sharing one RWO PVC corrupts data, and
-            MySQL primary-replica is not wired (the generator clamps replicas to
-            1). The policy header already names 'explicitly-singleton services
-            (databases ...)' as a valid exception, but the only mechanism was a
-            namespace list, which can't enumerate the unbounded `org-<uuid>` per-Org
-            namespaces. Exclude by the `openova.io/singleton-db: "true"` label the
-            funnel DB generator stamps on the Deployment — exempts singletons in
-            ANY namespace (current or future) while every other single-replica
-            Deployment stays subject to the gate. Mirrors the cnpg.io/cluster
-            label-exempt on the backup-configured policy (#3971). Operators can
-            disable via .Values.compliancePolicies.multiReplica.excludeSingletonDB.
-          */}}
-          {{- if .Values.compliancePolicies.multiReplica.excludeSingletonDB }}
-          - resources:
-              selector:
-                matchLabels:
-                  openova.io/singleton-db: "true"
-          {{- end }}
-      validate:
-        message: >-
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} declares
-          fewer than 2 replicas. Drainability requires spec.replicas >= 2 so
-          voluntary disruptions can keep at least one replica serving traffic.
-          Bump spec.replicas, exempt this workload by adding its namespace to
-          .Values.compliancePolicies.multiReplica.excludeNamespaces, or — for a
-          deliberate single-replica stateful singleton (database/cache) — label
-          it `openova.io/singleton-db: "true"`.
-        pattern:
-          spec:
-            replicas: ">=2"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.multiReplica.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.multiReplica.excludeNamespaces | quote }}
+    {{- /*
+      #4422 (2026-06-26): per-Org funnel cart stateful DBs (mysql/postgres
+      single-PVC `strategy:Recreate`, redis cache) are LEGITIMATELY
+      single-replica — a 2nd replica sharing one RWO PVC corrupts data, and
+      MySQL primary-replica is not wired (the generator clamps replicas to
+      1). The only namespace list cannot enumerate the unbounded `org-<uuid>`
+      per-Org namespaces, so the workload is excluded by the
+      `openova.io/singleton-db: "true"` label the funnel DB generator stamps
+      on the Deployment, in ANY namespace. Mirrors the cnpg.io/cluster
+      label-exempt on the backup-configured policy (#3971). Operators can
+      disable it via .Values.compliancePolicies.multiReplica.excludeSingletonDB.
+    */}}
+    {{- if .Values.compliancePolicies.multiReplica.excludeSingletonDB }}
+    - name: exclude-singleton-db
+      expression: "!(object.metadata.?labels[?'openova.io/singleton-db'].orValue('') == 'true')"
+    {{- end }}
+  validations:
+    - expression: "has(object.spec.replicas) && object.spec.replicas >= 2"
+      message: >-
+        This workload declares fewer than 2 replicas. Drainability requires
+        spec.replicas >= 2 so voluntary disruptions can keep at least one
+        replica serving traffic. Bump spec.replicas, exempt this workload by
+        adding its namespace to
+        .Values.compliancePolicies.multiReplica.excludeNamespaces, or — for a
+        deliberate single-replica stateful singleton (database/cache) — label
+        it `openova.io/singleton-db: "true"`.
 {{- end -}}

@@ -76,6 +76,27 @@
       "owner": "SOV",
       "path": "products/catalyst/bootstrap/api/internal/lifecycle/release_credential.go",
       "reason": "makes the pull Secret of one delivery from the credential of its request and removes a leftover one; a credential never goes to Git, so this stays a direct write"
+    },
+    {
+      "count": 5,
+      "metric": "K",
+      "owner": "CTL",
+      "path": "products/catalyst/bootstrap/api/internal/handler/jobs_retry.go",
+      "reason": "job retry is an operation of contract C9: it asks a reconcile, rolls a Deployment or runs a Job again, and clusterwrite audits it before and after; it changes no desired state"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "CTL",
+      "path": "products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go",
+      "reason": "restart is an operation of contract C9: it stamps restartedAt on the pod template, and clusterwrite audits it before and after; scale, apply and delete stay counted"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "CTL",
+      "path": "products/catalyst/bootstrap/api/internal/handler/reconcilers.go",
+      "reason": "reconcile is an operation of contract C9: it stamps the Flux reconcile annotations, and clusterwrite audits it before and after; suspend and resume are refused"
     }
   ],
   "counts": {
@@ -89,8 +110,7 @@
       "products/catalyst/bootstrap/api/internal/handler/cutover_engine_lease.go": 4,
       "products/catalyst/bootstrap/api/internal/handler/cutover_secondary_kubeconfigs.go": 3,
       "products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go": 3,
-      "products/catalyst/bootstrap/api/internal/handler/jobs_retry.go": 5,
-      "products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go": 6,
+      "products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go": 5,
       "products/catalyst/bootstrap/api/internal/handler/k8s_resource_put_apply.go": 6,
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls_reap.go": 2,
@@ -102,7 +122,6 @@
       "products/catalyst/bootstrap/api/internal/handler/post_handover_policy_enforce.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/post_handover_spine_apps.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/rbac_assign.go": 2,
-      "products/catalyst/bootstrap/api/internal/handler/reconcilers.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/schedules.go": 3,
       "products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/user_access.go": 3,

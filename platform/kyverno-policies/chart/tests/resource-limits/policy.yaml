@@ -1,0 +1,44 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: resource-limits
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Containers should declare CPU and memory limits
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Every container should declare resources.limits.cpu AND
+      resources.limits.memory. Without limits, a single Pod can
+      exhaust a node and starve neighbors.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    # Read at spec.template for every kind. A CronJob has no spec.template, so
+    # it never complies (the legacy pattern read the same path; measured).
+    - expression: >-
+        has(object.spec.template) && has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.all(c,
+        string(c.?resources.?limits.?cpu.orValue('')) != '' &&
+        string(c.?resources.?limits.?memory.orValue('')) != '')
+      message: "Every container must declare resources.limits.cpu and resources.limits.memory."
