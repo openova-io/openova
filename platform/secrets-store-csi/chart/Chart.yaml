@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-secrets-store-csi
+description: |
+  Catalyst Blueprint umbrella chart for the Secrets Store CSI driver
+  (kubernetes-sigs/secrets-store-csi-driver). Depends on the upstream chart
+  as a Helm subchart so `helm dependency build` pulls the upstream payload
+  into this artifact; Catalyst-curated values flow into it under the
+  `secrets-store-csi-driver:` key of values.yaml.
+
+  The driver mounts values from OpenBao into a Pod as memory-backed files,
+  through the OpenBao CSI provider that bp-openbao runs (openbao.csi.enabled
+  in bootstrap-kit slot 08). Secret sync is off: the driver has no right to
+  create a Secret object, so a mounted value never becomes one (gate check
+  SEC-G08).
+type: application
+version: 0.1.0
+appVersion: "v1.6.2"
+keywords: [catalyst, blueprint, secrets-store-csi, csi, openbao, secrets, security]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to the upstream chart 1.6.2 (driver v1.6.2), the release spike SEC-140
+# measured (docs/ledger/plan/spikes/SEC-140.md).
+dependencies:
+  - name: secrets-store-csi-driver
+    version: "1.6.2"
+    repository: "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"

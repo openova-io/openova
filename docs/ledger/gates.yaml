@@ -2176,12 +2176,13 @@ checks:
 - id: SEC-G08
   title: 'Injection negative: the mounted value is in no Secret object'
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Injection negative: the mounted value is in no Secret object and no other service account can read it'
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_inject.go
   delivered_by: SEC-211
 - id: SEC-G09
   title: Internal certificates of both regions chain to one root
