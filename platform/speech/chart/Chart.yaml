@@ -1,0 +1,26 @@
+apiVersion: v2
+name: bp-speech
+description: |
+  Catalyst Blueprint chart for transcription on CPU.
+
+  One speaches server (github.com/speaches-ai/speaches, MIT) serves one
+  Whisper model in CTranslate2 form, by default
+  faster-whisper-large-v3-turbo-ct2 with int8 weights. Route:
+  POST /v1/audio/transcriptions on a ClusterIP Service; the platform's
+  model gateway is the one caller. See README.md.
+type: application
+version: 1.0.0
+appVersion: "0.8.3"
+keywords: [catalyst, blueprint, transcription, speech, whisper, ai]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# The chart's objects are all in templates/. The `sigstore/common` library
+# chart below is declared only for the hollow-chart gate of
+# blueprint-release.yaml (issue #181: every chart declares at least one
+# dependency); it renders nothing.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

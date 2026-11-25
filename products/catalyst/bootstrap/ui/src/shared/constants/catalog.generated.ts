@@ -3791,6 +3791,51 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-speech",
+    "slug": "speech",
+    "title": "Transcription",
+    "summary": "One CPU server for one speech-to-text model, reached only through the platform's model gateway.",
+    "icon": "speech.svg",
+    "tagline": null,
+    "tags": [
+      "transcription",
+      "speech",
+      "whisper",
+      "ai"
+    ],
+    "visibility": "listed",
+    "class": "ai-service",
+    "lifecycle": "experimental",
+    "version": "1.0.0",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-sso-bridge",
     "slug": "sso-bridge",
     "title": "SSO Bridge",
@@ -4824,6 +4869,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
   "platform/sovereign-tls-vars/blueprint.yaml",
+  "platform/speech/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",

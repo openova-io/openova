@@ -1,0 +1,249 @@
+{{- /*
+The values are judged at every render, whatever home and enabled say. The
+chart renders no Namespace: in the kit its namespace, model-serving, is also
+the namespace of bp-bge, whose release creates and owns it, and Helm refuses an
+object that another release owns.
+*/}}
+{{- include "bp-speech.validate" . }}
+{{- if include "bp-speech.serving" . }}
+{{- /*
+One speaches server serves the model (README.md).
+
+Weights. The server reads a Hugging Face cache (HF_HUB_CACHE /models/hf) with
+the hub switched off (HF_HUB_OFFLINE), read-only. Init containers write it
+first, and write refs/main, the name the server resolves offline, as the pinned
+snapshot:
+- hf://: the server image's own hub client fetches the model's files at the
+  pinned revision, through the hub egress of the network policy, with the hub
+  token file when hubToken.secretProviderClass is set;
+- oci://: the server image lays out the repository oci/model, then the model
+  image's /bin/cp copies its /model directory in as the snapshot; the kubelet
+  pulls the model image by digest from the Sovereign's registry, so the Pod
+  sends nothing for it.
+
+The server resolves model.servedName to the repository through its alias file
+model_aliases.json, which it reads from its working directory; the release's
+ConfigMap replaces the image's file. The model loads on the first request and
+stays loaded (WHISPER__TTL -1). The image's user is the name ubuntu, so the Pod
+names its uid, 1000; with a read-only root the hub client's files are on the
+/tmp emptyDir (HF_HOME).
+*/}}
+{{- $kind := include "bp-speech.kind" . }}
+{{- $repoDir := include "bp-speech.repoDir" . }}
+{{- $snapshot := include "bp-speech.snapshot" . }}
+{{- $token := .Values.hubToken.secretProviderClass }}
+{{- $securityContext := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) }}
+{{- $initResources := dict "requests" (dict "cpu" "100m" "memory" "128Mi") "limits" (dict "cpu" "1" "memory" "2Gi") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-speech.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-speech.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "bp-speech.selectorLabels" . | nindent 6 }}
+  strategy:
+    {{- if .Values.cache }}
+    # One ReadWriteOnce weights claim: the old Pod lets go of it first.
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-speech.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "bp-speech.fullname" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        {{- if eq $kind "hf" }}
+        - name: model
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              huggingface-cli download "${REPO}" --revision "${REVISION}" --cache-dir /models/hf --include config.json preprocessor_config.json model.bin tokenizer.json 'vocabulary.*' README.md > /dev/null
+              mkdir -p "${REPO_DIR}/refs"
+              printf '%s' "${REVISION}" > "${REPO_DIR}/refs/main"
+          env:
+            - name: REPO
+              value: {{ include "bp-speech.repo" . | quote }}
+            - name: REVISION
+              value: {{ $snapshot | quote }}
+            - name: REPO_DIR
+              value: {{ $repoDir | quote }}
+            - name: HF_HOME
+              value: /tmp/hf
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
+            {{- if $token }}
+            - name: HF_TOKEN_PATH
+              value: /var/run/secrets/openova/hf-token
+            {{- end }}
+          resources:
+            {{- toYaml $initResources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+            {{- if $token }}
+            - name: hub-token
+              mountPath: /var/run/secrets/openova
+              readOnly: true
+            {{- end }}
+        {{- else }}
+        - name: model-layout
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p "${REPO_DIR}/snapshots" "${REPO_DIR}/refs"
+              printf '%s' "${SNAPSHOT}" > "${REPO_DIR}/refs/main"
+          env:
+            - name: REPO_DIR
+              value: {{ $repoDir | quote }}
+            - name: SNAPSHOT
+              value: {{ $snapshot | quote }}
+          resources:
+            {{- toYaml $initResources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+        - name: model
+          image: {{ trimPrefix "oci://" .Values.model.source | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/cp", "-R", "/model/.", {{ printf "%s/snapshots/%s" $repoDir $snapshot | quote }}]
+          resources:
+            {{- toYaml $initResources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+        {{- end }}
+      containers:
+        - name: server
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          workingDir: /home/ubuntu/speaches
+          env:
+            - name: UVICORN_HOST
+              value: 0.0.0.0
+            - name: UVICORN_PORT
+              value: {{ .Values.port | quote }}
+            - name: LOG_LEVEL
+              value: info
+            - name: ENABLE_UI
+              value: "false"
+            - name: WHISPER__INFERENCE_DEVICE
+              value: cpu
+            - name: WHISPER__COMPUTE_TYPE
+              value: int8
+            - name: WHISPER__TTL
+              value: "-1"
+            - name: OMP_NUM_THREADS
+              value: {{ include "bp-speech.threads" . | quote }}
+            - name: HF_HUB_CACHE
+              value: /models/hf
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: HF_HOME
+              value: /tmp/hf
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
+            - name: DO_NOT_TRACK
+              value: "1"
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          # The first failure counts after startup.loadSeconds x 1.5, rounded
+          # up to whole periods of 10 seconds.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: {{ div (add (mul 3 (int .Values.startup.loadSeconds)) 19) 20 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /home/ubuntu/speaches/model_aliases.json
+              subPath: model_aliases.json
+              readOnly: true
+      volumes:
+        - name: models
+          {{- if .Values.cache }}
+          persistentVolumeClaim:
+            claimName: {{ include "bp-speech.fullname" . }}-models
+          {{- else }}
+          emptyDir:
+            sizeLimit: 10Gi
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: config
+          configMap:
+            name: {{ include "bp-speech.fullname" . }}
+            items:
+              - key: model_aliases.json
+                path: model_aliases.json
+        {{- if $token }}
+        - name: hub-token
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ $token | quote }}
+        {{- end }}
+{{- end }}

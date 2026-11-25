@@ -5,14 +5,14 @@ Each rule is one function, one list of folders it scans, and one fixture. It cou
 the lines that break the rule:
 
   G-P1  hard zero. Every file under the chart templates of the model servers
-        (platform/vllm, platform/bge): a line that declares the kind HTTPRoute, Ingress,
+        (platform/vllm, platform/bge, platform/speech): a line that declares the kind HTTPRoute, Ingress,
         Gateway or GRPCRoute. A model server is reached through the platform's model
         gateway only, never on a route of its own.
-  G-P2  hard zero. Every file under platform/vllm, platform/bge and platform/librechat:
+  G-P2  hard zero. Every file under platform/vllm, platform/bge, platform/speech and platform/librechat:
         a line that names a model-provider host (api.openai.com, api.anthropic.com,
         generativelanguage.googleapis.com), in any letter case. A model is reached
         through the platform's model gateway, never directly.
-  G-P3  ratchet. Every file under the chart templates of platform/vllm, platform/bge and
+  G-P3  ratchet. Every file under the chart templates of platform/vllm, platform/bge, platform/speech and
         platform/librechat: a line that contains secretKeyRef. A credential is mounted as a
         file, never read from a Secret object into an environment variable. The count of
         each file may only fall; a new file starts at zero.
@@ -124,12 +124,12 @@ def scan(root, folders, pattern, keep=lambda path: True, more=lambda text: set()
 
 # ---- G-P1: a model server publishes no route of its own. Hard zero.
 
-G_P1_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates")
+G_P1_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates", "platform/speech/chart/templates")
 G_P1_RE = re.compile(rb"^\s*(?:-\s+)?kind:\s*[\"']?(HTTPRoute|Ingress|Gateway|GRPCRoute)[\"']?\s*(?:#.*)?$")
 G_P1 = Rule("G-P1", G_P1_FOLDERS, lambda root: scan(root, G_P1_FOLDERS, G_P1_RE), True,
             "a model server is reached through the model gateway, never on a route of its own",
             {"base": {"platform/vllm/chart/templates/service.yaml": "kind: Service\n",
-                      "platform/bge/chart/templates/service.yaml": "kind: Service\n"},
+                      "platform/bge/chart/templates/service.yaml": "kind: Service\n", "platform/speech/chart/templates/service.yaml": "kind: Service\n"},
              "fail": [("an HTTPRoute in a model server's templates",
                        {"platform/vllm/chart/templates/route.yaml": "apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\n"}),
                       ("an Ingress in a sub-folder of the templates",
@@ -150,12 +150,12 @@ G_P1 = Rule("G-P1", G_P1_FOLDERS, lambda root: scan(root, G_P1_FOLDERS, G_P1_RE)
 
 # ---- G-P2: no model-provider host name. Hard zero.
 
-G_P2_FOLDERS = ("platform/vllm", "platform/bge", "platform/librechat")
+G_P2_FOLDERS = ("platform/vllm", "platform/bge", "platform/speech", "platform/librechat")
 G_P2_RE = re.compile(rb"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com", re.IGNORECASE)
 G_P2 = Rule("G-P2", G_P2_FOLDERS, lambda root: scan(root, G_P2_FOLDERS, G_P2_RE), True,
             "a model is reached through the model gateway, never at a provider's host",
             {"base": {"platform/vllm/README.md": "A model server.\n",
-                      "platform/bge/README.md": "An embedding server.\n",
+                      "platform/bge/README.md": "An embedding server.\n", "platform/speech/README.md": "A transcription server.\n",
                       "platform/librechat/README.md": "A chat front end.\n"},
              "fail": [("an OpenAI host in a values file",
                        {"platform/librechat/chart/values.yaml": "baseURL: https://api.openai.com/v1\n"}),
@@ -173,12 +173,12 @@ G_P2 = Rule("G-P2", G_P2_FOLDERS, lambda root: scan(root, G_P2_FOLDERS, G_P2_RE)
 
 # ---- G-P3: a chart reads no Secret object into an environment variable. Ratchet.
 
-G_P3_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates", "platform/librechat/chart/templates")
+G_P3_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates", "platform/speech/chart/templates", "platform/librechat/chart/templates")
 G_P3_RE = re.compile(rb"secretKeyRef")
 G_P3 = Rule("G-P3", G_P3_FOLDERS, lambda root: scan(root, G_P3_FOLDERS, G_P3_RE), False,
             "a credential is mounted as a file, so this count only falls",
             {"base": {"platform/vllm/chart/templates/deployment.yaml": "kind: Deployment\n",
-                      "platform/bge/chart/templates/deployment.yaml": "kind: Deployment\n",
+                      "platform/bge/chart/templates/deployment.yaml": "kind: Deployment\n", "platform/speech/chart/templates/deployment.yaml": "kind: Deployment\n",
                       "platform/librechat/chart/templates/deployment.yaml": "kind: Deployment\n"},
              "fail": [("a secretKeyRef in a model server's template",
                        {"platform/vllm/chart/templates/deployment.yaml": "kind: Deployment\n              secretKeyRef:\n"}),
