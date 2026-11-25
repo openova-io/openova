@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T08:30:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-25T08:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8364](https://github.com/openova-io/openova/issues/8364) | AIP-250 Spike: agent workspace on the Organization's own sign-in with a short-li | Other |
 | [#8365](https://github.com/openova-io/openova/issues/8365) | SOV-154 First boot applies one root Kustomization; its children come from Git | Other |
 | [#8368](https://github.com/openova-io/openova/issues/8368) | SOV-322 Sign-in mail from the Sovereign's own server: kit slot, settings, and th | Other |
 | [#8385](https://github.com/openova-io/openova/issues/8385) | SEC-152 Shared template writes the seal key files and the seal profile; seal vol | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8779](https://github.com/openova-io/openova/issues/8779) | AIP-157 Nothing reads the long-lived bearer | Other |
 | [#8783](https://github.com/openova-io/openova/issues/8783) | CMP-061 Engine values, informer kinds and mode adapter for the current policy ki | Other |
 | [#8786](https://github.com/openova-io/openova/issues/8786) | PRD-304 bp-speech chart on CPU | Other |
+| [#8790](https://github.com/openova-io/openova/issues/8790) | SEC-192 Producer identities and the simulation back end's own-path role | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T08:43 | [#8789](https://github.com/openova-io/openova/pull/8789) | #7087 | docs(ledger): plan update |
 | 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
 | 2026-11-24T16:27 | [#8785](https://github.com/openova-io/openova/pull/8785) | #7087 | docs(ledger): plan update |
 | 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T08:48 | [#8747](https://github.com/openova-io/openova/pull/8747) | #8746 | feat(organization): every Organization namespace gets the Ex |
 | 2026-11-24T07:53 | [#8745](https://github.com/openova-io/openova/pull/8745) | #7087 | docs(ledger): plan update |
 | 2026-11-24T14:31 | [#8744](https://github.com/openova-io/openova/pull/8744) | #8613 | refactor(bge): the embeddings chart serves one pinned model  |
-| 2026-11-24T08:05 | [#8743](https://github.com/openova-io/openova/pull/8743) | #8692 | test(gate): the browser tests of the Organizations, users an |
 
 ---
 
