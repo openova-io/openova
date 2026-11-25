@@ -3803,7 +3803,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "whisper",
       "ai"
     ],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "class": "ai-service",
     "lifecycle": "experimental",
     "version": "1.0.0",
