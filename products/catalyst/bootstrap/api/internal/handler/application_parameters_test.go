@@ -6,6 +6,9 @@
 package handler
 
 import (
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -161,90 +164,26 @@ func TestDefaultedParameters_AgenityEmptyFQDN_NoStamp(t *testing.T) {
 	}
 }
 
-// ── #4610: bp-agenity stamps the openova-MCP bearer ExternalSecret wiring so
-//    the install-door agenity gets OPENOVA_MCP_BEARER from the per-Org OpenBao
-//    path (LOCAL-signer-signed bearer the Sovereign's catalyst-api accepts),
-//    NOT the chart's `enabled:false` default that delivers nothing → 401. ───
+// ── AIP-157: bp-agenity stamps no tool bearer. The only openovaMCP key the
+//    install doors stamp is the Org tenant host; the bearer Secret, the
+//    verify-key Secret of a seeded bearer and the ExternalSecret of the
+//    per-Org OpenBao bearer path are gone. ───────────────────────────────
 
-// assertAgenityMCPBearerWiring fails unless params carries the full openovaMCP
-// mcpBearer wiring the chart needs to project OPENOVA_MCP_BEARER +
-// OPENOVA_MCP_RS256_PUBKEY_PEM from secret/catalyst/agenity/<slug>/mcp-bearer.
-func assertAgenityMCPBearerWiring(t *testing.T, params map[string]interface{}, wantSlug string) {
+// assertAgenityOpenovaMCPIsOnlyTenantHost fails unless params.openovaMCP is
+// exactly {tenantHost: wantHost}.
+func assertAgenityOpenovaMCPIsOnlyTenantHost(t *testing.T, params map[string]interface{}, wantHost string) {
 	t.Helper()
-	mcp, ok := params["openovaMCP"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agenity parameters missing openovaMCP block: %#v", params)
-	}
-	bs, ok := mcp["bearerSecret"].(map[string]interface{})
-	if !ok || bs["name"] != agenityMCPBearerSecretName || bs["key"] != "bearer" {
-		t.Fatalf("openovaMCP.bearerSecret must point at %q/bearer, got %#v", agenityMCPBearerSecretName, mcp["bearerSecret"])
-	}
-	pk, ok := mcp["rs256PubkeySecret"].(map[string]interface{})
-	if !ok || pk["name"] != agenityMCPBearerSecretName || pk["key"] != "pubkeyPem" {
-		t.Fatalf("openovaMCP.rs256PubkeySecret must point at %q/pubkeyPem (the SEEDED local-signer pubkey, NOT the host catalyst-handover-jwt mothership key), got %#v", agenityMCPBearerSecretName, mcp["rs256PubkeySecret"])
-	}
-	mb, ok := mcp["mcpBearer"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("openovaMCP.mcpBearer missing: %#v", mcp)
-	}
-	es, ok := mb["externalSecret"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("openovaMCP.mcpBearer.externalSecret missing: %#v", mb)
-	}
-	if es["enabled"] != true {
-		t.Fatalf("openovaMCP.mcpBearer.externalSecret.enabled must be true (the chart default is false → bearer undelivered → 401), got %#v", es["enabled"])
-	}
-	wantKey := "catalyst/agenity/" + wantSlug + "/mcp-bearer"
-	if es["remoteKey"] != wantKey {
-		t.Fatalf("openovaMCP.mcpBearer.externalSecret.remoteKey = %v, want %q (must match the producer's mcpBearerSecretPath)", es["remoteKey"], wantKey)
-	}
-	if es["remoteBearerProperty"] != "bearer" || es["remotePubkeyProperty"] != "pubkeyPem" {
-		t.Fatalf("openovaMCP.mcpBearer.externalSecret property names must be bearer/pubkeyPem, got %#v", es)
+	want := map[string]interface{}{"tenantHost": wantHost}
+	if got := params["openovaMCP"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("openovaMCP = %#v, want exactly %#v (no bearerSecret, rs256PubkeySecret or mcpBearer)", got, want)
 	}
 }
 
-func TestDefaultedParameters_AgenityNoValues_StampsMCPBearerWiring(t *testing.T) {
-	// FQDN-form org ref must collapse to the leading DNS label for the path.
-	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2.omani.homes", "", nil)
-	assertAgenityMCPBearerWiring(t, got, "nstar2")
-}
-
-func TestDefaultedParameters_AgenityEmptyOrgSlug_NoMCPBearerStamp(t *testing.T) {
-	// No Org slug ⇒ we cannot scope the per-Org OpenBao path; skip the stamp
-	// (a path with an empty/cross-Org slug would defeat seedMCPBearer's
-	// own-Org guarantee). sovereignFqdn still stamps independently.
-	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "", "", nil)
-	if _, ok := got["openovaMCP"]; ok {
-		t.Fatalf("empty org slug must NOT stamp openovaMCP wiring, got %#v", got)
-	}
-	if got["sovereignFqdn"] != "omantel.biz" {
-		t.Fatalf("sovereignFqdn must still stamp independently of the mcpBearer slug, got %#v", got)
-	}
-}
-
-func TestDefaultedParameters_NonAgenity_NoMCPBearerStamp(t *testing.T) {
-	got := defaultedParameters("bp-postgres", "singleton", "omantel.biz", "nstar2", "", nil)
-	if _, ok := got["openovaMCP"]; ok {
-		t.Fatalf("non-agenity Blueprint must NOT get openovaMCP wiring, got %#v", got)
-	}
-}
-
-func TestDefaultedParameters_AgenityExplicitMCPBearerWins(t *testing.T) {
-	explicit := map[string]interface{}{
-		"openovaMCP": map[string]interface{}{
-			"bearerSecret": map[string]interface{}{"name": "pinned-secret", "key": "bearer"},
-		},
-	}
-	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2", "", explicit)
-	mcp := got["openovaMCP"].(map[string]interface{})
-	bs := mcp["bearerSecret"].(map[string]interface{})
-	if bs["name"] != "pinned-secret" {
-		t.Fatalf("a caller-pinned openovaMCP.bearerSecret must NOT be overwritten, got %#v", bs)
-	}
-	// The additive merge still wires the missing keys (rs256PubkeySecret, mcpBearer).
-	if _, ok := mcp["mcpBearer"]; !ok {
-		t.Fatalf("additive merge must still wire the absent mcpBearer key, got %#v", mcp)
-	}
+func TestDefaultedParameters_Agenity_StampsNoToolBearer(t *testing.T) {
+	// A dotted Org ref and a resolved Org console host: before AIP-157 this
+	// input stamped the bearer wiring of secret/catalyst/agenity/nstar2/...
+	got := defaultedParameters("bp-agenity", "singleton", "omantel.biz", "nstar2.omani.homes", "console.nstar2.omani.homes", nil)
+	assertAgenityOpenovaMCPIsOnlyTenantHost(t, got, "console.nstar2.omani.homes")
 }
 
 func TestNewApplicationUnstructured_Agenity_StampsSovereignFqdn(t *testing.T) {
@@ -263,15 +202,11 @@ func TestNewApplicationUnstructured_Agenity_StampsSovereignFqdn(t *testing.T) {
 	if params["sovereignFqdn"] != "omantel.biz" {
 		t.Fatalf("agenity Application CR must carry spec.parameters.sovereignFqdn=omantel.biz (else the openova-MCP URL falls back to the mothership console.openova.io), got %#v", params)
 	}
-	// #4610 — the install-door CR must ALSO wire the per-Org MCP bearer.
-	assertAgenityMCPBearerWiring(t, params, "agnstar")
 	// #4624 — the install-door CR must ALSO pin the ORG console host as the
 	// MCP tenant host (X-Tenant-Host), while sovereignFqdn (above) keeps the
-	// catalyst-api URL on the SOVEREIGN console host.
-	mcp := params["openovaMCP"].(map[string]interface{})
-	if mcp["tenantHost"] != "console.agnstar.omani.homes" {
-		t.Fatalf("openovaMCP.tenantHost = %v, want console.agnstar.omani.homes", mcp["tenantHost"])
-	}
+	// catalyst-api URL on the SOVEREIGN console host. AIP-157 — and nothing
+	// else: no tool bearer wiring.
+	assertAgenityOpenovaMCPIsOnlyTenantHost(t, params, "console.agnstar.omani.homes")
 }
 
 func TestNewApplicationCRFromSeed_Agenity_StampsSovereignFqdn(t *testing.T) {
@@ -291,14 +226,9 @@ func TestNewApplicationCRFromSeed_Agenity_StampsSovereignFqdn(t *testing.T) {
 	if params["sovereignFqdn"] != "omantel.biz" {
 		t.Fatalf("agenity seed CR must carry spec.parameters.sovereignFqdn=omantel.biz, got %#v", params)
 	}
-	// #4610 — the create-instance seed door must ALSO wire the per-Org MCP bearer.
-	assertAgenityMCPBearerWiring(t, params, "agnstar")
 	// #4624 — the seed door must ALSO pin the ORG console host as the MCP
-	// tenant host.
-	mcp := params["openovaMCP"].(map[string]interface{})
-	if mcp["tenantHost"] != "console.agnstar.omani.homes" {
-		t.Fatalf("openovaMCP.tenantHost = %v, want console.agnstar.omani.homes", mcp["tenantHost"])
-	}
+	// tenant host. AIP-157 — and nothing else: no tool bearer wiring.
+	assertAgenityOpenovaMCPIsOnlyTenantHost(t, params, "console.agnstar.omani.homes")
 }
 
 // ── #4624: bp-agenity stamps openovaMCP.tenantHost = the ORG console host so
@@ -331,25 +261,22 @@ func TestDefaultedParameters_AgenityExplicitTenantHostWins(t *testing.T) {
 		"openovaMCP": map[string]interface{}{"tenantHost": "console.pinned.example"},
 	}
 	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "console.nstar.omani.homes", explicit)
-	mcp := got["openovaMCP"].(map[string]interface{})
-	if mcp["tenantHost"] != "console.pinned.example" {
-		t.Fatalf("a caller-pinned openovaMCP.tenantHost must NOT be overwritten, got %#v", mcp["tenantHost"])
-	}
-	// The additive sibling stamp (#4610 mcpBearer wiring) must still land.
-	assertAgenityMCPBearerWiring(t, got, "nstar")
+	// A caller-pinned tenantHost is never overwritten, and no stamp adds a
+	// bearer key beside it (AIP-157).
+	assertAgenityOpenovaMCPIsOnlyTenantHost(t, got, "console.pinned.example")
 }
 
 func TestDefaultedParameters_AgenityEmptyOrgConsoleHost_NoTenantHostStamp(t *testing.T) {
 	// Mothership / Catalyst-Zero / registry-miss: empty orgConsoleHost ⇒ no
 	// tenantHost stamp (fail-closed — the chart keeps its existing
-	// behaviour); the sibling stamps are unaffected.
+	// behaviour). The tenant host is the only openovaMCP stamp (AIP-157), so
+	// no openovaMCP block is stamped at all, while sovereignFqdn still is.
 	got := defaultedParameters("bp-agenity", "singleton", "hw220.omani.works", "nstar", "", nil)
-	mcp, ok := got["openovaMCP"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agenity parameters missing openovaMCP block (the #4610 bearer stamp): %#v", got)
+	if mcp, present := got["openovaMCP"]; present {
+		t.Fatalf("empty orgConsoleHost must NOT stamp an openovaMCP block, got %#v", mcp)
 	}
-	if _, present := mcp["tenantHost"]; present {
-		t.Fatalf("empty orgConsoleHost must NOT stamp openovaMCP.tenantHost, got %#v", mcp["tenantHost"])
+	if got["sovereignFqdn"] != "hw220.omani.works" {
+		t.Fatalf("sovereignFqdn must still stamp without an Org console host, got %#v", got)
 	}
 }
 
@@ -624,24 +551,18 @@ func TestDefaultedParameters_OpenovaMCPExplicitHostnamesStillGetsParentRef(t *te
 	}
 }
 
-func TestDefaultedParameters_OpenovaMCPStampsRS256PubkeySecret(t *testing.T) {
-	// FQDN-form org ref must collapse to the leading DNS label, matching the
-	// SAME agenity-mcp-bearer Secret the embedded stdio child consumes.
+// AIP-157: a per-Org bp-openova-mcp install is stamped with exactly mode,
+// sovereignFqdn, organization and httpRoute; no auth block points it at the
+// verify key of a seeded bearer.
+func TestDefaultedParameters_OpenovaMCPStampsNoSeededBearerKey(t *testing.T) {
 	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "nstar.omani.homes", "console.nstar.omani.homes", nil)
-	auth, ok := got["auth"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("openova-mcp parameters missing auth block: %#v", got)
+	keys := make([]string, 0, len(got))
+	for k := range got {
+		keys = append(keys, k)
 	}
-	pk, ok := auth["rs256PubkeySecret"].(map[string]interface{})
-	if !ok || pk["name"] != agenityMCPBearerSecretName || pk["key"] != "pubkeyPem" {
-		t.Fatalf("auth.rs256PubkeySecret must point at %q/pubkeyPem, got %#v", agenityMCPBearerSecretName, auth["rs256PubkeySecret"])
-	}
-}
-
-func TestDefaultedParameters_OpenovaMCPEmptyOrgSlug_NoBearerStamp(t *testing.T) {
-	got := defaultedParameters("bp-openova-mcp", "singleton", "hw220.omani.works", "", "console.nstar.omani.homes", nil)
-	if _, ok := got["auth"]; ok {
-		t.Fatalf("empty org slug must NOT stamp auth.rs256PubkeySecret, got %#v", got["auth"])
+	sort.Strings(keys)
+	if strings.Join(keys, ",") != "httpRoute,mode,organization,sovereignFqdn" {
+		t.Fatalf("openova-mcp parameters carry keys %v, want exactly [httpRoute mode organization sovereignFqdn]: %#v", keys, got)
 	}
 }
 

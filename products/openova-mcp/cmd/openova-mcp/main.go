@@ -9,8 +9,8 @@
 // Wire model (this slice): JSON-RPC 2.0 over stdio (Content-Length-framed),
 // the same proven transport the sandbox MCP uses. The bearer is supplied
 // per `tools/call` (and `tools/list`) via the `_auth.token` argument OR (on
-// stdio only) the OPENOVA_MCP_BEARER env fallback, validated into the shared
-// auth.Claims, and resolved into the (context, tier, scope) identity that
+// stdio only) the bearer file OPENOVA_MCP_BEARER_FILE names, validated into
+// the shared auth.Claims, and resolved into the (context, tier, scope) identity that
 // drives both RBAC layers. The streamable-HTTP/SSE transport + chepherd
 // injection are DEFERRED to follow-ups (#3988 §4.3, §5).
 //
@@ -28,11 +28,10 @@
 //	                              Sovereign handover-jwt public key) when
 //	                              verify=rs256.
 //	OPENOVA_MCP_HS256_SECRET      HS256 shared secret when verify=hs256.
-//	OPENOVA_MCP_BEARER            fallback bearer when a call omits _auth.
-//	                              Stdio transport only: the HTTP transport
-//	                              reads the Authorization header alone.
-//	OPENOVA_MCP_BEARER_FILE       stdio only: file of the fallback bearer, read
-//	                              at every call; set, it replaces the above.
+//	OPENOVA_MCP_BEARER_FILE       stdio only: file of the bearer of a call
+//	                              that omits _auth, read at every call. Unset
+//	                              = no such bearer. The HTTP transport reads
+//	                              the Authorization header alone.
 //	OPENOVA_MCP_AGENT_ISSUER      optional exact `iss` an agent token (typ
 //	                              agent) must carry. Empty = no agent issuer
 //	                              pin. Session tokens are not affected.
@@ -150,8 +149,8 @@ func main() {
 	if api != nil {
 		tenantHostLog = api.TenantHost()
 	}
-	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v bearer_file=%q tenant_host=%q issuer_pin=%q agent_issuer=%q org_scope=%q listen=%q",
-		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), srv.fallbackBearer != "", srv.bearerFile, tenantHostLog,
+	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_file=%q tenant_host=%q issuer_pin=%q agent_issuer=%q org_scope=%q listen=%q",
+		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), srv.bearerFile, tenantHostLog,
 		os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER"), os.Getenv("OPENOVA_MCP_AGENT_ISSUER"), os.Getenv("OPENOVA_MCP_ORG_SCOPE"), os.Getenv("OPENOVA_MCP_LISTEN"))
 
 	// ── Streamable-HTTP transport (#3988 §4.3, the standalone Service
@@ -193,8 +192,8 @@ func main() {
 type server struct {
 	reg            *tools.Registry
 	resolver       *identity.Resolver
-	fallbackBearer string
-	bearerFile     string // set: the fallback bearer is read from it at every call
+	fallbackBearer string // HTTP transport: the request's Authorization bearer
+	bearerFile     string // stdio: the fallback bearer is read from it at every call
 	out            io.Writer
 
 	// lineDelimited records the framing the most-recent inbound message
@@ -204,20 +203,18 @@ type server struct {
 	lineDelimited bool
 }
 
-// The stdio fallback bearer comes from the file fallbackFileVar names, when set;
-// otherwise from fallbackVar, read once here.
-const fallbackVar, fallbackFileVar = "OPENOVA_MCP_BEARER", "OPENOVA_MCP_BEARER_FILE"
+// The stdio fallback bearer comes only from the file fallbackFileVar names. No
+// bearer is read from the environment (AIP-157).
+const fallbackFileVar = "OPENOVA_MCP_BEARER_FILE"
 
 func newStdioServer(reg *tools.Registry, resolver *identity.Resolver, out io.Writer) *server {
-	if f := strings.TrimSpace(os.Getenv(fallbackFileVar)); f != "" {
-		return &server{reg: reg, resolver: resolver, bearerFile: f, out: out}
-	}
-	return &server{reg: reg, resolver: resolver, fallbackBearer: os.Getenv(fallbackVar), out: out}
+	return &server{reg: reg, resolver: resolver, bearerFile: strings.TrimSpace(os.Getenv(fallbackFileVar)), out: out}
 }
 
 // fallback is the bearer of a call without an _auth token. A bearer file is
 // read at every call, so a bearer renewed in it needs no restart; a missing or
-// empty file gives no bearer, never one read earlier.
+// empty file gives no bearer, never one read earlier. With no bearer file it
+// is fallbackBearer, which only the HTTP transport sets.
 func (s *server) fallback() string {
 	if s.bearerFile == "" {
 		return s.fallbackBearer

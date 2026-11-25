@@ -108,7 +108,7 @@ type: application
 # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
 #   state the D4 contract (environmentRef / placement.regions resolved from
 #   objects, unknown refs 422; no "<org>-prod" / "primary").
-version: 0.1.13
+version: 0.1.14
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
 # reject an Org-scoped caller reaching a Sovereign-pinned instance instead
@@ -129,7 +129,8 @@ version: 0.1.13
 # 24,000 characters.
 # 0.2.10 (AIP-152): the stdio server reads its bearer file at every call.
 # 0.2.11 (AIP-154): an agent token acting for a person of tier admin has tier admin.
-appVersion: "0.2.11"
+# 0.2.12 (AIP-157): the stdio server reads no bearer from the environment.
+appVersion: "0.2.12"
 keywords:
   - mcp
   - agent

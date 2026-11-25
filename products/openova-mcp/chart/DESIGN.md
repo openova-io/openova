@@ -30,13 +30,12 @@ the tool surface is filtered per caller by the two-layer RBAC in
   handler/application_parameters.go`'s `stampOpenovaMCPOrgParameters` stamps
   `mode=organization`, `sovereignFqdn`, `organization.tenantHost`,
   `httpRoute.hostnames=[mcp.<slug>.<pool>]`,
-  `httpRoute.parentRef.name=cilium-gateway-console`, and (best-effort)
-  `auth.rs256PubkeySecret` at the same in-namespace `agenity-mcp-bearer`
-  Secret bp-agenity's stdio child consumes — mirroring the proven
-  `stampAgenity*` pattern field-for-field. An Org without bp-agenity (yet)
-  installed still gets a working instance: the optional pubkey secretKeyRef
-  resolves absent and the binary falls back to the #5175 whoami-delegation
-  identity path (see the pinnedCtx hardening note below).
+  `httpRoute.parentRef.name=cilium-gateway-console`, mirroring the proven
+  `stampAgenity*` pattern field-for-field. It does not stamp
+  `auth.rs256PubkeySecret` (AIP-157), so the chart default below applies:
+  where that Secret is absent the optional pubkey secretKeyRef resolves
+  absent and the binary falls back to the #5175 whoami-delegation identity
+  path (see the pinnedCtx hardening note below).
 - **Thin facade (#3988 §3, load-bearing)**: every data tool forwards the
   caller's bearer to the LIVE catalyst-api; the endpoint's own authz is the
   final word. The chart enforces this architecturally: the ServiceAccount
@@ -100,8 +99,7 @@ parses an RSA JWK natively alongside PKIX/PKCS1 PEM. The aspirational PEM
 Secret `catalyst-handover-jwt` / key `handover-jwt-public.pem` referenced by
 pre-#5167 defaults is NEVER created on a Sovereign — do not point the chart
 back at it. The secretKeyRef renders `optional: true` so an install where
-the Secret is absent (e.g. a per-Org install whose namespace has not
-installed bp-agenity — see the #5206 per-Org install door above, which
-points this same field at the in-namespace `agenity-mcp-bearer` /
-`pubkeyPem` Secret instead) still schedules and the binary falls back to
-the #5175 whoami-delegation identity path.
+the Secret is absent (e.g. a per-Org install — see the #5206 per-Org
+install door above, which leaves this field at its default) still
+schedules and the binary falls back to the #5175 whoami-delegation
+identity path.
