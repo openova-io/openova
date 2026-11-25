@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T12:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-25T13:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8396](https://github.com/openova-io/openova/issues/8396) | FND-157 A gate run reads the storefront's sign-in code from a mailbox on the Sov | Other |
 | [#8398](https://github.com/openova-io/openova/issues/8398) | PRD-204 cortex ingestion of uploads: job table, upload and document routes, inde | Other |
 | [#8402](https://github.com/openova-io/openova/issues/8402) | SOV-149 The image pre-pull leaves first boot | Other |
 | [#8410](https://github.com/openova-io/openova/issues/8410) | AIP-130 Model contract conformance client | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8801](https://github.com/openova-io/openova/issues/8801) | CMP-062 Validate policies to ValidatingPolicy, batch 1 (7 policies) | Other |
 | [#8806](https://github.com/openova-io/openova/issues/8806) | AIP-158 The purchase funnel's install path wires no long-lived bearer | Other |
 | [#8814](https://github.com/openova-io/openova/issues/8814) | SOV-722 Spike: the k3s release that passes both registry-drain cases shared and  | Other |
+| [#8819](https://github.com/openova-io/openova/issues/8819) | SEC-181 OpenBao restore drill: a known key is read back from a restored snapshot | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T12:53 | [#8816](https://github.com/openova-io/openova/pull/8816) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:31 | [#8813](https://github.com/openova-io/openova/pull/8813) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:11 | [#8809](https://github.com/openova-io/openova/pull/8809) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:54 | [#8808](https://github.com/openova-io/openova/pull/8808) | #7087 | docs(ledger): plan update |
@@ -314,6 +315,7 @@ flowchart LR
 | 2026-11-25T10:26 | [#8804](https://github.com/openova-io/openova/pull/8804) | #7087 | docs(ledger): plan update |
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
+| 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
 | 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:07 | [#8796](https://github.com/openova-io/openova/pull/8796) | #8793 | fix(catalyst-api): a catalogue edit may change only the card |
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-24T11:01 | [#8766](https://github.com/openova-io/openova/pull/8766) | #8762 | refactor(compliance): policy files in every region folder: s |
 | 2026-11-24T10:24 | [#8764](https://github.com/openova-io/openova/pull/8764) | #7087 | docs(ledger): plan update |
 | 2026-11-24T12:31 | [#8763](https://github.com/openova-io/openova/pull/8763) | #8761 | chore(catalyst-api): delete the long-lived bearer seed; no o |
-| 2026-11-24T10:09 | [#8760](https://github.com/openova-io/openova/pull/8760) | #7087 | docs(ledger): plan update |
-| 2026-11-24T12:39 | [#8759](https://github.com/openova-io/openova/pull/8759) | #8757 | test(gate): the browser tests of the compliance, sovereignty |
 
 ---
 
