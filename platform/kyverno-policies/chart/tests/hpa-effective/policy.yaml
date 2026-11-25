@@ -1,0 +1,39 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: hpa-effective
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: HPA minReplicas must not exceed workload spec.replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      When a HorizontalPodAutoscaler is admitted, its spec.minReplicas
+      must be >= 1 and the targeted workload's declared replicas should
+      not be below the HPA floor. Runtime effectiveness (current ready
+      Pod count) is checked by the compliance-aggregator's hpa.go
+      evaluator (slice W2).
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      # Every served version, as the legacy kind match did.
+      - apiGroups: ["autoscaling"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["horizontalpodautoscalers"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    - expression: "has(object.spec.minReplicas) && object.spec.minReplicas >= 1"
+      message: >-
+        This HPA declares spec.minReplicas < 1 — the autoscaler cannot scale
+        to zero and run; set minReplicas >= 1.

@@ -1,0 +1,72 @@
+# Inputs of the suite substrate-stays-on-host.
+
+# 1. A substrate Blueprint installed through a vCluster kubeconfig: not compliant.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cilium
+  namespace: flux-system
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: bp-cilium
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cilium
+  kubeConfig:
+    secretRef:
+      name: vcluster-acme-kubeconfig
+---
+# 2. A substrate Blueprint installed on the host: compliant.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cnpg
+  namespace: flux-system
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: bp-cnpg
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cnpg
+---
+# 3. A substrate Blueprint of an older API version through a vCluster
+#    kubeconfig: not compliant.
+apiVersion: helm.toolkit.fluxcd.io/v2beta2
+kind: HelmRelease
+metadata:
+  name: bp-kyverno
+  namespace: flux-system
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: bp-kyverno
+      sourceRef:
+        kind: HelmRepository
+        name: bp-kyverno
+  kubeConfig:
+    secretRef:
+      name: vcluster-acme-kubeconfig
+---
+# 4. A marketplace Blueprint installed through a vCluster kubeconfig: not a
+#    substrate name, so the policy does not apply.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-wordpress
+  namespace: org-acme
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: bp-wordpress
+      sourceRef:
+        kind: HelmRepository
+        name: bp-wordpress
+  kubeConfig:
+    secretRef:
+      name: vcluster-acme-kubeconfig

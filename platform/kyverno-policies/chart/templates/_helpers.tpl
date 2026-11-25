@@ -44,3 +44,38 @@ Audit
 {{- .policy | default "Audit" -}}
 {{- end -}}
 {{- end -}}
+
+{{- /*
+bp-kyverno-policies.actions — the validationActions of a ValidatingPolicy
+(policies.kyverno.io). The same rule as bp-kyverno-policies.action above:
+[Audit] while the bootstrap window is open, else [Deny] when the per-policy
+action is Enforce and [Audit] for any other action or none.
+
+Usage in a ValidatingPolicy template:
+
+  spec:
+    validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.<name>.action) }}
+*/ -}}
+{{- define "bp-kyverno-policies.actions" -}}
+{{- if or (and .ctx.Values.compliancePolicies.bootstrapMode (ne (.ctx.Values.compliancePolicies.sovereignConsume | default "origin") "local")) (ne (.policy | default "Audit") "Enforce") -}}
+[Audit]
+{{- else -}}
+[Deny]
+{{- end -}}
+{{- end -}}
+
+{{- /*
+bp-kyverno-policies.excludeNamespacesExpr — a CEL expression, for a match
+condition of a ValidatingPolicy, that is true when the object is in none of
+the namespaces of the list it is given. A cluster-scoped object has the
+namespace '' and is in none of them. An empty list excludes nothing.
+
+Usage:
+
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.<name>.excludeNamespaces | quote }}
+*/ -}}
+{{- define "bp-kyverno-policies.excludeNamespacesExpr" -}}
+!(object.metadata.?namespace.orValue('') in [{{ range $i, $ns := . }}{{ if $i }}, {{ end }}'{{ $ns }}'{{ end }}])
+{{- end -}}

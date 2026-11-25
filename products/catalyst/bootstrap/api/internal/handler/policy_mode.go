@@ -65,8 +65,8 @@
 //     validationFailureAction.
 //   - INVIOLABLE-PRINCIPLES.md #4 (never hardcode): the 19 K-slice
 //     policy names are NOT hardcoded in this handler. They are
-//     discovered at request time via the live ClusterPolicy list
-//     filtered by label `catalyst.openova.io/policy-tier=compliance`
+//     discovered at request time via the live Cluster/ValidatingPolicy
+//     lists filtered by label `catalyst.openova.io/policy-tier=compliance`
 //     (the canonical tag the K-slice templates carry).
 //   - INVIOLABLE-PRINCIPLES.md #5 (least privilege): caller must hold
 //     a privileged realm role (catalyst-admin / catalyst-owner /
@@ -136,6 +136,11 @@ func ClusterPolicyGVR() schema.GroupVersionResource {
 		Version:  "v1",
 		Resource: "clusterpolicies",
 	}
+}
+
+// ValidatingPolicyGVR — the kind CMP-062 rewrites policies to (same name, same label).
+func ValidatingPolicyGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}
 }
 
 // ── Wire shapes ──────────────────────────────────────────────────────
@@ -619,11 +624,11 @@ func buildPolicyModeResponse(
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-// policyModeKnownPolicies lists the live ClusterPolicies tagged
-// `catalyst.openova.io/policy-tier=compliance` and returns the set of
-// their `metadata.name` values. Returns (nil, nil) when the CRD is
-// missing OR the catalyst-api ServiceAccount lacks list rights on
-// `kyverno.io/clusterpolicies` — callers degrade to "any policy name
+// policyModeKnownPolicies lists the live ClusterPolicies and ValidatingPolicies
+// tagged `catalyst.openova.io/policy-tier=compliance` and returns the set of
+// their `metadata.name` values. A kind whose CRD is missing or that the
+// catalyst-api ServiceAccount may not list adds no names; (nil, nil) when
+// neither kind can be listed — callers degrade to "any policy name
 // accepted" so neither a fresh Sovereign without Kyverno installed
 // nor a partially-RBAC'd Sovereign wedges the toggle UI.
 //
@@ -644,20 +649,20 @@ func policyModeKnownPolicies(
 	ctx context.Context,
 	client dynamic.Interface,
 ) (map[string]struct{}, error) {
-	list, err := client.Resource(ClusterPolicyGVR()).List(ctx, metav1.ListOptions{
-		LabelSelector: policyTierLabel + "=" + policyTierCompliance,
-	})
-	if err != nil {
+	var out map[string]struct{}
+	for _, gvr := range []schema.GroupVersionResource{ClusterPolicyGVR(), ValidatingPolicyGVR()} {
+		list, err := client.Resource(gvr).List(ctx, metav1.ListOptions{LabelSelector: policyTierLabel + "=" + policyTierCompliance})
 		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-			return nil, nil
+			continue
+		} else if err != nil {
+			return nil, err
+		} else if out == nil {
+			out = make(map[string]struct{}, len(list.Items))
 		}
-		return nil, err
-	}
-	out := make(map[string]struct{}, len(list.Items))
-	for i := range list.Items {
-		name := list.Items[i].GetName()
-		if name != "" {
-			out[name] = struct{}{}
+		for i := range list.Items {
+			if name := list.Items[i].GetName(); name != "" {
+				out[name] = struct{}{}
+			}
 		}
 	}
 	return out, nil

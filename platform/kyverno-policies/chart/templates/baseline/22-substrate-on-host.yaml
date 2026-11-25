@@ -42,8 +42,8 @@ requirements. Per docs/INVIOLABLE-PRINCIPLES.md #4 every value
 overridable via .Values.compliancePolicies.substrateOnHost.*.
 */}}
 {{- if .Values.compliancePolicies.substrateOnHost.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: substrate-stays-on-host
   labels:
@@ -62,41 +62,32 @@ metadata:
       A HelmRelease for one of these Blueprints with `spec.kubeConfig`
       set indicates a misconfigured G92.1 vcluster-placement override.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.substrateOnHost.action) }}
-  background: true
-  rules:
-    - name: helmrelease-no-vcluster-kubeconfig-for-substrate
-      match:
-        any:
-          - resources:
-              kinds:
-                - HelmRelease
-              names:
-                {{- range $name := .Values.compliancePolicies.substrateOnHost.substrateBlueprints }}
-                - {{ $name | quote }}
-                {{- end }}
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.substrateOnHost.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
-          a substrate Blueprint and MUST install on the host k3s cluster.
-          Detected `spec.kubeConfig.secretRef` set — this would install the
-          substrate INTO a vCluster, violating docs/DOD.md §A4 architecture
-          invariant. The G92.1 vcluster-placement seam (Refs #2660) is for
-          non-substrate marketplace applications only. Remove the
-          `spec.kubeConfig` block on this HelmRelease, OR — if your
-          Sovereign legitimately requires bespoke substrate placement —
-          add the namespace to
-          .Values.compliancePolicies.substrateOnHost.excludeNamespaces.
-        pattern:
-          spec:
-            # Forbid `spec.kubeConfig` entirely for substrate HRs. Kyverno
-            # negation pattern `X(field): "null"` enforces field absence.
-            =(kubeConfig): "null"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.substrateOnHost.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      # Every served version, as the legacy kind match did.
+      - apiGroups: ["helm.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["helmreleases"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.substrateOnHost.excludeNamespaces | quote }}
+    - name: substrate-blueprints
+      expression: "object.metadata.name in [{{ range $i, $name := .Values.compliancePolicies.substrateOnHost.substrateBlueprints }}{{ if $i }}, {{ end }}'{{ $name }}'{{ end }}]"
+  validations:
+    # Forbid `spec.kubeConfig` entirely for substrate HRs (absent or null).
+    - expression: "!has(object.spec.kubeConfig) || object.spec.kubeConfig == null"
+      message: >-
+        This HelmRelease is a substrate Blueprint and MUST install on the host
+        k3s cluster. Detected `spec.kubeConfig.secretRef` set — this would
+        install the substrate INTO a vCluster, violating docs/DOD.md §A4
+        architecture invariant. The G92.1 vcluster-placement seam (Refs #2660)
+        is for non-substrate marketplace applications only. Remove the
+        `spec.kubeConfig` block on this HelmRelease, OR — if your Sovereign
+        legitimately requires bespoke substrate placement — add the namespace
+        to .Values.compliancePolicies.substrateOnHost.excludeNamespaces.
 {{- end }}

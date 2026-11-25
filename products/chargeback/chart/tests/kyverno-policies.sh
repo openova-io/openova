@@ -5,7 +5,7 @@
 # WHAT
 #   Renders this chart the way the bootstrap-kit slot 13f and a per-Org install
 #   do (platformApi.url unset AND set; adapter.billingHook.callbackSecret set),
-#   renders EVERY ClusterPolicy of platform/kyverno-policies/chart at its
+#   renders EVERY ClusterPolicy and ValidatingPolicy of platform/kyverno-policies/chart at its
 #   canonical action (compliancePolicies.bootstrapMode=false), and runs
 #   `kyverno apply <policies> --resource <render>` with the kyverno CLI. Any
 #   `fail` or `error` result fails this gate.
@@ -51,10 +51,13 @@
 
 set -euo pipefail
 
-KYVERNO_CLI_VERSION="v1.18.0"   # = platform/kyverno/chart/Chart.yaml appVersion (Sovereign Kyverno)
+# = platform/kyverno/chart/Chart.yaml appVersion (Sovereign Kyverno). v1.18.0
+# cannot judge a ValidatingPolicy against a CiliumNetworkPolicy of this render
+# ("failed to map gvk to gvr cilium.io/v2"); v1.19.2 can (measured, CMP-062).
+KYVERNO_CLI_VERSION="v1.19.2"
 declare -A KYVERNO_CLI_SHA256=(
-  ["x86_64"]="3aa7b7aa68732fd6bc5732f1030d0ed12e1b0ffe7dbac5f5aa21fd8695718904"
-  ["arm64"]="37697771e1cc92daf73bebde4eb304691af09e07a4278cc82062e829c8475cec"
+  ["x86_64"]="357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a"
+  ["arm64"]="250f2a02f143d5c6425e686b13c130d3a3ba7372dba6a7210d599d1b0dd12e92"
 )
 REQUIRED_POLICIES=(prometheus-scrape otel-injected topology-spread secret-not-in-env resource-requests flux-managed)
 
@@ -111,7 +114,7 @@ resolve_kyverno() {
 kyverno="$(resolve_kyverno)"
 echo "kyverno CLI: $kyverno ($("$kyverno" version 2>/dev/null | awk '/^Version/{print $2}'))"
 
-# ── policy set: every ClusterPolicy at its canonical action ─────────────────
+# ── policy set: every ClusterPolicy and ValidatingPolicy at its canonical action ──
 # The policy chart declares platform/kube-access-lib as a file:// dependency
 # (#8403); a fresh clone has not built it, so resolve it from the local bytes.
 if ! ls "$policies_chart"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
@@ -120,16 +123,16 @@ if ! ls "$policies_chart"/charts/kube-access-lib-*.tgz >/dev/null 2>&1; then
 fi
 "$helm" template kp "$policies_chart" --set compliancePolicies.bootstrapMode=false > "$work/policies-all.yaml" 2>"$work/policies.err" \
   || fail "rendering $policies_chart failed: $(head -3 "$work/policies.err")"
-# ClusterPolicy documents ONLY — the CLI loads zero policies from a file that
+# ClusterPolicy and ValidatingPolicy documents ONLY — the CLI loads zero policies from a file that
 # also carries the chart's ClusterRoles (see VACUITY GUARDS).
-yq 'select(.kind == "ClusterPolicy")' "$work/policies-all.yaml" > "$work/policies.yaml"
-policy_count="$(grep -c '^kind: ClusterPolicy$' "$work/policies.yaml" || true)"
-[ "$policy_count" -ge 20 ] || fail "only $policy_count ClusterPolicies rendered from $policies_chart — expected the full baseline set"
+yq 'select(.kind == "ClusterPolicy" or .kind == "ValidatingPolicy")' "$work/policies-all.yaml" > "$work/policies.yaml"
+policy_count="$(grep -c -E '^kind: (ClusterPolicy|ValidatingPolicy)$' "$work/policies.yaml" || true)"
+[ "$policy_count" -ge 20 ] || fail "only $policy_count policies rendered from $policies_chart — expected the full baseline set"
 for p in "${REQUIRED_POLICIES[@]}"; do
-  yq -e "select(.kind == \"ClusterPolicy\" and .metadata.name == \"$p\") | .metadata.name" "$work/policies.yaml" >/dev/null 2>&1 \
+  yq -e "select((.kind == \"ClusterPolicy\" or .kind == \"ValidatingPolicy\") and .metadata.name == \"$p\") | .metadata.name" "$work/policies.yaml" >/dev/null 2>&1 \
     || fail "policy $p is missing from the rendered set — the gate would pass on nothing"
 done
-echo "policy set: $policy_count ClusterPolicies (canonical actions), incl. ${REQUIRED_POLICIES[*]}"
+echo "policy set: $policy_count policies (canonical actions), incl. ${REQUIRED_POLICIES[*]}"
 
 # ── chart renders ───────────────────────────────────────────────────────────
 render() {
@@ -209,4 +212,4 @@ for r in a b; do
 done
 
 [ "$overall" -eq 0 ] || exit 1
-echo "PASS: bp-chargeback satisfies all $policy_count bp-kyverno-policies ClusterPolicies (kyverno CLI $KYVERNO_CLI_VERSION; platformApi unset + set, callbackSecret set; zero fail, zero error)"
+echo "PASS: bp-chargeback satisfies all $policy_count bp-kyverno-policies policies (kyverno CLI $KYVERNO_CLI_VERSION; platformApi unset + set, callbackSecret set; zero fail, zero error)"

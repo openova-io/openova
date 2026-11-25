@@ -1,0 +1,65 @@
+# Suite of the policy runasnonroot-readonlyrootfs
+# (templates/baseline/17-runasnonroot-readonlyrootfs.yaml), CMP-062.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2. The legacy policy had two rules, so each
+# resource had two results there: runAsNonRoot (pass for cases 1 to 3, fail
+# for 4 to 6) and readOnlyRootFilesystem (pass for 1, 2, 4 and 5, fail for 3
+# and 6); case 7 was skipped by both. The ValidatingPolicy has no rule names
+# and one result per resource: fail when either rule failed, pass when both
+# passed, skip when both skipped. The resources are the same.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/runasnonroot-readonlyrootfs
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: runasnonroot-readonlyrootfs-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/pod-level-nonroot
+    result: pass
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - example/container-level-nonroot
+    result: pass
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/writable-rootfs
+    result: fail
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - example/root-user
+    result: fail
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - example/one-container-nonroot
+    result: fail
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - example/cronjob-compliant-template
+    result: fail
+  - policy: runasnonroot-readonlyrootfs
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - kube-system/root-writable
+    result: skip
