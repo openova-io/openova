@@ -669,12 +669,13 @@ checks:
 - id: CLD-G07
   title: Providers route lists the packs; a create request validates
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The providers route lists exactly the packs and installation documents; a create request without credentials passes validation for an operator-credential pack
+  implementation: tests/acceptance/sovereign/internal/suite/check_providers.go
   delivered_by: CLD-121
 - id: CLD-G08
   title: A new node is in both load-balancer pools within 2 minutes, with no call from the mothership

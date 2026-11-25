@@ -36,6 +36,8 @@ func registerPublicSovereign(r chi.Router, d routeDeps) {
 }
 
 func registerSessionSovereign(rg chi.Router, d routeDeps) {
+	// The effective cloud profile of this Sovereign (internal/providersapi).
+	rg.Get("/api/v1/sovereign/cloud-profile", d.providers.Sovereign)
 	h := d.h
 	// Sovereign Console populated views (issue #933). Read-only
 	// endpoints the Console pages on console.<sov-fqdn>/console/*
