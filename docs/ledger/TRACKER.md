@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T13:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-25T13:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8402](https://github.com/openova-io/openova/issues/8402) | SOV-149 The image pre-pull leaves first boot | Other |
-| [#8410](https://github.com/openova-io/openova/issues/8410) | AIP-130 Model contract conformance client | Other |
 | [#8414](https://github.com/openova-io/openova/issues/8414) | SOV-341 The kubeconfig route serves the primary region's file that the parent ho | Other |
 | [#8415](https://github.com/openova-io/openova/issues/8415) | SVC-166 The umbrella chart's Blueprint file moves beside its chart | Other |
 | [#8418](https://github.com/openova-io/openova/issues/8418) | SOV-522 The release stage applies the provider pivot again where a candidate cha | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8814](https://github.com/openova-io/openova/issues/8814) | SOV-722 Spike: the k3s release that passes both registry-drain cases shared and  | Other |
 | [#8819](https://github.com/openova-io/openova/issues/8819) | SEC-181 OpenBao restore drill: a known key is read back from a restored snapshot | Other |
 | [#8821](https://github.com/openova-io/openova/issues/8821) | CLD-106 Operator credentials from mounted files | Other |
+| [#8825](https://github.com/openova-io/openova/issues/8825) | CMP-063 Validate policies to ValidatingPolicy, batch 2 (7 policies) | Other |
+| [#8826](https://github.com/openova-io/openova/issues/8826) | SEC-201 The birth Job writes a named key and an empty placeholder | Other |
 
 ---
 
