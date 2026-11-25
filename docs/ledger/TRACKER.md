@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T09:15:04Z` |
+| Last refreshed | `2026-11-25T09:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8386](https://github.com/openova-io/openova/issues/8386) | SVC-164 Delete the OpenMeter Blueprint | Other |
 | [#8389](https://github.com/openova-io/openova/issues/8389) | SOV-323 Relay mode: sign-in mail through a relay with a credential for that chil | Other |
 | [#8391](https://github.com/openova-io/openova/issues/8391) | AIP-225 MCP endpoint and console HTTP routes inside the service | Other |
 | [#8396](https://github.com/openova-io/openova/issues/8396) | FND-157 A gate run reads the storefront's sign-in code from a mailbox on the Sov | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8792](https://github.com/openova-io/openova/issues/8792) | CLD-121 Providers routes | Other |
 | [#8793](https://github.com/openova-io/openova/issues/8793) | SVC-200 Catalogue edits may change card fields only | Other |
 | [#8797](https://github.com/openova-io/openova/issues/8797) | CTL-232 Operations audited; reconciler suspend and resume refused | Other |
+| [#8801](https://github.com/openova-io/openova/issues/8801) | CMP-062 Validate policies to ValidatingPolicy, batch 1 (7 policies) | Other |
 
 ---
 
