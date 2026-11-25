@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T18:30:05Z` |
+| Last refreshed | `2026-11-25T19:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
 | 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
 | 2026-11-25T15:38 | [#8833](https://github.com/openova-io/openova/pull/8833) | #8787 | bp-speech declares that it renders nothing by default, so th |
 | 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
 | 2026-11-25T14:05 | [#8787](https://github.com/openova-io/openova/pull/8787) | #8786 | feat(speech): the transcription chart serves one pinned Whis |
 | 2026-11-24T16:27 | [#8785](https://github.com/openova-io/openova/pull/8785) | #7087 | docs(ledger): plan update |
-| 2026-11-25T08:45 | [#8784](https://github.com/openova-io/openova/pull/8784) | #8783 | refactor(kyverno): exceptions honoured in one namespace, the |
 
 ---
 
