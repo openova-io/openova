@@ -11,13 +11,17 @@
 #      and templates/baseline/04-probes.yaml of this chart;
 #   C2 the probes of the runtime container in the two Crossplane Deployments of
 #      resources.yaml equal the probes of the runtime configs in
-#      clusters/_template/infrastructure/providers/base.
+#      clusters/_template/infrastructure/providers/base;
+#   C3 the ValidatingPolicy probes-present of the render matches CREATE and
+#      UPDATE only. Case 10 of the suite is a DELETE, which the command-line
+#      tool sends to no ValidatingPolicy, so the suite cannot show that
+#      probes-present admits it; this check shows that it never judges it.
 #
 # Usage:
 #   bash crossplane-runtime-suite-current.sh              the chart above this file
 #   bash crossplane-runtime-suite-current.sh <chart>      that chart directory
 #                                                         (Chart tests (PR) passes it)
-#   bash crossplane-runtime-suite-current.sh --self-test  prove both checks can fail
+#   bash crossplane-runtime-suite-current.sh --self-test  prove each check can fail
 #
 # Exit code: 0 pass. 1 a check failed. 2 wrong usage or a render failed.
 set -euo pipefail
@@ -95,10 +99,28 @@ EOF
   return "$rc"
 }
 
+# check_operations <chart>: C3. Prints the operations lists of the
+# ValidatingPolicy probes-present of the render; fails when there is none or
+# one is not exactly CREATE and UPDATE.
+check_operations() {
+  local got
+  render "$1" > "$TMP/render-ops.yaml" || { echo "$TAG render of $1 failed"; return 2; }
+  got="$(awk '/^---$/ { vp = 0; name = "" }
+    /^kind: ValidatingPolicy$/ { vp = 1 }
+    /^  name: / { name = $2 }
+    vp && name == "probes-present" && /^ *operations:/ { sub(/^ *operations: */, ""); print }' "$TMP/render-ops.yaml")"
+  if [ -z "$got" ] || grep -v -x -F '["CREATE", "UPDATE"]' <<<"$got" > /dev/null; then
+    echo "$TAG FAIL C3: the ValidatingPolicy probes-present must match CREATE and UPDATE only; its operations: ${got:-none}"
+    return 1
+  fi
+  echo "$TAG PASS C3: probes-present matches CREATE and UPDATE only, so it never judges a DELETE"
+}
+
 if [ "$SELF_TEST" -eq 0 ]; then
   rc=0
   check_copy "$CHART" "$SUITE" || rc=1
   check_probes "$SUITE/resources.yaml" "$CONFIGS" || rc=1
+  check_operations "$CHART" || rc=1
   exit "$rc"
 fi
 
@@ -122,5 +144,12 @@ EOF
 if check_probes "$TMP/suite/resources.yaml" "$TMP/configs" > "$TMP/st2.txt" 2>&1; then
   echo "self-test FAIL: C2 passed with a changed runtime config"; fails=$((fails + 1))
 else echo "self-test ok: C2 fails when a runtime config's probe changes and the fixture does not"; fi
+if ! check_operations "$TMP/chart" > "$TMP/st3.txt" 2>&1; then
+  echo "self-test FAIL: C3 failed on the chart as it is"; cat "$TMP/st3.txt"; fails=$((fails + 1))
+else echo "self-test ok: C3 passes on the chart as it is"; fi
+sed -i 's/operations: \["CREATE", "UPDATE"\]/operations: ["CREATE", "UPDATE", "DELETE"]/' "$TMP/chart/templates/baseline/04-probes.yaml"
+if check_operations "$TMP/chart" > "$TMP/st4.txt" 2>&1; then
+  echo "self-test FAIL: C3 passed with a template that matches DELETE"; fails=$((fails + 1))
+else echo "self-test ok: C3 fails when probes-present matches DELETE"; fi
 [ "$fails" -eq 0 ] || exit 1
-echo "self-test: 2 cases passed"
+echo "self-test: 4 cases passed"

@@ -1,0 +1,170 @@
+# Inputs of the suite probes-present. The two shared fixtures
+# (tests/fixtures/probes-present/) are listed in kyverno-test.yaml beside this file.
+
+# 1. A StatefulSet whose two containers declare both probes: compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: two-containers-probed
+  namespace: example
+spec:
+  serviceName: two-containers-probed
+  selector:
+    matchLabels:
+      app: two-containers-probed
+  template:
+    metadata:
+      labels:
+        app: two-containers-probed
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+        - name: sidecar
+          image: ghcr.io/example/sidecar:v1.0.0
+          livenessProbe:
+            exec:
+              command: ["true"]
+          readinessProbe:
+            exec:
+              command: ["true"]
+---
+# 2. A DaemonSet whose second container declares no readinessProbe: not compliant.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sidecar-unready
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: sidecar-unready
+  template:
+    metadata:
+      labels:
+        app: sidecar-unready
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+        - name: sidecar
+          image: ghcr.io/example/sidecar:v1.0.0
+          livenessProbe:
+            exec:
+              command: ["true"]
+---
+# 3. A Deployment that declares only a livenessProbe: not compliant.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-only
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: liveness-only
+  template:
+    metadata:
+      labels:
+        app: liveness-only
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+---
+# 4. A Deployment whose livenessProbe is an empty object: not compliant (the
+#    legacy rule counted only containers whose probe is a non-empty object).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: empty-liveness
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: empty-liveness
+  template:
+    metadata:
+      labels:
+        app: empty-liveness
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe: {}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+---
+# 5. A Deployment whose init container has no probes and whose container has
+#    both: compliant (init containers are not judged).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: init-without-probes
+  namespace: example
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: init-without-probes
+  template:
+    metadata:
+      labels:
+        app: init-without-probes
+    spec:
+      initContainers:
+        - name: migrate
+          image: ghcr.io/example/migrate:v1.0.0
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+---
+# 6. A Deployment without probes in an excluded namespace: not judged.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-probes
+  namespace: kube-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: no-probes
+  template:
+    metadata:
+      labels:
+        app: no-probes
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
