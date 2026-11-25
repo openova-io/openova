@@ -1,0 +1,17 @@
+{{- if and (include "bp-speech.serving" .) .Values.cache }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-speech.fullname" . }}-models
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-speech.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.cache.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ printf "%dGi" (int .Values.cache.sizeGi) }}
+{{- end }}

@@ -1,0 +1,21 @@
+{{- if include "bp-speech.serving" . }}
+{{- /*
+model_aliases.json: the server's alias file. It names model.servedName as the
+repository the init containers wrote, and nothing else.
+
+function-test-sample: the five-second sample the function test sends
+(files/function-test-sample.ogg, README.md "Function test"). It is not mounted
+into the server.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-speech.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-speech.labels" . | nindent 4 }}
+data:
+  model_aliases.json: {{ dict (toString .Values.model.servedName) (include "bp-speech.repo" .) | toJson | quote }}
+binaryData:
+  function-test-sample: {{ .Files.Get "files/function-test-sample.ogg" | b64enc | quote }}
+{{- end }}
