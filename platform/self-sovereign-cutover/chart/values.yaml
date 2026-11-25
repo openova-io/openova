@@ -763,6 +763,156 @@ prewarm:
   # each FATAL the gate naming the release. Honored overrides are recorded in
   # the status ConfigMap (settledRollOverrides) and surfaced on
   # GET /sovereign/cutover/status; recording failure is itself FATAL.
+  #
+  # A DELIVERY (PUT /api/v1/sovereign/release: CANDIDATE set, UPSTREAM_BRANCH = release/<candidate>)
+  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ), that the kit applies (namespace
+  # flux-system, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit: the pins name charts, and an
+  # unlabelled namespace's bp-keycloak shares a kit chart name), when the candidate's kit pins
+  # its chart at ONE version that is neither its desired, last attempted nor deployed one: the promote
+  # gives Flux that version, which Phase A2-pins mirrors. Nor a DependencyNotReady release whose every
+  # dependency is settled or such a release. Each is named with both versions and recorded as an
+  # override is. Standing two-region Sovereign, 25 Nov 2026: bp-powerdns 1.2.32 refused by a policy,
+  # rolled back to 1.2.30, Stalled; the gate refused the candidate pinning the repair 1.2.33. The first
+  # cutover is no delivery: its gate is unchanged.
+  #
+  # Phase A0 of step 03, word for word (#6004: a template's comments are stored in every
+  # Helm release Secret; those of values.yaml are not):
+  #
+  # HelmReleases: a SUSPENDED HR is intentionally frozen (it will NOT
+  # roll during the cutover, so its running IS its desired) → skip it.
+  # A validly-overridden HR (annotation, validated above) → skip it.
+  # Otherwise flag when the spec out-ran the controller
+  # (observedGeneration < generation — the pin-bump case) OR Ready !=
+  # True (mid-reconcile / failed upgrade).
+  # #5391/#5392: distinguish TERMINAL from mid-roll. Once Flux marks an
+  # HR Stalled=True (reason RetriesExceeded) it has stopped retrying
+  # PERMANENTLY — that release will never reach Ready on its own, so
+  # "wait for the roll to settle and re-trigger" is false advice: the
+  # operator would wait forever. Live hw290 (dep 31106b6aa4a7e8e7):
+  # 7 offenders, ALL per-Org customer apps, ALL Stalled/RetriesExceeded
+  # (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
+  # DependencyNotReady onto 4 siblings). Tag those rows so the operator
+  # can tell "wait 5 minutes" from "this blocks you until you act".
+  #
+  # #6253: the two terminal shapes need DIFFERENT remedies, so they carry
+  # different tags. `flux reconcile --reset` clears a Stalled upgrade; it
+  # does nothing whatsoever for a pin whose chart was never published —
+  # there is no artifact to pull, so retrying is guaranteed to fail
+  # identically. Emitting the stalled remedy for a hollow pin sends the
+  # operator to a command that cannot work; name the real one instead
+  # (publish the pinned version, or re-pin to a published one).
+  #
+  # Deployments + StatefulSets: a pending rollout — observedGeneration
+  # behind the spec, or updated/ready replicas short of desired. Skip
+  # intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
+  # deliberately NOT gated: cordoned / control-plane-tainted nodes skew
+  # desired-vs-ready legitimately and would false-positive the gate.
+  #
+  # #6198 — THIS CHART'S OWN WORKLOADS ARE EXCLUDED, and the reason is
+  # circularity rather than convenience. The gate's whole premise is
+  # "running != desired": a workload mid-roll would be mirrored at its
+  # RUNNING tag and then rolled by step-04/step-07 to a DESIRED tag that
+  # was never mirrored. That premise cannot apply to the cutover's own
+  # components — the cutover does not roll itself to new tags, so their
+  # running IS their desired, exactly like the suspended-HR case above.
+  #
+  # Left in scope, one of them deadlocks the whole cutover. Measured live
+  # on hw295 (dep 952c564cab38d320): Deployment/catalyst/
+  # cutover-daytwo-harbor-reconciler installs at PROV and stays 0/1
+  # Running because its readiness probe (`grep -qx READY
+  # /tmp/daytwo-work/health`) withholds READY until the local Harbor holds
+  # every workload image — it logs `MISSING local Harbor image:
+  # registry.<fqdn>/proxy-dockerhub/goharbor/harbor-core:v2.14.3 (HTTP
+  # 404)` and one line like it per image (#5640). Populating those is
+  # precisely what THIS step does. So step-03 waited on the reconciler and
+  # the reconciler waited on step-03: cutover dead at 9%, step 3 of 11,
+  # BackoffLimitExceeded, on an otherwise healthy env (63/67 HRs Ready,
+  # handover sealed, chart above the #5919 floor).
+  #
+  # A component whose readiness IS "the mirror exists" must never gate the
+  # step that builds the mirror.
+  #
+  # This exclusion is narrow on purpose: it keys on the chart's own
+  # `app.kubernetes.io/name` label, so every workload the cutover actually
+  # rolls stays gated. It is NOT the whole-gate kill switch
+  # (`prewarm.settledRollPreflight.enabled=false`), which stays available
+  # and stays a last resort.
+  #
+  # #6273 — the WARNING, printed BEFORE the platform verdict so it is
+  # visible on a passing run AND on a failing one. It is deliberately
+  # loud and fully enumerated: this is the one place a narrowing of a
+  # fail-closed gate could become silent, and a silent narrowing is
+  # indistinguishable from the gate not working.
+  #
+  # The argument is OWNERSHIP, which is stronger ground than the #6198
+  # circularity carve-out one scope down. A sovereign-admin cannot be
+  # required to repair an Organization's application in order to earn
+  # the Sovereign's independence: the app belongs to the Organization
+  # that installed it, and on hw296 a fully healthy Sovereign (all 68
+  # flux-system HelmReleases Ready=True, zero platform offenders) was
+  # held out of Pillar 5 by three customer releases in `walkthree`
+  # whose install had failed. hw290 was the same shape a month earlier
+  # ("7 offenders, ALL per-Org customer apps", recorded below).
+  #
+  # The cost is REAL and is stated in the output rather than buried
+  # here: mirroring is unchanged (still best-effort over every running
+  # tag, Organization namespaces included), so a genuinely MID-ROLL app
+  # can still be mirrored at a tag the post-cutover roll moves away
+  # from. That app can then fail to pull and need a re-install. What
+  # changes is only whether that possibility fail-closes the Sovereign.
+  #
+  # #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE for
+  # both the override validation and the offender tagging below (two
+  # hand-rolled `Stalled=True` tests used to disagree with reality).
+  # Stalled=True/RetriesExceeded is how Flux gives up on an UPGRADE. A pinned
+  # chart version that does not exist sets NO Stalled: helm-controller parks the
+  # release on Ready=False reason=SourceNotReady for ever. hw296 (2026-08-13):
+  # bp-guacamole pinned 0.2.40, ghcr tops out at 0.2.39, and the HR read
+  # Ready=False SourceNotReady "... chart pull error: failed to download chart
+  # ... 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ...: not found"
+  # The old classifier told the operator to wait, then REFUSED the #5391
+  # override on it ("it will settle on its own"): a dead end. So an absent
+  # source artifact joins Stalled as terminal. Deliberately NARROW: only a
+  # 404-class answer under a SOURCE-side Ready reason; a transient failure
+  # (deadline exceeded, connection refused, 5xx) stays mid-roll. The token must
+  # come with a REMOTE-RESOLUTION context (`chart pull error`, or the
+  # self-contained `no chart version found`), because hw296 also showed
+  # ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
+  # while Flux's own artifact store rebuilt: those charts exist and it clears
+  # by itself. Both live shapes are Case 77 fixtures.
+  #
+  # #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED (as #6198 excludes its
+  # WORKLOADS below). "running != desired" cannot apply to the release running
+  # this gate: the script was rendered from the INSTALLED revision and the
+  # cutover never rolls itself mid-run. Left in scope it is a dead end, since
+  # the only fix is a new version of the chart that cannot install (hw296,
+  # fourth attempt, step 3 of 11: 67 HRs, ONE not Ready, this one, on its own
+  # hollow pin bp-self-sovereign-cutover:0.1.183). Narrow, with the Case 94
+  # CONTROL: it keys on .spec.chart.spec.chart and the slot-06a release name,
+  # both .Chart.Name; any OTHER HelmRelease, even identically stuck, stays
+  # gated and named.
+  #
+  # #6273 — read the Organization-namespace set from the LABEL, not from
+  # a list this chart carries. Fail-closed on an unreadable answer for
+  # the same reason as the two reads above: without it every namespace
+  # would classify as platform, which is the STRICTER verdict, but the
+  # gate would then be certifying an ownership split it could not see.
+  # An EMPTY answer is a legitimate reading (a Sovereign with no
+  # Organizations yet) and is NOT a failure — kubectl still returns a
+  # well-formed `{"items":[]}`.
+  #
+  # #5391 override validation FIRST, before ANY exclusion — the gate
+  # fail-closes on a malformed or over-broad override rather than
+  # honoring it. A SUSPENDED HR is outside the gate's domain entirely
+  # (skipped below), so its annotations are not judged here. #6262: so is
+  # this chart's OWN release — judging an override on a release the gate
+  # does not gate would reject it as "names a HEALTHY HelmRelease" and
+  # fail the whole gate closed on an annotation that was never needed.
+  # #6273: an Organization-namespace release is now in that same
+  # position. Its offenders only WARN, so an override there is never
+  # needed — but a sovereign-admin who annotated one under the old
+  # fail-closed contract would otherwise have that stale annotation
+  # FATAL the whole cutover the moment the customer's app recovered.
   settledRollPreflight:
     enabled: true
   # #5237 round 2 (Refs #5007 #3379) — PIN-AWARE prewarm: union the chart-
