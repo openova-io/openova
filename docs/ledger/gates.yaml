@@ -334,7 +334,8 @@ checks:
   needs: []
   proof: running
   asserts: Simulation back end installed, truthful and fenced
-  delivered_by: AIP-106
+  implemented_by: AIP-106
+  delivered_by: AIP-160
 - id: AIP-G07
   title: Agent tokens
   owner: AIP
@@ -2176,7 +2177,7 @@ checks:
   title: 'Injection negative: the mounted value is in no Secret object'
   owner: SEC
   state: not-built
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
