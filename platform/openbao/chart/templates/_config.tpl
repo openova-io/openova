@@ -112,6 +112,14 @@ path "sys/storage/raft/snapshot" {
 }
 {{ end -}}
 
+{{- /* The restore drill's canary and nothing else (templates/restore-drill.yaml,
+SEC-181). A token of token role sec-g10-drill holds only this policy. */ -}}
+{{- define "openbao.policy.sec-g10-drill" -}}
+path "{{ .kv }}/data/sec-g10-drill/canary" {
+  capabilities = ["create", "update", "read"]
+}
+{{ end -}}
+
 {{- /* ADR-0015 #7067 — ESO mints its push token for the peers. */ -}}
 {{- define "openbao.policy.openbao-peer-token" -}}
 path "identity/oidc/token/{{ .aud }}" {
@@ -250,7 +258,8 @@ own policy (the first op of the desired state) but not its own role (the
 exact-path read-only entry wins over the wildcard), and it may enable only the
 kv mount and the mounts of `engines` (SEC-190). It creates and configures
 transit keys and writes token roles (the state key and token role tofu-state,
-SEC-190), but cannot use a key, back one up or create a token. It CAN write
+SEC-190), but cannot use a key or back one up, and it creates a token only
+through token role sec-g10-drill, for the restore drill (SEC-181). It CAN write
 any policy and bind any role, so it is a privileged
 writer by composition — that is what a declarative config owner is; the
 narrowing keeps it off data and seal, and its only input is this chart.
@@ -269,6 +278,9 @@ path "sys/mounts/{{ $name }}" { capabilities = ["create", "update"] }
 path "transit/keys/*" { capabilities = ["create", "update", "read"] }
 path "transit/keys/+/config" { capabilities = ["create", "update"] }
 path "auth/token/roles/*" { capabilities = ["create", "update", "read"] }
+{{- if (.Values.restoreDrill | default dict).enabled }}
+path "auth/token/create/sec-g10-drill" { capabilities = ["update"] }
+{{- end }}
 path "auth/+/role/*" { capabilities = ["create", "read", "update", "list"] }
 path "auth/+/role/openbao-config-admin" { capabilities = ["read"] }
 path "auth/+/config" { capabilities = ["create", "read", "update"] }
@@ -322,6 +334,8 @@ peers; each gets one role on every jwt-peer-<peer> mount. */ -}}
 {{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin" "secrets-birth") -}}
 {{- $bk := .Values.backup | default dict -}}
 {{- if $bk.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
+{{- $drill := (.Values.restoreDrill | default dict).enabled -}}
+{{- if $drill }}{{ $policies = append $policies "sec-g10-drill" }}{{ end -}}
 
 {{- /* role: name, sa (one name or a list), ns (one or a list), policies, ttl,
 maxTTL, aud (the audience a service-account token must carry; none = any). */ -}}
@@ -387,6 +401,12 @@ one-way), so that the one offline backup can be taken; never deletable. */ -}}
 {{- /* Token role tofu-state: what External Secrets mints every 15 minutes for
 the provider pod (an orphan, not renewable, at most 1h, policy tofu-state). */ -}}
 {{- $ops = append $ops (dict "kind" "write" "path" "auth/token/roles/tofu-state" "payload" (dict "allowed_policies" (list "tofu-state") "orphan" true "renewable" false "token_explicit_max_ttl" "1h")) -}}
+{{- /* Token role sec-g10-drill: the drill's token, minted by this identity; a
+child of the drill's login, so revoking that login revokes it; no default
+policy, not renewable, at most 15 minutes. */ -}}
+{{- if $drill -}}
+{{- $ops = append $ops (dict "kind" "write" "path" "auth/token/roles/sec-g10-drill" "payload" (dict "allowed_policies" (list "sec-g10-drill") "orphan" false "renewable" false "token_explicit_max_ttl" "15m" "token_no_default_policy" true)) -}}
+{{- end -}}
 {{- if $pt.peers -}}
 {{- $self := $pt.self -}}
 {{- $clients := list $aud -}}

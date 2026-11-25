@@ -233,11 +233,19 @@ spec:
   #   node file the stanza names and initialises itself; there is no init
   #   Job and no unseal-key Secret. Without the ConfigMap this release does
   #   not install, and without a stanza the server does not start.
+  # - backup.bucket (SEC-181): the bucket name of the object-storage Secret
+  #   that cloud-init seeds in flux-system. Its key pair reaches namespace
+  #   openbao as the reflected copy openbao/object-storage (register entry
+  #   openbao-snapshot-bucket), which the backup and the drill mount as files.
   valuesFrom:
     - kind: ConfigMap
       name: sovereign-seal-profile
       valuesKey: stanza
       targetPath: seal.stanza
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-bucket
+      targetPath: backup.bucket
   values:
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for openbao (the
@@ -307,3 +315,9 @@ spec:
       regions: '${SOVEREIGN_REGIONS_JSON:-}'
     functionTest:
       timeoutSeconds: 900  # T = install.timeout (15m)
+    # SEC-181 — the six-hourly snapshot to the bucket (SEC-180) and its
+    # restore drill, which gate check SEC-G10 reads (docs/RUNBOOKS.md §2.18).
+    backup:
+      enabled: true
+    restoreDrill:
+      enabled: true

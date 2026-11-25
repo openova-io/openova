@@ -2196,12 +2196,13 @@ checks:
 - id: SEC-G10
   title: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_backup.go
   delivered_by: SEC-181
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
