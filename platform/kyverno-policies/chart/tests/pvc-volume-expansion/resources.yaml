@@ -1,0 +1,94 @@
+# Inputs of the suite pvc-volume-expansion. One PersistentVolumeClaim per
+# case; the number is the case of kyverno-test.yaml. The StorageClasses are in
+# cluster-resources.yaml.
+
+# 1. The class allows expansion.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: on-expandable
+  namespace: example
+spec:
+  storageClassName: expandable
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 2. The class sets allowVolumeExpansion false.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: on-not-expandable
+  namespace: example
+spec:
+  storageClassName: not-expandable
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 3. The class does not set allowVolumeExpansion.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: on-unset
+  namespace: example
+spec:
+  storageClassName: unset
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 4. The class does not exist: the lookup has nothing to read.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: on-missing
+  namespace: example
+spec:
+  storageClassName: missing
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 5. No storageClassName: the cluster default applies, which this policy does
+# not judge.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: no-class
+  namespace: example
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 6. storageClassName "": no class at all (static binding), not judged.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: empty-class
+  namespace: example
+spec:
+  storageClassName: ""
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 7. Case 2 in kube-system, a namespace the chart defaults exclude.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: on-not-expandable
+  namespace: kube-system
+spec:
+  storageClassName: not-expandable
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

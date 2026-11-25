@@ -12,7 +12,7 @@
 # and it fails when
 #   C4 a suite under tests/ holds a ValidatingPolicy and is not in SUITES,
 #      unless it is in ELSEWHERE and the test named there exists and names it.
-# CMP-064 adds the suites of its batch to SUITES.
+# A policy rewritten to the new kind adds its suite to SUITES.
 #
 # Usage:
 #   bash suites-current.sh              run the test on the chart above this file
@@ -48,6 +48,13 @@ SUITES=(
   "image-tag-pinned baseline/12-image-tag-pinned.yaml"
   "secret-not-in-env baseline/19-secret-not-in-env.yaml"
   "forbid-local-path-storage baseline/23-forbid-local-path.yaml"
+  "pdb-permits-eviction baseline/02-pdb.yaml"
+  "pvc-volume-expansion baseline/07-pvc-expansion.yaml"
+  "cilium-l7-mtls baseline/09-cilium-l7-mtls.yaml"
+  "prometheus-scrape baseline/13-prometheus-scrape.yaml"
+  "networkpolicy-present baseline/14-networkpolicy-present.yaml"
+  "otel-injected baseline/15-otel-injected.yaml"
+  "backup-configured baseline/20-backup-configured.yaml"
 )
 
 # A suite whose copy holds more than one policy is kept current by its own

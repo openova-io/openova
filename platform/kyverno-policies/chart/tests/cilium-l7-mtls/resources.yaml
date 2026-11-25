@@ -1,0 +1,138 @@
+# Inputs of the suite cilium-l7-mtls. One workload per case; the number is
+# the case of kyverno-test.yaml.
+
+# 1. A Deployment whose Pod template carries policy.cilium.io/enforced "true".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enforced
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: enforced
+  template:
+    metadata:
+      labels:
+        app: enforced
+        policy.cilium.io/enforced: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 2. A Deployment whose Pod template lacks the label.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unlabelled
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: unlabelled
+  template:
+    metadata:
+      labels:
+        app: unlabelled
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 3. A StatefulSet whose label says "false".
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: label-false
+  namespace: example
+spec:
+  serviceName: label-false
+  selector:
+    matchLabels:
+      app: label-false
+  template:
+    metadata:
+      labels:
+        app: label-false
+        policy.cilium.io/enforced: "false"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. A DaemonSet labelled on the workload, not on its Pod template.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: label-on-workload
+  namespace: example
+  labels:
+    policy.cilium.io/enforced: "true"
+spec:
+  selector:
+    matchLabels:
+      app: label-on-workload
+  template:
+    metadata:
+      labels:
+        app: label-on-workload
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 5. A DaemonSet labelled on its Pod template.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: enforced-daemonset
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: enforced-daemonset
+  template:
+    metadata:
+      labels:
+        app: enforced-daemonset
+        policy.cilium.io/enforced: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 6. A Deployment whose Pod template has no metadata at all.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-template-metadata
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: no-template-metadata
+  template:
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 7. Case 2 in kube-system, a namespace the chart defaults exclude.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unlabelled
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: unlabelled
+  template:
+    metadata:
+      labels:
+        app: unlabelled
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
