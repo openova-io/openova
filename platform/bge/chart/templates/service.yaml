@@ -1,27 +1,19 @@
-{{- if .Values.bge.enabled -}}
+{{- if include "bp-bge.serving" . }}
+{{- /* ClusterIP only: the model gateway is the one caller. The chart renders no route of any kind. */}}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "bp-bge.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "bp-bge.labels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.bge.embeddings.port }}
-      targetPort: embeddings
-      protocol: TCP
-      name: embeddings
-    {{- if .Values.bge.reranker.enabled }}
-    - port: {{ .Values.bge.reranker.port }}
-      targetPort: reranker
-      protocol: TCP
-      name: reranker
-    {{- end }}
+  type: ClusterIP
   selector:
     {{- include "bp-bge.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
 {{- end }}

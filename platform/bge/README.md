@@ -1,237 +1,37 @@
-# BGE
+# bp-bge
 
-BAAI General Embedding models for text embeddings and reranking. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §7 — Application Blueprints). Used by `bp-cortex` for embedding generation (Milvus vector search) and reranking (improving retrieval precision).
+Embeddings and reranking on CPU: one Infinity server (github.com/michaelfeil/infinity, MIT, `0.0.78-cpu` by digest) serves one embedding model and at most one reranker.
 
-**Status:** Accepted | **Updated:** 2026-04-27
+## Role in Catalyst
 
----
+An AI-service Blueprint (`class: ai-service`) of the platform's model plane, not an Application a User installs. The platform's model gateway is its one caller: the Service is `ClusterIP`, and the chart renders no `HTTPRoute`, `Ingress`, `Gateway` or `GRPCRoute`. The kit's target namespace is `model-serving`. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where model services sit.
 
-## Overview
+Routes: `POST /v1/embeddings` (`{model, input}`), `POST /v1/rerank` (`{model, query, documents, top_n}` to `{results: [{index, relevance_score}]}`), and `GET /health` for the probes. `usage.prompt_tokens` counts tokens (`--lengths-via-tokenize`), which the gateway's meter reads.
 
-BGE provides state-of-the-art text embeddings and reranking for RAG systems, supporting multilingual (including Arabic) and hybrid sparse+dense retrieval.
+## Configuration
 
-```mermaid
-flowchart LR
-    subgraph BGE["BGE Services"]
-        M3[BGE-M3<br/>Embeddings]
-        Reranker[BGE-Reranker<br/>Cross-Encoder]
-    end
+The Blueprint's `configSchema` (`blueprint.yaml`) is the chart's parameters; the chart refuses at render what it refuses.
 
-    Text[Text] --> M3
-    M3 --> Dense[Dense Vector<br/>1024-dim]
-    M3 --> Sparse[Sparse Vector]
+| Value | Meaning |
+|---|---|
+| `home`, `enabled` | Set by the kit slot. Both true: the chart renders its workloads. Otherwise it renders the Namespace only. |
+| `embedding` | `source`, `revision`, `servedName`, `dimensions`. Default: `hf://ibm-granite/granite-embedding-107m-multilingual` at `d6cffd33…`, 384 dimensions. |
+| `reranker` | Optional. `source`, `revision`, `servedName`. Default: `hf://cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` at `1427fd65…`. |
+| `cache` | Optional weights claim: `sizeGi` (at least 10), `storageClass`. Without it, an emptyDir of 10Gi. |
 
-    Candidates[Candidates] --> Reranker
-    Query[Query] --> Reranker
-    Reranker --> Ranked[Ranked Results]
-```
+A `source` is never a floating reference: `oci://<host>/<path>@sha256:<64 hex>`, or `hf://<owner>/<name>` with `revision`, the 40-character commit. Both models come from the same kind of source.
 
----
+Outside the schema: `image`, `port` (7997), `resources` (2 to 4 CPUs, 5 to 8Gi of memory), `hubToken.secretProviderClass`, `networkPolicy`, `functionTest`.
 
-## Models
+**Model image.** An `oci://` model is an image of the Sovereign's registry with one layer over `scratch`: the model's files, readable by every user, in `/model`, and a statically linked `/bin/cp` (for example busybox's). An init container runs `/bin/cp -R /model/. /models/<embedding|reranker>`; the kubelet pulls the image, so the Pod needs no egress for it, and the server reads the weights read-only with the hub switched off.
 
-| Model | Purpose | Dimensions |
-|-------|---------|------------|
-| **BGE-M3** | Multilingual embeddings | 1024 (dense) + sparse |
-| **BGE-Reranker-v2-M3** | Cross-encoder reranking | - |
+**hf:// models.** The server fetches the pinned revision itself into the weights volume. That needs `networkPolicy.hubEgress: true` (default false; with the policy on and it false, an `hf://` source is refused at render). A gated model's token is one file: `hubToken.secretProviderClass` names a SecretProviderClass of the release namespace whose object `hf-token` the Secrets Store CSI driver mounts as `/var/run/secrets/openova/hf-token` (`HF_TOKEN_PATH`). No credential is a value, and the chart reads no Secret.
 
----
+## Operations
 
-## Why BGE?
-
-| Feature | Benefit |
-|---------|---------|
-| Multilingual | Arabic + English support |
-| Hybrid retrieval | Dense + sparse vectors |
-| High accuracy | MTEB benchmark leader |
-| Reranking | Precision improvement |
-| Self-hosted | Data sovereignty |
-
----
-
-## Deployment
-
-### BGE-M3 Embeddings
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bge-m3
-  namespace: ai-hub
-spec:
-  replicas: 1
-  template:
-    spec:
-      containers:
-        - name: bge-m3
-          image: harbor.<location-code>.<sovereign-domain>/ai-hub/bge-m3:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: MODEL_ID
-              value: "BAAI/bge-m3"
-          resources:
-            requests:
-              cpu: "2"
-              memory: 4Gi
-              nvidia.com/gpu: "1"
-```
-
-### BGE Reranker
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bge-reranker
-  namespace: ai-hub
-spec:
-  replicas: 1
-  template:
-    spec:
-      containers:
-        - name: bge-reranker
-          image: harbor.<location-code>.<sovereign-domain>/ai-hub/bge-reranker:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: MODEL_ID
-              value: "BAAI/bge-reranker-v2-m3"
-          resources:
-            requests:
-              cpu: "1"
-              memory: 2Gi
-              nvidia.com/gpu: "1"
-```
-
----
-
-## API Endpoints
-
-### Embeddings
-
-```bash
-curl -X POST http://bge-m3.ai-hub.svc:8080/embed \
-  -H "Content-Type: application/json" \
-  -d '{
-    "texts": ["Hello world", "مرحبا بالعالم"],
-    "return_sparse": true
-  }'
-```
-
-Response:
-```json
-{
-  "dense": [[0.123, 0.456, ...], [0.789, 0.012, ...]],
-  "sparse": [{"token_id": 1234, "weight": 0.5}, ...]
-}
-```
-
-### Reranking
-
-```bash
-curl -X POST http://bge-reranker.ai-hub.svc:8080/rerank \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What is AML?",
-    "documents": [
-      "Anti-Money Laundering guidelines...",
-      "Machine Learning tutorial...",
-      "AML compliance requirements..."
-    ]
-  }'
-```
-
-Response:
-```json
-{
-  "scores": [0.95, 0.12, 0.89],
-  "ranked_indices": [0, 2, 1]
-}
-```
-
----
-
-## LangChain Integration
-
-```python
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-
-embeddings = HuggingFaceInferenceAPIEmbeddings(
-    api_url="http://bge-m3.ai-hub.svc:8080/embed",
-    model_name="BAAI/bge-m3"
-)
-
-# Generate embeddings
-vectors = embeddings.embed_documents(["Hello", "World"])
-```
-
----
-
-## Hybrid Retrieval
-
-```python
-# Dense + Sparse search in Milvus
-from pymilvus import AnnSearchRequest, WeightedRanker
-
-# Get embeddings
-response = requests.post(
-    "http://bge-m3.ai-hub.svc:8080/embed",
-    json={"texts": [query], "return_sparse": True}
-)
-dense_vec = response.json()["dense"][0]
-sparse_vec = response.json()["sparse"][0]
-
-# Parallel search
-dense_req = AnnSearchRequest(dense_vec, "dense_vector", {"metric_type": "COSINE"}, 20)
-sparse_req = AnnSearchRequest(sparse_vec, "sparse_vector", {"metric_type": "IP"}, 20)
-
-# Combine results
-results = collection.hybrid_search(
-    [dense_req, sparse_req],
-    rerank=WeightedRanker(0.7, 0.3),
-    limit=10
-)
-```
-
----
-
-## Performance Tuning
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `max_batch_size` | Max texts per request | 32 |
-| `max_length` | Max token length | 8192 |
-| `normalize` | L2 normalize vectors | true |
-
----
-
-## Monitoring
-
-| Metric | Query |
-|--------|-------|
-| Embed latency | `bge_embed_duration_seconds` |
-| Rerank latency | `bge_rerank_duration_seconds` |
-| Batch size | `bge_batch_size` |
-| GPU memory | `nvidia_gpu_memory_used_bytes` |
-
----
-
-## Consequences
-
-**Positive:**
-- State-of-the-art embeddings
-- Multilingual support (Arabic)
-- Hybrid dense + sparse
-- Cross-encoder reranking
-- Self-hosted
-
-**Negative:**
-- GPU required for performance
-- Memory-intensive
-- Batch size limits
-
----
-
-*Part of [OpenOva](https://openova.io)*
+- One replica. The Pod runs as user 10001 with a read-only root file system, all capabilities dropped and no service-account token; its caches are on a `/tmp` emptyDir.
+- The start-up probe allows 300 seconds before its first failure counts. Measured cold start with both default models: about 50 seconds.
+- The network policy (on by default) admits the serving port only from namespace `model-gateway` and from the release's function test, and lets the Pods send to cluster DNS, to the server's port and, with `hubEgress`, to TCP 443 of public addresses (10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12 and 192.168.0.0/16 excepted).
+- Function test: `helm test` sends one text to `POST /v1/embeddings` and passes when the vector has `embedding.dimensions` numbers.
+- Tests: `chart/tests/render.sh` (the rules at render), `chart/tests/function-test-render.sh` (the test hook), `chart/tests/model-load.sh` (a real run of the image: fetch from the hub, copy from model images pulled by digest from a registry, and an embedding of the declared length from each).
+- Single region (`topology: singleton`): the model plane runs in the region whose `MODEL_PLANE_HOME` is true.

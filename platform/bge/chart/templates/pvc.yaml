@@ -1,0 +1,17 @@
+{{- if and (include "bp-bge.serving" .) .Values.cache }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bp-bge.fullname" . }}-models
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-bge.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.cache.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ printf "%dGi" (int .Values.cache.sizeGi) }}
+{{- end }}

@@ -27,7 +27,7 @@
 #       after its retries, so those pins are NOT MEASURED (#7922)
 #
 # Usage:
-#   ./scripts/check-catalog-seed-lockstep.sh [--check-ghcr] [--ghcr-org <org>]
+#   ./scripts/check-catalog-seed-lockstep.sh [--check-ghcr [--pr-base <commit>]] [--ghcr-org <org>]
 #
 # CI integration: invoked by .github/workflows/check-catalog-seed-lockstep.yaml
 # on every push/PR touching either tree.
@@ -61,6 +61,21 @@
 # Exit code 1 also covers a missing GHCR tag / a stale or dead register entry.
 # A version listing that fails is retried (scripts/lib/ghcr-tags.sh); one that
 # still fails is NOT MEASURED, never "missing" (#7922).
+#
+# `--pr-base <commit>` (with --check-ghcr, on a pull request only) — the first
+# version of a chart cannot be on GHCR before the merge that adds the chart:
+# the release of that merge publishes it. Pull request 8772 (SEC-211) added
+# platform/secrets-store-csi with its seed pin and could not merge, and every
+# way around it was closed by another guard. So, given the commit the pull
+# request merges into, a missing tag is reported as "published by this merge"
+# and does not fail when ALL of these hold: exactly one chart source in this
+# tree carries the pinned chart name; the pin is exactly the version that
+# Chart.yaml sets; the chart is not a library; and on the base that Chart.yaml
+# does not exist, or sets another version. Those are the two cases in which
+# blueprint-release.yaml ("Release writer: bump the chart version") publishes
+# the version as it stands. Every other missing tag still fails. The flag is
+# refused on any event other than pull_request: on main and in the release's
+# hard gate every pin must already be published.
 
 set -euo pipefail
 
@@ -73,14 +88,40 @@ UNPUBLISHED_REGISTER="${REPO_ROOT}/scripts/expected-unpublished-catalog-seed-pin
 
 CHECK_GHCR=""
 GHCR_ORG="openova-io"
+PR_BASE=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --check-ghcr) CHECK_GHCR=1; shift ;;
     --ghcr-org)   GHCR_ORG="$2"; shift 2 ;;
-    -h|--help)    sed -n '2,70p' "$0"; exit 0 ;;
+    --pr-base)
+      [ "$#" -ge 2 ] || { echo "ERROR: --pr-base needs a commit" >&2; exit 2; }
+      PR_BASE="$2"; shift 2 ;;
+    -h|--help)    sed -n '2,85p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+
+# --pr-base: see the header. Strict on purpose: only with --check-ghcr, only on a
+# pull request, and only with a commit this checkout holds.
+PR_BASE_SHA=""
+if [ -n "${PR_BASE}" ]; then
+  if [ -z "${CHECK_GHCR}" ]; then
+    echo "ERROR: --pr-base is a setting of --check-ghcr." >&2
+    exit 2
+  fi
+  case "${GITHUB_EVENT_NAME:-}" in
+    ''|pull_request) ;;
+    *)
+      echo "ERROR: --pr-base is for the check of a pull request; this run is a '${GITHUB_EVENT_NAME}' event, where every pin must already be published." >&2
+      exit 2
+      ;;
+  esac
+  PR_BASE_SHA="$(git -C "${REPO_ROOT}" rev-parse --verify --quiet "${PR_BASE}^{commit}" || true)"
+  if [ -z "${PR_BASE_SHA}" ]; then
+    echo "ERROR: --pr-base '${PR_BASE}' is not a commit of this checkout (the check of a pull request needs the first parent of its merge commit: checkout fetch-depth 2)." >&2
+    exit 2
+  fi
+fi
 
 if ! command -v yq >/dev/null 2>&1; then
   echo "ERROR: yq not installed (apt-get install yq OR brew install yq)" >&2
@@ -350,9 +391,50 @@ if [ -n "${CHECK_GHCR}" ]; then
   ghcr_waived=0
   ghcr_ok=0
   ghcr_unmeasured=0
+  ghcr_this_merge=0
   seen_charts=""
   TAGCACHE="$TMP/tagcache"
   mkdir -p "$TAGCACHE"
+
+  # published_by_this_merge <chart> <version> — with --pr-base only. True when the
+  # release of this pull request's merge publishes <chart>:<version> as it stands
+  # (the conditions are in the header); sets `reason` either way.
+  published_by_this_merge() {
+    local chart="$1" ver="$2" f rel="" n=0 name cur old
+    for f in "${REPO_ROOT}"/platform/*/chart/Chart.yaml "${REPO_ROOT}"/products/*/chart/Chart.yaml; do
+      [ -f "$f" ] || continue
+      name="$(awk '/^name:/{print $2; exit}' "$f" | tr -d '"')"
+      if [ "$name" = "$chart" ]; then
+        n=$((n + 1))
+        rel="${f#"${REPO_ROOT}"/}"
+      fi
+    done
+    if [ "$n" -ne 1 ]; then
+      reason="${n} chart source(s) in this tree are named ${chart}, not one"
+      return 1
+    fi
+    cur="$(awk '/^version:/{print $2; exit}' "${REPO_ROOT}/${rel}" | tr -d '"')"
+    if [ "$cur" != "$ver" ]; then
+      reason="the pin is not the version ${rel} sets in this tree (${cur})"
+      return 1
+    fi
+    if [ "$(awk '/^type:/{print $2; exit}' "${REPO_ROOT}/${rel}" | tr -d '"')" = "library" ]; then
+      reason="${rel} is a library chart, which no release publishes"
+      return 1
+    fi
+    if ! git -C "${REPO_ROOT}" cat-file -e "${PR_BASE_SHA}:${rel}" 2>/dev/null; then
+      reason="${rel} is added by this pull request"
+      return 0
+    fi
+    git -C "${REPO_ROOT}" show "${PR_BASE_SHA}:${rel}" > "$TMP/base-chart.yaml"
+    old="$(awk '/^version:/{print $2; exit}' "$TMP/base-chart.yaml" | tr -d '"')"
+    if [ "$old" != "$cur" ]; then
+      reason="this pull request moves ${rel} from ${old} to ${cur}"
+      return 0
+    fi
+    reason="${rel} sets ${cur} on the base too, so the release of this merge does not publish it"
+    return 1
+  }
 
   while IFS='|' read -r bp_name bp_vis src_chart src_ver; do
     [ -n "$src_chart" ] || continue
@@ -422,8 +504,14 @@ if [ -n "${CHECK_GHCR}" ]; then
     if [ "$published" -eq 1 ]; then
       ghcr_ok=$((ghcr_ok + 1))
       echo "  GHCR OK   ${bp_name}: ${src_chart}:${src_ver}"
+    elif [ -n "${PR_BASE_SHA}" ] && published_by_this_merge "$src_chart" "$src_ver"; then
+      echo "  GHCR NEW  ${bp_name}: ${src_chart}:${src_ver} — not on ghcr.io/${GHCR_ORG} yet, published by this merge: ${reason}"
+      ghcr_this_merge=$((ghcr_this_merge + 1))
     else
       echo "  GHCR MISS ${bp_name}: ${src_chart}:${src_ver} — tag NOT FOUND on ghcr.io/${GHCR_ORG}/${src_chart} (visibility=${bp_vis})"
+      if [ -n "${PR_BASE_SHA}" ]; then
+        echo "       not published by this merge: ${reason}"
+      fi
       ghcr_fail=$((ghcr_fail + 1))
     fi
   done <<< "$seed_rows"
@@ -462,7 +550,11 @@ if [ -n "${CHECK_GHCR}" ]; then
   fi
 
   echo
-  echo "GHCR-checked ${ghcr_checked} seed pin(s) (${ghcr_ok} resolved); ${ghcr_waived} declared known-gap(s); ${ghcr_fail} failure(s); ${ghcr_unmeasured} not measured."
+  this_merge_note=""
+  if [ -n "${PR_BASE_SHA}" ]; then
+    this_merge_note=" ${ghcr_this_merge} published by this merge (base ${PR_BASE_SHA});"
+  fi
+  echo "GHCR-checked ${ghcr_checked} seed pin(s) (${ghcr_ok} resolved); ${ghcr_waived} declared known-gap(s);${this_merge_note} ${ghcr_fail} failure(s); ${ghcr_unmeasured} not measured."
   if [ "$ghcr_fail" -gt 0 ]; then
     echo
     echo "FAIL: ${ghcr_fail} catalog-seed pin(s) reference a chart version that does NOT"
@@ -492,7 +584,11 @@ if [ -n "${CHECK_GHCR}" ]; then
     echo "This is not a verdict on those pins; run the check again."
     exit 2
   fi
-  echo "PASS: every catalog-seed delivery pin resolves to a published GHCR tag."
+  if [ "$ghcr_this_merge" -gt 0 ]; then
+    echo "PASS: every catalog-seed delivery pin resolves to a published GHCR tag, except ${ghcr_this_merge} that the release of this pull request's merge publishes."
+  else
+    echo "PASS: every catalog-seed delivery pin resolves to a published GHCR tag."
+  fi
 fi
 
 if [ "$fail" -ne 0 ]; then

@@ -1,21 +1,17 @@
 {{- /*
-NetworkPolicy — locks the BGE Pod down to the minimum set required for
-embeddings + reranking + model download.
+The one network policy of the release. It selects every Pod of the release:
+the server and the function test.
 
-Ingress: bp-llm-gateway (slot 40) is the canonical caller; the gateway
-fans out across model-runtime pods (vllm, bge, kserve InferenceServices).
-Prometheus scraping is allowed when serviceMonitor.enabled = true.
+Ingress: the serving port, from the namespace of the model gateway (where the
+meter runs) and from the release's own function test, nothing else.
 
-Egress: cluster DNS (always); HuggingFace Hub (huggingface.co +
-cdn-lfs.huggingface.co on TCP/443) when allowHuggingfaceEgress = true,
-so TEI can pull model weights on first start. Air-gapped Sovereigns
-pre-load the PVC and overlay allowHuggingfaceEgress = false.
-
-Per docs/INVIOLABLE-PRINCIPLES.md #4 every selector / port is operator-
-tunable. Disabled by default (cluster overlays MAY enable in target
-state).
-*/}}
-{{- if and .Values.bge.enabled .Values.networkPolicy.enabled }}
+Egress: cluster DNS; the serving port of the release's server (the function
+test's request); and, only when networkPolicy.hubEgress is true, TCP 443 to
+public addresses (the private, shared and link-local ranges excepted), where
+the server fetches an hf:// model. An oci:// model
+image is pulled by the kubelet, not by the Pod, so it needs no egress.
+*/ -}}
+{{- if and (include "bp-bge.serving" .) .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,54 +22,50 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      {{- include "bp-bge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
     - Ingress
     - Egress
   ingress:
-    # bp-llm-gateway → BGE (embeddings + rerank)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.networkPolicy.llmGatewayNamespace | quote }}
-      ports:
-        - protocol: TCP
-          port: {{ .Values.bge.embeddings.port }}
-        {{- if .Values.bge.reranker.enabled }}
-        - protocol: TCP
-          port: {{ .Values.bge.reranker.port }}
-        {{- end }}
-    # Prometheus scraping
-    - from:
-        - namespaceSelector: {}
-          podSelector:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.gatewayNamespace | quote }}
+        - podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              catalyst.openova.io/function-test: "true"
       ports:
         - protocol: TCP
-          port: {{ .Values.bge.embeddings.port }}
-        {{- if .Values.bge.reranker.enabled }}
-        - protocol: TCP
-          port: {{ .Values.bge.reranker.port }}
-        {{- end }}
+          port: {{ .Values.port }}
   egress:
-    # Cluster DNS
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
       ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
-    {{- if .Values.networkPolicy.allowHuggingfaceEgress }}
-    # HuggingFace Hub model download (huggingface.co, cdn-lfs.huggingface.co)
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "bp-bge.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+    {{- if .Values.networkPolicy.hubEgress }}
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
               - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 169.254.0.0/16
               - 172.16.0.0/12
               - 192.168.0.0/16
       ports:
