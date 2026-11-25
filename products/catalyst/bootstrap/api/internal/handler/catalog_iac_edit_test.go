@@ -1,8 +1,8 @@
 // catalog_iac_edit_test.go — #3668 §5D coverage for the full-CR catalog
 // IaC editor endpoint (PUT /api/v1/catalog/{name}/iac).
 //
-// The DoD §9.7: an "Edit IaC" action commits the WHOLE blueprint.yaml — a
-// field the 7-field card form could never touch (e.g. spec.source.version) —
+// An "Edit IaC" action commits the whole blueprint.yaml (of which, over a
+// live Blueprint, only the card fields and spec.visibility may change: SVC-200)
 // to the SAME catalog-sovereign Gitea file the card edit writes, under the
 // dedicated git budget, gated by the tier-admin authority. These pin: the
 // happy-path commit lands the full CR; a non-admin is 403'd; a malformed /
@@ -51,6 +51,8 @@ metadata:
 spec:
   version: "` + version + `"
   visibility: listed
+  class: infrastructure
+  lifecycle: supported
   card:
     title: Grafana Alloy
     summary: Telemetry collector
@@ -66,7 +68,7 @@ spec:
 }
 
 // TestCatalogIaCEdit_CommitsFullCR — the happy path: a tier-admin PUTs the
-// full blueprint.yaml (editing spec.source.version, a non-card field) → it
+// full blueprint.yaml of a Blueprint with no live object yet → it
 // lands at catalog-sovereign/bp-alloy/blueprint.yaml verbatim.
 func TestCatalogIaCEdit_CommitsFullCR(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
@@ -184,10 +186,10 @@ func jsonQuote(s string) string {
 // reconciles it into the live Blueprint CR.
 
 // fullWordpressBlueprintYAML is the UAT row-148 resource shape: a deployed,
-// structurally-different blueprint whose spec.manifests the editor edits in
+// structurally-different blueprint whose card summary the editor edits in
 // place. metadata.name carries the canonical bp- form (the shape the live CR
 // / dry-run path uses).
-func fullWordpressBlueprintYAML(manifestsNS string) string {
+func fullWordpressBlueprintYAML(summary string) string {
 	return `apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
@@ -195,9 +197,11 @@ metadata:
 spec:
   version: "6.5.0"
   visibility: listed
+  class: application
+  lifecycle: supported
   card:
     title: WordPress
-    summary: CMS
+    summary: ` + summary + `
   source:
     kind: HelmRepository
     type: oci
@@ -206,7 +210,7 @@ spec:
     version: "6.5.0"
   manifests:
     chart: bp-wordpress
-    namespace: ` + manifestsNS + `
+    namespace: wordpress
 `
 }
 
@@ -219,13 +223,13 @@ func bareAlloyBlueprintYAML(version string) string {
 	return strings.Replace(fullAlloyBlueprintYAML(version), "name: bp-alloy", "name: alloy", 1)
 }
 
-// TestCatalogIaCEdit_RoundTrip_ManifestsEditReachesFluxLeg — row 148: the
-// editor loads bp-wordpress (seed-only bp- repo), edits spec.manifests, and
+// TestCatalogIaCEdit_RoundTrip_CardEditReachesFluxLeg — row 148: the
+// editor loads bp-wordpress (seed-only bp- repo), edits its card, and
 // commits. The commit must (a) land back in the SAME repo the read resolved,
-// and (b) mirror into the Flux aggregator tree with the manifests edit so the
+// and (b) mirror into the Flux aggregator tree with the card edit so the
 // live Blueprint CR reconciles — the leg whose absence made hw242's commit
 // inert.
-func TestCatalogIaCEdit_RoundTrip_ManifestsEditReachesFluxLeg(t *testing.T) {
+func TestCatalogIaCEdit_RoundTrip_CardEditReachesFluxLeg(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
@@ -235,7 +239,7 @@ func TestCatalogIaCEdit_RoundTrip_ManifestsEditReachesFluxLeg(t *testing.T) {
 	perBP := giteaKey(catalogSovereignOrg, "bp-wordpress", catalogEditGitBranch, catalogEditBlueprintPath)
 	fg.files[perBP] = []byte(fullWordpressBlueprintYAML("wordpress"))
 
-	// EDIT + COMMIT: the loaded document with spec.manifests.namespace changed.
+	// EDIT + COMMIT: the loaded document with its card summary changed.
 	edited := fullWordpressBlueprintYAML("wordpress-uatproof")
 	rec := callCatalogIaCEdit(t, h, "bp-wordpress", `{"blueprintYaml":`+jsonQuote(edited)+`}`, adminClaims())
 	if rec.Code != http.StatusOK {
@@ -259,9 +263,9 @@ func TestCatalogIaCEdit_RoundTrip_ManifestsEditReachesFluxLeg(t *testing.T) {
 		t.Fatalf("unmarshal aggregator CR: %v", err)
 	}
 	aggSpec, _ := aggDoc["spec"].(map[string]interface{})
-	man, _ := aggSpec["manifests"].(map[string]interface{})
-	if man == nil || asString(man["namespace"]) != "wordpress-uatproof" {
-		t.Errorf("the spec.manifests edit must reach the Flux leg; got manifests=%v", aggSpec["manifests"])
+	card, _ := aggSpec["card"].(map[string]interface{})
+	if card == nil || asString(card["summary"]) != "wordpress-uatproof" {
+		t.Errorf("the card edit must reach the Flux leg; got card=%v", aggSpec["card"])
 	}
 	meta, _ := aggDoc["metadata"].(map[string]interface{})
 	if meta == nil || asString(meta["name"]) != "bp-wordpress" {
@@ -269,14 +273,13 @@ func TestCatalogIaCEdit_RoundTrip_ManifestsEditReachesFluxLeg(t *testing.T) {
 	}
 }
 
-// TestCatalogIaCEdit_RoundTrip_VersionPersistsInFluxLeg_BareName — row 154 +
+// TestCatalogIaCEdit_RoundTrip_BareNameKeepsVersionInFluxLeg — row 154 +
 // the #4896 headline in one: the editor loads the authored seed document
-// (metadata.name = bare `alloy`), bumps spec.version 1.0.2→1.0.3, and
+// (metadata.name = bare `alloy`), edits the card title, and
 // commits against URL bp-alloy. The commit must be ACCEPTED (no 400 on the
-// name shape the read path itself produced) and the version bump must reach
-// the Flux leg — NOT #4415-stripped: an explicit whole-CR commit owns
-// spec.version (DoD §9.7), which is exactly the edit hw242 proved inert.
-func TestCatalogIaCEdit_RoundTrip_VersionPersistsInFluxLeg_BareName(t *testing.T) {
+// name shape the read path itself produced) and reach the Flux leg with
+// spec.version and spec.source intact (a version bump is a 422: SVC-200).
+func TestCatalogIaCEdit_RoundTrip_BareNameKeepsVersionInFluxLeg(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	fg := newFakeGitea()
@@ -286,7 +289,7 @@ func TestCatalogIaCEdit_RoundTrip_VersionPersistsInFluxLeg_BareName(t *testing.T
 	perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
 	fg.files[perBP] = []byte(bareAlloyBlueprintYAML("1.0.2"))
 
-	edited := bareAlloyBlueprintYAML("1.0.3")
+	edited := strings.Replace(bareAlloyBlueprintYAML("1.0.2"), "title: Grafana Alloy", "title: Alloy (edited)", 1)
 	rec := callCatalogIaCEdit(t, h, "bp-alloy", `{"blueprintYaml":`+jsonQuote(edited)+`}`, adminClaims())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a bare metadata.name the read path produced must commit (got %d, the #4896 400-shape); body=%s",
@@ -314,8 +317,8 @@ func TestCatalogIaCEdit_RoundTrip_VersionPersistsInFluxLeg_BareName(t *testing.T
 		t.Errorf("aggregator CR name must be stamped to the live CR identity bp-alloy (was bare `alloy`); metadata=%v", meta)
 	}
 	aggSpec, _ := aggDoc["spec"].(map[string]interface{})
-	if aggSpec == nil || asString(aggSpec["version"]) != "1.0.3" {
-		t.Errorf("row 154: the explicit spec.version edit must reach the Flux leg un-stripped; got version=%v",
+	if aggSpec == nil || asString(aggSpec["version"]) != "1.0.2" {
+		t.Errorf("the Flux leg keeps spec.version as the live object has it; got version=%v",
 			aggSpec["version"])
 	}
 	if _, ok := aggSpec["source"].(map[string]interface{}); !ok {
@@ -533,6 +536,9 @@ metadata:
     meta.helm.sh/release-name: catalyst-platform
     kubectl.kubernetes.io/last-applied-configuration: '{"apiVersion":"catalyst.openova.io/v1"}'
 spec:
+  class: infrastructure
+  lifecycle: supported
+  visibility: listed
   card:
     title: Grafana Alloy
     summary: Walk-edited summary (prior card-form save)
@@ -715,5 +721,39 @@ func TestGetCatalogIaC_503WhenGiteaUnwired(t *testing.T) {
 	rec := callGetCatalogIaC(t, h, "bp-alloy")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCatalogIaCEdit_ContractFieldEditIs422 (SVC-200) — over a live
+// Blueprint the editor may change only the card fields and spec.visibility:
+// an edit of class, version or manifests answers 422 contract-field-read-only
+// naming the path, and nothing is committed to either leg.
+func TestCatalogIaCEdit_ContractFieldEditIs422(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	for _, c := range []struct{ old, new, path string }{
+		{"class: infrastructure", "class: application", "spec.class"},
+		{`version: "1.0.2"`, `version: "1.0.3"`, "spec.version"},
+		{"  manifests:\n    chart: bp-alloy\n", "  manifests:\n    chart: bp-other\n", "spec.manifests.chart"},
+	} {
+		h := NewWithPDM(silentLogger(), &fakePDM{})
+		fg := newFakeGitea()
+		h.SetGiteaClient(fg)
+		perBP := giteaKey(catalogSovereignOrg, "bp-alloy", catalogEditGitBranch, catalogEditBlueprintPath)
+		live := fullAlloyBlueprintYAML("1.0.2")
+		fg.files[perBP] = []byte(live)
+
+		edited := strings.Replace(live, c.old, c.new, 1)
+		rec := callCatalogIaCEdit(t, h, "bp-alloy", `{"blueprintYaml":`+jsonQuote(edited)+`}`, adminClaims())
+		var body struct {
+			Error string   `json:"error"`
+			Paths []string `json:"paths"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		if rec.Code != http.StatusUnprocessableEntity || body.Error != "contract-field-read-only" || strings.Join(body.Paths, ",") != c.path {
+			t.Fatalf("%s edit: got %d %s; want 422 contract-field-read-only [%s]", c.path, rec.Code, rec.Body.String(), c.path)
+		}
+		if string(fg.files[perBP]) != live || len(fg.files) != 1 {
+			t.Fatalf("%s edit: a refused edit must commit nothing; keys=%v", c.path, fileKeys(fg))
+		}
 	}
 }

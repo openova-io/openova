@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/openova-io/openova/platform/_schemas/blueprint.schema.json",
+  "title": "blueprint.yaml (contract C1)",
+  "description": "The file format of platform/<name>/blueprint.yaml and products/<name>/blueprint.yaml. Stricter than the Blueprint definition products/catalyst/chart/crds/blueprint.yaml: it requires class, lifecycle and visibility, and it refuses the classifiers that contract C1 deleted. Checked by .github/workflows/blueprint-admission-validate.yml.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "catalyst.openova.io/v1"},
+    "kind": {"const": "Blueprint"},
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^bp-[a-z][a-z0-9-]{1,62}$"},
+        "labels": {
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {"required": ["catalyst.openova.io/category"]},
+              {"required": ["catalyst.openova.io/tier"]},
+              {"required": ["catalyst.openova.io/section"]}
+            ]
+          }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["version", "class", "lifecycle", "visibility", "card"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.-]+)?$"},
+        "class": {
+          "enum": ["application", "data-service", "network-security-service", "ai-service", "infrastructure", "platform-component"]
+        },
+        "lifecycle": {"enum": ["experimental", "supported", "deprecated"]},
+        "visibility": {"enum": ["listed", "unlisted", "private"]},
+        "shareable": {"type": "boolean"},
+        "contextSchema": {
+          "type": "object",
+          "required": ["kind", "valuesKey"],
+          "properties": {
+            "kind": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,20}$"},
+            "valuesKey": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9]{0,40}$"},
+            "needs": {"type": "array", "items": {"type": "string"}},
+            "produces": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "card": {
+          "type": "object",
+          "required": ["title"],
+          "properties": {"title": {"type": "string", "minLength": 1}},
+          "not": {"anyOf": [{"required": ["category"]}, {"required": ["family"]}]}
+        }
+      },
+      "not": {"anyOf": [{"required": ["backingServices"]}, {"required": ["placementCapability"]}]},
+      "allOf": [
+        {
+          "if": {"required": ["class"], "properties": {"class": {"const": "platform-component"}}},
+          "then": {"properties": {"visibility": {"const": "unlisted"}}}
+        },
+        {
+          "if": {"required": ["lifecycle"], "properties": {"lifecycle": {"const": "deprecated"}}},
+          "then": {"properties": {"visibility": {"const": "unlisted"}}}
+        },
+        {
+          "if": {"required": ["shareable"], "properties": {"shareable": {"const": true}}},
+          "then": {"required": ["contextSchema"]}
+        }
+      ]
+    }
+  }
+}
