@@ -143,13 +143,15 @@ Region IPs come from `CILIUM_LB_IPAM_CIDRS` unless `ACCEPT_REGION_IPS` is set.
 It writes through the console API: one create, the placement PUTs and one
 delete, plus the WordPress REST writes and the installer form. It writes with
 `kubectl create`, `apply` and `delete` in gate checks CMP-G01, CTL-G04, CTL-G07,
-INF-G01, INF-G02, NET-G06, NET-G10, NET-G18, SEC-G01, SEC-G02 and SEC-G03 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
+INF-G01, INF-G02, NET-G06, NET-G10, NET-G18, SEC-G01, SEC-G02, SEC-G03 and SOV-G01 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
 first region, applies one Deployment with zero replicas in it, and deletes
 that namespace before it ends. SEC-G01 and SEC-G02 create a namespace
 `sec-etcd-<run>` or `sec-node-<run>` of their own in every region, start one
 probe Pod on every control-plane node in it, run a script that only reads
 files of the node in each Pod with `kubectl exec`, and delete that namespace
-before they end. SEC-G01 also creates one Secret, the canary. SEC-G03 does the same in a
+before they end. SEC-G01 also creates one Secret, the canary. SOV-G01 does the
+same in a namespace `born-local-<run>`, with one probe Pod on every node, whose
+script reads only `/etc/rancher/k3s/registries.yaml`. SEC-G03 does the same in a
 namespace `sec-seal-<run>`, with probe Pods that run as the OpenBao user 100:1000 and mount
 only `/var/lib/catalyst/seal`, read-only; it also deletes the Pod `openbao-0` of namespace
 `openbao` in every region once, which the StatefulSet starts again, and runs `bao status`
