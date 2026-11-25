@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T08:15:04Z` |
+| Last refreshed | `2026-11-25T08:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-25T08:20 | [#8788](https://github.com/openova-io/openova/pull/8788) | #8676 | The dnsdist DaemonSet declares liveness and readiness probes |
 | 2026-11-24T16:27 | [#8785](https://github.com/openova-io/openova/pull/8785) | #7087 | docs(ledger): plan update |
 | 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
 | 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T07:53 | [#8745](https://github.com/openova-io/openova/pull/8745) | #7087 | docs(ledger): plan update |
 | 2026-11-24T14:31 | [#8744](https://github.com/openova-io/openova/pull/8744) | #8613 | refactor(bge): the embeddings chart serves one pinned model  |
 | 2026-11-24T08:05 | [#8743](https://github.com/openova-io/openova/pull/8743) | #8692 | test(gate): the browser tests of the Organizations, users an |
-| 2026-11-24T06:59 | [#8742](https://github.com/openova-io/openova/pull/8742) | #8737 | docs(ledger): result of the lab test NET-253, the native fir |
 
 ---
 
