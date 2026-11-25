@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-25T14:45:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-25T15:00:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -325,6 +325,7 @@ flowchart LR
 | 2026-11-25T11:51 | [#8802](https://github.com/openova-io/openova/pull/8802) | #8801 | refactor(kyverno): seven validate policies rewritten in plac |
 | 2026-11-25T09:33 | [#8800](https://github.com/openova-io/openova/pull/8800) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:48 | [#8799](https://github.com/openova-io/openova/pull/8799) | #8797 | refactor(api): restart, exec, job retry and reconcile are au |
+| 2026-11-25T14:56 | [#8798](https://github.com/openova-io/openova/pull/8798) | #8792 | feat(api): the providers routes list the packs and serve the |
 | 2026-11-25T09:07 | [#8795](https://github.com/openova-io/openova/pull/8795) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:07 | [#8796](https://github.com/openova-io/openova/pull/8796) | #8793 | fix(catalyst-api): a catalogue edit may change only the card |
 | 2026-11-25T08:56 | [#8791](https://github.com/openova-io/openova/pull/8791) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-24T15:50 | [#8782](https://github.com/openova-io/openova/pull/8782) | #7087 | docs(ledger): plan update |
 | 2026-11-24T14:07 | [#8781](https://github.com/openova-io/openova/pull/8781) | #8772 | The seed pin check lets a pull request pin the first version |
 | 2026-11-25T07:48 | [#8780](https://github.com/openova-io/openova/pull/8780) | #8779 | chore(catalyst-api): nothing reads the long-lived bearer; no |
-| 2026-11-24T13:25 | [#8778](https://github.com/openova-io/openova/pull/8778) | #7087 | docs(ledger): plan update |
 
 ---
 
