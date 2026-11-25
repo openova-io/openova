@@ -678,7 +678,10 @@ spec:
 # 10. The runtime Deployment of an OLD provider revision, created before this
 #    change without probes, as hw307 runs it. Its DELETE (values.yaml sets
 #    request.operation) is what Crossplane's deactivation sends: ADMITTED by
-#    flux-managed (package label) and skipped by probes-present.
+#    flux-managed (package label). probes-present (a ValidatingPolicy since
+#    CMP-063) matches CREATE and UPDATE only, so it never judges this DELETE;
+#    the command-line tool cannot send a DELETE to that kind, and
+#    crossplane-runtime-suite-current.sh (C3) proves the operations instead.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

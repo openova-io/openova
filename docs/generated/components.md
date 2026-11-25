@@ -80,9 +80,11 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/reloader | bp-reloader | bp-reloader | unlisted | 28 |
 | platform/seaweedfs | bp-seaweedfs | bp-seaweedfs | unlisted | 18 |
 | platform/secrets-lib | secrets-lib | - | - | - |
+| platform/secrets-store-csi | bp-secrets-store-csi | bp-secrets-store-csi | unlisted | 15b |
 | platform/self-sovereign-cutover | bp-self-sovereign-cutover | bp-self-sovereign-cutover | unlisted | 06a |
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |
+| platform/speech | bp-speech | bp-speech | unlisted | - |
 | platform/sso-bridge | bp-sso-bridge | bp-sso-bridge | unlisted | 13b |
 | platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | 95 |
 | platform/stalwart-tenant | bp-stalwart-tenant | bp-stalwart-tenant | listed | - |

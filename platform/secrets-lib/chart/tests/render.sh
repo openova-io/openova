@@ -25,7 +25,11 @@
 #   R7  raising an epoch renames the Job (a new run);
 #   R8  openova.envFromFiles renders exactly the shim text, each exec
 #       argument shell-quoted;
-#   F1-F15 every refused input fails the render with its message.
+#   R9  a named key and a placeholder (SEC-201): the plan line carries the
+#       key as a sixth field and a placeholder as source "empty", length and
+#       symbols 0; key password renders the line of a value without the new
+#       fields; a shared placeholder in the primary still reaches the peers;
+#   F1-F21 every refused input fails the render with its message.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -320,7 +324,47 @@ EOF
 awk '/^      command: /{on=1} on' "$TMP/r8.yaml" > "$TMP/r8.got"
 diff -u "$TMP/r8.want" "$TMP/r8.got" && pass "R8 envFromFiles: the exact shim text, arguments shell-quoted" || fail "R8 shim text"
 
-# ── F1-F15 ──────────────────────────────────────────────────────────────
+# ── R9 ──────────────────────────────────────────────────────────────────
+cat > "$TMP/r9.v" <<'EOF'
+generatedSecrets:
+  model-credential:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: axon
+    sharedAcrossRegions: false
+    key: document
+    placeholder: true
+  api:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: app
+    key: token
+    length: 24
+  db-password:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: wordpress
+    key: password
+    placeholder: false
+EOF
+r "$TMP/r9.v" "$TMP/r9.yaml"
+cat > "$TMP/r9.want" <<'EOF'
+acme/sa/app/api/e1 24 0 - self token
+acme/sa/wordpress/db-password/e1 32 0 - self
+acme/sa/axon/model-credential/e1 0 0 empty self document
+EOF
+plan "$TMP/r9.yaml" > "$TMP/r9.got"
+r9=""
+diff -u "$TMP/r9.want" "$TMP/r9.got" || r9="$r9 plan"
+[ "$(kinds "$TMP/r9.yaml")" = "ConfigMap=1 Job=1 ServiceAccount=1 " ] || r9="$r9 kinds($(kinds "$TMP/r9.yaml"))"
+printf 'self: hw-a\npeers: [hw-b]\nprimary: true\ngeneratedSecrets:\n  seed: {delivery: mounted, epoch: 1, scope: shared, key: document, placeholder: true}\n' > "$TMP/r9b.v"
+r "$TMP/r9b.v" "$TMP/r9b.yaml"
+J9="$(jobname "$TMP/r9b.yaml")"
+[ "$(plan "$TMP/r9b.yaml")" = "acme/shared/seed/e1 0 0 empty all document" ] || r9="$r9 shared-plan($(plan "$TMP/r9b.yaml"))"
+has "$TMP/r9b.yaml" Job "$J9" '            - {name: PEERS, value: "hw-b=http://openbao-hw-b.openbao.svc.cluster.local:8200"}' || r9="$r9 shared-peers-env"
+[ -z "$r9" ] && pass "R9 named key and placeholder: key as sixth field, placeholder as 'empty' 0 0, key password as before, a shared placeholder reaches the peers" || fail "R9:$r9"
+
+# ── F1-F21 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
   printf '%s\n' "$3" > "$TMP/$1.v"
@@ -343,6 +387,12 @@ refused F12 "primary must be true or false"        "$(printf 'peers: [hw-b]\ngen
 refused F13 "symbols between 0 and length"         'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, length: 4, symbols: 5}}'
 refused F14 "map is empty"                         'shim: {map: {}, exec: [a]}'
 refused F15 "exec is empty"                        'shim: {map: {A: a}, exec: []}'
+refused F16 "key and placeholder are only for delivery mounted" 'generatedSecrets: {x: {delivery: synced, registerId: r, epoch: 1, key: token}}'
+refused F17 "key and placeholder are only for delivery mounted" 'generatedSecrets: {x: {delivery: synced, registerId: r, epoch: 1, placeholder: true}}'
+refused F18 'key "a b" must match'                 'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, key: "a b"}}'
+refused F19 'key "" must match'                    'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, key: ""}}'
+refused F20 "placeholder must be true or false"    'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, placeholder: "yes"}}'
+refused F21 "a placeholder is empty: it takes no length or symbols" 'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, placeholder: true, length: 8}}'
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"

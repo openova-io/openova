@@ -24,7 +24,16 @@
 #   L5  an unreachable peer: exit 1, names region B, and nothing is written in
 #       A either;
 #   L6  a namespace that peerTrust.birthNamespaces does not list (other): no
-#       identity token for the peers, exit 1, nothing is written in A.
+#       identity token for the peers, exit 1, nothing is written in A;
+#   L7  a named key and a placeholder (SEC-201), after every run above: the
+#       placeholder acme/sa/axon/model-credential/e1 holds exactly
+#       {"document":""} at version 1 in A and is absent in B; the shared
+#       placeholder acme/shared/seed/e1 holds {"document":""} in A and B; the
+#       value with key token holds only that key, 24 characters; the values
+#       without the new fields hold only the key password, as before;
+#   L8  a writer with update rights replaces the placeholder: a run of the
+#       two placeholder lines writes nothing, exit 0, the real document stays
+#       at version 2, and the shared placeholder alone still reaches B.
 #
 # The ONLY stand-in: the Job and the reconciler log in through a `jwt` mount
 # (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
@@ -103,6 +112,9 @@ primary: true
 generatedSecrets:
   token: {delivery: mounted, epoch: 1, scope: shared, length: 40, symbols: 4}
   key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false}
+  model-credential: {delivery: mounted, epoch: 1, serviceAccount: axon, sharedAcrossRegions: false, key: document, placeholder: true}
+  seed: {delivery: mounted, epoch: 1, scope: shared, key: document, placeholder: true}
+  api: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false, key: token, length: 24}
 EOF
 helm dependency build "$FX" >/dev/null
 helm template fx "$FX" --namespace acme > "$TMP/fx.yaml"
@@ -171,7 +183,12 @@ run() {
 }
 rd() { curl -s "${RT[@]}" "$1/v1/mounted/data/$2" | jq -r '.data.data.password // empty'; }
 ver() { curl -s "${RT[@]}" "$1/v1/mounted/metadata/$2" | jq -r '.data.current_version // 0'; }
+# docof <address> <path>: the document's data as compact JSON ("null" when absent).
+docof() { curl -s "${RT[@]}" "$1/v1/mounted/data/$2" | jq -c '.data.data'; }
 TOK=acme/shared/token/e1; KEY=acme/sa/app/key/e1
+MC=acme/sa/axon/model-credential/e1; SEED=acme/shared/seed/e1; API=acme/sa/app/api/e1
+grep -qxF "$MC 0 0 empty self document" "$TMP/plan" && grep -qxF "$SEED 0 0 empty all document" "$TMP/plan" \
+  && grep -qxF "$API 24 0 - self token" "$TMP/plan" || die "the rendered plan lacks the named-key and placeholder lines: $(tr '\n' ';' < "$TMP/plan")"
 
 # ── L1 ────────────────────────────────────────────────────────────────────
 rc=0; run acme "$TMP/run1.log" || rc=$?
@@ -228,6 +245,25 @@ rc=0; PLAN="$TMP/plan6" run other "$TMP/run6.log" || rc=$?
 if [ "$rc" = 1 ] && grep -q "no identity token of role openbao-peer-birth-other for peer $B" "$TMP/run6.log" && [ "$(ver "$AURL" other/shared/fresh/e1)" = 0 ]; then
   pass "L6 a namespace that is not listed: no identity token for the peers, exit 1, nothing written in A"
 else fail "L6 rc=$rc: $(tr '\n' ' ' < "$TMP/run6.log")"; fi
+
+# ── L7 / L8 ───────────────────────────────────────────────────────────────
+l7=""
+[ "$(docof "$AURL" $MC)" = '{"document":""}' ] && [ "$(ver "$AURL" $MC)" = 1 ] || l7="$l7 A-placeholder($(docof "$AURL" $MC) v$(ver "$AURL" $MC))"
+[ "$(ver "$BURL" $MC)" = 0 ] || l7="$l7 B-has-placeholder"
+[ "$(docof "$AURL" $SEED)$(docof "$BURL" $SEED)" = '{"document":""}{"document":""}' ] || l7="$l7 shared-placeholder($(docof "$AURL" $SEED) $(docof "$BURL" $SEED))"
+[ "$(docof "$AURL" $API | jq -r 'keys | join(",")')" = token ] && [ "$(docof "$AURL" $API | jq -r '.token | length')" = 24 ] || l7="$l7 named-key($(docof "$AURL" $API | jq -c keys))"
+[ "$(docof "$AURL" $TOK | jq -r 'keys | join(",")')$(docof "$AURL" $KEY | jq -r 'keys | join(",")')" = passwordpassword ] || l7="$l7 password-keys"
+[ "$(docof "$AURL" $TOK | jq -r .password)" = "$va" ] || l7="$l7 token-changed"
+grep -qx "secrets-birth: $MC: written in $A" "$TMP/run1.log" && grep -qx "secrets-birth: $MC: present in $A" "$TMP/run2.log" || l7="$l7 logs"
+[ -z "$l7" ] && pass "L7 $MC holds {\"document\":\"\"} at version 1 in A only, $SEED empty in A and B, key token alone (24), the other values only key password" || fail "L7:$l7"
+curl -sf "${RT[@]}" -X POST -o /dev/null -d '{"data":{"document":"real-document"}}' "$AURL/v1/mounted/data/$MC" || die "the root writer could not replace $MC"
+grep -E "^($MC|$SEED) " "$TMP/plan" > "$TMP/plan8"
+rc=0; PLAN="$TMP/plan8" run acme "$TMP/run8.log" || rc=$?
+if [ "$rc" = 0 ] && [ "$(docof "$AURL" $MC)" = '{"document":"real-document"}' ] && [ "$(ver "$AURL" $MC)" = 2 ] \
+   && grep -qx "secrets-birth: $MC: present in $A" "$TMP/run8.log" && grep -qx "secrets-birth: $SEED: present in $B" "$TMP/run8.log" \
+   && ! grep -q ': written in ' "$TMP/run8.log"; then
+  pass "L8 a writer with update rights replaced the placeholder: the next run writes nothing, version 2 stays; the shared placeholder alone still reaches $B"
+else fail "L8 rc=$rc $(docof "$AURL" $MC) v$(ver "$AURL" $MC): $(tr '\n' ' ' < "$TMP/run8.log")"; fi
 
 if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
 echo "PASS: secrets-lib birth Job — a shared tier B value in every region, a second run changes nothing"

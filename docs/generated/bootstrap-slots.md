@@ -45,6 +45,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 15 | 15-external-secrets.yaml | bp-external-secrets | external-secrets | external-secrets-system | bp-external-secrets | bp-cert-manager | - | same |
 | 15a | 15a-external-secrets-stores.yaml | bp-external-secrets-stores | external-secrets-stores | external-secrets-system | bp-external-secrets-stores | bp-external-secrets, bp-openbao | - | same |
 | 15b | 15b-storage-ready.yaml | storage-ready | storage-ready | flux-system | bp-storage-ready | bp-flux | - | same |
+| 15b | 15b-bp-secrets-store-csi.yaml | bp-secrets-store-csi | secrets-store-csi | kube-system | bp-secrets-store-csi | bp-openbao | - | same |
 | 16 | 16-cnpg.yaml | bp-cnpg | cnpg | cnpg-system | bp-cnpg | bp-flux, storage-ready | - | same |
 | 16a | 16a-bp-postgres-shared.yaml | bp-postgres-shared | shared-pg | shared-data | bp-postgres | bp-cnpg, bp-reflector | `values.enabled=${SOVEREIGN_ENABLE_SHARED_PG:=false}` | same |
 | 16b | 16b-bp-cnpg-pair.yaml | bp-cnpg-pair | cnpg-pair | cnpg | bp-cnpg-pair | bp-cnpg | `values.cnpgPair.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:-false}` | same |

@@ -1,0 +1,117 @@
+{{- /*
+Function test of bp-speech (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It sends the bundled five-second sample (files/function-test-sample.ogg, five
+seconds of English speech, README.md "Function test") to
+POST /v1/audio/transcriptions of the release's Service, for the model
+model.servedName, and passes when the answer's text is not empty and holds the
+word "americans", which the sample says. It sends no credential and writes
+nothing. It renders only when the chart renders its workloads (home and
+enabled both true).
+
+The release's network policy (templates/networkpolicy.yaml) selects this Pod
+too: it lets the Pod reach cluster DNS and the server's port, and lets the
+server admit it. The Pod's name label differs from the server's, so the
+Service never selects it. The sample comes from the release's ConfigMap.
+
+The image is the kubectl image the kit already pulls, which carries curl and
+jq; functionTest.image overrides it. The server loads its model on the first
+request, so the test first asks GET /health every 5 seconds until 120 seconds
+before its bound T, and fails naming the health route when the server has not
+answered 200 by then; the transcription then has up to 110 seconds. T is
+functionTest.timeoutSeconds, the Pod's activeDeadlineSeconds; the kit states
+the install timeout of its release there; without it T is 300. The script
+never writes two dollar signs in a row: Kubernetes turns them into one in a
+container's args before the shell reads them.
+*/ -}}
+{{- if include "bp-speech.serving" . }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $bound := int ($ft.timeoutSeconds | default 300) }}
+{{- $wait := sub $bound 120 }}
+{{- $root := printf "http://%s.%s.svc.cluster.local:%v" (include "bp-speech.fullname" .) .Release.Namespace .Values.port }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}-function-test
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: {{ $bound }}
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  containers:
+    - name: function-test
+      image: {{ $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: BASE_URL
+          value: {{ printf "%s/v1" $root | quote }}
+        - name: HEALTH_URL
+          value: {{ printf "%s/health" $root | quote }}
+        - name: MODEL
+          value: {{ .Values.model.servedName | quote }}
+        - name: SAMPLE
+          value: /sample/function-test-sample.ogg
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: sample
+          mountPath: /sample
+          readOnly: true
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          step="the wait for GET ${HEALTH_URL}"
+          trap 'fail "the bound of {{ $bound }} seconds ended during ${step}"' TERM
+          code=""
+          while [ "${SECONDS}" -lt {{ $wait }} ]; do
+            code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "${HEALTH_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "the server did not answer GET ${HEALTH_URL} with 200 within {{ $wait }} seconds (last: ${code:-none} $(head -c 200 /tmp/error 2>/dev/null))"
+          step="POST ${BASE_URL}/audio/transcriptions"
+          code="$(curl -sS --max-time 110 -o /tmp/answer -w '%{http_code}' -F "file=@${SAMPLE};type=audio/ogg" -F "model=${MODEL}" -F "language=en" -F "response_format=json" "${BASE_URL}/audio/transcriptions" 2>/tmp/error)" || fail "POST ${BASE_URL}/audio/transcriptions failed: $(head -c 200 /tmp/error)"
+          [ "${code}" = "200" ] || fail "POST ${BASE_URL}/audio/transcriptions answered ${code}: $(head -c 200 /tmp/answer)"
+          text="$(jq -r 'if (.text | type) == "string" then (.text | gsub("[\r\n]+"; " ")) else "" end' /tmp/answer 2>/dev/null)" || text=""
+          [ -n "$(printf '%s' "${text}" | tr -d '[:space:]')" ] || fail "${MODEL} returned no text for the five-second sample: $(head -c 200 /tmp/answer)"
+          printf '%s' "${text}" | tr '[:upper:]' '[:lower:]' | grep -q -F americans || fail "${MODEL} returned text without the word the sample says (americans): ${text}"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} ${MODEL} transcribed the five-second sample: ${text}"
+  volumes:
+    - name: tmp
+      emptyDir:
+        sizeLimit: 16Mi
+    - name: sample
+      configMap:
+        name: {{ include "bp-speech.fullname" . }}
+        items:
+          - key: function-test-sample
+            path: function-test-sample.ogg
+{{- end }}

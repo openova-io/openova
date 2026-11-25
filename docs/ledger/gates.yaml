@@ -669,12 +669,13 @@ checks:
 - id: CLD-G07
   title: Providers route lists the packs; a create request validates
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The providers route lists exactly the packs and installation documents; a create request without credentials passes validation for an operator-credential pack
+  implementation: tests/acceptance/sovereign/internal/suite/check_providers.go
   delivered_by: CLD-121
 - id: CLD-G08
   title: A new node is in both load-balancer pools within 2 minutes, with no call from the mothership
@@ -2176,12 +2177,13 @@ checks:
 - id: SEC-G08
   title: 'Injection negative: the mounted value is in no Secret object'
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Injection negative: the mounted value is in no Secret object and no other service account can read it'
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_inject.go
   delivered_by: SEC-211
 - id: SEC-G09
   title: Internal certificates of both regions chain to one root

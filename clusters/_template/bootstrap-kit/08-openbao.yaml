@@ -304,6 +304,33 @@ spec:
           disruptionBudget:
             enabled: false
         affinity: ""
+      # SEC-211 — the OpenBao CSI provider DaemonSet of the upstream chart.
+      # The Secrets Store CSI driver of slot 15b (bp-secrets-store-csi) calls
+      # it to mount values from OpenBao into Pods; it logs in with the token
+      # the kubelet hands the driver (audience openbao, role workload). Its
+      # images come through the Harbor proxy and every container declares
+      # requests, as the kyverno policies harbor-proxy-pull and
+      # resource-requests demand (the upstream defaults pull from quay.io and
+      # declare none). The provider writes one Secret of its own,
+      # openbao/openbao-csi-provider-hmac-key (register entry
+      # openbao-csi-provider-hmac-key).
+      csi:
+        enabled: true
+        image:
+          registry: harbor.openova.io
+          repository: proxy-quay/openbao/openbao-csi-provider
+          tag: "2.0.3"
+        resources:
+          requests: { cpu: 20m, memory: 64Mi }
+          limits: { cpu: 200m, memory: 128Mi }
+        agent:
+          image:
+            registry: harbor.openova.io
+            repository: proxy-quay/openbao/openbao
+            tag: "2.7.2"
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 256Mi }
     # ADR-0015 (Refs #7067) — peer-region trust: every region keeps its own
     # OpenBao; a multi-region Application's primary writes its shared material
     # into each peer's OpenBao over ClusterMesh (bp-openbao values §peerTrust).

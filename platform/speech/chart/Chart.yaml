@@ -1,0 +1,40 @@
+apiVersion: v2
+name: bp-speech
+description: |
+  Catalyst Blueprint chart for transcription on CPU.
+
+  One speaches server (github.com/speaches-ai/speaches, MIT) serves one
+  Whisper model in CTranslate2 form, by default
+  faster-whisper-large-v3-turbo-ct2 with int8 weights. Route:
+  POST /v1/audio/transcriptions on a ClusterIP Service; the platform's
+  model gateway is the one caller. See README.md.
+type: application
+version: 1.0.0
+appVersion: "0.8.3"
+keywords: [catalyst, blueprint, transcription, speech, whisper, ai]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Annotations:
+#
+# - catalyst.openova.io/smoke-render-mode: "default-off"
+#   At its default values (home: false, enabled: false) the chart renders
+#   nothing on purpose: its workloads render only when home and enabled are
+#   both true, and it never renders the Namespace (values.yaml). The smoke
+#   render of blueprint-release.yaml and scripts/check-chart-annotations.sh
+#   (GUARD 2) refuse a default render under 5 lines unless the chart carries
+#   this annotation. The enabled render is covered by tests/render.sh and
+#   tests/function-test-render.sh, and ci/nodeport-render-values.yaml switches
+#   every template on for scripts/check-no-nodeports.sh.
+annotations:
+  catalyst.openova.io/smoke-render-mode: "default-off"
+
+# The chart's objects are all in templates/. The `sigstore/common` library
+# chart below is declared only for the hollow-chart gate of
+# blueprint-release.yaml (issue #181: every chart declares at least one
+# dependency); it renders nothing.
+dependencies:
+  - name: common
+    version: "0.1.3"
+    repository: "https://sigstore.github.io/helm-charts"

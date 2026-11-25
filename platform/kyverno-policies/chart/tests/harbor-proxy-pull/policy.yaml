@@ -1,0 +1,64 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: harbor-proxy-pull
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    # Autogen OFF: each workload PATH-SHAPE is read at its own path.
+    pod-policies.kyverno.io/autogen-controllers: none
+    policies.kyverno.io/title: Container images must pull through the Sovereign Harbor proxy
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Container images must reference a Sovereign-local Harbor proxy
+      registry. Operator configures the allowed glob via
+      .Values.compliancePolicies.harborProxyPull.allowedImagePattern.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco', 'powerdns', 'trivy-system', 'org-services', 'crossplane-system'])"
+    - name: exclude-organization-namespaces
+      expression: "!('openova.io/organization' in namespaceObject.?metadata.?labels.orValue({}))"
+  variables:
+    # The Pod spec at the real path of each kind.
+    - name: podSpec
+      expression: >-
+        object.kind == 'Pod' ? object.spec :
+        object.kind == 'CronJob' ? object.spec.jobTemplate.spec.template.spec :
+        object.spec.template.spec
+    # Every image of the containers and init containers.
+    - name: images
+      expression: >-
+        variables.podSpec.containers.map(c, c.?image.orValue('')) +
+        variables.podSpec.?initContainers.orValue([]).map(c, c.?image.orValue(''))
+    # One list of anchored expressions per allowed pattern, one expression
+    # per `|` alternative.
+    - name: patterns
+      expression: >-
+        [[r'^.*/proxy-.*/.*$'], [r'^.*/openova-io/.*$'], [r'^.*/proxy-.*/.*$', r'^.*/openova-io/.*$']]
+  validations:
+    - expression: >-
+        variables.patterns.exists(p, variables.images.all(i, p.exists(r, i.matches(r))))
+      message: "Container image does not match any allowed Harbor-source glob (proxy-cache `*/proxy-*/*` or native-push `*/openova-io/*`). Re-tag the image to pull through the Sovereign's local Harbor (e.g. registry.<sov-fqdn>/proxy-ghcr/... or registry.<sov-fqdn>/openova-io/openova/<svc>:<tag>)."

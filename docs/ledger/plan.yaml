@@ -7103,7 +7103,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: catalyst-api reads the operator cloud credentials from the files cloud-credential.<provider>.<key> in the directory of its flag --cloud-credentials-dir, default /var/run/secrets/openova, which a read-only CSI volume of the Secrets Store CSI driver fills from OpenBao; no environment variable and no Secret volume carries them, and the variables CATALYST_HUAWEI_ACCESS_KEY, CATALYST_HUAWEI_SECRET_KEY, CATALYST_HUAWEI_PROJECT_ID, CATALYST_HUAWEI_REGION and every reference to Secret huawei-operator-creds are removed.
 - id: CLD-107
@@ -12579,7 +12579,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, CTL-112, FND-032, SOV-435, CLD-175]
-  after: [FND-192, NET-071, NET-213, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, SVC-180, SVC-230, CTL-223, CTL-233, CTL-355]
+  after: [FND-192, NET-071, NET-213, SVC-030, SVC-040, SVC-162, SVC-164, SVC-170, SVC-180, SVC-230, CTL-223, CTL-233, CTL-355, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/internal/lifecycle/pools.go
@@ -19963,7 +19963,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, PRD-201, PRD-304]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, ACC-101, PRD-201, PRD-304]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -26846,7 +26846,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CTL-360, FND-161]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/**
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
@@ -26879,7 +26879,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-072, CMP-093, CMP-101]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/widgets/compliance/**
@@ -27318,7 +27318,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-036, CMP-052, CMP-S6, CTL-045, CTL-160, CMP-075, CMP-042]
-  after: [FND-011, CLD-106, SOV-190, SVC-040, SVC-180, SVC-230, CTL-231, CTL-232, CTL-320, CTL-345, CMP-022, CMP-062, BSS-040, AIP-120, AIP-227]
+  after: [FND-011, CLD-106, SOV-190, SVC-040, SVC-180, SVC-230, CTL-231, CTL-232, CTL-320, CTL-345, CMP-022, CMP-062, BSS-040, AIP-120, AIP-227, ACC-101]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -27534,7 +27534,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-081, FND-161]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionsTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionDrawer.tsx
@@ -27722,7 +27722,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-091, CMP-092, FND-161]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/security/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/SBOMTab.tsx
@@ -27779,7 +27779,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CTL-320, CMP-022, AIP-111]
+  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CTL-320, CMP-022, AIP-111, ACC-101]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -27855,7 +27855,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-111, NET-212]
-  after: [FND-011, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CMP-022]
+  after: [FND-011, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/continuity.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -27954,7 +27954,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-121, FND-161]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworksTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
@@ -28018,7 +28018,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, FND-088, CLD-106, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CTL-300, CTL-320, CMP-022, CMP-062, CMP-075, AIP-111, AIP-120]
+  after: [FND-011, FND-088, CLD-106, SOV-190, SVC-040, SVC-041, SVC-180, SVC-230, CTL-300, CTL-320, CMP-022, CMP-062, CMP-075, AIP-111, AIP-120, ACC-101]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -28088,7 +28088,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-091, CMP-101, CMP-111, CTL-150, FND-151]
-  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, CMP-062]
+  after: [SOV-190, SVC-040, SVC-180, SVC-230, CMP-022, CMP-062, ACC-101]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -32147,7 +32147,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [AIP-226, AIP-227]
-  after: [SOV-190, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/ops/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -36261,7 +36261,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [MIG-151, CTL-360, MIG-102]
-  after: [SOV-190, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/sources/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/plans/**
@@ -36290,7 +36290,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-152]
-  after: [SOV-190, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/migrations/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -36317,7 +36317,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [MIG-147, MIG-153]
-  after: [SOV-190, SVC-180, SVC-230, CMP-022]
+  after: [SOV-190, SVC-180, SVC-230, CMP-022, ACC-101]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/migration/extensions/**
   - products/catalyst/bootstrap/ui/src/app/router.tsx
@@ -36813,33 +36813,36 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-232, CTL-233]
-  after: [SOV-190, SOV-322, SVC-040, SVC-180, SVC-230, CTL-045, CTL-340, CTL-345, CMP-022, BSS-040, AIP-120, AIP-227]
+  after: []
   touches:
-  - products/catalyst/bootstrap/api/internal/handler/shells_issue.go
-  - products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go
-  - products/catalyst/bootstrap/api/internal/handler/k8s_exec.go
-  - products/catalyst/bootstrap/api/internal/handler/k8s_exec_test.go
-  - products/catalyst/bootstrap/api/internal/handler/handler.go
-  - products/catalyst/bootstrap/ui/src/pages/sovereign/sessions/
-  - products/catalyst/bootstrap/ui/src/app/router.tsx
   - products/catalyst/bootstrap/ui/src/widgets/cloud-list/ExecPanel.tsx
+  - products/catalyst/bootstrap/ui/src/widgets/cloud-list/ExecPanel.test.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/resource.api.ts
-  - docs/contracts/C9-mutating-routes.yaml
+  - products/catalyst/bootstrap/ui/src/app/router.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/sessions/**
+  - products/catalyst/bootstrap/ui/e2e/logs-exec-sessions.spec.ts
+  - products/catalyst/bootstrap/ui/eslint-max-warnings.txt
   - docs/ledger/deleted-paths.txt
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files products/catalyst/bootstrap/ui/src/pages/sovereign/sessions | wc -l"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/widgets/cloud-list/ExecPanel.test.tsx --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/widgets/cloud-list/ExecPanel\\.test\\.tsx > ExecPanel > (renders Open Shell idle state that claims no recording|disables button when canExec is false|Open Shell dials the exec WebSocket directly and sends no HTTP request|keeps the socket open once it is open, and closes it on unmount|surfaces a WebSocket dial failure and Retry dials again|shows an error when the open socket fails)( [0-9.]+m?s)?$' \"$out\")\" = 6"
+  - id: A2
+    run: "test ! -e products/catalyst/bootstrap/ui/src/pages/sovereign/sessions && test -z \"$(git grep -n -E 'createExecSession|ExecSessionResponse|listSessions|getSessionReplay|SessionsRoute|SessionsPage|sessions-page|sessions-filter|shells/sessions|[}]/sessions' -- products/catalyst/bootstrap/ui/src products/catalyst/bootstrap/ui/e2e || true)\" && test \"$(grep -c -x -F 'products/catalyst/bootstrap/ui/src/pages/sovereign/sessions' docs/ledger/deleted-paths.txt)\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: synthesizeSession, GuacamoleClient, the in-memory session store, six route registrations and the three session pages are gone; a request with no claims is refused on the exec route; the console shell opens the WebSocket directly.
+  delivers: The console's Open Shell dials GET /api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container} itself and no longer asks the API to create a session; the socket lives as long as its connection attempt, so a phase change no longer closes it; the three session pages, their four routes, the two browser cases that visited them and the session client functions of resource.api.ts are deleted, and the console lint allows one warning less.
 - id: ACC-102
   title: The web application, its database, the seed Job and the CronJob leave the chart
   area: ACC
