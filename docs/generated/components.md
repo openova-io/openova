@@ -26,6 +26,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/cilium | bp-cilium | bp-cilium | unlisted | 01 |
 | platform/cilium-policies | bp-cilium-policies | bp-cilium-policies | unlisted | - |
 | platform/cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | unlisted | 50 |
+| platform/cluster-classes | - | - | - | - |
 | platform/cnpg | bp-cnpg | bp-cnpg | unlisted | 16 |
 | platform/cnpg-pair | bp-cnpg-pair | bp-cnpg-pair | unlisted | 16b |
 | platform/crossplane | bp-crossplane | bp-crossplane | unlisted | 04 |
