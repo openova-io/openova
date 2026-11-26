@@ -1,0 +1,66 @@
+{{- /*
+The access controller (ADR-0033), one replica, in the region that
+bp-guacamole.controllerRendered names (decision A21). Port 8080 serves /healthz and
+/metrics; the image is pinned by digest.
+*/ -}}
+{{- if include "bp-guacamole.controllerRendered" . }}
+{{- $a := .Values.access }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: access-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+spec:
+  replicas: {{ $a.controller.replicas }}
+  selector:
+    matchLabels:
+      {{- include "bp-guacamole.controllerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-guacamole.controllerLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: access-controller
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "bp-guacamole.registryImage" (dict "repo" $a.controller.image.repository "digest" $a.controller.image.digest "what" "access.controller.image.digest" "root" $) | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --http-address=:8080
+            - {{ printf "--sovereign-fqdn=%s" $a.sovereignFQDN | quote }}
+            - {{ printf "--region-id=%s" $a.regionID | quote }}
+            - {{ printf "--nats-url=%s" $a.nats.url | quote }}
+            - {{ printf "--session-namespace=%s" .Release.Namespace | quote }}
+            - {{ printf "--denied-target-namespaces=%s" (join "," $a.session.deniedTargetNamespaces) | quote }}
+            - --leader-elect=true
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml $a.controller.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+{{- end }}

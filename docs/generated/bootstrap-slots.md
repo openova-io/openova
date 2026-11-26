@@ -78,7 +78,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 49 | 49-bp-cert-manager-powerdns-webhook.yaml | bp-cert-manager-powerdns-webhook | cert-manager-powerdns-webhook | cert-manager | bp-cert-manager-powerdns-webhook | bp-cert-manager | - | same |
 | 50 | 50-cluster-autoscaler.yaml | bp-cluster-autoscaler-hcloud | cluster-autoscaler | cluster-autoscaler | bp-cluster-autoscaler-hcloud | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
 | 51 | 51-bp-k8s-ws-proxy.yaml | bp-k8s-ws-proxy | k8s-ws-proxy | catalyst-system | bp-k8s-ws-proxy | bp-cilium, bp-cert-manager, bp-reflector | - | same |
-| 52 | 52-bp-guacamole.yaml | bp-guacamole | guacamole | guacamole | bp-guacamole | bp-cilium, bp-cert-manager, bp-keycloak, bp-seaweedfs, bp-k8s-ws-proxy, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |
+| 52 | 52-bp-guacamole.yaml | bp-guacamole | guacamole | guacamole | bp-guacamole | bp-cilium, bp-cert-manager, bp-keycloak, bp-seaweedfs, bp-k8s-ws-proxy, bp-cnpg | - | same |
 | 55 | 55-bp-hcloud-ccm.yaml | bp-hcloud-ccm | hcloud-ccm | kube-system | bp-hcloud-ccm | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
 | 55a | 55a-bp-hcloud-csi.yaml | bp-hcloud-csi | hcloud-csi | hcloud-csi | bp-hcloud-csi | - | `values.enabled=${HCLOUD_CSI_ENABLED:=true}` | same |
 | 55b | 55b-bp-huawei-evs-csi.yaml | bp-huawei-evs-csi | huawei-evs-csi | huawei-evs-csi | bp-huawei-evs-csi | bp-reflector | `values.enabled=${EVS_CSI_ENABLED:=true}` | same |
