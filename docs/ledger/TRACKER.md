@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T23:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-26T23:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T23:16 | [#8919](https://github.com/openova-io/openova/pull/8919) | #7087 | docs(ledger): plan update |
 | 2026-11-26T22:57 | [#8918](https://github.com/openova-io/openova/pull/8918) | #7087 | docs(ledger): plan update |
 | 2026-11-26T22:41 | [#8915](https://github.com/openova-io/openova/pull/8915) | #7087 | docs(ledger): plan update |
 | 2026-11-26T21:44 | [#8914](https://github.com/openova-io/openova/pull/8914) | #8913 | refactor(kyverno): flux-managed rewritten in place to Valida |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:08 | [#8869](https://github.com/openova-io/openova/pull/8869) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
-| 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
 
 ---
 
