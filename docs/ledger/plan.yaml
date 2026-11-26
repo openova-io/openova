@@ -7655,27 +7655,48 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CLD-121]
-  after: [FND-192, NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164, SVC-230, INF-054]
+  after: []
   touches:
-  - products/catalyst/bootstrap/ui/src/lib/providers.api.ts
+  - products/catalyst/bootstrap/ui/src/app/layouts/WizardLayout.tsx
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
+  - products/catalyst/bootstrap/ui/src/entities/deployment/store.org-defaults-rehydrate-5401.test.ts
+  - products/catalyst/bootstrap/ui/src/entities/deployment/store.ts
+  - products/catalyst/bootstrap/ui/src/lib/providers.api.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepCredentials.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepCredentials.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepProvider.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepReview.bcp-topology-wire.5661.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepReview.profile-body.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepReview.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.tsx
+  - products/catalyst/bootstrap/ui/src/shared/constants/providerSizes.test.ts
   - products/catalyst/bootstrap/ui/src/shared/constants/providerSizes.ts
-  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/*.tsx
-  - products/catalyst/bootstrap/ui/src/widgets/cloud-provider-card/**
+  - products/catalyst/bootstrap/ui/src/test/fixtures/providers-routes.fixture.ts
+  - products/catalyst/bootstrap/ui/src/widgets/cloud-provider-card/CloudProviderCard.tsx
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls products/catalyst/bootstrap/ui/src/lib/providers.api.ts 2>&1 | grep -c 'No such file'"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/pages/wizard src/entities/deployment --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/pages/wizard/steps/(StepProvider\\.test\\.tsx > StepProvider — the clouds, regions, zones and flavors of the profile|StepCredentials\\.test\\.tsx > the credential inputs of the cloud profile|StepReview\\.profile-body\\.test\\.tsx > the wizard against the providers routes of one pack with an installation) > ' \"$out\")\" = 12"
+  - id: A2
+    run: "u=products/catalyst/bootstrap/ui/src && test ! -e \"$u/shared/constants/providerSizes.ts\" && test ! -e \"$u/shared/constants/providerSizes.test.ts\" && test ! -e \"$u/widgets/cloud-provider-card\" && test -f \"$u/lib/providers.api.ts\" && ! grep -rqE 'PROVIDER_REGIONS|PROVIDER_NODE_SIZES|providerSizes|CloudProviderCard|cloud-provider-card|getHqHint' \"$u\""
+  - id: A3
+    run: "test \"$(grep -rnE 'hetzner|hcloud|huawei|fsn1' products/catalyst/bootstrap/ui/src/pages/wizard products/catalyst/bootstrap/ui/src/entities/deployment --include=*.ts --include=*.tsx | grep -v '^[^:]*\\.test\\.' | grep -vc '^[^:]*\\.generated\\.ts:')\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Wizard driven by the providers routes; TypeScript catalogues deleted
+  delivers: The sovereign-admin wizard lists its clouds from GET /api/v1/providers, renders the credential inputs, regions, zones and flavors of the chosen cloud from GET /api/v1/providers/{provider}, and posts provider, installation, the credential map and per region its cloud region, zone and flavors; its own lists of providers, regions and machine sizes and the unused provider card are deleted, a wizard without a session asks for sign-in on the provider step, and the region separation it shows stays site or none.
 - id: CLD-123
   title: Wipe, decommission and cloud pages without provider names
   area: CLD
@@ -12346,7 +12367,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [FND-192, CLD-105, CLD-106, CLD-115, CLD-121, CLD-133, SOV-181, SOV-323, SOV-335, SOV-338, SEC-060, NET-012, NET-041, NET-070, NET-071, NET-213, SVC-040, SVC-162, SVC-164, SVC-230, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-032, CMP-075, AIP-120, AIP-227, INF-054]
+  after: [FND-192, CLD-105, CLD-106, CLD-115, CLD-121, CLD-122, CLD-133, SOV-181, SOV-323, SOV-335, SOV-338, SEC-060, NET-012, NET-041, NET-070, NET-071, NET-213, SVC-040, SVC-162, SVC-164, SVC-230, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-032, CMP-075, AIP-120, AIP-227, INF-054]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -13121,7 +13142,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-330, SOV-405, SOV-430, SOV-510, SOV-311]
-  after: [FND-011, FND-192, CLD-105, CLD-113, CLD-115, SOV-323, SOV-338, NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164, SVC-190, SVC-230, CTL-347, CMP-020, AIP-120, INF-054]
+  after: [FND-011, FND-192, CLD-105, CLD-113, CLD-115, CLD-122, SOV-323, SOV-338, NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164, SVC-190, SVC-230, CTL-347, CMP-020, AIP-120, INF-054]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
