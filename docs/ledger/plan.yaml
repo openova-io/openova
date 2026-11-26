@@ -75,11 +75,11 @@ epics:
 - id: FND-010
   title: Release train rails
   wave: W0
-  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-020, FND-015, FND-017, FND-019, FND-024, FND-025]
+  packages: [FND-016, FND-014, FND-011, FND-012, FND-018, FND-013, FND-020, FND-015, FND-017, FND-019, FND-024, FND-025, FND-045, FND-046]
 - id: FND-020
   title: Plan as data and the executor protocol
   wave: W0
-  packages: [FND-021, FND-022, FND-023, FND-042, FND-043]
+  packages: [FND-021, FND-022, FND-023, FND-042, FND-043, FND-044]
 - id: FND-030
   title: Gate manifest, record and checks
   wave: W0
@@ -179,11 +179,11 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-138, SOV-162, SOV-131, SOV-150, SOV-155, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-170, SOV-175, SOV-183, SOV-136, SOV-137, SOV-139, SOV-182]
+  packages: [SOV-110, SOV-130, SOV-138, SOV-162, SOV-131, SOV-150, SOV-155, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-132, SOV-142, SOV-151, SOV-161, SOV-170, SOV-175, SOV-183, SOV-136, SOV-137, SOV-163, SOV-171, SOV-139, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
-  packages: [SOV-220, SOV-242, SOV-225, SOV-210, SOV-212, SOV-230, SOV-240, SOV-250, SOV-260, SOV-270]
+  packages: [SOV-220, SOV-242, SOV-231, SOV-225, SOV-210, SOV-212, SOV-230, SOV-240, SOV-250, SOV-260, SOV-270]
 - id: SOV-300
   title: 'EPIC: Standing tethers cut at bootstrap'
   wave: W1b
@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-079, CMP-084, CMP-077, CMP-078, CMP-066, CMP-068, CMP-067, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-065, CMP-077, CMP-079, CMP-084, CMP-078, CMP-066, CMP-068, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -1902,7 +1902,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-023]
-  after: [FND-028, FND-059, FND-078, CLD-211, SEC-095, SEC-153, SEC-154, SVC-230, CMP-020, CMP-041]
+  after: []
   touches:
   - .github/workflows/tree-guards.yaml
   - tools/guards/README.md
@@ -1912,16 +1912,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files tools/guards/cmd/acceptance-exit | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd tools/guards && go vet ./cmd/acceptance-exit && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit)\" && test \"$(grep -c -E '^--- PASS: Test(Judge|Run) ' <<<\"$out\")\" = 2"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit) && \"$d/acceptance-exit\" > \"$d/out.txt\" && grep -q -x -E 'acceptance-exit: the acceptance commands of the [0-9]+ tickets not merged \\(of [0-9]+\\) lose the status of no piped tested command' \"$d/out.txt\""
+  - id: A3
+    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\" \"$d/t/docs/ledger/plan/done\"; cp docs/ledger/plan/tickets/FND-191.md \"$d/t/docs/ledger/plan/tickets/\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out1.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out1.txt\")\" = 1; grep -q -x -F 'FAIL docs/ledger/plan/tickets/FND-191.md A3 pipe: go, a tested command, is piped with no `set -o pipefail` before it; the pipeline has the status of its last command' \"$d/out1.txt\"; cp docs/ledger/plan/done/FND-191.yaml \"$d/t/docs/ledger/plan/done/\"; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out2.txt\"; grep -q -x -F 'acceptance-exit: the acceptance commands of the 0 tickets not merged (of 1) lose the status of no piped tested command' \"$d/out2.txt\""
+  - id: A4
+    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\"; printf '%s\\n' '---' 'id: ZZZ-001' 'ticket_rev: 1' '---' '## 18. Acceptance checks' '**A1.** No block.' '**A2.** An empty block.' '```sh' '```' '**A3.** A comment only.' '```sh' '# go test ./...' '```' '**A4.** A piped test.' '```sh' 'go test ./... | tail -1' '```' '**A5.** The same after pipefail.' '```sh' 'set -o pipefail; go test ./... | tail -1' '```' '## 19. Rollback' > \"$d/t/docs/ledger/plan/tickets/ZZZ-001.md\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out.txt\")\" = 4; test \"$(grep -c -x -F -e 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A1 unreadable: it holds no command' -e 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A2 unreadable: it holds no command' -e 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A3 unreadable: it holds no command' -e 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A4 pipe: go, a tested command, is piped with no `set -o pipefail` before it; the pipeline has the status of its last command' \"$d/out.txt\")\" = 4"
+  - id: A5
+    run: "test \"$(grep -c -x -F '        run: cd tools/guards && go test -count=1 ./cmd/acceptance-exit' .github/workflows/tree-guards.yaml)\" = 1 && test \"$(grep -c -x -F '        run: cd tools/guards && go run ./cmd/acceptance-exit' .github/workflows/tree-guards.yaml)\" = 1 && test \"$(grep -c -F '| `cmd/acceptance-exit` |' tools/guards/README.md)\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The Go guard tools/guards/cmd/acceptance-exit, run by two steps of tree-guards.yaml, refuses an acceptance command of a ticket that pipes a tested command without set -o pipefail at its top, and a command it cannot read; a ticket whose done marker carries its ticket_rev keeps its text and is not judged. The loop rule is FND-043.
+  delivers: The Go guard tools/guards/cmd/acceptance-exit, run by two steps of tree-guards.yaml, refuses an acceptance command of a ticket that pipes a tested command without set -o pipefail at its top, a command it cannot read and an item with no command; a ticket whose done marker carries its id and ticket_rev keeps its text and is not judged. The loop rule is FND-043.
 - id: FND-043
   title: An acceptance loop of a ticket stops at its first failing pass
   area: FND
@@ -1950,6 +1962,88 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'The guard acceptance-exit also refuses a for, while or until loop whose body holds no || exit 1 (or || { ...; exit 1; }), so an acceptance loop has the status of its first failing pass. It also corrects the acceptance loops it would refuse: PRD-304 A1 and SOV-721 A4 by ticket revisions of those packages, which a plan update publishes before it merges (a work package may not change a ticket). CTL-232 A4 keeps its text: CTL-232 is merged, and a ticket of a merged package cannot be revised (scripts/plan.py counts a package merged only while its done marker carries the plan''s ticket_rev, and a plan update copies no ticket whose done marker is on main), so the guard, which reads only tickets of packages that are not merged, does not judge it.'
+- id: FND-044
+  title: A tested command of an acceptance command is not read through a command substitution that is an argument
+  area: FND
+  epic: FND-020
+  type: guard
+  wave: W0
+  size: XS
+  lane: RAILS
+  depends_on: [FND-043]
+  after: [SEC-153, SEC-154, SVC-230, CMP-041]
+  touches:
+  - tools/guards/README.md
+  - tools/guards/cmd/acceptance-exit/main.go
+  - tools/guards/cmd/acceptance-exit/main_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The guard acceptance-exit also refuses a tested command inside a command substitution that is the argument of a command, whose status is lost with or without set -o pipefail, so an acceptance item cannot pass on a printed line while the command that printed it failed. The accepted form assigns the substitution first, whose status the assignment has. Merged tickets keep their text and are not judged.
+- id: FND-045
+  title: The pin-sync audit names the release writer for a drift of release-owned lines and does not fail on one in flight
+  area: FND
+  epic: FND-010
+  type: fix
+  wave: W0
+  size: S
+  lane: RAILS
+  depends_on: [FND-011]
+  after: [FND-020, FND-056, FND-098, SVC-161, SVC-220]
+  touches:
+  - scripts/check-bootstrap-kit-pin-sync.sh
+  - .github/workflows/test-bootstrap-kit.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Both sides of a drift the pin-sync audit judges, a chart''s top-level version and the chart pin of its kit slot, are written by the release writer only. The audit says so: a drift names the release writer (.github/workflows/blueprint-release.yaml), the commit that set the chart''s version past the pin and its age, and never asks a pull request to change a pin. On a full sweep (schedule, push, workflow_dispatch) a drift younger than the workflow''s hourly cron is printed IN FLIGHT and does not fail; an older one fails as today. The pull-request mode is unchanged.'
+- id: FND-046
+  title: A chart version the release writer publishes is packaged from the chart main holds at that version
+  area: FND
+  epic: FND-010
+  type: fix
+  wave: W0
+  size: S
+  lane: RAILS
+  depends_on: [FND-011]
+  after: [FND-017, FND-018, FND-019, FND-027, FND-029, FND-062, FND-063, SVC-150, SVC-160, SVC-161]
+  touches:
+  - .github/workflows/blueprint-release.yaml
+  - tools/guards/cmd/release-own-tree/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The release writer''s lockstep step of blueprint-release.yaml packages a chart from the tree it writes the version onto: when a retry finds the chart''s folder on the fresh main changed outside the release-owned lines since the job''s checkout, it packages and pushes again from that main before it commits the version, so the version main names is the content the registry serves.'
 - id: FND-051
   title: Billing-engine and tool-server tests run on pull requests
   area: FND
@@ -2604,7 +2698,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-064, SOV-225]
-  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-181, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020, CMP-041]
+  after: [FND-059, FND-027, FND-028, FND-029, FND-042, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-181, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020, CMP-041]
   touches:
   - .github/workflows/release-key-resign.yaml
   - .github/workflows/tree-guards.yaml
@@ -5208,7 +5302,7 @@ packages:
   wave: W1a
   size: M
   lane: SUBSTRATE
-  depends_on: [FND-191, FND-192]
+  depends_on: [FND-191, FND-192, CMP-067]
   after: [FND-037, FND-011, SOV-020, SOV-137, SOV-151, SOV-175, SOV-241, SOV-322, SOV-343, SEC-103, SEC-104, SEC-105, SEC-211, NET-030, NET-040, NET-042, NET-080, NET-095, NET-150, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-041, CTL-346, CTL-347, AIP-070, INF-040, INF-050, INF-110, ACC-050, PRD-201, PRD-304]
   touches:
   - platform/syft-grype/**
@@ -5230,6 +5324,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/bootstrap/ui/src/data/blueprint-deps.generated.json
   - docs/ledger/deleted-paths.txt
+  - tools/guards/cmd/kit-policies/known-gaps.json
   resources: []
   flips: []
   implements: []
@@ -8270,7 +8365,7 @@ packages:
   title: The mothership holds the checked installation document of the installation in use
   area: CLD
   epic: CLD-160
-  type: refactor
+  type: spike
   wave: W1b
   size: XS
   lane: GATE
@@ -8282,12 +8377,18 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CLD-166.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CLD-166.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CLD-166.md"
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -10618,6 +10719,35 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: A CronJob of bp-harbor reads, for every tagged image index of each pull-through project, each child manifest and its config blob through harbor-core, deletes the cached index when one of them answers 404 so that the next pull fetches the image whole, reports each deletion as a Kubernetes Event and in the counter harbor_proxy_cache_integrity_healed_total that a small Deployment serves for scraping, deletes nothing after a failed read, and never reads or changes a hosted project.
+- id: SOV-163
+  title: The platform repositories Job runs in the primary region only and stops at once on a refused login
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W0
+  size: S
+  lane: SUBSTRATE
+  depends_on: [SOV-160]
+  after: [FND-011, FND-184, SOV-151, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, CTL-172]
+  touches:
+  - platform/gitea/chart/templates/platform-repos-job.yaml
+  - platform/gitea/chart/values.yaml
+  - platform/gitea/chart/tests/platform-repos-job.sh
+  - clusters/_template/bootstrap-kit/10-gitea.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The Job gitea-platform-repos of bp-gitea renders only where the region is not a follower: slot 10 passes SECONDARY_HR_SUSPEND, which cloud-init writes on every control plane, so a Sovereign whose kit carries no writer substitute (an older install upgraded in place) no longer runs it in each region. A login that Gitea refuses (401) stops the Job at once, naming this region''s gitea-admin-secret and the admin user of the shared database; a Gitea that does not answer yet is still waited for. The two passwords of the one admin user are CTL-801''s: each region''s Git server gets its own database (decision record 0027 R2).'
 - id: SOV-170
   title: The Sovereign repository is seeded at bootstrap and serves the root
   area: SOV
@@ -10658,6 +10788,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: 'The acceptance suite has gate check SOV-G01 (Born local) as expected-fail: in every region it fails unless every node started k3s with --disable-default-registry-endpoint and its registry file lists the region''s own registry first for every name and has the catch-all entry, no Flux GitRepository reads from outside the Sovereign, and the root Kustomizations are Ready and applied by a Kustomization whose source is the Sovereign''s own repository openova/sovereign-regions, at the revision that source holds.'
+- id: SOV-171
+  title: Check SOV-G01 retries its reads of a settling Flux and reads the registry file as YAML
+  area: SOV
+  epic: SOV-100
+  type: fix
+  wave: W1a
+  size: S
+  lane: SUBSTRATE
+  depends_on: []
+  after: [SOV-170]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_born_local.go
+  - tests/acceptance/sovereign/internal/suite/check_born_local_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Step 3 of check SOV-G01 reads the GitRepositories and the root Kustomizations in one pass and repeats the pass with poll (runner.go line 347) for a bounded time while an owner is behind its source or not Ready, so a commit to the Sovereign repository during a run is not a failure; every other fault still fails at once. The registry file is read as YAML, of which the provider modules' JSON is one form, so the local pack's file is judged by its content and not refused for its format. The suite module stays standard library only.
 - id: SOV-175
   title: The Sovereign object gets its writer
   area: SOV
@@ -11069,6 +11226,34 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'Digest copy of the signed closure with its signature attachments (use-sigstore-attachments: true in the registries.d of the copy), provider-pack tag push, --set-channel; three enumeration templates deleted'
+- id: SOV-231
+  title: The settled-roll pre-flight no longer offers its annotation override for a release the kit applies
+  area: SOV
+  epic: SOV-200
+  type: fix
+  wave: W1a
+  size: S
+  lane: CONTROL
+  depends_on: []
+  after: [FND-011, FND-095, SOV-020, SOV-137, SOV-241, SOV-343, NET-040, NET-080, SVC-040, SVC-041, CTL-346, CTL-347]
+  touches:
+  - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
+  - platform/self-sovereign-cutover/chart/values.yaml
+  - platform/self-sovereign-cutover/chart/tests/cutover-contract.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The chart text of the settled-roll pre-flight says where its named override catalyst.openova.io/cutover-settled-roll-override holds: on a HelmRelease that no Flux Kustomization applies. For an offender the kit applies (label kustomize.toolkit.fluxcd.io/name), from which Flux removes a hand annotation within minutes, the printed remedy no longer offers the annotation and names what works: a candidate whose kit changes its pin (the delivery rule), a repair of the release then flux reconcile --reset, or the whole-gate switch prewarm.settledRollPreflight.enabled=false. The override''s validation and its record are unchanged; no API route is added.'
 - id: SOV-240
   title: The upstream-flip step; steps 5, 6, 7, 9 and 10 deleted
   area: SOV
@@ -16073,7 +16258,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-073, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -16105,7 +16290,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-073]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-065, CMP-073]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -23723,7 +23908,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -24228,7 +24413,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, AIP-157, AIP-158, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, AIP-157, AIP-158, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -24319,7 +24504,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -24409,7 +24594,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-200, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-200, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -26484,7 +26669,7 @@ packages:
   area: CMP
   epic: null
   type: fix
-  wave: W1b
+  wave: W1a
   size: M
   lane: CONTROL
   depends_on: [CMP-010]
@@ -26610,7 +26795,7 @@ packages:
   area: CMP
   epic: null
   type: refactor
-  wave: W1b
+  wave: W1a
   size: M
   lane: CONTROL
   depends_on: []
@@ -26649,7 +26834,7 @@ packages:
   area: CMP
   epic: null
   type: refactor
-  wave: W1b
+  wave: W1a
   size: M
   lane: CONTROL
   depends_on: [CMP-020, CMP-030]
@@ -26917,7 +27102,7 @@ packages:
   area: CMP
   epic: CMP-060
   type: fix
-  wave: W2
+  wave: W1a
   size: XS
   lane: CHARTS
   depends_on: [CMP-012, CMP-014, CMP-020]
@@ -26955,7 +27140,7 @@ packages:
   area: CMP
   epic: CMP-060
   type: refactor
-  wave: W2
+  wave: W1a
   size: S
   lane: CHARTS
   depends_on: [CMP-014, CMP-016, CMP-032, CMP-058, CMP-S1]
@@ -27146,7 +27331,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-064]
-  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-041]
+  after: [FND-011]
   touches:
   - platform/kyverno-policies/chart/templates/mutate/01-inject-gitea-source-secretref.yaml
   - platform/kyverno-policies/chart/templates/tests/function-test.yaml
@@ -27156,14 +27341,20 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -c -E '^kind: ClusterPolicy$' -- platform/kyverno-policies/chart/templates/mutate | awk -F: '{s+=$2} END {print s+0}'"
+    expect: "2"
+  acceptance:
+  - id: A1
+    run: "test \"$(bash scripts/check-kyverno-legacy-policies.sh | grep -c -x 'legacy_policy_objects=25')\" = 1 && test \"$(git grep -l -E '^kind: MutatingPolicy$' -- platform/kyverno-policies/chart/templates)\" = platform/kyverno-policies/chart/templates/mutate/01-inject-gitea-source-secretref.yaml && test \"$(git grep -c -E '^kind: ClusterPolicy$' -- platform/kyverno-policies/chart/templates/mutate | awk -F: '{s+=$2} END {print s+0}')\" = 1"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && mkdir -p \"$d/platform/kyverno-policies\" \"$d/platform/kube-access-lib\" \"$d/scripts\" && cp -R platform/kyverno-policies/chart \"$d/platform/kyverno-policies/\" && cp -R platform/kube-access-lib/chart \"$d/platform/kube-access-lib/\" && cp scripts/check-function-test.py scripts/check-kube-access-rendered.sh \"$d/scripts/\" && c=\"$d/platform/kyverno-policies/chart\" && (cd \"$c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency build > /dev/null) && test \"$(bash \"$c/tests/suites-current.sh\" --self-test | grep -c -x 'self-test: 12 cases passed')\" = 1 && test \"$(bash \"$c/tests/suites-current.sh\" \"$c\" | grep -c -x '\\[suites-current\\] ALL PASS: 20 suites current')\" = 1 && bash \"$c/tests/function-test-render.sh\" \"$c\" > /dev/null && helm template bp-kyverno-policies \"$c\" --namespace=kyverno --skip-tests > \"$d/render.yaml\" && test \"$(grep -c -x 'kind: MutatingPolicy' \"$d/render.yaml\")\" = 1 && helm template bp-kyverno-policies \"$c\" --namespace=kyverno --show-only templates/tests/function-test.yaml > \"$d/ft.yaml\" && test \"$(grep -A1 -x '        - name: MUTATING_POLICIES' \"$d/ft.yaml\" | tail -1)\" = '          value: \"inject-gitea-source-secretref\"'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: The mutate policy inject-gitea-source-secretref is a MutatingPolicy of group policies.kyverno.io with the same name, labels and values keys, judged by its suite with byte-identical patched outputs; the chart's function test and its render test know the kind MutatingPolicy.
 - id: CMP-066
@@ -27203,11 +27394,11 @@ packages:
   area: CMP
   epic: CMP-060
   type: fix
-  wave: W2
+  wave: W1a
   size: M
   lane: CHARTS
-  depends_on: [CMP-061, FND-193]
-  after: [FND-011, FND-028, FND-184, CLD-211, SOV-160, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-230, CTL-172, CMP-041]
+  depends_on: [CMP-061]
+  after: [FND-011, FND-028, FND-042, FND-059, FND-184, CLD-211, SOV-160, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-230, CTL-172, CMP-041]
   touches:
   - platform/kyverno-policies/chart/templates/exceptions/**
   - platform/huawei-evs-csi/chart/templates/node-daemonset.yaml
@@ -27232,7 +27423,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'Every workload the kit installs passes the policies that enforce after the window, or carries a named exception: one PolicyException per upstream chart that has no value for the missing probes (crossplane, external-secrets, opentelemetry-operator), probes on every container of the EVS CSI driver, the upstream gitea connection test switched off, the sigstore cleanup hook through the proxy with requests. A tree-guards step renders every kit release and judges it with the pinned policy tool against the enforced policies and their exceptions, so a chart that the policies would refuse at its next upgrade is refused at its pull request.'
+  delivers: The kit's own workloads pass the enforced policies, and a guard proves it on every pull request.
 - id: CMP-068
   title: 'Pod security: enforce baseline on Organization namespaces'
   area: CMP
@@ -27580,7 +27771,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, FND-130, FND-155, FND-156, CLD-086, CLD-087, CLD-089, CLD-093, SVC-040, SVC-041, CMP-064, CMP-075]
+  after: [FND-011, FND-130, FND-155, FND-156, CLD-086, CLD-087, CLD-089, CLD-093, SVC-040, SVC-041, CMP-064, CMP-065, CMP-075]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml
   - platform/kyverno-policies/chart/tests/forbid-nodeport-service/**
@@ -27712,7 +27903,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, FND-028, FND-059, CLD-211, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-100, SVC-230, CMP-041, CMP-064]
+  after: [FND-011, FND-028, FND-042, FND-059, CLD-211, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-100, SVC-230, CMP-041, CMP-064, CMP-065]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml
   - platform/kyverno-policies/chart/tests/**
@@ -28324,7 +28515,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [ACC-103, ACC-204, CMP-016, CMP-150]
-  after: [CMP-061]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -37445,7 +37636,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-107, CTL-120, CTL-130, CTL-160]
-  after: [FND-011, CTL-345, CMP-016, CMP-061, BSS-040, AIP-120, AIP-227]
+  after: [FND-011, CTL-345, BSS-040, AIP-120, AIP-227]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go

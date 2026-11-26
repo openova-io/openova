@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T11:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-26T13:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8433](https://github.com/openova-io/openova/issues/8433) | SOV-132 Nodes boot with a local-first registry file, a wildcard entry and the pu | Other |
-| [#8436](https://github.com/openova-io/openova/issues/8436) | SVC-205 Lock stage blueprints to deny | Other |
 | [#8441](https://github.com/openova-io/openova/issues/8441) | AIP-070 Delete the hollow gateway charts | Other |
 | [#8445](https://github.com/openova-io/openova/issues/8445) | AIP-227 Console read path: reverse proxy /api/v1/ops/* in catalyst-api | Other |
 | [#8446](https://github.com/openova-io/openova/issues/8446) | PRD-211 Document conversion parser | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8845](https://github.com/openova-io/openova/issues/8845) | CMP-064 Validate policies to ValidatingPolicy, batch 3 (7 policies) | Other |
 | [#8848](https://github.com/openova-io/openova/issues/8848) | ACC-102 The web application, its database, the seed Job and the CronJob leave th | Other |
 | [#8857](https://github.com/openova-io/openova/issues/8857) | ACC-103 The target and grant kinds, their controller and the grant life cycle | Other |
+| [#8861](https://github.com/openova-io/openova/issues/8861) | CMP-065 Mutate policies to MutatingPolicy: inject-gitea-source-secretref | Other |
+| [#8865](https://github.com/openova-io/openova/issues/8865) | FND-042 An acceptance command of a ticket pipes a tested command only after set  | Other |
 
 ---
 
@@ -307,6 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
+| 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
+| 2026-11-26T12:58 | [#8866](https://github.com/openova-io/openova/pull/8866) | #8865 | feat(guards): an acceptance command of a ticket pipes a test |
+| 2026-11-26T12:27 | [#8864](https://github.com/openova-io/openova/pull/8864) | #7087 | docs(ledger): plan update |
+| 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
+| 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
+| 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
+| 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
+| 2026-11-26T11:36 | [#8855](https://github.com/openova-io/openova/pull/8855) | #7087 | docs(ledger): result of the architect action CLD-166 (CLD-16 |
 | 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
 | 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
 | 2026-11-26T00:20 | [#8852](https://github.com/openova-io/openova/pull/8852) | #8772 | The OpenBao chart's CSI provider DaemonSet declares probes,  |
@@ -328,15 +337,6 @@ flowchart LR
 | 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
 | 2026-11-25T14:40 | [#8830](https://github.com/openova-io/openova/pull/8830) | #8826 | feat(secrets-lib): the birth Job writes a named key and an e |
 | 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
-| 2026-11-25T13:53 | [#8828](https://github.com/openova-io/openova/pull/8828) | #7087 | docs(ledger): plan update |
-| 2026-11-25T14:35 | [#8827](https://github.com/openova-io/openova/pull/8827) | #8825 | refactor(kyverno): five validate policies rewritten in place |
-| 2026-11-25T13:43 | [#8824](https://github.com/openova-io/openova/pull/8824) | #7087 | docs(ledger): plan update |
-| 2026-11-25T20:19 | [#8822](https://github.com/openova-io/openova/pull/8822) | #8819 | feat(openbao): the kit runs a restore drill that reads a can |
-| 2026-11-25T13:14 | [#8820](https://github.com/openova-io/openova/pull/8820) | #7087 | docs(ledger): plan update |
-| 2026-11-25T13:07 | [#8818](https://github.com/openova-io/openova/pull/8818) | #7087 | docs(ledger): plan update |
-| 2026-11-25T14:12 | [#8817](https://github.com/openova-io/openova/pull/8817) | #8814 | docs(ledger): result of the lab test SOV-722, the k3s releas |
-| 2026-11-25T12:53 | [#8816](https://github.com/openova-io/openova/pull/8816) | #7087 | docs(ledger): plan update |
-| 2026-11-25T12:31 | [#8813](https://github.com/openova-io/openova/pull/8813) | #7087 | docs(ledger): plan update |
 
 ---
 

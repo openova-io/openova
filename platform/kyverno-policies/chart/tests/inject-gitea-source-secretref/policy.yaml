@@ -1,5 +1,5 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
 metadata:
   name: inject-gitea-source-secretref
   labels:
@@ -23,37 +23,33 @@ spec:
   # MUTATE on admission only (CREATE/UPDATE); no background scan needed — Flux
   # re-emits desired-state source CRs, so the mutate re-fires on the next
   # reconcile of any stale CR. Matches 00-stamp-cilium-enforced-label / 21.
-  background: false
-  rules:
-    - name: inject-secretref-on-local-gitea-source
-      match:
-        any:
-          - resources:
-              kinds:
-                - GitRepository
-                - HelmRepository
-                - OCIRepository
-      preconditions:
-        all:
-          # (1) spec.url host targets the Sovereign-local Gitea — mirror
-          # fluxsource.IsLocalSovereignSource's `gitea` host marker. `contains()`
-          # is matched against the whole url string; an external repo would need
-          # `gitea` in its host to match, which the local Gitea service
-          # (gitea-http.gitea.svc...) and per-Sovereign DNS (gitea.<loc>.<dom>)
-          # both carry and github.com does not. `|| ''` keeps it nil-safe when
-          # spec.url is somehow absent.
-          - key: "{{ contains(request.object.spec.url || '', 'gitea') }}"
-            operator: Equals
-            value: true
-          # (2) secretRef.name is empty/absent — fire ONLY on unauthenticated
-          # sources; never override an operator-set / org-controller-set secret.
-          - key: "{{ request.object.spec.secretRef.name || '' }}"
-            operator: Equals
-            value: ""
-      mutate:
-        patchStrategicMerge:
-          spec:
-            # `+(secretRef)` adds the secretRef block only when absent — second
-            # idempotency guard beyond the precondition.
-            +(secretRef):
-              name: "openova-org-tenants-git-auth"
+  evaluation:
+    admission:
+      enabled: true
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["source.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["gitrepositories", "helmrepositories", "ocirepositories"]
+  matchConditions:
+    # (1) spec.url host targets the Sovereign-local Gitea — mirror
+    # fluxsource.IsLocalSovereignSource's `gitea` host marker. `contains()`
+    # is matched against the whole url string; an external repo would need
+    # `gitea` in its host to match, which the local Gitea service
+    # (gitea-http.gitea.svc...) and per-Sovereign DNS (gitea.<loc>.<dom>)
+    # both carry and github.com does not. orValue('') keeps it nil-safe when
+    # spec.url is somehow absent.
+    - name: url-targets-local-gitea
+      expression: "object.?spec.?url.orValue('').contains('gitea')"
+    # (2) secretRef is absent — fire ONLY on unauthenticated sources; never
+    # override an operator-set / org-controller-set secret.
+    - name: secretref-absent
+      expression: "!object.?spec.?secretRef.hasValue()"
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: >-
+          [JSONPatch{op: "add", path: "/spec/secretRef", value: {"name": "openova-org-tenants-git-auth"}}]
