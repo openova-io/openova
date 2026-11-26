@@ -578,6 +578,15 @@ export const useWizardStore = create<WizardStore>()(
           if (!p.regionZones || typeof p.regionZones !== 'object') p.regionZones = {}
           p.credentials = {}
           p.credentialValidated = false
+          // A key the store no longer holds is dropped. A payload already at
+          // version 1 skips migrate, so without this the cloud fields CLD-122
+          // retired (the token and project of one named cloud, the
+          // per-provider tokens and validated flags, the per-region provider
+          // and the Object Storage fields) would be read back here and
+          // written again by partialize on every save.
+          for (const key of Object.keys(p)) {
+            if (!(key in current)) delete (p as Record<string, unknown>)[key]
+          }
           // Always start a session with no private blob and no "generated
           // this session" flag — partialize() omits them on save, this
           // double-protects an older persist payload that may have

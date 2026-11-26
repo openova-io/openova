@@ -196,3 +196,49 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
     expect(s.orgIndustry).toBe('Telecommunications')
   })
 })
+
+/**
+ * CLD-122 retired the cloud fields of the store. A browser that ran the
+ * wizard before CLD-122 holds them in a payload that is already at version 1,
+ * so `migrate` does not run on it: `merge` must drop them, or `partialize`
+ * writes the stored token and keys back to localStorage on every save.
+ */
+describe('wizard store — the cloud fields CLD-122 retired do not survive rehydration', () => {
+  const RETIRED_CLOUD_FIELDS = {
+    hetznerToken: 'stored-cloud-token',
+    hetznerProjectId: 'stored-project',
+    providerTokens: { hetzner: 'stored-provider-token' },
+    providerValidated: { hetzner: true },
+    regionProviders: { 0: 'hetzner' },
+    objectStorageRegion: 'fsn1',
+    objectStorageAccessKey: 'stored-access-key',
+    objectStorageSecretKey: 'stored-secret-key',
+    objectStorageValidated: true,
+  }
+
+  it('a current-version payload loses every retired cloud field, in the state and in the next save', async () => {
+    window.localStorage.setItem(
+      PERSIST_KEY,
+      JSON.stringify({
+        state: { ...RETIRED_CLOUD_FIELDS, sovereignSubdomain: 'legacy-payload-was-read' },
+        version: 1,
+      }),
+    )
+
+    await useWizardStore.persist.rehydrate()
+    const s = useWizardStore.getState() as unknown as Record<string, unknown>
+
+    // VACUITY CHECK — prove the seeded payload really was rehydrated.
+    expect(s.sovereignSubdomain).toBe('legacy-payload-was-read')
+    expect(Object.keys(RETIRED_CLOUD_FIELDS).filter((key) => key in s)).toEqual([])
+
+    // The next save writes none of them back.
+    useWizardStore.getState().setOrgName('saved-after-rehydration')
+    const saved = JSON.parse(window.localStorage.getItem(PERSIST_KEY) ?? '{}') as {
+      state: Record<string, unknown>
+    }
+    expect(saved.state.orgName).toBe('saved-after-rehydration')
+    expect(saved.state.sovereignSubdomain).toBe('legacy-payload-was-read')
+    expect(Object.keys(RETIRED_CLOUD_FIELDS).filter((key) => key in saved.state)).toEqual([])
+  })
+})
