@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T15:15:03Z` |
+| Last refreshed | `2026-11-26T15:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
 | 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
+| 2026-11-26T15:25 | [#8877](https://github.com/openova-io/openova/pull/8877) | #8876 | refactor(kyverno): stamp-cilium-enforced-label rewritten in  |
 | 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:08 | [#8869](https://github.com/openova-io/openova/pull/8869) | #7087 | docs(ledger): plan update |
@@ -323,6 +324,7 @@ flowchart LR
 | 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
 | 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
+| 2026-11-26T15:29 | [#8858](https://github.com/openova-io/openova/pull/8858) | #8857 | feat(access): the target and grant kinds, their controller a |
 | 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:36 | [#8855](https://github.com/openova-io/openova/pull/8855) | #7087 | docs(ledger): result of the architect action CLD-166 (CLD-16 |
 | 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-25T22:44 | [#8846](https://github.com/openova-io/openova/pull/8846) | #8845 | refactor(kyverno): seven validate policies rewritten in plac |
 | 2026-11-25T21:43 | [#8844](https://github.com/openova-io/openova/pull/8844) | #7087 | docs(ledger): plan update |
 | 2026-11-25T22:00 | [#8843](https://github.com/openova-io/openova/pull/8843) | #8842 | test(gate): check SOV-G01 reads the registry file of each no |
-| 2026-11-25T21:33 | [#8841](https://github.com/openova-io/openova/pull/8841) | #7087 | docs(ledger): plan update |
-| 2026-11-25T21:40 | [#8840](https://github.com/openova-io/openova/pull/8840) | #8838 | chore(newapi): the old gateway values drop a commented chann |
 
 ---
 
