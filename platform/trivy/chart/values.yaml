@@ -142,13 +142,26 @@ trivy-operator:
   # the 600s budget → step-08 egress-block-test FAIL. 1Gi is the stable floor for
   # a 60+ HR multi-region Sovereign; a node replacement / region-kill hits the
   # same recreate, so this is general robustness, not cutover-only.
+  # 1Gi was OOMKilled again in one region of hw307 (105 restarts from 24 Nov 2026,
+  # the other region 0 with the same chart; CMP-089). What the operator holds
+  # (v0.30.1 source): an informer cache of every workload, RBAC object and report
+  # it owns (VulnerabilityReport, ExposedSecretReport, SbomReport), and each scan
+  # result decoded whole. The kit gives the secondary region fewer releases, not
+  # more, so the cause there is not measured. The operator sets no GOMEMLIMIT:
+  # its Go GC lets the heap reach twice the live set and does not see the cgroup
+  # limit. GOMEMLIMIT below the limit (10% headroom) makes the GC collect before
+  # the kernel kills; 2Gi raises the limit itself. Proven by
+  # tests/operator-memory.sh. The scan Jobs' own limit (trivy.resources) is unchanged.
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 1Gi
+      memory: 2Gi
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: "1800MiB"
 
   # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2
   # (Catalyst provides bp-grafana / kube-prometheus-stack separately).
