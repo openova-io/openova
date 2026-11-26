@@ -1,6 +1,6 @@
 // Command acceptance-exit keeps an acceptance command from exiting 0 while a
 // tested command in it failed: a tested command is piped only after
-// set -o pipefail.
+// set -o pipefail, and a loop stops at its first failing pass.
 //
 // An acceptance command is the sh block of an item A1, A2, ... of field 18 of
 // a ticket, docs/ledger/plan/tickets/<ID>.md; it passes when it exits 0. The
@@ -10,6 +10,10 @@
 //	            `set -o pipefail` (-eo, -euo pipefail) at the top of the
 //	            command before it: a pipeline has the status of its last
 //	            command (FND-191 A3 piped go test through tail)
+//	loop        a for, while or until loop whose body holds no `|| exit 1`
+//	            (or `|| { ...; exit 1; }`) in the shell of the loop: a loop
+//	            has the status of its last pass (CTL-232 A4 tested three
+//	            files in a for loop); an exit inside a subshell leaves only it
 //	unreadable  a command it cannot read (an unclosed quote, an unbalanced
 //	            parenthesis or keyword, a backtick, a case statement, a
 //	            here-document), an empty command and a field 18 without items: never a pass
@@ -17,8 +21,8 @@
 // A tested command is any command but those of untested (text tools such as
 // printf, grep, sed and git, builtins such as cd): a test runner, a build, an
 // interpreter, a script, a program named by a path or a variable, and a
-// subshell, group or loop that runs one. A pipe inside a command substitution
-// is judged only when a variable is assigned the substitution
+// subshell, group or loop that runs one. A pipe or a loop inside a command
+// substitution is judged only when a variable is assigned the substitution
 // (out="$(go test | tail)"), whose status the assignment has; as the argument
 // of a command (test "$(...)" = 3) or as a process substitution its status is
 // lost with or without pipefail.
@@ -128,10 +132,10 @@ func run(args []string, out, errw io.Writer) int {
 		}
 	}
 	if findings > 0 {
-		say(out, "acceptance-exit: %d finding(s) in the %d tickets not merged. A tested command is piped only after `set -o pipefail`.\n", findings, judged)
+		say(out, "acceptance-exit: %d finding(s) in the %d tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`.\n", findings, judged)
 		return 1
 	}
-	say(out, "acceptance-exit: the acceptance commands of the %d tickets not merged (of %d) lose the status of no piped tested command\n", judged, len(files))
+	say(out, "acceptance-exit: the acceptance commands of the %d tickets not merged (of %d) lose the status of no piped tested command and of no loop pass\n", judged, len(files))
 	return 0
 }
 
@@ -347,6 +351,7 @@ type frame struct {
 	kind             string
 	cmd, redir, wrap bool     // a substitution: the state of the command around it
 	header, body     bool     // a for loop before its do; a loop after its do
+	exits, orElse    bool     // a loop: its body holds || exit 1; a group: it follows ||
 	pipefail         bool     // the top: set -o pipefail was read
 	stage, any       string   // the first tested command of the current pipeline stage, and of this frame
 	pipes            []string // a substitution: its pipe findings, which count only if a variable is assigned it
@@ -380,6 +385,11 @@ func judge(command string) []string {
 			p.stage, p.any = cmp.Or(p.stage, f.any), cmp.Or(p.any, f.any)
 		}
 		return f
+	}
+	orElse := func(i int) bool { // the token before i, past newlines, is ||
+		for i--; i >= 0 && l.toks[i].op && l.toks[i].text == "\n"; i-- {
+		}
+		return i >= 0 && l.toks[i].op && l.toks[i].text == "||"
 	}
 	for i := 0; i < len(l.toks) && bad == ""; i++ {
 		t, f := l.toks[i], stack[len(stack)-1]
@@ -420,7 +430,7 @@ func judge(command string) []string {
 		case t.op:
 			redir = true
 		case kw && (t.text == "for" || t.text == "while" || t.text == "until" || t.text == "if" || t.text == "{"):
-			stack = append(stack, &frame{kind: t.text, header: t.text == "for"})
+			stack = append(stack, &frame{kind: t.text, header: t.text == "for", orElse: t.text == "{" && orElse(i)})
 			cmd = t.text != "for"
 		case kw && t.text == "do":
 			if !f.loop() || f.body {
@@ -431,6 +441,9 @@ func judge(command string) []string {
 			if !map[string]bool{"done": f.loop() && f.body, "fi": f.kind == "if", "}": f.kind == "{"}[t.text] {
 				bad = "an unbalanced " + t.text
 			} else {
+				if t.text == "done" && !f.exits {
+					report(fmt.Sprintf("loop: a %s loop whose body holds no `|| exit 1` has the status of its last pass, not of its first failing one", f.kind))
+				}
 				pop()
 			}
 			cmd = false
@@ -447,6 +460,11 @@ func judge(command string) []string {
 		case !t.quoted && wrappers[t.text]:
 			wrap = true
 		default:
+			if one := i+1 < len(l.toks) && l.toks[i+1] == (tok{text: "1", bare: "1"}); t.text == "exit" && !t.quoted && one && (orElse(i) || f.kind == "{" && f.orElse) {
+				for k := len(stack) - 1; k > 0 && stack[k].kind != "(" && stack[k].kind != "$(" && stack[k].kind != "<("; k-- {
+					stack[k].exits = stack[k].exits || stack[k].loop() && stack[k].body // the exit leaves every loop of its shell
+				}
+			}
 			for j := i + 1; t.text == "set" && !t.quoted && len(stack) == 1 && j < len(l.toks) && !l.toks[j].op; j++ {
 				f.pipefail = f.pipefail || l.toks[j].text == "pipefail" && optRe.MatchString(l.toks[j-1].text)
 			}

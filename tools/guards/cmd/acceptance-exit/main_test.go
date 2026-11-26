@@ -12,6 +12,10 @@ func pipe(cmd string) string {
 	return "pipe: " + cmd + ", a tested command, is piped with no `set -o pipefail` before it; the pipeline has the status of its last command"
 }
 
+func loop(kind string) string {
+	return "loop: a " + kind + " loop whose body holds no `|| exit 1` has the status of its last pass, not of its first failing one"
+}
+
 // TestJudge holds each rule to commands that break it and to the forms that keep it.
 func TestJudge(t *testing.T) {
 	for _, c := range []struct{ cmd, want string }{
@@ -50,7 +54,26 @@ func TestJudge(t *testing.T) {
 		{"cat <<EOF\nx\nEOF", "unreadable: a here-document"},
 		{"echo `date`", "unreadable: a backtick substitution; write $( )"},
 		{"# only a comment\n\n# and another", "unreadable: it holds no command"},
-		{`go test | tail; for f in a; do go vet "$f"; done; bash x.sh | head`, pipe("go") + "\n" + pipe("bash")}, // in the order of the text
+		{`go test | tail; for f in a; do go vet "$f"; done; bash x.sh | head`, pipe("go") + "\n" + loop("for") + "\n" + pipe("bash")}, // in the order of the text
+		{`for f in a b c; do test "$(grep -c -F "$f" x.json)" = 1; done && bash y.sh`, loop("for")},                                   // CTL-232 A4
+		{`for f in off on; do test "$(grep -c '^kind: ' "$t/$f.yaml")" = 0; done; test -s x`, loop("for")},                            // PRD-304 A1
+		{`while read -r f; do bash "$f"; done < list.txt`, loop("while")},
+		{`until go test ./...; do sleep 1; done`, loop("until")},
+		{`for f in a; do echo "$f"; done > list.txt`, loop("for")},
+		{`for f in a; do go test "$f" && exit 1; done`, loop("for")},
+		{`for f in a; do go test "$f" || exit 0; done`, loop("for")},
+		{`for f in a; do go test "$f" || 'exit' 1; done`, loop("for")},
+		{`for f in a; do (go test "$f" || exit 1); done`, loop("for")}, // the exit leaves the subshell only
+		{`for f in a; do go test "$f" || { (exit 1); }; done`, loop("for")},
+		{`for f in a; do { go test "$f"; exit 1; }; done`, loop("for")},
+		{`while go test || exit 1; do sleep 1; done`, loop("while")}, // in the condition, not the body
+		{`for f in a; do for g in b; do go test "$g"; done || exit 1; done`, loop("for")},
+		{`out="$(for f in a; do go test "$f"; done)" && test -n "$out"`, loop("for")},
+		{`test "$(for f in a; do echo "$f"; done)" = a`, ""}, // an argument: its status is lost either way
+		{`for f in a; do go test "$f" || { echo "$f failed"; exit 1; }; done`, ""},
+		{"for f in a; do go test \"$f\" ||\n  exit 1\ndone", ""},
+		{`for f in a; do if test -e "$f"; then bash "$f" || exit 1; fi; done`, ""},
+		{`for f in a; do for g in b; do go test "$g" || exit 1; done; done`, ""}, // the exit leaves both loops
 	} {
 		got := strings.Join(judge(c.cmd), "\n")
 		if got != c.want {
@@ -92,7 +115,7 @@ func TestRun(t *testing.T) {
 	put(done+"/AAA-004.yaml", marker("AAA-005", "1", "v1")) // another id
 	put(tickets+"/AAA-005.md", ticket("1", item("A1", "test -e a")))
 	put(tickets+"/AAA-006.md", ticket("1", "None.\n"))
-	put(tickets+"/AAA-007.md", ticket("1", "**A1.** No block.\n\n"+item("A2", "go test | tail")+item("A3", "")))
+	put(tickets+"/AAA-007.md", ticket("1", "**A1.** No block.\n\n"+item("A2", "go test | tail")+item("A3", "")+item("A4", `for f in a; do test -e "$f"; done`)))
 	var out, errw bytes.Buffer
 	code := run([]string{"-root", root}, &out, &errw)
 	want := []string{
@@ -103,7 +126,8 @@ func TestRun(t *testing.T) {
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A1 unreadable: it holds no command",
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A2 " + pipe("go"),
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A3 unreadable: it holds no command",
-		"acceptance-exit: 7 finding(s) in the 6 tickets not merged. A tested command is piped only after `set -o pipefail`.",
+		"FAIL docs/ledger/plan/tickets/AAA-007.md A4 " + loop("for"),
+		"acceptance-exit: 8 finding(s) in the 6 tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`.",
 	}
 	if code != 1 || out.String() != strings.Join(want, "\n")+"\n" {
 		t.Fatalf("exit %d, output\n%s\nwant exit 1 and\n%s", code, out.String(), strings.Join(want, "\n"))
@@ -112,7 +136,7 @@ func TestRun(t *testing.T) {
 		put(tickets+"/"+id+".md", ticket("3", item("A1", "set -o pipefail; for f in a; do go test \"$f\" || exit 1; done | tail")))
 	}
 	out.Reset()
-	if code := run([]string{"-root", root}, &out, &errw); code != 0 || out.String() != "acceptance-exit: the acceptance commands of the 6 tickets not merged (of 7) lose the status of no piped tested command\n" {
+	if code := run([]string{"-root", root}, &out, &errw); code != 0 || out.String() != "acceptance-exit: the acceptance commands of the 6 tickets not merged (of 7) lose the status of no piped tested command and of no loop pass\n" {
 		t.Fatalf("exit %d, output %q; want exit 0 with 6 of 7 judged", code, out.String())
 	}
 	errw.Reset()
