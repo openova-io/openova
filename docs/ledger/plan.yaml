@@ -1981,7 +1981,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-043]
-  after: [SEC-153, SEC-154, SVC-230, CMP-041, CMP-067, CMP-084]
+  after: []
   touches:
   - tools/guards/README.md
   - tools/guards/cmd/acceptance-exit/main.go
@@ -1990,16 +1990,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'runs in a command substitution whose status is lost' tools/guards/cmd/acceptance-exit/main.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\"; printf '%s\\n' '---' 'id: ZZZ-001' 'ticket_rev: 1' '---' '## 18. Acceptance checks' '**A1.** An argument of test.' '```sh' 'test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A2.** After pipefail.' '```sh' 'set -o pipefail; test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A3.** An argument of [.' '```sh' '[ \"$(go run . | wc -l)\" = 3 ]' '```' '**A4.** A here-string.' '```sh' 'grep -q -x ok <<<\"$(go test ./...)\"' '```' '**A5.** A word of a for list.' '```sh' 'for f in $(go run .); do test -e \"$f\" || exit 1; done' '```' '**A6.** An assignment before a command.' '```sh' 'n=\"$(go run .)\" bash y.sh' '```' '**A7.** An earlier substitution of assignments.' '```sh' 'a=\"$(go test ./...)\" b=\"$(echo x)\"' '```' '**A8.** An argument of another command.' '```sh' 'echo \"$(helm template x c)\" > out.yaml' '```' '**A9.** Assigned after pipefail.' '```sh' 'set -o pipefail; n=\"$(bash x.sh | grep -c -x y)\" && test \"$n\" = 1' '```' '**A10.** Text tools only.' '```sh' 'test \"$(grep -c x f.txt)\" = 1 && test \"$(git ls-files | wc -l)\" = 0' '```' '**A11.** An assigned nested substitution.' '```sh' 'n=\"$(m=\"$(go test ./...)\" && echo \"$m\")\" && test -n \"$n\"' '```' '## 19. Rollback' > \"$d/t/docs/ledger/plan/tickets/ZZZ-001.md\"; printf 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A%s substitution: %s, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it\\n' '1' 'bash' '2' 'bash' '3' 'go' '4' 'go' '5' 'go' '6' 'go' '7' 'go' '8' 'helm' > \"$d/want.txt\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out.txt\")\" = 8; test \"$(grep -c -x -F -f \"$d/want.txt\" \"$d/out.txt\")\" = 8"
+  - id: A2
+    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\" \"$d/t/docs/ledger/plan/done\"; cp docs/ledger/plan/tickets/CMP-064.md \"$d/t/docs/ledger/plan/tickets/\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out1.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out1.txt\")\" = 5; test \"$(grep -c -x -F 'FAIL docs/ledger/plan/tickets/CMP-064.md A1 substitution: bash, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it' \"$d/out1.txt\")\" = 1; test \"$(grep -c -x -F 'FAIL docs/ledger/plan/tickets/CMP-064.md A2 substitution: bash, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it' \"$d/out1.txt\")\" = 4; cp docs/ledger/plan/done/CMP-064.yaml \"$d/t/docs/ledger/plan/done/\"; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out2.txt\"; grep -q -x -F 'acceptance-exit: the acceptance commands of the 0 tickets not merged (of 1) lose the status of no piped tested command, of no loop pass and of no substitution' \"$d/out2.txt\""
+  - id: A3
+    run: "d=\"$(mktemp -d)\" && (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit) && \"$d/acceptance-exit\" > \"$d/out.txt\" && grep -q -x -E 'acceptance-exit: the acceptance commands of the [0-9]+ tickets not merged \\(of [0-9]+\\) lose the status of no piped tested command, of no loop pass and of no substitution' \"$d/out.txt\""
+  - id: A4
+    run: "cd tools/guards; go vet ./cmd/acceptance-exit; d=\"$(mktemp -d)\"; NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/new.txt\"; test \"$(grep -c -E '^--- PASS: Test(Judge|Run) ' \"$d/new.txt\")\" = 2; mkdir -p \"$d/old/cmd/acceptance-exit\"; cp go.mod \"$d/old/\"; cp cmd/acceptance-exit/main_test.go \"$d/old/cmd/acceptance-exit/\"; git show f029b9f0beb00ff17c179fd975d4e0b4f4692c7d:tools/guards/cmd/acceptance-exit/main.go > \"$d/old/cmd/acceptance-exit/main.go\"; rc=0; (cd \"$d/old\" && NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/old.txt\" 2>&1) || rc=$?; test \"$rc\" = 1; test \"$(grep -c -E '^ +main_test\\.go:[0-9]+: judge\\(' \"$d/old.txt\")\" = 9; test \"$(grep -c -E '^--- FAIL: Test(Judge|Run) ' \"$d/old.txt\")\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The guard acceptance-exit also refuses a tested command inside a command substitution that is the argument of a command, whose status is lost with or without set -o pipefail, so an acceptance item cannot pass on a printed line while the command that printed it failed. The accepted form assigns the substitution first, whose status the assignment has. Merged tickets keep their text and are not judged.
+  delivers: The guard tools/guards/cmd/acceptance-exit also refuses a command substitution that runs a tested command where its status is lost (an argument of a command, a word of a for list, a here-string, an assignment before a command, or an earlier substitution of a command of assignments), so an acceptance item cannot pass on a printed line while the command that printed it failed; only the last substitution of a command of assignments alone (n="$(...)" && test "$n" = 1) keeps its status and passes.
 - id: FND-045
   title: The pin-sync audit names the release writer for a drift of release-owned lines and does not fail on one in flight
   area: FND
