@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T15:30:06Z` |
+| Last refreshed | `2026-11-26T15:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,9 +308,11 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
+| 2026-11-26T15:42 | [#8891](https://github.com/openova-io/openova/pull/8891) | #8885 | fix(ci): the pin-sync audit names the release writer for a d |
 | 2026-11-26T14:52 | [#8889](https://github.com/openova-io/openova/pull/8889) | #8862 | fix(gate): check CMP-G02 reads the MutatingPolicy kind too |
 | 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
 | 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
+| 2026-11-26T15:36 | [#8880](https://github.com/openova-io/openova/pull/8880) | #8879 | fix(cutover): the settled-roll pre-flight no longer offers i |
 | 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:25 | [#8877](https://github.com/openova-io/openova/pull/8877) | #8876 | refactor(kyverno): stamp-cilium-enforced-label rewritten in  |
 | 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T00:22 | [#8849](https://github.com/openova-io/openova/pull/8849) | #8848 | chore(access): the web application, its database, the seed J |
 | 2026-11-25T21:53 | [#8847](https://github.com/openova-io/openova/pull/8847) | #7087 | docs(ledger): plan update |
 | 2026-11-25T22:44 | [#8846](https://github.com/openova-io/openova/pull/8846) | #8845 | refactor(kyverno): seven validate policies rewritten in plac |
-| 2026-11-25T21:43 | [#8844](https://github.com/openova-io/openova/pull/8844) | #7087 | docs(ledger): plan update |
-| 2026-11-25T22:00 | [#8843](https://github.com/openova-io/openova/pull/8843) | #8842 | test(gate): check SOV-G01 reads the registry file of each no |
 
 ---
 
