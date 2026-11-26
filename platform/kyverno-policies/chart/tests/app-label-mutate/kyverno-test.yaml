@@ -1,0 +1,78 @@
+# Suite of the policy app-label-mutate (templates/baseline/21-app-label-mutate.yaml),
+# CMP-078.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2, each result naming the legacy rule given in its
+# comment (stamp-from-instance-label, its fallback on the name label, or the
+# rule the legacy autogen made for the kind). The template is now a
+# MutatingPolicy: only policy.yaml and that key of each result
+# (isMutatingPolicy: true) changed; the resources, the expected results and the
+# patched resources (patched.yaml) are the same on both kinds.
+# Case 3: an empty instance label falls back to the name label on both kinds.
+# Case 6: an application label present with the empty value is left alone.
+# On the legacy kind the CLI reports the excluded case 8 as "Excluded" and
+# accepts that for any expected result; the MutatingPolicy gives it a skip.
+# The CLI does the same for a resource of a kind the policy does not match, so
+# a case holds only while its row's reason is Ok, never Excluded.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/app-label-mutate
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: app-label-mutate-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  # 1. and 4. The instance label is copied, also when a name label is set.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: stamp-from-instance-label
+    kind: Pod
+    resources: [apps/instance-only, apps/both]
+    patchedResources: patched.yaml
+    result: pass
+  # 2. and 3. Without an instance label, or with an empty one, the name label.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: stamp-from-name-label-fallback
+    kind: Pod
+    resources: [apps/name-only, apps/empty-instance]
+    patchedResources: patched.yaml
+    result: pass
+  # 5. and 6. An application label that is present is never changed;
+  # 7. a Pod with neither source label gets none.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: stamp-from-instance-label
+    kind: Pod
+    resources: [apps/operator-set, apps/empty-application, apps/no-source]
+    result: skip
+  # 8. An excluded namespace.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: stamp-from-instance-label
+    kind: Pod
+    resources: [kube-system/excluded]
+    result: skip
+  # 9. A Deployment gets it on its Pod template.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: autogen-stamp-from-instance-label
+    kind: Deployment
+    resources: [apps/web]
+    patchedResources: patched.yaml
+    result: pass
+  # 10. A CronJob, from the name label of the Pod template of its Job template.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: autogen-cronjob-stamp-from-name-label-fallback
+    kind: CronJob
+    resources: [apps/report]
+    patchedResources: patched.yaml
+    result: pass
+  # 11. A ReplicationController, the one kind the engine's own autogen of a
+  #     MutatingPolicy would not cover.
+  - policy: app-label-mutate
+    isMutatingPolicy: true # legacy rule: autogen-stamp-from-instance-label
+    kind: ReplicationController
+    resources: [apps/legacy-rc]
+    patchedResources: patched.yaml
+    result: pass
