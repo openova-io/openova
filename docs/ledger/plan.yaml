@@ -1995,19 +1995,19 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\"; printf '%s\\n' '---' 'id: ZZZ-001' 'ticket_rev: 1' '---' '## 18. Acceptance checks' '**A1.** An argument of test.' '```sh' 'test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A2.** After pipefail.' '```sh' 'set -o pipefail; test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A3.** An argument of [.' '```sh' '[ \"$(go run . | wc -l)\" = 3 ]' '```' '**A4.** A here-string.' '```sh' 'grep -q -x ok <<<\"$(go test ./...)\"' '```' '**A5.** A word of a for list.' '```sh' 'for f in $(go run .); do test -e \"$f\" || exit 1; done' '```' '**A6.** An assignment before a command.' '```sh' 'n=\"$(go run .)\" bash y.sh' '```' '**A7.** An earlier substitution of assignments.' '```sh' 'a=\"$(go test ./...)\" b=\"$(echo x)\"' '```' '**A8.** An argument of another command.' '```sh' 'echo \"$(helm template x c)\" > out.yaml' '```' '**A9.** Assigned after pipefail.' '```sh' 'set -o pipefail; n=\"$(bash x.sh | grep -c -x y)\" && test \"$n\" = 1' '```' '**A10.** Text tools only.' '```sh' 'test \"$(grep -c x f.txt)\" = 1 && test \"$(git ls-files | wc -l)\" = 0' '```' '**A11.** An assigned nested substitution.' '```sh' 'n=\"$(m=\"$(go test ./...)\" && echo \"$m\")\" && test -n \"$n\"' '```' '## 19. Rollback' > \"$d/t/docs/ledger/plan/tickets/ZZZ-001.md\"; printf 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A%s substitution: %s, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it\\n' '1' 'bash' '2' 'bash' '3' 'go' '4' 'go' '5' 'go' '6' 'go' '7' 'go' '8' 'helm' > \"$d/want.txt\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out.txt\")\" = 8; test \"$(grep -c -x -F -f \"$d/want.txt\" \"$d/out.txt\")\" = 8"
+    run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\"; printf '%s\\n' '---' 'id: ZZZ-001' 'ticket_rev: 1' '---' '## 18. Acceptance checks' '**A1.** An argument of test.' '```sh' 'test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A2.** After pipefail.' '```sh' 'set -o pipefail; test \"$(bash x.sh | grep -c -x y)\" = 1' '```' '**A3.** An argument of [.' '```sh' '[ \"$(go run . | wc -l)\" = 3 ]' '```' '**A4.** A here-string.' '```sh' 'grep -q -x ok <<<\"$(go test ./...)\"' '```' '**A5.** A word of a for list.' '```sh' 'for f in $(go run .); do test -e \"$f\" || exit 1; done' '```' '**A6.** An assignment before a command.' '```sh' 'n=\"$(go run .)\" bash y.sh' '```' '**A7.** An earlier substitution of assignments.' '```sh' 'a=\"$(go test ./...)\" b=\"$(echo x)\"' '```' '**A8.** An argument of another command.' '```sh' 'echo \"$(helm template x c)\" > out.yaml' '```' '**A9.** Assigned after pipefail.' '```sh' 'set -o pipefail; n=\"$(bash x.sh | grep -c -x y)\" && test \"$n\" = 1' '```' '**A10.** Text tools only.' '```sh' 'test \"$(grep -c x f.txt)\" = 1 && test \"$(git ls-files | wc -l)\" = 0' '```' '**A11.** An assigned nested substitution.' '```sh' 'n=\"$(m=\"$(go test ./...)\" && echo \"$m\")\" && test -n \"$n\"' '```' '## 19. Rollback' > \"$d/t/docs/ledger/plan/tickets/ZZZ-001.md\"; printf 'FAIL docs/ledger/plan/tickets/ZZZ-001.md A%s substitution: %s, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it\\n' '1' 'bash' '2' 'bash' '3' 'go' '4' 'go' '5' 'go' '6' 'go' '7' 'go' '8' 'helm' > \"$d/want.txt\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out.txt\")\" = 8; test \"$(grep -x -F -f \"$d/want.txt\" \"$d/out.txt\" | sort -u | wc -l)\" = 8"
   - id: A2
     run: "d=\"$(mktemp -d)\"; (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit); mkdir -p \"$d/t/docs/ledger/plan/tickets\" \"$d/t/docs/ledger/plan/done\"; cp docs/ledger/plan/tickets/CMP-064.md \"$d/t/docs/ledger/plan/tickets/\"; rc=0; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out1.txt\" || rc=$?; test \"$rc\" = 1; test \"$(grep -c '^FAIL ' \"$d/out1.txt\")\" = 5; test \"$(grep -c -x -F 'FAIL docs/ledger/plan/tickets/CMP-064.md A1 substitution: bash, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it' \"$d/out1.txt\")\" = 1; test \"$(grep -c -x -F 'FAIL docs/ledger/plan/tickets/CMP-064.md A2 substitution: bash, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it' \"$d/out1.txt\")\" = 4; cp docs/ledger/plan/done/CMP-064.yaml \"$d/t/docs/ledger/plan/done/\"; \"$d/acceptance-exit\" -root \"$d/t\" > \"$d/out2.txt\"; grep -q -x -F 'acceptance-exit: the acceptance commands of the 0 tickets not merged (of 1) lose the status of no piped tested command, of no loop pass and of no substitution' \"$d/out2.txt\""
   - id: A3
     run: "d=\"$(mktemp -d)\" && (cd tools/guards && go build -o \"$d/acceptance-exit\" ./cmd/acceptance-exit) && \"$d/acceptance-exit\" > \"$d/out.txt\" && grep -q -x -E 'acceptance-exit: the acceptance commands of the [0-9]+ tickets not merged \\(of [0-9]+\\) lose the status of no piped tested command, of no loop pass and of no substitution' \"$d/out.txt\""
   - id: A4
-    run: "cd tools/guards; go vet ./cmd/acceptance-exit; d=\"$(mktemp -d)\"; NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/new.txt\"; test \"$(grep -c -E '^--- PASS: Test(Judge|Run) ' \"$d/new.txt\")\" = 2; mkdir -p \"$d/old/cmd/acceptance-exit\"; cp go.mod \"$d/old/\"; cp cmd/acceptance-exit/main_test.go \"$d/old/cmd/acceptance-exit/\"; git show f029b9f0beb00ff17c179fd975d4e0b4f4692c7d:tools/guards/cmd/acceptance-exit/main.go > \"$d/old/cmd/acceptance-exit/main.go\"; rc=0; (cd \"$d/old\" && NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/old.txt\" 2>&1) || rc=$?; test \"$rc\" = 1; test \"$(grep -c -E '^ +main_test\\.go:[0-9]+: judge\\(' \"$d/old.txt\")\" = 9; test \"$(grep -c -E '^--- FAIL: Test(Judge|Run) ' \"$d/old.txt\")\" = 2"
+    run: "cd tools/guards; go vet ./cmd/acceptance-exit; d=\"$(mktemp -d)\"; NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/new.txt\"; test \"$(grep -c -E '^--- PASS: Test(Judge|Run) ' \"$d/new.txt\")\" = 2; mkdir -p \"$d/old/cmd/acceptance-exit\"; cp go.mod \"$d/old/\"; cp cmd/acceptance-exit/main_test.go \"$d/old/cmd/acceptance-exit/\"; git show f029b9f0beb00ff17c179fd975d4e0b4f4692c7d:tools/guards/cmd/acceptance-exit/main.go > \"$d/old/cmd/acceptance-exit/main.go\"; rc=0; (cd \"$d/old\" && NO_COLOR=1 go test -count=1 -v -run '^(TestJudge|TestRun)$' ./cmd/acceptance-exit > \"$d/old.txt\" 2>&1) || rc=$?; test \"$rc\" = 1; test \"$(grep -c -E '^ +main_test\\.go:[0-9]+: judge\\(' \"$d/old.txt\")\" = 12; test \"$(grep -c -E '^--- FAIL: Test(Judge|Run) ' \"$d/old.txt\")\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The guard tools/guards/cmd/acceptance-exit also refuses a command substitution that runs a tested command where its status is lost (an argument of a command, a word of a for list, a here-string, an assignment before a command, or an earlier substitution of a command of assignments), so an acceptance item cannot pass on a printed line while the command that printed it failed; only the last substitution of a command of assignments alone (n="$(...)" && test "$n" = 1) keeps its status and passes.
 - id: FND-045
@@ -5128,7 +5128,7 @@ packages:
   - id: A1
     run: "test \"$(grep -c -x -F '  - path: /etc/rancher/k3s/config.yaml.d/etcd-s3.yaml' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && test \"$(grep -c -F -e '--etcd-s3' -e '--etcd-snapshot' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 0 && bash scripts/cloudinit-size-check.sh both > /dev/null"
   - id: A2
-    run: "tofu -chdir=infra/providers/_shared/tests init -backend=false -input=false > /dev/null && test \"$(tofu -chdir=infra/providers/_shared/tests test -no-color | grep -c -x -E '  run \"(hetzner_render_is_valid|huawei_render_is_valid|golden|etcd_snapshots_go_to_the_bucket|etcd_snapshots_http_endpoint)\"\\.\\.\\. pass')\" = 5"
+    run: "d=\"$(mktemp -d)\" && tofu -chdir=infra/providers/_shared/tests init -backend=false -input=false > /dev/null && tofu -chdir=infra/providers/_shared/tests test -no-color > \"$d/test.txt\" && test \"$(grep -c -x -E '  run \"(hetzner_render_is_valid|huawei_render_is_valid|golden|etcd_snapshots_go_to_the_bucket|etcd_snapshots_http_endpoint)\"\\.\\.\\. pass' \"$d/test.txt\")\" = 5"
   - id: A3
     run: "test \"$(grep -c -x -E '    \"/etc/rancher/k3s/config.yaml.d/etcd-s3.yaml\": \"[0-9a-f]{64}\",' infra/providers/_shared/tests/golden.auto.tfvars.json)\" = 2"
   rollback: forward-fix
@@ -5136,7 +5136,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Every control-plane server takes an etcd snapshot every 12 hours, keeps its 5 newest and uploads each to etcd/<region>/ of the Sovereign's bucket, configured by a root-only k3s configuration file that the shared first-boot template writes, with the key pair in no command line and no Secret.
 - id: FND-183
@@ -7796,8 +7796,8 @@ packages:
   wave: W1d
   size: XS
   lane: CONTROL
-  depends_on: [CLD-121]
-  after: []
+  depends_on: []
+  after: [CLD-121]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_providers.go
   - tests/acceptance/sovereign/internal/suite/check_providers_test.go
@@ -13863,8 +13863,8 @@ packages:
   wave: W0
   size: S
   lane: SUBSTRATE
-  depends_on: [SEC-060]
-  after: [FND-011, FND-151, FND-182, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
+  depends_on: []
+  after: [SEC-060, FND-011, FND-151, FND-182, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -19145,8 +19145,8 @@ packages:
   wave: W2
   size: S
   lane: SUBSTRATE
-  depends_on: [NET-185]
-  after: [FND-011, FND-182, CLD-023, CLD-090, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-150, SEC-152, SEC-153, SEC-154, NET-010, NET-011, NET-020, NET-031, NET-100, NET-110, NET-190, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, AIP-201, INF-060, ACC-102]
+  depends_on: []
+  after: [NET-185, FND-011, FND-182, CLD-023, CLD-090, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-150, SEC-152, SEC-153, SEC-154, NET-010, NET-011, NET-020, NET-031, NET-100, NET-110, NET-190, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, AIP-201, INF-060, ACC-102]
   touches:
   - platform/powerdns/chart/templates/dnsdist.yaml
   - clusters/_template/bootstrap-kit/11-powerdns.yaml
@@ -26998,8 +26998,8 @@ packages:
   wave: W2
   size: S
   lane: CONTROL
-  depends_on: [CMP-021]
-  after: [SVC-040, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075]
+  depends_on: []
+  after: [CMP-021, SVC-040, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/**
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
