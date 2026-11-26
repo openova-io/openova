@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, CMP-079, CMP-084, CMP-066, CMP-068, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-084, CMP-065, CMP-077, CMP-078, CMP-079, CMP-066, CMP-068, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -1981,7 +1981,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-043]
-  after: [SEC-153, SEC-154, SVC-230, CMP-041, CMP-067]
+  after: [SEC-153, SEC-154, SVC-230, CMP-041, CMP-067, CMP-084]
   touches:
   - tools/guards/README.md
   - tools/guards/cmd/acceptance-exit/main.go
@@ -2724,7 +2724,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-064, SOV-225]
-  after: [FND-059, FND-027, FND-028, FND-029, FND-042, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-181, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020, CMP-041, CMP-067]
+  after: [FND-059, FND-027, FND-028, FND-029, FND-042, CLD-076, CLD-211, SEC-095, SEC-126, SEC-180, SEC-181, SEC-190, SVC-137, SVC-230, CTL-815, CMP-020, CMP-041, CMP-067, CMP-084]
   touches:
   - .github/workflows/release-key-resign.yaml
   - .github/workflows/tree-guards.yaml
@@ -16330,7 +16330,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-067, CMP-073, CMP-077, CMP-078, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-067, CMP-073, CMP-077, CMP-078, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -16362,7 +16362,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-065, CMP-073, CMP-077, CMP-078]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-065, CMP-073, CMP-077, CMP-078, CMP-084]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -23998,7 +23998,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, CMP-084, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -24503,7 +24503,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, AIP-157, AIP-158, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-183, SOV-242, SOV-322, SEC-071, NET-071, NET-081, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, CMP-084, BSS-040, BSS-050, BSS-141, AIP-040, AIP-041, AIP-111, AIP-120, AIP-156, AIP-157, AIP-158, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -24594,7 +24594,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-205, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, CMP-084, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -24684,7 +24684,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-200, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
+  after: [FND-191, CLD-030, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-151, SOV-180, SOV-242, SOV-322, SEC-060, NET-071, SVC-040, SVC-130, SVC-138, SVC-200, SVC-205, SVC-220, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, CMP-032, CMP-041, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-077, CMP-078, CMP-084, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-156, AIP-157, AIP-227, INF-010, INF-040, INF-110, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, PRD-030, PRD-201, PRD-203, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -27887,7 +27887,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, FND-130, FND-155, FND-156, CLD-086, CLD-087, CLD-089, CLD-093, SVC-040, SVC-041, CMP-064, CMP-065, CMP-075, CMP-077, CMP-078]
+  after: [FND-011, FND-130, FND-155, FND-156, CLD-086, CLD-087, CLD-089, CLD-093, SVC-040, SVC-041, CMP-064, CMP-065, CMP-075, CMP-077, CMP-078, CMP-084]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml
   - platform/kyverno-policies/chart/tests/forbid-nodeport-service/**
@@ -28019,30 +28019,43 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, FND-028, FND-042, FND-043, FND-059, CLD-211, SEC-095, SEC-153, SEC-154, SVC-040, SVC-041, SVC-100, SVC-230, CMP-041, CMP-064, CMP-065, CMP-067, CMP-077, CMP-078]
+  after: [FND-011]
   touches:
+  - .github/workflows/tree-guards.yaml
   - platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml
-  - platform/kyverno-policies/chart/tests/**
+  - platform/kyverno-policies/chart/tests/crossplane-package-runtime-admitted/**
+  - platform/kyverno-policies/chart/tests/crossplane-runtime-suite-current.sh
+  - platform/kyverno-policies/chart/tests/flux-managed/**
+  - platform/kyverno-policies/chart/tests/helm-hook-admitted/**
+  - platform/kyverno-policies/chart/tests/suites-current.sh
+  - platform/kyverno-policies/chart/tests/vcluster-cidr-probe-admitted/**
   - scripts/baselines/kyverno-legacy.json
   - scripts/baselines/policy-suites.json
+  - tools/guards/README.md
   - tools/guards/cmd/cronjob-jobs/main.go
   - tools/guards/cmd/cronjob-jobs/main_test.go
-  - tools/guards/README.md
-  - .github/workflows/tree-guards.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x 'kind: ClusterPolicy' platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "bash scripts/check-kyverno-legacy-policies.sh > /dev/null && test \"$(grep -c -F 'templates/baseline/10-flux-managed.yaml' scripts/baselines/kyverno-legacy.json)\" = 0 && test \"$(grep -c -F '\"flux-managed\"' scripts/baselines/policy-suites.json)\" = 0 && t=platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml && test \"$(grep -c -x 'kind: ValidatingPolicy' \"$t\")\" = 1 && test \"$(grep -c -x 'kind: ClusterPolicy' \"$t\")\" = 0 && test \"$(grep -c -E '^ +operations:' \"$t\")\" = 4 && test \"$(grep -c -x -F '        operations: [\"CREATE\", \"UPDATE\"]' \"$t\")\" = 4 && s=platform/kyverno-policies/chart/tests && test \"$(grep -c -x '    isValidatingPolicy: true' \"$s/flux-managed/kyverno-test.yaml\")\" = 15 && test \"$(grep -c -x '    result: skip' \"$s/flux-managed/kyverno-test.yaml\")\" = 5 && test ! -e \"$s/helm-hook-admitted/policy.yaml\" && test ! -e \"$s/vcluster-cidr-probe-admitted/policy.yaml\" && test \"$(grep -c -x -F '  - ../flux-managed/policy.yaml' \"$s/helm-hook-admitted/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '  - ../flux-managed/policy.yaml' \"$s/vcluster-cidr-probe-admitted/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x '    result: skip' \"$s/helm-hook-admitted/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x '    result: skip' \"$s/vcluster-cidr-probe-admitted/kyverno-test.yaml\")\" = 2 && test \"$(git grep -c -E '^ +rule: workload-must-be-flux-managed$' -- \"$s\" | awk -F: '{n+=$2} END {print n+0}')\" = 0"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && mkdir -p \"$d/platform/kyverno-policies\" \"$d/platform/kube-access-lib\" \"$d/scripts\" \"$d/clusters/_template/infrastructure/providers\" && cp -R platform/kyverno-policies/chart \"$d/platform/kyverno-policies/\" && cp -R platform/kube-access-lib/chart \"$d/platform/kube-access-lib/\" && cp scripts/check-function-test.py scripts/check-kube-access-rendered.sh \"$d/scripts/\" && cp -R clusters/_template/infrastructure/providers/base \"$d/clusters/_template/infrastructure/providers/\" && c=\"$d/platform/kyverno-policies/chart\" && (cd \"$c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency build > /dev/null) && test \"$(grep -c -x -F '  \"flux-managed baseline/10-flux-managed.yaml\"' \"$c/tests/suites-current.sh\")\" = 1 && bash \"$c/tests/suites-current.sh\" --self-test > /dev/null && test \"$(bash \"$c/tests/suites-current.sh\" \"$c\" | grep -c -E -x '\\[suites-current\\] ALL PASS: [0-9]+ suites current')\" = 1 && bash \"$c/tests/crossplane-runtime-suite-current.sh\" --self-test > /dev/null && test \"$(bash \"$c/tests/crossplane-runtime-suite-current.sh\" \"$c\" | grep -c -x -F '[crossplane-runtime-suite-current] PASS C3: flux-managed matches CREATE and UPDATE only, so it never judges a DELETE')\" = 1 && bash \"$c/tests/function-test-render.sh\" \"$c\" > /dev/null && helm template bp-kyverno-policies \"$c\" --namespace=kyverno --show-only templates/baseline/10-flux-managed.yaml > \"$d/fm.yaml\" && test \"$(grep -c -x 'kind: ValidatingPolicy' \"$d/fm.yaml\")\" = 1 && test \"$(grep -c -x '  name: flux-managed' \"$d/fm.yaml\")\" = 1 && helm template bp-kyverno-policies \"$c\" --namespace=kyverno --show-only templates/tests/function-test.yaml > \"$d/ft.yaml\" && test \"$(grep -A1 -x '        - name: VALIDATING_POLICIES' \"$d/ft.yaml\" | tail -1 | grep -c -w 'flux-managed')\" = 1"
+  - id: A3
+    run: "d=\"$(mktemp -d)\" && cd tools/guards && NO_COLOR=1 go test -count=1 -v -run '^(TestValidatingPolicyVerdicts|TestValidatingPolicyCannotBeRead|TestCEL|TestValidatingPolicyFile)$' ./cmd/cronjob-jobs > \"$d/vp.txt\" && test \"$(grep -c -E '^--- PASS: (TestValidatingPolicyVerdicts|TestValidatingPolicyCannotBeRead|TestCEL|TestValidatingPolicyFile) ' \"$d/vp.txt\")\" = 4 && NO_COLOR=1 go test -count=1 ./cmd/cronjob-jobs > \"$d/all.txt\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The governance policy flux-managed is a ValidatingPolicy of group policies.kyverno.io with the same name, labels, values keys and carve-outs, judged by a suite with the same verdicts; the CronJob guard judges the Jobs and Pods of the kit's CronJobs against the policy of the new kind as the kit renders it, still erring toward a denial where it cannot read a condition.
+  delivers: The governance policy flux-managed is a ValidatingPolicy of group policies.kyverno.io with the same name, labels, values keys and carve-outs, judged by a suite of fifteen results whose verdicts are the same on the legacy policy and on the new one; the CronJob guard judges the Jobs and Pods of the kit's CronJobs against the policy of the new kind as the kit renders it, still erring toward a denial where it cannot read a condition.
 - id: CMP-085
   title: Remediation requests
   area: CMP
