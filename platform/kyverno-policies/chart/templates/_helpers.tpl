@@ -79,3 +79,27 @@ Usage:
 {{- define "bp-kyverno-policies.excludeNamespacesExpr" -}}
 !(object.metadata.?namespace.orValue('') in [{{ range $i, $ns := . }}{{ if $i }}, {{ end }}'{{ $ns }}'{{ end }}])
 {{- end -}}
+
+{{- /*
+bp-kyverno-policies.reportsReadChecksum — a checksum of the read that
+templates/rbac-reports-matched-read.yaml grants the reports controller, for
+an annotation of each ValidatingPolicy that read is for.
+
+Kyverno v1.19 sets RBACPermissionsGranted when it reconciles a policy, and it
+reconciles a policy only when the policy is added, when its resourceVersion
+changes, or when its webhook turns ready (pkg/controllers/policystatus). It
+does not watch RBAC and does not requeue on a timer. A grant added on a
+running Sovereign therefore changes nothing by itself: the condition stays
+False until the policy changes. With this annotation a change of the grant is
+a change of the policy, so the upgrade that brings the grant also patches the
+policy, and Kyverno checks the permissions again. Helm applies a ClusterRole
+before any ValidatingPolicy (a kind Helm does not know, applied last), so the
+role exists, and is normally aggregated, before the policy changes.
+
+Usage, under metadata.annotations:
+
+    catalyst.openova.io/reports-read-checksum: {{ include "bp-kyverno-policies.reportsReadChecksum" . | quote }}
+*/ -}}
+{{- define "bp-kyverno-policies.reportsReadChecksum" -}}
+{{- include (print .Template.BasePath "/rbac-reports-matched-read.yaml") . | sha256sum | trunc 16 -}}
+{{- end -}}
