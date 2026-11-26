@@ -7,15 +7,12 @@ import { KIT_COMPONENT_IDS } from '@/shared/lib/kitComponents'
 export type { DeploymentID } from '@/shared/types/deployment'
 export { parseDeploymentID, isDeploymentID } from '@/shared/types/deployment'
 
-export type CloudProvider = 'hetzner' | 'huawei' | 'oci' | 'aws' | 'azure'
+/** The name of a provider pack, as GET /api/v1/providers lists it (lib/providers.api.ts). */
+export type CloudProvider = string
 /**
- * NodeSize is a free-form string — the native instance-type id the chosen
- * provider uses. The legal values per provider live in
- * `shared/constants/providerSizes.ts` (PROVIDER_NODE_SIZES). The wizard
- * never compares NodeSize against a closed union: hetzner emits 'cx32' /
- * 'cax41', AWS emits 'm6i.xlarge', Azure emits 'Standard_D4s_v5', and so on.
- * The OpenTofu module receives the literal string and validates it against
- * the provider's API.
+ * NodeSize is a flavor name of the cloud profile of the chosen provider
+ * (compute.flavors[].name, served by GET /api/v1/providers/{provider}).
+ * The OpenTofu module receives the literal string.
  */
 export type NodeSize = string
 export type DeploymentStatus = 'pending' | 'provisioning' | 'healthy' | 'degraded' | 'failed' | 'destroying'
@@ -141,11 +138,13 @@ export interface WizardState {
    *  reports the credentials work and the domain is in the account. */
   registrarTokenValidated: boolean
   topology: TopologyTemplate | null
-  regionProviders: Record<number, CloudProvider>
+  /** Per region: the code of a region of the cloud profile (the request's cloudRegion). */
   regionCloudRegions: Record<number, string>
+  /** Per region: a zone of that region of the cloud profile. */
+  regionZones: Record<number, string>
   /**
-   * Per-region SKU selection. Each array is indexed parallel to
-   * regionProviders / regionCloudRegions: index 0 holds Region 1's choices,
+   * Per-region flavor selection. Each array is indexed parallel to
+   * regionCloudRegions: index 0 holds Region 1's choices,
    * index 1 holds Region 2's, and so on for whatever count the chosen
    * topology dictates (plus 1 for the AIR-GAP add-on when enabled).
    *
@@ -153,48 +152,21 @@ export interface WizardState {
    * fields are still present for back-compat (the migration in store.merge()
    * hydrates these arrays from them on first load), but every code path
    * that reads sizing post per-provider rework uses the per-region arrays.
-   * The OpenTofu Request payload sent to catalyst-api carries both: the
-   * Regions[] array is canonical, and the singular fields mirror Regions[0]
-   * so the existing solo-Hetzner happy path keeps working.
+   * The request sent to catalyst-api carries the Regions[] array.
    */
   regionControlPlaneSizes: string[]
   regionWorkerSizes: string[]
   regionWorkerCounts: number[]
-  providerTokens: Partial<Record<CloudProvider, string>>
-  providerValidated: Partial<Record<CloudProvider, boolean>>
+  /** The provider pack of every region of the Sovereign (the request's provider). */
   provider: CloudProvider | null
-  hetznerToken: string
-  /** Hetzner project ID — captured at the credentials step alongside the API token. */
-  hetznerProjectId: string
+  /** The installation document laid over the pack (the request's installation); '' for the pack alone. */
+  installation: string
+  /** The credential map, keyed by the credential fields of the cloud profile. Never persisted. */
+  credentials: Record<string, string>
+  /** True once POST /api/v1/credentials/validate accepted the credential map. Never persisted. */
   credentialValidated: boolean
-
   /**
-   * Hetzner Object Storage credentials (issue #371) — Phase 0b.
-   *
-   * Hetzner exposes NO Cloud API to mint Object Storage S3 keys; the
-   * operator issues them once in the Hetzner Console (Object Storage
-   * → Manage Credentials, secret half shown exactly once). The wizard
-   * captures both halves directly so the per-Sovereign bucket can be
-   * created at `tofu apply` time and Harbor (#383) + Velero (#384) find
-   * the credentials in the cluster from Phase 1 onwards.
-   *
-   * Region is one of fsn1 / nbg1 / hel1 — the European-only Object
-   * Storage availability zones. Independent of compute region; an
-   * ash/hil compute Sovereign picks a European Object Storage region
-   * (Velero/Harbor backup latency is acceptable for the use case).
-   *
-   * Bucket name is derived server-side from the Sovereign FQDN slug —
-   * the wizard does NOT surface a free-form input.
-   */
-  objectStorageRegion: 'fsn1' | 'nbg1' | 'hel1' | ''
-  objectStorageAccessKey: string
-  objectStorageSecretKey: string
-  /** UI-only — true once the catalyst-api validated the keys via
-   *  S3 ListBuckets. Gates the wizard's Next button. */
-  objectStorageValidated: boolean
-  /**
-   * SSH public key the OpenTofu module passes to the Hetzner API as the
-   * `hcloud_ssh_key` resource attached to every server. Captured by the
+   * SSH public key the OpenTofu module attaches to every server. Captured by the
    * StepCredentials SSH section in one of two modes:
    *
    *   • Mode A — auto-generate: catalyst-api emits an Ed25519 keypair, the
@@ -241,10 +213,10 @@ export interface WizardState {
   controlPlaneSize: NodeSize; workerSize: NodeSize; workerCount: number; haEnabled: boolean
   /**
    * Default storage class for the Sovereign (issue #4057). OPTIONAL —
-   * an empty string means "let the backend fill the per-provider default"
-   * (Hetzner → `hcloud-volumes`, Huawei → `evs-ssd`). The catalyst-api
+   * an empty string means "let the backend fill the default class of the
+   * cloud profile" (storage.defaultClass). The catalyst-api
    * Request struct (`provisioner.Request.StorageClass`) already accepts
-   * this field and defaults it per-provider when empty; this is the UI
+   * this field; this is the UI
    * seam so an operator can override the durable cloud-volume class.
    * `local-path` is intentionally NOT a permitted value (durability).
    */
@@ -350,7 +322,7 @@ export const ORG_DEFAULTS = {
  * ship, kept ONLY so the persist `migrate` below can recognise and drop it.
  *
  * Emptying ORG_DEFAULTS fixes INITIAL_WIZARD_STATE and nothing else. The
- * wizard store is `persist`-wrapped, `partialize()` strips only the four
+ * wizard store is `persist`-wrapped, `partialize()` strips only the
  * credential fields, and `merge()` returns `{ ...current, ...persisted }` —
  * so the persisted payload WINS over INITIAL_WIZARD_STATE. Every browser that
  * ran the wizard against the pre-fix bundle still holds these six values in
@@ -359,12 +331,12 @@ export const ORG_DEFAULTS = {
  * walk UAT rows W1/W2 — an operator's own browser, which has run the wizard
  * before.
  *
- * W2 is the sharper half: `orgHeadquarters: 'Frankfurt, Germany'` is matched by
- * StepProvider's `getHqHint()` against
- * `/germany|frankfurt|berlin|munich|hamburg|cologne/i`, which derives provider
- * 'hetzner' + regions ['fsn1','nbg1','hel1'] and renders the
- * "★ Pre-selected based on HQ" banner — cloud provider and region derived from
- * a fabricated value, which is precisely what W2 forbids.
+ * W2 is the sharper half: `orgHeadquarters: 'Frankfurt, Germany'` was matched by
+ * the headquarters map StepProvider had until CLD-122, which derived a provider
+ * and its regions from it and rendered the "★ Pre-selected based on HQ" banner —
+ * cloud provider and region derived from a fabricated value, which is
+ * precisely what W2 forbids. A provider and regions persisted from that
+ * derivation are still dropped.
  *
  * The migration is deliberately VALUE-MATCHED, not a blanket wipe: a field is
  * dropped only when it is still verbatim-identical to the retired default, so
@@ -415,44 +387,6 @@ export const SOVEREIGN_POOL_DOMAINS: SovereignPoolDomain[] = [
   },
 ]
 
-export const PROVIDER_REGIONS: Record<CloudProvider, { id: string; label: string; location: string }[]> = {
-  hetzner: [
-    { id: 'fsn1',  label: 'FSN1', location: 'Falkenstein, Germany' },
-    { id: 'nbg1',  label: 'NBG1', location: 'Nuremberg, Germany' },
-    { id: 'hel1',  label: 'HEL1', location: 'Helsinki, Finland' },
-    { id: 'ash',   label: 'ASH',  location: 'Ashburn, USA' },
-    { id: 'hil',   label: 'HIL',  location: 'Hillsboro, USA' },
-  ],
-  huawei: [
-    { id: 'eu-west-101',    label: 'eu-west-101',    location: 'Dublin, Ireland' },
-    { id: 'eu-west-204',    label: 'eu-west-204',    location: 'Paris, France' },
-    { id: 'cn-north-4',     label: 'cn-north-4',     location: 'Beijing, China' },
-    { id: 'ap-southeast-1', label: 'ap-southeast-1', location: 'Hong Kong' },
-    { id: 'me-east-1',      label: 'me-east-1',      location: 'Riyadh, Saudi Arabia' },
-  ],
-  oci: [
-    { id: 'eu-frankfurt-1', label: 'eu-frankfurt-1', location: 'Frankfurt, Germany' },
-    { id: 'eu-amsterdam-1', label: 'eu-amsterdam-1', location: 'Amsterdam, Netherlands' },
-    { id: 'us-ashburn-1',   label: 'us-ashburn-1',   location: 'Ashburn, USA' },
-    { id: 'us-phoenix-1',   label: 'us-phoenix-1',   location: 'Phoenix, USA' },
-    { id: 'ap-singapore-1', label: 'ap-singapore-1', location: 'Singapore' },
-  ],
-  aws: [
-    { id: 'eu-central-1',   label: 'eu-central-1',   location: 'Frankfurt, Germany' },
-    { id: 'eu-west-1',      label: 'eu-west-1',      location: 'Dublin, Ireland' },
-    { id: 'us-east-1',      label: 'us-east-1',      location: 'N. Virginia, USA' },
-    { id: 'us-west-2',      label: 'us-west-2',      location: 'Oregon, USA' },
-    { id: 'ap-southeast-1', label: 'ap-southeast-1', location: 'Singapore' },
-  ],
-  azure: [
-    { id: 'westeurope',    label: 'westeurope',    location: 'Amsterdam, Netherlands' },
-    { id: 'northeurope',   label: 'northeurope',   location: 'Dublin, Ireland' },
-    { id: 'eastus',        label: 'eastus',        location: 'Virginia, USA' },
-    { id: 'westus2',       label: 'westus2',       location: 'Washington, USA' },
-    { id: 'southeastasia', label: 'southeastasia', location: 'Singapore' },
-  ],
-}
-
 export const TOPOLOGY_REGION_COUNT: Record<TopologyTemplate, number> = {
   dual: 2, solo: 1,
 }
@@ -477,17 +411,11 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   registrarToken: '',
   registrarTokenValidated: false,
   topology: 'dual',
-  regionProviders: {}, regionCloudRegions: {},
+  regionCloudRegions: {}, regionZones: {},
   regionControlPlaneSizes: [],
   regionWorkerSizes: [],
   regionWorkerCounts: [],
-  providerTokens: {}, providerValidated: {},
-  provider: null, hetznerToken: '', hetznerProjectId: '', credentialValidated: false,
-  // Hetzner Object Storage (issue #371) — Phase 0b. Empty defaults; the
-  // wizard's StepCredentials Object Storage section populates them and
-  // POSTs to /api/v1/credentials/object-storage/validate before Next.
-  objectStorageRegion: '', objectStorageAccessKey: '', objectStorageSecretKey: '',
-  objectStorageValidated: false,
+  provider: null, installation: '', credentials: {}, credentialValidated: false,
   sshPublicKey: '', sshKeyGeneratedThisSession: false, sshPrivateKeyOnce: '', sshFingerprint: '',
   componentsAppliedForProfile: null,
   // Empty by default — the user opts in to marketplace Blueprints in
@@ -497,16 +425,15 @@ export const INITIAL_WIZARD_STATE: WizardState = {
   // Legacy single-valued sizing kept for back-compat. The per-region
   // arrays above are canonical from the per-provider rework onwards.
   // controlPlaneSize / workerSize default to '' so a first-load that
-  // hasn't visited StepProvider yet doesn't synthesize a hetzner-only
-  // literal that won't pass validation against a non-hetzner provider.
+  // hasn't visited StepProvider yet carries no flavor of any profile.
   // workerCount defaults to 2 so the first-time operator lands a
   // 1×CP + 2×worker multi-node Sovereign — restores the horizontal-
   // scale agreement (issue #733). Operators can dial it back to 0
   // explicitly for solo dev/POC topologies.
   regions: [], controlPlaneSize: '', workerSize: '', workerCount: 2,
   // Default storage class (issue #4057) — empty means "accept the
-  // per-provider backend default" (hetzner→hcloud-volumes, huawei→evs-ssd).
-  // Never seed a provider literal here: provider is null at init, so a
+  // default class of the cloud profile".
+  // Never seed a class here: provider is null at init, so a
   // hardcoded class would be wrong for whichever provider the operator
   // ends up picking. The StepProvider override input fills it on demand.
   storageClass: '',
@@ -553,8 +480,7 @@ export function isValidSubdomain(subdomain: string): boolean {
 /**
  * Validate an OpenSSH authorized_keys-style public key line.
  *
- * Accepts the algorithms `infra/hetzner/variables.tf` already accepts via
- * its regex validator: ed25519, RSA, and the three NIST-P ECDSA variants.
+ * Accepts ed25519, RSA, and the three NIST-P ECDSA variants.
  * The base64 body is required; the trailing comment is optional.
  *
  * Rejects:
@@ -567,7 +493,6 @@ export function isValidSubdomain(subdomain: string): boolean {
 export function isValidSSHPublicKey(line: string): boolean {
   const trimmed = line.trim()
   if (trimmed === '') return false
-  // Algorithm prefix list mirrors the regex in infra/hetzner/variables.tf:
   //   ssh-rsa | ssh-ed25519 | ecdsa-sha2-nistp256 | ecdsa-sha2-nistp384 | ecdsa-sha2-nistp521
   const m = trimmed.match(
     /^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+([A-Za-z0-9+/=]+)(?:\s+.+)?$/,

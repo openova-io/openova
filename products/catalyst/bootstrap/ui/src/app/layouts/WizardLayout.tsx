@@ -39,10 +39,10 @@ import { consumeProvisionFlashBanner } from '@/shared/lib/flashBanner'
  *                     which providers to ask for.
  *   8. Review       — POST body preview + launch.
  *
- * Topology BEFORE Provider is the dependency-correct order: a provider is
- * a per-region property, picked AFTER topology decides how many regions
- * exist. SKU choices belong INSIDE the provider step because every cloud
- * has its own instance-type vocabulary (see shared/constants/providerSizes.ts).
+ * Topology BEFORE Provider is the dependency-correct order: the provider
+ * step fills each region, picked AFTER topology decides how many regions
+ * exist. Flavor choices belong INSIDE the provider step because every cloud
+ * has its own flavors (those of its cloud profile).
  *
  * Marketplace is positioned AFTER Components and BEFORE Domain on purpose:
  * the operator has just curated the apps that will populate the storefront,

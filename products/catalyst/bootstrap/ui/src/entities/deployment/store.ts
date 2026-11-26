@@ -58,35 +58,24 @@ interface WizardActions {
   setRegistrarTokenValidated: (validated: boolean) => void
   clearRegistrarCredentials: () => void
 
-  // Step 2 — Topology (resets per-region providers when topology changes)
+  // Step 2 — Topology (resets the per-region choices when topology changes)
   setTopology: (topology: TopologyTemplate) => void
 
-  // Step 3 — Per-region provider
-  setRegionProvider: (regionIndex: number, provider: CloudProvider) => void
+  // Step 3 — the cloud (a provider pack and an installation document of
+  // GET /api/v1/providers), and per region a region and a zone of its profile
+  setProvider: (provider: CloudProvider, installation: string) => void
   setRegionCloudRegion: (regionIndex: number, cloudRegion: string) => void
-  applyProviderToAll: (provider: CloudProvider, regionCount: number) => void
+  setRegionZone: (regionIndex: number, zone: string) => void
 
-  // Step 3 — Per-region sizing (lives inside the provider step alongside
-  // the provider+region pickers, since SKU vocabulary is per-provider).
+  // Step 3 — Per-region flavors (inside the provider step, since the
+  // flavors are those of the cloud profile).
   setRegionControlPlaneSize: (regionIndex: number, sizeId: string) => void
   setRegionWorkerSize: (regionIndex: number, sizeId: string) => void
   setRegionWorkerCount: (regionIndex: number, count: number) => void
 
-  // Step 4 — Per-provider credentials
-  setProviderToken: (provider: CloudProvider, token: string) => void
-  setProviderValidated: (provider: CloudProvider, validated: boolean) => void
-
-  // Compat setters
-  setProvider: (provider: CloudProvider) => void
-  setHetznerToken: (token: string) => void
-  setHetznerProjectId: (projectId: string) => void
+  // Step 7 — the credential map of the cloud profile's credential fields
+  setCredential: (key: string, value: string) => void
   setCredentialValidated: (validated: boolean) => void
-
-  // Step 4 — Hetzner Object Storage credentials (issue #371)
-  setObjectStorageRegion: (region: 'fsn1' | 'nbg1' | 'hel1' | '') => void
-  setObjectStorageAccessKey: (key: string) => void
-  setObjectStorageSecretKey: (key: string) => void
-  setObjectStorageValidated: (validated: boolean) => void
 
   // Step 4 — SSH keypair (Mode A: auto-generate / Mode B: paste existing)
   setSshPublicKey: (key: string) => void
@@ -235,9 +224,9 @@ export const useWizardStore = create<WizardStore>()(
           set({ registrarType: null, registrarToken: '', registrarTokenValidated: false },
               false, 'wizard/clearRegistrarCredentials'),
 
-        // Reset regionProviders, regionCloudRegions, AND the per-region
-        // sizing arrays when topology changes — the new topology may have
-        // a different region count, and a stale SKU at index 1 carried
+        // Reset the per-region regions, zones AND sizing arrays when
+        // topology changes — the new topology may have
+        // a different region count, and a stale flavor at index 1 carried
         // over from two regions into one would silently feed the cost
         // rollup an unreachable region. The legacy single workerCount
         // field is also reset (StepProvider seeds per-region counts now).
@@ -245,46 +234,35 @@ export const useWizardStore = create<WizardStore>()(
           set(
             {
               topology,
-              regionProviders: {},
               regionCloudRegions: {},
+              regionZones: {},
               regionControlPlaneSizes: [],
               regionWorkerSizes: [],
               regionWorkerCounts: [],
-              providerValidated: {},
-              providerTokens: {},
               workerCount: 0,
             },
             false,
             'wizard/setTopology',
           ),
 
-        // Switching the provider for a region invalidates the SKUs that
-        // were valid for the old provider (Hetzner cx32 means nothing on
-        // Azure). The cloud-region is also wiped because the region
-        // vocabulary is per-provider too. StepProvider re-pre-selects
-        // sane defaults immediately after.
-        setRegionProvider: (regionIndex, provider) =>
+        // Another cloud has other regions, zones, flavors and credential
+        // fields: every per-region choice and the credential map are wiped.
+        // StepProvider pre-selects the new profile's defaults right after.
+        setProvider: (provider, installation) =>
           set(
-            (s) => {
-              const cps = [...s.regionControlPlaneSizes]
-              const wks = [...s.regionWorkerSizes]
-              const wcs = [...s.regionWorkerCounts]
-              while (cps.length <= regionIndex) cps.push('')
-              while (wks.length <= regionIndex) wks.push('')
-              while (wcs.length <= regionIndex) wcs.push(0)
-              cps[regionIndex] = ''
-              wks[regionIndex] = ''
-              wcs[regionIndex] = 0
-              return {
-                regionProviders: { ...s.regionProviders, [regionIndex]: provider },
-                regionCloudRegions: { ...s.regionCloudRegions, [regionIndex]: '' },
-                regionControlPlaneSizes: cps,
-                regionWorkerSizes: wks,
-                regionWorkerCounts: wcs,
-              }
+            {
+              provider,
+              installation,
+              regionCloudRegions: {},
+              regionZones: {},
+              regionControlPlaneSizes: [],
+              regionWorkerSizes: [],
+              regionWorkerCounts: [],
+              credentials: {},
+              credentialValidated: false,
             },
             false,
-            'wizard/setRegionProvider',
+            'wizard/setProvider',
           ),
         setRegionCloudRegion: (regionIndex, cloudRegion) =>
           set(
@@ -292,11 +270,8 @@ export const useWizardStore = create<WizardStore>()(
             false,
             'wizard/setRegionCloudRegion'
           ),
-        applyProviderToAll: (provider, regionCount) => {
-          const regionProviders: Record<number, CloudProvider> = {}
-          for (let i = 0; i < regionCount; i++) regionProviders[i] = provider
-          set({ regionProviders }, false, 'wizard/applyProviderToAll')
-        },
+        setRegionZone: (regionIndex, zone) =>
+          set((s) => ({ regionZones: { ...s.regionZones, [regionIndex]: zone } }), false, 'wizard/setRegionZone'),
 
         // Per-region SKU mutators. Each writes ONLY into the index it was
         // given — adjacent indices are preserved untouched. The setters
@@ -304,8 +279,7 @@ export const useWizardStore = create<WizardStore>()(
         // counts) up to the requested index so a sparse selection from
         // an earlier topology choice doesn't leak NaN/undefined holes
         // into the cost rollup. The legacy single-valued field mirrors
-        // index 0 so the existing solo-Hetzner fallback path keeps
-        // working until the multi-region tofu wiring activates.
+        // index 0.
         setRegionControlPlaneSize: (regionIndex, sizeId) =>
           set(
             (s) => {
@@ -347,42 +321,15 @@ export const useWizardStore = create<WizardStore>()(
             'wizard/setRegionWorkerCount',
           ),
 
-        setProviderToken: (provider, token) =>
+        // A changed credential value must be validated again.
+        setCredential: (key, value) =>
           set(
-            (s) => ({ providerTokens: { ...s.providerTokens, [provider]: token } }),
+            (s) => ({ credentials: { ...s.credentials, [key]: value }, credentialValidated: false }),
             false,
-            'wizard/setProviderToken'
+            'wizard/setCredential',
           ),
-        setProviderValidated: (provider, validated) =>
-          set(
-            (s) => ({ providerValidated: { ...s.providerValidated, [provider]: validated } }),
-            false,
-            'wizard/setProviderValidated'
-          ),
-
-        setProvider: (provider) =>
-          set({ provider, credentialValidated: false, hetznerToken: '' }, false, 'wizard/setProvider'),
-        setHetznerToken: (hetznerToken) => set({ hetznerToken }, false, 'wizard/setHetznerToken'),
-        setHetznerProjectId: (hetznerProjectId) =>
-          set({ hetznerProjectId: hetznerProjectId.trim() }, false, 'wizard/setHetznerProjectId'),
         setCredentialValidated: (credentialValidated) =>
           set({ credentialValidated }, false, 'wizard/setCredentialValidated'),
-
-        // Hetzner Object Storage (issue #371). Each setter clears
-        // objectStorageValidated so a region/key change forces a fresh
-        // ListBuckets probe before Next is enabled — same pattern as the
-        // Hetzner Cloud token credentialValidated flag.
-        setObjectStorageRegion: (objectStorageRegion) =>
-          set({ objectStorageRegion, objectStorageValidated: false }, false,
-            'wizard/setObjectStorageRegion'),
-        setObjectStorageAccessKey: (objectStorageAccessKey) =>
-          set({ objectStorageAccessKey, objectStorageValidated: false }, false,
-            'wizard/setObjectStorageAccessKey'),
-        setObjectStorageSecretKey: (objectStorageSecretKey) =>
-          set({ objectStorageSecretKey, objectStorageValidated: false }, false,
-            'wizard/setObjectStorageSecretKey'),
-        setObjectStorageValidated: (objectStorageValidated) =>
-          set({ objectStorageValidated }, false, 'wizard/setObjectStorageValidated'),
 
         setSshPublicKey: (sshPublicKey) =>
           set(
@@ -436,8 +383,8 @@ export const useWizardStore = create<WizardStore>()(
         setHaEnabled: (haEnabled) => set({ haEnabled }, false, 'wizard/setHaEnabled'),
 
         // Default storage class — issue #4057. Empty string is the common
-        // case: the catalyst-api Request struct fills the per-provider
-        // default (hetzner→hcloud-volumes, huawei→evs-ssd) when it arrives
+        // case: the catalyst-api Request struct fills the default class of
+        // the cloud profile when it arrives
         // blank. A non-empty value overrides that default.
         setStorageClass: (storageClass) =>
           set({ storageClass }, false, 'wizard/setStorageClass'),
@@ -497,12 +444,10 @@ export const useWizardStore = create<WizardStore>()(
                 delete p[key]
               }
             }
-            // The DERIVATION is as much a fabricated value as its input.
-            // StepProvider's first-visit effect early-returns when
-            // regionProviders is already populated, so a provider/region set
-            // derived from 'Frankfurt, Germany' would be frozen in and never
-            // recomputed against the operator's real HQ. Drop it so the step
-            // re-derives once they state who they actually are.
+            // The DERIVATION is as much a fabricated value as its input: a
+            // provider and regions (regionProviders is the key the bundle of
+            // that time wrote) derived from 'Frankfurt, Germany' are dropped,
+            // so the provider step picks them again.
             if (hqWasFabricated) {
               delete p.provider
               delete p.regionProviders
@@ -524,17 +469,20 @@ export const useWizardStore = create<WizardStore>()(
           // Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene):
           //   • sshPrivateKeyOnce — Mode-A break-glass private key
           //   • registrarToken    — BYO Flow B registrar API credential
-          // Both are in-memory only. registrarTokenValidated drops too —
-          // a fresh tab must re-prove the token even if the password
-          // manager re-fills the field.
+          //   • credentials       — the cloud credential map
+          // All are in-memory only. registrarTokenValidated and
+          // credentialValidated drop too — a fresh tab must re-prove them
+          // even if the password manager re-fills the fields.
           const {
             sshPrivateKeyOnce: _omitPriv,
             sshKeyGeneratedThisSession: _omitGenFlag,
             registrarToken: _omitTok,
             registrarTokenValidated: _omitTokFlag,
+            credentials: _omitCreds,
+            credentialValidated: _omitCredsFlag,
             ...rest
           } = state
-          void _omitPriv; void _omitGenFlag; void _omitTok; void _omitTokFlag
+          void _omitPriv; void _omitGenFlag; void _omitTok; void _omitTokFlag; void _omitCreds; void _omitCredsFlag
           return rest as unknown as WizardState
         },
         // Merge saved state with initial — handles new fields added after first install
@@ -561,23 +509,20 @@ export const useWizardStore = create<WizardStore>()(
           const validTopologies: TopologyTemplate[] = ['dual', 'solo']
           if (p.topology && !validTopologies.includes(p.topology)) {
             p.topology = 'dual'
-            p.regionProviders = {}
             p.regionCloudRegions = {}
+            p.regionZones = {}
             p.regionControlPlaneSizes = []
             p.regionWorkerSizes = []
             p.regionWorkerCounts = []
-            p.providerValidated = {}
-            p.providerTokens = {}
           }
           // Per-region sizing migration. A persist payload from before the
           // per-region rework only has the singular controlPlaneSize /
           // workerSize / workerCount fields. Hydrate the arrays from those
           // for index 0 so a returning user sees their previous selection
           // applied to Region 1 — the rest of the regions stay empty until
-          // the user revisits the provider step. Any cx22 default (the old
-          // hetzner literal that was the legacy initial value) is treated
-          // as "no selection yet" so we don't carry a hetzner-only id into
-          // a chosen Azure region.
+          // the user revisits the provider step. Any cx22 default (the
+          // legacy initial value) is treated as "no selection yet" so it is
+          // not carried into a region of another cloud.
           {
             const legacyCp = (p as { controlPlaneSize?: string }).controlPlaneSize
             const legacyWk = (p as { workerSize?: string }).workerSize
@@ -627,13 +572,12 @@ export const useWizardStore = create<WizardStore>()(
           // legacy persisted payload.
           if (typeof p.sshPublicKey !== 'string') p.sshPublicKey = ''
           if (typeof p.sshFingerprint !== 'string') p.sshFingerprint = ''
-          // Hetzner Object Storage fields added in #371 — coerce missing
-          // values on a legacy persisted payload so the StepCredentials
-          // ObjectStorageSection renders without throwing on undefined.
-          if (typeof p.objectStorageRegion !== 'string') p.objectStorageRegion = ''
-          if (typeof p.objectStorageAccessKey !== 'string') p.objectStorageAccessKey = ''
-          if (typeof p.objectStorageSecretKey !== 'string') p.objectStorageSecretKey = ''
-          if (typeof p.objectStorageValidated !== 'boolean') p.objectStorageValidated = false
+          // The cloud fields of CLD-122 — coerce missing values on a legacy
+          // persisted payload. The credential map is never restored.
+          if (typeof p.installation !== 'string') p.installation = ''
+          if (!p.regionZones || typeof p.regionZones !== 'object') p.regionZones = {}
+          p.credentials = {}
+          p.credentialValidated = false
           // Always start a session with no private blob and no "generated
           // this session" flag — partialize() omits them on save, this
           // double-protects an older persist payload that may have

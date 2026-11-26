@@ -51,6 +51,7 @@ import {
   TOPOLOGY_REGION_LABELS,
 } from '@/entities/deployment/model'
 import type { TopologyTemplate } from '@/entities/deployment/model'
+import { answering, cloudRoutes } from '@/test/fixtures/providers-routes.fixture'
 
 /* ── Test doubles for StepReview's non-wire dependencies ──────────── */
 
@@ -136,13 +137,15 @@ function seedStore(topology: TopologyTemplate, airgap = false) {
     sovereignDomainMode: 'pool',
     sovereignPoolDomain: FQDN_POOL,
     sovereignSubdomain: FQDN_SUB,
-    regionProviders: Array.from({ length: regionCount }, () => 'hetzner'),
-    regionCloudRegions: Array.from({ length: regionCount }, () => 'fsn1'),
-    regionControlPlaneSizes: Array.from({ length: regionCount }, () => 'cpx41'),
-    regionWorkerSizes: Array.from({ length: regionCount }, () => 'cpx41'),
+    provider: 'pack-a',
+    installation: 'site-1',
+    regionCloudRegions: Array.from({ length: regionCount }, () => 'east-1'),
+    regionZones: Array.from({ length: regionCount }, () => 'east-1b'),
+    regionControlPlaneSizes: Array.from({ length: regionCount }, () => 'm.small'),
+    regionWorkerSizes: Array.from({ length: regionCount }, () => 'w.medium'),
     regionWorkerCounts: Array.from({ length: regionCount }, () => 2),
-    hetznerToken: 'x'.repeat(64),
-    hetznerProjectId: 'proj_abc',
+    credentials: { api_token: 'tok-123' },
+    credentialValidated: true,
     sshPublicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBdkRf2yAJ7E7g1zFJKj7xZl9Q3WkF0K3ZQp5Y7qXmHZ op@example.test',
   })
 }
@@ -155,11 +158,10 @@ function seedStore(topology: TopologyTemplate, airgap = false) {
  * the SAME `onLaunch` → `postDeployment` path a real click runs.
  */
 async function launchAndCaptureBody(): Promise<WireBody> {
-  const fetchSpy = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ id: 'dep-test-0001' }),
-  })
+  // The profile route answers the labels of the page; the POST is the one under test.
+  const fetchSpy = vi.fn(answering({ ...cloudRoutes(), 'POST /v1/deployments': { status: 200, body: { id: 'dep-test-0001' } } }))
   vi.stubGlobal('fetch', fetchSpy)
+  const posts = () => fetchSpy.mock.calls.filter(([, init]) => init?.method === 'POST')
 
   render(<StepReview />)
 
@@ -168,9 +170,9 @@ async function launchAndCaptureBody(): Promise<WireBody> {
   })
   await (useWizardNav.getState().nav.onNext!() as unknown as Promise<void>)
 
-  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(posts()).toHaveLength(1))
 
-  const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+  const [url, init] = posts()[0] as [string, RequestInit]
   expect(url).toContain('/v1/deployments')
   expect(init.method).toBe('POST')
   return JSON.parse(init.body as string) as WireBody

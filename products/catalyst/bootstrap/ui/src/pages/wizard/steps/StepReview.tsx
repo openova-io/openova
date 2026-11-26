@@ -10,14 +10,13 @@
  * Section order (matches the wizard's step order):
  *   1. Organisation       — name / industry / size / HQ / compliance
  *   2. Topology           — template + region count + HA + AIR-GAP flags
- *   3. Provider           — per-region: logo+name, region label, control-
- *                           plane SKU, worker SKU+count, hourly cost. Each
- *                           region's SKU comes from its own provider's
- *                           catalog (PROVIDER_NODE_SIZES[provider]); CPX32
- *                           does not exist on Azure, m6i.xlarge does not
- *                           exist on Hetzner. The footer rolls each
- *                           region's (cp + worker*count) into the total.
- *   4. Credentials        — Hetzner project ID + masked token + SSH key
+ *   3. Provider           — the cloud, and per region: region, zone, control-
+ *                           plane flavor, worker flavor+count and display
+ *                           price, all read from the cloud profile
+ *                           (GET /api/v1/providers/{provider}). The footer
+ *                           sums the display prices when every flavor has one.
+ *   4. Credentials        — the credential fields of the profile (secret
+ *                           ones masked) + SSH key
  *   5. Components         — product-family overview + per-component cards
  *   6. Domain             — pool subdomain + FQDN OR BYO; Sovereign
  *                            owner row reads from session.email since
@@ -35,8 +34,8 @@
  * exactly what will be installed in the same visual rhythm they see
  * across every other Catalyst surface.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene) the Hetzner
- * token and any registrar token are rendered as a fixed-length mask plus
+ * Per docs/INVIOLABLE-PRINCIPLES.md #10 (credential hygiene) every secret
+ * credential field and any registrar token are rendered as a fixed-length mask plus
  * the character count — never the plaintext. Same posture as the SSH
  * private key.
  */
@@ -45,14 +44,15 @@ import { useState } from 'react'
 import { Zap } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
 import {
-  PROVIDER_REGIONS,
   TOPOLOGY_REGION_LABELS,
   resolveSovereignDomain,
   SOVEREIGN_POOL_DOMAINS,
   browserTimeZone,
 } from '@/entities/deployment/model'
-import type { CloudProvider } from '@/entities/deployment/model'
-import { findNodeSize } from '@/shared/constants/providerSizes'
+import {
+  useProfile, findFlavor, describeFlavor, totalPrice, credentialMap,
+  type CloudProfile, type Flavor, type ProfileRegion,
+} from '@/lib/providers.api'
 import { API_BASE } from '@/shared/config/urls'
 import { useRouter } from '@tanstack/react-router'
 import { useSession } from '@/shared/lib/useSession'
@@ -66,23 +66,6 @@ import {
   workerCapacity,
   type ComponentFootprint,
 } from './componentFootprints'
-
-/* ── Provider logos ──────────────────────────────────────────────── */
-const PROVIDER_LOGOS: Record<CloudProvider, React.ReactNode> = {
-  hetzner: <svg viewBox="0 0 24 24" width={14} height={14} style={{ flexShrink: 0 }}><rect width={24} height={24} rx={3} fill="#D50C2D" /><path d="M5 6h5v12H5zM14 6h5v12h-5z" fill="#fff" /></svg>,
-  huawei:  <svg viewBox="0 0 24 24" width={14} height={14} style={{ flexShrink: 0 }}><rect width={24} height={24} rx={3} fill="#CF0A2C" /><path d="M12 5L14 9.5L19 9.5L15 12.5L17 17L12 14L7 17L9 12.5L5 9.5L10 9.5Z" fill="#fff" /></svg>,
-  oci:     <svg viewBox="0 0 24 24" width={14} height={14} style={{ flexShrink: 0 }}><rect width={24} height={24} rx={3} fill="#F80000" /><ellipse cx={12} cy={12} rx={7} ry={4.5} fill="none" stroke="#fff" strokeWidth={1.5} /></svg>,
-  aws:     <svg viewBox="0 0 24 24" width={14} height={14} style={{ flexShrink: 0 }}><rect width={24} height={24} rx={3} fill="#232F3E" /><path d="M7 15c2.5 1.8 7.5 1.8 10 0" stroke="#FF9900" strokeWidth={1.5} fill="none" strokeLinecap="round" /><path d="M12 8v5" stroke="#FF9900" strokeWidth={1.5} strokeLinecap="round" /><path d="M10 11l2-3 2 3" stroke="#FF9900" strokeWidth={1.2} fill="none" strokeLinecap="round" /></svg>,
-  azure:   <svg viewBox="0 0 24 24" width={14} height={14} style={{ flexShrink: 0 }}><rect width={24} height={24} rx={3} fill="#0078D4" /><path d="M11 7L7 17h4l2-4 2 4h4L15 7z" fill="#fff" opacity={0.9} /></svg>,
-}
-
-const PROVIDER_NAMES: Record<CloudProvider, string> = {
-  hetzner: 'Hetzner Cloud',
-  huawei:  'Huawei Cloud',
-  oci:     'Oracle Cloud (OCI)',
-  aws:     'Amazon Web Services',
-  azure:   'Microsoft Azure',
-}
 
 const DOMAIN_MODE_LABELS: Record<'pool' | 'byo-manual' | 'byo-api', string> = {
   'pool':       'OpenOva pool domain',
@@ -227,20 +210,21 @@ function FieldGrid({
 /* ── Per-region card (Provider section) ──────────────────────────── */
 interface ReviewRegionRow {
   label: string
-  provider: CloudProvider | null
   cloudRegion: string
-  cloudRegionLabel: string | null
-  cloudRegionLocation: string | null
+  zone: string
+  /** The region of the profile with the code cloudRegion; undefined while the profile is not read. */
+  region: ProfileRegion | undefined
   controlPlaneSize: string
   workerSize: string
   workerCount: number
-  hourlyCost: number
+  cp: Flavor | undefined
+  wk: Flavor | undefined
   isAirgap: boolean
 }
 
-function RegionCard({ row, index }: { row: ReviewRegionRow; index: number }) {
-  const cp = row.provider && row.controlPlaneSize ? findNodeSize(row.provider, row.controlPlaneSize) : undefined
-  const wk = row.provider && row.workerSize ? findNodeSize(row.provider, row.workerSize) : undefined
+function RegionCard({ row, index, cloud }: { row: ReviewRegionRow; index: number; cloud: string }) {
+  const { cp, wk } = row
+  const price = totalPrice([{ flavor: cp, count: 1 }, { flavor: wk, count: row.workerCount }])
   return (
     <div
       data-testid={`review-region-${index}`}
@@ -270,16 +254,18 @@ function RegionCard({ row, index }: { row: ReviewRegionRow; index: number }) {
         >
           {row.isAirgap ? `Region ${index + 1} · AIR-GAP` : `Region ${index + 1}`}
         </span>
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontSize: 10,
-            fontWeight: 700,
-            color: 'var(--wiz-accent)',
-          }}
-        >
-          €{row.hourlyCost.toFixed(3)}/hr
-        </span>
+        {price && (
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: 10,
+              fontWeight: 700,
+              color: 'var(--wiz-accent)',
+            }}
+          >
+            {price.amount.toFixed(2)} {price.currency}/{price.per}
+          </span>
+        )}
       </div>
       <span
         style={{
@@ -295,36 +281,33 @@ function RegionCard({ row, index }: { row: ReviewRegionRow; index: number }) {
         {row.label}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {row.provider ? (
-          <>
-            {PROVIDER_LOGOS[row.provider]}
-            <span style={{ fontSize: 11, color: 'var(--wiz-text-md)' }}>{PROVIDER_NAMES[row.provider]}</span>
-          </>
+        {cloud ? (
+          <span style={{ fontSize: 11, color: 'var(--wiz-text-md)' }}>{cloud}</span>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--wiz-text-hint)' }}>— provider not configured —</span>
         )}
       </div>
       <div style={{ fontSize: 11, color: 'var(--wiz-text-md)', minWidth: 0 }}>
-        {row.cloudRegionLabel ? (
+        {row.cloudRegion ? (
           <span>
-            <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{row.cloudRegionLabel}</code>
-            <span style={{ color: 'var(--wiz-text-sub)' }}> · {row.cloudRegionLocation}</span>
+            <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{row.region?.label ?? row.cloudRegion}</code>
+            <span style={{ color: 'var(--wiz-text-sub)' }}> · {row.zone}{row.region && ` · ${row.region.location}`}</span>
           </span>
         ) : (
           <span style={{ color: 'var(--wiz-text-hint)' }}>— region not selected —</span>
         )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1, fontSize: 10 }}>
-        {cp ? (
+        {row.controlPlaneSize ? (
           <span>
-            CP: <strong style={{ color: 'var(--wiz-text-md)' }}>{cp.label}</strong>
+            CP: <strong style={{ color: 'var(--wiz-text-md)' }}>{row.controlPlaneSize}</strong>{cp && ` · ${describeFlavor(cp)}`}
           </span>
         ) : (
           <span style={{ color: 'var(--wiz-text-hint)' }}>— CP sizing —</span>
         )}
-        {wk && row.workerCount > 0 ? (
+        {row.workerSize && row.workerCount > 0 ? (
           <span>
-            W×{row.workerCount}: <strong style={{ color: 'var(--wiz-text-md)' }}>{wk.label}</strong>
+            W×{row.workerCount}: <strong style={{ color: 'var(--wiz-text-md)' }}>{row.workerSize}</strong>{wk && ` · ${describeFlavor(wk)}`}
           </span>
         ) : (
           <span style={{ color: 'var(--wiz-text-sub)' }}>solo — no workers</span>
@@ -395,11 +378,16 @@ export function StepReview() {
   const poolDomainLabel =
     SOVEREIGN_POOL_DOMAINS.find(p => p.id === store.sovereignPoolDomain)?.domain ?? store.sovereignPoolDomain
 
+  // The profile of the chosen cloud: the labels, flavors and prices shown
+  // below. The POST body is the store's and does not wait for it.
+  const loaded = useProfile(store.provider, store.installation)
+  const profile: CloudProfile | null = loaded?.state === 'ready' ? loaded.value : null
+  const provider = store.provider ?? ''
+
   // Per-region payload — built once and used for both the on-screen
-  // table and the POST body. The Regions[] array is canonical; the
-  // singular hetznerToken/region/controlPlaneSize/workerSize/workerCount
-  // fields below are mirrored from index 0 so the existing solo-Hetzner
-  // back-compat path inside provisioner.Validate keeps working.
+  // table and the POST body. Every region names the one provider of the
+  // request; provisioner.Validate mirrors regions[0] into the legacy
+  // singular fields, so the body does not carry them.
   const topologyRegionLabels = store.topology
     ? TOPOLOGY_REGION_LABELS[store.topology] ?? ['Region 1']
     : ['Region 1']
@@ -407,37 +395,32 @@ export function StepReview() {
     ? [...topologyRegionLabels, 'AIR-GAP Region']
     : topologyRegionLabels
   const regionRows: ReviewRegionRow[] = allRegionLabels.map((label, i) => {
-    const provider = (store.regionProviders[i] as CloudProvider | undefined) ?? null
     const cloudRegion = store.regionCloudRegions[i] ?? ''
-    const regionDef = provider && cloudRegion ? PROVIDER_REGIONS[provider].find(r => r.id === cloudRegion) : undefined
     const cpId = store.regionControlPlaneSizes[i] ?? ''
     const wkId = store.regionWorkerSizes[i] ?? ''
-    const wkCount = store.regionWorkerCounts[i] ?? 0
-    const cp = provider && cpId ? findNodeSize(provider, cpId) : undefined
-    const wk = provider && wkId ? findNodeSize(provider, wkId) : undefined
-    const cpC = cp ? cp.priceHour : 0
-    const wkC = wk ? wk.priceHour * Math.max(0, wkCount) : 0
     return {
       label,
-      provider,
       cloudRegion,
-      cloudRegionLabel: regionDef?.label ?? null,
-      cloudRegionLocation: regionDef?.location ?? null,
+      zone: store.regionZones[i] ?? '',
+      region: profile?.regions.find(r => r.code === cloudRegion),
       controlPlaneSize: cpId,
       workerSize: wkId,
-      workerCount: wkCount,
-      hourlyCost: cpC + wkC,
+      workerCount: store.regionWorkerCounts[i] ?? 0,
+      cp: profile ? findFlavor(profile, cpId) : undefined,
+      wk: profile ? findFlavor(profile, wkId) : undefined,
       isAirgap: store.airgap && i === topologyRegionLabels.length,
     }
   })
   const regionsPayload = regionRows.map((r) => ({
-    provider:         r.provider ?? '',
+    provider,
     cloudRegion:      r.cloudRegion,
+    zone:             r.zone,
     controlPlaneSize: r.controlPlaneSize,
     workerSize:       r.workerSize,
     workerCount:      r.workerCount,
   }))
-  const totalHourly = regionRows.reduce((acc, r) => acc + r.hourlyCost, 0)
+  const total = totalPrice(regionRows.flatMap(r => [{ flavor: r.cp, count: 1 }, { flavor: r.wk, count: r.workerCount }]))
+  const credentials = credentialMap(store.credentials)
   // #4706 admission floor (#5661) — multi-region is the BCP default; a
   // single-region prov must DECLARE itself or CreateDeployment rejects the
   // body with HTTP 400 before Validate ever runs. The operator picking a
@@ -446,13 +429,6 @@ export function StepReview() {
   // leave the field unset (JSON.stringify drops undefined), preserving the
   // server's multi-region default semantics unchanged.
   const bcpTopology = regionsPayload.length < 2 ? 'single-region' : undefined
-  const r0 = regionsPayload[0] ?? {
-    provider: '',
-    cloudRegion: '',
-    controlPlaneSize: '',
-    workerSize: '',
-    workerCount: 0,
-  }
 
   // Every release of every ring is installed (the kit list generated by
   // tools/guards/cmd/kit-rings); the wizard selects nothing.
@@ -473,15 +449,13 @@ export function StepReview() {
     ramMb: baselineFootprint.ramMb + CONTROL_PLANE_OVERHEAD.ramMb,
     cpuMilli: baselineFootprint.cpuMilli + CONTROL_PLANE_OVERHEAD.cpuMilli,
   }
-  // Per-worker capacity for Region 1's chosen worker SKU. When the
-  // operator hasn't picked a worker SKU yet we fall back to a sensible
-  // floor (cpx32-equivalent: 4 vCPU / 8 GiB) so the footprint section
-  // still surfaces a useful estimate before they touch the Provider step.
-  const r0Provider = regionRows[0]?.provider ?? null
-  const r0WorkerId = regionRows[0]?.workerSize ?? ''
-  const r0Worker = r0Provider && r0WorkerId ? findNodeSize(r0Provider, r0WorkerId) : undefined
+  // Per-worker capacity for Region 1's chosen worker flavor. When the
+  // operator hasn't picked a worker flavor yet (or the profile is not read
+  // yet) we fall back to a sensible floor (4 vCPU / 8 GiB) so the footprint
+  // section still surfaces a useful estimate before they touch the Provider step.
+  const r0Worker = regionRows[0]?.wk
   const perWorkerCapacity: ComponentFootprint = r0Worker
-    ? workerCapacity(r0Worker.vcpu, r0Worker.ram)
+    ? workerCapacity(r0Worker.vcpu, r0Worker.memoryGiB)
     : workerCapacity(4, 8)
   const recommendedWorkerCount = recommendedWorkers(perWorkerCapacity, {
     // The recommendation accounts for the work that lands on workers —
@@ -492,9 +466,9 @@ export function StepReview() {
   })
   const operatorWorkerCount = regionRows[0]?.workerCount ?? 0
   const workerShortfall = operatorWorkerCount > 0 && operatorWorkerCount < recommendedWorkerCount
-  const r0WorkerLabel = r0Worker?.label ?? '—'
+  const r0WorkerLabel = r0Worker?.name ?? '—'
   const r0WorkerVcpu = r0Worker?.vcpu ?? 0
-  const r0WorkerRam = r0Worker?.ram ?? 0
+  const r0WorkerRam = r0Worker?.memoryGiB ?? 0
 
   /* ── Submission ─────────────────────────────────────────────── */
   // Issue #689 — anonymous launch: if the user is not signed in, open
@@ -543,45 +517,29 @@ export function StepReview() {
           // INF-054 — the Sovereign's own time zone: the operator's pick on
           // step 1, else the browser's. It becomes SOVEREIGN_TIME_ZONE.
           sovereignTimeZone: store.sovereignTimeZone || browserTimeZone(),
-          // Hetzner credentials — passed when Region 1 is on Hetzner; the
-          // provisioner reads non-Hetzner provider tokens out of
-          // providerTokens for those code paths when activated.
-          hetznerToken:     store.hetznerToken,
-          hetznerProjectID: store.hetznerProjectId,
-          // Legacy singular fields — derived from Region 1, kept for the
-          // back-compat path inside provisioner.Validate / writeTfvars.
-          region:           r0.cloudRegion || 'fsn1',
-          controlPlaneSize: r0.controlPlaneSize,
-          workerSize:       r0.workerSize,
-          workerCount:      r0.workerCount,
+          // The cloud (the create body provisioner.Request reads): the provider pack,
+          // the installation document laid over it (absent for the pack
+          // alone) and the credential map keyed by the profile's credential
+          // fields (absent when none was typed: a profile whose source is
+          // operator or either then takes the operator's credentials).
+          provider,
+          installation: store.installation || undefined,
+          credentials:  Object.keys(credentials).length > 0 ? credentials : undefined,
           haEnabled:        store.haEnabled,
           // Default storage class (issue #4057). Optional — an empty
-          // string lets the catalyst-api Request struct fill the
-          // per-provider default (hetzner→hcloud-volumes, huawei→evs-ssd).
+          // string lets the catalyst-api Request struct fill the default
+          // class of the cloud profile.
           // Captured on StepProvider as a sizing-adjacent cluster knob.
           // `local-path` is not a permitted value (durability guarantee).
           storageClass:     store.storageClass,
-          // Canonical per-region payload — multi-region tofu wiring is
-          // structural-correct but only Region 1 (solo path) is end-to-end
-          // exercised today against a real Hetzner project. Emitting the
-          // full array now means nothing changes when the multi-region
-          // apply path activates.
+          // Canonical per-region payload: provider, cloud region, zone and
+          // flavors of each region.
           regions: regionsPayload,
           // #4706/#5661 — deliberate single-region declaration; undefined
           // (and therefore absent from the wire) for multi-region.
           bcpTopology,
           // SSH key
           sshPublicKey: store.sshPublicKey,
-          // Hetzner Object Storage credentials (issue #371) — Phase 0b.
-          // Captured in StepCredentials' ObjectStorageSection; the
-          // catalyst-api validates them via S3 ListBuckets BEFORE
-          // accepting the deployment, so by the time we POST here the
-          // keys are already proven against the chosen region's
-          // endpoint. The bucket name is derived server-side from the
-          // Sovereign FQDN — the wizard never sends it.
-          objectStorageRegion:    store.objectStorageRegion,
-          objectStorageAccessKey: store.objectStorageAccessKey,
-          objectStorageSecretKey: store.objectStorageSecretKey,
           // Marketplace mode (issue #710 wave 3a) — captured by
           // StepMarketplace. The catalyst-api Request struct already
           // accepts `marketplaceEnabled` and threads it through to
@@ -722,11 +680,11 @@ export function StepReview() {
         <Section
           testId="review-section-provider"
           title="Cloud provider per region"
-          headerExtra={
+          headerExtra={total && (
             <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wiz-accent)' }}>
-              €{totalHourly.toFixed(3)}/hr · €{(totalHourly * 730).toFixed(0)}/mo
+              {total.amount.toFixed(2)} {total.currency}/{total.per}
             </span>
-          }
+          )}
           bodyPadding={0}
         >
           <div
@@ -738,7 +696,7 @@ export function StepReview() {
             }}
           >
             {regionRows.map((r, i) => (
-              <RegionCard key={i} row={r} index={i} />
+              <RegionCard key={i} row={r} index={i} cloud={profile?.displayName ?? provider} />
             ))}
           </div>
           <div
@@ -748,24 +706,33 @@ export function StepReview() {
               color: 'var(--wiz-text-sub)',
             }}
           >
-            Each region's SKU is drawn from its own provider's catalog — no cross-cloud SKU literal exists.
+            Regions, zones and flavors are those of the cloud profile{store.installation && ` (installation ${store.installation})`}.
           </div>
         </Section>
 
         {/* ── 4. Credentials ──────────────────────────────────── */}
         <Section title="Credentials" testId="review-section-credentials">
           <FieldGrid minColumnWidth={220}>
-            <Field label="Project ID" value={dimIfMissing(store.hetznerProjectId)} />
+            {Object.keys(credentials).length === 0 && (
+              <Field label="Source" value={profile?.credentials.source === 'user' ? dimIfMissing('') : "The operator's credentials"} />
+            )}
+            {/* A value is shown only for a field the profile marks not secret. */}
+            {Object.entries(credentials).map(([key, value]) => {
+              const field = profile?.credentials.fields.find(f => f.key === key)
+              return (
+                <Field
+                  key={key}
+                  label={field?.label ?? key}
+                  value={
+                    <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--wiz-text-md)' }}>
+                      {field && !field.secret ? value : maskToken(value)}
+                    </code>
+                  }
+                />
+              )
+            })}
             <Field
-              label="Hetzner API token"
-              value={
-                <code style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--wiz-text-md)' }}>
-                  {maskToken(store.hetznerToken)}
-                </code>
-              }
-            />
-            <Field
-              label="Token validated"
+              label="Credentials validated"
               value={
                 store.credentialValidated ? (
                   <span style={{ color: '#4ADE80' }}>Yes</span>

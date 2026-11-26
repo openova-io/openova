@@ -100,9 +100,9 @@ export function StepTopology({ mode = 'wizard' }: StepTopologyProps = {}) {
   // own form). The prop is kept for that.
   void isAddCluster
 
-  // Validation: a choice must be made. SKU + worker-count validation
-  // happens in StepProvider, where each region has access to its own
-  // provider's SKU vocabulary.
+  // Validation: a choice must be made. Flavor + worker-count validation
+  // happens in StepProvider, where each region has the flavors of the
+  // cloud profile.
   const canProceed = !!store.topology
 
   return (
@@ -158,11 +158,9 @@ export function StepTopology({ mode = 'wizard' }: StepTopologyProps = {}) {
       </div>
       <AirgapAddon />
 
-      {/* Sizing intentionally lives in StepProvider, NOT here. SKU
-          vocabulary is per-provider — Hetzner cx32 means nothing on Azure
-          — so each region's control-plane + worker SKU pickers are
-          rendered next to that region's provider chooser, where the
-          catalog is unambiguous. */}
+      {/* Sizing intentionally lives in StepProvider, NOT here: the
+          flavors are those of the chosen cloud's profile, so each
+          region's control-plane + worker pickers are rendered there. */}
     </StepShell>
   )
 }

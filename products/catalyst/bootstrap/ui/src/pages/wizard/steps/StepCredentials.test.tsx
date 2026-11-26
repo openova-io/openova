@@ -23,6 +23,10 @@
  *   • Server-error handling: the generator returning HTTP 500 surfaces an
  *     error message and leaves the store untouched.
  *
+ *   • The credential inputs (CLD-122): one per credential field of the
+ *     cloud profile, validated through POST /api/v1/credentials/validate;
+ *     none for a profile whose source is operator.
+ *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4: every test feeds the wizard a
  * concrete sovereign FQDN via the store and checks that the generator
  * request body carries that FQDN — there is no hardcoded value anywhere
@@ -33,7 +37,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { StepCredentials } from './StepCredentials'
 import { useWizardStore } from '@/entities/deployment/store'
+import { useWizardNav } from '@/shared/lib/wizardNav'
 import { INITIAL_WIZARD_STATE, isValidSSHPublicKey } from '@/entities/deployment/model'
+import { ENTRY, profileOf, answering, cloudRoutes, type Routes } from '@/test/fixtures/providers-routes.fixture'
 
 const FIXTURE_FQDN = 'omantel.omani.works'
 const FIXTURE_PUBLIC_KEY =
@@ -50,25 +56,16 @@ beforeEach(() => {
     sovereignDomainMode: 'pool',
     sovereignPoolDomain: 'omani-works',
     sovereignSubdomain: 'omantel',
-    // Pre-validated cloud token so SSH-key state is the only thing gating Next.
-    providerTokens: { hetzner: 'x'.repeat(64) },
-    providerValidated: { hetzner: true },
-    hetznerToken: 'x'.repeat(64),
-    hetznerProjectId: 'proj_abc',
-    credentialValidated: true,
-    // Hetzner Object Storage (issue #371) — pre-validated in the test
-    // baseline so the SSH-section tests aren't gated on it. The
-    // ObjectStorageSection has its own focused tests (see below).
-    objectStorageRegion: 'fsn1',
-    objectStorageAccessKey: 'TESTACCESSKEY1234567',
-    objectStorageSecretKey: 'TESTSECRETKEY1234567890123456789012345678',
-    objectStorageValidated: true,
+    // No cloud chosen: the step reads no profile, so the SSH generator is
+    // the only route the SSH-section tests below see.
   })
+  useWizardNav.setState({ nav: {} })
 })
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -252,118 +249,74 @@ describe('Mode B: paste existing public key', () => {
 
 /* ── ObjectStorage region auto-default (issue #473) ──────────────── */
 
-describe('ObjectStorageSection — auto-default region from Region 1 cloud-region', () => {
-  it('pre-selects fsn1 on first render when Region 1 cloud-region is fsn1 and objectStorageRegion is empty', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      regionCloudRegions: { 0: 'fsn1' },
-      // objectStorageRegion left empty — the auto-default must fill it
-      objectStorageRegion: '',
-      objectStorageAccessKey: '',
-      objectStorageSecretKey: '',
-      objectStorageValidated: false,
-    })
+/* ── The credential fields of the cloud profile (CLD-122) ────────────── */
 
+describe('the credential inputs of the cloud profile', () => {
+  /** pack-a at site-1 chosen, a valid SSH key: the credentials alone gate Continue. */
+  function chooseCloud(routes: Routes) {
+    useWizardStore.setState({ provider: ENTRY.provider, installation: ENTRY.installation, sshPublicKey: FIXTURE_PUBLIC_KEY })
+    const fetchMock = vi.fn(answering(routes))
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+  const nextDisabled = () => useWizardNav.getState().nav.nextDisabled
+
+  it('renders one input per credential field of the profile, a secret one masked', async () => {
+    chooseCloud(cloudRoutes())
     render(<StepCredentials />)
-
-    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
-    expect(screen.getByTestId('object-storage-region-fsn1').getAttribute('aria-pressed')).toBe('true')
+    expect((await screen.findByTestId('credential-api_token')).getAttribute('type')).toBe('password')
+    expect(screen.getByTestId('credential-project').getAttribute('type')).toBe('text')
+    expect(screen.getByText('API token')).toBeTruthy()
+    expect(nextDisabled()).toBe(true)
   })
 
-  it('pre-selects nbg1 when Region 1 cloud-region is nbg1', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      regionCloudRegions: { 0: 'nbg1' },
-      objectStorageRegion: '',
-    })
-
+  it('validates the credential map with the provider and installation, and then allows Continue', async () => {
+    const fetchMock = chooseCloud({ ...cloudRoutes(), 'POST /v1/credentials/validate': { status: 200, body: { valid: true } } })
     render(<StepCredentials />)
-
-    expect(useWizardStore.getState().objectStorageRegion).toBe('nbg1')
-    expect(screen.getByTestId('object-storage-region-nbg1').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.change(await screen.findByTestId('credential-api_token'), { target: { value: '  tok-123  ' } })
+    fireEvent.click(screen.getByTestId('credentials-validate'))
+    await waitFor(() => expect(useWizardStore.getState().credentialValidated).toBe(true))
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(post?.[1]?.body as string)).toEqual({
+      provider: 'pack-a', installation: 'site-1', credentials: { api_token: 'tok-123' },
+    })
+    await waitFor(() => expect(nextDisabled()).toBe(false))
+    // A changed value must be validated again.
+    fireEvent.change(screen.getByTestId('credential-project'), { target: { value: 'p-1' } })
+    expect(useWizardStore.getState().credentialValidated).toBe(false)
+    await waitFor(() => expect(nextDisabled()).toBe(true))
   })
 
-  it('pre-selects hel1 when Region 1 cloud-region is hel1', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      regionCloudRegions: { 0: 'hel1' },
-      objectStorageRegion: '',
+  it('a refusal that names a field shows it and keeps Continue disabled', async () => {
+    chooseCloud({
+      ...cloudRoutes(),
+      'POST /v1/credentials/validate': { status: 400, body: { valid: false, field: 'api_token', message: 'API token does not match the pattern' } },
     })
-
     render(<StepCredentials />)
-
-    expect(useWizardStore.getState().objectStorageRegion).toBe('hel1')
-    expect(screen.getByTestId('object-storage-region-hel1').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.change(await screen.findByTestId('credential-api_token'), { target: { value: 'short' } })
+    fireEvent.click(screen.getByTestId('credentials-validate'))
+    expect((await screen.findByRole('alert')).textContent).toContain('api_token: API token does not match the pattern')
+    expect(useWizardStore.getState().credentialValidated).toBe(false)
+    expect(nextDisabled()).toBe(true)
   })
 
-  it('falls back to fsn1 when Region 1 cloud-region is non-European (ash/hil) — Object Storage is EU-only', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      regionCloudRegions: { 0: 'ash' },
-      objectStorageRegion: '',
-    })
-
+  it('a profile that takes the operator credentials asks for none', async () => {
+    chooseCloud(cloudRoutes([ENTRY], profileOf({ credentials: { source: 'operator', fields: [{ key: 'socket', label: 'Socket', secret: false, required: false }] } })))
     render(<StepCredentials />)
-
-    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
+    await screen.findByTestId('credentials-operator')
+    expect(screen.queryByTestId('credential-socket')).toBeNull()
+    await waitFor(() => expect(nextDisabled()).toBe(false))
   })
 
-  it('does NOT override a pre-existing objectStorageRegion value', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      // Region 1 says fsn1 but the operator had already committed to hel1.
-      // The auto-default must respect the existing choice and not clobber it.
-      regionCloudRegions: { 0: 'fsn1' },
-      objectStorageRegion: 'hel1',
-    })
-
+  it('a profile that takes either allows Continue with nothing typed, and asks for validation once a value is typed', async () => {
+    chooseCloud(cloudRoutes([ENTRY], profileOf({ credentials: { source: 'either', fields: profileOf().credentials.fields } })))
     render(<StepCredentials />)
-
-    expect(useWizardStore.getState().objectStorageRegion).toBe('hel1')
-    expect(screen.getByTestId('object-storage-region-hel1').getAttribute('aria-pressed')).toBe('true')
-  })
-
-  it('lets the operator override the auto-default by clicking a different region button', () => {
-    useWizardStore.setState({
-      ...INITIAL_WIZARD_STATE,
-      sovereignDomainMode: 'pool',
-      sovereignPoolDomain: 'omani-works',
-      sovereignSubdomain: 'omantel',
-      regionProviders: { 0: 'hetzner' },
-      regionCloudRegions: { 0: 'fsn1' },
-      objectStorageRegion: '',
-    })
-
-    render(<StepCredentials />)
-    // After mount the auto-default has set fsn1.
-    expect(useWizardStore.getState().objectStorageRegion).toBe('fsn1')
-
-    fireEvent.click(screen.getByTestId('object-storage-region-nbg1'))
-    expect(useWizardStore.getState().objectStorageRegion).toBe('nbg1')
+    expect((await screen.findByTestId('credentials-section')).textContent).toContain("leave every field empty to provision with the operator's credentials")
+    await waitFor(() => expect(nextDisabled()).toBe(false))
+    fireEvent.change(screen.getByTestId('credential-api_token'), { target: { value: 'tok-123' } })
+    await waitFor(() => expect(nextDisabled()).toBe(true))
   })
 })
-
-/* ── isValidSSHPublicKey unit ────────────────────────────────────── */
 
 describe('isValidSSHPublicKey', () => {
   it('accepts ed25519, rsa, ecdsa', () => {

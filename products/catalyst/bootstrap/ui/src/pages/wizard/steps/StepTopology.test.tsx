@@ -72,7 +72,7 @@ describe('wizard store — a stored retired template', () => {
       JSON.stringify({
         state: {
           topology: 'citadel',
-          regionProviders: { 0: 'aws', 1: 'aws', 2: 'aws', 3: 'aws' },
+          regionCloudRegions: { 0: 'r1', 1: 'r2', 2: 'r3', 3: 'r4' },
           sovereignSubdomain: 'stored-payload-was-read',
         },
         version: WIZARD_PERSIST_VERSION,
@@ -82,6 +82,6 @@ describe('wizard store — a stored retired template', () => {
     const s = useWizardStore.getState()
     expect(s.sovereignSubdomain).toBe('stored-payload-was-read')
     expect(s.topology).toBe('dual')
-    expect(s.regionProviders).toEqual({})
+    expect(s.regionCloudRegions).toEqual({})
   })
 })
