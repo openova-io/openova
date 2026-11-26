@@ -1,7 +1,7 @@
 # #4329 — INPUT fixtures: the Services the flux-managed (Enforce) policy judges.
 # None carry a Flux label/ownerRef (no `app.kubernetes.io/managed-by: flux`, no
 # `helm.toolkit.fluxcd.io/name`, no `kustomize.toolkit.fluxcd.io/name`), so the
-# deny rule's conditions are all true UNLESS an exclude carve-out spares them.
+# policy's validation fails UNLESS one of its match conditions spares them.
 
 # 1. The vCluster 0.33.x CIDR-detection probe Service, in the legacy
 #    `openova.io/tenant`-labelled boundary. Name matches `test-service-delete-me-*`.

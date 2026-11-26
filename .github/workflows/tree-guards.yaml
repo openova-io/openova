@@ -449,7 +449,7 @@ jobs:
       - name: 'cronjob-jobs | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/cronjob-jobs
-      - name: 'cronjob-jobs | Every CronJob of the kit creates Jobs that the ClusterPolicy flux-managed admits'
+      - name: 'cronjob-jobs | Every CronJob of the kit creates Jobs that the ValidatingPolicy flux-managed admits'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
           mkdir "$RUNNER_TEMP/kit-render"

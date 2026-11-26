@@ -1,0 +1,155 @@
+# Fixtures of the suite flux-managed (kyverno-test.yaml), each judged as a
+# CREATE. The policy reads metadata only (its Crossplane carve-out, which
+# reads the pod template and the selector, is judged by
+# crossplane-package-runtime-admitted), so the fixtures carry no spec.
+# app-prod is an ordinary namespace; kube-system is in the chart's
+# excludeNamespaces, cnpg in its extraExcludeNamespaces; acme is an
+# Organization's namespace (values.yaml gives its label).
+#
+# 1-3. Admitted: one of the three labels the policy accepts.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flux-labelled
+  namespace: app-prod
+  labels: {app.kubernetes.io/managed-by: flux}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helm-release-labelled
+  namespace: app-prod
+  labels: {helm.toolkit.fluxcd.io/name: bp-web, helm.toolkit.fluxcd.io/namespace: flux-system}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kustomization-labelled
+  namespace: app-prod
+  labels: {kustomize.toolkit.fluxcd.io/name: apps, kustomize.toolkit.fluxcd.io/namespace: flux-system}
+# 4-6. Denied: no label the policy accepts; another manager; release labels
+#      with an empty value; the value flux in another case.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unlabelled
+  namespace: app-prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-by-helm
+  namespace: app-prod
+  labels: {app.kubernetes.io/managed-by: Helm}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: empty-release-label
+  namespace: app-prod
+  labels: {helm.toolkit.fluxcd.io/name: "", kustomize.toolkit.fluxcd.io/name: ""}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-by-flux-capitalised
+  namespace: app-prod
+  labels: {app.kubernetes.io/managed-by: Flux}
+# 7. Denied: each other kind the policy judges, without a label.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: unlabelled-statefulset
+  namespace: app-prod
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: unlabelled-daemonset
+  namespace: app-prod
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: unlabelled-job
+  namespace: app-prod
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: unlabelled-cronjob
+  namespace: app-prod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unlabelled-service
+  namespace: app-prod
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: unlabelled-ingress
+  namespace: app-prod
+# 8. Not judged: a namespace of excludeNamespaces and one of
+#    extraExcludeNamespaces.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unlabelled
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-pg-rw
+  namespace: cnpg
+# 9. Not judged: an object of the CNPG operator, in any namespace.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-pg-rw
+  namespace: app-prod
+  labels: {app.kubernetes.io/managed-by: cloudnative-pg}
+# 10. Not judged: an object in an Organization's namespace.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: unlabelled-job
+  namespace: acme
+# 11. Not judged: the vCluster CIDR probe Service. Judged and denied: a
+#     Deployment of that name prefix, since the carve-out is for a Service only.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-service-delete-me-x7k2p
+  namespace: app-prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-service-delete-me-deployment
+  namespace: app-prod
+# 12. Not judged: a Helm hook, whatever the value of its annotation.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hook
+  namespace: app-prod
+  labels: {app.kubernetes.io/managed-by: Helm}
+  annotations: {helm.sh/hook: pre-upgrade}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hook-empty-value
+  namespace: app-prod
+  annotations: {helm.sh/hook: ""}
