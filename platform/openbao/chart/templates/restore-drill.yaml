@@ -1,0 +1,274 @@
+{{- /*
+openbao-restore-drill — a known key is read back from a restored snapshot
+(SEC-181). It runs restoreDrill.leadMinutes before each
+backup (backup.schedule). As service account openbao-config it logs in with
+role openbao-config-admin and mints a token through token role sec-g10-drill
+(templates/_config.tpl: only <kv>/data/sec-g10-drill/canary, at most 15
+minutes, not renewable, a child of the login). With it the drill writes a
+fresh canary, then takes this region's first snapshot from the bucket that is
+newer than the write, restores it into the scratch OpenBao of its own pod (the
+store's seal stanza, storage in the pod, listening on 127.0.0.1 only) and
+reads the canary back. It revokes its login, which revokes the drill token,
+and records the snapshot, its time, both digests and the token's lifetime in
+ConfigMap openbao-restore-drill; no Helm or Flux object, only this Job writes
+it. No token is put in a file, an argument or a log. tests/restore-drill-render.sh
+runs this script.
+*/ -}}
+{{- $d := .Values.restoreDrill | default dict -}}
+{{- $b := .Values.backup | default dict -}}
+{{- if and $d.enabled (.Values.kubernetesAuth | default dict).enabled }}
+{{- if not $b.enabled }}{{ fail "bp-openbao: restoreDrill.enabled needs backup.enabled: the drill restores the backup's snapshot" }}{{ end }}
+{{- $f := splitList " " ($b.schedule | default "17 */6 * * *") -}}
+{{- $lead := int ($d.leadMinutes | default 5) -}}
+{{- if not (and (eq (len $f) 5) (regexMatch "^[0-9]+$" (index $f 0))) }}{{ fail "bp-openbao: restoreDrill needs a backup.schedule whose minute is one number" }}{{ end -}}
+{{- if lt (atoi (index $f 0)) $lead }}{{ fail "bp-openbao: the minute of backup.schedule must be at least restoreDrill.leadMinutes" }}{{ end -}}
+{{- $img := .Values.openbao.server.image -}}
+{{- $ns := .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-restore-drill-script
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-restore-drill
+data:
+  scratch.hcl: |
+    ui = false
+    listener "tcp" {
+      address     = "127.0.0.1:8200"
+      tls_disable = 1
+    }
+    storage "raft" {
+      path    = "/scratch"
+      node_id = "restore-drill"
+    }
+    api_addr     = "http://127.0.0.1:8200"
+    cluster_addr = "http://127.0.0.1:8201"
+  drill.sh: |
+    #!/bin/sh
+    # openbao-restore-drill (SEC-181): a known key read back from a restored snapshot.
+    set -eu
+    ERR="" ADMIN="" SNAP_KEY="" SNAP_TIME="" WRITTEN="" READ="" TTL="" RENEWABLE=""
+    die() { ERR="$*"; echo "openbao-restore-drill: FATAL: $*" >&2; exit 1; }
+    say() { echo "openbao-restore-drill: $*"; }
+    digest() { printf '%s' "$1" | sha256sum | cut -c1-64; }  # the record holds digests, never the canary
+    field() { sed -n "s/.*\"$1\":\"*\([^\",}]*\).*/\1/p"; }  # the last value of a JSON key
+    s3() {
+      printf 'user = "%s:%s"\n' "$(cat "${BUCKET_DIR}/s3-access-key")" "$(cat "${BUCKET_DIR}/s3-secret-key")" \
+        | curl -sS --fail-with-body -K - --aws-sigv4 "aws:amz:${S3_REGION}:s3" "$@"
+    }
+    bao() { t="$1"; shift; printf 'header = "X-Vault-Token: %s"\n' "$t" | curl -sS --fail-with-body -K - "$@"; }
+    kube() { printf 'header = "Authorization: Bearer %s"\n' "$(cat "${SA_DIR}/token")" | curl -sS --fail-with-body --cacert "${SA_DIR}/ca.crt" -K - "$@"; }
+    health() { curl -s -o /dev/null -w '%{http_code}' "${SCRATCH_ADDR}/v1/sys/health" || true; }
+    until_health() { i=0; while [ "$(health)" != "$1" ]; do i=$((i + 1)); [ "$i" -le 120 ] || return 1; sleep 1; done; }
+    finish() {
+      rc=$?
+      [ -z "${ADMIN}" ] || bao "${ADMIN}" -X POST "${BAO_ADDR}/v1/auth/token/revoke-self" >/dev/null 2>&1 || true
+      [ "${rc}" = 0 ] || [ -n "${ERR}" ] || ERR="the drill ended with exit code ${rc}"
+      printf '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"openbao-restore-drill","namespace":"%s","labels":{"app.kubernetes.io/name":"openbao-restore-drill"}},"data":{"snapshot":"%s","snapshotTime":"%s","written":"%s","read":"%s","tokenTTLSeconds":"%s","tokenRenewable":"%s","finished":"%s","error":"%s"}}' \
+        "${NAMESPACE}" "${SNAP_KEY}" "${SNAP_TIME}" "${WRITTEN}" "${READ}" "${TTL}" "${RENEWABLE}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(printf '%s' "${ERR}" | tr -d '"\\')" > "${WORK_DIR}/record.json"
+      kube -X PATCH -H 'Content-Type: application/apply-patch+yaml' --data-binary @"${WORK_DIR}/record.json" \
+        "${KUBE_API}/api/v1/namespaces/${NAMESPACE}/configmaps/openbao-restore-drill?fieldManager=openbao-restore-drill&force=true" >/dev/null \
+        || { echo "openbao-restore-drill: FATAL: ConfigMap openbao-restore-drill was not written" >&2; exit 1; }
+      rm -f "${WORK_DIR}/restore.snap" "${WORK_DIR}/canary.json"
+      [ -z "${ERR}" ] || exit 1
+    }
+    trap finish EXIT
+    [ -n "${BUCKET}" ] || die "backup.bucket is empty"
+    [ -n "${REGION}" ] || die "peerTrust.selfRegion is empty"
+    for k in s3-endpoint s3-region s3-access-key s3-secret-key; do
+      [ -s "${BUCKET_DIR}/${k}" ] || die "key ${k} is missing or empty in Secret ${BUCKET_CREDENTIALS}"
+    done
+    ENDPOINT="$(cat "${BUCKET_DIR}/s3-endpoint")"; URL="${ENDPOINT%/}/${BUCKET}"
+    S3_REGION="$(cat "${BUCKET_DIR}/s3-region")"; DIR="${PREFIX}${REGION}"
+
+    # 1. The configuration identity mints the drill token through token role sec-g10-drill.
+    ADMIN="$(printf '{"role":"%s","jwt":"%s"}' "${BAO_ROLE}" "$(cat "${SA_DIR}/token")" \
+      | curl -sS --fail-with-body --data @- "${BAO_ADDR}/v1/auth/${BAO_K8S_AUTH_PATH}/login" | field client_token)" || true
+    [ -n "${ADMIN}" ] || die "login as ${BAO_ROLE} on auth/${BAO_K8S_AUTH_PATH} refused"
+    MINT="$(bao "${ADMIN}" -X POST --data '{}' "${BAO_ADDR}/v1/auth/token/create/sec-g10-drill")" || die "token role sec-g10-drill refused the mint"
+    DRILL="$(printf '%s' "${MINT}" | field client_token)"
+    TTL="$(printf '%s' "${MINT}" | field lease_duration)"; RENEWABLE="$(printf '%s' "${MINT}" | field renewable)"
+    [ -n "${DRILL}" ] || die "token role sec-g10-drill returned no token"
+
+    # 2. A fresh canary under its own path, written before the snapshot the drill restores.
+    VALUE="$(od -A n -N 32 -t x1 /dev/urandom | tr -d ' \n')"
+    WRITTEN="$(digest "${VALUE}")"
+    printf '{"data":{"value":"%s"}}' "${VALUE}" > "${WORK_DIR}/canary.json"
+    bao "${DRILL}" -X POST --data @"${WORK_DIR}/canary.json" "${BAO_ADDR}/v1/${KV}/data/sec-g10-drill/canary" >/dev/null || die "writing the canary refused"
+    rm -f "${WORK_DIR}/canary.json"
+    T0="$(date -u +%Y%m%dT%H%M%SZ)"
+    say "canary written at ${T0}"
+
+    # 3. This region's first snapshot in the bucket that is newer than the canary.
+    QDIR="$(printf '%s/' "${DIR}" | sed 's|/|%2F|g')"
+    i=0
+    while [ -z "${SNAP_KEY}" ] && [ "${i}" -le "${WAIT_SECONDS}" ]; do
+      [ "${i}" = 0 ] || sleep 15
+      i=$((i + 15))
+      s3 "${URL}?list-type=2&prefix=${QDIR}" > "${WORK_DIR}/list.xml" || die "listing s3://${BUCKET}/${DIR}/ failed"
+      SNAP_KEY="$(grep -o '<Key>[^<]*</Key>' "${WORK_DIR}/list.xml" | sed 's|</*Key>||g' \
+        | grep -E "^${DIR}/[0-9]{8}T[0-9]{6}Z[.]snap\$" | awk -F/ -v t="${T0}.snap" '$NF > t' | head -n 1)" || true
+    done
+    [ -n "${SNAP_KEY}" ] || die "no snapshot newer than ${T0} under s3://${BUCKET}/${DIR}/ within ${WAIT_SECONDS} seconds"
+    SNAP_TIME="$(printf '%s' "${SNAP_KEY##*/}" | sed 's/^\(....\)\(..\)\(..\)T\(..\)\(..\)\(..\)Z[.]snap$/\1-\2-\3T\4:\5:\6Z/')"
+    s3 -o "${WORK_DIR}/restore.snap" "${URL}/${SNAP_KEY}" || die "reading s3://${BUCKET}/${SNAP_KEY} failed"
+
+    # 4. Restore it into this pod's scratch store, never the live store.
+    until_health 501 || die "the scratch store at ${SCRATCH_ADDR} did not start uninitialised"
+    ROOT="$(curl -sS --fail-with-body -X PUT --data '{"recovery_shares":1,"recovery_threshold":1}' "${SCRATCH_ADDR}/v1/sys/init" | field root_token)" || true
+    [ -n "${ROOT}" ] || die "initialising the scratch store failed"
+    until_health 200 || die "the scratch store did not unseal with the seal stanza"
+    bao "${ROOT}" -X POST --data-binary @"${WORK_DIR}/restore.snap" "${SCRATCH_ADDR}/v1/sys/storage/raft/snapshot-force" >/dev/null \
+      || die "restoring ${SNAP_KEY} into the scratch store failed"
+    until_health 200 || die "the restored scratch store did not unseal"
+
+    # 5. Read the canary back with the drill token, which the restored store knows.
+    GOT="$(bao "${DRILL}" "${SCRATCH_ADDR}/v1/${KV}/data/sec-g10-drill/canary" | sed -n 's/.*"data":{"value":"\([0-9a-f]*\)"}.*/\1/p')" || true
+    [ -z "${GOT}" ] || READ="$(digest "${GOT}")"
+    [ -n "${READ}" ] && [ "${READ}" = "${WRITTEN}" ] || die "the canary read back from ${SNAP_KEY} is not the one written"
+    say "the canary read back from ${SNAP_KEY} (${SNAP_TIME}) equals the one written"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-restore-drill
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-restore-drill
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [openbao-restore-drill]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-restore-drill
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-restore-drill
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-restore-drill
+subjects:
+  - kind: ServiceAccount
+    name: openbao-config
+    namespace: {{ $ns | quote }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openbao-restore-drill
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-restore-drill
+spec:
+  schedule: {{ printf "%d %s" (sub (atoi (index $f 0)) $lead) (rest $f | join " ") | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: flux
+        app.kubernetes.io/name: openbao-restore-drill
+    spec:
+      # No retry: a second run writes a new canary after the snapshot it waits for.
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            catalyst.openova.io/blueprint: bp-openbao
+            app.kubernetes.io/name: openbao-restore-drill
+        spec:
+          restartPolicy: Never
+          serviceAccountName: openbao-config
+          automountServiceAccountToken: false
+          nodeSelector:
+            catalyst.openova.io/role: control-plane
+          tolerations:
+            - operator: Exists
+              effect: NoSchedule
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: scratch
+              image: {{ printf "%s/%s:%s" $img.registry $img.repository $img.tag | quote }}
+              imagePullPolicy: IfNotPresent
+              restartPolicy: Always
+              command: ["bao", "server", "-config=/etc/openbao-restore-drill/scratch.hcl", "-config=/etc/openbao-restore-drill/seal/seal.hcl"]
+              resources:
+                requests: {cpu: "50m", memory: "128Mi"}
+                limits: {memory: "512Mi"}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: script, mountPath: /etc/openbao-restore-drill/scratch.hcl, subPath: scratch.hcl, readOnly: true}
+                - {name: seal-config, mountPath: /etc/openbao-restore-drill/seal, readOnly: true}
+                - {name: seal, mountPath: /openbao/seal, readOnly: true}
+                - {name: scratch, mountPath: /scratch}
+          containers:
+            - name: drill
+              image: {{ $b.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh"]
+              args: ["/etc/openbao-restore-drill/drill.sh"]
+              env:
+                - {name: BAO_ADDR, value: {{ .Values.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) | quote }}}
+                - {name: BAO_K8S_AUTH_PATH, value: {{ include "openbao.configLoginMount" . | quote }}}
+                - {name: BAO_ROLE, value: openbao-config-admin}
+                - {name: KV, value: {{ (.Values.kubernetesAuth | default dict).kvMountPath | default "secret" | quote }}}
+                - {name: SCRATCH_ADDR, value: "http://127.0.0.1:8200"}
+                - {name: BUCKET, value: {{ $b.bucket | default "" | quote }}}
+                - {name: BUCKET_CREDENTIALS, value: {{ $b.bucketSecretName | default "object-storage" | quote }}}
+                - {name: BUCKET_DIR, value: /etc/openbao-restore-drill/bucket}
+                - {name: PREFIX, value: {{ $b.prefix | default "openbao/" | quote }}}
+                - {name: REGION, value: {{ (.Values.peerTrust | default dict).selfRegion | default "" | quote }}}
+                - {name: WAIT_SECONDS, value: {{ $d.waitSeconds | default 540 | quote }}}
+                - {name: SA_DIR, value: /var/run/secrets/openbao-restore-drill}
+                - {name: KUBE_API, value: "https://kubernetes.default.svc"}
+                - {name: NAMESPACE, value: {{ $ns | quote }}}
+                - {name: WORK_DIR, value: /work}
+              resources:
+                requests: {cpu: "10m", memory: "32Mi"}
+                limits: {cpu: "500m", memory: "128Mi"}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: script, mountPath: /etc/openbao-restore-drill/drill.sh, subPath: drill.sh, readOnly: true}
+                - {name: bucket, mountPath: /etc/openbao-restore-drill/bucket, readOnly: true}
+                - {name: identity, mountPath: /var/run/secrets/openbao-restore-drill, readOnly: true}
+                - {name: work, mountPath: /work}
+          volumes:
+            - {name: script, configMap: {name: openbao-restore-drill-script, defaultMode: 0555}}
+            - {name: seal-config, configMap: {name: openbao-seal-config, items: [{key: seal.hcl, path: seal.hcl}]}}
+            - {name: seal, hostPath: {path: /var/lib/catalyst/seal, type: Directory}}
+            - {name: scratch, emptyDir: {sizeLimit: 2Gi}}
+            - name: bucket
+              secret:
+                secretName: {{ $b.bucketSecretName | default "object-storage" | quote }}
+                items:
+                  - {key: s3-endpoint, path: s3-endpoint}
+                  - {key: s3-region, path: s3-region}
+                  - {key: s3-access-key, path: s3-access-key}
+                  - {key: s3-secret-key, path: s3-secret-key}
+            - name: identity
+              projected:
+                sources:
+                  - serviceAccountToken: {path: token, expirationSeconds: 900}
+                  - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+            - {name: work, emptyDir: {sizeLimit: 2Gi}}
+{{- end }}

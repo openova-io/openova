@@ -189,31 +189,25 @@ func TestRetryCalls_FailedJobRetryRecords(t *testing.T) {
 	assertOneRetryCall(t, st, dep, retrycall.RouteJob, "job install-velero: remediation failed")
 }
 
-func TestRetryCalls_ReconcilerReconcileAndResume(t *testing.T) {
+func TestRetryCalls_ReconcilerReconcile(t *testing.T) {
 	r, h, depID := manageHarness(t, "", helmReleaseObj("bp-keycloak", false, false, "0.4.1"))
 	st := retryCallStore(t, h)
 	val, _ := h.deployments.Load(depID)
 	dep := val.(*Deployment)
 	dep.retries.Start()
 
-	for _, action := range []string{"suspend", "reconcile"} {
+	for _, c := range []struct {
+		action string
+		code   int
+	}{{"suspend", http.StatusConflict}, {"reconcile", http.StatusOK}, {"resume", http.StatusConflict}} {
 		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-keycloak", action, nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s: want 200, got %d %s", action, rec.Code, rec.Body.String())
+		r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-keycloak", c.action, nil))
+		if rec.Code != c.code {
+			t.Fatalf("%s: want %d, got %d %s", c.action, c.code, rec.Code, rec.Body.String())
 		}
 	}
-	// suspend runs nothing again; reconcile is one entry.
+	// suspend and resume are refused (managed-by-git) and run nothing again; reconcile is one entry.
 	assertOneRetryCall(t, st, dep, retrycall.RouteReconciler, "reconcile HelmRelease flux-system/bp-keycloak")
-
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, manageActionReq(depID, "HelmRelease", helmwatch.FluxNamespace, "bp-keycloak", "resume", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("resume: want 200, got %d %s", rec.Code, rec.Body.String())
-	}
-	if calls := retryCallsOf(dep); len(calls) != 2 || calls[1].Target != "resume HelmRelease flux-system/bp-keycloak" {
-		t.Fatalf("resume must be the second entry, got %+v", calls)
-	}
 }
 
 func TestRetryCalls_RepublishDNS(t *testing.T) {

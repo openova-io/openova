@@ -1,10 +1,14 @@
 {{- /*
 #5505: Kyverno needs READ on cilium.io/ciliumnetworkpolicies.
 
-`14-networkpolicy-present.yaml` resolves a `cnpCount` context variable via an
-APICall to /apis/cilium.io/v2/namespaces/<ns>/ciliumnetworkpolicies. Kyverno's
-built-in aggregated roles grant networking.k8s.io (so the sibling `npCount`
-call works) but nothing under cilium.io, so `cnpCount` has NEVER resolved.
+`14-networkpolicy-present.yaml` lists the CiliumNetworkPolicies of a namespace:
+since CMP-064 with resource.List("cilium.io/v2", "ciliumnetworkpolicies", <ns>)
+in a ValidatingPolicy, before that with the legacy APICall `cnpCount` to
+/apis/cilium.io/v2/namespaces/<ns>/ciliumnetworkpolicies. The Kubernetes role
+`view`, which the engine's chart binds to its controllers, grants
+networking.k8s.io (so the sibling NetworkPolicy lookup works) but nothing under
+cilium.io, so before this grant the CiliumNetworkPolicy lookup NEVER resolved.
+tests/apicall-rbac-correspondence.sh checks the grant.
 
 While the policy sat at `action: Audit` the unresolvable context was merely
 reported and the request proceeded — the policy looked healthy and enforced

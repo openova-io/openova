@@ -481,7 +481,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.70
+  version: 0.1.71
   card:
     title: Chargeback
     summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
@@ -503,7 +503,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-chargeback
-    version: 0.1.70
+    version: 0.1.71
   topology:
     supported: [singleton]
     defaults:
@@ -1232,7 +1232,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.57
+  version: 1.2.59
   card:
     title: Gitea
     summary: Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.
@@ -1251,7 +1251,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: 1.2.57
+    version: 1.2.59
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1398,7 +1398,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.59
+  version: 0.2.63
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
@@ -1417,7 +1417,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: 0.2.59
+    version: 0.2.63
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1821,7 +1821,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.3.10
+  version: 1.3.11
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1856,7 +1856,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno
-    version: 1.3.10
+    version: 1.3.11
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -1870,7 +1870,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.61
+  version: 1.0.71
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1905,7 +1905,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.61
+    version: 1.0.71
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -2476,7 +2476,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.4.171
+  version: 1.4.173
   card:
     title: NewAPI
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
@@ -2498,7 +2498,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: 1.4.171
+    version: 1.4.173
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2555,7 +2555,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.88
+  version: 1.2.90
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
@@ -2575,7 +2575,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: 1.2.88
+    version: 1.2.90
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -3121,7 +3121,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.5
+  version: 1.0.6
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -3156,7 +3156,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-reloader
-    version: 1.0.5
+    version: 1.0.6
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1
@@ -3221,6 +3221,62 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
+  name: bp-secrets-store-csi
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 0.1.0
+  card:
+    title: Secrets Store CSI driver
+    summary: Mounts values from OpenBao into a Pod as memory-backed files. Secret sync is off, so a mounted value never becomes a Secret object.
+    documentation: ./README.md
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
+  configSchema:
+    type: object
+    properties: {}
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active
+  manifests:
+    chart: ./chart
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-secrets-store-csi
+    version: 0.1.0
+  depends:
+  - blueprint: bp-openbao
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
   name: bp-self-sovereign-cutover
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -3229,7 +3285,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.256
+  version: 0.1.258
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3244,7 +3300,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.256
+    version: 0.1.258
   topology:
     supported: [singleton]
     defaults:
@@ -3277,7 +3333,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.2
+  version: 1.0.3
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -3316,7 +3372,104 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sigstore
-    version: 1.0.2
+    version: 1.0.3
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-speech
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 1.0.0
+  card:
+    title: Transcription
+    summary: One CPU server for one speech-to-text model, reached only through the platform's model gateway.
+    description: A speaches server on CPU serves one Whisper model in CTranslate2 form with int8 weights, by default faster-whisper-large-v3-turbo. Callers send audio in segments of at most 30 seconds. The model comes by digest from the Sovereign's registry or at a pinned revision from the model hub. The Service is ClusterIP; the platform's model gateway is the one caller.
+    icon: speech.svg
+    license: MIT
+    tags: [transcription, speech, whisper, ai]
+    docs: https://github.com/speaches-ai/speaches
+  visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
+  configSchema:
+    type: object
+    required: [home, enabled, model, startup]
+    additionalProperties: false
+    properties:
+      home:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_HOME. Workloads render only when home and enabled are both true.
+      enabled:
+        type: boolean
+        description: Set by the kit slot from MODEL_PLANE_TRANSCRIPTION.
+      model:
+        type: object
+        required: [source, servedName]
+        additionalProperties: false
+        properties:
+          source:
+            type: string
+            pattern: ^(oci://[a-z0-9./_-]+@sha256:[a-f0-9]{64}|hf://[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)$
+            description: A model image of the Sovereign's registry by digest, or a model of the hub.
+          revision:
+            type: string
+            pattern: ^[a-f0-9]{40}$
+            description: Required when source starts with hf://. The exact commit.
+          servedName:
+            type: string
+            pattern: ^[a-z0-9][a-z0-9.-]{0,62}$
+            description: "The name a request gives as its model: the upstreamModel of the gateway's alias."
+      cache:
+        type: object
+        required: [sizeGi]
+        additionalProperties: false
+        properties:
+          sizeGi:
+            type: integer
+            minimum: 10
+            description: Size of the weights volume.
+          storageClass:
+            type: string
+            default: ""
+            description: "\"\" is the Sovereign's default class."
+      startup:
+        type: object
+        required: [loadSeconds]
+        additionalProperties: false
+        properties:
+          loadSeconds:
+            type: integer
+            minimum: 30
+            description: Measured cold start of the server with this model. The start-up probe allows loadSeconds x 1.5.
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-speech
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-speech
+    version: 1.0.0
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: rtz
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint

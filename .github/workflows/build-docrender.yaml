@@ -53,8 +53,8 @@ env:
   IMAGE: ghcr.io/openova-io/chargeback-docrender
   # Pinned with its published checksum: an unverified download into a job that
   # gates admission compliance would be a supply-chain hole in the guard.
-  KYVERNO_VERSION: v1.13.4
-  KYVERNO_SHA256: abd318dbb971ab6de2bbe3b7226f4a03230d5c9c651df8a29b6b5e085a55aeeb
+  KYVERNO_VERSION: v1.19.2
+  KYVERNO_SHA256: 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a
 
 permissions:
   contents: read

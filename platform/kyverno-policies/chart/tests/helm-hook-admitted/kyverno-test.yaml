@@ -2,13 +2,9 @@
 # admits legitimate Helm HOOK resources (helm.sh/hook annotation).
 #
 # Run with the Kyverno CLI:
-#   cd platform/kyverno-policies/chart
-#   # re-render the policy if the template/values changed:
-#   helm template . --set compliancePolicies.fluxManaged.action=Enforce \
-#     --show-only templates/baseline/10-flux-managed.yaml \
-#     | grep -v '^# Source:' | sed '/^---$/d' \
-#     > tests/helm-hook-admitted/policy.yaml
-#   kyverno test tests/helm-hook-admitted/
+#   kyverno test platform/kyverno-policies/chart/tests/helm-hook-admitted
+# The policy is the copy of the suite flux-managed (../flux-managed/policy.yaml),
+# which tests/suites-current.sh keeps the current render of the template.
 #
 # LIVE shape: hw224 region-a, bp-powerdns zone-bootstrap post-upgrade hook
 # repeatedly Enforce-denied (Helm force-stamps managed-by: Helm; hooks get no
@@ -16,28 +12,32 @@
 # anycast Service was stranded on the forbidden NodePort.
 #
 # TWO cases prove the fix:
-#   1. Helm hook Job (helm.sh/hook annotation)            → ADMITTED (pass)
+#   1. Helm hook Job (helm.sh/hook annotation)            → NOT JUDGED (skip)
 #   2. plain kubectl Job, no hook annotation, no Flux lbl → DENIED  (fail)
 #      (proves the carve-out is annotation-scoped, not a blanket Job exemption)
+# Case 1 read pass while flux-managed was a ClusterPolicy, a pass that could
+# not fail: the command-line tool reports an excluded object as "Excluded" and
+# accepts that for any expected result. The ValidatingPolicy skips the hook
+# (match condition exclude-helm-hooks), and the suite expects skip (CMP-084).
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: helm-hook-admitted-test
 policies:
-  - policy.yaml
+  - ../flux-managed/policy.yaml
 resources:
   - resources.yaml
 results:
-  # 1. Helm hook Job → admitted by the helm.sh/hook carve-out.
+  # 1. Helm hook Job → not judged, by the helm.sh/hook carve-out.
   - policy: flux-managed
-    rule: workload-must-be-flux-managed
+    isValidatingPolicy: true
     resources:
       - powerdns/powerdns-zone-bootstrap
     kind: Job
-    result: pass
+    result: skip
   # 2. Plain orphan Job, no hook annotation → DENIED (carve-out is narrow).
   - policy: flux-managed
-    rule: workload-must-be-flux-managed
+    isValidatingPolicy: true
     resources:
       - default/rogue-adhoc-job
     kind: Job

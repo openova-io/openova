@@ -1,11 +1,13 @@
 {{- /*
 #6832: Kyverno needs READ on storage.k8s.io/storageclasses.
 
-`baseline/07-pvc-expansion.yaml` resolves an `scExpansion` context variable via
-an APICall to /apis/storage.k8s.io/v1/storageclasses/<name>. Kyverno's built-in
-aggregated roles do not grant storage.k8s.io, so that context has NEVER
-resolved and the rule reports `error` instead of pass/fail — measured on hw307
-2026-09-02 across all 46 PVCs:
+`baseline/07-pvc-expansion.yaml` reads the StorageClass a claim names: since
+CMP-064 with resource.Get("storage.k8s.io/v1", "storageclasses", "", <name>) in
+a ValidatingPolicy, before that with the legacy APICall `scExpansion` to
+/apis/storage.k8s.io/v1/storageclasses/<name>. Kyverno's built-in roles do not
+grant storage.k8s.io, so before this grant that lookup NEVER resolved and the
+rule reported `error` instead of pass/fail — measured on hw307 2026-09-02
+across all 46 PVCs (the legacy rule's message):
 
   policy pvc-volume-expansion/storageclass-must-allow-expansion error:
     failed to substitute variables in condition key: failed to resolve

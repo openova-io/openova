@@ -127,6 +127,8 @@ data:
      sovereign-admin may exclude ONE genuinely-stuck release:
        kubectl annotate helmrelease <name> -n <ns> \
          catalyst.openova.io/cutover-settled-roll-override="<reason>"
+     It holds only on a HelmRelease no Flux Kustomization applies (SOV-231:
+     above the key prewarm.settledRollPreflight of values.yaml, #6004).
      Validated FAIL-CLOSED: an empty reason, a HEALTHY release, or one still
      mid-roll (neither Stalled=True nor Ready.reason=DependencyNotReady) FATALs.
      Honored overrides are recorded in the cutover status ConfigMap
@@ -134,7 +136,65 @@ data:
      and the console show them); one that cannot be recorded is REFUSED. The
      exclusion narrows only the settle CHECK: Phase A / A2 still mirror the
      excluded release's images and charts.
+
+     A DELIVERY of a candidate does not gate a release the candidate repairs: word for word above the key
+     prewarm.settledRollPreflight of values.yaml (#6004).
     */}}
+    {{- /*
+     The kit's slot files at ${UPSTREAM_BRANCH} of the local Gitea mirror into $1, setting bk_pat, bk_api,
+     bk_path and bk_list for prewarm_kit_get; 1 after a FATAL line when the PAT, the listing or a file
+     cannot be read (#5237). Phase A2-pins reads the kit through it, a delivery's Phase A0 too.
+     The catalyst-gitea-token PAT — same coordinates + bounded wait as steps 01/05 (BasicAuth would hang
+     ~130s then 401 while Keycloak converges). Never echoed; sent only via the Authorization header.
+     Listing via the Gitea contents API, then each slot file raw: ~70 small fetches, lighter than a clone.
+    */}}
+    prewarm_kit_fetch() {
+      bk_dir="$1"
+      bk_pat=""
+      for i in $(seq 1 12); do
+        bk_pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
+          -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+        [ -n "${bk_pat}" ] && break
+        echo "[harbor-prewarm] Phase A2-pins: PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/12) — sleeping 5s"
+        sleep 5
+      done
+      if [ -z "${bk_pat}" ]; then
+        echo "[harbor-prewarm] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 60s — cannot read the local Gitea mirror's bootstrap-kit pins, so the mirror set cannot be proven to cover the frozen flux pin set (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+        return 1
+      fi
+      rm -rf "${bk_dir}"; mkdir -p "${bk_dir}"
+      bk_api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
+      bk_path="clusters/_template/bootstrap-kit"
+      bk_list=$(curl -fsS --retry 3 --retry-delay 5 \
+        -H "Authorization: token ${bk_pat}" \
+        "${bk_api}/contents/${bk_path}?ref=${UPSTREAM_BRANCH}" 2>/dev/null \
+        | jq -r '.[] | select(.type=="file") | .name | select(test("^[0-9].*\\.ya?ml$"))' 2>/dev/null || true)
+      if [ -z "${bk_list}" ]; then
+        echo "[harbor-prewarm] FATAL: could not list ${bk_path} in the local Gitea mirror (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}) — step-01 gitea-mirror must have completed before step-03; without the frozen pin set the mirror cannot be proven complete (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+        return 1
+      fi
+      bk_fetch_fail=0
+      for bk_f in ${bk_list}; do
+        if ! curl -fsS --retry 3 --retry-delay 5 \
+            -H "Authorization: token ${bk_pat}" \
+            -o "${bk_dir}/${bk_f}" \
+            "${bk_api}/raw/${bk_path}/${bk_f}?ref=${UPSTREAM_BRANCH}" 2>/dev/null; then
+          echo "[harbor-prewarm] Phase A2-pins: fetch FAILED for ${bk_path}/${bk_f}"
+          bk_fetch_fail=$((bk_fetch_fail+1))
+        fi
+      done
+      if [ "${bk_fetch_fail}" -gt 0 ]; then
+        echo "[harbor-prewarm] FATAL: ${bk_fetch_fail} bootstrap-kit slot file(s) failed to fetch from the local Gitea mirror (named above) — a partial pin set could silently miss the exact version a mid-cutover merge makes load-bearing (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
+        return 1
+      fi
+    }
+    {{- /* A delivery's Phase A0: the candidate's pins, "<chart>\t<version>" as Phase A2-pins reads them, or 1. */}}
+    srp_candidate_pins() {
+      [ "${PREWARM_BOOTSTRAP_KIT_PINS:-true}" = "true" ] || return 1
+      prewarm_kit_fetch /tmp/bootstrap-kit-pins >&2 || return 1
+      . /pin-extractor/extract-pins.sh
+      bootstrapkit_pins /tmp/bootstrap-kit-pins "${UPSTREAM_PREFIX}" "oci://$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')/openova-io" 2>/dev/null
+    }
     # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
     SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
     {{- /*
@@ -149,27 +209,7 @@ data:
      FATAL (hw296, 2026-08-13: 4 of 55 namespaces labelled; all 7 offenders in one).
     */}}
     ORG_NAMESPACE_LABEL="openova.io/organization"
-    {{- /*
-     #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE for
-     both the override validation and the offender tagging below (two
-     hand-rolled `Stalled=True` tests used to disagree with reality).
-     Stalled=True/RetriesExceeded is how Flux gives up on an UPGRADE. A pinned
-     chart version that does not exist sets NO Stalled: helm-controller parks the
-     release on Ready=False reason=SourceNotReady for ever. hw296 (2026-08-13):
-     bp-guacamole pinned 0.2.40, ghcr tops out at 0.2.39, and the HR read
-       Ready=False SourceNotReady "... chart pull error: failed to download chart
-       ... 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ...: not found"
-     The old classifier told the operator to wait, then REFUSED the #5391
-     override on it ("it will settle on its own"): a dead end. So an absent
-     source artifact joins Stalled as terminal. Deliberately NARROW: only a
-     404-class answer under a SOURCE-side Ready reason; a transient failure
-     (deadline exceeded, connection refused, 5xx) stays mid-roll. The token must
-     come with a REMOTE-RESOLUTION context (`chart pull error`, or the
-     self-contained `no chart version found`), because hw296 also showed
-       ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
-     while Flux's own artifact store rebuilt: those charts exist and it clears
-     by itself. Both live shapes are Case 77 fixtures.
-    */}}
+    {{- /* #6253 — the TERMINAL classifier, defined once: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
     SRP_TERMINAL_JQ='
       def _cond($t): (.status.conditions // []) | map(select(.type == $t)) | (.[0] // {});
       def _stalled: ((_cond("Stalled").status) // "False") == "True";
@@ -189,18 +229,7 @@ data:
             or (($m | test("chart pull error")) and ($m | test("not found")))
           );
       def _terminal: _stalled or _source_absent;
-      {{- /*
-       #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED (as #6198 excludes its
-       WORKLOADS below). "running != desired" cannot apply to the release running
-       this gate: the script was rendered from the INSTALLED revision and the
-       cutover never rolls itself mid-run. Left in scope it is a dead end, since
-       the only fix is a new version of the chart that cannot install (hw296,
-       fourth attempt, step 3 of 11: 67 HRs, ONE not Ready, this one, on its own
-       hollow pin bp-self-sovereign-cutover:0.1.183). Narrow, with the Case 94
-       CONTROL: it keys on .spec.chart.spec.chart and the slot-06a release name,
-       both .Chart.Name; any OTHER HelmRelease, even identically stuck, stays
-       gated and named.
-      */}}
+      {{- /* #6262 — this chart's own HelmRelease is excluded: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       def _is_own_release($own):
         ((.spec.chart.spec.chart // "") == $own) or ((.metadata.name // "") == $own);
     '
@@ -226,6 +255,50 @@ data:
         */}}
         (.metadata.namespace // "") as $ns
         | (($orgns | index($ns)) != null);
+    '
+    srp_delivery() { [ -n "${CANDIDATE:-}" ] && [ "${UPSTREAM_BRANCH:-}" = "release/${CANDIDATE}" ]; }
+    {{- /*
+     A delivery's repaired set (see the head of Phase A0), over the gated releases: "R\t<ns>/<name>\t<chart>\t<from>\t<deployed>\t<to>"
+     per terminal release the candidate's pin ($pins: chart -> its versions) moves, "D\t<ns>/<name>\t<deps>" per dependent that waits
+     on those alone, and "N\t<ns>/<name>\t<why>" per terminal release the candidate does not change. No field is empty.
+     The pins name charts, not releases: only a release the kit applies (flux-system, Kustomization bootstrap-kit) can be R.
+    */}}
+    SRP_REPAIR_JQ='
+      def _key: "\(.metadata.namespace // "")/\(.metadata.name // "")";
+      def _kit_applied: ((.metadata.namespace // "") == "flux-system") and ((((.metadata.labels // {})["kustomize.toolkit.fluxcd.io/name"]) // "") == "bootstrap-kit");
+      def _settled: (((_cond("Ready").status) // "Unknown") == "True") and ((.status.observedGeneration // -1) >= (.metadata.generation // 0));
+      def _deps: (.metadata.namespace // "") as $dns | [(.spec.dependsOn // [])[] | "\(.namespace // $dns)/\(.name)"];
+      def _or($v): if . == "" then $v else . end;
+      (.items | map({key: _key, value: .}) | from_entries) as $all
+      | [.items[] | select((.spec.suspend // false) | not) | select(_is_own_release($own) | not)
+          | select(_in_org_ns($orgns) | not) | select(((.metadata.annotations // {}) | has($okey)) | not)] as $hrs
+      | [$hrs[] | select(_terminal)
+          | (.spec.chart.spec.chart // "") as $c
+          | (.spec.chart.spec.version // "") as $want
+          | (.status.lastAttemptedRevision // "") as $att
+          | ((([(.status.history // [])[] | select(.status == "deployed") | .chartVersion] | .[0]) // .status.lastAppliedRevision) // "") as $dep
+          | (($pins[$c]) // []) as $pv
+          | _kit_applied as $kit
+          | {key: _key, chart: ($c | _or("-")), from: ($att | _or($want) | _or("-")), deployed: ($dep | _or("-")), to: ($pv | join(" ") | _or("-")),
+             why: (if $c == "" then "it names no chart (spec.chart.spec.chart)"
+                   elif ($kit | not) then "the kit does not apply it (only flux-system HelmReleases of the Kustomization bootstrap-kit), so the candidate pinning \($c) does not change it"
+                   elif ($pv | length) == 0 then "the candidate kit pins no version of \($c)"
+                   elif ($pv | length) > 1 then "the candidate kit pins \($c) at several versions (\($pv | join(", ")))"
+                   elif ($pv[0] == $want) or ($pv[0] == $att) or ($pv[0] == $dep) then "the candidate pins \($c) \($pv[0]), not a new version for it (desired \($want | _or("-")), last attempted \($att | _or("-")), deployed \($dep | _or("-")))"
+                   else "" end)}] as $t
+      | [$t[] | select(.why == "")] as $r0
+      | [$hrs[] | select((_terminal | not) and (((_cond("Ready").reason) // "") == "DependencyNotReady"))] as $dnr
+      | def _grow: . as $r
+          | [$dnr[] | _key as $k | select(any($r[]; . == $k) | not) | _deps as $ds
+             | select(any($ds[]; . as $d | any($r[]; . == $d)))
+             | select(all($ds[]; . as $d | any($r[]; . == $d) or ((($all[$d]) // null) | if . == null then false else _settled end)))
+             | $k] as $new
+          | if ($new | length) == 0 then $r else ($r + $new) | _grow end;
+        ([$r0[] | .key] | _grow) as $rep
+      | ($r0[] | "R\t\(.key)\t\(.chart)\t\(.from)\t\(.deployed)\t\(.to)"),
+        ($rep[] | . as $k | select(any($r0[]; .key == $k) | not)
+          | "D\t\($k)\t\([$all[$k] | _deps | .[] | . as $d | select(any($rep[]; . == $d))] | join(", "))"),
+        ($t[] | select(.why != "") | "N\t\(.key)\t\(.why)")
     '
     srp_kubectl_json() {
       {{- /*
@@ -282,16 +355,7 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 could not list Deployments/StatefulSets after 5 attempts — the gate cannot certify a roll state it cannot read; refusing to fail open (#5391)"
         return 1
       fi
-      {{- /*
-       #6273 — read the Organization-namespace set from the LABEL, not from
-       a list this chart carries. Fail-closed on an unreadable answer for
-       the same reason as the two reads above: without it every namespace
-       would classify as platform, which is the STRICTER verdict, but the
-       gate would then be certifying an ownership split it could not see.
-       An EMPTY answer is a legitimate reading (a Sovereign with no
-       Organizations yet) and is NOT a failure — kubectl still returns a
-       well-formed `{"items":[]}`.
-      */}}
+      {{- /* #6273 — the Organization namespaces are read from the label: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       if ! _srp_ns_json=$(srp_kubectl_json namespaces -l "${ORG_NAMESPACE_LABEL}"); then
         echo "[harbor-prewarm] FATAL: Phase A0 could not list Organization namespaces (-l ${ORG_NAMESPACE_LABEL}) after 5 attempts — the gate cannot partition offenders by ownership it cannot read; refusing to fail open (#6273)"
         return 1
@@ -300,20 +364,7 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 Organization-namespace jq failed — refusing to fail open (#6273)"
         return 1
       }
-      {{- /*
-       #5391 override validation FIRST, before ANY exclusion — the gate
-       fail-closes on a malformed or over-broad override rather than
-       honoring it. A SUSPENDED HR is outside the gate's domain entirely
-       (skipped below), so its annotations are not judged here. #6262: so is
-       this chart's OWN release — judging an override on a release the gate
-       does not gate would reject it as "names a HEALTHY HelmRelease" and
-       fail the whole gate closed on an annotation that was never needed.
-       #6273: an Organization-namespace release is now in that same
-       position. Its offenders only WARN, so an override there is never
-       needed — but a sovereign-admin who annotated one under the old
-       fail-closed contract would otherwise have that stale annotation
-       FATAL the whole cutover the moment the customer's app recovered.
-      */}}
+      {{- /* #5391 — override validation first: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
@@ -356,31 +407,21 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 override-enumeration jq failed — refusing to fail open (#5391)"
         return 1
       }
-      {{- /*
-       HelmReleases: a SUSPENDED HR is intentionally frozen (it will NOT
-       roll during the cutover, so its running IS its desired) → skip it.
-       A validly-overridden HR (annotation, validated above) → skip it.
-       Otherwise flag when the spec out-ran the controller
-       (observedGeneration < generation — the pin-bump case) OR Ready !=
-       True (mid-reconcile / failed upgrade).
-       #5391/#5392: distinguish TERMINAL from mid-roll. Once Flux marks an
-       HR Stalled=True (reason RetriesExceeded) it has stopped retrying
-       PERMANENTLY — that release will never reach Ready on its own, so
-       "wait for the roll to settle and re-trigger" is false advice: the
-       operator would wait forever. Live hw290 (dep 31106b6aa4a7e8e7):
-       7 offenders, ALL per-Org customer apps, ALL Stalled/RetriesExceeded
-       (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
-       DependencyNotReady onto 4 siblings). Tag those rows so the operator
-       can tell "wait 5 minutes" from "this blocks you until you act".
-
-       #6253: the two terminal shapes need DIFFERENT remedies, so they carry
-       different tags. `flux reconcile --reset` clears a Stalled upgrade; it
-       does nothing whatsoever for a pin whose chart was never published —
-       there is no artifact to pull, so retrying is guaranteed to fail
-       identically. Emitting the stalled remedy for a hollow pin sends the
-       operator to a command that cannot work; name the real one instead
-       (publish the pinned version, or re-pin to a published one).
-      */}}
+      {{- /* A delivery: the releases its candidate repairs (head of Phase A0). Without a delivery, or without its pins, none. */}}
+      srp_rep_rows=""; srp_rep_keys='[]'
+      if srp_delivery && printf '%s' "${_srp_hr_json}" | jq -e "${SRP_TERMINAL_JQ}"'any(.items[]; _terminal)' >/dev/null 2>&1; then
+        if _srp_pins=$(srp_candidate_pins) && [ -n "${_srp_pins}" ]; then
+          _srp_pins_json=$(printf '%s\n' "${_srp_pins}" | jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | select(length == 2)) | group_by(.[0]) | map({key: .[0][0], value: (map(.[1]) | unique)}) | from_entries') \
+            && srp_rep_rows=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson pins "${_srp_pins_json}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}${SRP_REPAIR_JQ}") \
+            && srp_rep_keys=$(printf '%s\n' "${srp_rep_rows}" | jq -R -s -c 'split("\n") | map(select(test("^[RD]\t")) | split("\t")[1])') || {
+            echo "[harbor-prewarm] FATAL: Phase A0 delivery-repair jq failed — refusing to fail open"
+            return 1
+          }
+        else
+          echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} could not read its candidate's kit pins at ${UPSTREAM_BRANCH} (or prewarm.bootstrapKitPins.enabled=false), so no stalled release counts as repaired by it"
+        fi
+      fi
+      {{- /* HelmReleases, and #5391/#5392/#6253 terminal vs mid-roll: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       {{- /*
        #6273 — ONE enumeration, tagged by ownership, split in shell. The
        row TEXT after the tag is byte-identical in both directions, so an
@@ -388,7 +429,7 @@ data:
        FATAL path prints (including the #6253 TERMINAL classification) and
        the two can never drift into two different formatters.
       */}}
-      hr_all=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}"'
+      hr_all=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson rep "${srp_rep_keys}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
         | select(_is_own_release($own) | not)
@@ -400,17 +441,24 @@ data:
         | _stalled as $stalled
         | _source_absent as $source_absent
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
-        | (if _in_org_ns($orgns) then "ORG " else "PLT " end)
+        | (if _in_org_ns($orgns) then "ORG " elif ("\(.metadata.namespace)/\(.metadata.name)" as $k | any($rep[]; . == $k)) then "REP " else "PLT " end) as $tag
+        | ((.metadata.labels // {})["kustomize.toolkit.fluxcd.io/name"] // "") as $ks
+        | ($tag
           + "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
           + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]"
              elif $source_absent then "  [TERMINAL: the pinned chart version does not exist in the registry — retrying cannot create it]"
              else "" end)
-          + (if ($why | length) > 0 then "  (\($why))" else "" end)') || {
+          + (if ($why | length) > 0 then "  (\($why))" else "" end)),
+          (if $tag != "PLT " or $ks == "" then empty
+           elif $stalled or $source_absent then "KST HelmRelease/\(.metadata.namespace)/\(.metadata.name)\t\($ks)"
+           else "KSM HelmRelease/\(.metadata.namespace)/\(.metadata.name)\t\($ks)" end)') || {
         echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
       hr_pending=$(printf '%s\n' "${hr_all}" | grep '^PLT ' | sed 's/^PLT //' || true)
       hr_org=$(printf '%s\n' "${hr_all}" | grep '^ORG ' | sed 's/^ORG //' || true)
+      hr_ks_terminal=$(printf '%s\n' "${hr_all}" | grep '^KST ' | sed 's/^KST //' || true)
+      hr_ks_count=$(printf '%s\n' "${hr_all}" | grep -c '^KS[TM] ' || true)
       {{- /*
        #6262 — the own-release exclusion must not be SILENT. Skipping the
        gate is the right call (the deadlock above), but an unsettled own
@@ -434,43 +482,7 @@ data:
         printf '%s\n' "${own_hr}" | sed 's/^/  own (not gated): /'
         echo "[harbor-prewarm]   It does mean a NEWER cutover chart is not reaching this Sovereign — if the message above is a 404 on the pinned version, that version was never published and the pin needs fixing at its source before any future cutover fix can land here."
       fi
-      {{- /*
-       Deployments + StatefulSets: a pending rollout — observedGeneration
-       behind the spec, or updated/ready replicas short of desired. Skip
-       intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
-       deliberately NOT gated: cordoned / control-plane-tainted nodes skew
-       desired-vs-ready legitimately and would false-positive the gate.
-
-       #6198 — THIS CHART'S OWN WORKLOADS ARE EXCLUDED, and the reason is
-       circularity rather than convenience. The gate's whole premise is
-       "running != desired": a workload mid-roll would be mirrored at its
-       RUNNING tag and then rolled by step-04/step-07 to a DESIRED tag that
-       was never mirrored. That premise cannot apply to the cutover's own
-       components — the cutover does not roll itself to new tags, so their
-       running IS their desired, exactly like the suspended-HR case above.
-
-       Left in scope, one of them deadlocks the whole cutover. Measured live
-       on hw295 (dep 952c564cab38d320): Deployment/catalyst/
-       cutover-daytwo-harbor-reconciler installs at PROV and stays 0/1
-       Running because its readiness probe (`grep -qx READY
-       /tmp/daytwo-work/health`) withholds READY until the local Harbor holds
-       every workload image — it logs `MISSING local Harbor image:
-       registry.<fqdn>/proxy-dockerhub/goharbor/harbor-core:v2.14.3 (HTTP
-       404)` and one line like it per image (#5640). Populating those is
-       precisely what THIS step does. So step-03 waited on the reconciler and
-       the reconciler waited on step-03: cutover dead at 9%, step 3 of 11,
-       BackoffLimitExceeded, on an otherwise healthy env (63/67 HRs Ready,
-       handover sealed, chart above the #5919 floor).
-
-       A component whose readiness IS "the mirror exists" must never gate the
-       step that builds the mirror.
-
-       This exclusion is narrow on purpose: it keys on the chart's own
-       `app.kubernetes.io/name` label, so every workload the cutover actually
-       rolls stays gated. It is NOT the whole-gate kill switch
-       (`prewarm.settledRollPreflight.enabled=false`), which stays available
-       and stays a last resort.
-      */}}
+      {{- /* Deployments + StatefulSets, and #6198 this chart's own workloads excluded: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       {{- /*
        #6273 — the workload pass carries the SAME ownership tag. This half
        is the one that actually mattered on hw296: four of the seven
@@ -494,30 +506,18 @@ data:
       }
       wl_pending=$(printf '%s\n' "${wl_all}" | grep '^PLT ' | sed 's/^PLT //' || true)
       wl_org=$(printf '%s\n' "${wl_all}" | grep '^ORG ' | sed 's/^ORG //' || true)
-      {{- /*
-       #6273 — the WARNING, printed BEFORE the platform verdict so it is
-       visible on a passing run AND on a failing one. It is deliberately
-       loud and fully enumerated: this is the one place a narrowing of a
-       fail-closed gate could become silent, and a silent narrowing is
-       indistinguishable from the gate not working.
-
-       The argument is OWNERSHIP, which is stronger ground than the #6198
-       circularity carve-out one scope down. A sovereign-admin cannot be
-       required to repair an Organization's application in order to earn
-       the Sovereign's independence: the app belongs to the Organization
-       that installed it, and on hw296 a fully healthy Sovereign (all 68
-       flux-system HelmReleases Ready=True, zero platform offenders) was
-       held out of Pillar 5 by three customer releases in `walkthree`
-       whose install had failed. hw290 was the same shape a month earlier
-       ("7 offenders, ALL per-Org customer apps", recorded below).
-
-       The cost is REAL and is stated in the output rather than buried
-       here: mirroring is unchanged (still best-effort over every running
-       tag, Organization namespaces included), so a genuinely MID-ROLL app
-       can still be mirrored at a tag the post-cutover roll moves away
-       from. That app can then fail to pull and need a re-install. What
-       changes is only whether that possibility fail-closes the Sovereign.
-      */}}
+      {{- /* #6273 — the WARNING before the platform verdict, and what it costs: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
+      srp_rep_rec=""
+      if [ -n "${srp_rep_rows}" ]; then
+        echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} read its candidate's kit pins for the stalled release(s). R: the candidate pins another version, which the promote gives Flux to try and Phase A2-pins mirrors, NOT gated; D: DependencyNotReady only on R releases, NOT gated; N: the candidate does not change it, gated as before:"
+        printf '%s\n' "${srp_rep_rows}" | awk -F '\t' -v b="${UPSTREAM_BRANCH}" '
+          $1 == "R" {print "  R HelmRelease/" $2 ": " $3 " " $4 " (last attempted; deployed " $5 ") -> " $6 " (pinned by " b ")"}
+          $1 == "D" {print "  D HelmRelease/" $2 ": DependencyNotReady only on " $3}
+          $1 == "N" {print "  N HelmRelease/" $2 ": " $3}'
+        srp_rep_rec=$(printf '%s\n' "${srp_rep_rows}" | awk -F '\t' -v c="${CANDIDATE}" '
+          $1 == "R" {print $2 "=the delivery of " c " moves " $3 " " $4 " -> " $6 " (deployed " $5 ")"}
+          $1 == "D" {print $2 "=DependencyNotReady only on " $3 ", which the delivery of " c " repairs"}')
+      fi
       org_unsettled=$(printf '%s\n%s\n' "${hr_org}" "${wl_org}" | grep -c . || true)
       if [ "${org_unsettled}" -gt 0 ]; then
         echo "[harbor-prewarm] WARNING: Phase A0 found ${org_unsettled} unsettled release(s)/workload(s) in Organization namespaces. The cutover PROCEEDS anyway (#6273) — an Organization's application belongs to the Organization that installed it, and a sovereign-admin must not have to repair a customer's app to gain the Sovereign's independence. Platform namespaces are UNCHANGED: any offender there is still FATAL below."
@@ -558,9 +558,20 @@ data:
             echo "[harbor-prewarm]     - re-pin the release to a version that IS published, and let Flux reconcile."
             echo "[harbor-prewarm]   The parenthesised message above names the exact chart reference that 404'd."
           fi
-          echo "[harbor-prewarm] If a release is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
-          echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
-          echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."
+          terminal_ks=$(printf '%s\n' "${hr_ks_terminal}" | grep -c . || true)
+          if [ "${terminal}" -gt "${terminal_ks}" ]; then
+            echo "[harbor-prewarm] If a release that no Flux Kustomization applies is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
+            echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
+            echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."
+          fi
+          if [ "${terminal_ks}" -gt 0 ]; then
+            echo "[harbor-prewarm] ${terminal_ks} of the terminal releases are applied by a Flux Kustomization (label kustomize.toolkit.fluxcd.io/name). It removes a hand-set annotation within minutes, so no per-release override holds on them and none is offered:"
+            printf '%s\n' "${hr_ks_terminal}" | awk -F '\t' '{print "  applied by Kustomization " $2 ": " $1}'
+            echo "[harbor-prewarm]   What works for them:"
+            echo "[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled release its candidate repairs"
+            echo "[harbor-prewarm]     - repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset"
+            echo "[harbor-prewarm]     - or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false"
+          fi
         fi
         if [ "${unsettled}" -gt "${terminal}" ]; then
           echo "[harbor-prewarm] The remainder are genuinely mid-roll — wait for them to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover."
@@ -569,16 +580,25 @@ data:
           echo "[harbor-prewarm] NOTE: these named overrides were validated and WOULD be honored, but the offenders above remain outside them:"
           printf '%s\n' "${or_used}" | sed 's/^/  override: /'
         fi
-        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; named per-release override: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; whole-gate emergency kill for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
+        srp_or_hint=""
+        if [ "$(printf '%s\n' "${hr_pending}" | grep -c . || true)" -gt "${hr_ks_count}" ]; then
+          srp_or_hint="named per-release override, on a HelmRelease no Flux Kustomization applies: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; "
+        fi
+        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; ${srp_or_hint}whole-gate emergency kill for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
         return 1
       fi
-      srp_record_overrides "${or_used}" || return 1
+      srp_record_overrides "$(printf '%s\n%s\n' "${or_used}" "${srp_rep_rec}" | grep . || true)" || return 1
       if [ -n "${or_used}" ]; then
         or_count=$(printf '%s\n' "${or_used}" | grep -c . || true)
         echo "[harbor-prewarm] Phase A0: env settled WITH ${or_count} named operator override(s) (#5391) — each excluded release is terminal-stuck; its running images/charts are still mirrored by the enumerations below:"
         printf '%s\n' "${or_used}" | sed 's/^/  override: /'
         echo "[harbor-prewarm] override record written to ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides (surfaced on GET /sovereign/cutover/status)"
-      else
+      fi
+      if [ -n "${srp_rep_rec}" ]; then
+        echo "[harbor-prewarm] Phase A0: env settled for the delivery of ${CANDIDATE}: $(printf '%s\n' "${srp_rep_rec}" | grep -c .) release(s) it repairs (named above) are not gated; recorded in ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides:"
+        printf '%s\n' "${srp_rep_rec}" | sed 's/^/  repaired: /'
+      fi
+      if [ -z "${or_used}${srp_rep_rec}" ]; then
         echo "[harbor-prewarm] Phase A0: env settled — no PLATFORM-namespace HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
       fi
       return 0
@@ -1923,56 +1943,7 @@ data:
     : "${PREWARM_BOOTSTRAP_KIT_PINS:=true}"
     if [ "${PREWARM_BOOTSTRAP_KIT_PINS}" = "true" ]; then
       echo "[harbor-prewarm] Phase A2-pins (#5237): enumerating bootstrap-kit chart pins from the local Gitea mirror (the frozen commit flux consumes post-step-05)"
-      {{- /*
-       The catalyst-gitea-token PAT — same coordinates + bounded wait
-       as steps 01/05 (BasicAuth would hang ~130s then 401 while
-       Keycloak converges; a PAT is a direct local lookup). Never
-       echoed; sent only via the Authorization header.
-      */}}
-      bk_pat=""
-      for i in $(seq 1 12); do
-        bk_pat=$(kubectl -n "${PAT_SOURCE_NAMESPACE}" get secret "${PAT_SOURCE_SECRET_NAME}" \
-          -o "jsonpath={.data.${PAT_SOURCE_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
-        [ -n "${bk_pat}" ] && break
-        echo "[harbor-prewarm] Phase A2-pins: PAT not yet populated in ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME} (attempt ${i}/12) — sleeping 5s"
-        sleep 5
-      done
-      if [ -z "${bk_pat}" ]; then
-        echo "[harbor-prewarm] FATAL: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} empty after 60s — cannot read the local Gitea mirror's bootstrap-kit pins, so the mirror set cannot be proven to cover the frozen flux pin set (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
-        exit 1
-      fi
-      bk_dir=/tmp/bootstrap-kit-pins
-      rm -rf "${bk_dir}"; mkdir -p "${bk_dir}"
-      bk_api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
-      bk_path="clusters/_template/bootstrap-kit"
-      {{- /*
-       Directory listing via the Gitea contents API, then each slot
-       file raw — ~70 small text fetches against the in-cluster
-       Gitea Service (step-01 already proved it reachable), far
-       lighter than a full monorepo clone.
-      */}}
-      bk_list=$(curl -fsS --retry 3 --retry-delay 5 \
-        -H "Authorization: token ${bk_pat}" \
-        "${bk_api}/contents/${bk_path}?ref=${UPSTREAM_BRANCH}" 2>/dev/null \
-        | jq -r '.[] | select(.type=="file") | .name | select(test("^[0-9].*\\.ya?ml$"))' 2>/dev/null || true)
-      if [ -z "${bk_list}" ]; then
-        echo "[harbor-prewarm] FATAL: could not list ${bk_path} in the local Gitea mirror (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}) — step-01 gitea-mirror must have completed before step-03; without the frozen pin set the mirror cannot be proven complete (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
-        exit 1
-      fi
-      bk_fetch_fail=0
-      for bk_f in ${bk_list}; do
-        if ! curl -fsS --retry 3 --retry-delay 5 \
-            -H "Authorization: token ${bk_pat}" \
-            -o "${bk_dir}/${bk_f}" \
-            "${bk_api}/raw/${bk_path}/${bk_f}?ref=${UPSTREAM_BRANCH}" 2>/dev/null; then
-          echo "[harbor-prewarm] Phase A2-pins: fetch FAILED for ${bk_path}/${bk_f}"
-          bk_fetch_fail=$((bk_fetch_fail+1))
-        fi
-      done
-      if [ "${bk_fetch_fail}" -gt 0 ]; then
-        echo "[harbor-prewarm] FATAL: ${bk_fetch_fail} bootstrap-kit slot file(s) failed to fetch from the local Gitea mirror (named above) — a partial pin set could silently miss the exact version a mid-cutover merge makes load-bearing (#5237). Emergency override: prewarm.bootstrapKitPins.enabled=false."
-        exit 1
-      fi
+      prewarm_kit_fetch /tmp/bootstrap-kit-pins || exit 1
       {{- /*
        Shared extractor (03b): one parser for step-03 + step-06 +
        the #5265 Day-2 reconciler. Accepts BOTH the upstream and the

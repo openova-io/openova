@@ -1,0 +1,99 @@
+# Suite of the policy otel-injected (templates/baseline/15-otel-injected.yaml), CMP-064.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+# The legacy rule's first pattern was an array pattern, which Kyverno applies
+# to EVERY element: it passed only when every container is named
+# otel-collector, so case 2 (an app beside an otel-collector sidecar) fails on
+# both kinds. Its other five patterns are one annotation each, any non-empty
+# value ("?*"): case 8 (empty) and case 9 (a language not listed) fail. On
+# the legacy kind the CLI reports the excluded case 12 as "Excluded" and
+# accepts that for any expected result; the ValidatingPolicy gives it a skip.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/otel-injected
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: otel-injected-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/collector-only
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/app-with-sidecar
+    result: fail
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/inject-java
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - example/inject-python
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - example/inject-nodejs
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/inject-go
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/inject-dotnet
+    result: pass
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/inject-empty
+    result: fail
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/inject-sdk
+    result: fail
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/uninstrumented
+    result: fail
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/annotation-on-workload
+    result: fail
+  - policy: otel-injected
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - kube-system/uninstrumented
+    result: skip

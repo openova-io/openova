@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -183,6 +185,59 @@ func TestRetryJob_Install_AnnotatesHR(t *testing.T) {
 	}
 	if !foundAudit {
 		t.Errorf("retry Execution missing the operator audit LogLine; lines=%v", page.Lines)
+	}
+}
+
+// A job retry is an operation: recorded on the audit stream before the
+// remediation and after it, with an error result when the remediation
+// fails (no HelmRelease to annotate). When the stream does not take the
+// intent event (a bus without a Publisher) the answer is 503
+// audit-unavailable: nothing is annotated and no Execution is started.
+func TestRetryJob_Audited(t *testing.T) {
+	caller := &auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}
+	for _, c := range []struct {
+		durable, withHR bool
+		code            int
+		result          string
+	}{{true, true, http.StatusOK, "ok"}, {true, false, http.StatusBadGateway, "error"}, {false, true, http.StatusServiceUnavailable, ""}} {
+		var seed []runtime.Object
+		if c.withHR {
+			hr := &unstructured.Unstructured{}
+			hr.SetAPIVersion("helm.toolkit.fluxcd.io/v2")
+			hr.SetKind("HelmRelease")
+			hr.SetName("bp-velero")
+			hr.SetNamespace("flux-system")
+			seed = append(seed, hr)
+		}
+		r, h, depID := installRetryHarness(t, "owner@t99.omani.works", "install-velero", jobs.StatusFailed, seed...)
+		pub, config := &resourceAuditRecorder{}, audit.BusConfig{}
+		if c.durable {
+			config.Publisher = pub
+		}
+		h.SetAuditBus(audit.NewBus(config))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, retryReq(depID, "install-velero", caller))
+		what := "durable=" + strconv.FormatBool(c.durable) + " withHR=" + strconv.FormatBool(c.withHR)
+		if rec.Code != c.code {
+			t.Fatalf("%s: got %d %s, want %d", what, rec.Code, rec.Body.String(), c.code)
+		}
+		_, execs, err := h.jobs.GetJob(depID, jobs.JobID(depID, "install-velero"))
+		if err != nil {
+			t.Fatalf("%s: get job: %v", what, err)
+		}
+		if !c.durable {
+			dyn, _ := h.dynamicFactory("")
+			got, gerr := dyn.Resource(helmwatch.HelmReleaseGVR).Namespace("flux-system").Get(context.Background(), "bp-velero", metav1.GetOptions{})
+			if gerr != nil || got.GetAnnotations()[reconcileRequestedAtAnnotation] != "" || len(execs) != 0 ||
+				!strings.Contains(rec.Body.String(), `"error":"audit-unavailable"`) {
+				t.Fatalf("%s: %s, HR %v (%v), %d Executions; want audit-unavailable, no annotation, none", what, rec.Body.String(), got, gerr, len(execs))
+			}
+			continue
+		}
+		wantOperation(t, what, pub.events, "job-retry", "install install-velero", "owner@t99.omani.works", c.result)
+		if c.withHR && !strings.Contains(rec.Body.String(), `"requestedBy":"owner@t99.omani.works"`) {
+			t.Fatalf("%s: %s, want requestedBy owner@t99.omani.works", what, rec.Body.String())
+		}
 	}
 }
 

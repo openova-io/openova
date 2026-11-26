@@ -1,0 +1,48 @@
+# The cluster the CLI evaluates against: the NetworkPolicies and
+# CiliumNetworkPolicies the policy's two lookups list, per namespace. The
+# legacy rule's apiCalls and the ValidatingPolicy's resource.List both read
+# this fake cluster (CLI v1.19.2).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: ClusterResource
+metadata:
+  name: cluster-resources
+spec:
+  crds:
+    - ciliumnetworkpolicy-crd.yaml
+  resources:
+    # with-np holds one NetworkPolicy.
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: default-deny
+        namespace: with-np
+      spec:
+        podSelector: {}
+        policyTypes: [Ingress]
+    # with-cnp holds one CiliumNetworkPolicy.
+    - apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      metadata:
+        name: default-deny
+        namespace: with-cnp
+      spec:
+        endpointSelector: {}
+        ingress: []
+    # with-both holds one of each.
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: default-deny
+        namespace: with-both
+      spec:
+        podSelector: {}
+        policyTypes: [Ingress]
+    - apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      metadata:
+        name: allow-dns
+        namespace: with-both
+      spec:
+        endpointSelector: {}
+        egress: []
+    # bare holds none; the policies of the other namespaces do not count for it.

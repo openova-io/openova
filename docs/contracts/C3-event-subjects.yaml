@@ -33,3 +33,5 @@ subjects:
   - {subject: catalyst.audit.recorded.v1, envelope: cloudevents, owner: CTL, producers: [catalyst-api], consumers: [catalyst-api], payload: products/catalyst/bootstrap/api/internal/audit/audit.go, delivery: at-least-once}
   - {subject: catalyst.alert.changed.v1, envelope: cloudevents, owner: FND, producers: [], consumers: [], payload: docs/contracts/C3-alert-changed-v1.schema.json, delivery: at-least-once}
   - {subject: catalyst.usage.recorded.v1, envelope: cloudevents, owner: BSS, producers: [model-meter], consumers: [], payload: core/services/model-meter/meter/event.go, delivery: at-least-once}
+  - {subject: catalyst.access.grant_activated.v1, envelope: cloudevents, owner: ACC, producers: [access-controller], consumers: [], payload: core/controllers/access/internal/events/events.go, delivery: at-least-once}
+  - {subject: catalyst.access.grant_ended.v1, envelope: cloudevents, owner: ACC, producers: [access-controller], consumers: [], payload: core/controllers/access/internal/events/events.go, delivery: at-least-once}

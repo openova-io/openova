@@ -1,0 +1,100 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: accesstargets.access.openova.io
+  labels:
+    app.kubernetes.io/name: bp-guacamole
+spec:
+  group: access.openova.io
+  scope: Namespaced
+  names:
+    kind: AccessTarget
+    listKind: AccessTargetList
+    singular: accesstarget
+    plural: accesstargets
+    shortNames: [atgt]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Kind, type: string, jsonPath: .spec.kind}
+        - {name: Ready, type: string, jsonPath: '.status.conditions[?(@.type=="Ready")].status'}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            AccessTarget says what a person may reach in a session, and under which rules
+            (ADR-0033). It is desired state: Flux applies it from Git, and the access
+            controller writes only its status. Its grants live in the same namespace.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [kind]
+              x-kubernetes-validations:
+                - rule: "(self.kind == 'pod') == has(self.pod)"
+                  message: spec.pod is required when spec.kind is pod, and forbidden otherwise
+              properties:
+                kind:
+                  type: string
+                  enum: [pod]
+                  description: How the target is reached. pod is a set of pods entered through the Kubernetes API.
+                  x-kubernetes-validations:
+                    - {rule: self == oldSelf, message: spec.kind is immutable}
+                displayName: {type: string, minLength: 1, maxLength: 80, description: The name the console shows. Default the object's name.}
+                pod:
+                  type: object
+                  required: [selector]
+                  properties:
+                    selector:
+                      type: object
+                      minProperties: 1
+                      maxProperties: 8
+                      additionalProperties: {type: string, maxLength: 63}
+                      description: Labels of the pods that may be entered, among the pods of the target's own namespace and no other.
+                policy:
+                  type: object
+                  default: {}
+                  properties:
+                    approval:
+                      type: object
+                      default: {}
+                      properties:
+                        required: {type: boolean, default: true, description: Whether a grant needs approvals before it is Active.}
+                        count: {type: integer, minimum: 1, maximum: 3, default: 1, description: The number of approvals a grant needs.}
+                    maxDuration:
+                      type: string
+                      default: 1h
+                      pattern: '^([0-9]+(h|m|s))+$'
+                      maxLength: 16
+                      description: The longest window of a grant, a duration from 5m to 12h.
+                      x-kubernetes-validations:
+                        - rule: duration(self) >= duration('5m') && duration(self) <= duration('12h')
+                          message: spec.policy.maxDuration must be from 5m to 12h
+            status:
+              type: object
+              properties:
+                observedGeneration: {type: integer, format: int64}
+                conditions:
+                  type: array
+                  maxItems: 8
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  description: Ready and ServiceAccountReady.
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime, reason, message]
+                    properties:
+                      type: {type: string, maxLength: 316}
+                      status: {type: string, enum: ["True", "False", "Unknown"]}
+                      observedGeneration: {type: integer, format: int64, minimum: 0}
+                      lastTransitionTime: {type: string, format: date-time}
+                      reason: {type: string, maxLength: 1024}
+                      message: {type: string, maxLength: 32768}

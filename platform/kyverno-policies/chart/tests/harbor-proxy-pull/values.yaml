@@ -1,0 +1,15 @@
+# The labels of the namespaces of resources.yaml: acme is an Organization's
+# namespace (the org-controller stamps openova.io/organization on it).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+namespaces:
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: acme
+      labels:
+        openova.io/organization: acme
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: app-prod

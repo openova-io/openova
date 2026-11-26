@@ -1,0 +1,108 @@
+# Inputs of the suite resource-requests. The two shared fixtures
+# (tests/fixtures/resource-requests/) are listed in kyverno-test.yaml beside this file.
+
+# 1. A Pod whose container requests cpu and memory: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-requests
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+---
+# 2. A Pod whose container requests cpu only: not compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-cpu-only
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:v1.0.0
+      resources:
+        requests:
+          cpu: 100m
+---
+# 3. A Job with two containers, one without requests: not compliant.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-one-container-without
+  namespace: example
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: with-requests
+          image: ghcr.io/example/app:v1.0.0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        - name: without-requests
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. A CronJob whose container requests cpu and memory at the CronJob path: compliant.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-with-requests
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: app
+              image: ghcr.io/example/app:v1.0.0
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+---
+# 5. A CronJob without requests: not compliant.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-without-requests
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: app
+              image: ghcr.io/example/app:v1.0.0
+---
+# 6. A DaemonSet without requests in an excluded namespace: excluded.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ds-without-requests
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: ds-without-requests
+  template:
+    metadata:
+      labels:
+        app: ds-without-requests
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:v1.0.0

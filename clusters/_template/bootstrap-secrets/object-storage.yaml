@@ -3,12 +3,19 @@
 # it. Both the canonical s3-* keys and the bare aliases, so that every chart
 # variant resolves (Wave 5.101 #2447: bp-harbor and bp-velero want s3-bucket).
 # The values are the seed's five OBJECT_STORAGE_* values, base64-encoded;
-# each fills two keys.
+# each fills two keys. bp-reflector (slot 05a) keeps one copy in namespace
+# openbao for the OpenBao snapshot backup and its restore drill (slot 08,
+# SEC-181; register entry openbao-snapshot-bucket); only the reflector writes it.
 apiVersion: v1
 kind: Secret
 metadata:
   name: object-storage
   namespace: flux-system
+  annotations:
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "openbao"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "openbao"
 type: Opaque
 data:
   endpoint: "${OBJECT_STORAGE_ENDPOINT}"

@@ -1,0 +1,33 @@
+# Inputs of the suite networkpolicy-present: the Namespaces judged. One per
+# case; the number is the case of kyverno-test.yaml. What each namespace holds
+# is in cluster-resources.yaml.
+
+# 1. Holds a NetworkPolicy.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: with-np
+---
+# 2. Holds a CiliumNetworkPolicy.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: with-cnp
+---
+# 3. Holds one of each.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: with-both
+---
+# 4. Holds none.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bare
+---
+# 5. Holds none, and is a namespace the chart defaults exclude by name.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system

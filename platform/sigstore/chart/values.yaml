@@ -79,6 +79,24 @@ policy-controller:
     env: {}
     envFrom: {}
 
+  # The post-delete hook Job leases-cleanup (CMP-067). The upstream default
+  # pulls cgr.dev/chainguard/kubectl directly and sets no requests, which the
+  # enforcing policies harbor-proxy-pull and resource-requests refuse when the
+  # release is uninstalled. The hook runs `/bin/sh -c kubectl ...`, so it takes
+  # the shell-and-kubectl image the kit's other hooks use, pinned, through the
+  # proxy project proxy-dockerhub. Not proxy-chainguard: the mothership's
+  # Harbor has no such project (measured 26 November), so it would not pull.
+  leasescleanup:
+    image:
+      repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+      version: "1.31.4"
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+
   # ServiceMonitor — DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2.
   serviceMonitor:
     enabled: false

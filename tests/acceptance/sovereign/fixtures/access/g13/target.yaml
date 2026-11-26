@@ -1,0 +1,17 @@
+# Fixture of check ACC-G13 (internal/suite/check_acc_g13.go); the check fills in ${NAMESPACE}.
+apiVersion: access.openova.io/v1alpha1
+kind: AccessTarget
+metadata:
+  name: g13-shell
+  namespace: ${NAMESPACE}
+spec:
+  kind: pod
+  displayName: Gate check ACC-G13
+  pod:
+    selector:
+      app.kubernetes.io/name: acc-g13
+  policy:
+    approval:
+      required: true
+      count: 1
+    maxDuration: 1h

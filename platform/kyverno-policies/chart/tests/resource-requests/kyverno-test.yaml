@@ -1,0 +1,70 @@
+# Suite of the policy resource-requests (templates/baseline/05-resource-requests.yaml), CMP-062.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/resource-requests
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: resource-requests-test
+policies:
+  - policy.yaml
+resources:
+  - ../fixtures/resource-requests/pass-deployment.yaml
+  - ../fixtures/resource-requests/fail-deployment.yaml
+  - resources.yaml
+results:
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/pass-requests
+    result: pass
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/fail-requests
+    result: fail
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/pod-with-requests
+    result: pass
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/pod-cpu-only
+    result: fail
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - example/job-one-container-without
+    result: fail
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - example/cronjob-with-requests
+    result: pass
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - example/cronjob-without-requests
+    result: fail
+  - policy: resource-requests
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - kube-system/ds-without-requests
+    result: skip

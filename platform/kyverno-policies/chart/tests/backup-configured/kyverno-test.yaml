@@ -1,0 +1,77 @@
+# Suite of the policy backup-configured (templates/baseline/20-backup-configured.yaml), CMP-064.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+# Cases 1 to 3 are the shared fixtures: 1 harbor/harbor-pg-1 (a CloudNativePG
+# claim), 2 example/app-data-velero-backed, 3 example/unprotected-user-data.
+# The legacy rule excluded the CloudNativePG claims by a label selector
+# (cnpg.io/cluster exists) and the chart's namespaces; the ValidatingPolicy
+# excludes both by match conditions. On the legacy kind the CLI reports the
+# excluded cases 1, 7 and 8 as "Excluded" and accepts that for any expected
+# result; the ValidatingPolicy gives each a skip.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/backup-configured
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: backup-configured-test
+policies:
+  - policy.yaml
+resources:
+  - ../fixtures/backup-configured/pass-pvc.yaml
+  - ../fixtures/backup-configured/fail-pvc.yaml
+  - resources.yaml
+results:
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - harbor/harbor-pg-1
+    result: skip
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/app-data-velero-backed
+    result: pass
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/unprotected-user-data
+    result: fail
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/annotated-backup-volumes
+    result: pass
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/empty-schedule
+    result: fail
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/keys-swapped
+    result: fail
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - example/app-pg-1
+    result: skip
+  - policy: backup-configured
+    isValidatingPolicy: true
+    kind: PersistentVolumeClaim
+    resources:
+      - kube-system/unprotected-user-data
+    result: skip

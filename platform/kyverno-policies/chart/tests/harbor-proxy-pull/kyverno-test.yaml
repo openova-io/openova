@@ -1,0 +1,110 @@
+# Suite of the policy harbor-proxy-pull (templates/baseline/11-harbor-proxy.yaml), CMP-063.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule: <name>).
+# The template is now a ValidatingPolicy, which has no rule names: only
+# policy.yaml and that key of each result (isValidatingPolicy: true) changed;
+# the resources and the expected results are the same.
+# On the legacy kind the CLI reports an excluded resource as "Excluded" and
+# accepts that for any expected result; the ValidatingPolicy gives it a skip.
+# The legacy policy had one rule per path shape (image-from-harbor-proxy-pod,
+# -workload, -cronjob), each giving one result. values.yaml gives the labels of
+# the namespaces, which both kinds read (namespaceObject for the new kind).
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/harbor-proxy-pull
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: harbor-proxy-pull-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/proxy-image
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/native-image
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/mixed-sources
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/raw-image
+    result: fail
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - example/raw-init
+    result: fail
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - example/proxied-deployment
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - example/raw-statefulset
+    result: fail
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - example/native-job
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - example/proxied-cronjob
+    result: pass
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - example/raw-cronjob
+    result: fail
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - kube-system/raw-agent
+    result: skip
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - powerdns/raw-dns
+    result: skip
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - acme/synced-coredns
+    result: skip
+  - policy: harbor-proxy-pull
+    isValidatingPolicy: true
+    kind: Pod
+    resources:
+      - app-prod/raw-unlabelled
+    result: fail

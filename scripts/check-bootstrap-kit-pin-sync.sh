@@ -24,16 +24,25 @@
 #   - A future workflow author breaking the auto-bump hook (the convergence
 #     would silently regress; this CI test would catch it on the next push
 #     that touches a chart).
-#   - A human-authored manual PR that bumps Chart.yaml but forgets the pin
-#     (the test fails the build BEFORE blueprint-release publishes).
+#   - A pull request that moves a chart version or a pin by hand (the test
+#     fails the build BEFORE blueprint-release publishes).
+#
+# FND-045: both lines are release-owned (R1 and R5 of
+# scripts/check-release-owned-lines.py). Only the release writer,
+# .github/workflows/blueprint-release.yaml, writes them: it sets the chart
+# version, publishes the chart, then sets the pin. Every drift line names
+# that writer, and no text asks a pull request to move a pin.
 #
 # Charts in platform/products without a bootstrap-kit pin (e.g. opt-in
 # Application Blueprints like bp-vllm, bp-temporal) are explicitly out of
 # scope — they have no pin to lag.
 #
 # Exit codes:
-#   0  — every bootstrap-kit pin matches its source-tree Chart.yaml version.
-#   1  — at least one pin lags (or, less likely, leads) the source chart.
+#   0  — every bootstrap-kit pin matches its source-tree Chart.yaml version,
+#        or (full sweep) a pin lags by a release still in flight.
+#   1  — at least one pin lags (or, less likely, leads) the source chart;
+#        on a full sweep a lag fails when it is an hour old or more, or
+#        when the commit that started it is not found.
 #   2  — input/parse/usage error.
 #
 # TBD-A26 (issue #1872, 2026-05-19) — `--check-ghcr` extension.
@@ -70,10 +79,21 @@ KIT_DIR="${REPO_ROOT}/clusters/_template/bootstrap-kit"
 CHANGED_ONLY=""
 BASE_REF=""
 CHECK_GHCR=""
+SELF_TEST=""
 GHCR_ORG="openova-io"
+RELEASE_WRITER=".github/workflows/blueprint-release.yaml"
+# The hourly cron of .github/workflows/test-bootstrap-kit.yaml ('17 * * * *').
+IN_FLIGHT_SECONDS=3600
+# How many commits of a Chart.yaml the full sweep reads back for a drift's start.
+WALK_LIMIT=500
 
 # Modes:
-#   - Full sweep (default): check every chart in the working tree.
+#   - Full sweep (default): check every chart in the working tree. A drift
+#     is timed from the commit that set the chart's version past the pin
+#     (FND-045). One younger than IN_FLIGHT_SECONDS is printed IN FLIGHT and
+#     does not fail: the release writer is between its two commits. An older
+#     one fails, and so does one whose start is not in the history (a
+#     shallow checkout, or more than WALK_LIMIT commits back).
 #   - --changed-only --base <ref>: judge only the drift the change adds
 #     (FND-020). Every chart is checked, and a drift whose chart version
 #     AND pin are the same at <ref> is printed as INHERITED and does not
@@ -86,6 +106,8 @@ GHCR_ORG="openova-io"
 #     changes one of the two values and is judged.
 #   - --check-ghcr: also verify each pin's GHCR artifact exists
 #     (TBD-A26, issue #1872). Composes with both modes above.
+#   - --self-test: run the verdicts above on a fixture repository and fail
+#     when one is wrong (FND-045).
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --changed-only)
@@ -104,8 +126,12 @@ while [ "$#" -gt 0 ]; do
       GHCR_ORG="$2"
       shift 2
       ;;
+    --self-test)
+      SELF_TEST=1
+      shift
+      ;;
     -h|--help)
-      sed -n '2,60p' "$0"
+      sed -n '2,68p' "$0"
       exit 0
       ;;
     *)
@@ -114,6 +140,144 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+# ──────────────────────────────────────────────────────────────────────
+# --self-test (FND-045): each verdict on a fixture repository holding one
+# chart bp-x and its slot. The audit under test is this file, copied with
+# its library into the fixture; each case asserts the exit code and the
+# line it prints, the commit that line names and the age it gives.
+# ──────────────────────────────────────────────────────────────────────
+st_git() {
+  git -C "${ST_REPO}" -c user.name=pin-sync-self-test -c user.email=self-test@invalid \
+    -c commit.gpgsign=false -c core.hooksPath=/dev/null -c init.defaultBranch=main "$@"
+}
+# st_commit <chart version> <pin> <age in seconds> <message>: commits and
+# prints the commit's id.
+st_commit() {
+  printf 'apiVersion: v2\nname: bp-x\nversion: %s\n' "$1" > "${ST_REPO}/platform/x/chart/Chart.yaml"
+  printf 'kind: HelmRelease\nspec:\n  chart:\n    spec:\n      chart: bp-x\n      version: %s\n' "$2" \
+    > "${ST_REPO}/clusters/_template/bootstrap-kit/10-bp-x.yaml"
+  st_git add -A
+  GIT_AUTHOR_DATE="$((ST_NOW - $3)) +0000" GIT_COMMITTER_DATE="$((ST_NOW - $3)) +0000" \
+    st_git commit -q --allow-empty -m "$4"
+  st_git rev-parse HEAD
+}
+# st_run <repository> <argument>...: runs the audit of that repository.
+st_run() {
+  local repo="$1"
+  shift
+  ST_RC=0
+  ST_OUT="$(bash "${repo}/scripts/check-bootstrap-kit-pin-sync.sh" "$@" 2>&1)" || ST_RC=$?
+}
+# st_check <label> <exit code> <line start> [<lowest age> <highest age>]
+st_check() {
+  local line age
+  line="$(awk -v p="$3" 'index($0, p) == 1 {print; exit}' <<<"${ST_OUT}")"
+  if [ "${ST_RC}" != "$2" ] || [ -z "${line}" ]; then
+    echo "  FAIL $1: exit ${ST_RC} (want $2), or no line starts with: $3"
+    while IFS= read -r line; do echo "    | ${line}"; done <<<"${ST_OUT}"
+    ST_FAILED=$((ST_FAILED + 1))
+    return 0
+  fi
+  if [ -n "${4:-}" ]; then
+    age="$(sed -n 's/.*, \(-\{0,1\}[0-9][0-9]*\) s ago;.*/\1/p' <<<"${line}")"
+    if [ -z "${age}" ] || [ "${age}" -lt "$4" ] || [ "${age}" -gt "$5" ]; then
+      echo "  FAIL $1: the age '${age}' is not in [$4, $5]: ${line}"
+      ST_FAILED=$((ST_FAILED + 1))
+      return 0
+    fi
+  fi
+  echo "  ok   $1"
+}
+# st_has <label> <exact line>: the last run printed that line.
+st_has() {
+  if grep -q -x -F -- "$2" <<<"${ST_OUT}"; then
+    echo "  ok   $1"
+  else
+    echo "  FAIL $1: no line is: $2"
+    ST_FAILED=$((ST_FAILED + 1))
+  fi
+}
+st_when() {
+  TZ=UTC st_git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$1"
+}
+self_test() {
+  local top base young old root slot="clusters/_template/bootstrap-kit/10-bp-x.yaml"
+  local past="set the chart's version past the pin at" writer="the writer of both lines is ${RELEASE_WRITER}"
+  top="$(mktemp -d)"
+  # shellcheck disable=SC2064 # expand now: the path is fixed for this run
+  trap "rm -rf '${top}'" EXIT
+  ST_REPO="${top}/repo"
+  ST_NOW="$(date +%s)"
+  ST_FAILED=0
+  mkdir -p "${ST_REPO}/scripts/lib" "${ST_REPO}/platform/x/chart" "${ST_REPO}/products" \
+    "${ST_REPO}/clusters/_template/bootstrap-kit"
+  cp "${BASH_SOURCE[0]}" "${ST_REPO}/scripts/check-bootstrap-kit-pin-sync.sh"
+  cp "${SCRIPT_DIR}/lib/ghcr-tags.sh" "${ST_REPO}/scripts/lib/ghcr-tags.sh"
+  st_git init -q
+  echo "Self-test of the pin-sync audit (FND-045) in ${top}:"
+
+  base="$(st_commit 1.0.0 1.0.0 9000 "chart and pin in sync")"
+  st_run "${ST_REPO}"
+  st_check "in sync: passes" 0 "  OK   bp-x: chart=1.0.0 pin=1.0.0 (${slot})"
+
+  young="$(st_commit 1.0.1 1.0.0 600 "the release writer sets the chart version")"
+  st_run "${ST_REPO}"
+  st_check "set past the pin 600 s ago: IN FLIGHT, passes, names the commit and its age" 0 \
+    "  IN FLIGHT bp-x: chart=1.0.1 pin=1.0.0 (file: ${slot}) — ${young:0:12} ${past} $(st_when "${young}"), " 600 660
+  st_has "the verdict of a drift in flight" \
+    "PASS: no bootstrap-kit pin drift is older than the hourly cron; 1 in flight, written by ${RELEASE_WRITER}."
+  st_run "${ST_REPO}" --changed-only --base "${base}"
+  st_check "pull-request mode unchanged: a drift the change adds fails, however young" 1 \
+    "  DRIFT bp-x: chart=1.0.1 pin=1.0.0 (file: ${slot}) — not so on ${base}: this change moves a release-owned line; ${writer}"
+  st_run "${ST_REPO}" --changed-only --base "${young}"
+  st_check "pull-request mode unchanged: a drift the base has is INHERITED" 0 "  INHERITED bp-x: chart=1.0.1 pin=1.0.0"
+
+  git clone -q --depth 1 "file://${ST_REPO}" "${top}/shallow"
+  st_run "${top}/shallow"
+  st_check "a shallow checkout hides the commit: DRIFT, fails" 1 \
+    "  DRIFT bp-x: chart=1.0.1 pin=1.0.0 (file: ${slot}) — the commit that set the chart's version past the pin is not in the history read"
+
+  st_git reset -q --hard "${base}"
+  old="$(st_commit 1.0.1 1.0.0 7200 "the release writer sets the chart version")"
+  st_run "${ST_REPO}"
+  st_check "set past the pin 7200 s ago: DRIFT, fails, names the commit and its age" 1 \
+    "  DRIFT bp-x: chart=1.0.1 pin=1.0.0 (file: ${slot}) — ${old:0:12} ${past} $(st_when "${old}"), " 7200 7260
+  st_has "the fix names the release writer" \
+    "Fix: find the ${RELEASE_WRITER} run of the commit a DRIFT line names (or of the"
+  if grep -q -F "in this PR" <<<"${ST_OUT}"; then
+    echo "  FAIL a full sweep asks a pull request to change a pin"
+    ST_FAILED=$((ST_FAILED + 1))
+  fi
+
+  st_commit 1.0.2 1.0.0 60 "the release writer sets the chart version again" > /dev/null
+  st_run "${ST_REPO}"
+  st_check "a later chart version 60 s ago keeps the age of the first one past the pin" 1 \
+    "  DRIFT bp-x: chart=1.0.2 pin=1.0.0 (file: ${slot}) — ${old:0:12} ${past} $(st_when "${old}"), " 7200 7260
+
+  st_git reset -q --hard "${base}"
+  st_commit 1.0.0 2.0.0 60 "a pin moved past its chart" > /dev/null
+  st_run "${ST_REPO}"
+  st_check "a pin past its chart 60 s ago: DRIFT, fails (no release sets the pin first)" 1 \
+    "  DRIFT bp-x: chart=1.0.0 pin=2.0.0 (file: ${slot}) — the pin is past the chart's version"
+
+  st_git checkout -q --orphan only-root
+  root="$(st_commit 1.0.1 1.0.0 60 "a root commit that writes both lines")"
+  st_run "${ST_REPO}"
+  st_check "a root commit 60 s ago set the chart's version past the pin: IN FLIGHT" 0 \
+    "  IN FLIGHT bp-x: chart=1.0.1 pin=1.0.0 (file: ${slot}) — ${root:0:12} ${past} $(st_when "${root}"), " 60 120
+
+  if [ "${ST_FAILED}" -gt 0 ]; then
+    echo "SELF-TEST FAIL: ${ST_FAILED} check(s) of the pin-sync audit are wrong."
+    return 1
+  fi
+  echo "SELF-TEST PASS: every verdict of the pin-sync audit holds on the fixture."
+}
+
+if [ -n "${SELF_TEST}" ]; then
+  self_test
+  exit 0
+fi
 
 if [ -n "${CHANGED_ONLY}" ] && [ -z "${BASE_REF}" ]; then
   echo "error: --changed-only requires --base <ref>" >&2
@@ -214,8 +378,38 @@ base_value() {
   awk -v re="$2" '$0 ~ re {print $2; exit}' <<<"$text" | tr -d '"'
 }
 
+# version_above <a> <b>: <a> sorts after <b> as a version.
+version_above() {
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$1" ]
+}
+
+# drift_start <Chart.yaml relative to the repo> <pin>: "<commit> <time>
+# <UTC date>" of the commit on HEAD's first-parent line that set the chart's
+# top-level version past <pin>: the newest commit of that file whose parent
+# held <pin> there (FND-045). A commit that created the file, or a root
+# commit, wrote the version too. Prints nothing when the commit is not in
+# the history read: a shallow boundary, or more than WALK_LIMIT commits back.
+drift_start() {
+  local commit ctime when text
+  while read -r commit ctime when; do
+    if ! git -C "${REPO_ROOT}" rev-parse --verify --quiet "${commit}^" >/dev/null; then
+      [ "$(git -C "${REPO_ROOT}" rev-parse --is-shallow-repository)" = false ] || return 0
+      echo "${commit} ${ctime} ${when}"
+      return 0
+    fi
+    if ! text="$(git -C "${REPO_ROOT}" show "${commit}^:$1" 2>/dev/null)" \
+      || [ "$(awk '/^version:/{print $2; exit}' <<<"${text}" | tr -d '"')" = "$2" ]; then
+      echo "${commit} ${ctime} ${when}"
+      return 0
+    fi
+  done < <(TZ=UTC git -C "${REPO_ROOT}" log --first-parent --max-count="${WALK_LIMIT}" \
+    --date=format-local:%Y-%m-%dT%H:%M:%SZ --format='%H %ct %cd' HEAD -- "$1" 2>/dev/null)
+}
+
+NOW="$(date +%s)"
 drift=0
 inherited=0
+in_flight=0
 checked=0
 skipped=0
 # TBD-A26: collect (chart-name, pinned-version, pin-file) tuples for the
@@ -271,17 +465,39 @@ for chart_yaml in "${CHART_YAMLS[@]}"; do
     fi
 
     checked=$((checked + 1))
+    pair="${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#"${REPO_ROOT}"/})"
+    writer="the writer of both lines is ${RELEASE_WRITER}"
 
     if [ "${pinned_version}" = "${version}" ]; then
       echo "  OK   ${name}: chart=${version} pin=${pinned_version} (${pin_file#${REPO_ROOT}/})"
     elif [ -n "${CHANGED_ONLY}" ] \
       && [ "$(base_value "${chart_yaml#${REPO_ROOT}/}" '^version:')" = "${version}" ] \
       && [ "$(base_value "${pin_file#${REPO_ROOT}/}" '^      version:')" = "${pinned_version}" ]; then
-      echo "  INHERITED ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/}) — ${BASE_REF} has the same drift; not added by this change"
+      echo "  INHERITED ${pair} — ${BASE_REF} has the same drift; not added by this change"
       inherited=$((inherited + 1))
-    else
-      echo "  DRIFT ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/})"
+    elif [ -n "${CHANGED_ONLY}" ]; then
+      echo "  DRIFT ${pair} — not so on ${BASE_REF}: this change moves a release-owned line; ${writer}"
       drift=$((drift + 1))
+    elif version_above "${pinned_version}" "${version}"; then
+      echo "  DRIFT ${pair} — the pin is past the chart's version, which no release in flight does (the writer sets the chart first); ${writer}"
+      drift=$((drift + 1))
+    else
+      start="$(drift_start "${chart_yaml#"${REPO_ROOT}"/}" "${pinned_version}")"
+      if [ -z "${start}" ]; then
+        echo "  DRIFT ${pair} — the commit that set the chart's version past the pin is not in the history read (shallow, or over ${WALK_LIMIT} commits back); ${writer}"
+        drift=$((drift + 1))
+      else
+        read -r s_commit s_time s_when <<<"${start}"
+        age=$((NOW - s_time))
+        detail="${s_commit:0:12} set the chart's version past the pin at ${s_when}, ${age} s ago; ${writer}"
+        if [ "${age}" -ge 0 ] && [ "${age}" -lt "${IN_FLIGHT_SECONDS}" ]; then
+          echo "  IN FLIGHT ${pair} — ${detail}"
+          in_flight=$((in_flight + 1))
+        else
+          echo "  DRIFT ${pair} — ${detail}"
+          drift=$((drift + 1))
+        fi
+      fi
     fi
 
     # Collect the pin tuple for the optional --check-ghcr phase. We
@@ -298,21 +514,28 @@ echo
 echo "Checked ${checked} chart→pin pair(s), skipped ${skipped} chart(s) not in the bootstrap kit."
 if [ -n "${CHANGED_ONLY}" ]; then
   echo "Inherited from ${BASE_REF}: ${inherited} drift(s); added by this change: ${drift}."
+else
+  echo "In flight (set past the pin under ${IN_FLIGHT_SECONDS} s ago, the hourly cron): ${in_flight}; drift: ${drift}."
 fi
 
 if [ "${drift}" -gt 0 ]; then
   echo
   echo "FAIL: ${drift} bootstrap-kit pin(s) drifted from their source chart."
   echo
-  echo "Root cause: the chart's Chart.yaml \`version:\` was bumped but the"
-  echo "matching clusters/_template/bootstrap-kit/<NN>-<chart>.yaml"
-  echo "\`      version:\` line was NOT bumped in lockstep."
+  echo "Both lines are release-owned (R1 and R5 of scripts/check-release-owned-lines.py):"
+  echo "the chart's top-level \`version:\` and the slot's \`      version:\` pin are written"
+  echo "only by the release writer, ${RELEASE_WRITER}. It sets the chart"
+  echo "version, publishes the chart, then sets the pin. A pull request moves neither."
   echo
-  echo "Fix: either (a) update the bootstrap-kit pin in this PR to match"
-  echo "the chart version, or (b) verify the blueprint-release.yaml"
-  echo "\"Auto-bump bootstrap-kit pin\" step ran on the previous chart-"
-  echo "bumping merge commit. The auto-bump hook (TBD-A6) was designed"
-  echo "to make this manual step unnecessary."
+  if [ -n "${CHANGED_ONLY}" ]; then
+    echo "Fix: take the change of these lines out of this pull request; the release"
+    echo "writer moves them (a new slot pins its chart's version as main has it)."
+  else
+    echo "Fix: find the ${RELEASE_WRITER} run of the commit a DRIFT line names (or of the"
+    echo "chart's last version change), see why it did not write the pin, and run it again:"
+    echo "  gh workflow run blueprint-release.yaml \\"
+    echo "    --field blueprint=<chart-folder> --field tree=<platform|products>"
+  fi
   exit 1
 fi
 
@@ -407,6 +630,8 @@ fi
 
 if [ "${inherited}" -gt 0 ]; then
   echo "PASS: this change adds no bootstrap-kit pin drift (${inherited} inherited from ${BASE_REF})."
+elif [ "${in_flight}" -gt 0 ]; then
+  echo "PASS: no bootstrap-kit pin drift is older than the hourly cron; ${in_flight} in flight, written by ${RELEASE_WRITER}."
 else
   echo "PASS: all bootstrap-kit pins are in sync with their source charts."
 fi

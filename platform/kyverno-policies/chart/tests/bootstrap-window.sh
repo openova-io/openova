@@ -3,13 +3,17 @@
 #
 # The window is open while compliancePolicies.bootstrapMode is true AND
 # compliancePolicies.sovereignConsume is not "local". While it is open, every
-# policy that uses the helper bp-kyverno-policies.action renders as Audit.
+# policy that uses the helper bp-kyverno-policies.action renders as Audit, and
+# every policy that uses bp-kyverno-policies.actions as [Audit].
 # Kit slot 27a sets sovereignConsume from the variable SOVEREIGN_CONSUME, and
 # the hand-over sets that variable to "local", which closes the window.
 #
 # This test renders the chart three times and counts the enforcing policies:
 # the documents of kind ClusterPolicy in which Enforce is the value of
-# validationFailureAction or of a failureAction.
+# validationFailureAction or of a failureAction, and the documents of kind
+# ValidatingPolicy whose validationActions list (one line, as the helper
+# renders it) holds Deny. CMP-062 to CMP-064 move policies from the first
+# kind to the second; the counts stay.
 #
 #   defaults                                        1 (forbid-local-path-storage)
 #   --set compliancePolicies.sovereignConsume=local 9
@@ -33,17 +37,22 @@ TAG="[bootstrap-window]"
 
 # count_enforcing: reads a render on stdin. Prints the number of documents of
 # kind ClusterPolicy in which Enforce is the value of validationFailureAction
-# or of a failureAction. Documents are split at the lines that start with ---.
+# or of a failureAction, plus the number of documents of kind ValidatingPolicy
+# whose validationActions line holds Deny. Documents are split at the lines
+# that start with ---.
 count_enforcing() {
   awk '
     function close_doc() {
-      if (kind && enforce) n++
-      kind = 0
+      if ((kind == "legacy" && enforce) || (kind == "new" && deny)) n++
+      kind = ""
       enforce = 0
+      deny = 0
     }
     /^---/ { close_doc(); next }
-    /^kind:[[:space:]]*ClusterPolicy[[:space:]]*$/ { kind = 1 }
+    /^kind:[[:space:]]*ClusterPolicy[[:space:]]*$/ { kind = "legacy" }
+    /^kind:[[:space:]]*ValidatingPolicy[[:space:]]*$/ { kind = "new" }
     /^[[:space:]]*(validationFailureAction|failureAction):[[:space:]]*"?Enforce"?[[:space:]]*$/ { enforce = 1 }
+    /^[[:space:]]*validationActions:[[:space:]]*\[[^]]*Deny[^]]*\][[:space:]]*$/ { deny = 1 }
     END { close_doc(); print n + 0 }
   '
 }
@@ -110,6 +119,10 @@ self_test() {
   audit=$'---\napiVersion: kyverno.io/v1\nkind: ClusterPolicy\nmetadata:\n  name: b\nspec:\n  validationFailureAction: Audit\n'
   rule=$'---\napiVersion: kyverno.io/v1\nkind: ClusterPolicy\nmetadata:\n  name: c\nspec:\n  rules:\n    - name: r\n      validate:\n        failureAction: Enforce\n'
   other=$'---\napiVersion: kyverno.io/v1\nkind: Policy\nmetadata:\n  name: d\nspec:\n  validationFailureAction: Enforce\n'
+  vdeny=$'---\napiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\nmetadata:\n  name: e\nspec:\n  validationActions: [Deny]\n'
+  vaudit=$'---\napiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\nmetadata:\n  name: f\nspec:\n  validationActions: [Audit]\n'
+  vlegacy=$'---\napiVersion: policies.kyverno.io/v1\nkind: ValidatingPolicy\nmetadata:\n  name: g\nspec:\n  validationFailureAction: Enforce\n'
+  vbinding=$'---\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicyBinding\nmetadata:\n  name: h\nspec:\n  validationActions: [Deny]\n'
 
   st_count "1 a ClusterPolicy with validationFailureAction Enforce counts" 1 "$enforce"
   st_count "2 a ClusterPolicy with a rule failureAction Enforce counts" 1 "$rule"
@@ -129,7 +142,13 @@ self_test() {
   st_check "7 a different count fails" 1 1 "$enforce$rule$audit"
   st_check "8 a render that fails fails" 1 0 "FAIL"
 
-  echo "self-test: 8 cases passed"
+  st_count "9 a ValidatingPolicy with validationActions [Deny] counts" 1 "$vdeny"
+  st_count "10 a ValidatingPolicy with validationActions [Audit] does not count" 0 "$vaudit"
+  st_count "11 a ValidatingPolicy counts by validationActions, never by the legacy field" 0 "$vlegacy"
+  st_count "12 another kind with validationActions [Deny] does not count" 0 "$vbinding"
+  st_count "13 both kinds count in one render" 3 "$enforce$vdeny$vaudit$rule$vbinding"
+
+  echo "self-test: 13 cases passed"
 }
 
 if [ "$#" -eq 0 ]; then

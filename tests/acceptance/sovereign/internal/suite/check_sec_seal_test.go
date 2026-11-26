@@ -126,6 +126,7 @@ func sealRun(t *testing.T, c Check, f *sealFake, want string) *runner {
 
 func TestSecSealPasses(t *testing.T) {
 	f := newSealFake(t)
+	f.jobs = "job.batch/openbao-backup-29405057\njob.batch/openbao-restore-drill-29405052\n" // the chart's CronJobs
 	r := sealRun(t, secSealCheck{kubectl: f.kubectl}, f, "")
 	if len(r.run.Steps) != 14 || len(f.created) != 2 || len(f.deletes) != 2 {
 		t.Errorf("want 14 steps, two probe namespaces and one pod delete per region; got %d steps, %v, %v", len(r.run.Steps), f.created, f.deletes)
@@ -153,7 +154,8 @@ func TestSecSealFails(t *testing.T) {
 		"no key file":       {func(f *sealFake) { f.probe = "seal_files=0 seal_dir=700:100:1000" }, "no key file openbao-seal-*.key"},
 		"probe broke":       {func(f *sealFake) { f.probe = "" }, "the probe did not finish"},
 		"unseal Secret":     {func(f *sealFake) { f.secrets = "secret/" + secSealSecrets[0] + "\n" }, "Secrets exist: secret/openbao-unseal-"},
-		"a Job":             {func(f *sealFake) { f.jobs = "job.batch/openbao-init\n" }, "Jobs exist in namespace openbao: job.batch/openbao-init"},
+		"a Job":             {func(f *sealFake) { f.jobs = "job.batch/openbao-backup-29405057\njob.batch/openbao-init\n" }, "Jobs exist in namespace openbao: job.batch/openbao-init"},
+		"a manual Job":      {func(f *sealFake) { f.jobs = "job.batch/openbao-backup-manual\n" }, "Jobs exist in namespace openbao: job.batch/openbao-backup-manual"},
 		"shamir":            {func(f *sealFake) { f.status = strings.Replace(sealStatusOK, "static", "shamir", 1) }, `the seal type is "shamir"`},
 		"sealed":            {func(f *sealFake) { f.status = strings.Replace(sealStatusOK, `"sealed":false`, `"sealed":true`, 1) }, "OpenBao is sealed"},
 		"not initialised": {func(f *sealFake) {

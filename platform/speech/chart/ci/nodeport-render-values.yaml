@@ -1,0 +1,16 @@
+# Read by scripts/check-no-nodeports.sh only. This chart renders nothing at
+# its defaults on purpose (home and enabled are set by the kit slot), so the
+# guard renders it a second time with these values and scans that render for a
+# NodePort. These values switch on every template of the chart: the server
+# Deployment, its Service, ServiceAccount, ConfigMap and NetworkPolicy with
+# egress to the model hub (the default model is hf://), the weights claim
+# (cache), the hub-token file (hubToken) and the function test. A version that
+# adds a template behind another value sets that value here too.
+home: true
+enabled: true
+cache:
+  sizeGi: 10
+hubToken:
+  secretProviderClass: speech-hub
+networkPolicy:
+  hubEgress: true

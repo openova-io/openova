@@ -19,10 +19,14 @@ list against the PDB list and emits synthetic PolicyReport rows for
 workloads with no PDB.
 
 Default mode permissive (Audit) per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/pdb-permits-eviction holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.pdb.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: pdb-permits-eviction
   labels:
@@ -39,40 +43,30 @@ metadata:
       to the workload's full replica count) wedges every voluntary
       disruption. This policy rejects PDBs whose maxUnavailable is 0.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.pdb.action) }}
-  background: true
-  rules:
-    - name: pdb-maxunavailable-not-zero
-      match:
-        any:
-          - resources:
-              kinds:
-                - PodDisruptionBudget
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.pdb.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      preconditions:
-        all:
-          - key: "{{ `{{ request.object.spec.maxUnavailable || ''}}` }}"
-            operator: NotEquals
-            value: ""
-      validate:
-        message: >-
-          PodDisruptionBudget {{ `{{request.object.metadata.name}}` }} has
-          maxUnavailable=0 which blocks every voluntary eviction. Set
-          maxUnavailable to >=1 (or a percentage), or use minAvailable
-          strictly less than the workload's replica count.
-        deny:
-          conditions:
-            any:
-              - key: "{{ `{{ request.object.spec.maxUnavailable }}` }}"
-                operator: Equals
-                value: 0
-              - key: "{{ `{{ request.object.spec.maxUnavailable }}` }}"
-                operator: Equals
-                value: "0%"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.pdb.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["policy"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["poddisruptionbudgets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.pdb.excludeNamespaces | quote }}
+    # A budget that sets no maxUnavailable is not judged, as the legacy
+    # rule's precondition left it out.
+    - name: maxunavailable-set
+      expression: "has(object.spec.maxUnavailable)"
+  validations:
+    # maxUnavailable is an integer or a percentage; string() reads both, so
+    # 0 and "0%" are refused and "10%" is not.
+    - expression: "!(string(object.spec.maxUnavailable) in ['0', '0%'])"
+      messageExpression: >-
+        'PodDisruptionBudget ' + object.metadata.name + ' has maxUnavailable=0
+        which blocks every voluntary eviction. Set maxUnavailable to >=1 (or a
+        percentage), or use minAvailable strictly less than the replica count
+        of the workload.'
 {{- end -}}

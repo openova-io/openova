@@ -16,10 +16,19 @@ upstream Flux controllers themselves write — not Catalyst's overlay
 label.
 
 Default mode enforcing per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-084 (the legacy
+ClusterPolicy of the same name before); tests/flux-managed holds its
+suite. Each exclude filter of the legacy rule is a match condition here,
+so an object it spares is not judged (a skip); the Crossplane carve-out
+was a deny condition and stays in the validation (a pass).
+tools/guards/cmd/cronjob-jobs judges the Jobs of the kit's CronJobs
+against this render, so its expressions keep to the forms that guard
+reads.
 */}}
 {{- if .Values.compliancePolicies.fluxManaged.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: flux-managed
   labels:
@@ -38,28 +47,37 @@ metadata:
       Direct kubectl apply is rejected — IaC-first per
       docs/INVIOLABLE-PRINCIPLES.md #3.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.fluxManaged.action) }}
-  background: true
-  rules:
-    - name: workload-must-be-flux-managed
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
-                - Service
-                - Ingress
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.fluxManaged.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.fluxManaged.action) }}
+  evaluation:
+    background:
+      enabled: true
+  {{- /*
+    Who manages an object is judged when it is created or changed, never
+    when it is removed: the legacy rule also judged DELETE, which denied
+    Crossplane's deletion of an old provider revision's Deployment (the
+    same defect probes-present had, templates/baseline/04-probes.yaml).
+    The resource rules match CREATE and UPDATE only, so a DELETE is never
+    judged (tests/crossplane-runtime-suite-current.sh C3).
+  */}}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["services"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ingresses"]
+  matchConditions:
                 {{- /*
                   #3248 follow-up (Refs #2737 #3236, first proven hw126): the
                   CNPG operator creates Services (`<cluster>-r/-ro/-rw`) and
@@ -70,9 +88,8 @@ spec:
                   excludes (NOT the shared anchor — powerdns-admin also hosts a
                   real Deployment that must stay subject to every other policy).
                 */}}
-                {{- range $ns := .Values.compliancePolicies.fluxManaged.extraExcludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" (concat .Values.compliancePolicies.fluxManaged.excludeNamespaces .Values.compliancePolicies.fluxManaged.extraExcludeNamespaces) | quote }}
           {{- /*
             #3374 (2026-06-14): exclude CNPG operator-created objects by LABEL,
             cluster-wide, instead of by namespace. The per-namespace exclude
@@ -92,10 +109,8 @@ spec:
             gated. This is the definitional carve-out the namespace list was
             approximating. Refs #3374 #3248.
           */}}
-          - resources:
-              selector:
-                matchLabels:
-                  app.kubernetes.io/managed-by: cloudnative-pg
+    - name: exclude-cnpg-operator-objects
+      expression: "object.metadata.?labels.orValue({})[?'app.kubernetes.io/managed-by'].orValue('') != 'cloudnative-pg'"
           {{- /*
             #3859 (2026-06-19, first proven walkorg on hw167): EVERY per-Org
             CUSTOMER vCluster is denied here. vCluster's syncer (0.33.x) detects
@@ -116,11 +131,8 @@ spec:
             vCluster stay gated (they are synced objects, not host-namespace
             Services). Mirrors the by-label CNPG carve-out above.
           */}}
-          - resources:
-              namespaceSelector:
-                matchExpressions:
-                  - key: openova.io/organization
-                    operator: Exists
+    - name: exclude-organization-namespaces
+      expression: "!('openova.io/organization' in namespaceObject.?metadata.?labels.orValue({}))"
           {{- /*
             #4329 (2026-06-25, proven live on omantel.biz/kom4dc — ALL 11/11
             customer vClusters CrashLoopBackOff 277×/23h): the #3859 carve-out
@@ -146,11 +158,8 @@ spec:
             the by-label CNPG operator carve-out above — carve out the
             definitionally-unmanageable object, not the namespace.
           */}}
-          - resources:
-              kinds:
-                - Service
-              names:
-                - "test-service-delete-me-*"
+    - name: exclude-vcluster-cidr-probe
+      expression: "!(object.kind == 'Service' && object.metadata.?name.orValue('').startsWith('test-service-delete-me-'))"
           {{- /*
             #4765 (2026-07-05, proven live hw224 region-a): Helm HOOK resources
             (carrying a `helm.sh/hook` annotation) are executed by Helm's action
@@ -158,7 +167,7 @@ spec:
             post-renders — so they never receive the helm.toolkit.fluxcd.io/* labels.
             Worse, Helm force-stamps `app.kubernetes.io/managed-by: Helm` on apply
             (a template override of that label is silently dropped — Helm always
-            wins), so a hook can NEVER satisfy any of this rule's three conditions.
+            wins), so a hook can NEVER satisfy any of this policy's three labels.
             A hook Job is nonetheless legitimately managed (by Helm, driven by a
             Flux HelmRelease). On a FRESH prov the hook slips through because it
             runs at bootstrap before Enforce engages; on a LIVE UPGRADE of a
@@ -170,42 +179,20 @@ spec:
             mirroring the CNPG-operator + vCluster-probe carve-outs above. Additive
             (loosens only): a hook that should have been denied is at worst
             admitted; nothing new is ever denied.
+            The annotation counts whatever its value, as the legacy filter
+            `helm.sh/hook: "*"` read it.
           */}}
-          - resources:
-              annotations:
-                helm.sh/hook: "*"
-      validate:
-        message: >-
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
-          not Flux-managed. Add label
-          `app.kubernetes.io/managed-by: flux` on metadata.labels OR
-          attach an ownerReference to a HelmRelease / Kustomization.
-        deny:
-          conditions:
-            all:
-              - key: '{{ `{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}` }}'
-                operator: NotEquals
-                value: flux
-              # Wave 5.97 nil-safety: check Flux-applied labels instead of
-              # ownerReferences. Flux sets BOTH helm.toolkit.fluxcd.io/name AND
-              # kustomize.toolkit.fluxcd.io/name on every resource it manages.
-              # The original JMESPath filter `ownerReferences[?kind==X]` errors
-              # when ownerReferences is nil (most kubectl-created Pods + debug
-              # pods + admission-time injected sidecars), and admission webhook
-              # failurePolicy=Fail blocks all pod creation cluster-wide.
-              # Label-based check is nil-safe via the `||` JMESPath fallback.
-              - key: '{{ `{{ request.object.metadata.labels."helm.toolkit.fluxcd.io/name" || '''' }}` }}'
-                operator: Equals
-                value: ''
-              - key: '{{ `{{ request.object.metadata.labels."kustomize.toolkit.fluxcd.io/name" || '''' }}` }}'
-                operator: Equals
-                value: ''
+    - name: exclude-helm-hooks
+      expression: "!('helm.sh/hook' in object.metadata.?annotations.orValue({}))"
+  variables:
+    - name: labels
+      expression: object.metadata.?labels.orValue({})
             {{- /*
               Crossplane package runtimes (proven on hw307, candidate
               rc/20261119T053558Z-6972370, Crossplane core 1.20.14 -> 2.4.3).
               For every ProviderRevision and FunctionRevision, Crossplane's
               package manager creates a Deployment and a Service (and a
-              ServiceAccount, which this rule does not match) in
+              ServiceAccount, which this policy does not match) in
               crossplane-system. An operator-created object can never be
               Flux-managed, so the rule denied them: the new provider
               revision's Deployment, the deletion of the old one, and the
@@ -223,19 +210,37 @@ spec:
               `pkg.crossplane.io/provider` or `pkg.crossplane.io/function`)
               on the Deployment's pod template and selector and on the
               Service's selector, and sets the revision as the controller
-              owner. An `exclude` selector reads metadata labels only, so the
-              carve-out is written here: the request is denied unless it
+              owner. A match condition reads metadata labels only, so the
+              carve-out is part of the validation: an object passes when it
               carries that label where Crossplane puts it AND its controller
               owner is a pkg.crossplane.io revision. A plain Deployment or
-              Service in crossplane-system stays denied.
+              Service in crossplane-system is still denied.
             */}}
-            any:
-              - key: '{{ `{{ request.object.spec.template.metadata.labels."pkg.crossplane.io/revision" || request.object.spec.selector."pkg.crossplane.io/revision" || '''' }}` }}'
-                operator: Equals
-                value: ''
-              - key: '{{ `{{ request.object.metadata.ownerReferences[?controller && starts_with(apiVersion, ''pkg.crossplane.io/'')].kind || '''' }}` }}'
-                operator: AnyNotIn
-                value:
-                  - ProviderRevision
-                  - FunctionRevision
+    - name: crossplaneRevisionLabelled
+      expression: >-
+        object.?spec.?template.?metadata.?labels[?'pkg.crossplane.io/revision'].orValue('') != '' ||
+        object.?spec.?selector[?'pkg.crossplane.io/revision'].orValue('') != ''
+    - name: crossplaneOwnerKinds
+      expression: >-
+        object.metadata.?ownerReferences.orValue([]).filter(r,
+        r.?controller.orValue(false) == true && r.?apiVersion.orValue('').startsWith('pkg.crossplane.io/')).map(r,
+        r.?kind.orValue(''))
+  {{- /*
+    Wave 5.97 nil-safety: the policy reads the labels Flux applies, not
+    ownerReferences. Flux sets helm.toolkit.fluxcd.io/name or
+    kustomize.toolkit.fluxcd.io/name on every object it manages; a filter
+    of ownerReferences failed on objects that have none, and admission
+    failurePolicy=Fail then blocked every create cluster-wide.
+  */}}
+  validations:
+    - expression: >-
+        variables.labels[?'app.kubernetes.io/managed-by'].orValue('') == 'flux' ||
+        variables.labels[?'helm.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        variables.labels[?'kustomize.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        (variables.crossplaneRevisionLabelled && size(variables.crossplaneOwnerKinds) > 0 &&
+        variables.crossplaneOwnerKinds.all(k, k in ['ProviderRevision', 'FunctionRevision']))
+      messageExpression: >-
+        object.kind + '/' + object.metadata.name + ' is not Flux-managed. Add label
+        `app.kubernetes.io/managed-by: flux` on metadata.labels OR attach an
+        ownerReference to a HelmRelease / Kustomization.'
 {{- end -}}

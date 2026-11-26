@@ -66,6 +66,25 @@ spec:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+            # /healthz answers 200 while the registration socket exists
+            # (node-driver-registrar v2.4.0; a port of the node, hostNetwork).
+            - "--http-endpoint=:9811"
+          # Probes on every container (CMP-067): probes-present enforces after
+          # the bootstrap window.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9811
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9811
+            periodSeconds: 10
+            timeoutSeconds: 5
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -91,6 +110,20 @@ spec:
           args:
             - "--csi-address=/csi/csi.sock"
             - "--health-port=9810"
+          # Its own listener; /healthz on it asks the driver, and the driver's
+          # container probes that.
+          livenessProbe:
+            tcpSocket:
+              port: 9810
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: 9810
+            periodSeconds: 10
+            timeoutSeconds: 5
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
@@ -127,6 +160,12 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 10
             failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9810
+            periodSeconds: 10
+            timeoutSeconds: 10
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi

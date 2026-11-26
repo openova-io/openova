@@ -1,0 +1,161 @@
+# Inputs of the suite image-tag-pinned. The two shared fixtures
+# (tests/fixtures/image-tag-pinned/) are listed in kyverno-test.yaml beside this file.
+
+# 1. A Pod pinned by digest only: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: digest-only
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+---
+# 2. A Pod tagged latest and pinned by digest: compliant (the image does not end in :latest).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: latest-and-digest
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/example/app:latest@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+---
+# 3. A Pod with a tagless image, which the kubelet resolves to :latest: not compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tagless
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: nginx
+---
+# 4. A Pod whose only colon is the registry port: not compliant (no tag).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: registry-port-no-tag
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: registry.example:5000/team/app
+---
+# 5. A Pod with a registry port and a tag: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: registry-port-tagged
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: registry.example:5000/team/app:1.2
+---
+# 6. A single-segment image with a tag: compliant.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: single-segment-tagged
+  namespace: example
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+---
+# 7. A StatefulSet whose init container is :latest and whose container is pinned: not compliant.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: init-latest
+  namespace: example
+spec:
+  serviceName: init-latest
+  selector:
+    matchLabels:
+      app: init-latest
+  template:
+    metadata:
+      labels:
+        app: init-latest
+    spec:
+      initContainers:
+        - name: migrate
+          image: ghcr.io/example/migrate:latest
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 8. A Job with pinned images: compliant.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-pinned
+  namespace: example
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: task
+          image: ghcr.io/example/task:v2.0.0
+---
+# 9. A CronJob whose container image is tagless: not compliant.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-tagless
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: task
+              image: ghcr.io/example/task
+---
+# 10. A CronJob with pinned images: compliant.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-pinned
+  namespace: example
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          initContainers:
+            - name: wait
+              image: ghcr.io/example/wait:v1.0.0
+          containers:
+            - name: task
+              image: ghcr.io/example/task:v2.0.0
+---
+# 11. A DaemonSet tagged :latest in an excluded namespace: not judged.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: latest-agent
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: latest-agent
+  template:
+    metadata:
+      labels:
+        app: latest-agent
+    spec:
+      containers:
+        - name: agent
+          image: ghcr.io/example/agent:latest

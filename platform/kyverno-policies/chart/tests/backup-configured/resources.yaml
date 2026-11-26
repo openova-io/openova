@@ -1,0 +1,75 @@
+# Inputs of the suite backup-configured. The shared fixtures
+# (tests/fixtures/backup-configured/) are listed in kyverno-test.yaml beside
+# this file; the numbers continue theirs (cases 1 to 3).
+
+# 4. Annotated velero.io/backup-volumes.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: annotated-backup-volumes
+  namespace: example
+  annotations:
+    velero.io/backup-volumes: data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 5. Labelled velero.io/managed-by-schedule with an empty value.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: empty-schedule
+  namespace: example
+  labels:
+    velero.io/managed-by-schedule: ""
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 6. The two keys swapped: backup-volumes as a label, managed-by-schedule as
+# an annotation. Neither counts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keys-swapped
+  namespace: example
+  labels:
+    velero.io/backup-volumes: data
+  annotations:
+    velero.io/managed-by-schedule: daily
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 7. A CloudNativePG instance claim (label cnpg.io/cluster, any value, here
+# empty) in an Organization namespace: excluded by the label in any namespace.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-pg-1
+  namespace: example
+  labels:
+    cnpg.io/cluster: ""
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 8. An unprotected claim in kube-system, a namespace the chart defaults exclude.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: unprotected-user-data
+  namespace: kube-system
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

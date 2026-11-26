@@ -13,10 +13,14 @@ needs context.apiCall and is half-encoded here as the
 what the OTel operator's MutatingWebhook expects on the Pod template).
 
 Default mode permissive per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/otel-injected holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.otelInjected.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: otel-injected
   labels:
@@ -34,72 +38,45 @@ metadata:
       `instrumentation.opentelemetry.io/inject-*: "true"` annotation on
       the Pod template (auto-injection by the OTel operator).
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.otelInjected.action) }}
-  background: true
-  rules:
-    - name: workload-must-be-otel-instrumented
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.otelInjected.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          Workload
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
-          not OTel-instrumented. Add an `otel-collector` sidecar OR
-          annotate the Pod template with one of
-          `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
-          set to `"true"` (same-NS default), `"<name>"` (same-NS named CR),
-          or `"<namespace>/<name>"` (cross-NS, e.g.
-          `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
-        anyPattern:
-          - spec:
-              template:
-                spec:
-                  containers:
-                    - name: otel-collector
-          # The annotation VALUE encodes which Instrumentation CR the OTel
-          # Operator should inject from — three valid forms:
-          #   "true"               → Instrumentation `default` in same NS
-          #   "<name>"             → named Instrumentation in same NS
-          #   "<namespace>/<name>" → cross-NS reference
-          #     (e.g. "opentelemetry/default" → the chart-managed default
-          #      CR rendered by bp-opentelemetry 1.1.0+ in Wave 5.36 #2210)
-          # `?*` is the Kyverno wildcard for "any non-empty string" — it
-          # accepts all three forms while still rejecting empty/missing.
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    instrumentation.opentelemetry.io/inject-java: "?*"
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    instrumentation.opentelemetry.io/inject-python: "?*"
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    instrumentation.opentelemetry.io/inject-nodejs: "?*"
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    instrumentation.opentelemetry.io/inject-go: "?*"
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    instrumentation.opentelemetry.io/inject-dotnet: "?*"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.otelInjected.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.otelInjected.excludeNamespaces | quote }}
+  validations:
+    # The six patterns of the legacy rule, any one of which passed:
+    #   1. `containers: [{name: otel-collector}]`, an array pattern, which
+    #      the legacy kind applied to EVERY container: it passed only when
+    #      every container is named otel-collector (tests/otel-injected
+    #      case 2), and this expression keeps that verdict.
+    #   2-6. the annotation instrumentation.opentelemetry.io/inject-<lang>
+    #      on the Pod template with any non-empty value (`?*`). The value
+    #      names the Instrumentation the OTel Operator injects from: "true"
+    #      (`default` in the same namespace), "<name>" (named, same
+    #      namespace) or "<namespace>/<name>" (e.g. "opentelemetry/default",
+    #      the CR bp-opentelemetry 1.1.0+ renders, Wave 5.36 #2210).
+    - expression: >-
+        object.spec.template.spec.containers.all(c, c.name == 'otel-collector') ||
+        ['instrumentation.opentelemetry.io/inject-java',
+        'instrumentation.opentelemetry.io/inject-python',
+        'instrumentation.opentelemetry.io/inject-nodejs',
+        'instrumentation.opentelemetry.io/inject-go',
+        'instrumentation.opentelemetry.io/inject-dotnet'].exists(key,
+        object.spec.template.?metadata.?annotations[?key].orValue('') != '')
+      messageExpression: >-
+        'Workload ' + object.kind + '/' + object.metadata.name + ' is not
+        OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+        template with one of
+        `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+        set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or
+        `"<namespace>/<name>"` (cross-NS, e.g. `"opentelemetry/default"` for
+        the bp-opentelemetry-managed CR).'
 {{- end -}}

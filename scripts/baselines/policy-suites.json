@@ -2,26 +2,6 @@
   "allow": [],
   "counts": {
     "policy_checks_without_suite": {
-      "backup-configured": 1,
-      "cilium-l7-mtls": 1,
-      "flux-managed": 1,
-      "forbid-local-path-storage": 1,
-      "harbor-proxy-pull": 1,
-      "hpa-effective": 1,
-      "image-tag-pinned": 1,
-      "multi-replica-drainability": 1,
-      "networkpolicy-present": 1,
-      "otel-injected": 1,
-      "pdb-permits-eviction": 1,
-      "probes-present": 1,
-      "prometheus-scrape": 1,
-      "pvc-volume-expansion": 1,
-      "resource-limits": 1,
-      "resource-requests": 1,
-      "runasnonroot-readonlyrootfs": 1,
-      "secret-not-in-env": 1,
-      "substrate-stays-on-host": 1,
-      "topology-spread": 1,
       "useraccess-boundary": 1
     }
   },

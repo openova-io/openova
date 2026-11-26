@@ -1,11 +1,11 @@
 # #4765 — INPUT fixtures for the flux-managed (10) Helm-hook carve-out.
 # None carry a Flux label/ownerRef (no `app.kubernetes.io/managed-by: flux`, no
 # `helm.toolkit.fluxcd.io/name`, no `kustomize.toolkit.fluxcd.io/name`), so the
-# deny rule's conditions are all true UNLESS an exclude carve-out spares them.
+# policy's validation fails UNLESS one of its match conditions spares them.
 
 # 1. The bp-powerdns zone-bootstrap HOOK Job — a Helm post-upgrade hook.
 #    Helm force-stamps `managed-by: Helm` and it gets no Flux labels, so it can
-#    only pass via the new `helm.sh/hook` annotation carve-out. MUST be ADMITTED
+#    only be admitted via the `helm.sh/hook` annotation carve-out. MUST be ADMITTED
 #    (else the powerdns LoadBalancer upgrade rolls back → stranded NodePort).
 apiVersion: batch/v1
 kind: Job

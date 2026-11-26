@@ -41,6 +41,13 @@ generatedSecrets:
     scope: sa                # sa | shared (mounted only)
     serviceAccount: wordpress
     sharedAcrossRegions: true   # default true
+  model-credential:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: axon
+    sharedAcrossRegions: false
+    key: document            # mounted only; default password
+    placeholder: true        # mounted only; default false
   api-key:
     delivery: synced
     registerId: <register entry>
@@ -61,6 +68,15 @@ generatedSecrets:
   a shared value. A second run writes nothing: a value that exists here is
   read as present from its metadata, and a peer's refusal of the write while
   the token holds `create` is read as present.
+- **mounted, `key`** — the document holds the value under that key
+  (`[A-Za-z0-9][-._A-Za-z0-9]*`) instead of `password`. A value without `key`
+  is written under `password`, as before.
+- **mounted, `placeholder: true`** — the Job creates the document once,
+  create-only, holding the key with an empty string (no `length` or
+  `symbols`), so a CSI mount of the path succeeds before the real value
+  exists. A later writer with update rights replaces it; the Job reads the
+  path as present and never writes it again. Raising the epoch creates a new
+  empty placeholder at the new path.
 - **synced** — Password generator and PushSecret (`IfNotExists`) into
   SecretStore `openbao` at `openova/apps/<ns>/<name>/e<epoch>`, plus
   ClusterSecretStore `vault-<peer>` per peer in the primary; ExternalSecret
@@ -70,7 +86,9 @@ generatedSecrets:
 The render fails on a missing or unknown `delivery`, a synced value without
 `registerId` (or a mounted one with it), a mounted `scope: sa` value without
 `serviceAccount`, `mountedCopies` on a mounted value, an epoch below 1, a
-name outside `[a-z0-9-]+`, and a shared value for peers without `self`.
+name outside `[a-z0-9-]+`, a shared value for peers without `self`, `key` or
+`placeholder` on a synced value, an empty or malformed `key`, a `placeholder`
+that is not a boolean, and a placeholder with `length` or `symbols`.
 
 ## Configuration
 
@@ -101,5 +119,6 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
 - `chart/tests/render.sh` — every template, every refused input (helm, awk).
 - `chart/tests/birth-live.sh` — the birth script against two real OpenBao
   servers configured by bp-openbao's own reconciler: present in every region
-  after one run, a second run changes nothing, the create-only rights, and the
-  failures that name a region.
+  after one run, a second run changes nothing, the create-only rights, the
+  failures that name a region, a named key, and a placeholder that a later
+  writer replaces and the Job never writes again.

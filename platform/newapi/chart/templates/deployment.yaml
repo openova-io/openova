@@ -310,6 +310,10 @@ spec:
         - name: newapi
           image: {{ include "bp-newapi.image" (dict "repo" .Values.newapi.image.repository "tag" .Values.newapi.image.tag "root" $) | quote }}
           imagePullPolicy: {{ .Values.newapi.image.pullPolicy }}
+          {{- with .Values.newapi.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.newapi.port }}

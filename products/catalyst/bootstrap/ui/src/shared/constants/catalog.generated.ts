@@ -373,7 +373,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.4.2324",
+    "version": "1.4.2362",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -584,7 +584,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.70",
+    "version": "0.1.71",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -1299,7 +1299,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.2.57",
+    "version": "1.2.59",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -1432,7 +1432,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.2.59",
+    "version": "0.2.63",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -1650,7 +1650,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2016,7 +2016,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.3.10",
+    "version": "1.3.11",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2066,7 +2066,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.61",
+    "version": "1.0.71",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -2871,7 +2871,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "class": "ai-service",
     "lifecycle": "experimental",
-    "version": "1.4.171",
+    "version": "1.4.173",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3003,7 +3003,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.2.88",
+    "version": "1.2.90",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3567,7 +3567,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3661,6 +3661,58 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-secrets-store-csi",
+    "slug": "secrets-store-csi",
+    "title": "Secrets Store CSI driver",
+    "summary": "Mounts values from OpenBao into a Pod as memory-backed files. Secret sync is off, so a mounted value never becomes a Secret object.",
+    "icon": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "class": "platform-component",
+    "lifecycle": "experimental",
+    "version": "0.1.0",
+    "depends": [
+      "bp-openbao"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-self-sovereign-cutover",
     "slug": "self-sovereign-cutover",
     "title": "Self-Sovereignty Cutover",
@@ -3671,7 +3723,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.256",
+    "version": "0.1.258",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3711,7 +3763,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3751,7 +3803,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3783,6 +3835,51 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-speech",
+    "slug": "speech",
+    "title": "Transcription",
+    "summary": "One CPU server for one speech-to-text model, reached only through the platform's model gateway.",
+    "icon": "speech.svg",
+    "tagline": null,
+    "tags": [
+      "transcription",
+      "speech",
+      "whisper",
+      "ai"
+    ],
+    "visibility": "unlisted",
+    "class": "ai-service",
+    "lifecycle": "experimental",
+    "version": "1.0.0",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
             }
           }
         }
@@ -4821,9 +4918,11 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/reflector/blueprint.yaml",
   "platform/reloader/blueprint.yaml",
   "platform/seaweedfs/blueprint.yaml",
+  "platform/secrets-store-csi/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
   "platform/sovereign-tls-vars/blueprint.yaml",
+  "platform/speech/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",

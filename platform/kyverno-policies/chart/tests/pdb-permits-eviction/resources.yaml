@@ -1,0 +1,74 @@
+# Inputs of the suite pdb-permits-eviction. One PodDisruptionBudget per case;
+# the number is the case of kyverno-test.yaml.
+
+# 1. maxUnavailable 1: one Pod may be evicted.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: max-one
+  namespace: example
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: max-one
+---
+# 2. maxUnavailable 0: no Pod may ever be evicted.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: max-zero
+  namespace: example
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: max-zero
+---
+# 3. maxUnavailable "0%": the same as 0.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: max-zero-percent
+  namespace: example
+spec:
+  maxUnavailable: "0%"
+  selector:
+    matchLabels:
+      app: max-zero-percent
+---
+# 4. maxUnavailable "10%": a percentage that ends in "0%" is not "0%".
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: max-ten-percent
+  namespace: example
+spec:
+  maxUnavailable: "10%"
+  selector:
+    matchLabels:
+      app: max-ten-percent
+---
+# 5. minAvailable only: the policy judges maxUnavailable alone, so it is skipped.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: min-only
+  namespace: example
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: min-only
+---
+# 6. maxUnavailable 0 in kube-system, a namespace the chart defaults exclude.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: max-zero
+  namespace: kube-system
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: max-zero

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -99,17 +100,17 @@ func TestCreateDeployment_ProviderFromWizardRegions(t *testing.T) {
 	}
 }
 
-// setHuaweiOperatorEnv sets the operator's server-side configuration of a
-// Huawei deployment, with region as CATALYST_HUAWEI_REGION ("" = unset).
-func setHuaweiOperatorEnv(t *testing.T, region string) {
+// setHuaweiOperatorConfig sets the operator's server-side configuration of a
+// Huawei deployment: its credential files, region as cloud-credential.huawei.region
+// ("" = a blank file, which sets nothing).
+func setHuaweiOperatorConfig(t *testing.T, region string) {
 	t.Helper()
 	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "TESTAK1234567890")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "0a1b2c3d4e5f6789abcd")
-	t.Setenv("CATALYST_HUAWEI_REGION", region)
+	creds := maps.Clone(huaweiOperator)
+	creds["region"] = region
+	operatorCredentialFiles(t, "huawei", creds)
 	pdm.ResetManagedDomains()
 }
 
@@ -169,12 +170,12 @@ func createAccepted(t *testing.T, h *Handler, body []byte) *Deployment {
 
 // A request body never fills a server-only field: a credentials map that
 // names the operator's access key or region is refused with invalid-field on
-// that key, whether or not CATALYST_HUAWEI_REGION is set, so a body can
+// that key, whether or not the operator's region file is set, so a body can
 // never choose the region, and with it the endpoints, of the operator's keys.
 func TestCreateDeployment_Huawei_BodyCannotFillServerOnlyCredentials(t *testing.T) {
 	for _, envRegion := range []string{"me-east-215", ""} {
 		for _, key := range []string{"region", "access_key"} {
-			setHuaweiOperatorEnv(t, envRegion)
+			setHuaweiOperatorConfig(t, envRegion)
 			h := NewWithPDM(slog.Default(), &fakePDM{})
 			body, _ := json.Marshal(map[string]any{
 				"provider":            "huawei",
@@ -193,7 +194,7 @@ func TestCreateDeployment_Huawei_BodyCannotFillServerOnlyCredentials(t *testing.
 			var got map[string]any
 			_ = json.Unmarshal(w.Body.Bytes(), &got)
 			if w.Code != http.StatusBadRequest || got["error"] != "invalid-field" || got["field"] != "credentials."+key {
-				t.Errorf("credentials.%s, CATALYST_HUAWEI_REGION=%q: status=%d body=%s; want 400 invalid-field on credentials.%s", key, envRegion, w.Code, w.Body.String(), key)
+				t.Errorf("credentials.%s, operator region %q: status=%d body=%s; want 400 invalid-field on credentials.%s", key, envRegion, w.Code, w.Body.String(), key)
 			}
 		}
 	}
@@ -203,7 +204,7 @@ func TestCreateDeployment_Huawei_BodyCannotFillServerOnlyCredentials(t *testing.
 // it takes the path of a top-level provider, so the operator's credentials
 // and region are stamped and the Object Storage keys derived from them.
 func TestCreateDeployment_Huawei_WizardRegionsShape(t *testing.T) {
-	setHuaweiOperatorEnv(t, "me-east-215")
+	setHuaweiOperatorConfig(t, "me-east-215")
 	h := NewWithPDM(slog.Default(), &fakePDM{})
 	dep := createAccepted(t, h, wizardHuaweiBody("m7n.xlarge.8", "m7n.2xlarge.8"))
 	req := dep.Request
@@ -222,7 +223,7 @@ func TestCreateDeployment_Huawei_WizardRegionsShape(t *testing.T) {
 // before the per-region required checks, as the create handler floored them
 // before CLD-103: control plane m7n.xlarge.8, workers m7n.2xlarge.8.
 func TestCreateDeployment_Huawei_RegionsEmptyFlavorsFloored(t *testing.T) {
-	setHuaweiOperatorEnv(t, "me-east-215")
+	setHuaweiOperatorConfig(t, "me-east-215")
 	h := NewWithPDM(slog.Default(), &fakePDM{})
 	dep := createAccepted(t, h, wizardHuaweiBody("", ""))
 	for i, rs := range dep.Request.Regions {

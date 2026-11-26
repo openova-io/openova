@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,6 +34,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	// Side-effect import: registers every CloudProvider adapter
 	// (hetzner, huawei) against internal/providers/registry at
 	// init() time. The wipe handler resolves the adapter of a
@@ -76,7 +78,7 @@ func main() {
 	// the next reflector relist. Set programmatically so the fix travels with
 	// the binary and protects every fresh prov regardless of chart env wiring;
 	// an operator can still re-enable via KUBE_FEATURE_WatchListClient=true.
-	disableWatchListClient(log)
+	configureProcess(log)
 
 	h := handler.New(log)
 
@@ -1205,6 +1207,15 @@ func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte)
 	log.Info("handoverjwt: published runtime signer pubkey to Secret (#4114)", "secret", ns+"/"+name)
 }
 
+// configureProcess is main's first action: it parses the command line,
+// --cloud-credentials-dir among it (provisioner.RegisterFlags, CLD-106), and
+// then disables the WatchListClient gate before any client is built (#4071).
+func configureProcess(log *slog.Logger) {
+	provisioner.RegisterFlags(flag.CommandLine)
+	flag.Parse()
+	disableWatchListClient(log)
+}
+
 // disableWatchListClient turns OFF the client-go WatchListClient feature gate
 // so every reflector built by this process uses the classic LIST+WATCH path
 // instead of the streaming watch-list (#4071 — see the call site in main for
@@ -1217,8 +1228,8 @@ func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte)
 // method set (the exported Gates interface only declares Enabled) and Set the
 // gate to false. The Set MUST happen before the first Enabled() read — i.e.
 // before any client/informer is constructed — because the env-var snapshot is
-// loaded exactly once on the first Enabled() call. main calls this as its first
-// real action, so the ordering holds.
+// loaded exactly once on the first Enabled() call. configureProcess, main's first
+// real action, calls this before any client is built, so the ordering holds.
 //
 // If the assertion ever fails (a future client-go swaps the default gate
 // implementation), fall back to the supported env-var mechanism so the gate is

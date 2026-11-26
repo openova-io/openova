@@ -1,0 +1,41 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: cilium-l7-mtls
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Workloads must be covered by a Cilium L7 policy
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Pod templates must declare the
+      `policy.cilium.io/enforced: "true"` label so the catalyst-network
+      controller routes them under the zero-trust mesh. The runtime
+      "is there an actual selecting CNP/CCNP" check lives in the W2
+      hubble evaluator.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    - expression: >-
+        object.spec.template.?metadata.?labels[?'policy.cilium.io/enforced'].orValue('') == 'true'
+      messageExpression: >-
+        'Workload ' + object.kind + '/' + object.metadata.name + ' is missing
+        label `policy.cilium.io/enforced: "true"` on
+        spec.template.metadata.labels. The catalyst-network controller uses
+        this label to attach the Pod to the L7 mTLS mesh.'

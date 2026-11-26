@@ -2,50 +2,48 @@
 # admits the per-Org vCluster CIDR-probe Service.
 #
 # Run with the Kyverno CLI:
-#   cd platform/kyverno-policies/chart
-#   # re-render the policy if the template/values changed:
-#   helm template . --set compliancePolicies.fluxManaged.action=Enforce \
-#     --show-only templates/baseline/10-flux-managed.yaml \
-#     | grep -v '^# Source:' | sed '/^---$/d' \
-#     > tests/vcluster-cidr-probe-admitted/policy.yaml
-#   kyverno test tests/vcluster-cidr-probe-admitted/
-#
-# `policy.yaml` is the rendered ClusterPolicy (committed so the test is
-# self-contained + CI-runnable without a Helm pass in the test step).
+#   kyverno test platform/kyverno-policies/chart/tests/vcluster-cidr-probe-admitted
+# The policy is the copy of the suite flux-managed (../flux-managed/policy.yaml),
+# which tests/suites-current.sh keeps the current render of the template.
 #
 # THREE cases prove the fix (LIVE shape: omantel.biz/kom4dc, ALL 11/11 customer
 # vClusters CrashLoopBackOff 277×/23h because the probe Service was Enforce-denied):
-#   1. probe Service in the legacy `openova.io/tenant` boundary → ADMITTED (pass)
-#   2. probe Service in a label-less namespace               → ADMITTED (pass)
+#   1. probe Service in the legacy `openova.io/tenant` boundary → NOT JUDGED (skip)
+#   2. probe Service in a label-less namespace               → NOT JUDGED (skip)
 #   3. REAL non-probe Service in the same boundary, no Flux label → DENIED (fail)
 #      (proves the carve-out is name-scoped, not a blanket namespace exemption)
+# Cases 1 and 2 read pass while flux-managed was a ClusterPolicy, a pass that
+# could not fail: the command-line tool reports an excluded object as
+# "Excluded" and accepts that for any expected result. The ValidatingPolicy
+# skips the probe (match condition exclude-vcluster-cidr-probe), and the suite
+# expects skip (CMP-084).
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: vcluster-cidr-probe-admitted-test
 policies:
-  - policy.yaml
+  - ../flux-managed/policy.yaml
 resources:
   - resource-namespaces.yaml
   - resource-services.yaml
 results:
-  # 1. CIDR-probe Service in the legacy openova.io/tenant boundary → admitted.
+  # 1. CIDR-probe Service in the legacy openova.io/tenant boundary → not judged.
   - policy: flux-managed
-    rule: workload-must-be-flux-managed
+    isValidatingPolicy: true
     resources:
       - tenant-demo/test-service-delete-me-qwgml
     kind: Service
-    result: pass
-  # 2. CIDR-probe Service in a namespace with NO Org-boundary label → admitted.
+    result: skip
+  # 2. CIDR-probe Service in a namespace with NO Org-boundary label → not judged.
   - policy: flux-managed
-    rule: workload-must-be-flux-managed
+    isValidatingPolicy: true
     resources:
       - app-prod/test-service-delete-me-qgxrt
     kind: Service
-    result: pass
+    result: skip
   # 3. REAL non-probe Service, no Flux label, same legacy boundary → DENIED.
   - policy: flux-managed
-    rule: workload-must-be-flux-managed
+    isValidatingPolicy: true
     resources:
       - tenant-demo/customer-api
     kind: Service
