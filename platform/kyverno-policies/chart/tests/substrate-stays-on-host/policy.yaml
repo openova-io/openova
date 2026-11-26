@@ -11,6 +11,9 @@ metadata:
     policies.kyverno.io/title: Substrate Blueprints must install on host k3s
     policies.kyverno.io/category: catalyst-architecture-invariant
     policies.kyverno.io/severity: high
+    # Changes with the reports controller's read of helmreleases, so an
+    # upgrade that grants it makes Kyverno check the permissions again.
+    catalyst.openova.io/reports-read-checksum: "422273f3b5575f0a"
     policies.kyverno.io/description: >-
       The substrate components listed in docs/DOD.md §A4 (Cilium-agent,
       Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)

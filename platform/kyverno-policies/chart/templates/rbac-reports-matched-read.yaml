@@ -16,7 +16,7 @@ bp-kyverno 1.3.11 (v1.19.2):
     get /v1, Resource=persistentvolumes: ; list ... ; watch ... .
 
 The engine's chart binds the Kubernetes role `view` to the reports controller,
-and `view` holds no cluster-scoped kind: not persistentvolumes. HelmReleases
+and `view` does not grant persistentvolumes. HelmReleases
 reach `view` only through Flux's own `flux-view` role (Flux's install manifest
 aggregates it), which neither Kyverno chart renders, so substrate-stays-on-host
 gets its read here too instead of from another Blueprint's RBAC.
@@ -26,6 +26,11 @@ rbac-cilium-read). tests/apicall-rbac-correspondence.sh (C5) fails when a kind
 a policy matches is not readable by the controller that needs it. Aggregated to
 the reports controller only, through the label Kyverno's chart selects, so it
 survives a Kyverno upgrade. Rendered only with the policies that need it.
+
+Each policy it grants a read for carries the checksum of this render
+(bp-kyverno-policies.reportsReadChecksum, catalyst.openova.io/
+reports-read-checksum): Kyverno checks the permissions again only when the
+policy changes, so on a running Sovereign a new grant must change the policy.
 */ -}}
 {{- $localPath := .Values.compliancePolicies.forbidLocalPath.enabled }}
 {{- $substrate := .Values.compliancePolicies.substrateOnHost.enabled }}
