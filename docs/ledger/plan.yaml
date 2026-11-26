@@ -5303,7 +5303,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-191, FND-192, CMP-067]
-  after: [FND-037, FND-011, SOV-020, SOV-137, SOV-151, SOV-175, SOV-241, SOV-322, SOV-343, SEC-103, SEC-104, SEC-105, SEC-211, NET-030, NET-040, NET-042, NET-080, NET-095, NET-150, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-041, CTL-346, CTL-347, AIP-070, INF-040, INF-050, INF-110, ACC-050, PRD-201, PRD-304]
+  after: [FND-037, FND-011, SOV-020, SOV-137, SOV-151, SOV-175, SOV-231, SOV-241, SOV-322, SOV-343, SEC-103, SEC-104, SEC-105, SEC-211, NET-030, NET-040, NET-042, NET-080, NET-095, NET-150, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-041, CTL-346, CTL-347, AIP-070, INF-040, INF-050, INF-110, ACC-050, PRD-201, PRD-304]
   touches:
   - platform/syft-grype/**
   - clusters/_template/bootstrap-kit/33-syft-grype.yaml
@@ -11223,7 +11223,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-144, SOV-120, SOV-160, SOV-212, SOV-225]
-  after: [SOV-343, FND-011, SOV-020, SOV-241, NET-040, NET-080, SVC-040, SVC-041, CTL-040, CTL-346]
+  after: [SOV-343, FND-011, SOV-020, SOV-231, SOV-241, NET-040, NET-080, SVC-040, SVC-041, CTL-040, CTL-346]
   touches:
   - core/cmd/sovereign-ops/internal/closure/**
   - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
@@ -11256,25 +11256,36 @@ packages:
   size: S
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-095, SOV-020, SOV-137, SOV-241, SOV-343, NET-040, NET-080, SVC-040, SVC-041, CTL-346, CTL-347]
+  after: [FND-011]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
-  - platform/self-sovereign-cutover/chart/values.yaml
   - platform/self-sovereign-cutover/chart/tests/cutover-contract.sh
+  - platform/self-sovereign-cutover/chart/tests/step6490-secondary-gitea-mirror.sh
+  - platform/self-sovereign-cutover/chart/values.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'hr_ks_terminal' platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "t=\"$(mktemp -d)\" && helm template ssc platform/self-sovereign-cutover/chart --set sovereign.fqdn=sov.example.test > \"$t/r.yaml\" && a='annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}' && test \"$(grep -c -F \"$a\" \"$t/r.yaml\")\" = 1 && test \"$(grep -B2 -F \"$a\" \"$t/r.yaml\" | sed -n 1p | sed 's/^ *//')\" = 'if [ \"${terminal}\" -gt \"${terminal_ks}\" ]; then' && test \"$(grep -c -F 'hr_ks_terminal=$(printf' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F 'terminal_ks=$(printf' \"$t/r.yaml\")\" = 1"
+  - id: A2
+    run: "t=\"$(mktemp -d)\" && helm template ssc platform/self-sovereign-cutover/chart --set sovereign.fqdn=sov.example.test > \"$t/r.yaml\" && test \"$(grep -c -F 'elif $stalled or $source_absent then \"KST HelmRelease/' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F '(label kustomize.toolkit.fluxcd.io/name). It removes a hand-set annotation within minutes, so no per-release override holds on them and none is offered:' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F -- '- a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F -- '- repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F -- '- or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false' \"$t/r.yaml\")\" = 1 && test \"$(grep -c -F 'named per-release override: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation' \"$t/r.yaml\")\" = 0 && test \"$(grep -c -F 'srp_or_hint=\"named per-release override, on a HelmRelease no Flux Kustomization applies: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; \"' \"$t/r.yaml\")\" = 1"
+  - id: A3
+    run: "v=platform/self-sovereign-cutover/chart/values.yaml && test \"$(grep -c -x -F '  # SOV-231 — WHERE THE OVERRIDE HOLDS: on a HelmRelease that no Flux' \"$v\")\" = 1 && test \"$(grep -c -x -F '  # label kustomize.toolkit.fluxcd.io/name, KST when terminal and KSM' \"$v\")\" = 1 && test \"$(grep -c -x -F '     It holds only on a HelmRelease no Flux Kustomization applies (SOV-231:' platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml)\" = 1"
+  - id: A4
+    run: "c=platform/self-sovereign-cutover/chart/tests/cutover-contract.sh && test \"$(grep -c -x -F '# (11) A Kustomization-applied terminal offender alone: BLOCKS, never offers' \"$c\")\" = 1 && test \"$(grep -c -x -F '# (14) Validation and record unchanged: an annotation still present on a kit' \"$c\")\" = 1 && test \"$(grep -c -F 'echo \"  PASS (SOV-231: a Stalled release a Flux Kustomization applies is refused without offering the annotation' \"$c\")\" = 1 && s=platform/self-sovereign-cutover/chart/tests/step6490-secondary-gitea-mirror.sh && test \"$(grep -c -F \"if ! grep -q 'hr_ks_terminal=' \\\"\\${TMP}/main.yaml\\\"; then\" \"$s\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The chart text of the settled-roll pre-flight says where its named override catalyst.openova.io/cutover-settled-roll-override holds: on a HelmRelease that no Flux Kustomization applies. For an offender the kit applies (label kustomize.toolkit.fluxcd.io/name), from which Flux removes a hand annotation within minutes, the printed remedy no longer offers the annotation and names what works: a candidate whose kit changes its pin (the delivery rule), a repair of the release then flux reconcile --reset, or the whole-gate switch prewarm.settledRollPreflight.enabled=false. The override''s validation and its record are unchanged; no API route is added.'
+  delivers: Step 03 of the cutover chart offers its named settled-roll override only for a terminal platform HelmRelease that no Flux Kustomization applies, and for one that a Kustomization applies (label kustomize.toolkit.fluxcd.io/name) names the release with its Kustomization and the three remedies that work, while the validation and the record of the override stay as they are and no API route is added.
 - id: SOV-240
   title: The upstream-flip step; steps 5, 6, 7, 9 and 10 deleted
   area: SOV
@@ -11284,7 +11295,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-155, SOV-161, SOV-175, SOV-190, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SOV-344, SEC-060, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, SEC-181, SEC-211, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-155, SOV-161, SOV-175, SOV-190, SOV-231, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SOV-344, SEC-060, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, SEC-181, SEC-211, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -11403,7 +11414,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240, SOV-131, SOV-132, SOV-134]
-  after: [SOV-161, SOV-137, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, SOV-020, SOV-175, SOV-242, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-040, SVC-041, SVC-130, SVC-136, SVC-137, SVC-138, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [SOV-161, SOV-137, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, SOV-020, SOV-175, SOV-231, SOV-242, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-040, SVC-041, SVC-130, SVC-136, SVC-137, SVC-138, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11434,7 +11445,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-160, SOV-240]
-  after: [FND-011, SOV-020, SOV-242, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
+  after: [FND-011, SOV-020, SOV-231, SOV-242, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
   touches:
   - platform/self-sovereign-cutover/chart/values.yaml
   - products/catalyst/bootstrap/api/internal/handler/cutover*.go
@@ -11491,7 +11502,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330, SOV-322]
-  after: [SOV-344, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, SOV-020, SOV-175, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [SOV-344, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, SOV-020, SOV-175, SOV-231, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -12711,7 +12722,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-142, SOV-520]
-  after: [FND-011, SOV-020, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
+  after: [FND-011, SOV-020, SOV-231, NET-040, NET-080, SVC-040, SVC-041, CTL-346]
   touches:
   - platform/self-sovereign-cutover/chart/templates/11-mirror-resync-cronjob.yaml
   - platform/self-sovereign-cutover/chart/templates/12-daytwo-harbor-pin-reconciler.yaml
@@ -19493,7 +19504,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-155, SOV-161, SOV-175, SOV-322, SOV-336, SOV-337, SEC-040, SEC-060, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, SEC-181, SEC-211, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-185, NET-190, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-155, SOV-161, SOV-175, SOV-231, SOV-322, SOV-336, SOV-337, SEC-040, SEC-060, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, SEC-181, SEC-211, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-185, NET-190, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
