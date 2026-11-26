@@ -305,7 +305,9 @@ giteaAdmin:
 # templates/platform-repos-job.yaml creates the organisation `org` and each
 # repository of `repos` in it (private, first commit on main) when Gitea is
 # installed. It runs in the writer region only: bootstrap-kit slot 10 fills
-# regionId and writerRegionId; an empty writerRegionId means one region.
+# follower (true on a secondary control plane: SECONDARY_HR_SUSPEND), regionId
+# and writerRegionId; an empty writerRegionId means one region. A login that
+# Gitea refuses (401) fails the Job at once, without a retry.
 platformRepos:
   enabled: true
   image: "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
@@ -313,6 +315,7 @@ platformRepos:
   repos:
     - sovereign-regions
     - provider-pack
+  follower: false
   regionId: ""
   writerRegionId: ""
 
