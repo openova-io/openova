@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T17:00:05Z` |
+| Last refreshed | `2026-11-26T17:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T17:14 | [#8896](https://github.com/openova-io/openova/pull/8896) | #8894 | reloader and newapi set container security fields at the pod |
 | 2026-11-26T15:49 | [#8895](https://github.com/openova-io/openova/pull/8895) | #7087 | docs(ledger): plan update |
 | 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:42 | [#8891](https://github.com/openova-io/openova/pull/8891) | #8885 | fix(ci): the pin-sync audit names the release writer for a d |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
 | 2026-11-26T00:20 | [#8852](https://github.com/openova-io/openova/pull/8852) | #8772 | The OpenBao chart's CSI provider DaemonSet declares probes,  |
 | 2026-11-25T23:18 | [#8851](https://github.com/openova-io/openova/pull/8851) | #7087 | docs(ledger): plan update |
-| 2026-11-25T22:02 | [#8850](https://github.com/openova-io/openova/pull/8850) | #7087 | docs(ledger): plan update |
 
 ---
 
