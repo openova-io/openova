@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T22:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-26T22:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
 | [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
 | [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8906](https://github.com/openova-io/openova/issues/8906) | FND-043 An acceptance loop of a ticket stops at its first failing pass | Other |
 | [#8910](https://github.com/openova-io/openova/issues/8910) | SOV-163 The platform repositories Job runs in the primary region only and stops  | Other |
 | [#8913](https://github.com/openova-io/openova/issues/8913) | CMP-084 Validate policies to ValidatingPolicy: flux-managed, and the CronJob gua | Other |
+| [#8916](https://github.com/openova-io/openova/issues/8916) | FND-044 A tested command of an acceptance command is not read through a command  | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T22:41 | [#8915](https://github.com/openova-io/openova/pull/8915) | #7087 | docs(ledger): plan update |
 | 2026-11-26T21:44 | [#8914](https://github.com/openova-io/openova/pull/8914) | #8913 | refactor(kyverno): flux-managed rewritten in place to Valida |
 | 2026-11-26T21:16 | [#8912](https://github.com/openova-io/openova/pull/8912) | #7087 | docs(ledger): plan update |
 | 2026-11-26T19:47 | [#8911](https://github.com/openova-io/openova/pull/8911) | #8910 | fix(gitea): the platform repositories Job runs in the primar |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:58 | [#8866](https://github.com/openova-io/openova/pull/8866) | #8865 | feat(guards): an acceptance command of a ticket pipes a test |
-| 2026-11-26T12:27 | [#8864](https://github.com/openova-io/openova/pull/8864) | #7087 | docs(ledger): plan update |
 
 ---
 
