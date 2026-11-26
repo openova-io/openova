@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T19:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-26T20:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T19:47 | [#8911](https://github.com/openova-io/openova/pull/8911) | #8910 | fix(gitea): the platform repositories Job runs in the primar |
 | 2026-11-26T19:14 | [#8909](https://github.com/openova-io/openova/pull/8909) | #7087 | docs(ledger): plan update |
 | 2026-11-26T19:36 | [#8908](https://github.com/openova-io/openova/pull/8908) | #8906 | feat(guards): an acceptance loop of a ticket stops at its fi |
 | 2026-11-26T19:32 | [#8907](https://github.com/openova-io/openova/pull/8907) | #8904 | refactor(kyverno): app-label-mutate rewritten in place to Mu |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T12:27 | [#8864](https://github.com/openova-io/openova/pull/8864) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:06 | [#8863](https://github.com/openova-io/openova/pull/8863) | #8858 | fix(guards): the DNS guard renders the remote-access chart w |
 | 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
-| 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
 
 ---
 
