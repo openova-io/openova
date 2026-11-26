@@ -666,16 +666,26 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 
 	// HelmRelease-shaped per-Org apps (openclaw #4272, stalwart-mail #4307) —
 	// emitted as HOST files (helm-controller runs on the host, NOT inside the
-	// per-Org vcluster, #3055) and installed INTO the Org vCluster through the
-	// SAME HR-level kubeConfig mechanism the bp-cnpg-pair replica uses: the
-	// flux-system `tenant-<slug>-kubeconfig` mirror. Every Organization is
-	// vCluster-backed (#4292), so the mirror is unconditional — there is no
-	// plan for which the HR installs straight into the host `<slug>` ns. Each
-	// HR ships its own bp-* HelmRepository so a fresh funnel Org resolves the
-	// sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw / orgTenantBPStalwart
-	// overlays so a cart Org gets the SAME releases the BSS door emits.
-	hrKubeSecret := fmt.Sprintf("tenant-%s-kubeconfig", slug)
+	// per-Org vcluster, #3055). Where each one installs is the same on every
+	// plan:
+	//   - the per-Organization platform stack (newapi, openclaw, agenity)
+	//     installs on the host `<slug>` ns, no kubeConfig: the APIs its charts
+	//     need (CNPG, Cilium, a route the host gateway sees) are served there
+	//     and not in the vCluster (hostPlacedHelmReleaseApps has the measured
+	//     failure and the design it follows);
+	//   - the customer-scope app (stalwart-mail) installs INTO the Org vCluster
+	//     through the SAME HR-level kubeConfig mechanism the bp-cnpg-pair
+	//     replica uses: the flux-system `tenant-<slug>-kubeconfig` mirror.
+	// Each HR ships its own bp-* HelmRepository so a fresh funnel Org resolves
+	// the sourceRef. Mirrors the BSS-door orgTenantBPOpenClaw /
+	// orgTenantBPStalwart overlays so a cart Org gets the SAME releases the
+	// BSS door emits.
+	vclusterKubeSecret := fmt.Sprintf("tenant-%s-kubeconfig", slug)
 	for _, a := range helmReleaseAppsFor(appSlugs) {
+		hrKubeSecret := vclusterKubeSecret
+		if HelmReleaseAppInstallsOnHost(a) {
+			hrKubeSecret = ""
+		}
 		hostFiles[fmt.Sprintf("app-%s.yaml", a)] = generateHelmReleaseApp(a, helmReleaseAppOpts{
 			slug:         slug,
 			parentDomain: g.parentDomain(),
@@ -2160,8 +2170,8 @@ spec:
 //     as a last-resort if the namespace won't GC).
 //   - patch/delete on Flux Kustomization CRs (legacy pre-#97 tenants that
 //     kept their sync CR inside the tenant NS instead of flux-system).
-//   - get/list on secrets (DB password lookup for day-2 installs and
-//     mirroring the vc-vcluster kubeconfig).
+//   - get/list/watch on secrets, and no write (the read-only wait for
+//     tenant-<slug>-kubeconfig).
 //
 // These permissions are granted ONLY inside this tenant's namespace, which
 // is why the whole thing is a Role and not a ClusterRole — see issue #75,
@@ -2183,22 +2193,16 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
-    # #3376 — the #4785 dual-namespace kubeconfig mirror
-    # (mirrorVClusterKubeconfig, handlers.go) POSTs the
-    # tenant-<slug>-kubeconfig Secret into BOTH flux-system AND this tenant
-    # namespace, because the per-Org application HelmReleases carry a
-    # namespace-less kubeConfig.secretRef that Flux resolves in the HR's OWN
-    # (tenant) namespace. flux-system write is granted by the chart Role
-    # org-provisioning-fluxsystem; the tenant-NS write was missing here, so
-    # 'create secrets -n <slug>' 403'd -> "create mirror secret (<slug>) 403"
-    # -> provisioning failed at the vcluster step and no per-Org app ever
-    # reconciled (WordPress never Ready). create/update/patch are the minimum
-    # for the upsert (POST, then PUT-on-409). NO delete — the mirror never
-    # removes a tenant secret; teardown drops only the flux-system copy
-    # (deleteVClusterKubeconfigMirror) and the tenant-NS copy is GC'd with the
-    # namespace. Least-privilege + namespaced.
+    # Read only. The service writes no Secret through the Kubernetes API
+    # (Secrets it renders reach the cluster through Git): the vCluster writes
+    # tenant-<slug>-kubeconfig in this namespace and bp-reflector copies it
+    # into flux-system (core/controllers/organization/internal/gitops/
+    # region_local.go is its only producer); the service only waits until
+    # both copies hold it (waitForKubeconfigHeld). The org-controller
+    # emits the same Role on a Sovereign (provisioningRBACTemplate,
+    # manifests.go); the two grant the same verbs.
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     # delete needed so waitForVclusterDNSOrKick can bounce vcluster-0 when
     # the syncer's initial DNS reconciliation doesn't publish the

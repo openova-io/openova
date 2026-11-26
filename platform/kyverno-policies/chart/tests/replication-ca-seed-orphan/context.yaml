@@ -1,0 +1,94 @@
+# The HelmReleases the policy's resource.List sees, per namespace. Each one
+# carries the label the application-controller stamps on every HelmRelease of
+# an Application (catalyst.openova.io/app, render.LabelApp); the names are
+# the controller's <app>-<cluster> names.
+#
+# A ClusterResource file, listed under clusterResources of kyverno-test.yaml:
+# the CLI (v1.19) answers resource.List from the test's fake cluster when the
+# test has clusterResources and then ignores a `context:` file (kind Context).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: ClusterResource
+metadata:
+  name: context
+spec:
+  resources:
+    # org-a: alpha is installed.
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: alpha-rtz-a
+        namespace: org-a
+        labels:
+          catalyst.openova.io/app: alpha
+    # org-b: beta is being uninstalled; helm-controller's finalizer holds it.
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: beta-rtz-a
+        namespace: org-b
+        labels:
+          catalyst.openova.io/app: beta
+        deletionTimestamp: "2026-11-23T16:41:46Z"
+        finalizers:
+          - finalizers.fluxcd.io
+    # org-c holds no HelmRelease. gamma's name in ANOTHER namespace does not
+    # count for org-c.
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: gamma-rtz-a
+        namespace: org-other
+        labels:
+          catalyst.openova.io/app: gamma
+    # org-d: delta-two is installed, delta-one is gone.
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: delta-two-rtz-a
+        namespace: org-d
+        labels:
+          catalyst.openova.io/app: delta-two
+    # org-e: a long Application name. The HelmRelease name is shortened by
+    # render.HRNameFor (TestHRNameFor_SeedCleanupFixture pins this value);
+    # the label keeps the whole name.
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: marketing-site-of-the-acme-trading-company-in-muscat-oman-7a7c1
+        namespace: org-e
+        labels:
+          catalyst.openova.io/app: marketing-site-of-the-acme-trading-company-in-muscat-oman-2
+    # The Certificates the policy's second resource.List sees, per namespace.
+    # org-a: alpha's seed Certificate (installed).
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: alpha-db-replication-ca-seed
+        namespace: org-a
+      spec:
+        secretName: alpha-db-replication-ca-seed
+    # org-c: a Certificate that writes another Secret does not keep gamma's
+    # seed; gamma's own name in ANOTHER namespace does not either.
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: gamma-site-tls
+        namespace: org-c
+      spec:
+        secretName: gamma-site-tls
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: gamma-db-replication-ca-seed
+        namespace: org-other
+      spec:
+        secretName: gamma-db-replication-ca-seed
+    # org-f: zeta's HelmRelease was deleted while suspended, so helm-controller
+    # skipped the uninstall and the seed Certificate is still there.
+    - apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: zeta-db-replication-ca-seed
+        namespace: org-f
+      spec:
+        secretName: zeta-db-replication-ca-seed

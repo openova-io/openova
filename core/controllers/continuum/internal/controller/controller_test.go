@@ -136,11 +136,11 @@ func (l simLocal) Observe(_ context.Context, ts []observe.Target) map[string]tra
 
 type simPeers struct{ s *sim }
 
-func (p simPeers) Fetch(_ context.Context, region string, ts []observe.Target) (map[string]transition.MemberStatus, error) {
+func (p simPeers) Fetch(_ context.Context, region string, ts []observe.Target) (map[string]transition.MemberStatus, *transition.RebootStatus, error) {
 	if p.s.down[region] {
-		return nil, fmt.Errorf("region %s unreachable", region)
+		return nil, nil, fmt.Errorf("region %s unreachable", region)
 	}
-	return simLocal{p.s, region}.Observe(context.Background(), ts), nil
+	return simLocal{p.s, region}.Observe(context.Background(), ts), nil, nil
 }
 
 // ── fixtures ───────────────────────────────────────────────────────────────

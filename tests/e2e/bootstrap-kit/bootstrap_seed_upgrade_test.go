@@ -178,6 +178,21 @@ func oldBootstrapSecrets() []liveSecret {
 	}
 }
 
+// upgradedBootstrapSecrets are those Secrets as the upgrade must leave them:
+// every type and value as first boot wrote it, and on flux-system/object-storage
+// the four reflector annotations that keep its one copy openbao/object-storage
+// for the OpenBao snapshot backup and its restore drill (SEC-181, register
+// entry openbao-snapshot-bucket). The first boot before SEC-181 wrote none.
+func upgradedBootstrapSecrets() []liveSecret {
+	out := oldBootstrapSecrets()
+	for i := range out {
+		if out[i].id() == "flux-system/object-storage" {
+			out[i].annotations = reflection("openbao")
+		}
+	}
+	return out
+}
+
 // seedFixture is one region: the stub's Secrets, its calls and the work
 // folder (the Job's emptyDir).
 type seedFixture struct {
@@ -806,8 +821,8 @@ func TestBootstrapSeedUpgradeNeverWritesAnEmptyOrUnresolvedValue(t *testing.T) {
 
 	seed := builtSeed(t, root)
 	built := sortedKeys(seed)
-	if fb := firstBootSeedKeys(t, root); !reflect.DeepEqual(built, fb) {
-		t.Errorf("the builder writes the keys %v, first boot writes %v", built, fb)
+	if fb := withoutFirstBootOnly(firstBootSeedKeys(t, root)); !reflect.DeepEqual(built, fb) {
+		t.Errorf("the builder writes the keys %v, first boot writes %v (without the first-boot-only keys %v)", built, fb, firstBootOnlySeedKeys)
 	}
 	if refs := manifestReferences(t, root); !reflect.DeepEqual(built, refs) {
 		t.Errorf("the builder writes the keys %v, the manifests read %v", built, refs)
@@ -900,17 +915,18 @@ func manifestReferences(t *testing.T, root string) []string {
 	return sortedKeys(seen)
 }
 
-// compareWithOld lists every difference between the rendered Secrets and the
-// old ones: the set of Secrets, and per Secret its type, keys, values and
-// reflector annotations.
-func compareWithOld(old []liveSecret, rendered []renderedSecret) []string {
+// compareWithOld lists every difference between the rendered Secrets and
+// want (the old ones, or the old ones as the upgrade must leave them): the set
+// of Secrets, and per Secret its type, keys, values and reflector annotations.
+// The annotations are compared only when type and values are equal.
+func compareWithOld(want []liveSecret, rendered []renderedSecret) []string {
 	var diffs []string
 	byID := map[string]renderedSecret{}
 	for _, r := range rendered {
 		byID[r.id()] = r
 	}
-	if len(rendered) != len(old) {
-		diffs = append(diffs, fmt.Sprintf("%d Secrets rendered, %d before", len(rendered), len(old)))
+	if len(rendered) != len(want) {
+		diffs = append(diffs, fmt.Sprintf("%d Secrets rendered, want %d", len(rendered), len(want)))
 	}
 	reflectorOnly := func(m map[string]string) map[string]string {
 		out := map[string]string{}
@@ -921,24 +937,25 @@ func compareWithOld(old []liveSecret, rendered []renderedSecret) []string {
 		}
 		return out
 	}
-	for _, o := range old {
+	for _, o := range want {
 		r, ok := byID[o.id()]
 		switch {
 		case !ok:
 			diffs = append(diffs, o.id()+" is not rendered")
 		case r.typ != o.typ:
-			diffs = append(diffs, fmt.Sprintf("%s type %s, before %s", o.id(), r.typ, o.typ))
+			diffs = append(diffs, fmt.Sprintf("%s type %s, want %s", o.id(), r.typ, o.typ))
 		case !reflect.DeepEqual(r.data, o.data):
-			diffs = append(diffs, fmt.Sprintf("%s values %q, before %q", o.id(), r.data, o.data))
+			diffs = append(diffs, fmt.Sprintf("%s values %q, want %q", o.id(), r.data, o.data))
 		case !reflect.DeepEqual(reflectorOnly(r.annotations), reflectorOnly(o.annotations)):
-			diffs = append(diffs, fmt.Sprintf("%s reflector annotations %v, before %v", o.id(), reflectorOnly(r.annotations), reflectorOnly(o.annotations)))
+			diffs = append(diffs, fmt.Sprintf("%s reflector annotations %v, want %v", o.id(), reflectorOnly(r.annotations), reflectorOnly(o.annotations)))
 		}
 	}
 	return diffs
 }
 
-// (c) The four manifests rendered from the seed the builder makes equal the
-// four Secrets as they were, and a second run changes nothing.
+// (c) The manifests rendered from the seed the builder makes equal the
+// Secrets as they were, with every value, and flux-system/object-storage gains
+// the reflector annotations of SEC-181; a second run changes nothing.
 func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 	root := repoRoot(t)
 	old := oldBootstrapSecrets()
@@ -949,8 +966,14 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 	}
 	seed, _ := f.get(t, seedNamespace, seedSecret)
 	rendered := renderBootstrapSecrets(t, root, seed)
-	for _, d := range compareWithOld(old, rendered) {
+	for _, d := range compareWithOld(upgradedBootstrapSecrets(), rendered) {
 		t.Errorf("rendered from the built seed: %s", d)
+	}
+	// Against the Secrets as first boot wrote them, the one difference is the
+	// annotations gained by flux-system/object-storage: no value is lost and no
+	// other Secret changes.
+	if d := compareWithOld(old, rendered); len(d) != 1 || !strings.HasPrefix(d[0], "flux-system/object-storage reflector annotations ") {
+		t.Errorf("against the Secrets first boot wrote, want only the reflector annotations of flux-system/object-storage gained, got %q", d)
 	}
 	for _, r := range rendered {
 		f.put(t, r.ns, r.name, r.data)
@@ -982,10 +1005,30 @@ func TestBootstrapSeedUpgradeKeepsTheOldValues(t *testing.T) {
 		"a value":               func(s *liveSecret) { s.data = map[string]string{"token": "another"} },
 		"a type":                func(s *liveSecret) { s.typ = "kubernetes.io/basic-auth" },
 	} {
-		changed := oldBootstrapSecrets()
+		changed := upgradedBootstrapSecrets()
 		edit(&changed[0])
 		if len(compareWithOld(changed, rendered)) == 0 {
 			t.Errorf("%s changed is not found", what)
+		}
+	}
+	// ... and a render of flux-system/object-storage that loses a value, or
+	// lacks the annotations, is found.
+	for what, edit := range map[string]func(*renderedSecret){
+		"a lost value":             func(r *renderedSecret) { delete(r.data, "s3-bucket") },
+		"no reflector annotations": func(r *renderedSecret) { r.annotations = map[string]string{} },
+	} {
+		broken, n := renderBootstrapSecrets(t, root, seed), 0
+		for i := range broken {
+			if broken[i].id() == "flux-system/object-storage" {
+				edit(&broken[i])
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("flux-system/object-storage is rendered %d times, want 1", n)
+		}
+		if len(compareWithOld(upgradedBootstrapSecrets(), broken)) == 0 {
+			t.Errorf("flux-system/object-storage rendered with %s is not found", what)
 		}
 	}
 }
@@ -1010,8 +1053,9 @@ func sec153Seed(t *testing.T, root string) map[string]string {
 // (d) On a region whose seed lacks the values of ghcr-pull and object-storage
 // (installed between SEC-153 and SEC-154), the builder adds
 // them from those Secrets with one patch, never changes a value the seed holds,
-// renders every Secret as it was, keeps the kit reconciling, and on a missing
-// Secret writes nothing; a second run adds nothing.
+// renders every Secret as it was (flux-system/object-storage with the reflector
+// annotations of SEC-181), keeps the kit reconciling, and on a missing Secret
+// writes nothing; a second run adds nothing.
 func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 	root := repoRoot(t)
 	partial := sec153Seed(t, root)
@@ -1030,7 +1074,7 @@ func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 	if want := builtSeed(t, root); !reflect.DeepEqual(seed, want) {
 		t.Errorf("the completed seed %v differs from the seed built from the Secrets %v", sortedKeys(seed), sortedKeys(want))
 	}
-	for _, d := range compareWithOld(oldBootstrapSecrets(), renderBootstrapSecrets(t, root, seed)) {
+	for _, d := range compareWithOld(upgradedBootstrapSecrets(), renderBootstrapSecrets(t, root, seed)) {
 		t.Errorf("rendered from the completed seed: %s", d)
 	}
 	if work, _ := os.ReadDir(filepath.Join(f.dir, "work")); len(work) != 0 {
@@ -1106,6 +1150,137 @@ func TestBootstrapSeedUpgradeAddsWhatTheSeedLacks(t *testing.T) {
 		h.put(t, seedNamespace, seedSecret, partial)
 		for _, p := range reconcileRegion(t, root, rootKustomizations(t, root, dir), h) {
 			t.Errorf("%s, installed with a seed of SEC-153: %s", dir, p)
+		}
+	}
+}
+
+// firstBootOnlySeedKeys are the keys of bootstrap-seed.env that the seed holds
+// only on a Sovereign whose first boot wrote them (SEC-060): no bootstrap
+// Secret holds their value, so the builder cannot add them to the seed of a
+// Sovereign installed before them, and no manifest under
+// clusters/_template/bootstrap-secrets renders them. KEYCLOAK_CLIENT_SECRET_SALT
+// is the salt of the derived Keycloak client secrets; the HelmReleases of kit
+// slots 09 and 13 read it from the seed with an optional valuesFrom, so on a
+// Sovereign whose seed lacks it both charts keep the unsalted secrets Keycloak
+// already holds, and the kit keeps reconciling.
+var firstBootOnlySeedKeys = []string{"KEYCLOAK_CLIENT_SECRET_SALT"}
+
+// seedSaltReaders are the kit slots that read the salt: bp-keycloak derives the
+// realm's client secrets with it, and the Keycloak credentials host bridge of
+// bp-catalyst-platform derives two of them again, so both must read it.
+var seedSaltReaders = []string{"clusters/_template/bootstrap-kit/09-keycloak.yaml", "clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml"}
+
+func withoutFirstBootOnly(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if !slicesContain(firstBootOnlySeedKeys, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func slicesContain(l []string, s string) bool {
+	for _, x := range l {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// seedValuesFrom are the valuesFrom entries of the HelmReleases in file that
+// read the seed Secret, by key.
+func seedValuesFrom(t *testing.T, file string) map[string]map[string]any {
+	t.Helper()
+	out := map[string]map[string]any{}
+	for _, d := range readYAMLDocs(t, file) {
+		if d["kind"] != "HelmRelease" {
+			continue
+		}
+		for _, v := range list(dig(d, "spec", "valuesFrom")) {
+			e, _ := v.(map[string]any)
+			if e["kind"] == "Secret" && e["name"] == seedSecret {
+				out[fmt.Sprint(e["valuesKey"])] = e
+			}
+		}
+	}
+	return out
+}
+
+// TestBootstrapSeedFirstBootOnlyKeysKeepTheKitReconciling (SEC-060): a key that
+// only first boot writes into the seed is in the first-boot seed file, is
+// written by no builder entry and rendered by no manifest, and every
+// HelmRelease of the kit that reads it does so with an optional valuesFrom of
+// the seed Secret, into sso.tier1ClientSecretSalt; slots 09 and 13 both read
+// it. A Sovereign installed before the key existed has a seed without it: a
+// required valuesFrom would stop both releases there, and a release that does
+// not read it would derive its secrets differently from the other.
+func TestBootstrapSeedFirstBootOnlyKeysKeepTheKitReconciling(t *testing.T) {
+	root := repoRoot(t)
+	firstBoot := firstBootSeedKeys(t, root)
+	built := sortedKeys(builtSeed(t, root))
+	refs := manifestReferences(t, root)
+	for _, k := range firstBootOnlySeedKeys {
+		if !slicesContain(firstBoot, k) {
+			t.Errorf("%s: first boot does not write %s into bootstrap-seed.env", seedTemplate, k)
+		}
+		if slicesContain(built, k) {
+			t.Errorf("%s: the builder writes %s, which no bootstrap Secret of an older Sovereign holds", seedJobFile, k)
+		}
+		if slicesContain(refs, k) {
+			t.Errorf("%s: a manifest renders ${%s}; on a Sovereign whose seed lacks it, it would render an empty value", seedSecretsDir, k)
+		}
+	}
+	problems := func(readers map[string]map[string]map[string]any) []string {
+		var out []string
+		for _, f := range seedSaltReaders {
+			e, ok := readers[f]["KEYCLOAK_CLIENT_SECRET_SALT"]
+			switch {
+			case !ok:
+				out = append(out, f+": no valuesFrom of the seed key KEYCLOAK_CLIENT_SECRET_SALT")
+			case e["optional"] != true:
+				out = append(out, f+": the valuesFrom of KEYCLOAK_CLIENT_SECRET_SALT is not optional")
+			case e["targetPath"] != "sso.tier1ClientSecretSalt":
+				out = append(out, f+": the valuesFrom of KEYCLOAK_CLIENT_SECRET_SALT does not set sso.tier1ClientSecretSalt")
+			}
+		}
+		return out
+	}
+	readers := map[string]map[string]map[string]any{}
+	for _, f := range seedSaltReaders {
+		readers[f] = seedValuesFrom(t, filepath.Join(root, f))
+	}
+	for _, p := range problems(readers) {
+		t.Error(p)
+	}
+
+	// The check can fail: a required valuesFrom, a missing one, a wrong target.
+	for _, c := range []struct {
+		what string
+		edit func(e map[string]any) map[string]any
+	}{
+		{"a required valuesFrom", func(e map[string]any) map[string]any { e["optional"] = false; return e }},
+		{"no valuesFrom", func(map[string]any) map[string]any { return nil }},
+		{"another target", func(e map[string]any) map[string]any { e["targetPath"] = "sso.salt"; return e }},
+	} {
+		broken := map[string]map[string]map[string]any{}
+		for f, m := range readers {
+			broken[f] = map[string]map[string]any{}
+			for k, e := range m {
+				c := map[string]any{}
+				for kk, vv := range e {
+					c[kk] = vv
+				}
+				broken[f][k] = c
+			}
+		}
+		f := seedSaltReaders[0]
+		if e := c.edit(broken[f]["KEYCLOAK_CLIENT_SECRET_SALT"]); e == nil {
+			delete(broken[f], "KEYCLOAK_CLIENT_SECRET_SALT")
+		}
+		if len(problems(broken)) == 0 {
+			t.Errorf("the check passes %s in %s", c.what, f)
 		}
 	}
 }

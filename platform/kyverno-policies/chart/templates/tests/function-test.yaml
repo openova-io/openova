@@ -1,25 +1,29 @@
 {{- /*
 Function test of bp-kyverno-policies (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
 
-Kyverno marks a ClusterPolicy Ready only after its admission controller has
-loaded the policy and registered its rules with the webhooks. The test reads,
-through the Kubernetes API, the condition Ready of every ClusterPolicy this
-release renders. It passes when each one reports Ready=True within 180
-seconds. It reads nothing else and writes nothing.
+Kyverno marks a policy Ready only after its admission controller has loaded
+the policy and registered it with the webhooks. The test reads, through the
+Kubernetes API, the condition Ready of every ClusterPolicy and the field
+status.conditionStatus.ready (the READY column of the engine's CRD) of every
+ValidatingPolicy and MutatingPolicy this release renders. It passes when each
+one reports ready within 180 seconds. It reads nothing else and writes nothing.
 
 The names are taken from the policy templates themselves: each file of the
 list below is rendered with this release's values, and the name of every
-ClusterPolicy it renders is kept. So a policy that its own switch turns off is
-not asked for, and the list of names always equals what the release installs.
-The list holds every file under templates/baseline and templates/mutate;
-tests/function-test-render.sh fails when a file is added there and not here.
+ClusterPolicy, ValidatingPolicy and MutatingPolicy it renders is kept. So a
+policy that its own switch turns off is not asked for, and the lists of names always equal
+what the release installs. The list holds every file under templates/baseline
+and templates/mutate; tests/function-test-render.sh fails when a file is added
+there and not here.
 
-A ClusterPolicy has no namespace, so a ClusterRole and a ClusterRoleBinding of
-this file (verb get on clusterpolicies of kyverno.io) give the test Pod that
-right. Their names carry the namespace, so two releases never share them.
+A policy of any of the three kinds has no namespace, so a ClusterRole and a
+ClusterRoleBinding of this file (verb get on clusterpolicies of kyverno.io and
+on validatingpolicies and mutatingpolicies of policies.kyverno.io) give the
+test Pod that right. Their names carry the namespace, so two releases never
+share them.
 
-It renders nothing when the chart renders no ClusterPolicy. The image is the
-kubectl image the kit already pulls for bp-cnpg and bp-kyverno;
+It renders nothing when the chart renders no policy of the three kinds. The image
+is the kubectl image the kit already pulls for bp-cnpg and bp-kyverno;
 functionTest.image overrides it.
 */ -}}
 {{- $files := list
@@ -50,15 +54,21 @@ functionTest.image overrides it.
   "mutate/00-stamp-cilium-enforced-label.yaml"
   "mutate/01-inject-gitea-source-secretref.yaml" }}
 {{- $names := list }}
+{{- $validating := list }}
+{{- $mutating := list }}
 {{- range $file := $files }}
 {{- range $doc := splitList "\n---" (include (printf "%s/%s" $.Template.BasePath $file) $) }}
 {{- $obj := fromYaml $doc }}
 {{- if and $obj (eq ($obj.kind | default "") "ClusterPolicy") }}
 {{- $names = append $names $obj.metadata.name }}
+{{- else if and $obj (eq ($obj.kind | default "") "ValidatingPolicy") }}
+{{- $validating = append $validating $obj.metadata.name }}
+{{- else if and $obj (eq ($obj.kind | default "") "MutatingPolicy") }}
+{{- $mutating = append $mutating $obj.metadata.name }}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if $names }}
+{{- if or $names $validating $mutating }}
 {{- $ft := .Values.functionTest | default dict }}
 {{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
 {{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -89,6 +99,12 @@ metadata:
 rules:
   - apiGroups: ["kyverno.io"]
     resources: ["clusterpolicies"]
+    verbs: ["get"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["validatingpolicies"]
+    verbs: ["get"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["mutatingpolicies"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -153,6 +169,10 @@ spec:
           value: /tmp
         - name: POLICIES
           value: {{ join " " $names | quote }}
+        - name: VALIDATING_POLICIES
+          value: {{ join " " $validating | quote }}
+        - name: MUTATING_POLICIES
+          value: {{ join " " $mutating | quote }}
       volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -177,7 +197,28 @@ spec:
             done
             count=$(( count + 1 ))
           done
-          echo "FUNCTION-TEST pass {{ .Chart.Name }} all ${count} ClusterPolicies of this release are Ready"
+          # await_ready <resource> <kind> <names...>: status.conditionStatus.ready
+          # of each named policy of a kind of policies.kyverno.io.
+          await_ready() {
+            local resource="$1" kind="$2" policy ready reason
+            shift 2
+            for policy in "$@"; do
+              while :; do
+                if ready="$(kubectl --request-timeout=15s get "${resource}" "${policy}" -o jsonpath='{.status.conditionStatus.ready}' 2>/tmp/error)"; then
+                  [ "${ready}" = "true" ] && break
+                  reason="status.conditionStatus.ready is '${ready}': $(kubectl --request-timeout=15s get "${resource}" "${policy}" -o jsonpath='{.status.conditionStatus.message}' 2>/dev/null | cut -c1-160)"
+                else
+                  reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+                fi
+                [ "$(date +%s)" -lt "${deadline}" ] || fail "the ${kind} ${policy} is not ready within 180 seconds: ${reason}"
+                sleep 10
+              done
+              count=$(( count + 1 ))
+            done
+          }
+          await_ready validatingpolicies.policies.kyverno.io ValidatingPolicy ${VALIDATING_POLICIES}
+          await_ready mutatingpolicies.policies.kyverno.io MutatingPolicy ${MUTATING_POLICIES}
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} all ${count} policies of this release are ready"
   volumes:
     - name: tmp
       emptyDir: {}

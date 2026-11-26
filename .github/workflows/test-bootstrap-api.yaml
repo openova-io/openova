@@ -22,10 +22,14 @@ name: Test — Bootstrap API (Go)
 # The test TestSchemasMatchSources of internal/intent reads the definition files
 # its schema bundle is built from (CTL-160):
 #   products/catalyst/chart/crds/**                   the CRDs and their samples
+#   products/continuum/chart/crds/**                  the Continuum CRD (CTL-815)
 #   platform/crossplane-claims/chart/templates/crds/** the UserAccess CRD
 # The test TestDefaultsAreTheContracts of internal/sovself reads the published
 # schema of the variables document (SOV-180):
 #   docs/contracts/c5-upstream-variables.schema.json
+# The test TestSchemaCopyMatchesSource of internal/blueprintedit keeps its
+# embedded copy of the Blueprint file schema (contract C1) equal to (SVC-200):
+#   platform/_schemas/blueprint.schema.json
 # The release tests of internal/lifecycle run the kit rewrite and the pin
 # extractor of the cutover chart, the lines of step 03 that read the pull
 # credential in a follower region (#7938), and check the route against the
@@ -70,8 +74,10 @@ on:
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
+      - 'products/continuum/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
       - 'docs/contracts/c5-upstream-variables.schema.json'
+      - 'platform/_schemas/blueprint.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
@@ -97,8 +103,10 @@ on:
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
       - 'products/catalyst/chart/crds/**'
+      - 'products/continuum/chart/crds/**'
       - 'platform/crossplane-claims/chart/templates/crds/**'
       - 'docs/contracts/c5-upstream-variables.schema.json'
+      - 'platform/_schemas/blueprint.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'

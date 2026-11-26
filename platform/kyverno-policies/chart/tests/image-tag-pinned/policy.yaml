@@ -1,0 +1,60 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: image-tag-pinned
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    # Autogen OFF: each workload PATH-SHAPE is read at its own path.
+    pod-policies.kyverno.io/autogen-controllers: none
+    policies.kyverno.io/title: Container images must be tag-pinned (no :latest)
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Container images must reference an explicit, non-:latest tag (or
+      a @sha256: digest). Floating tags break SHA-pinned audit trails
+      and reproducibility.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  variables:
+    # The Pod spec at the real path of each kind.
+    - name: podSpec
+      expression: >-
+        object.kind == 'Pod' ? object.spec :
+        object.kind == 'CronJob' ? object.spec.jobTemplate.spec.template.spec :
+        object.spec.template.spec
+    - name: images
+      expression: >-
+        variables.podSpec.containers.map(c, c.image) +
+        variables.podSpec.?initContainers.orValue([]).map(c, c.image)
+  validations:
+    - expression: >-
+        variables.images.all(i,
+        (i.matches('^.*@sha256:[a-fA-F0-9]{64}$') ||
+        i.matches('^[^@]*/[^/:]+:[^/:]+$') ||
+        i.matches('^[^@/]+:[^/:]+$')) &&
+        !i.matches('^.*:latest$'))
+      message: "One or more containers reference an unpinned image (`:latest`, or no tag/digest which K8s resolves to `:latest`). Pin to an explicit non-`:latest` tag or a @sha256 digest."

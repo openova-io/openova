@@ -90,7 +90,7 @@ spec:
       #   Without it the DSN-sync Job's apiserver call was DROPPED (:443 DNATs
       #   to the node's :6443, which the workload rule does not allow), curl
       #   timed out, and the app never left Init:0/1 on hw307.
-      version: 0.1.70
+      version: 0.1.71
       sourceRef:
         kind: HelmRepository
         name: bp-chargeback
@@ -134,6 +134,29 @@ spec:
     multiRegion:
       enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
       peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
+    # INF-G01 — the BSS database survives a planned node drain. Every other
+    # kit slot with a database of its own (10 gitea, 11 powerdns, 13 org-pg,
+    # 19 harbor, 80 newapi) takes its instance count from
+    # ${SOVEREIGN_CNPG_INSTANCES} (G87 #2634: 2 on a two-region Sovereign, 1
+    # on a single-region one); this slot never passed it, so chargeback-pg
+    # ran ONE instance where the others run two. A drain of its node was then
+    # a full stop: Postgres' smart shutdown waits up to CNPG's default 180 s
+    # for the app's idle pooled connections, then the volume moves and the
+    # instance starts. Measured on hw307 on 23 Nov 2026: 0 of 1 Ready 191 s
+    # after its Pod left the worker; the other databases on that worker, all
+    # of two or three instances, were back in 20 to 29 s. With two, CNPG
+    # switches the primary over to the replica before the drain evicts it
+    # (CNPG 1.29, Kubernetes upgrade and maintenance) and keeps its budgets.
+    # The chart's default spread for two or more is topology.kubernetes.io/
+    # region, which spreads nothing here: this release lives in ONE regional
+    # cluster whose nodes all carry the same region label (the hw126 fallacy,
+    # platform/postgres/chart/templates/cluster.yaml), so both instances could
+    # share the node a drain empties. They are spread by node instead.
+    cnpg:
+      cluster:
+        instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+        affinity:
+          topologyKey: kubernetes.io/hostname
     # #6841 — the Sovereign SSO owns sign-in. bp-oidc-gate (slot 13c) holds
     # chargeback.<fqdn> and authenticates the browser against the Keycloak
     # sovereign realm silently (kc_idp_hint=catalyst-pin), then passes the

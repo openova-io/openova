@@ -108,7 +108,10 @@ slots:
     # spec.kubeConfig.secretRef → vc-mgmt + dependsOn bp-mgmt-vcluster
     # so the install gates on the vCluster being Ready (otherwise the
     # kubeconfig Secret doesn't exist and helm-controller errors).
-    depends_on: []
+    # storage-ready (slot 15b): every server keeps its JetStream store on a
+    # volume of the default StorageClass; installed before it the servers stay
+    # Pending and the function test finds none (hw307, 21 Nov 2026).
+    depends_on: [storage-ready]
     wave: present
   - slot: 8
     name: bp-openbao
@@ -286,6 +289,13 @@ slots:
     # Flux is needed to install it.
     depends_on: [bp-flux]
     wave: W2.K1
+  - slot: 15b
+    name: bp-secrets-store-csi
+    # The Secrets Store CSI driver (chart bp-secrets-store-csi). It reaches
+    # OpenBao through the OpenBao CSI provider of bp-openbao (slot 08,
+    # openbao.csi.enabled), so it installs after bp-openbao (SEC-211).
+    depends_on: [bp-openbao]
+    wave: W2.K1
   - slot: 16
     name: bp-cnpg
     # The durable default StorageClass EVERY cnpg PVC (shared-pg / cnpg-pair /
@@ -335,7 +345,9 @@ slots:
     # (placement.yaml) — the generator adds the bp-rtz-vcluster runtime edge
     # (the vc-rtz Secret doesn't exist until that HR is Ready). Same pattern as
     # loki/mimir/tempo declaring bp-mgmt-vcluster.
-    depends_on: [bp-flux]
+    # storage-ready (slot 15b): valkey-primary keeps its data on a volume of
+    # the default StorageClass (hw307, 20 Nov 2026: test failed in both regions).
+    depends_on: [bp-flux, storage-ready]
     wave: W2.K1
   - slot: 18
     name: bp-seaweedfs
@@ -780,7 +792,10 @@ slots:
     # both-region ELB. Deliberately does NOT depend on bp-catalyst-platform
     # (suspended on the secondary CP → a dep would deadlock this HR forever);
     # it only needs the gateway.networking.k8s.io CRDs (bp-gateway-api).
-    depends_on: [bp-gateway-api]
+    # bp-cert-manager + bp-sovereign-tls-vars: what the sovereign-tls
+    # Kustomization needs before it applies the console Gateway, the parent of
+    # every route here (hw307, 21 Nov 2026: routes unaccepted for 14 minutes).
+    depends_on: [bp-gateway-api, bp-cert-manager, bp-sovereign-tls-vars]
     wave: present
 
   # ---- Slot 13f — bp-chargeback (#6723, ADR-0014) — the Sovereign BSS

@@ -1,0 +1,253 @@
+{{- /*
+replication-ca-seed-orphan-watchdog — restarts the Kyverno cleanup controller
+when the DeletingPolicy replication-ca-seed-orphan has stopped running
+(check FND-G12, journey J5.2).
+
+THE DEFECT
+==========
+Kyverno v1.18.0 schedules a DeletingPolicy's next run only at the end of a
+run that returned no error (pkg/controllers/deleting/controller.go:283-306,
+c.queue.AddAfter). A run that errors (a LIST or DELETE the API server
+refuses, a status update that fails) is retried maxRetries=10 times with a
+5 ms exponential backoff, about 5 s in all, and then Forget-ed
+(pkg/utils/controller/run.go:77-85). An update re-queues the policy only
+when its generation changes (controller.go:115), so the resync never brings
+it back. An API outage of 5-10 s at one run therefore stops the policy in
+that region until the cleanup controller restarts or the spec changes, and
+every later uninstall leaves <pair>-replication-ca-seed behind again.
+
+THE GUARD
+=========
+Every watchdog.schedule this CronJob reads the policy's
+status.lastExecutionTime (its creationTimestamp before the first run). When
+that is older than watchdog.staleAfterSeconds it deletes each cleanup
+controller Pod that started before then; the ReplicaSet makes a new one,
+whose controller enqueues every policy on start and runs this one at once,
+because its next run is overdue. A Pod younger than the limit is kept, so a
+persistent error costs at most one restart per limit. The Job then exits 1
+(and 2 when it could not read), so a stopped policy shows as a failed Job.
+
+It writes no object anything re-applies: Pods belong to their ReplicaSet,
+not to Helm or Flux. Rights: get on this one DeletingPolicy, list + delete on
+Pods in the Kyverno namespace.
+
+Values: cleanupPolicies.replicationCaSeedOrphan.watchdog.*
+*/ -}}
+{{- $p := .Values.cleanupPolicies.replicationCaSeedOrphan -}}
+{{- if $p.enabled }}
+{{- $w := $p.watchdog -}}
+{{- $name := "bp-kyverno-policies-replication-ca-seed-watchdog" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+rules:
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["deletingpolicies"]
+    resourceNames: ["replication-ca-seed-orphan"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ $w.kyvernoNamespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ $w.kyvernoNamespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+data:
+  watchdog.sh: |
+    #!/bin/sh
+    # watchdog.sh <policy> <kyverno namespace> <pod selector> <stale after s>
+    # Exit 0: the DeletingPolicy ran within the limit. 1: it did not; cleanup
+    # controller Pods older than the limit were deleted. 2: a read failed or a
+    # time did not parse; nothing was deleted.
+    set -uf
+    POLICY="$1"; NS="$2"; SELECTOR="$3"; STALE_AFTER="$4"
+
+    # epoch <RFC 3339 UTC time>: seconds since 1970. busybox and GNU date
+    # both read "YYYY-MM-DD hh:mm:ss"; anything else is refused.
+    epoch() {
+      case "$1" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) ;;
+        *) return 1 ;;
+      esac
+      t="${1%Z}"
+      date -u -d "${t%T*} ${t#*T}" +%s
+    }
+
+    now="$(date -u +%s)"
+    if ! times="$(kubectl get deletingpolicies.policies.kyverno.io "$POLICY" \
+        -o 'jsonpath={.status.lastExecutionTime}|{.metadata.creationTimestamp}')"; then
+      echo "watchdog: cannot read DeletingPolicy $POLICY; nothing deleted"
+      exit 2
+    fi
+    last="${times%%|*}"
+    # Not run yet: count from its creation.
+    [ -n "$last" ] || last="${times#*|}"
+    if ! last_s="$(epoch "$last")"; then
+      echo "watchdog: cannot parse the time '$last' of $POLICY; nothing deleted"
+      exit 2
+    fi
+    age=$((now - last_s))
+    if [ "$age" -lt "$STALE_AFTER" ]; then
+      echo "watchdog: $POLICY ran ${age}s ago (limit ${STALE_AFTER}s)"
+      exit 0
+    fi
+    echo "watchdog: STALE: $POLICY last ran ${age}s ago (limit ${STALE_AFTER}s)"
+    if ! pods="$(kubectl get pods -n "$NS" -l "$SELECTOR" \
+        -o 'jsonpath={range .items[*]}{.metadata.name}|{.status.startTime}{"\n"}{end}')"; then
+      echo "watchdog: cannot list the cleanup controller Pods in $NS; nothing deleted"
+      exit 2
+    fi
+    deleted=0
+    for line in $pods; do
+      pod="${line%%|*}"
+      if ! started_s="$(epoch "${line#*|}")"; then
+        echo "watchdog: Pod $pod has not started; kept"
+        continue
+      fi
+      if [ "$((now - started_s))" -lt "$STALE_AFTER" ]; then
+        echo "watchdog: Pod $pod started $((now - started_s))s ago; kept"
+        continue
+      fi
+      if kubectl delete pod -n "$NS" "$pod" --wait=false; then
+        deleted=$((deleted + 1))
+      else
+        echo "watchdog: deleting Pod $pod failed"
+      fi
+    done
+    echo "watchdog: deleted $deleted cleanup controller Pod(s); a new leader runs $POLICY at once"
+    exit 1
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: cleanup-watchdog
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+spec:
+  schedule: {{ $w.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: bp-kyverno-policies
+            app.kubernetes.io/component: cleanup-watchdog
+        spec:
+          serviceAccountName: {{ $name }}
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: watchdog
+              image: {{ $w.image | quote }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/config/watchdog.sh"]
+              args:
+                - replication-ca-seed-orphan
+                - {{ $w.kyvernoNamespace | quote }}
+                - {{ $w.cleanupControllerSelector | quote }}
+                - {{ $w.staleAfterSeconds | int | quote }}
+              env:
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 96Mi }
+              volumeMounts:
+                - name: script
+                  mountPath: /config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $name }}
+            - name: tmp
+              emptyDir: {}
+{{- end }}

@@ -106,7 +106,6 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
   falco:          { ramMb: 512,  cpuMilli: 200 },
   kyverno:        { ramMb: 768,  cpuMilli: 300 }, // admission + reports + cleanup + background controllers
   trivy:          { ramMb: 512,  cpuMilli: 200 },
-  'syft-grype':   { ramMb: 256,  cpuMilli: 100 },
   sigstore:       { ramMb: 512,  cpuMilli: 200 }, // fulcio + rekor + ctlog
   keycloak:       { ramMb: 1536, cpuMilli: 500 }, // keycloak + cnpg-pg side
   openbao:        { ramMb: 768,  cpuMilli: 300 }, // 3-node Raft cluster on the same host

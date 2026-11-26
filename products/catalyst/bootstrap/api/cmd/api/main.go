@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,6 +34,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 	// Side-effect import: registers every CloudProvider adapter
 	// (hetzner, huawei) against internal/providers/registry at
 	// init() time. The wipe handler resolves the adapter of a
@@ -76,7 +78,7 @@ func main() {
 	// the next reflector relist. Set programmatically so the fix travels with
 	// the binary and protects every fresh prov regardless of chart env wiring;
 	// an operator can still re-enable via KUBE_FEATURE_WatchListClient=true.
-	disableWatchListClient(log)
+	configureProcess(log)
 
 	h := handler.New(log)
 
@@ -388,19 +390,17 @@ func main() {
 			h.SetExecStreamFactory(newExecStreamFactory(k8sFactory, log))
 			// EPIC-1 #1096 slice S — compliance score aggregator. Wired
 			// AFTER k8sCache because runWatch subscribes to the
-			// Factory's SSE fanout. Nil publisher + nil resolver are
-			// fine: the handler runs in best-effort mode (SSE +
-			// Prometheus only). Wiring NATS KV + EnvironmentPolicy
-			// resolver is operator-overridable via env vars per
+			// Factory's SSE fanout. A nil publisher is fine: the handler
+			// runs in best-effort mode (SSE + Prometheus only). NATS KV is
+			// operator-overridable via env vars per
 			// docs/INVIOLABLE-PRINCIPLES.md #4.
 			compliance := handler.NewComplianceHandler(
 				handler.ComplianceConfig{},
 				log,
 				k8sFactory,
 				newCompliancePolicyRollupPublisherFromEnv(log),
-				newComplianceEnvironmentPolicyResolverFromEnv(log),
 			)
-			compliance.Start(ctx)
+			startCompliance(ctx, log, compliance, os.Getenv)
 			h.SetComplianceHandler(compliance)
 			log.Info("compliance: aggregator started")
 
@@ -1207,6 +1207,15 @@ func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte)
 	log.Info("handoverjwt: published runtime signer pubkey to Secret (#4114)", "secret", ns+"/"+name)
 }
 
+// configureProcess is main's first action: it parses the command line,
+// --cloud-credentials-dir among it (provisioner.RegisterFlags, CLD-106), and
+// then disables the WatchListClient gate before any client is built (#4071).
+func configureProcess(log *slog.Logger) {
+	provisioner.RegisterFlags(flag.CommandLine)
+	flag.Parse()
+	disableWatchListClient(log)
+}
+
 // disableWatchListClient turns OFF the client-go WatchListClient feature gate
 // so every reflector built by this process uses the classic LIST+WATCH path
 // instead of the streaming watch-list (#4071 — see the call site in main for
@@ -1219,8 +1228,8 @@ func publishHandoverPubkey(ctx context.Context, log *slog.Logger, pubJWK []byte)
 // method set (the exported Gates interface only declares Enabled) and Set the
 // gate to false. The Set MUST happen before the first Enabled() read — i.e.
 // before any client/informer is constructed — because the env-var snapshot is
-// loaded exactly once on the first Enabled() call. main calls this as its first
-// real action, so the ordering holds.
+// loaded exactly once on the first Enabled() call. configureProcess, main's first
+// real action, calls this before any client is built, so the ordering holds.
 //
 // If the assertion ever fails (a future client-go swaps the default gate
 // implementation), fall back to the supported env-var mechanism so the gate is
@@ -1638,28 +1647,4 @@ func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyR
 	log.Info("compliance: NATS KV publisher wired",
 		"url", url, "bucket", bucket, "source", source)
 	return p
-}
-
-// newComplianceEnvironmentPolicyResolverFromEnv builds a dynamic-
-// client-backed EnvironmentPolicyResolver against the catalyst-api's
-// own cluster (mother) or in-cluster (chroot). Returns nil when no
-// in-cluster config is available — callers fall back to default
-// equal-weights per the brief.
-func newComplianceEnvironmentPolicyResolverFromEnv(log *slog.Logger) handler.EnvironmentPolicyResolver {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		log.Info("compliance: in-cluster config unavailable; EnvironmentPolicy resolver disabled — falling back to default equal-weights")
-		return nil
-	}
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		log.Warn("compliance: dynamic client build failed; EnvironmentPolicy resolver disabled", "err", err)
-		return nil
-	}
-	r, err := handler.NewDynamicEnvironmentPolicyResolver(dyn)
-	if err != nil {
-		log.Warn("compliance: resolver init failed", "err", err)
-		return nil
-	}
-	return r
 }

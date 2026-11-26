@@ -23,9 +23,8 @@ import (
 //	"iss": "https://console.openova.io"
 //
 // at auth_handover.go, while every OTHER locally-minted session on the same
-// pod — PIN-verify (auth.go), Org handover (org_handover.go), the MCP bearer
-// seed (sovereign_mcp_bearer_seed.go) — resolved pinIssuer() from
-// CATALYST_PIN_ISSUER. So on a cut-over Sovereign the handover-authenticated
+// pod — PIN-verify (auth.go), Org handover (org_handover.go) — resolved
+// pinIssuer() from CATALYST_PIN_ISSUER. So on a cut-over Sovereign the handover-authenticated
 // OWNER held the one session on the whole pod stamped with a foreign issuer.
 //
 // That is load-bearing, not cosmetic: bp-openova-mcp rejects any bearer whose
@@ -46,8 +45,8 @@ import (
 func TestHandoverSessionClaims_IssuerFollowsTheSovereign_UAT96(t *testing.T) {
 	const sovereignIssuer = "https://console.hw292.omani.works"
 
-	// Both mint paths on one pod must agree. Assert them together so a
-	// future edit that fixes one and forgets the other fails here.
+	// The handover session must carry the issuer every other session minted
+	// on this pod carries: pinIssuer(), from CATALYST_PIN_ISSUER.
 	t.Setenv("CATALYST_PIN_ISSUER", sovereignIssuer)
 
 	if got := pinIssuer(); got != sovereignIssuer {
@@ -58,21 +57,13 @@ func TestHandoverSessionClaims_IssuerFollowsTheSovereign_UAT96(t *testing.T) {
 
 	// The handover-derived session, minted exactly as AuthHandover mints it.
 	handoverSession := mintHandoverSessionForTest(t, signer, "emrah.baysal@openova.io")
-	// The PIN-derived session on the same pod, for comparison.
-	pinSession := mintOrgScopedMCPBearerForTest(t, signer)
 
 	handoverIss := issuerOf(t, signer, handoverSession)
-	pinIss := issuerOf(t, signer, pinSession)
 
 	if handoverIss != sovereignIssuer {
 		t.Errorf("handover session iss=%q, want %q (the Sovereign's own console). "+
 			"A cut-over Sovereign that signs a session with its own key must not label it as issued by the mothership.",
 			handoverIss, sovereignIssuer)
-	}
-	if handoverIss != pinIss {
-		t.Errorf("one pod, two issuers: handover session iss=%q but PIN-path session iss=%q — "+
-			"every session this process signs with one key must carry one issuer",
-			handoverIss, pinIss)
 	}
 	if handoverIss == handoverjwt.MothershipIssuer() {
 		t.Errorf("handover session iss is still the mothership origin %q on a Sovereign whose "+
@@ -132,13 +123,19 @@ func mintHandoverSessionForTest(t *testing.T, signer *handoverjwt.Signer, email 
 	return raw
 }
 
-func mintOrgScopedMCPBearerForTest(t *testing.T, signer *handoverjwt.Signer) string {
+// newTestSigner builds a real handover signer over a fresh RSA keypair, so a
+// test signs on the production path (no mock signer).
+func newTestSigner(t *testing.T) *handoverjwt.Signer {
 	t.Helper()
-	raw, err := mintOrgScopedMCPBearer(signer, "acme", "owner@acme.omani.homes")
+	priv, _, err := handoverjwt.GenerateKeypair()
 	if err != nil {
-		t.Fatalf("mint org-scoped bearer: %v", err)
+		t.Fatalf("GenerateKeypair: %v", err)
 	}
-	return raw
+	s, err := handoverjwt.New(priv, "https://console.t99.omani.works", 8*time.Hour)
+	if err != nil {
+		t.Fatalf("handoverjwt.New: %v", err)
+	}
+	return s
 }
 
 func issuerOf(t *testing.T, signer *handoverjwt.Signer, raw string) string {

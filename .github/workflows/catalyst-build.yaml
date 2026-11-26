@@ -223,8 +223,7 @@ jobs:
               component-logos/external-dns.png \
               component-logos/netbird.png \
               component-logos/strongswan.png \
-              component-logos/trivy.png \
-              component-logos/syft-grype.png ; do
+              component-logos/trivy.png ; do
             CODE=$(curl -s -o /dev/null -w '%{http_code}' \
               "http://localhost:8080/${path}")
             if [ "$CODE" != "200" ]; then

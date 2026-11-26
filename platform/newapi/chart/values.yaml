@@ -177,16 +177,23 @@ newapi:
   #      ephemeral runtime state here; sessions/credits/channels are
   #      persisted in Postgres via SQL_DSN, NOT on local disk, so an
   #      emptyDir is correct — restart loses logs only).
-  # readOnlyRootFilesystem stays `false` until the upstream binary's
-  # additional rootfs writes (e.g. /tmp temp files) are enumerated.
+  # `securityContext` is the POD securityContext (deployment.yaml
+  # spec.template.spec.securityContext): Pod fields only.
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
     fsGroup: 1000
-    readOnlyRootFilesystem: false
+  # `containerSecurityContext` is the securityContext of the newapi
+  # container. allowPrivilegeEscalation, capabilities and
+  # readOnlyRootFilesystem are container fields; until they moved here they
+  # sat in the Pod securityContext above, where the API server dropped them.
+  # readOnlyRootFilesystem stays `false` until the upstream binary's
+  # additional rootfs writes (e.g. /tmp temp files) are enumerated.
+  containerSecurityContext:
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
+    readOnlyRootFilesystem: false
   # Liveness / readiness / startup — NewAPI exposes /api/status (verified
   # via upstream code path controller/misc.go:GetStatus).
   #
@@ -618,15 +625,6 @@ adminSeed:
 #     attestation:
 #       kind: in-cluster
 #       owner: "<sovereign-operator>"
-#   - name: claude
-#     type: anthropic
-#     endpoint: https://api.anthropic.com
-#     existingSecret: "newapi-channel-anthropic"
-#     models: ["claude-sonnet-4-6", "claude-haiku-4-5"]
-#     attestation:
-#       kind: commercial-contract
-#       accountId: "<anthropic-account-id>"
-#       contractRef: "<internal-doc-link>"
 #   - name: byok
 #     type: byok-passthrough
 #     attestation:
@@ -1293,6 +1291,13 @@ meteringSidecar:
 # lives (flux-system for the slot 80 HR).
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —

@@ -1,5 +1,5 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: flux-managed
   labels:
@@ -18,97 +18,65 @@ metadata:
       Direct kubectl apply is rejected — IaC-first per
       docs/INVIOLABLE-PRINCIPLES.md #3.
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: workload-must-be-flux-managed
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
-                - Service
-                - Ingress
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - kube-system
-                - flux-system
-                - cilium
-                - cilium-gateway
-                - dragonfly
-                - cert-manager
-                - openova-system
-                - catalyst
-                - kyverno
-                - monitoring
-                - ingress
-                - sso-bridge
-                - falco
-                - cnpg
-                - shared-data
-                - powerdns-admin
-                - trivy-system
-          - resources:
-              selector:
-                matchLabels:
-                  app.kubernetes.io/managed-by: cloudnative-pg
-          - resources:
-              namespaceSelector:
-                matchExpressions:
-                  - key: openova.io/organization
-                    operator: Exists
-          - resources:
-              kinds:
-                - Service
-              names:
-                - "test-service-delete-me-*"
-          - resources:
-              annotations:
-                helm.sh/hook: "*"
-      validate:
-        message: >-
-          {{request.object.kind}}/{{request.object.metadata.name}} is
-          not Flux-managed. Add label
-          `app.kubernetes.io/managed-by: flux` on metadata.labels OR
-          attach an ownerReference to a HelmRelease / Kustomization.
-        deny:
-          conditions:
-            all:
-              - key: '{{ request.object.metadata.labels."app.kubernetes.io/managed-by" || '''' }}'
-                operator: NotEquals
-                value: flux
-              # Wave 5.97 nil-safety: check Flux-applied labels instead of
-              # ownerReferences. Flux sets BOTH helm.toolkit.fluxcd.io/name AND
-              # kustomize.toolkit.fluxcd.io/name on every resource it manages.
-              # The original JMESPath filter `ownerReferences[?kind==X]` errors
-              # when ownerReferences is nil (most kubectl-created Pods + debug
-              # pods + admission-time injected sidecars), and admission webhook
-              # failurePolicy=Fail blocks all pod creation cluster-wide.
-              # Label-based check is nil-safe via the `||` JMESPath fallback.
-              - key: '{{ request.object.metadata.labels."helm.toolkit.fluxcd.io/name" || '''' }}'
-                operator: Equals
-                value: ''
-              - key: '{{ request.object.metadata.labels."kustomize.toolkit.fluxcd.io/name" || '''' }}'
-                operator: Equals
-                value: ''
-            any:
-              - key: '{{ request.object.spec.template.metadata.labels."pkg.crossplane.io/revision" || request.object.spec.selector."pkg.crossplane.io/revision" || '''' }}'
-                operator: Equals
-                value: ''
-              - key: '{{ request.object.metadata.ownerReferences[?controller && starts_with(apiVersion, ''pkg.crossplane.io/'')].kind || '''' }}'
-                operator: AnyNotIn
-                value:
-                  - ProviderRevision
-                  - FunctionRevision
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["services"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ingresses"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco', 'cnpg', 'shared-data', 'powerdns-admin', 'trivy-system'])"
+    - name: exclude-cnpg-operator-objects
+      expression: "object.metadata.?labels.orValue({})[?'app.kubernetes.io/managed-by'].orValue('') != 'cloudnative-pg'"
+    - name: exclude-organization-namespaces
+      expression: "!('openova.io/organization' in namespaceObject.?metadata.?labels.orValue({}))"
+    - name: exclude-vcluster-cidr-probe
+      expression: "!(object.kind == 'Service' && object.metadata.?name.orValue('').startsWith('test-service-delete-me-'))"
+    - name: exclude-helm-hooks
+      expression: "!('helm.sh/hook' in object.metadata.?annotations.orValue({}))"
+  variables:
+    - name: labels
+      expression: object.metadata.?labels.orValue({})
+    - name: crossplaneRevisionLabelled
+      expression: >-
+        object.?spec.?template.?metadata.?labels[?'pkg.crossplane.io/revision'].orValue('') != '' ||
+        object.?spec.?selector[?'pkg.crossplane.io/revision'].orValue('') != ''
+    - name: crossplaneOwnerKinds
+      expression: >-
+        object.metadata.?ownerReferences.orValue([]).filter(r,
+        r.?controller.orValue(false) == true && r.?apiVersion.orValue('').startsWith('pkg.crossplane.io/')).map(r,
+        r.?kind.orValue(''))
+  validations:
+    - expression: >-
+        variables.labels[?'app.kubernetes.io/managed-by'].orValue('') == 'flux' ||
+        variables.labels[?'helm.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        variables.labels[?'kustomize.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        (variables.crossplaneRevisionLabelled && size(variables.crossplaneOwnerKinds) > 0 &&
+        variables.crossplaneOwnerKinds.all(k, k in ['ProviderRevision', 'FunctionRevision']))
+      messageExpression: >-
+        object.kind + '/' + object.metadata.name + ' is not Flux-managed. Add label
+        `app.kubernetes.io/managed-by: flux` on metadata.labels OR attach an
+        ownerReference to a HelmRelease / Kustomization.'
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: probes-present
   labels:
@@ -126,69 +94,26 @@ metadata:
       probes, kubelet can't detect a wedged process and Service can't
       gate traffic during startup.
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: containers-must-have-liveness-and-readiness
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - kube-system
-                - flux-system
-                - cilium
-                - cilium-gateway
-                - dragonfly
-                - cert-manager
-                - openova-system
-                - catalyst
-                - kyverno
-                - monitoring
-                - ingress
-                - sso-bridge
-                - falco
-      preconditions:
-        all:
-          - key: "{{ request.operation || 'BACKGROUND' }}"
-            operator: NotEquals
-            value: DELETE
-      validate:
-        message: >-
-          Every container in
-          {{request.object.kind}}/{{request.object.metadata.name}} must
-          declare both livenessProbe and readinessProbe.
-        # The prior `validate.pattern` form `livenessProbe: {"?{}": "?*"}`
-        # required a probe SUB-KEY literally matching the glob `?{}` — no real
-        # probe field (httpGet / exec / tcpSocket / initialDelaySeconds …) can
-        # ever match that, so the pattern denied EVERY workload (it never
-        # admitted one — undetected because no gated chart reached admission).
-        #
-        # `livenessProbe: "?*"` does NOT work either: the `?*` wildcard only
-        # matches NON-EMPTY SCALAR values, while `livenessProbe` is an OBJECT
-        # (httpGet / exec / …) — empirically verified in the kind+kyverno
-        # v1.18 harness that `"?*"` against an object field denies even a
-        # compliant container.
-        #
-        # The robust, probe-handler-agnostic check is `validate.deny` with a
-        # JMESPath count: "the number of containers that DECLARE the probe must
-        # equal the total container count" (i.e. ALL containers carry it).
-        # `containers[?livenessProbe]` filters to containers where the field is
-        # present/truthy. This works for any handler type and autogen-expands
-        # cleanly to `spec.template.spec.containers` for the matched workload
-        # kinds. Empirically green across both directions in the harness.
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.template.spec.containers[?livenessProbe] | length(@) }}"
-                operator: NotEquals
-                value: "{{ request.object.spec.template.spec.containers | length(@) }}"
-              - key: "{{ request.object.spec.template.spec.containers[?readinessProbe] | length(@) }}"
-                operator: NotEquals
-                value: "{{ request.object.spec.template.spec.containers | length(@) }}"
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    # A probe counts when it is a non-empty object, whatever its handler
+    # (httpGet, exec, tcpSocket, grpc); an empty `{}` does not count, as the
+    # legacy filter `containers[?livenessProbe]` did not count it (measured).
+    - expression: >-
+        object.spec.template.spec.containers.all(c,
+        size(c.?livenessProbe.orValue({})) > 0 && size(c.?readinessProbe.orValue({})) > 0)
+      messageExpression: >-
+        'Every container in ' + object.kind + '/' + object.metadata.name +
+        ' must declare both livenessProbe and readinessProbe.'

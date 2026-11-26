@@ -1,0 +1,172 @@
+{{- /*
+Upgrade cleanup: an in-place upgrade from a chart before ACC-102 deletes what
+that chart left and Helm never removes.
+
+THE DEFECT
+==========
+ACC-102 cut this chart to the bootstrap-owned Application. On an upgrade Helm
+deletes only what the previous release manifest holds, and these objects of
+the earlier chart were never in it:
+  - templates/jdbc-schema-seed-job.yaml rendered three post-install,post-upgrade
+    hooks, and a hook belongs to no release manifest:
+      the per-minute admin-enroll CronJob <fullname>-admin-enroll (delete policy
+        before-hook-creation, so it stays and starts a Pod every minute against
+        the deleted database guacamole-pg);
+      the ConfigMap <fullname>-jdbc-seed-scripts (before-hook-creation, stays);
+      the Job <fullname>-jdbc-seed (before-hook-creation; it set
+        ttlSecondsAfterFinished 300, so the cluster deletes it once it ends;
+        it is listed so the cleanup does not rest on that).
+  - templates/secret-sso-oidc-credentials.yaml rendered the Secret
+    guacamole-oidc (the default of guacamole.oidc.clientSecretRef.name; slot
+    52 never changed it) with helm.sh/resource-policy: keep, so Helm leaves it
+    when the template goes. It rendered only with guacamole.sso.mode=openid.
+A fresh install has none of them, so the cleanup renders only on an upgrade.
+The other hooks of that chart (the recordings migration Job and its
+ServiceAccount, Role, RoleBinding, ClusterRole and ClusterRoleBinding) were
+before-hook-creation,hook-succeeded: Helm deleted them when their hook phase
+succeeded, and they rendered only with guacamole.recordings.persistence=true.
+
+THE CLEANUP
+===========
+One post-upgrade Job runs `kubectl delete` on exactly those four names in the
+release namespace. --ignore-not-found makes an absent object a no-op, so the
+Job is idempotent and runs on every upgrade; --wait=false means it needs no
+read right. Its Role grants only `delete`, each rule on one resource and one
+resourceName. The ServiceAccount, Role, RoleBinding and Job are hooks with
+before-hook-creation,hook-succeeded: Helm deletes all four once the hook
+phase succeeds. Weights order the RBAC before the Job (-20, -15, -10, as the
+k8s-ws-proxy hmac-bootstrap-job precedent). It is post-upgrade, not
+pre-upgrade: it runs only after the upgrade applied, so a failed apply that
+Flux rolls back keeps the earlier chart's CronJob with its database.
+
+No retirement hook under the same names (the #7933 shape) is possible here:
+access guard ACC-GD1 refuses a CronJob in this chart and secret guard G3 a new
+Secret manifest. The labels are a dict of this file, not the common helper:
+the helper stamps managed-by=Helm, and the kyverno flux-managed policy denies
+a Job without managed-by=flux. The image is the kit's kubectl image through
+the Harbor proxy, as the other kubectl hooks of the kit. The namespace's
+guacamole-allow-apiserver-egress policy (bp-plane-isolation) admits its call.
+
+The Job can leave the chart once every Sovereign has upgraded past it.
+platform/guacamole/chart/tests/upgrade-cleanup-render.sh holds this file.
+*/ -}}
+{{- if .Release.IsUpgrade }}
+{{- $fullname := include "bp-guacamole.fullname" . -}}
+{{- $enroll := printf "%s-admin-enroll" $fullname | trunc 63 | trimSuffix "-" -}}
+{{- $seed := printf "%s-jdbc-seed" $fullname | trunc 63 | trimSuffix "-" -}}
+{{- $scripts := printf "%s-scripts" $seed -}}
+{{- $oidc := "guacamole-oidc" -}}
+{{- $name := printf "%s-upgrade-cleanup" $fullname | trunc 63 | trimSuffix "-" -}}
+{{- $ns := .Release.Namespace -}}
+{{- $labels := dict "app.kubernetes.io/name" (include "bp-guacamole.name" .) "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/component" "upgrade-cleanup" "app.kubernetes.io/managed-by" "flux" "catalyst.openova.io/blueprint" "bp-guacamole" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    resourceNames: [{{ $enroll | quote }}]
+    verbs: ["delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    resourceNames: [{{ $seed | quote }}]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ $scripts | quote }}]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $oidc | quote }}]
+    verbs: ["delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-upgrade
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $ns }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      containers:
+        - name: cleanup
+          image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 96Mi }
+          command: ["kubectl"]
+          args:
+            - delete
+            - --namespace={{ $ns }}
+            - --ignore-not-found
+            - --wait=false
+            - cronjobs.batch/{{ $enroll }}
+            - jobs.batch/{{ $seed }}
+            - configmaps/{{ $scripts }}
+            - secrets/{{ $oidc }}
+{{- end }}

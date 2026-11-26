@@ -1,0 +1,78 @@
+{{- /*
+The access controller's rights, where it runs: read the kinds and write only
+their status (desired state comes from Git, decision A6); get and create
+service accounts (the session's, read past the cache); the lease of its
+leader election in its own namespace.
+*/ -}}
+{{- if include "bp-guacamole.controllerRendered" . }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: access-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bp-guacamole-access-controller
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [access.openova.io]
+    resources: [accesstargets, accessgrants]
+    verbs: [get, list, watch]
+  - apiGroups: [access.openova.io]
+    resources: [accesstargets/status, accessgrants/status]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bp-guacamole-access-controller
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bp-guacamole-access-controller
+subjects:
+  - kind: ServiceAccount
+    name: access-controller
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: access-controller-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: access-controller-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: access-controller-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: access-controller
+    namespace: {{ .Release.Namespace }}
+{{- end }}

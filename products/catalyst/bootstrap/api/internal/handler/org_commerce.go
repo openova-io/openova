@@ -33,6 +33,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
 )
 
 // commerceKinds is the closed set of /catalog/admin/* resource families
@@ -150,6 +151,9 @@ func (h *Handler) proxyCommerce(w http.ResponseWriter, r *http.Request, method, 
 		subPath += "/" + id
 	}
 
+	if kind == "apps" && method != http.MethodDelete && blueprintedit.Answer(w, catalogCardEditRefusal(r.Context(), h, body)) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), orgCatalogProbeBudget)
 	defer cancel()
 	upstreamStatus, respBody, ct, err := orgCatalog().AdminProxy(ctx, method, subPath, body, bearer)

@@ -442,6 +442,10 @@ func TestMaintenanceWindowKeys(t *testing.T) {
 		"a zone with a space":         with(example(), "KURED_TIME_ZONE", "Asia Muscat"),
 		"an empty Sovereign zone":     with(example(), "SOVEREIGN_TIME_ZONE", ""),
 		"a zone that starts with a /": with(example(), "SOVEREIGN_TIME_ZONE", "/Asia/Muscat"),
+		// The shape of a zone is not a zone: the IANA database has neither.
+		"an unknown kured zone":     with(example(), "KURED_TIME_ZONE", "Asia/Nowhere"),
+		"an unknown Sovereign zone": with(example(), "SOVEREIGN_TIME_ZONE", "Europe/Atlantis"),
+		"the machine's own zone":    with(example(), "SOVEREIGN_TIME_ZONE", "Local"),
 	} {
 		if _, err := FromMap(m); err == nil {
 			t.Errorf("%s: FromMap accepted it", name)

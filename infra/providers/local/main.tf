@@ -126,6 +126,17 @@ resource "random_password" "k3s_agent_token" {
   special  = false
 }
 
+# SEC-060: one salt per Sovereign, not per region, because the regions share
+# the Keycloak realm. The bootstrap-kit slots 09 (bp-keycloak) and 13
+# (bp-catalyst-platform) append it to the seed of every derived Keycloak client
+# secret, so no secret can be computed from the release name and namespace
+# alone. It reaches them as the key KEYCLOAK_CLIENT_SECRET_SALT of the seed
+# Secret flux-system/bootstrap-seed. The value stays in the state.
+resource "random_password" "keycloak_client_secret_salt" {
+  length  = 48
+  special = false
+}
+
 locals {
   control_plane_render_raw = { for r in var.regions : r.code => templatefile("${path.module}/../_shared/cloudinit-control-plane.tftpl", {
     provider = "local"
@@ -151,6 +162,9 @@ locals {
     cluster_cidr          = local.region_pod_cidr[r.code]
     pod_supernet          = local.pod_supernet
     service_cidr          = local.region_service_cidr[r.code]
+
+    # SEC-060: the salt of the derived Keycloak client secrets.
+    keycloak_client_secret_salt = random_password.keycloak_client_secret_salt.result
 
     region_canonical_label         = local.region_label[r.code]
     primary_region_canonical_label = local.region_label[local.region_keys[0]]

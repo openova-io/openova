@@ -44,191 +44,94 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Per-component selector labels — guacd vs webapp pods are distinct
-Deployments and need separate selector sets.
-*/}}
-{{- define "bp-guacamole.guacdSelectorLabels" -}}
-{{ include "bp-guacamole.selectorLabels" . }}
-catalyst.openova.io/component: guacd
-{{- end }}
-
-{{- define "bp-guacamole.webappSelectorLabels" -}}
-{{ include "bp-guacamole.selectorLabels" . }}
-catalyst.openova.io/component: webapp
-{{- end }}
-
-{{/*
-Per-component resource names. Per qa-loop iter-7 Fix #39, the test
-matrix (TC-228 / TC-230 / TC-245 / TC-246) and the catalyst-api's
-shells/issue handler reference these resources by their canonical
-short names — `guacd` and `guacamole-server` — independent of the
-release name. Operator can override via .Values.guacamole.guacd.name
-and .Values.guacamole.webapp.name when running multiple Guacamole
-deployments in the same namespace (rare; ADR-0001 §11 caps at one
-Guacamole per Sovereign).
-*/}}
-{{- define "bp-guacamole.guacdName" -}}
-{{- default "guacd" .Values.guacamole.guacd.name -}}
-{{- end }}
-
-{{- define "bp-guacamole.webappName" -}}
-{{- default "guacamole-server" .Values.guacamole.webapp.name -}}
-{{- end }}
-
-{{- define "bp-guacamole.recordingsName" -}}
-{{- default "guacamole-recordings" .Values.guacamole.recordings.pvcName -}}
-{{- end }}
-
-{{/*
-Image-tag fail-fast helpers. Per docs/INVIOLABLE-PRINCIPLES.md #4a
-empty `:tag` MUST fail the helm template render — we never want
-floating `:latest` shipping into production.
-*/}}
-{{/*
 Registry-rewrite helper (#4885). Given an openova-io "<host>/<path>" image
-repository + a validated tag, prepend .Values.global.imageRegistry in place of
+repository and its digest, prepend .Values.global.imageRegistry in place of
 the leading registry host when it is set (self-sovereign-cutover step-07 pivot),
-else emit the ghcr.io ref verbatim. Mirrors the continuum.image pattern so the
-default byte-identically stays on ghcr.io pre-cutover.
-Usage: {{ include "bp-guacamole.registryImage" (dict "repo" <repo> "tag" <tag> "root" $) }}
+else emit the ghcr.io ref verbatim. The image is referenced by digest only; a
+digest that is not sha256:<64 hex digits> fails the render.
+Usage: {{ include "bp-guacamole.registryImage" (dict "repo" <repo> "digest" <digest> "what" <value path> "root" $) }}
 */}}
 {{- define "bp-guacamole.registryImage" -}}
 {{- $repo := .repo -}}
-{{- $tag := .tag -}}
+{{- $digest := .digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "bp-guacamole: %s is %q, not sha256:<64 hex digits>" .what $digest) -}}
+{{- end -}}
 {{- $globalRegistry := .root.Values.global.imageRegistry | default "" -}}
 {{- if ne $globalRegistry "" -}}
-{{- printf "%s/%s:%s" $globalRegistry (join "/" (slice (splitList "/" $repo) 1)) $tag -}}
+{{- printf "%s/%s@%s" $globalRegistry (join "/" (slice (splitList "/" $repo) 1)) $digest -}}
 {{- else -}}
-{{- printf "%s:%s" $repo $tag -}}
+{{- printf "%s@%s" $repo $digest -}}
 {{- end -}}
-{{- end }}
-
-{{- define "bp-guacamole.guacdImage" -}}
-{{- $tag := .Values.guacamole.guacd.image.tag -}}
-{{- if not $tag -}}
-{{- fail "bp-guacamole: .Values.guacamole.guacd.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
-{{- end -}}
-{{- include "bp-guacamole.registryImage" (dict "repo" .Values.guacamole.guacd.image.repository "tag" $tag "root" $) -}}
-{{- end }}
-
-{{- define "bp-guacamole.webappImage" -}}
-{{- $tag := .Values.guacamole.webapp.image.tag -}}
-{{- if not $tag -}}
-{{- fail "bp-guacamole: .Values.guacamole.webapp.image.tag is empty — SHA-pinned image required (CI populates this)" -}}
-{{- end -}}
-{{- include "bp-guacamole.registryImage" (dict "repo" .Values.guacamole.webapp.image.repository "tag" $tag "root" $) -}}
 {{- end }}
 
 {{/*
-SSO mode (#5358). `header` (default) = bp-oidc-gate authorization-code
-flow in front + guacamole-auth-header behind; `openid` = LEGACY native
-guacamole-auth-sso-openid implicit flow (fragment-replay-broken upstream
-— see values.yaml `guacamole.sso`). Any other value fails the render.
-*/}}
-{{- define "bp-guacamole.ssoMode" -}}
-{{- $sso := .Values.guacamole.sso | default dict -}}
-{{- $mode := $sso.mode | default "header" -}}
-{{- if not (has $mode (list "header" "openid")) -}}
-{{- fail (printf "bp-guacamole: invalid guacamole.sso.mode %q — must be \"header\" (bp-oidc-gate front, default) or \"openid\" (legacy native implicit flow)" $mode) -}}
-{{- end -}}
-{{- $mode -}}
-{{- end }}
-
-{{/*
-Cross-region role (#5358 region-split). `primary` (default) = this region
-owns the ONE Guacamole the Sovereign runs (ADR-0001 §11); `secondary` = this
-region renders the ClusterMesh Service stub ONLY and reaches the primary's
-webapp over the mesh. Any other value fails the render.
+Cross-region role (#5358, ADR-0033 decision A21), from access.crossRegion.
+`primary` (default) = this region runs the access controller and
+self-registers the Sovereign's one Application of the access plane;
+`secondary` = it does neither. Any other value fails the render.
 */}}
 {{- define "bp-guacamole.crossRegionRole" -}}
-{{- $cr := .Values.crossRegion | default dict -}}
+{{- $cr := (.Values.access | default dict).crossRegion | default dict -}}
 {{- $role := $cr.role | default "primary" -}}
 {{- if not (has $role (list "primary" "secondary")) -}}
-{{- fail (printf "bp-guacamole: invalid crossRegion.role %q — must be \"primary\" (owns the singleton webapp) or \"secondary\" (mesh stub only)" $role) -}}
+{{- fail (printf "bp-guacamole: invalid access.crossRegion.role %q — must be \"primary\" (runs the access controller) or \"secondary\" (does not)" $role) -}}
 {{- end -}}
 {{- $role -}}
 {{- end }}
 
 {{/*
-Mesh-secondary predicate (#5358 region-split). Emits "true" when this region is
-the ClusterMesh SECONDARY — i.e. the region that must run NO Guacamole workload
-so its `guacamole-server` Service has ZERO local backends and
-`service.cilium.io/affinity: local` falls through the mesh to the primary's
-singleton. Empty string otherwise.
-
-Deliberately independent of `.Values.guacamole.enabled` so callers that do not
-gate on that value (application-cr.yaml) keep their existing semantics.
+Mesh-secondary predicate (#5358). Emits "true" when access.crossRegion is on
+and this region is the ClusterMesh SECONDARY, which does not self-register the
+Application (templates/application-cr.yaml), so the Sovereign has one instance
+card. Empty string otherwise.
 */}}
 {{- define "bp-guacamole.isMeshSecondary" -}}
-{{- $cr := .Values.crossRegion | default dict -}}
+{{- $cr := (.Values.access | default dict).crossRegion | default dict -}}
 {{- if and $cr.enabled (eq (include "bp-guacamole.crossRegionRole" .) "secondary") -}}
 true
 {{- end -}}
 {{- end }}
 
 {{/*
-Workload render gate (#5358 region-split). Emits "true" when this region must
-run the Guacamole workload set (webapp + guacd + JDBC store), empty otherwise.
-
-crossRegion.enabled=false (the default, and every single-region Sovereign)
-always renders the workloads, so the default render is byte-identical to
-pre-0.2.36.
+Region rule of the access plane (decision A21). Emits "true" when
+access.enabled and this region runs the controller: access.crossRegion is off,
+or this region is the primary. The controller's Deployment, service account and
+roles render only then (bp-guacamole.controllerRendered); its Service and the
+writer lock render with access.enabled in every region.
 */}}
-{{- define "bp-guacamole.renderWorkloads" -}}
-{{- if and .Values.guacamole.enabled (not (include "bp-guacamole.isMeshSecondary" .)) -}}
+{{- define "bp-guacamole.accessActive" -}}
+{{- $a := .Values.access | default dict -}}
+{{- if and $a.enabled (not (include "bp-guacamole.isMeshSecondary" .)) -}}
 true
 {{- end -}}
 {{- end }}
 
 {{/*
-OIDC issuer fail-fast — Guacamole won't authenticate without it.
+Labels of the access controller's objects. app.kubernetes.io/name is
+access-controller, not the chart name, so it is a label of its own.
 */}}
-{{- define "bp-guacamole.oidcIssuer" -}}
-{{- $iss := .Values.guacamole.oidc.issuer -}}
-{{- if not $iss -}}
-{{- fail "bp-guacamole: .Values.guacamole.oidc.issuer is empty — set to https://keycloak.<sovereign-fqdn>/realms/<realm>" -}}
-{{- end -}}
-{{- $iss -}}
+{{- define "bp-guacamole.controllerSelectorLabels" -}}
+app.kubernetes.io/name: access-controller
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "bp-guacamole.controllerLabels" -}}
+{{ include "bp-guacamole.controllerSelectorLabels" . }}
+app.kubernetes.io/part-of: bp-guacamole
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+catalyst.openova.io/blueprint: bp-guacamole
 {{- end }}
 
 {{/*
-HTTPRoute hostname fail-fast — Cilium Gateway needs a concrete host.
+The controller renders where bp-guacamole.accessActive says, once CI has
+written the digest of its image (access-controller-build.yaml, after the first
+build of the image). Until then the release holds the Service and the writer
+lock only, and no target becomes Ready, which check ACC-G13 reports.
 */}}
-{{- define "bp-guacamole.host" -}}
-{{- $h := .Values.guacamole.httproute.hostname -}}
-{{- if not $h -}}
-{{- fail "bp-guacamole: .Values.guacamole.httproute.hostname is empty — set to guacamole.<sovereign-fqdn>" -}}
-{{- end -}}
-{{- $h -}}
-{{- end }}
-
-{{/*
-Default redirectURI — when operator left it blank we derive
-https://<httproute.hostname>/guacamole/.
-
-#3150 (2026-06-10): the redirect_uri MUST carry the `/guacamole/`
-context path, NOT the bare host root. The Apache Guacamole WAR is
-`guacamole.war`, so Tomcat serves the webapp under the `/guacamole/`
-context path — the container root `/` returns a Tomcat 404 ROOT-context
-page. The guacamole-auth-sso-openid extension implements the OIDC
-*implicit* flow: it sends `redirect_uri` to Keycloak, Keycloak issues the
-id_token and redirects the browser back to that exact URI with the token
-in the URL fragment (`#id_token=…`). With the prior bare-`/` default the
-browser landed on `https://guacamole.<fqdn>/#id_token=…` → Tomcat 404
-ROOT page → the SSO completed at Keycloak but the token never reached the
-webapp (the extension never ran), so the operator never landed logged-in.
-Appending `/guacamole/` lands the fragment on the actual webapp root so
-the extension consumes the token and the operator lands authenticated.
-The KC `guacamole` client's `redirectUris` is a wildcard
-(`https://guacamole.<fqdn>/*`, configmap-sovereign-realm.yaml) so it
-already accepts the `/guacamole/` path — only this chart-side default was
-wrong. Operators can still override via `oidc.redirectURI` for a
-non-default context path.
-*/}}
-{{- define "bp-guacamole.oidcRedirectURI" -}}
-{{- if .Values.guacamole.oidc.redirectURI -}}
-{{- .Values.guacamole.oidc.redirectURI -}}
-{{- else -}}
-{{- printf "https://%s/guacamole/" (include "bp-guacamole.host" .) -}}
+{{- define "bp-guacamole.controllerRendered" -}}
+{{- if and (include "bp-guacamole.accessActive" .) .Values.access.controller.image.digest -}}
+true
 {{- end -}}
 {{- end }}

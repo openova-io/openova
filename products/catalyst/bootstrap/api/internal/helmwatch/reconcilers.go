@@ -74,39 +74,31 @@ const ReconcilerMarkerLabel = "catalyst.openova.io/reconciler"
 // row carrying its run-history (run count + last-run + status), never 600
 // rows and never dropped. This supersedes the earlier #3919 disposition
 // (exclude entirely): the scanner identity is detected the same way
-// (isDay2ScannerJob), but its runs are folded onto ONE leaf as Executions
+// (isTrivyScanJob), but its runs are folded onto ONE leaf as Executions
 // (the same collapse the cron + task leaves already use), so the Jobs view
-// shows "trivy security-scan · 600 runs" / "syft sbom · 37 runs" — one row
-// each. Two scanners collapse:
+// shows "trivy security-scan · 600 runs" — one row. Trivy is the platform's
+// one vulnerability matcher (ADR-0031 I13), so it is the one scanner that
+// collapses:
 //
 //   - trivy-operator — one short-lived scan-* Job per workload (+ per
 //     container), continuously re-scanned, in trivyScanNamespace. Detected by
 //     isTrivyScanJob; all runs fold onto the trivyScanIdentity row.
-//   - syft-grype     — a daily SBOM/vuln CronJob in syftGrypeNamespace whose
-//     spawned Jobs carry a CronJob ownerReference to syftGrypeCronName. The
-//     CronJob seeds the syftScanIdentity row in pass 2; its spawned + any
-//     namespace-resident scan Jobs fold on as Executions in pass 3.
+//
+// A scan that runs from a CronJob needs no rule of its own: its spawned Jobs
+// carry the CronJob ownerReference and fold onto that CronJob's cron-<name>
+// leaf like every other CronJob's runs.
 const (
 	// trivyScanNamespace — the namespace the trivy-operator runs its scan
-	// Jobs in. Scan Jobs anywhere else are still caught by the label/name
-	// checks in isDay2ScannerJob; this is the fast common-case match.
+	// Jobs in. Scan Jobs anywhere else are still caught by the label checks
+	// in isTrivyScanJob; this is the fast common-case match.
 	trivyScanNamespace = "trivy-system"
-	// syftGrypeNamespace — the namespace bp-syft-grype installs into
-	// (clusters/_template/bootstrap-kit/33-syft-grype.yaml targetNamespace).
-	syftGrypeNamespace = "syft-grype"
-	// syftGrypeCronName — the bp-syft-grype CronJob name (releaseName in the
-	// slot-33 HelmRelease). Its spawned Jobs carry it as a CronJob owner.
-	syftGrypeCronName = "syft-grype"
 
-	// trivyScanIdentity / syftScanIdentity — the STABLE identity the
-	// collapsed scanner row is keyed on (#3925). Every trivy scan Job folds
-	// onto trivyScanIdentity; every syft-grype run folds onto
-	// syftScanIdentity. These are the task-<identity> leaf names the Jobs
-	// view renders ONE row for, with all runs behind them as Executions.
-	// Names are operator-readable (DeriveLeafDisplayName humanises them to
-	// "Trivy Security Scan (task)" / "Syft SBOM (task)").
+	// trivyScanIdentity — the STABLE identity the collapsed scanner row is
+	// keyed on (#3925). Every trivy scan Job folds onto it. It is the
+	// task-<identity> leaf name the Jobs view renders ONE row for, with all
+	// runs behind it as Executions. The name is operator-readable
+	// (DeriveLeafDisplayName humanises it to "Trivy Security Scan (task)").
 	trivyScanIdentity = "trivy-security-scan"
-	syftScanIdentity  = "syft-sbom"
 )
 
 // Reconciler-observation Kind tags. These mirror the jobs.Kind* leaf
@@ -161,10 +153,10 @@ func isTerminalRunStatus(status string) bool {
 // Rule 1 alone was the defect behind UAT row 164. It compared an unterminated
 // run's startedAt against a terminated run's finishedAt — two different clocks —
 // so a newer in-flight run silently downgraded a real failure to "running".
-// Measured on hw292: Job syft-grype-bp-syft-grype-29763030 was
-// Failed/BackoffLimitExceeded (2026-08-03) while its successor
-// syft-grype-bp-syft-grype-29770230 sat two days stale with zero active pods and
-// no conditions at all. Both fold onto `task-syft-sbom`; the failed run was
+// Measured on hw292: a scanner Job (run 29763030) was
+// Failed/BackoffLimitExceeded (2026-08-03) while its successor (run 29770230)
+// sat two days stale with zero active pods and no conditions at all. Both
+// folded onto one collapsed scanner leaf; the failed run was
 // recorded correctly as an Execution, but the LEAF read `installing`. Result:
 // 0 failed leaves out of 183 on a cluster that had a failed Job — precisely the
 // "invisible failing class" the §5a ingestion exists to kill (#3646).
@@ -317,8 +309,8 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// reallocation-safety reason cronIdx is.
 	taskIdx := map[string]int{} // ns/base → index into out
 	// scannerIdx indexes the ONE collapsed Day-2 scanner row per scanner
-	// identity (#3925) — trivyScanIdentity / syftScanIdentity. Every scan
-	// Job folds its run onto the single identity row as an Execution, so a
+	// identity (#3925) — trivyScanIdentity. Every scan Job folds its run
+	// onto the single identity row as an Execution, so a
 	// 600-run trivy flood is ONE row + 600 runs, never 600 rows (and never
 	// dropped — a recurring scan is a finite job that recurs). Position-
 	// indexed for the same reallocation-safety reason cronIdx/taskIdx are.
@@ -326,26 +318,6 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	if list, err := dyn.Resource(CronJobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
-			// Day-2 scanner CronJob (syft-grype) → COLLAPSES onto the single
-			// syftScanIdentity row (#3925), NOT a per-CronJob cron-* leaf.
-			// Seeding the identity row HERE (pending until its first run) means
-			// the Jobs view shows "syft sbom" even before any run lands, and
-			// the CronJob's spawned Jobs fold their runs onto this same row as
-			// Executions in pass 3 (keyed by scannerIdentity, not by owner).
-			if isDay2ScannerCronJob(u) {
-				key := syftScanIdentity
-				if _, ok := scannerIdx[key]; !ok {
-					out = append(out, ReconcilerObservation{
-						Kind:      ReconcilerKindTask,
-						Name:      syftScanIdentity,
-						Namespace: u.GetNamespace(),
-						Status:    ObsStatusPending,
-						Message:   "recurring SBOM scan: no run observed yet",
-					})
-					scannerIdx[key] = len(out) - 1
-				}
-				continue
-			}
 			cronSuspended, okCronSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
 			obs := ReconcilerObservation{
 				Kind:      ReconcilerKindCron,
@@ -371,22 +343,21 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	// task-<name> leaf. The ownership de-dup (issue #3646 §5a) keys off
 	// metadata.ownerReferences + the helm hook label.
 	//
-	// Day-2 security-scanner Jobs (trivy-operator + syft-grype, #3919/#3925)
-	// COLLAPSE onto ONE identity-keyed row per scanner — they never mint a
-	// per-run task-* leaf. The trivy-operator spawns one short-lived scan Job
-	// per workload (+ per container) and re-scans forever; syft-grype runs a
-	// daily SBOM CronJob. Both are finite jobs that RECUR (model §3): a
-	// recurring scan is one entity with a run-history behind it, not 600 rows
-	// and not excluded. So each scan Job folds its run onto the single
-	// scanner-identity row as an Execution (the same collapse the cron + task
-	// leaves use), recency-resolving the headline status — the Jobs view shows
-	// "trivy security-scan · N runs" / "syft sbom · N runs", one row each.
+	// Day-2 security-scanner Jobs (trivy-operator, #3919/#3925) COLLAPSE onto
+	// ONE identity-keyed row — they never mint a per-run task-* leaf. The
+	// trivy-operator spawns one short-lived scan Job per workload (+ per
+	// container) and re-scans forever. That is a finite job that RECURS
+	// (model §3): a recurring scan is one entity with a run-history behind
+	// it, not 600 rows and not excluded. So each scan Job folds its run onto
+	// the single scanner-identity row as an Execution (the same collapse the
+	// cron + task leaves use), recency-resolving the headline status — the
+	// Jobs view shows "trivy security-scan · N runs", one row.
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
 			status, started, finished := JobRunStatus(u)
-			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype run)
-			// → fold its run onto the ONE collapsed identity row (#3925).
+			// Day-2 scanner Job (a trivy-operator scan-* run) → fold its run
+			// onto the ONE collapsed identity row (#3925).
 			if id, ok := scannerIdentity(u); ok {
 				foldScannerRun(&out, scannerIdx, id, u.GetNamespace(), u, status, started, finished)
 				continue
@@ -673,89 +644,39 @@ func isRunSuffix(s string) bool {
 	return hasDigit
 }
 
-// isDay2ScannerJob reports whether a batch Job is a Day-2 security-scanner
-// run (trivy-operator OR syft-grype, #3919/#3925). A scanner run does NOT
-// mint its own per-run task-* leaf — instead it COLLAPSES onto ONE
-// identity-keyed row per scanner via scannerIdentity + foldScannerRun, so a
-// 600-run flood is one row with a run-history behind it (model §4 Surface B),
-// never 600 rows and never excluded.
+// scannerIdentity returns the STABLE collapse identity for a Day-2 scanner
+// Job (#3919/#3925) — trivyScanIdentity for any trivy-operator scan Job —
+// and ok=false for every other Job. A scanner run does NOT mint its own
+// per-run task-* leaf: every run maps to the SAME identity and foldScannerRun
+// records it there, so a 600-run flood is one row with a run-history behind
+// it (model §4 Surface B), never 600 rows and never excluded.
 //
-// Day-2 scanners run forever: the trivy-operator spawns one short-lived scan
-// Job per workload (+ per container) and re-scans continuously (producing the
+// The trivy-operator runs forever: it spawns one short-lived scan Job per
+// workload (+ per container) and re-scans continuously (producing the
 // VulnerabilityReport / ConfigAuditReport / ExposedSecretReport /
-// RbacAssessmentReport CRs); syft-grype runs a daily SBOM/vuln CronJob whose
-// spawned Jobs accumulate under successfulJobsHistoryLimit. On a converged
-// Sovereign that is hundreds of ever-growing per-run rows that dwarf the ~100
-// real reconcilers. Collapsing them to one identity row each kills the flood
-// while keeping the recurring scan visible as the finite job it is.
+// RbacAssessmentReport CRs). On a converged Sovereign that is hundreds of
+// ever-growing per-run rows that dwarf the ~100 real reconcilers. Collapsing
+// them to one identity row kills the flood while keeping the recurring scan
+// visible as the finite job it is.
 //
 // Detection is layered + conservative (any match ⇒ scanner Job), so a
 // TENANT's own Job named "scan-*" in some other namespace, or a non-scanner
 // user Job, is never swept up:
 //
-//	trivy-operator:
-//	 1. the trivy-operator managed-by label
-//	    (app.kubernetes.io/managed-by=trivy-operator) — stamped on every
-//	    scan Job the operator creates;
-//	 2. any trivy-operator.* label key (e.g. trivy-operator.resource.kind),
-//	    present on scan Jobs regardless of the managed-by value;
-//	 3. the well-known scan-* name prefix scoped to the trivy-system
-//	    namespace, a belt-and-braces fallback if a future operator release
-//	    strips the labels. Name-prefix alone OUTSIDE trivy-system is
-//	    intentionally NOT treated as a scan Job.
-//
-//	syft-grype:
-//	 4. a CronJob ownerReference to the syft-grype CronJob (the kube CronJob
-//	    controller stamps it on every spawned run) — authoritative;
-//	 5. the bp-syft-grype managed-by/instance label scoped to the
-//	    syft-grype namespace, for a Job that lost its owner ref;
-//	 6. residence in the syft-grype namespace, a final belt-and-braces
-//	    fallback (the whole namespace is the scanner's, so any Job there is a
-//	    scan run). Namespace-scoping keeps a same-named tenant Job elsewhere
-//	    surfaced as a real task.
-func isDay2ScannerJob(u *unstructured.Unstructured) bool {
-	return isTrivyScanJob(u) || isSyftGrypeScannerJob(u)
-}
-
-// scannerIdentity returns the STABLE collapse identity for a Day-2 scanner
-// Job (#3925) — trivyScanIdentity for any trivy-operator scan Job,
-// syftScanIdentity for any syft-grype run — and ok=false for a non-scanner
-// Job. Every run of a scanner maps to the SAME identity, which is what makes
-// the 600-run flood fold onto one row. Trivy is checked first; the two
-// detection sets are namespace-disjoint so order is immaterial in practice.
+//  1. the trivy-operator managed-by label
+//     (app.kubernetes.io/managed-by=trivy-operator) — stamped on every
+//     scan Job the operator creates;
+//  2. any trivy-operator.* label key (e.g. trivy-operator.resource.kind),
+//     present on scan Jobs regardless of the managed-by value;
+//  3. the well-known scan-* name prefix scoped to the trivy-system
+//     namespace, a belt-and-braces fallback if a future operator release
+//     strips the labels. Name-prefix alone OUTSIDE trivy-system is
+//     intentionally NOT treated as a scan Job.
 func scannerIdentity(u *unstructured.Unstructured) (string, bool) {
 	if isTrivyScanJob(u) {
 		return trivyScanIdentity, true
 	}
-	if isSyftGrypeScannerJob(u) {
-		return syftScanIdentity, true
-	}
 	return "", false
-}
-
-// SyftScanCronTarget maps the collapsed Syft SBOM identity row back to the
-// object that actually backs it: the bp-syft-grype CronJob (UAT row 176).
-//
-// The collapse (#3925) is what makes this seam necessary. `syft-sbom` is a
-// SYNTHETIC identity — no Kubernetes object carries that name — so anything
-// trying to act on the row by name finds nothing. The retry path did exactly
-// that and returned a 422 for a row that is genuinely re-runnable: pass 2 of
-// buildReconcilerRows seeds this very row FROM the CronJob named here, so the
-// backing object is known, not guessed.
-//
-// It is deliberately syft-ONLY and returns ok=false for anything else,
-// including trivyScanIdentity. Trivy's row aggregates one scan Job per
-// workload spawned by the trivy-operator; there is no single object whose
-// re-run means "redo the scan", so that row has nothing to offer here and
-// must keep reporting that honestly.
-//
-// The caller still has to handle an ABSENT CronJob — this reports the
-// identity mapping, not the object's existence.
-func SyftScanCronTarget(identity string) (namespace, cronName string, ok bool) {
-	if strings.TrimSpace(identity) != syftScanIdentity {
-		return "", "", false
-	}
-	return syftGrypeNamespace, syftGrypeCronName, true
 }
 
 // foldScannerRun records ONE scanner run as an Execution on the single
@@ -809,51 +730,6 @@ func isTrivyScanJob(u *unstructured.Unstructured) bool {
 		}
 	}
 	if u.GetNamespace() == trivyScanNamespace && strings.HasPrefix(u.GetName(), "scan-") {
-		return true
-	}
-	return false
-}
-
-// isSyftGrypeScannerJob — syft-grype detection paths (4)-(6) above.
-func isSyftGrypeScannerJob(u *unstructured.Unstructured) bool {
-	// (4) spawned by the syft-grype CronJob — owner ref is authoritative
-	// regardless of namespace.
-	if owner, ok := cronJobOwnerName(u); ok && owner == syftGrypeCronName {
-		return true
-	}
-	// (5) bp-syft-grype-labelled Job in the syft-grype namespace. The
-	// bp-syft-grype helper labels stamp app.kubernetes.io/managed-by=Helm and
-	// app.kubernetes.io/instance=syft-grype + catalyst.openova.io/blueprint=
-	// bp-syft-grype; key off the blueprint/instance marker, namespace-scoped.
-	labels := u.GetLabels()
-	if u.GetNamespace() == syftGrypeNamespace {
-		if strings.EqualFold(strings.TrimSpace(labels["catalyst.openova.io/blueprint"]), "bp-syft-grype") {
-			return true
-		}
-		if strings.EqualFold(strings.TrimSpace(labels["app.kubernetes.io/instance"]), syftGrypeCronName) {
-			return true
-		}
-		// (6) any other Job in the syft-grype namespace — the namespace is
-		// exclusively the scanner's, so a stray Job there is still a scan run.
-		return true
-	}
-	return false
-}
-
-// isDay2ScannerCronJob reports whether a batch CronJob is a Day-2 scanner
-// CronJob (syft-grype) that must be excluded from the flow + diagram. The
-// trivy-operator does NOT use a CronJob (it self-spawns Jobs), so this only
-// matches syft-grype: by name+namespace, or by the bp-syft-grype blueprint
-// label, namespace-scoped so a tenant CronJob elsewhere is untouched.
-func isDay2ScannerCronJob(u *unstructured.Unstructured) bool {
-	if u.GetNamespace() != syftGrypeNamespace {
-		return false
-	}
-	if u.GetName() == syftGrypeCronName {
-		return true
-	}
-	labels := u.GetLabels()
-	if strings.EqualFold(strings.TrimSpace(labels["catalyst.openova.io/blueprint"]), "bp-syft-grype") {
 		return true
 	}
 	return false

@@ -255,6 +255,14 @@ gitea:
   deployment:
     annotations:
       secret.reloader.stakater.com/reload: "gitea-admin-secret"
+  # The upstream connection test Pod gitea-test-connection — OFF (CMP-067).
+  # Kit slot 10 enables the release's tests, so helm-controller creates it
+  # after each install and upgrade, and it pulls busybox:latest directly with
+  # no requests, which harbor-proxy-pull, image-tag-pinned and
+  # resource-requests refuse. The chart's own function test
+  # (templates/tests/) stays.
+  test:
+    enabled: false
   # Upstream chart Ingress — DISABLED. Catalyst routes via Cilium Gateway
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:
@@ -297,7 +305,9 @@ giteaAdmin:
 # templates/platform-repos-job.yaml creates the organisation `org` and each
 # repository of `repos` in it (private, first commit on main) when Gitea is
 # installed. It runs in the writer region only: bootstrap-kit slot 10 fills
-# regionId and writerRegionId; an empty writerRegionId means one region.
+# follower (true on a secondary control plane: SECONDARY_HR_SUSPEND), regionId
+# and writerRegionId; an empty writerRegionId means one region. A login that
+# Gitea refuses (401) fails the Job at once, without a retry.
 platformRepos:
   enabled: true
   image: "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
@@ -305,6 +315,7 @@ platformRepos:
   repos:
     - sovereign-regions
     - provider-pack
+  follower: false
   regionId: ""
   writerRegionId: ""
 
@@ -594,6 +605,13 @@ objectStorage:
 # lives (flux-system for the slot 10 HR).
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —
@@ -668,3 +686,34 @@ gitDataMigration:
   # which fails the pre-upgrade gate and rollback-loops the whole gitea HR.
   # Identical proxy ref to sso-configure-deployment.yaml / database-secret-sync-job.yaml.
   image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+
+# ─── Scheduled Git bundles (decision record 0036, B1 Git row; FND-184) ────
+# templates/git-bundle-cronjob.yaml. An installation that names the
+# Sovereign's bucket gets one CronJob, in the writer region only (the
+# platformRepos.regionId and writerRegionId of slot 10): every repository's
+# default-branch head that has no bundle yet is written as
+# `git bundle create --all` to git/<owner>/<repository>/<head>.bundle of the
+# bucket, and the `keep` newest bundles of each repository stay. With a
+# bucket, objectStore.endpoint and objectStore.secretName may not be empty: a
+# half-wired installation fails its render.
+gitBundle:
+  # Five fields: every 15 minutes.
+  schedule: "*/15 * * * *"
+  # The newest bundles kept per repository.
+  keep: 10
+  # The image of the Gitea Deployment (gitea.image and the subchart's app
+  # version): it carries git, curl and a shell. Pulled through the Harbor
+  # proxy cache, like every image of this chart.
+  image: "harbor.openova.io/proxy-dockerhub/gitea/gitea:1.22.3-rootless"
+  # Upper bound of the scratch volume that holds one repository's clone and
+  # bundle at a time.
+  scratchSizeLimit: 2Gi
+  objectStore:
+    # The name of the Sovereign's bucket.
+    bucket: ""
+    # The bucket's S3 endpoint, a URL; addressed path-style.
+    endpoint: ""
+    # A Secret in this namespace with the keys s3-access-key, s3-secret-key
+    # and s3-region: a copy of the Sovereign's object-storage Secret. The
+    # chart renders no Secret; this one is register entry git-bundle-bucket.
+    secretName: object-storage

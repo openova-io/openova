@@ -53,14 +53,29 @@ reloader:
       env:
         open: []
 
-      # SecurityContext — non-root.
+      # Pod securityContext — non-root. The upstream chart renders
+      # `deployment.securityContext` at spec.template.spec.securityContext,
+      # where only Pod fields exist (it merges its seccompProfile
+      # RuntimeDefault into this). allowPrivilegeEscalation, capabilities
+      # and readOnlyRootFilesystem are container fields: the API server
+      # dropped them here, so none was in effect until they moved below.
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
-        readOnlyRootFilesystem: true
+
+      # Container securityContext — the upstream chart renders
+      # `deployment.containerSecurityContext` as the securityContext of the
+      # reloader container. readOnlyRootFilesystem comes from
+      # `reloader.readOnlyRootFileSystem` below.
+      containerSecurityContext:
         allowPrivilegeEscalation: false
         capabilities:
           drop: ["ALL"]
+
+    # Read-only root file system, the upstream documented option: the
+    # upstream chart sets readOnlyRootFilesystem: true on the container and
+    # mounts an emptyDir at /tmp/, the one path it writes.
+    readOnlyRootFileSystem: true
 
     # Reload strategy — `annotations` mode bumps a pod-template annotation
     # (reloader.stakater.com/last-reloaded-from) on the watched workload,

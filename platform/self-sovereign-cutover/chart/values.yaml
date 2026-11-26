@@ -763,6 +763,175 @@ prewarm:
   # each FATAL the gate naming the release. Honored overrides are recorded in
   # the status ConfigMap (settledRollOverrides) and surfaced on
   # GET /sovereign/cutover/status; recording failure is itself FATAL.
+  #
+  # SOV-231 — WHERE THE OVERRIDE HOLDS: on a HelmRelease that no Flux
+  # Kustomization applies. kustomize-controller removes a hand-set annotation
+  # from an object it applies (label kustomize.toolkit.fluxcd.io/name): on a
+  # standing two-region Sovereign, 25 Nov 2026, the annotation set by hand on
+  # bp-powerdns, bp-external-dns and bp-powerdns-admin in both regions was gone
+  # within two minutes, before the pre-flight read it (#5391). So for a
+  # terminal offender with that label the printed remedy does not offer the
+  # annotation; it names what works: a candidate whose kit changes its pin
+  # (the delivery rule below; the kit's releases only), a repair of the
+  # release then `flux reconcile helmrelease <name> -n <ns> --reset`, or the
+  # whole-gate switch prewarm.settledRollPreflight.enabled=false. The
+  # validation and the record of an override are unchanged.
+  #
+  # A DELIVERY (PUT /api/v1/sovereign/release: CANDIDATE set, UPSTREAM_BRANCH = release/<candidate>)
+  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ), that the kit applies (namespace
+  # flux-system, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit: the pins name charts, and an
+  # unlabelled namespace's bp-keycloak shares a kit chart name), when the candidate's kit pins
+  # its chart at ONE version that is neither its desired, last attempted nor deployed one: the promote
+  # gives Flux that version, which Phase A2-pins mirrors. Nor a DependencyNotReady release whose every
+  # dependency is settled or such a release. Each is named with both versions and recorded as an
+  # override is. Standing two-region Sovereign, 25 Nov 2026: bp-powerdns 1.2.32 refused by a policy,
+  # rolled back to 1.2.30, Stalled; the gate refused the candidate pinning the repair 1.2.33. The first
+  # cutover is no delivery: its gate is unchanged.
+  #
+  # Phase A0 of step 03, word for word (#6004: a template's comments are stored in every
+  # Helm release Secret; those of values.yaml are not):
+  #
+  # HelmReleases: a SUSPENDED HR is intentionally frozen (it will NOT
+  # roll during the cutover, so its running IS its desired) → skip it.
+  # A validly-overridden HR (annotation, validated above) → skip it.
+  # Otherwise flag when the spec out-ran the controller
+  # (observedGeneration < generation — the pin-bump case) OR Ready !=
+  # True (mid-reconcile / failed upgrade).
+  # #5391/#5392: distinguish TERMINAL from mid-roll. Once Flux marks an
+  # HR Stalled=True (reason RetriesExceeded) it has stopped retrying
+  # PERMANENTLY — that release will never reach Ready on its own, so
+  # "wait for the roll to settle and re-trigger" is false advice: the
+  # operator would wait forever. Live hw290 (dep 31106b6aa4a7e8e7):
+  # 7 offenders, ALL per-Org customer apps, ALL Stalled/RetriesExceeded
+  # (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
+  # DependencyNotReady onto 4 siblings). Tag those rows so the operator
+  # can tell "wait 5 minutes" from "this blocks you until you act".
+  #
+  # #6253: the two terminal shapes need DIFFERENT remedies, so they carry
+  # different tags. `flux reconcile --reset` clears a Stalled upgrade; it
+  # does nothing whatsoever for a pin whose chart was never published —
+  # there is no artifact to pull, so retrying is guaranteed to fail
+  # identically. Emitting the stalled remedy for a hollow pin sends the
+  # operator to a command that cannot work; name the real one instead
+  # (publish the pinned version, or re-pin to a published one).
+  #
+  # SOV-231: the same enumeration tags a platform offender that carries the
+  # label kustomize.toolkit.fluxcd.io/name, KST when terminal and KSM
+  # otherwise, with the Kustomization's name. The override is offered only
+  # while a terminal offender without the label remains; the KST releases are
+  # listed with the remedies that work for them (see the override above).
+  #
+  # Deployments + StatefulSets: a pending rollout — observedGeneration
+  # behind the spec, or updated/ready replicas short of desired. Skip
+  # intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
+  # deliberately NOT gated: cordoned / control-plane-tainted nodes skew
+  # desired-vs-ready legitimately and would false-positive the gate.
+  #
+  # #6198 — THIS CHART'S OWN WORKLOADS ARE EXCLUDED, and the reason is
+  # circularity rather than convenience. The gate's whole premise is
+  # "running != desired": a workload mid-roll would be mirrored at its
+  # RUNNING tag and then rolled by step-04/step-07 to a DESIRED tag that
+  # was never mirrored. That premise cannot apply to the cutover's own
+  # components — the cutover does not roll itself to new tags, so their
+  # running IS their desired, exactly like the suspended-HR case above.
+  #
+  # Left in scope, one of them deadlocks the whole cutover. Measured live
+  # on hw295 (dep 952c564cab38d320): Deployment/catalyst/
+  # cutover-daytwo-harbor-reconciler installs at PROV and stays 0/1
+  # Running because its readiness probe (`grep -qx READY
+  # /tmp/daytwo-work/health`) withholds READY until the local Harbor holds
+  # every workload image — it logs `MISSING local Harbor image:
+  # registry.<fqdn>/proxy-dockerhub/goharbor/harbor-core:v2.14.3 (HTTP
+  # 404)` and one line like it per image (#5640). Populating those is
+  # precisely what THIS step does. So step-03 waited on the reconciler and
+  # the reconciler waited on step-03: cutover dead at 9%, step 3 of 11,
+  # BackoffLimitExceeded, on an otherwise healthy env (63/67 HRs Ready,
+  # handover sealed, chart above the #5919 floor).
+  #
+  # A component whose readiness IS "the mirror exists" must never gate the
+  # step that builds the mirror.
+  #
+  # This exclusion is narrow on purpose: it keys on the chart's own
+  # `app.kubernetes.io/name` label, so every workload the cutover actually
+  # rolls stays gated. It is NOT the whole-gate kill switch
+  # (`prewarm.settledRollPreflight.enabled=false`), which stays available
+  # and stays a last resort.
+  #
+  # #6273 — the WARNING, printed BEFORE the platform verdict so it is
+  # visible on a passing run AND on a failing one. It is deliberately
+  # loud and fully enumerated: this is the one place a narrowing of a
+  # fail-closed gate could become silent, and a silent narrowing is
+  # indistinguishable from the gate not working.
+  #
+  # The argument is OWNERSHIP, which is stronger ground than the #6198
+  # circularity carve-out one scope down. A sovereign-admin cannot be
+  # required to repair an Organization's application in order to earn
+  # the Sovereign's independence: the app belongs to the Organization
+  # that installed it, and on hw296 a fully healthy Sovereign (all 68
+  # flux-system HelmReleases Ready=True, zero platform offenders) was
+  # held out of Pillar 5 by three customer releases in `walkthree`
+  # whose install had failed. hw290 was the same shape a month earlier
+  # ("7 offenders, ALL per-Org customer apps", recorded below).
+  #
+  # The cost is REAL and is stated in the output rather than buried
+  # here: mirroring is unchanged (still best-effort over every running
+  # tag, Organization namespaces included), so a genuinely MID-ROLL app
+  # can still be mirrored at a tag the post-cutover roll moves away
+  # from. That app can then fail to pull and need a re-install. What
+  # changes is only whether that possibility fail-closes the Sovereign.
+  #
+  # #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE for
+  # both the override validation and the offender tagging below (two
+  # hand-rolled `Stalled=True` tests used to disagree with reality).
+  # Stalled=True/RetriesExceeded is how Flux gives up on an UPGRADE. A pinned
+  # chart version that does not exist sets NO Stalled: helm-controller parks the
+  # release on Ready=False reason=SourceNotReady for ever. hw296 (2026-08-13):
+  # bp-guacamole pinned 0.2.40, ghcr tops out at 0.2.39, and the HR read
+  # Ready=False SourceNotReady "... chart pull error: failed to download chart
+  # ... 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ...: not found"
+  # The old classifier told the operator to wait, then REFUSED the #5391
+  # override on it ("it will settle on its own"): a dead end. So an absent
+  # source artifact joins Stalled as terminal. Deliberately NARROW: only a
+  # 404-class answer under a SOURCE-side Ready reason; a transient failure
+  # (deadline exceeded, connection refused, 5xx) stays mid-roll. The token must
+  # come with a REMOTE-RESOLUTION context (`chart pull error`, or the
+  # self-contained `no chart version found`), because hw296 also showed
+  # ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
+  # while Flux's own artifact store rebuilt: those charts exist and it clears
+  # by itself. Both live shapes are Case 77 fixtures.
+  #
+  # #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED (as #6198 excludes its
+  # WORKLOADS below). "running != desired" cannot apply to the release running
+  # this gate: the script was rendered from the INSTALLED revision and the
+  # cutover never rolls itself mid-run. Left in scope it is a dead end, since
+  # the only fix is a new version of the chart that cannot install (hw296,
+  # fourth attempt, step 3 of 11: 67 HRs, ONE not Ready, this one, on its own
+  # hollow pin bp-self-sovereign-cutover:0.1.183). Narrow, with the Case 94
+  # CONTROL: it keys on .spec.chart.spec.chart and the slot-06a release name,
+  # both .Chart.Name; any OTHER HelmRelease, even identically stuck, stays
+  # gated and named.
+  #
+  # #6273 — read the Organization-namespace set from the LABEL, not from
+  # a list this chart carries. Fail-closed on an unreadable answer for
+  # the same reason as the two reads above: without it every namespace
+  # would classify as platform, which is the STRICTER verdict, but the
+  # gate would then be certifying an ownership split it could not see.
+  # An EMPTY answer is a legitimate reading (a Sovereign with no
+  # Organizations yet) and is NOT a failure — kubectl still returns a
+  # well-formed `{"items":[]}`.
+  #
+  # #5391 override validation FIRST, before ANY exclusion — the gate
+  # fail-closes on a malformed or over-broad override rather than
+  # honoring it. A SUSPENDED HR is outside the gate's domain entirely
+  # (skipped below), so its annotations are not judged here. #6262: so is
+  # this chart's OWN release — judging an override on a release the gate
+  # does not gate would reject it as "names a HEALTHY HelmRelease" and
+  # fail the whole gate closed on an annotation that was never needed.
+  # #6273: an Organization-namespace release is now in that same
+  # position. Its offenders only WARN, so an override there is never
+  # needed — but a sovereign-admin who annotated one under the old
+  # fail-closed contract would otherwise have that stale annotation
+  # FATAL the whole cutover the moment the customer's app recovered.
   settledRollPreflight:
     enabled: true
   # #5237 round 2 (Refs #5007 #3379) — PIN-AWARE prewarm: union the chart-
@@ -1230,6 +1399,13 @@ helmRepositories:
     # a harmless no-op (the annotate is `|| true`).
     gitRepositoryName: "openova-org-tenants"
     gitRepositoryNamespace: "flux-system"
+    # The Kustomization that applies that branch (products/catalyst/chart
+    # org-services/org-repo-kustomization.yaml, default org-tenants). Step 08
+    # reads both names (ORG_TENANTS_GITREPO, ORG_TENANTS_KUSTOMIZATION): its
+    # #3526 check pokes them and its #3376 gate waits on the Kustomization.
+    # Renaming it also means renaming it in readbackReconcileKustomizations above
+    # and egressTest.hostKustomizationGate.names.
+    kustomizationName: "org-tenants"
 
   # ── #6309: per-Org `<slug>/catalyst-tenant` DURABLE-SOURCE pivot (Phase-2d) ─
   #
@@ -1723,6 +1899,30 @@ imageRegistryPivot:
     # instead of a sweep-induced ImagePullBackOff. Keep ON.
     presenceGate: true
 
+# THE ONE SKOPEO (_helpers.tpl, define skopeoFetch; these rules sit here because a
+# template's comments are stored in every Helm release Secret, #6004). Every site that
+# downloads skopeo reads these three values: step 03 (harbor-prewarm), the follower
+# prewarm, step 08's #5194 self-heal and the day-two reconciler's #5640 image leg (lazily,
+# warm mode only). Each calls skopeo_fetch only when no skopeo is on PATH: it downloads
+# printf(url, version), compares the file's sha256 with sha256 and runs it only if equal;
+# a file of another sha256 is deleted and fetched again. Three attempts, each curl
+# --max-time 600 with -C - so a partial download resumes (#2618: github.com is reached at
+# ~120-360 KB/s from HCS and the 39 MB binary needs 3-5 min). No apk fallback: the steps
+# run as non-root, so apk cannot install, and an apk skopeo would be a second, unpinned
+# version. url: the static builds of lework/skopeo-binary, GitHub release assets
+# (containers/skopeo ships no static binary). sha256: of that asset, computed on download
+# (22 Nov 2026), equal to the release's own skopeo-linux-amd64.sha256.
+# 1.16.1 (containers/image v5.32): skopeo 1.15.2 (v5.30.2) dropped the top-level
+# artifactType and subject of an OCI index when it copied a list, then refused under
+# --preserve-digests (step 03 Phase A5, 21 Nov 2026); v5.32.0 keeps them. The case whole of
+# tests/hermetic/provider-package-copy copies each OpenTofu provider package with skopeo
+# alone and requires equal digests; its control requires 1.15.2 to refuse the same copy.
+# offlinemirror_put_list (#8597) stays unchanged: such a list is still one registry-API PUT of its own bytes.
+skopeo:
+  version: "1.16.1"
+  url: "https://github.com/lework/skopeo-binary/releases/download/v%s/skopeo-linux-amd64"
+  sha256: "8813fb7fcd7a723196ac287683dd929d280f6fe7f0782eace452fe1e3ff2b7eb"
+
 # Step container images. The first three steps (01..03) + the
 # registry-pivot DaemonSet use upstream-public images because they run
 # BEFORE registries.yaml v2 takes effect on the node containerd.
@@ -1762,6 +1962,26 @@ images:
 # on demand at trigger time.
 registryPivot:
   enabled: true
+  # THE RULES OF A SWEEP of pivot.sh (the reconcile loop of the template; they
+  # sit here because a template's comments are stored in every Helm release
+  # Secret, #6004):
+  #   - The sweep reads the status ConfigMap once. A read that fails (the API
+  #     away, a 5xx or 429, the --max-time) is no answer: the node keeps the
+  #     state it has, logs a WARN and reads again next sweep. Only a read that
+  #     succeeds can change the state; a ConfigMap without registriesYamlActive
+  #     reads as v1 (the dormant first run). Before this rule a failed read gave
+  #     an empty value, read as v1, and a cut-over node rolled back: install-time
+  #     registry files, /etc/hosts pin removed, dfdaemon upstream back to ghcr.
+  #   - #5007: while v2 is desired, every sweep re-writes the local-registry
+  #     /etc/hosts pin (idempotent; heals a rewritten /etc/hosts and completes the
+  #     pin once the gateway VIP is assigned). On v1/rollback apply_state removes it.
+  #   - #4639: apply_state fires once per state, so v2 is re-applied while the
+  #     read shows dragonflyUpstream != local (the cluster-wide dfdaemon flip
+  #     missed on the first v2 sweep, e.g. the Harbor CA anchor or a patch).
+  #   - #4637: v2 is re-applied while the read shows no v2 ack of THIS node
+  #     (its dfdaemon was not serving on the first sweep, #4649); without it the
+  #     per-node ack wait of step 04 never reaches acks == desired.
+  #   - SOV-132: v2 is re-applied when k3s rewrote the pivoted names (a restart).
   # #4639 (Refs #4637) — Dragonfly P2P registry-pivot. THE GENERIC HAIRPIN KILL.
   #
   # Every node's containerd already mirrors through the node-LOCAL dfdaemon
@@ -1879,6 +2099,49 @@ registryPivot:
 # overrides duration via overlay if 10 min isn't enough.
 egressTest:
   durationSeconds: 600
+  # SOV-344 — the cloud Workspaces through the hold (step 08, blocks
+  # workspace-hold and tofu-pre-hold). provider-opentofu runs tofu init for each
+  # Workspace on its own reconcile loop. A Workspace is neither a HelmRelease nor
+  # a Kustomization, and the Kustomization that applies the claims does not
+  # health-check them: a hold that counted only those passed while 21 of 24
+  # Workspaces could not reach registry.opentofu.org. ws_read lists both kinds of
+  # a region into /work/ws_now, one row "<kind>/<namespace>/<name> Ready=<s>
+  # Synced=<s> why=<Ready reason>/<Synced reason>". A kind the region does not
+  # serve has no rows; a list that cannot be read for another reason returns 1,
+  # which fails the proof. ws_settle waits as described below; ws_baseline keeps
+  # the Workspaces that are then Ready and Synced. In the window ws_regressed
+  # names, by kind, namespace and name, each kept one that is no longer both, or
+  # is gone.
+  #
+  # The wait. Step 11 re-creates the provider-opentofu Pod (it moves the OpenTofu
+  # CLI configuration to the Sovereign's registry), and that Pod re-syncs the
+  # Workspaces one at a time (upstream --max-reconcile-rate defaults to 1 and the
+  # kit does not set it; each runs tofu init again). Measured on two installs on
+  # 21 Nov 2026: step 08 ran right after and found 14 of 24, then 2 of 24 Ready
+  # and Synced ("Ready=True Synced=False" for 22); all 24 were Ready and Synced 8
+  # to 10 minutes later. The hold watched 2 Workspaces and reported the proof
+  # PASSED.
+  #
+  # So, before the baseline and in every region, step 08 reads the Workspaces every
+  # intervalSeconds until each one that exists is Ready and Synced, or carries a
+  # condition that waiting cannot change (Ready reason Deleting, or Synced reason
+  # ReconcilePaused), or timeoutSeconds have passed since the first read that found
+  # one waiting (one bound for all regions). The bound is the measured 10 minutes
+  # with half again as margin. No other condition separates a re-sync from a fault:
+  # provider-opentofu reports both as Synced=False reason ReconcileError, so any
+  # other Workspace is waited for until the bound.
+  #
+  # At the bound the hold starts. Each Workspace still not Ready and Synced is named
+  # with its condition reasons ("NOT MEASURED"), never judged and never counted as
+  # passed: the step records step.egress-block-test.region.<region>.workspaces as
+  # "judged: <b> of <n> in the baseline; not-measured: <n-b>" (or "not-measured:
+  # <n> exist, 0 in the baseline"), names the region next to the verdict, and its
+  # result line ends "(cloud Workspaces: <b> of <n> judged, <n-b> NOT MEASURED, not
+  # covered by this proof)". It does not fail for it. timeoutSeconds 0 waits not at
+  # all.
+  workspaceSettle:
+    timeoutSeconds: 900
+    intervalSeconds: 15
   # #7900 — the front door is part of the proof. Step 08 asks every host below
   # (a label under sovereign.fqdn) `samples` times before the hold and again
   # at every poll of the survival window, one connection per request. If the
@@ -2138,6 +2401,12 @@ egressTest:
   # IMAGE pulls via certs.d. Flux's source-controller fetches these URLs itself
   # and never traverses containerd, so a certs.d redirect cannot cover a source
   # object — only genuinely local hosts count.
+  #
+  # The lint runs PER REGION (#5359, hw292 dep 1c56518035a83e03). It shipped in
+  # 0.1.162 measuring ONE cluster, the shape of the defect it exists to catch:
+  # region-a held 69 HelmRepositories on the local Harbor and 0 on ghcr, region-b
+  # 0 local and 64 on ghcr, and cutoverComplete=true was set from region-a alone.
+  # A fleet property asserted from a single-region sample is not asserted at all.
   #
   # allowHosts is EMPTY by default so the lint fails closed: an external host is
   # a tether until a human declares otherwise here, in Git, under review. Adding
@@ -2908,10 +3177,8 @@ daytwoReconciler:
     # step-03's PREWARM_COPY_ATTEMPTS default; proxy-sourced refs use
     # prewarm.proxyCopyAttempts (single-source with step-03/step-08).
     copyAttempts: 3
-    # The pinned skopeo static build step-03 harbor-prewarm and step-08's #5194
-    # self-heal already download. Fetched LAZILY and ONLY in warm mode, so
-    # detect keeps its zero-external-egress contract literally.
-    skopeoStaticURL: "https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64"
+    # skopeo is the one of the top-level key skopeo, fetched LAZILY and ONLY in
+    # warm mode, so detect keeps its zero-external-egress contract literally.
     # Upper bound on refs probed per cycle, so a Sovereign with hundreds of
     # per-Org workloads cannot make one cycle unbounded. Raise on a large
     # Sovereign; the cycle is idempotent so the remainder is picked up next pass.
@@ -4072,8 +4339,15 @@ secondaryRegions:
 # no more). Each value is a plain string, so every Helm version merges it the
 # same way (a null that removes a key of a subchart is not kept by all of them).
 # The ConfigMap is created once and never changed; a re-run of the
-# step finds it and leaves it. The step prints one line per region: released,
-# or a WARNING naming the region whose write failed, which keeps its hold.
+# step finds it and leaves it. The step prints one line per region: released.
+# A region where neither the create nor the read of the ConfigMap succeeds is
+# tried again, releaseAttempts times in all, releaseRetrySeconds apart. A region
+# still not written after the last try is named in a FATAL and the step fails:
+# nothing else writes this ConfigMap and a completed chain never runs the step
+# again, so a release that failed once, with cutoverComplete=true, kept that
+# region's nodes from ever restarting. The failed step is retried like any step.
+# (The release function reboot_hold_release sits in 08-egress-block-test-job.yaml,
+# past the verdict; these comments sit here, #6004.)
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
@@ -4082,6 +4356,8 @@ rebootHold:
   namespace: flux-system
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
+  releaseAttempts: 12
+  releaseRetrySeconds: 10
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
   releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'
 
@@ -4101,6 +4377,17 @@ rebootHold:
 #
 # The rules, in the code they govern (these comments sit here because a
 # template's comments are stored in every Helm release Secret, #6004):
+#
+# The pre-hold lint (step 08, block tofu-cli-lint; SOV-344). Every tofu init of
+#   a Workspace installs its providers as the key .tofurc of the ConfigMap
+#   TOFU_NAMESPACE/TOFU_CLI_CM says; the provider pod mounts it, and step 11
+#   moves its OCI mirror into the Sovereign's registry. The lint reads the live
+#   ConfigMap and the file in every running pod that mounts it: each
+#   repository_template names LOCAL_REGISTRY_HOST, registry.SOVEREIGN_FQDN or
+#   harbor.SOVEREIGN_FQDN, and no direct, network_mirror, filesystem_mirror or
+#   dev_overrides block exists. Without the ConfigMap tofu init takes the
+#   implied configuration, which installs from registry.opentofu.org: a region
+#   passes without it only when it serves no Workspace kind.
 #
 # The list (_helpers.tpl, define tofuProviders, block tofu-providers-list).
 #   tofu_list_read FILE writes the lines of the list ConfigMap to FILE: 0 read,

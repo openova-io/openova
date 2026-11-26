@@ -394,6 +394,22 @@ offlinemirror_put_list() {
 }
 {{- end -}}
 
+{{- /* skopeoFetch: skopeo_fetch DIR PREFIX; the rules are above the key skopeo in values.yaml (#6004). */}}
+{{- define "bp-self-sovereign-cutover.skopeoFetch" -}}
+skopeo_fetch() {
+  _sf_u={{ printf .Values.skopeo.url .Values.skopeo.version | quote }}; _sf_w={{ .Values.skopeo.sha256 | quote }}; _sf_i=1
+  while [ "${_sf_i}" -le 3 ]; do
+    if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${_sf_u}" -o "$1/skopeo" 2>&1; then
+      _sf_h=$(sha256sum <"$1/skopeo" | cut -c1-64)
+      [ "${_sf_h}" = "${_sf_w}" ] && chmod +x "$1/skopeo" && "$1/skopeo" --version >/dev/null 2>&1 && export PATH="$1:${PATH}" && return 0
+      echo "$2 ${_sf_u} has sha256 ${_sf_h}, want ${_sf_w} (or does not run); deleted"; rm -f "$1/skopeo"
+    fi
+    echo "$2 skopeo download attempt ${_sf_i}/3 failed; retrying in 5s"; _sf_i=$((_sf_i + 1)); sleep 5
+  done
+  rm -f "$1/skopeo"; return 1
+}
+{{- end -}}
+
 {{/*
 curl_no_answer <curl exit code> names a curl that ended without an HTTP answer; the registry's
 readiness probes (step 03, secondary prewarm) count it as one not-ready probe, not a pod's end.

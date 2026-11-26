@@ -104,7 +104,7 @@ spec:
       # absent in a per-Org namespace, 500'd every OAuth callback on hw292.
       # Additive: Cilium unions policies, so the effective egress set here is
       # unchanged while slot 26b is installed.
-      version: 0.1.11
+      version: 0.1.12
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
@@ -142,7 +142,9 @@ spec:
     # alone, because Cilium AND-injects `io.cilium.k8s.policy.cluster=<local>`
     # into every selector derived from a namespaced CNP. Naming the peer
     # cluster(s) here is what keeps that hop open. EMPTY on a single-region
-    # prov → no extra rule, policy byte-identical to 0.1.9.
+    # prov → no extra rule, policy byte-identical to 0.1.9. Since ACC-102 the
+    # webapp is gone and its instance is off; ACC-107 gives the hop to the
+    # access controller, which runs in the primary region only (ADR-0033 A21).
     crossRegion:
       peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     instances:
@@ -200,49 +202,24 @@ spec:
         rootRedirectPath: /oidc/login
         appNativeCallbackPath: /oidc/authorized
 
-      # guacamole (#5358). Guacamole's native guacamole-auth-sso-openid
-      # extension is IMPLICIT-flow-only upstream (response_type=id_token
-      # in the URL fragment, through 1.6.0 and git master) and its SPA
-      # re-submits the fragment token on every route change while the
-      # server-side nonce is single-use — the replay poisoned the fresh
-      # session ("Rejected OpenID token with invalid/old nonce" +
-      # error page, live on hw288; UAT rows 35/115, 4/4 deterministic
-      # under Playwright). No upstream version or config knob fixes it,
-      # so the OIDC leg moves OUT of the browser: this gate instance
-      # runs the authorization-code flow server-side and asserts the
-      # principal to the webapp via X-Forwarded-Email (oauth2-proxy
-      # --pass-user-headers default), consumed by the image-bundled
-      # guacamole-auth-header extension (bp-guacamole 0.2.30
-      # sso.mode=header). The JDBC permission store + #3374 admin-enroll
-      # CronJob are auth-source-agnostic; usernames stay byte-identical
-      # (the openid mode's username claim default was `email`).
-      #
-      # hostname defaults to guacamole.<sovereignFQDN> — the canonical
-      # host slot 52 previously served via the chart's own HTTPRoute
-      # (now suppressed: two HTTPRoutes on one hostname is undefined
-      # routing; a direct route would also bypass the gate and expose
-      # the header-trusting webapp). bp-guacamole 0.2.30 additionally
-      # netpol-guards webapp :8080 ingress to these gate pods only.
+      # guacamole (#5358, ADR-0033). OFF since ACC-102 removed the Guacamole
+      # web application this instance fronted (decision A3): with it off the
+      # chart renders no gate Deployment, Service, HTTPRoute or client
+      # registration for guacamole.<sovereignFQDN>, so that host does not
+      # answer. ACC-107 turns it on again with the access controller as its
+      # upstream; until then the entry keeps the last upstream it had.
       #
       # clientId is guacamole-gate, NOT the legacy `guacamole` client:
-      # bp-keycloak's sovereign realm-import still owns `guacamole`
-      # (public/implicit shape for the retired native flow) and
-      # keycloak-config-cli re-applies it on every bp-keycloak deploy —
-      # adopting it here would flap the client between the config-cli
-      # shape and the sso-bridge shape. A fresh confidential client is
-      # minted/owned end-to-end by bp-sso-bridge instead (secret →
-      # OpenBao sso/sovereign/guacamole-gate → ExternalSecret).
-      #
-      # rootRedirectPath: the Guacamole WAR serves under Tomcat's
-      # /guacamole/ context; the bare root is Tomcat's 404 ROOT context
-      # (#3150 landmine). Same Exact-`/`-only 302 the chart's own
-      # rootRedirect rule used to provide — loop-safe: the webapp lives
-      # entirely under /guacamole/ and never redirects back to `/`.
+      # bp-keycloak's sovereign realm-import still owns `guacamole`. The
+      # Keycloak client guacamole-gate stays (bp-sso-bridge's orphan sweep
+      # removes ExternalSecrets, never a client), so ACC-107 finds it.
       - name: guacamole
-        enabled: true
+        enabled: false
         clientId: guacamole-gate
         upstream: http://guacamole-server.guacamole.svc.cluster.local:80
         rootRedirectPath: /guacamole/
+        # ACC-010: only members of sovereign-admins pass this gate.
+        allowedGroups: [sovereign-admins]
 
       # chargeback (#6841). The billing app shipped its OWN PIN sign-in —
       # a second, parallel identity system on a Sovereign that already has

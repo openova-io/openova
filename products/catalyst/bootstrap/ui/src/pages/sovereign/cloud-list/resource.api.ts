@@ -441,8 +441,8 @@ export function logsWebSocketURL(
 }
 
 /**
- * Build the wss:// URL for the X2/E2 fallback exec WebSocket. Used when
- * the Guacamole iframe fails to load.
+ * Build the wss:// URL of the exec WebSocket, the console's pod shell
+ * (ExecPanel opens it directly).
  */
 export function execWebSocketURL(
   deploymentId: string,
@@ -463,109 +463,4 @@ function absoluteWebSocketURL(path: string): string {
   if (typeof window === 'undefined') return path
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}${path}`
-}
-
-// ─── Exec session (E1) ───────────────────────────────────────────────
-
-export interface ExecSessionRequest {
-  command?: string[]
-}
-
-export interface ExecSessionResponse {
-  sessionId: string
-  connectionId: string
-  embedURL: string
-  namespace: string
-  pod: string
-  container: string
-  fallbackWebSocketUrl?: string
-  recording: boolean
-  issued: string
-}
-
-export async function createExecSession(
-  deploymentId: string,
-  ns: string,
-  pod: string,
-  container: string,
-  body: ExecSessionRequest = {},
-): Promise<ExecSessionResponse> {
-  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
-    deploymentId,
-  )}/k8s/exec/${encodeURIComponent(ns)}/${encodeURIComponent(pod)}/${encodeURIComponent(
-    container,
-  )}/session`
-  const res = await authedFetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return parseJSON<ExecSessionResponse>(res)
-}
-
-// ─── Sessions list + replay (E3) ─────────────────────────────────────
-
-export interface SessionListItem {
-  sessionId: string
-  namespace: string
-  pod: string
-  container: string
-  user: string
-  started: string
-  ended?: string
-  durationSeconds: number
-  recordingAvailable: boolean
-}
-
-export interface SessionListResponse {
-  items: SessionListItem[]
-  total: number
-  page: number
-  pageSize: number
-  nextPage?: number
-}
-
-export interface SessionListFilter {
-  from?: string
-  to?: string
-  pod?: string
-  user?: string
-  page?: number
-  pageSize?: number
-}
-
-export async function listSessions(
-  deploymentId: string,
-  filter: SessionListFilter = {},
-  signal?: AbortSignal,
-): Promise<SessionListResponse> {
-  const params: string[] = []
-  if (filter.from) params.push(`from=${encodeURIComponent(filter.from)}`)
-  if (filter.to) params.push(`to=${encodeURIComponent(filter.to)}`)
-  if (filter.pod) params.push(`pod=${encodeURIComponent(filter.pod)}`)
-  if (filter.user) params.push(`user=${encodeURIComponent(filter.user)}`)
-  if (filter.page) params.push(`page=${filter.page}`)
-  if (filter.pageSize) params.push(`pageSize=${filter.pageSize}`)
-  const qs = params.length ? `?${params.join('&')}` : ''
-  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(deploymentId)}/sessions${qs}`
-  const res = await authedFetch(url, { signal })
-  return parseJSON<SessionListResponse>(res)
-}
-
-export interface SessionReplayResponse {
-  sessionId: string
-  embedURL: string
-  available: boolean
-  reason?: string
-}
-
-export async function getSessionReplay(
-  deploymentId: string,
-  sessionId: string,
-): Promise<SessionReplayResponse> {
-  const url = `${API_BASE}/v1/sovereigns/${encodeURIComponent(
-    deploymentId,
-  )}/sessions/${encodeURIComponent(sessionId)}/replay`
-  const res = await authedFetch(url)
-  return parseJSON<SessionReplayResponse>(res)
 }

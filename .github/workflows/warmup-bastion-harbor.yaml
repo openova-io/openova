@@ -39,9 +39,20 @@
 # values.yaml, quoted or not) and the just-pushed catalyst SHA tags passed by
 # catalyst-build. A run started by hand warms the list of one ref.
 #
-# Mirrors the sovereignty-cutover 03-harbor-prewarm Job's skopeo flags + retry
-# discipline (--insecure-policy, --retry-times 5, --command-timeout, parallel
-# fan-out, OUTER per-image retry).
+# The copy IS the copy of the sovereignty-cutover 03-harbor-prewarm Job: its
+# skopeo (skopeo_fetch, the one pinned version of values skopeo) and its copy
+# function offlinemirror_copy (--multi-arch all, --preserve-digests: a list is
+# copied entry by entry, then its own bytes), cut from the chart's render by
+# scripts/cutover-copy-functions.sh, both from this workflow's own commit
+# (github.workflow_sha), with the same parallel fan-out and OUTER
+# per-image retry. Until 24 Nov 2026 this file ran its own `skopeo copy` at the
+# default --multi-arch system: it wrote the linux/amd64 child of each list under
+# the tag, so a node that pulled before the cutover ran
+# catalyst-api:4166721@sha256:3097ff33... (the child) and, after the cutover,
+# the Sovereign's registry (step 03) served the list sha256:82264606... (ghcr's
+# digest) for the same tag; the gate records of 23 Nov could not pair.
+# tests/hermetic/provider-package-copy (case warmup) runs this copy_one with
+# real skopeo against two registries.
 #
 # PREREQUISITES (PROVISIONED 2026-06-22, #4049 — already live):
 #   - CI secret `BASTION_HARBOR_ROBOT_TOKEN` — the secret for the dedicated PUSH
@@ -125,6 +136,9 @@ jobs:
       PREWARM_PARALLELISM: '6'
       PREWARM_COPY_ATTEMPTS: '3'
       PREWARM_SKOPEO_TIMEOUT: '1200s'
+      # offlinemirror_copy verifies the destination's certificate (the public
+      # front door), as this copy always did.
+      PREWARM_DEST_TLS_VERIFY: 'true'
     steps:
       - name: Checkout openova (public source — the catalyst + component charts)
         uses: actions/checkout@v4
@@ -133,20 +147,36 @@ jobs:
           path: openova-src
           ref: ${{ inputs.ref || '' }}
 
+      # The copy (scripts/cutover-copy-functions.sh and the cutover chart it
+      # cuts the functions from) comes from this workflow's own commit, never
+      # from the ref being warmed: a ref older than the script has neither, and
+      # a run by hand for it would warm nothing. Only the image list is the ref's.
+      - name: Checkout openova at this workflow's own commit (the copy)
+        uses: actions/checkout@v4
+        with:
+          repository: openova-io/openova
+          path: openova-workflow
+          ref: ${{ github.workflow_sha }}
+          sparse-checkout: |
+            scripts
+            platform/self-sovereign-cutover
+
       - name: Set up the Go of tools/guards (the image list builder)
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: openova-src/tools/guards/go.mod
           cache: false
 
-      - name: Install skopeo + helm
+      - name: Install helm, then step 03's copy functions and skopeo
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          skopeo --version
           helm version --short
+          sh openova-workflow/scripts/cutover-copy-functions.sh openova-workflow/platform/self-sovereign-cutover/chart >"${RUNNER_TEMP}/copy-functions.sh"
+          mkdir -p "${RUNNER_TEMP}/skopeo"
+          sh -c '. "$1"; skopeo_fetch "$2" "[warmup]"' sh "${RUNNER_TEMP}/copy-functions.sh" "${RUNNER_TEMP}/skopeo"
+          echo "${RUNNER_TEMP}/skopeo" >>"${GITHUB_PATH}"
+          "${RUNNER_TEMP}/skopeo/skopeo" --version
 
       - name: Guard — warmup secret present
         run: |
@@ -225,8 +255,35 @@ jobs:
           # FIRST `tag:` that follows it in the same image block; empty / "latest" /
           # *placeholder* tags are skipped (unwarmable / non-pinned). These are the
           # images an Organization installs later; the fresh install's are above.
+          #
+          # A chart whose Blueprint (the nearest blueprint.yaml above its
+          # values.yaml) the catalogue seed marks unlisted (spec.visibility of
+          # its object in products/catalyst/chart/templates/catalog-seed/
+          # blueprints.yaml, which scripts/generate-catalog.py writes from
+          # spec.visibility of the blueprint.yaml) and that no HelmRelease of
+          # the bootstrap kit installs contributes no image: no Organization can
+          # install it and no fresh install pulls it. bp-nemo-guardrails is one
+          # (#5468): its image was never published. Every other pin stays, and
+          # a copy of it that fails still fails this step.
+          unlisted="$(awk '/^---/ { m = 0; n = "" } /^metadata:/ { m = 1; next } m && /^  name:/ { n = $2; m = 0 } /^  visibility:[[:space:]]*unlisted[[:space:]]*$/ && n != "" { print n }' openova-src/products/catalyst/chart/templates/catalog-seed/blueprints.yaml 2>/dev/null || true)"
+          kit="$(sed -n 's/^[[:space:]]*chart:[[:space:]]*\(bp-[A-Za-z0-9._-]*\)[[:space:]]*$/\1/p' openova-src/clusters/_template/bootstrap-kit/*.yaml 2>/dev/null || true)"
           compfile="$(mktemp)"
-          for f in $(grep -rlE "repository:[[:space:]]*[\"']?ghcr\.io/openova-io/openova/" openova-src/platform openova-src/products --include=values.yaml 2>/dev/null | sort -u); do
+          # The files by find, not grep --include (GNU only): the same set on the
+          # runner, and the step also runs as written under busybox (the copier
+          # of tests/hermetic/provider-package-copy).
+          for f in $(find openova-src/platform openova-src/products -type f -name values.yaml -exec grep -lE "repository:[[:space:]]*[\"']?ghcr\.io/openova-io/openova/" {} + 2>/dev/null | sort -u); do
+            d="${f%/*}"; bp=""
+            while [ "${d}" != openova-src/platform ] && [ "${d}" != openova-src/products ] && [ "${d}" != "${d%/*}" ]; do
+              if [ -f "${d}/blueprint.yaml" ]; then
+                bp="$(awk '/^metadata:/ { m = 1; next } m && /^  name:/ { print $2; exit } /^[^ #]/ { m = 0 }' "${d}/blueprint.yaml")"
+                break
+              fi
+              d="${d%/*}"
+            done
+            if [ -n "${bp}" ] && grep -qxF -e "${bp}" <<<"${unlisted}" && ! grep -qxF -e "${bp}" <<<"${kit}"; then
+              echo "[warmup] skip the pins of ${f#openova-src/}: ${bp} is unlisted in the catalogue and no HelmRelease of the bootstrap kit installs it"
+              continue
+            fi
             awk 'match($0, /repository:[[:space:]]*["'"'"']?ghcr\.io\/openova-io\/openova\/[A-Za-z0-9._\/-]+/) { line=substr($0, RSTART, RLENGTH); sub(/^.*repository:[[:space:]]*["'"'"']?/, "", line); repo=line; have=1; next } have && match($0, /^[[:space:]]*tag:[[:space:]]*/) { t=$0; sub(/^[[:space:]]*tag:[[:space:]]*/, "", t); gsub(/["'"'"']/, "", t); sub(/[[:space:]]*#.*$/, "", t); gsub(/[[:space:]]/, "", t); if (t != "" && t != "latest" && t !~ /placeholder/) { print repo ":" t } have=0 }' "$f" >>"${compfile}"
           done
           components="$(cat "${compfile}"; rm -f "${compfile}")"
@@ -247,13 +304,17 @@ jobs:
 
           cpdir="/tmp/warmup-copies"; rm -rf "${cpdir}"; mkdir -p "${cpdir}"
 
-          # copy_one — mirrors the cutover 03-harbor-prewarm copy_one EXACTLY:
-          # ghcr.io/openova-io/openova/X:tag → HARBOR_HOST/openova-io/openova/X:tag
+          # Step 03's copy functions (the step before cut them from the render).
+          . "${RUNNER_TEMP}/copy-functions.sh"
+
+          # copy_one — ghcr.io/openova-io/openova/X:tag → HARBOR_HOST/openova-io/openova/X:tag
           # (drop the `ghcr.io/` prefix, keep the rest identical → lands under the
-          # hosted `openova-io` project the registries.yaml rewrite targets). OUTER
-          # per-image retry loop (PREWARM_COPY_ATTEMPTS) wraps the inner
-          # --retry-times 5, with a global --command-timeout so a stalled
-          # connection can't hang forever. Branch on skopeo's REAL exit status.
+          # hosted `openova-io` project the registries.yaml rewrite targets) with
+          # step 03's offlinemirror_copy --multi-arch all: the tag keeps ghcr's
+          # digest, the list with every entry. OUTER per-image retry loop
+          # (PREWARM_COPY_ATTEMPTS) wraps the inner --retry-times 5, with a global
+          # --command-timeout so a stalled connection can't hang forever. Branch on
+          # the copy's REAL exit status.
           copy_one() {
             up="$1"
             lref="${HARBOR_HOST}/${up#ghcr.io/}"
@@ -261,14 +322,7 @@ jobs:
             attempt=1; rc=1; : >"${cpdir}/${slug}.log"
             while [ "${attempt}" -le "${PREWARM_COPY_ATTEMPTS}" ]; do
               echo "[warmup] copy ${up} attempt ${attempt}/${PREWARM_COPY_ATTEMPTS}" >>"${cpdir}/${slug}.log"
-              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-                --insecure-policy \
-                --retry-times 5 \
-                --src-creds="${GHCR_USER}:${GHCR_PAT}" \
-                --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                --dest-tls-verify=true \
-                --src-tls-verify=true \
-                "docker://${up}" "docker://${lref}" >>"${cpdir}/${slug}.log" 2>&1; then
+              if offlinemirror_copy "${up}" "${GHCR_USER}:${GHCR_PAT}" "${lref}" --multi-arch all >>"${cpdir}/${slug}.log" 2>&1; then
                 rc=0; break
               else
                 rc=$?
@@ -304,10 +358,12 @@ jobs:
           for f in "${cpdir}"/*.ok;   do [ -e "${f}" ] && { ok=$((ok+1)); echo "[warmup] OK   $(cat "${f}")"; }; done
           for f in "${cpdir}"/*.fail; do [ -e "${f}" ] && { fail=$((fail+1)); echo "[warmup] FAIL $(cat "${f}")"; echo "---"; cat "${cpdir}/$(basename "${f}" .fail).log" 2>/dev/null | tail -20; echo "---"; }; done
           echo "[warmup] pushed ${ok} ok, ${fail} failed (of ${count})."
-          # A copy that failed is a warning (the next warmup retries it); the
-          # caller is never blocked, as no job of it `needs:` this one.
+          # A copy that failed fails this job, where it is seen: a node has no
+          # public fallback (SOV-132), and a tag left as it was may carry
+          # another digest than ghcr's. The caller is never blocked, as no job
+          # of it `needs:` this one.
           if [ "${fail}" -gt 0 ]; then
-            echo "::warning title=#4049 warmup partial::${fail}/${count} image(s) failed to warm the bastion — nodes may cold-pull those (see logs above)."
+            echo "::error title=#4049 warmup partial::${fail}/${count} image(s) failed to warm the bastion — a node cannot pull those (see logs above)."
           fi
           # The list of the fresh install could not be built: the images above
           # are pushed, the install's own are not, and that is a failure.
@@ -315,3 +371,4 @@ jobs:
             echo "::error title=warmup list::the first-party images of the fresh install were not pushed: their list could not be built (see the start of this step); ${ok} image(s) that do not depend on it were pushed"
             exit 1
           fi
+          [ "${fail}" -eq 0 ] || exit 1

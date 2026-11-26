@@ -602,3 +602,42 @@ compliancePolicies:
     # mirrors fluxsource.localSourceHostMarkers (`gitea`). Operator-overridable
     # for a Sovereign that renames its in-cluster Gitea host.
     giteaHostMarker: gitea
+
+# ─── Cleanup (Kyverno DeletingPolicy, run by the cleanup controller) ──────
+#
+# replicationCaSeedOrphan (check FND-G12, journey J5.2): cert-manager writes
+# the seed CA Secret <pair>-replication-ca-seed of a two-region database pair
+# (bp-wordpress-tenant shared-secrets-seed.yaml) and never deletes it, so it
+# outlived every uninstall. The policy deletes a Secret labelled
+# `catalyst.openova.io/component: replication-ca-seed` +
+# `catalyst.openova.io/app: <application>` once no Flux HelmRelease labelled
+# `catalyst.openova.io/app: <application>` exists in the Secret's namespace.
+# A HelmRelease that is being deleted still counts (kept until it is gone),
+# and so does a cert-manager Certificate whose spec.secretName is the Secret
+# (a HelmRelease deleted while suspended leaves it; deleting the Secret would
+# only make cert-manager issue it again, every run). An error reading either
+# keeps the Secret. `schedule` is a cron expression: the check waits 10
+# minutes, so it stays at 2 minutes or less.
+# templates/cleanup/replication-ca-seed-orphan.yaml renders the policy and the
+# cleanup controller's right to list HelmReleases and Certificates and list +
+# delete Secrets.
+#
+# watchdog: Kyverno v1.18.0 drops a DeletingPolicy from the cleanup
+# controller's queue for good after a run errors for about 5 s (10 quick
+# retries), until that controller restarts. The CronJob of
+# templates/cleanup/replication-ca-seed-orphan-watchdog.yaml checks the
+# policy's status.lastExecutionTime every `schedule`; older than
+# `staleAfterSeconds`, it deletes the cleanup controller Pods (selected by
+# `cleanupControllerSelector` in `kyvernoNamespace`) that started before then
+# and fails its Job. `image` needs kubectl, sh and date (the alpine/k8s image
+# bp-flux's stuck-HelmRelease recovery uses, pre-warmed by the cutover).
+cleanupPolicies:
+  replicationCaSeedOrphan:
+    enabled: true
+    schedule: "*/2 * * * *"
+    watchdog:
+      schedule: "*/5 * * * *"
+      staleAfterSeconds: 600
+      kyvernoNamespace: kyverno
+      cleanupControllerSelector: app.kubernetes.io/component=cleanup-controller
+      image: alpine/k8s:1.31.4

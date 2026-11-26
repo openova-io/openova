@@ -19,7 +19,6 @@ namespaces:
   - chargeback
   - gitea
   - grafana
-  - guacamole
   - harbor
   - keycloak
   - kube-system

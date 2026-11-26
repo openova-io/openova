@@ -501,14 +501,11 @@ func TestRenderOrganizationOverlay_AgenityChartVersionBounded(t *testing.T) {
 	}
 }
 
-// TestRenderOrganizationOverlay_AgenityMCPBearerWiring is the #4276 hop 7/7b
-// emitter guard. The bp-agenity overlay MUST set openovaMCP.bearerSecret +
-// rs256PubkeySecret + enable the per-Org mcpBearer ExternalSecret pointed at
-// secret/catalyst/agenity/<slug>/mcp-bearer, so the StatefulSet projects
-// OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM. Without this the spawned
-// claude-code agent reaches the openova MCP with no bearer → -32001
-// unauthenticated, even after the Anthropic key (#4277) is seeded.
-func TestRenderOrganizationOverlay_AgenityMCPBearerWiring(t *testing.T) {
+// TestRenderOrganizationOverlay_AgenityWiresNoToolBearer (AIP-157): the
+// bp-agenity overlay keeps the Org tenant host of the openova-MCP and wires no
+// tool bearer: no bearer Secret, no verify-key Secret of a seeded bearer, no
+// ExternalSecret of the per-Org OpenBao bearer path.
+func TestRenderOrganizationOverlay_AgenityWiresNoToolBearer(t *testing.T) {
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID:  "t-acme",
 		Subdomain:       "acme",
@@ -526,26 +523,22 @@ func TestRenderOrganizationOverlay_AgenityMCPBearerWiring(t *testing.T) {
 	if !ok {
 		t.Fatalf("bp-agenity.yaml missing")
 	}
-	for _, want := range []string{
-		"openovaMCP:",
-		// #4624 — the ORG console host pinned as the MCP tenant host
-		// (X-Tenant-Host). MUST be the Org host, never the Sovereign console
-		// host (which is not a registered tenant → create_application 404s).
-		"tenantHost: console.acme.omani.homes",
-		"bearerSecret:",
-		"name: agenity-mcp-bearer",
-		"key: bearer",
-		"rs256PubkeySecret:",
-		"key: pubkeyPem",
-		"mcpBearer:",
-		"externalSecret:",
-		"enabled: true",
-		"remoteKey: catalyst/agenity/acme/mcp-bearer",
-		"remoteBearerProperty: bearer",
-		"remotePubkeyProperty: pubkeyPem",
+	// #4624 — the ORG console host pinned as the MCP tenant host
+	// (X-Tenant-Host). MUST be the Org host, never the Sovereign console
+	// host (which is not a registered tenant → create_application 404s).
+	if !strings.Contains(body, "    openovaMCP:\n") || !strings.Contains(body, "      tenantHost: console.acme.omani.homes\n") {
+		t.Errorf("bp-agenity.yaml lost openovaMCP.tenantHost console.acme.omani.homes\n---\n%s", body)
+	}
+	for _, gone := range []string{
+		"bearerSecret",
+		"rs256PubkeySecret",
+		"mcpBearer",
+		"mcp-bearer",
+		"remoteBearerProperty",
+		"remotePubkeyProperty",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("bp-agenity.yaml missing %q\n---\n%s", want, body)
+		if strings.Contains(body, gone) {
+			t.Errorf("bp-agenity.yaml still wires the tool bearer: it contains %q\n---\n%s", gone, body)
 		}
 	}
 }

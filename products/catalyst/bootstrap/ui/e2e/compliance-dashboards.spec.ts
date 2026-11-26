@@ -6,11 +6,9 @@
  * — every page change owes a per-page snapshot, never collapsed):
  *
  *   1. /admin/compliance/sre              → SRE Lead dashboard
- *   2. /admin/compliance/security         → SecLead dashboard
- *   3. /admin/compliance/policy/<name>    → per-policy drilldown
- *   4. /provision/$deploymentId/app/<app> → Application detail
+ *   2. /admin/compliance/policy/<name>    → per-policy drilldown
+ *   3. /provision/$deploymentId/app/<app> → Application detail
  *      Compliance tab
- *   5. /admin/compliance/sre + click toggle → confirm dialog opens
  *
  * Each test mounts a mock catalyst-api response set so the page renders
  * deterministically without a live backend, then captures one
@@ -228,20 +226,6 @@ test.describe('Compliance dashboards (slice U, #1096)', () => {
     })
   })
 
-  test('U2: Security Lead dashboard renders security palette', async ({ page }) => {
-    await mockComplianceAPI(page)
-    await page.goto('/admin/compliance/security')
-    await page.waitForLoadState('domcontentloaded')
-    await page.waitForTimeout(1500)
-    await expect(page.getByTestId('compliance-dashboard-security')).toBeVisible()
-    await expect(page.getByTestId('compliance-dashboard-title')).toContainText('Security Lead')
-    await expect(page.getByTestId('compliance-legend')).toContainText('High risk')
-    await page.screenshot({
-      path: `playwright-report/compliance-u2-security-${DEPLOYMENT_ID}.png`,
-      fullPage: false,
-    })
-  })
-
   test('U4: Per-policy drilldown surfaces violations table', async ({ page }) => {
     await mockComplianceAPI(page)
     await page.goto('/admin/compliance/policy/probes-present')
@@ -269,23 +253,6 @@ test.describe('Compliance dashboards (slice U, #1096)', () => {
     }
     await page.screenshot({
       path: `playwright-report/compliance-u3-app-detail-${DEPLOYMENT_ID}.png`,
-      fullPage: false,
-    })
-  })
-
-  test('U5: PolicyModeToggle confirm dialog opens on flip', async ({ page }) => {
-    await mockComplianceAPI(page)
-    await page.goto('/admin/compliance/policy/probes-present')
-    await page.waitForLoadState('domcontentloaded')
-    await page.waitForTimeout(1500)
-    // Click the toggle on the policy metadata row.
-    const toggleBtn = page.getByTestId('policy-mode-toggle-button-probes-present')
-    if (await toggleBtn.isVisible()) {
-      await toggleBtn.click()
-      await expect(page.getByTestId('policy-mode-confirm-probes-present')).toBeVisible()
-    }
-    await page.screenshot({
-      path: `playwright-report/compliance-u5-toggle-${DEPLOYMENT_ID}.png`,
       fullPage: false,
     })
   })

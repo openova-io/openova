@@ -11,8 +11,8 @@ Catalyst's per-Org accounting (slice S1 sums them for billing
 projection) so missing values silently corrupt the rollup.
 */}}
 {{- if .Values.compliancePolicies.resourceRequests.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: resource-requests
   labels:
@@ -21,7 +21,7 @@ metadata:
     catalyst.openova.io/policy-tier: compliance
     catalyst.openova.io/policy-domain: resilience
   annotations:
-    # Autogen is OFF and each workload PATH-SHAPE has its own explicit rule
+    # Autogen is OFF and each workload PATH-SHAPE is read at its own path
     # (#3374, 2026-06-14). ROOT CAUSE caught live on hw133: the prior SINGLE
     # rule wrote the container path as `spec.template.spec.containers` (the
     # Pod-controller path) and relied on Kyverno autogen to rewrite it to
@@ -36,7 +36,8 @@ metadata:
     # (#3455 / #3374). Same autogen-doesn't-expand-anyPattern/CronJob class as
     # baseline/11-harbor-proxy.yaml (#2611), which already pins autogen off and
     # writes one rule per shape. Fix mirrors it: Pod + template-bearing
-    # workload + CronJob rules, each at its real container path.
+    # workload + CronJob, each at its real container path (three rules until
+    # CMP-062; since then the variable podSpec of the one validation below).
     pod-policies.kyverno.io/autogen-controllers: none
     policies.kyverno.io/title: Containers must declare CPU and memory requests
     policies.kyverno.io/category: catalyst-compliance
@@ -47,84 +48,38 @@ metadata:
       pressure and can't be reasoned about for capacity planning or
       per-Org cost rollups.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.resourceRequests.action) }}
-  background: true
-  rules:
-    {{- $excludeNs := .Values.compliancePolicies.resourceRequests.excludeNamespaces }}
-    {{- $msg := "Every container must declare resources.requests.cpu and resources.requests.memory." }}
-    - name: requests-pod
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: {{ $msg | quote }}
-        pattern:
-          spec:
-            containers:
-              - resources:
-                  requests:
-                    cpu: "?*"
-                    memory: "?*"
-    - name: requests-workload
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: {{ $msg | quote }}
-        pattern:
-          spec:
-            template:
-              spec:
-                containers:
-                  - resources:
-                      requests:
-                        cpu: "?*"
-                        memory: "?*"
-    - name: requests-cronjob
-      match:
-        any:
-          - resources:
-              kinds:
-                - CronJob
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := $excludeNs }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: {{ $msg | quote }}
-        pattern:
-          spec:
-            jobTemplate:
-              spec:
-                template:
-                  spec:
-                    containers:
-                      - resources:
-                          requests:
-                            cpu: "?*"
-                            memory: "?*"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.resourceRequests.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.resourceRequests.excludeNamespaces | quote }}
+  variables:
+    # The Pod spec at the real path of each kind.
+    - name: podSpec
+      expression: >-
+        object.kind == 'Pod' ? object.spec :
+        object.kind == 'CronJob' ? object.spec.jobTemplate.spec.template.spec :
+        object.spec.template.spec
+  validations:
+    - expression: >-
+        has(variables.podSpec.containers) && variables.podSpec.containers.all(c,
+        string(c.?resources.?requests.?cpu.orValue('')) != '' &&
+        string(c.?resources.?requests.?memory.orValue('')) != '')
+      message: "Every container must declare resources.requests.cpu and resources.requests.memory."
 {{- end -}}

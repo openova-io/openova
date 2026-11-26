@@ -24,7 +24,7 @@
 // run's Execution untouched. A run first observed IN FLIGHT is written by
 // StartExecution as running/FinishedAt=nil; when that same run later fails, the
 // dedupe skips it and the Execution reads `running, finishedAt: null` forever.
-// That is the hw292 observation verbatim: Job syft-grype-...-29763030 Failed
+// That is the hw292 observation verbatim: a CronJob run (29763030) Failed
 // with BackoffLimitExceeded, while its leaf execution carried the IDENTICAL
 // startedAt and read running, and the reconcilers group reported 0 failed
 // leaves out of 183.
@@ -133,16 +133,16 @@ func TestReconcilerBridge_TaskHeadlineNotBuriedByUnterminatedRun(t *testing.T) {
 	b, st := newTestBridge(t)
 
 	if _, _, err := b.SeedReconcilerObservations([]ReconcilerObservation{{
-		Kind: ObsKindTask, Name: "syft-sbom", Namespace: "syft-grype",
+		Kind: ObsKindTask, Name: "trivy-security-scan", Namespace: "trivy-system",
 		Status: HelmStateFailed,
 		Executions: []ReconcilerExecutionObservation{
 			{
-				Name: "syft-grype-bp-syft-grype-29763030", Status: HelmStateFailed,
+				Name: "scan-vulnerabilityreport-29763030", Status: HelmStateFailed,
 				StartedAt: row164FailedStart, FinishedAt: row164FailedFinish,
 				Message: "BackoffLimitExceeded",
 			},
 			{
-				Name: "syft-grype-bp-syft-grype-29770230", Status: HelmStateInstalling,
+				Name: "scan-vulnerabilityreport-29770230", Status: HelmStateInstalling,
 				StartedAt: row164RunningStart,
 				Message:   "run in flight",
 			},
@@ -152,9 +152,9 @@ func TestReconcilerBridge_TaskHeadlineNotBuriedByUnterminatedRun(t *testing.T) {
 	}
 
 	all, _ := st.ListJobs("dep-recon")
-	leaf, ok := findByName(all, "task-syft-sbom")
+	leaf, ok := findByName(all, "task-trivy-security-scan")
 	if !ok {
-		t.Fatal("task-syft-sbom missing")
+		t.Fatal("task-trivy-security-scan missing")
 	}
 	if leaf.Status != StatusFailed {
 		t.Errorf("task leaf status: want %q, got %q (the ObsKindTask re-assert regressed)",
@@ -167,11 +167,11 @@ func TestReconcilerBridge_TaskHeadlineNotBuriedByUnterminatedRun(t *testing.T) {
 // SAME run failed. The dedupe must not treat "already recorded" as "done".
 func TestReconcilerBridge_RecordedRunTerminatesOnLaterPoll(t *testing.T) {
 	b, st := newTestBridge(t)
-	const runName = "syft-grype-bp-syft-grype-29763030"
+	const runName = "openbao-snapshot-save-29763030"
 
 	// Poll 1 — in flight.
 	if _, _, err := b.SeedReconcilerObservations([]ReconcilerObservation{{
-		Kind: ObsKindCron, Name: "syft-grype-bp-syft-grype", Namespace: "syft-grype",
+		Kind: ObsKindCron, Name: "openbao-snapshot-save", Namespace: "openbao",
 		Status: HelmStateInstalling,
 		Executions: []ReconcilerExecutionObservation{{
 			Name: runName, Status: HelmStateInstalling,
@@ -183,7 +183,7 @@ func TestReconcilerBridge_RecordedRunTerminatesOnLaterPoll(t *testing.T) {
 
 	// Poll 2 — the SAME run, now terminally failed.
 	if _, _, err := b.SeedReconcilerObservations([]ReconcilerObservation{{
-		Kind: ObsKindCron, Name: "syft-grype-bp-syft-grype", Namespace: "syft-grype",
+		Kind: ObsKindCron, Name: "openbao-snapshot-save", Namespace: "openbao",
 		Status: HelmStateFailed,
 		Executions: []ReconcilerExecutionObservation{{
 			Name: runName, Status: HelmStateFailed,
@@ -195,7 +195,7 @@ func TestReconcilerBridge_RecordedRunTerminatesOnLaterPoll(t *testing.T) {
 	}
 
 	// Exactly one Execution — re-observing a run must not duplicate it.
-	_, execs, err := st.GetJob("dep-recon", "cron-syft-grype-bp-syft-grype")
+	_, execs, err := st.GetJob("dep-recon", "cron-openbao-snapshot-save")
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestReconcilerBridge_RecordedRunTerminatesOnLaterPoll(t *testing.T) {
 		t.Fatalf("executions: want 1 (re-observation must not duplicate the run), got %d", len(execs))
 	}
 
-	run := execByRunName(t, st, "dep-recon", "cron-syft-grype-bp-syft-grype", runName)
+	run := execByRunName(t, st, "dep-recon", "cron-openbao-snapshot-save", runName)
 	if run.Status != StatusFailed {
 		t.Errorf("execution status: want %q, got %q — a run that terminated between polls is never terminated in the store",
 			StatusFailed, run.Status)
@@ -233,10 +233,10 @@ func TestReconcilerBridge_RecordedRunTerminatesOnLaterPoll(t *testing.T) {
 // re-sees.
 func TestReconcilerBridge_RecordedRunStaysRunningWhileInFlight(t *testing.T) {
 	b, st := newTestBridge(t)
-	const runName = "syft-grype-bp-syft-grype-29770230"
+	const runName = "openbao-snapshot-save-29770230"
 
 	obs := ReconcilerObservation{
-		Kind: ObsKindCron, Name: "syft-grype-bp-syft-grype", Namespace: "syft-grype",
+		Kind: ObsKindCron, Name: "openbao-snapshot-save", Namespace: "openbao",
 		Status: HelmStateInstalling,
 		Executions: []ReconcilerExecutionObservation{{
 			Name: runName, Status: HelmStateInstalling,
@@ -249,7 +249,7 @@ func TestReconcilerBridge_RecordedRunStaysRunningWhileInFlight(t *testing.T) {
 		}
 	}
 
-	run := execByRunName(t, st, "dep-recon", "cron-syft-grype-bp-syft-grype", runName)
+	run := execByRunName(t, st, "dep-recon", "cron-openbao-snapshot-save", runName)
 	if run.Status != StatusRunning {
 		t.Errorf("execution status: want %q for a run still in flight, got %q", StatusRunning, run.Status)
 	}

@@ -2,14 +2,15 @@
 // that reads FAILED, not one that reads "running" because a later run has not
 // finished yet.
 //
-// Measured on hw292 (read-only kubectl): Job syft-grype-bp-syft-grype-29763030
-// was Failed/BackoffLimitExceeded on 2026-08-03, while its successor
-// ...-29770230 sat two days stale with zero active pods and no conditions at
-// all. Both collapse onto the single `task-syft-sbom` scanner row (#3925). The
-// failed run WAS recorded correctly as an Execution — but the leaf headline read
+// Measured on hw292 (read-only kubectl): a scanner Job (run 29763030) was
+// Failed/BackoffLimitExceeded on 2026-08-03, while its successor (run
+// 29770230) sat two days stale with zero active pods and no conditions at
+// all. Both collapsed onto one scanner row (#3925). The failed run WAS
+// recorded correctly as an Execution — but the leaf headline read
 // `installing`, so the canvas reported 0 failed leaves out of 183 on a cluster
 // that had a failed Job. That is the "invisible failing class" the §5a ingestion
-// exists to kill (#3646).
+// exists to kill (#3646). The cases below model the same pair on the trivy
+// scanner row (`task-trivy-security-scan`), the one scanner that collapses.
 //
 // WHERE THE DEFECT IS NOT. Per-Job extraction is sound: jobRunStatus returns
 // `failed` for the live object, and the rollup can already emit non-succeeded
@@ -35,25 +36,14 @@ var (
 	scanNewerAt  = time.Date(2026, 8, 8, 18, 35, 41, 0, time.UTC)
 )
 
-// syftScannerCronJob builds the bp-syft-grype CronJob as it exists on hw292 —
-// named syft-grype-bp-syft-grype (NOT the bare release name), carrying the
-// blueprint label that isDay2ScannerCronJob keys off. Without that label it
-// would mint a separate cron leaf and the scanner row would never be seeded,
-// which would change what this test is measuring.
-func syftScannerCronJob() *unstructured.Unstructured {
-	u := makeCronJob(syftGrypeNamespace, "syft-grype-bp-syft-grype")
-	u.SetLabels(map[string]string{
-		"catalyst.openova.io/blueprint": "bp-syft-grype",
-		"app.kubernetes.io/instance":    syftGrypeCronName,
-	})
-	return u
-}
-
-// scanRun builds one spawned syft-grype run. condType "" models the live
-// ...-29770230 shape: started, no terminal condition, no active pods.
+// scanRun builds one trivy-operator scan run, carrying the managed-by label
+// the operator stamps (so it folds onto trivyScanIdentity). condType ""
+// models the live run-29770230 shape: started, no terminal condition, no
+// active pods.
 func scanRun(name, condType string, at time.Time) *unstructured.Unstructured {
-	return makeBatchJob(syftGrypeNamespace, name, "syft-grype-bp-syft-grype",
-		condType, metav1.ConditionTrue, at)
+	u := makeBatchJob(trivyScanNamespace, name, "", condType, metav1.ConditionTrue, at)
+	u.SetLabels(map[string]string{"app.kubernetes.io/managed-by": "trivy-operator"})
+	return u
 }
 
 // findLeaf returns the observation with the given name, or fails the test.
@@ -76,15 +66,14 @@ func findLeaf(t *testing.T, obs []ReconcilerObservation, name string) Reconciler
 // reproduction: the exact hw292 pair, in the order the apiserver returned them.
 func TestFailedScanRunIsNotBuriedByUnterminatedSuccessor(t *testing.T) {
 	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(
-		syftScannerCronJob(),
-		scanRun("syft-grype-bp-syft-grype-29763030", "Failed", scanFailedAt),
-		scanRun("syft-grype-bp-syft-grype-29770230", "", scanNewerAt),
+		scanRun("scan-vulnerabilityreport-29763030", "Failed", scanFailedAt),
+		scanRun("scan-vulnerabilityreport-29770230", "", scanNewerAt),
 	))
 	if err != nil {
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
 
-	leaf := findLeaf(t, obs, syftScanIdentity)
+	leaf := findLeaf(t, obs, trivyScanIdentity)
 	if leaf.Status != ObsStatusFailed {
 		t.Errorf("collapsed scanner leaf status = %q, want %q — a failed Job produced no failed leaf (0 failed out of 183 on hw292)",
 			leaf.Status, ObsStatusFailed)
@@ -96,7 +85,7 @@ func TestFailedScanRunIsNotBuriedByUnterminatedSuccessor(t *testing.T) {
 	// The terminated execution must itself be terminal: failed AND finished.
 	var failedRuns int
 	for _, e := range leaf.Executions {
-		if e.Name != "syft-grype-bp-syft-grype-29763030" {
+		if e.Name != "scan-vulnerabilityreport-29763030" {
 			continue
 		}
 		failedRuns++
@@ -114,7 +103,7 @@ func TestFailedScanRunIsNotBuriedByUnterminatedSuccessor(t *testing.T) {
 	// The collapse itself must still hold: ONE row for the scanner, not one per run.
 	var scannerRows int
 	for _, o := range obs {
-		if o.Name == syftScanIdentity {
+		if o.Name == trivyScanIdentity {
 			scannerRows++
 		}
 	}
@@ -128,8 +117,8 @@ func TestFailedScanRunIsNotBuriedByUnterminatedSuccessor(t *testing.T) {
 // first. Guarding only the failed-then-running direction would leave the
 // running-then-failed direction reading "running" through the recency rule.
 func TestFailedScanRunSurvivesEitherListOrder(t *testing.T) {
-	failed := scanRun("syft-grype-bp-syft-grype-29763030", "Failed", scanFailedAt)
-	running := scanRun("syft-grype-bp-syft-grype-29770230", "", scanNewerAt)
+	failed := scanRun("scan-vulnerabilityreport-29763030", "Failed", scanFailedAt)
+	running := scanRun("scan-vulnerabilityreport-29770230", "", scanNewerAt)
 
 	for _, tc := range []struct {
 		name string
@@ -140,12 +129,12 @@ func TestFailedScanRunSurvivesEitherListOrder(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(
-				syftScannerCronJob(), tc.objs[0], tc.objs[1],
+				tc.objs[0], tc.objs[1],
 			))
 			if err != nil {
 				t.Fatalf("ListReconcilerObservations: %v", err)
 			}
-			if got := findLeaf(t, obs, syftScanIdentity).Status; got != ObsStatusFailed {
+			if got := findLeaf(t, obs, trivyScanIdentity).Status; got != ObsStatusFailed {
 				t.Errorf("scanner leaf status = %q, want %q", got, ObsStatusFailed)
 			}
 		})
@@ -158,14 +147,13 @@ func TestFailedScanRunSurvivesEitherListOrder(t *testing.T) {
 // every assertion above.
 func TestSucceededRunClearsAnEarlierFailure(t *testing.T) {
 	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(
-		syftScannerCronJob(),
-		scanRun("syft-grype-bp-syft-grype-29763030", "Failed", scanFailedAt),
-		scanRun("syft-grype-bp-syft-grype-29770230", "Complete", scanNewerAt),
+		scanRun("scan-vulnerabilityreport-29763030", "Failed", scanFailedAt),
+		scanRun("scan-vulnerabilityreport-29770230", "Complete", scanNewerAt),
 	))
 	if err != nil {
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
-	if got := findLeaf(t, obs, syftScanIdentity).Status; got != ObsStatusSucceeded {
+	if got := findLeaf(t, obs, trivyScanIdentity).Status; got != ObsStatusSucceeded {
 		t.Errorf("scanner leaf status = %q, want %q — a later SUCCEEDED run must clear the failure", got, ObsStatusSucceeded)
 	}
 }
@@ -175,14 +163,13 @@ func TestSucceededRunClearsAnEarlierFailure(t *testing.T) {
 // newer Failed one still must not overwrite the failure.
 func TestStaleSucceededRunStillCannotOverwriteAFailure(t *testing.T) {
 	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(
-		syftScannerCronJob(),
-		scanRun("syft-grype-bp-syft-grype-29770230", "Failed", scanNewerAt),
-		scanRun("syft-grype-bp-syft-grype-29763030", "Complete", scanFailedAt),
+		scanRun("scan-vulnerabilityreport-29770230", "Failed", scanNewerAt),
+		scanRun("scan-vulnerabilityreport-29763030", "Complete", scanFailedAt),
 	))
 	if err != nil {
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
-	if got := findLeaf(t, obs, syftScanIdentity).Status; got != ObsStatusFailed {
+	if got := findLeaf(t, obs, trivyScanIdentity).Status; got != ObsStatusFailed {
 		t.Errorf("scanner leaf status = %q, want %q — a stale Succeeded run overwrote a newer failure", got, ObsStatusFailed)
 	}
 }
@@ -237,13 +224,12 @@ func TestTaskLeafFailureSurvivesUnterminatedSuccessor(t *testing.T) {
 // regression guard. It is kept only to pin that fact.
 func TestFailedScanRunSurvives_ControlSingleRun(t *testing.T) {
 	obs, err := ListReconcilerObservations(context.Background(), reconcilerFakeClient(
-		syftScannerCronJob(),
-		scanRun("syft-grype-bp-syft-grype-29763030", "Failed", scanFailedAt),
+		scanRun("scan-vulnerabilityreport-29763030", "Failed", scanFailedAt),
 	))
 	if err != nil {
 		t.Fatalf("ListReconcilerObservations: %v", err)
 	}
-	if got := findLeaf(t, obs, syftScanIdentity).Status; got != ObsStatusFailed {
+	if got := findLeaf(t, obs, trivyScanIdentity).Status; got != ObsStatusFailed {
 		t.Errorf("single failed run: leaf status = %q, want %q", got, ObsStatusFailed)
 	}
 	// If this ever becomes the ONLY case in this file, the row-164 defect can

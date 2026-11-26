@@ -55,8 +55,8 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/admin/user-access", today: C, writeClass: git, operation: "", disposition: migrate, batch: C, package: CTL-210, done: false}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/deployments/{depId}/admin/user-access/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: C, package: CTL-210, done: false}
   - {component: catalyst-api, method: PUT, path: "/api/v1/deployments/{depId}/admin/user-access/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: C, package: CTL-210, done: false}
-  - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/jobs/{jobId}/retry", today: K, writeClass: none, operation: job-retry, disposition: keep, batch: "-", package: CTL-232, done: false}
-  - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action}", today: K, writeClass: none, operation: reconcile, disposition: keep, batch: "-", package: CTL-232, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/jobs/{jobId}/retry", today: K, writeClass: none, operation: job-retry, disposition: keep, batch: "-", package: CTL-232, done: true}
+  - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action}", today: K, writeClass: none, operation: reconcile, disposition: keep, batch: "-", package: CTL-232, done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{depId}/refresh-watch", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/deployments/{id}", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: PUT, path: "/api/v1/deployments/{id}/cloudinit-log", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
@@ -79,6 +79,10 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/internal/organizations/{id}/suspend", today: C, writeClass: git, operation: "", disposition: migrate, batch: B, package: CTL-190, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/ops/incidents/{id}/actions", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/applications", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: DELETE, path: "/api/v1/org/applications/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: PUT, path: "/api/v1/org/applications/{name}", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/org/applications/{name}/topology/preview", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
+  - {component: catalyst-api, method: POST, path: "/api/v1/org/applications/{name}/upgrade/preview", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/billing/purchase", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/org/billing/vouchers/issue", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/org/billing/vouchers/revoke/{code}", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
@@ -115,13 +119,13 @@ routes:
   - {component: catalyst-api, method: PUT, path: "/api/v1/sovereigns/{id}/console-ui/sidebar-overrides", today: K, writeClass: git, operation: "", disposition: migrate, batch: D, package: CTL-222, done: false}
   - {component: catalyst-api, method: PUT, path: "/api/v1/sovereigns/{id}/environments/{env}/policy", today: C, writeClass: git, operation: "", disposition: migrate, batch: E, package: CMP, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/apply", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
-  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}/session", today: K, writeClass: none, operation: exec, disposition: keep, batch: "-", package: CTL-232, done: false}
-  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/pods/{ns}/{pod}/exec", today: K, writeClass: none, operation: exec, disposition: keep, batch: "-", package: CTL-232, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}/session", today: K, writeClass: none, operation: exec, disposition: keep, batch: "-", package: CTL-232, done: true}
+  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/pods/{ns}/{pod}/exec", today: K, writeClass: none, operation: exec, disposition: keep, batch: "-", package: CTL-232, done: true}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
   - {component: catalyst-api, method: PUT, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
-  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", today: K, writeClass: none, operation: restart, disposition: keep, batch: "-", package: CTL-232, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", today: K, writeClass: none, operation: restart, disposition: keep, batch: "-", package: CTL-232, done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
   - {component: catalyst-api, method: PUT, path: "/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", today: K, writeClass: none, operation: "", disposition: refuse, batch: F, package: CTL-231, done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: "-", done: true}

@@ -874,6 +874,45 @@ A rotation is not a work package. Its branch is `release-key-rotation/<YYYY-MM-D
 
 From step 3 on, never set the old secrets again. If the rotation pull request fails in the merge queue, the hold stays until a corrected rotation pull request has merged. A run of a commit older than the rotation fails at its verify step, because that commit holds the old public half. Do not run it again.
 
+### 2.17 Offline backup of the state key
+
+The infrastructure state of a Sovereign is encrypted with the transit key `transit/keys/tofu-state` of its OpenBao (`stateKey` in `platform/openbao/chart/values.yaml`). If the store is lost, the state can be read again only with a backup of that key. bp-openbao creates the key exportable and with a plaintext backup allowed, both for good, and only policy `tofu-state-backup` may read `transit/backup/tofu-state`. The group `sovereign-admins` carries that policy, and so do the service accounts listed in `stateKey.backupIdentities`.
+
+The sovereign-admin takes the backup once, after the Sovereign is handed over. Custody is the sovereign-admin's: no copy is kept on the Sovereign or by the provisioning service.
+
+1. Sign in to OpenBao (`BAO_ADDR=https://<gateway.host>`, `bao login -method=oidc`) as a member of `sovereign-admins`, and take the backup as a wrapped response. The answer is a single-use wrapping token that lives one hour, not the key:
+   ```sh
+   bao read -wrap-ttl=1h -field=wrapping_token transit/backup/tofu-state > tofu-state.wrap
+   ```
+2. Carry `tofu-state.wrap` to the custody machine outside the Sovereign. There, with `BAO_ADDR` set to the same address, unwrap it. Only this machine ever holds the backup in the clear:
+   ```sh
+   BAO_TOKEN="$(cat tofu-state.wrap)" bao unwrap -field=backup > tofu-state.backup
+   ```
+
+Store `tofu-state.backup` offline under the sovereign-admin's custody and delete `tofu-state.wrap`. If step 2 answers that the wrapping token is not valid although it is less than one hour old, someone else unwrapped it: treat the key as disclosed, report it, and take a new backup once the key has been rotated. A gate environment takes its backup the same way with its own service account, listed in `stateKey.backupIdentities`. Restoring the key is part of the Sovereign lifecycle and is not done by hand.
+
+### 2.18 Restore OpenBao
+
+With `backup.enabled`, CronJob `openbao-backup` in namespace `openbao` takes a raft snapshot every six hours (UTC) and puts it at `s3://<backup.bucket>/<backup.prefix><region>/<UTC time>.snap`. It logs in as auth role `openbao-snapshot`, whose policy reads only `sys/storage/raft/snapshot`, reads the object's size back, and then deletes that region's snapshots older than `backup.retentionDays` (30). The bucket's endpoint and key come from Secret `backup.bucketSecretName` in namespace `openbao`. A failed run is a failed Job: `kubectl -n openbao get jobs -l app.kubernetes.io/name=openbao-backup`.
+
+A snapshot is encrypted under the seal key and is of no use without it. With seal kind `static-node-file` the key is the node file `/var/lib/catalyst/seal/openbao-seal-<key id>.key` of every control-plane node, and it is recovered from the Sovereign's encrypted infrastructure state, from which provisioning writes the file again (contract C8, `docs/contracts/c8-seal-provider.md`). With `cloud-key-service` it never leaves the key service, and the nodes' credential must still be allowed to use it.
+
+1. Take the newest object under `<backup.prefix><region>/` from before the loss and copy it to the admin machine.
+2. Place the seal key: the node file with the key id that the stanza of ConfigMap `flux-system/sovereign-seal-profile` names.
+3. Install the chart into an empty store with `selfInit.enabled: false` (suspend HelmRelease `flux-system/bp-openbao` and set the value), so that the store starts uninitialised. Initialise it once; the root token it prints belongs to the empty store:
+   ```sh
+   kubectl -n openbao exec -it openbao-0 -- bao operator init -recovery-shares=1 -recovery-threshold=1
+   ```
+4. Copy the snapshot in and restore it with that root token. `-force` is needed because the snapshot comes from another store:
+   ```sh
+   kubectl -n openbao exec -i openbao-0 -- sh -c 'cat > /tmp/restore.snap' < <UTC time>.snap
+   kubectl -n openbao exec -it openbao-0 -- sh -c 'BAO_TOKEN=<root token> bao operator raft snapshot restore -force /tmp/restore.snap'
+   ```
+   The restored store replaces the empty one: the root token and recovery key of step 3 are void; delete them.
+5. Verify a known key: as a member of `sovereign-admins`, `bao kv metadata get -mount=secret <a path you know>` answers with the version you expect, and the `openbao-config` reconciler logs in again. Then set `selfInit.enabled` back and resume the HelmRelease; the self-initialisation skips an initialised store.
+
+**The restore drill (SEC-181).** With `restoreDrill.enabled` (it needs `backup.enabled`; the kit switches both on in slot 08), CronJob `openbao-restore-drill` proves steps 3 to 5 before every backup, `restoreDrill.leadMinutes` (5) ahead of it. As service account `openbao-config` it logs in with role `openbao-config-admin` and mints a token through token role `sec-g10-drill`: policy `sec-g10-drill` only, which reads and writes `secret/data/sec-g10-drill/canary` and nothing else, at most 15 minutes, not renewable. It writes a fresh random canary there, waits at most `restoreDrill.waitSeconds` (540) for this region's first snapshot in the bucket that is newer than the write, restores it into a scratch OpenBao in its own pod (the store's seal stanza and the node's seal file, storage in the pod, listening on `127.0.0.1` only; never the live store), and reads the canary back with the same token, which the restored store knows. It then revokes its login, and with it the token, and writes ConfigMap `openbao/openbao-restore-drill`: the snapshot's key and time, the SHA-256 digests of the value written and of the value read, the token's lifetime and any error. Gate check SEC-G10 reads that record in every region: no record, a snapshot older than 7 hours, digests that differ or a token over 15 minutes fail. A failed drill is a failed Job: `kubectl -n openbao logs job/<name>` and `kubectl -n openbao get configmap openbao-restore-drill -o yaml`. The bucket's key pair reaches namespace `openbao` as the reflector's copy of `flux-system/object-storage`.
+
 ---
 
 ## §3 — Blueprint authoring
@@ -1884,7 +1923,7 @@ Test harness lives at the D31 acceptance test (PR #2075).
 
 ### 6.2 Continuum CR + lease witness
 
-`Continuum` (group `dr.openova.io/v1`) orchestrates switchover with a Cloudflare-KV or DNS-quorum lease witness (anti-split-brain). Schema in `products/catalyst/chart/crds/continuum.yaml`. Controller lives in EPIC-6 (#1101).
+`Continuum` (group `dr.openova.io/v1`) orchestrates switchover with a Cloudflare-KV or DNS-quorum lease witness (anti-split-brain). Schema in `products/continuum/chart/crds/continuum.yaml`. Controller lives in EPIC-6 (#1101).
 
 Required pattern: lease-based failover with cloud-witness. DMZ data plane over public IPs with WireGuard encryption (never RFC1918 tunnels depending on cloud-provider VPC peering).
 

@@ -133,6 +133,7 @@ crossRegion:
 #     skipJwtBearerTokens: true     # token-bearing machine callers pass
 #     skipAuthRoutes: []            # oauth2-proxy --skip-auth-route
 #                                   # entries (METHOD=^path-regex)
+#     allowedGroups: []             # Keycloak groups admitted; empty admits every realm user
 #     replicas: 1
 #     # rootRedirectPath (#3374 Layer-A): for an app that ships its OWN OIDC
 #     # (e.g. pda-legacy authlib) — NOT a login-less binary. oauth2-proxy

@@ -1,218 +1,141 @@
 /**
- * ExecPanel.test.tsx — EPIC-4 Slice E1+E2 (#1099).
+ * ExecPanel.test.tsx — EPIC-4 Slice E2 (#1099).
  *
- * TRANSPORT NOTE (why this file was migrated — #5404)
- * ---------------------------------------------------
- * G85 #2632 (2026-06-01) INVERTED the default transport — see the comment
- * at ExecPanel.tsx:99-107. The Guacamole embed URL pointed at
- * `guacamole.<dep>.sovereign.local`, a cluster-internal host the operator's
- * browser cannot resolve, so 100% of "Open Shell" clicks fell through to the
- * WebSocket fallback after a visible 5s spinner. `openShell()` now sets
- * `phase` straight to `'fallback-loading'` (ExecPanel.tsx:107) and the
- * iframe renders only in the `iframe-loading` / `iframe-ready` phases
- * (ExecPanel.tsx:289). The old iframe-first assertions were therefore
- * asserting a path the shipped code no longer takes.
+ * The panel opens the exec WebSocket of the pod directly: no request
+ * creates a session first, and no Guacamole iframe exists.
  *
  * ORDERING NOTE (#5633)
  * ---------------------
- * `phase === 'fallback-loading'` and `phase === 'fallback-ready'` render
- * byte-identical markup, and the WebSocket is dialled in the passive effect
- * (ExecPanel.tsx:129-148) that React flushes in a scheduler task AFTER the
- * one that commits that markup. So no `waitFor` on a DOM node alone can
- * imply that the socket exists — under CPU pressure the scheduler yields
- * between the two and the DOM-only wait resolves first. Every wait in this
- * file that precedes a `wsInstance` assertion therefore names `wsInstance`
- * in the wait condition itself.
+ * The WebSocket is dialled in a passive effect that React flushes in a
+ * scheduler task AFTER the one that commits the terminal markup. So no
+ * `waitFor` on a DOM node alone can imply that the socket exists. Every wait
+ * in this file that precedes a socket assertion names the socket in the wait
+ * condition itself.
  *
- * Vitest coverage for the shipped contract:
- *   - Open Shell button → POST /session → WS+xterm mounts immediately
- *   - No Guacamole iframe and no "Recording: ON" claim on the WS path
- *   - No iframe-load timeout to wait out (the #2632 regression guard)
- *   - WebSocket construction failure → visible error + retry
- *   - Disabled button when canExec=false (per RBAC contract)
- *   - Server error surface
+ * Coverage:
+ *   - Open Shell dials /k8s/exec/{ns}/{pod}/{container}?command=/bin/sh and
+ *     sends no HTTP request
+ *   - the socket stays open once it is open; unmount closes it
+ *   - a dial failure and a socket error show an error with Retry; Retry dials
+ *     again
+ *   - a close of the open socket by the server shows its code and reason
+ *     and Retry, and no longer says Connected
+ *   - a change of the container after an attempt dials the new container
+ *     and shows Connecting again
+ *   - the button is disabled when canExec=false
  */
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react'
 
 import { ExecPanel } from './ExecPanel'
-import type { ExecSessionResponse } from '@/pages/sovereign/cloud-list/resource.api'
 
-afterEach(() => cleanup())
-beforeEach(() => {
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-})
-afterEach(() => {
-  vi.useRealTimers()
-})
-
-const HAPPY_SESSION: ExecSessionResponse = {
-  sessionId: 'sess-1',
-  connectionId: 'conn-1',
-  embedURL: 'https://guac.local/#/client/conn-1',
-  namespace: 'default',
-  pod: 'wp-1',
-  container: 'web',
-  fallbackWebSocketUrl: 'ws://localhost/api/v1/sovereigns/dep/k8s/exec/default/wp-1/web?command=%2Fbin%2Fsh',
-  recording: true,
-  issued: '2026-05-09T12:00:00Z',
-}
+const EXEC_PATH = '/v1/sovereigns/dep/k8s/exec/default/wp-1/web?command=%2Fbin%2Fsh'
 
 class FakeWebSocket {
   url: string
   binaryType = 'arraybuffer'
+  closed = false
   onopen: (() => void) | null = null
   onmessage: ((ev: { data: ArrayBuffer | string }) => void) | null = null
   onerror: (() => void) | null = null
-  onclose: ((ev: { code: number }) => void) | null = null
+  onclose: ((ev: { code: number; reason?: string }) => void) | null = null
   constructor(url: string) {
     this.url = url
   }
   // Stub — the panel only calls send() from the xterm stdin wiring, which
-  // is off in these tests (disableTerminal). Takes no params so the
-  // no-unused-vars rule stays green; the double-cast at the call site keeps
-  // it assignable to WebSocket.
+  // is off in these tests (disableTerminal).
   send() {}
   close() {
+    this.closed = true
     this.onclose?.({ code: 1000 })
   }
 }
 
+let fetchSpy: ReturnType<typeof vi.fn>
+beforeEach(() => {
+  fetchSpy = vi.fn(() => Promise.reject(new Error('no HTTP request is expected')))
+  vi.stubGlobal('fetch', fetchSpy)
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+function renderPanel(sockets: FakeWebSocket[], canExec = true) {
+  return render(
+    <ExecPanel
+      deploymentId="dep"
+      ns="default"
+      pod="wp-1"
+      container="web"
+      canExec={canExec}
+      websocketFactory={(url) => {
+        const ws = new FakeWebSocket(url)
+        sockets.push(ws)
+        return ws as unknown as WebSocket
+      }}
+      disableTerminal
+    />,
+  )
+}
+
 describe('ExecPanel', () => {
-  it('renders Open Shell idle state', () => {
-    render(
-      <ExecPanel
-        deploymentId="dep"
-        ns="default"
-        pod="wp-1"
-        container="web"
-        createSession={async () => HAPPY_SESSION}
-        disableTerminal
-      />,
-    )
+  it('renders Open Shell idle state that claims no recording', () => {
+    renderPanel([])
     expect(screen.getByTestId('exec-panel-open')).toBeTruthy()
+    expect(screen.getByTestId('exec-panel').textContent).toContain('The session is not recorded.')
+    expect(screen.getByTestId('exec-panel').textContent).not.toContain('Guacamole')
   })
 
   it('disables button when canExec is false', () => {
-    render(
-      <ExecPanel
-        deploymentId="dep"
-        ns="default"
-        pod="wp-1"
-        container="web"
-        canExec={false}
-        createSession={async () => HAPPY_SESSION}
-        disableTerminal
-      />,
-    )
+    renderPanel([], false)
     const btn = screen.getByTestId('exec-panel-open') as HTMLButtonElement
     expect(btn.disabled).toBe(true)
   })
 
-  it('happy path opens the WebSocket shell directly — no Guacamole iframe (G85 #2632)', async () => {
-    let wsInstance: FakeWebSocket | null = null
-    render(
-      <ExecPanel
-        deploymentId="dep"
-        ns="default"
-        pod="wp-1"
-        container="web"
-        createSession={async () => HAPPY_SESSION}
-        websocketFactory={(url) => {
-          wsInstance = new FakeWebSocket(url)
-          return wsInstance as unknown as WebSocket
-        }}
-        disableTerminal
-      />,
-    )
+  it('Open Shell dials the exec WebSocket directly and sends no HTTP request', async () => {
+    const sockets: FakeWebSocket[] = []
+    renderPanel(sockets)
     fireEvent.click(screen.getByTestId('exec-panel-open'))
-    // #5633 — the wait condition has to cover the socket, not just the DOM.
-    // React COMMITS the `fallback-loading` markup (banner + terminal <div>)
-    // in one scheduler task and dials the WebSocket in the passive effect
-    // (ExecPanel.tsx:129-148) that it flushes in a LATER one. Nothing in the
-    // DOM distinguishes `fallback-loading` from `fallback-ready`, so a
-    // DOM-only wait is satisfied strictly BEFORE the socket exists. Whenever
-    // a render overruns React's 5ms frame budget the scheduler yields
-    // between commit and passive-effect flush, the MutationObserver driving
-    // waitFor fires in the intervening microtask checkpoint, and the wait
-    // resolves with `wsInstance` still null. Waiting on both is not a weaker
-    // assertion: a socket that is never dialled still fails the test, on the
-    // waitFor timeout. Do NOT move this back out of the waitFor.
     await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-fallback-terminal')).toBeTruthy()
-      expect(wsInstance).not.toBeNull()
+      expect(screen.getByTestId('exec-panel-terminal')).toBeTruthy()
+      expect(sockets.length).toBe(1)
     })
-    // The WS is dialled against the server-supplied fallback URL
-    // (ExecPanel.tsx:131-140).
-    expect(wsInstance!.url).toBe(HAPPY_SESSION.fallbackWebSocketUrl)
-    // …and the Guacamole iframe never mounts: ExecPanel.tsx:289 gates it on
-    // the `iframe-*` phases and openShell no longer enters them
-    // (ExecPanel.tsx:107).
-    expect(screen.queryByTestId('exec-panel-iframe')).toBeNull()
-    // The server reported recording:true, but a direct WS exec is NOT
-    // recorded. The badge stays inside the iframe branch
-    // (ExecPanel.tsx:291-295) and the WS banner states the opposite — the
-    // UI must never claim a recording it isn't making.
-    expect(screen.queryByTestId('exec-panel-recording-on')).toBeNull()
-    expect(screen.getByTestId('exec-panel-fallback-banner').textContent).toContain(
-      'recording disabled',
-    )
-  })
-
-  it('reaches a usable shell without waiting out any iframe-load timeout', async () => {
-    // Regression guard for the exact bug G85 #2632 fixed (ExecPanel.tsx:99-107):
-    // every click used to burn a visible 5s spinner before falling through.
-    // Nothing here advances timers before the assertions.
-    let wsInstance: FakeWebSocket | null = null
-    render(
-      <ExecPanel
-        deploymentId="dep"
-        ns="default"
-        pod="wp-1"
-        container="web"
-        createSession={async () => HAPPY_SESSION}
-        iframeLoadTimeoutMs={100}
-        websocketFactory={(url) => {
-          wsInstance = new FakeWebSocket(url)
-          return wsInstance as unknown as WebSocket
-        }}
-        disableTerminal
-      />,
-    )
-    fireEvent.click(screen.getByTestId('exec-panel-open'))
-    // #5633 — same commit-before-effect ordering as the happy-path test
-    // above: the banner is committed a scheduler task before the socket is
-    // dialled, so the wait has to name the socket too.
-    await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-fallback-banner')).toBeTruthy()
-      expect(wsInstance).not.toBeNull()
-    })
-    expect(wsInstance!.url).toContain('/k8s/exec/default/wp-1/web')
-    // Draining well past the iframe-load timeout must not disturb the live
-    // shell — that timer is only armed in the `iframe-loading` phase
-    // (ExecPanel.tsx:115-127), which this path never enters.
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-    expect(screen.getByTestId('exec-panel-fallback-terminal')).toBeTruthy()
+    const url = new URL(sockets[0].url)
+    expect(['ws:', 'wss:']).toContain(url.protocol)
+    expect(url.pathname + url.search).toBe('/api' + EXEC_PATH)
+    expect(fetchSpy).not.toHaveBeenCalled()
     expect(screen.queryByTestId('exec-panel-iframe')).toBeNull()
   })
 
-  it('surfaces a WebSocket dial failure instead of hanging on a blank terminal', async () => {
-    // Replaces the old iframe-onerror coverage: the transport that can fail
-    // on the default path is now the WebSocket, and ExecPanel.tsx:139-145
-    // is the branch that has to degrade visibly. The iframe onError handler
-    // (ExecPanel.tsx:236-242) is no longer reachable — see the file
-    // docblock — so its coverage moves here.
+  it('keeps the socket open once it is open, and closes it on unmount', async () => {
+    const sockets: FakeWebSocket[] = []
+    const view = renderPanel(sockets)
+    fireEvent.click(screen.getByTestId('exec-panel-open'))
+    await waitFor(() => expect(sockets.length).toBe(1))
+    expect(screen.getByTestId('exec-panel').getAttribute('data-phase')).toBe('connecting')
+    act(() => sockets[0].onopen?.())
+    await waitFor(() => {
+      expect(screen.getByTestId('exec-panel').getAttribute('data-phase')).toBe('ready')
+    })
+    expect(screen.getByTestId('exec-panel-banner').textContent).toBe('Connected — direct shell, not recorded.')
+    expect(sockets[0].closed).toBe(false)
+    expect(sockets.length).toBe(1)
+    view.unmount()
+    expect(sockets[0].closed).toBe(true)
+  })
+
+  it('surfaces a WebSocket dial failure and Retry dials again', async () => {
+    let dials = 0
     render(
       <ExecPanel
         deploymentId="dep"
         ns="default"
         pod="wp-1"
         container="web"
-        createSession={async () => HAPPY_SESSION}
         websocketFactory={() => {
+          dials++
           throw new Error('SecurityError: ws dial blocked')
         }}
         disableTerminal
@@ -224,26 +147,81 @@ describe('ExecPanel', () => {
         'SecurityError: ws dial blocked',
       )
     })
-    expect(screen.queryByTestId('exec-panel-fallback-terminal')).toBeNull()
-    expect(screen.getByTestId('exec-panel-error').textContent).toContain('Retry')
+    expect(dials).toBe(1)
+    expect(screen.queryByTestId('exec-panel-terminal')).toBeNull()
+    fireEvent.click(screen.getByText('Retry'))
+    await waitFor(() => expect(dials).toBe(2))
   })
 
-  it('surfaces server error and offers retry', async () => {
-    render(
+  it('shows an error when the open socket fails', async () => {
+    const sockets: FakeWebSocket[] = []
+    renderPanel(sockets)
+    fireEvent.click(screen.getByTestId('exec-panel-open'))
+    await waitFor(() => expect(sockets.length).toBe(1))
+    act(() => sockets[0].onopen?.())
+    await waitFor(() => {
+      expect(screen.getByTestId('exec-panel').getAttribute('data-phase')).toBe('ready')
+    })
+    act(() => sockets[0].onerror?.())
+    // A browser follows the error event with an abnormal close.
+    act(() => sockets[0].onclose?.({ code: 1006, reason: '' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('exec-panel-error').textContent).toContain('WebSocket error')
+    })
+    expect(screen.queryByTestId('exec-panel-terminal')).toBeNull()
+  })
+
+  it('shows the close code and reason and Retry when the server closes the open socket', async () => {
+    const sockets: FakeWebSocket[] = []
+    renderPanel(sockets)
+    fireEvent.click(screen.getByTestId('exec-panel-open'))
+    await waitFor(() => expect(sockets.length).toBe(1))
+    act(() => sockets[0].onopen?.())
+    await waitFor(() => {
+      expect(screen.getByTestId('exec-panel-banner').textContent).toBe('Connected — direct shell, not recorded.')
+    })
+    act(() => sockets[0].onclose?.({ code: 1011, reason: 'container not found' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('exec-panel-error').textContent).toContain(
+        'the shell closed: 1011 container not found',
+      )
+    })
+    expect(screen.getByTestId('exec-panel').textContent).not.toContain('Connected')
+    expect(screen.queryByTestId('exec-panel-terminal')).toBeNull()
+    fireEvent.click(screen.getByText('Retry'))
+    await waitFor(() => expect(sockets.length).toBe(2))
+  })
+
+  it('dials the new container and shows Connecting when the container changes after an attempt', async () => {
+    const sockets: FakeWebSocket[] = []
+    const factory = (url: string) => {
+      const ws = new FakeWebSocket(url)
+      sockets.push(ws)
+      return ws as unknown as WebSocket
+    }
+    const panel = (container: string) => (
       <ExecPanel
         deploymentId="dep"
         ns="default"
         pod="wp-1"
-        container="web"
-        createSession={async () => {
-          throw new Error('HTTP 502: guacamole-create-failed')
-        }}
+        container={container}
+        websocketFactory={factory}
         disableTerminal
-      />,
+      />
     )
+    const view = render(panel('main'))
     fireEvent.click(screen.getByTestId('exec-panel-open'))
+    await waitFor(() => expect(sockets.length).toBe(1))
+    act(() => sockets[0].onopen?.())
     await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-error').textContent).toContain('502')
+      expect(screen.getByTestId('exec-panel').getAttribute('data-phase')).toBe('ready')
     })
+    view.rerender(panel('web'))
+    await waitFor(() => expect(sockets.length).toBe(2))
+    expect(sockets[0].closed).toBe(true)
+    const url = new URL(sockets[1].url)
+    expect(url.pathname + url.search).toBe('/api' + EXEC_PATH)
+    expect(screen.getByTestId('exec-panel').getAttribute('data-phase')).toBe('connecting')
+    expect(screen.getByTestId('exec-panel-banner').textContent).toBe('Connecting… — direct shell, not recorded.')
   })
 })

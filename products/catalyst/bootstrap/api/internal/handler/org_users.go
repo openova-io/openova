@@ -118,7 +118,7 @@ type OrgDeps struct {
 // startup; tests pass a struct with stub clients.
 func (h *Handler) SetOrgDeps(deps OrgDeps) { h.orgDeps = deps }
 
-// resolveTenant locates the TenantRegistration for the request. Order:
+// ResolveOrganization locates the TenantRegistration for the request. Order:
 //
 //  1. X-Tenant-Host header (sent by the SPA bootstrap)
 //  2. tenant query param (escape hatch for curl/operator tooling)
@@ -126,7 +126,7 @@ func (h *Handler) SetOrgDeps(deps OrgDeps) { h.orgDeps = deps }
 // Returns 400 if no tenant context is supplied; 404 if the host is
 // unknown; 422 if the resolved tenant is not Organization-tier (otech-tier
 // admins use the existing UserAccess CRD surface).
-func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (store.TenantRegistration, bool) {
+func (h *Handler) ResolveOrganization(w http.ResponseWriter, r *http.Request) (store.TenantRegistration, bool) {
 	if h.tenantRegistry == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "tenant-registry-unavailable",
@@ -286,7 +286,7 @@ func recordToResponse(rec store.UserProvisionRecord) orgUserResponse {
 // always includes the steps[] progress so the SPA can render the
 // progress bar even if a step failed.
 func (h *Handler) HandleCreateOrgUser(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveOrganization(w, r)
+	tenant, ok := h.ResolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -342,7 +342,7 @@ func (h *Handler) HandleCreateOrgUser(w http.ResponseWriter, r *http.Request) {
 
 // HandleListOrgUsers — GET /api/v1/org/users.
 func (h *Handler) HandleListOrgUsers(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveOrganization(w, r)
+	tenant, ok := h.ResolveOrganization(w, r)
 	if !ok {
 		return
 	}
@@ -365,7 +365,7 @@ func (h *Handler) HandleListOrgUsers(w http.ResponseWriter, r *http.Request) {
 // the reconciler can retry the next pass. Returns 204 on success, 404
 // if the uuid is unknown.
 func (h *Handler) HandleDeleteOrgUser(w http.ResponseWriter, r *http.Request) {
-	tenant, ok := h.resolveOrganization(w, r)
+	tenant, ok := h.ResolveOrganization(w, r)
 	if !ok {
 		return
 	}

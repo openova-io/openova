@@ -82,7 +82,8 @@ permissions:
   packages: write
   id-token: write              # for cosign keyless signing
   # actions: write — #6262 reads this run's sibling job outcomes, and the step
-  # "Provisioning image: dispatch its build" starts services-build.yaml (FND-027).
+  # "Provisioning image: dispatch its build" starts services-build.yaml (FND-027),
+  # and "Release writer: release main again" starts this workflow (FND-046).
   actions: write
 
 jobs:
@@ -222,6 +223,9 @@ jobs:
       # The registry holds no such version: it is published as it stands.
       # The same files: nothing is pushed to the registry (unchanged=true).
       # Other files: the next patch version is written, as on a push.
+      # FND-046: the next version skips every version the registry already holds.
+      # The commit step writes no version onto a main whose chart packages to other
+      # files, so that version stays in the registry while main names an older one.
       - name: "Release writer: bump the chart version"
         id: bump_chart
         env:
@@ -334,6 +338,25 @@ jobs:
             top="${main_ver}"
           fi
           next="${top%.*}.$(( ${top##*.} + 1 ))"
+          # FND-046: held_version <name> <version> <dir> is true when the registry
+          # holds the version, false when it answers not found; any other answer ends the step.
+          held_version() {
+            if helm pull "oci://ghcr.io/openova-io/$1" --version "$2" --destination "$3" > "$3.log" 2>&1; then
+              return 0
+            fi
+            if grep -q 'not found' "$3.log"; then
+              return 1
+            fi
+            cat "$3.log"
+            echo "::error title=Release writer::could not read ghcr.io/openova-io/$1:$2 from the registry; nothing was published."
+            exit 1
+          }
+          name="$(awk '/^name:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
+          held="$(mktemp -d)"
+          while held_version "${name}" "${next}" "${held}"; do
+            echo "The registry already holds ${name} ${next}: the version is skipped."
+            next="${next%.*}.$(( ${next##*.} + 1 ))"
+          done
           sed -i -E "s|^version: .*\$|version: ${next}|" "${chart_yaml}"
           wrote="$(awk '/^version:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
           if [ "${wrote}" != "${next}" ]; then
@@ -733,10 +756,35 @@ jobs:
           # under, one layer up.
           python3 scripts/check-sibling-chart-builds.py --self-test
 
+          # The build that publishes a seed pin can also run in ANOTHER run of
+          # this workflow. A merge that adds a chart and its seed pin starts the
+          # push run, whose matrix builds the new chart, and catalyst-build.yaml
+          # (products/catalyst/chart/** changed) later dispatches this workflow
+          # for products/catalyst alone: a run with no sibling, whose gate could
+          # read GHCR before the new chart was pushed. Nothing orders the two
+          # (merge 92c2105a23, 24 Nov 2026: the push run's build jobs started
+          # 07:19:31, the dispatch came 07:21:55). So the build jobs, not yet
+          # completed, of every EARLIER run of this workflow on main are waited
+          # for as siblings too. Only their wait counts: the GHCR check below
+          # judges what they published.
+          created="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.created_at')"
+          if ! [[ "${created}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]]; then
+            echo "::error title=Sibling-build gate could not read this run::no creation time for run ${GITHUB_RUN_ID} ('${created}'). This is an input error, never a pass (#6262)."
+            exit 2
+          fi
+
           deadline=$(( SECONDS + 900 ))
           while :; do
             gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
-              --paginate --jq '.jobs[]' | jq -s '.' > /tmp/run-jobs.json
+              --paginate --jq '.jobs[]' > /tmp/run-jobs.ndjson
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/blueprint-release.yaml/runs?branch=main&per_page=100" \
+              --jq ".workflow_runs[] | select(.status != \"completed\" and .id != ${GITHUB_RUN_ID} and .created_at < \"${created}\") | .id" \
+              > /tmp/earlier-runs.txt
+            while read -r run_id; do
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" --paginate \
+                --jq '.jobs[] | select((.name | startswith("build (")) and .status != "completed")'
+            done < /tmp/earlier-runs.txt >> /tmp/run-jobs.ndjson
+            jq -s '.' /tmp/run-jobs.ndjson > /tmp/run-jobs.json
 
             set +e
             python3 scripts/check-sibling-chart-builds.py \
@@ -748,7 +796,7 @@ jobs:
               0)  break ;;
               75)
                 if [ "$SECONDS" -ge "$deadline" ]; then
-                  echo "::error title=Sibling builds did not finish::Waited 15 min for sibling chart builds in this run; refusing to publish the umbrella on an unknown sibling outcome (#6262)."
+                  echo "::error title=Sibling builds did not finish::Waited 15 min for sibling chart builds in this run and earlier runs; refusing to publish the umbrella on an unknown sibling outcome (#6262)."
                   exit 1
                 fi
                 sleep 20
@@ -768,7 +816,8 @@ jobs:
           # publish and can block. Catches the residual class the wait cannot:
           # a seed pin to a chart that was NOT part of this run and was never
           # published at all. Measured on main 2026-08-14: 75/75 pins resolve,
-          # 5 declared known-gaps, 0 failures.
+          # 5 declared known-gaps, 0 failures. No --pr-base here: in the
+          # release every pin must already be published.
           bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
 
       # FND-029: the floor under the release writer. A registry lets a tag be
@@ -1288,8 +1337,10 @@ jobs:
           set -euo pipefail
           # Whatever ends this step with an error leaves every site of the chart
           # behind on main: the error and the summary name the chart and the
-          # release to start. A dispatched run of that chart pushes the same
-          # files again and writes every site; it refuses other files (FND-029).
+          # release to start. A dispatched run of that chart writes every site: it
+          # publishes main's chart under the next version the registry does not hold,
+          # or nothing when the registry holds main's version with the same files
+          # (FND-029, FND-046).
           lockstep_lost() {
             local rc=$?
             if [ "$rc" -eq 0 ]; then
@@ -1309,6 +1360,8 @@ jobs:
           trap lockstep_lost EXIT
           git config user.name "hatiyildiz"
           git config user.email "hatiyildiz@users.noreply.github.com"
+          # FND-046: the commit this job checked out, and packaged as CHART_VERSION.
+          checkout="$(git rev-parse HEAD)"
 
           # The three catalog-seed / generated-catalog files (#5583) and the
           # funnel pin (#7829), all written by the sync_seed step. Kept as vars
@@ -1407,6 +1460,67 @@ jobs:
               return 1
             fi
             return 0
+          }
+          # FND-046: a retry writes CHART_VERSION onto a main this job did not check
+          # out. packaged_paths <rev> names what a package of the chart holds at <rev>:
+          # its chart folder and the folder of each file:// dependency.
+          packaged_paths() {
+            local rel
+            echo "${CHART_PATH}/chart"
+            for rel in $(git show "$1:${CHART_PATH}/chart/Chart.yaml" 2>/dev/null | sed -n -E 's|^[ -]*repository: *"?file://([^" ]*)"?.*$|\1|p'); do
+              echo "${CHART_PATH}/chart/${rel}"
+            done
+          }
+          # owned_out <rev> <file>: the file without the release-owned lines R1 to R3 of
+          # scripts/check-release-owned-lines.py (this chart's version, the umbrella's
+          # appVersion, the spec.version of a blueprint.yaml in a chart folder).
+          owned_out() {
+            git show "$1:$2" 2>/dev/null | awk -v f="$2" -v c="${CHART_PATH}/chart/Chart.yaml" '
+              f == c && /^version:/ { next }
+              f == "products/catalyst/chart/Chart.yaml" && /^appVersion:/ { next }
+              f ~ /^products\/[^\/]+\/chart\/blueprint\.yaml$/ && !s && /^  version:/ { s = 1; next }
+              { print }'
+          }
+          # compare_main sets main_same=false when a file of packaged_paths changed on
+          # origin/main since the checkout, outside those lines, and origin/main,
+          # packaged as CHART_VERSION, holds other files than the package this job
+          # published (scripts/chart-package-diff.py, as the release writer compares).
+          compare_main() {
+            local changed f moved="" fresh rc
+            main_same=true
+            # shellcheck disable=SC2046
+            changed="$(git diff --name-only "${checkout}" origin/main -- $(packaged_paths "${checkout}") $(packaged_paths origin/main))"
+            for f in ${changed}; do
+              if [ "$(owned_out "${checkout}" "$f")" != "$(owned_out origin/main "$f")" ]; then
+                moved="$f"
+                break
+              fi
+            done
+            if [ -z "${moved}" ]; then
+              return 0
+            fi
+            echo "${moved} changed on main after the checkout ${checkout}: main is packaged as ${CHART_NAME} ${CHART_VERSION} and compared with the published package"
+            fresh="$(mktemp -d)"
+            git worktree add --quiet --detach "${fresh}/main" origin/main
+            sed -i -E "s|^version: .*\$|version: ${CHART_VERSION}|" "${fresh}/main/${CHART_PATH}/chart/Chart.yaml"
+            # shellcheck source=scripts/lib/helm-dep-repos.sh
+            . scripts/lib/helm-dep-repos.sh
+            add_dep_repos "${fresh}/main/${CHART_PATH}/chart"
+            helm dependency build "${fresh}/main/${CHART_PATH}/chart"
+            helm package "${fresh}/main/${CHART_PATH}/chart" --destination "${fresh}/package"
+            set +e
+            python3 scripts/chart-package-diff.py "${CHARTS_DIR:-/tmp/charts}/${CHART_NAME}-${CHART_VERSION}.tgz" "${fresh}/package/${CHART_NAME}-${CHART_VERSION}.tgz"
+            rc=$?
+            set -e
+            git worktree remove --force "${fresh}/main"
+            case "${rc}" in
+              0) echo "main packages to the files of the published ${CHART_NAME} ${CHART_VERSION}: its sites are written" ;;
+              1) main_same=false ;;
+              *)
+                LOST_WHY="main could not be compared with the published package (exit ${rc})"
+                exit 1
+                ;;
+            esac
           }
 
           # Stage whichever files were rewritten. The working tree already
@@ -1554,6 +1668,20 @@ jobs:
               echo "no changes after re-fetch — already at ${CHART_VERSION} on origin/main"
               exit 0
             fi
+            compare_main
+            if [ "${main_same}" != "true" ]; then
+              # FND-046: no site names CHART_VERSION over main's other files; the next
+              # step dispatches a release of main.
+              echo "redispatch=true" >> "$GITHUB_OUTPUT"
+              echo "::warning title=Lockstep not written: ${CHART_NAME} ${CHART_VERSION}::main changed ${CHART_PATH} after this job's checkout and packages to other files than the published ${CHART_NAME} ${CHART_VERSION}: no site is written, and a release of main is dispatched."
+              {
+                echo "### ${CHART_NAME} ${CHART_VERSION}: in the registry, NOT written to main"
+                echo ""
+                echo "- **Why:** main changed ${CHART_PATH} after the checkout ${checkout}, and packages to other files"
+                echo "- **Next:** a release of main is dispatched; its version skips ${CHART_VERSION}"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             parts=""
             if [ "$did_chart" -eq 1 ]; then parts="chart"; fi
             if [ "$did_pin" -eq 1 ]; then parts="${parts:+${parts}+}pin"; fi
@@ -1564,6 +1692,23 @@ jobs:
           done
           LOST_WHY="main refused its lockstep commit ${attempts} times"
           exit 1
+
+      # FND-046: the step above wrote no site, because main changed the chart after
+      # this job's checkout and packages to other files than the version this job
+      # published. A release of main publishes that change under a version the
+      # registry does not hold. It dispatches again only when main changes the chart
+      # once more during that run, and GitHub keeps one pending run per concurrency
+      # group, so the releases end when main stops changing the chart.
+      - name: "Release writer: release main again when main changed the chart"
+        id: dispatch_release
+        if: steps.chart.outputs.skip != 'true' && steps.lockstep_push.outputs.redispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHART_PATH: ${{ matrix.path }}
+        run: |
+          set -euo pipefail
+          gh workflow run blueprint-release.yaml --repo "${GITHUB_REPOSITORY}" --ref main -f blueprint="${CHART_PATH#*/}" -f tree="${CHART_PATH%%/*}"
+          echo "blueprint-release dispatched for ${CHART_PATH} @ main (FND-046)"
 
       # FND-027: the funnel pin DefaultHRAppChartVersions is compiled into the
       # provisioning image (core/services/provisioning/main.go), and only

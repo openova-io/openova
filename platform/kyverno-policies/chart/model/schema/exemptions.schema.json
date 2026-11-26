@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openova.io/schemas/compliance-model/exemptions.schema.json",
+  "title": "model/exemptions.yaml of the policy chart: the reason and owner of each exempt namespace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namespaces"],
+  "properties": {
+    "namespaces": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason", "owner"],
+        "properties": {
+          "reason": {"type": "string", "minLength": 20},
+          "owner": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

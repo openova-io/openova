@@ -1,38 +1,23 @@
-# bp-guacamole — Catalyst bootstrap-kit Blueprint slot 52 (exec
-# fan-out, post-W2.K4). Apache Guacamole HTML5 remote-desktop gateway.
-# Brokers
-# SSH / RDP / VNC sessions AND kubectl-exec sessions through one
-# browser-accessible surface. Sessions are authenticated via Keycloak
-# SSO, recorded to SeaweedFS for compliance, and reach Pods via the
-# per-node bp-k8s-ws-proxy DaemonSet.
-#
-# Per ADR-0001 §11: ONE Guacamole per Sovereign — no Manara-style
-# multi-cluster fan-out (Sovereigns stay self-sufficient).
+# bp-guacamole — Catalyst bootstrap-kit Blueprint slot 52, the access
+# plane (ADR-0033). ACC-102 removed the Guacamole web application, its
+# database, the seed Job, the CronJob, guacd and the recordings volume
+# (decision A3). The chart renders the access controller of the kinds
+# AccessTarget and AccessGrant, its Service, its writer lock and the
+# bootstrap-owned Application. The slot, its namespace and its dependency
+# list stay (decision A2).
 #
 # Wrapper chart: platform/guacamole/chart/
 # Catalyst-curated values: platform/guacamole/chart/values.yaml
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 #
-# dependsOn:
-#   - bp-cilium                — Pod network + Gateway API for the
-#                                operator-facing HTTPRoute.
-#   - bp-cert-manager          — TLS for guacamole.<sovereign-fqdn>
-#                                via the Cilium Gateway listener.
-#   - bp-keycloak              — OIDC issuer + realm-config Job that
-#                                consumes the chart's realm-patch
-#                                ConfigMap.
-#   - bp-seaweedfs             — RWX-capable PVC for session recordings.
-#   - bp-k8s-ws-proxy          — exec tunnelling onto the local-node
-#                                kube-apiserver via the DaemonSet.
+# dependsOn (unchanged by ACC-102; scripts/expected-bootstrap-deps.yaml
+# holds the same list): bp-cilium, bp-cert-manager, bp-keycloak,
+# bp-seaweedfs, bp-k8s-ws-proxy, bp-cnpg.
 #
-# qa-loop iter-7 Fix #39 (closes the gap surfaced by Fix #36):
-# bp-guacamole was previously chart-only, no CI workflow + no
-# bootstrap-kit slot, so TC-228/TC-230/TC-245/TC-246 stayed FAIL
-# with "deployment NotFound". The CI workflow
-# .github/workflows/build-bp-guacamole.yaml mirrors the upstream
-# Apache Guacamole images to GHCR, bumps Chart.yaml, dispatches
-# blueprint-release; this slot installs the resulting OCI artifact
-# on every Sovereign.
+# The CI workflow .github/workflows/build-bp-guacamole.yaml mirrors the
+# upstream guacd image to GHCR, bumps Chart.yaml and dispatches
+# blueprint-release; this slot installs the resulting OCI artifact on
+# every Sovereign.
 #
 # install/upgrade.disableWait: true — readiness signalled via Flux
 # dependsOn, never via spec.timeout watchdogs.
@@ -68,10 +53,6 @@ metadata:
 spec:
   interval: 15m
   releaseName: guacamole
-  # Lands in catalyst-system to be co-located with the catalyst-api +
-  # k8s-ws-proxy + the rest of the Catalyst control-plane stack. The
-  # chart's NetworkPolicies allow cross-namespace egress to keycloak
-  # / seaweedfs / nats-jetstream regardless of where it lands.
   targetNamespace: guacamole
   dependsOn:
     - name: bp-cilium
@@ -85,11 +66,9 @@ spec:
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-k8s-ws-proxy
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    # #3374 — bp-guacamole now ships a CNPG Cluster CR for its JDBC
-    # permission store (admin elevation). bp-cnpg (slot 16) registers the
-    # postgresql.cnpg.io/v1 CRD; without this edge the Cluster CR's
-    # Capabilities gate would skip on a fresh prov (guacamole installs before
-    # cnpg) → no DB → no admin. bp-cnpg before bp-guacamole closes that race.
+    # #3374 added this edge for the CNPG Cluster of the web application's
+    # permission store. ACC-102 removed that Cluster; the edge stays because
+    # the dependency list does not change in this package.
     - name: bp-cnpg
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   chart:
@@ -204,7 +183,7 @@ spec:
       # Sovereign's own node, address from the downward API) and the
       # per-minute enroll CronJob re-converges it. Credentials come from an
       # optional Secret, never from values.
-      version: 0.2.57
+      version: 0.2.63
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
@@ -213,11 +192,15 @@ spec:
     createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
+    crds: CreateReplace
     remediation:
       retries: -1
   upgrade:
     timeout: 15m
     disableWait: true
+    # The kinds AccessTarget and AccessGrant ride in the chart's crds/; Helm
+    # skips crds/ on an upgrade unless this says CreateReplace.
+    crds: CreateReplace
     remediation:
       retries: 3
   # Per-Sovereign overlay surface. The Sovereign's FQDN is interpolated
@@ -234,36 +217,26 @@ spec:
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
       imageRegistry: ''
-    # ── Cross-region singleton (#5358) ─────────────────────────────────
-    # ADR-0001 §11 says ONE Guacamole per Sovereign, but this slot installs on
-    # EVERY region's control plane, so a 2-region Sovereign ran TWO independent
-    # Guacamoles behind ONE shared wildcard VIP. Guacamole keeps its REST
-    # session in a per-Pod in-memory HashTokenSessionMap, so `POST /api/tokens`
-    # minted by whichever region answered was UNKNOWN to the other, which
-    # returned 403 PERMISSION_DENIED — and the SPA's only handler for that call
-    # is requestService.DIE, leaving the page stuck in `.view.loading`
-    # (`.loading * { visibility: hidden }`) = the #5358 BLANK page.
-    #
-    # Measured live on hw292 (dep 1c56518035a83e03): ONE token minted on
-    # region-A returned 200 on region-A's Pod and 403 on region-B's Pod, and the
-    # webapp access logs show a single page-load split across both regions in
-    # the SAME second.
-    #
-    # Same seam bp-harbor (19) uses for the identical Redis session split
-    # (#5406). `enabled` follows SOVEREIGN_ENABLE_CNPG_PAIR — a single-region
-    # prov leaves it false and the render is byte-identical to 0.2.35.
-    crossRegion:
-      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
-      # Per-region cloud-init substitute (primary on region-A + on every
-      # single-region prov, secondary on region-B). `secondary` renders the
-      # ClusterMesh Service stub ONLY — no webapp, no guacd, no CNPG store — so
-      # the stub has zero local backends and every dial falls through the mesh
-      # to region-A's singleton.
-      role: ${SOVEREIGN_REGION_ROLE:=primary}
-      # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
-      # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume. EMPTY
-      # (single-region) → no CiliumNetworkPolicy is rendered.
-      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
+    # ── Access plane (ADR-0033) ─────────────────────────────────────────
+    # The source of the access controller's events is
+    # access-controller/<sovereignFQDN>/<regionID>; regionID is this
+    # region's canonical id (ADR-0015 D3), as for catalyst-api.
+    access:
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+      regionID: '${SOVEREIGN_REGION_CANONICAL_LABEL:-}'
+      # Cross-region singleton (#5358, decision A21). This slot installs on
+      # EVERY region's control plane; the access controller runs once per
+      # Sovereign, in the primary region, and the secondary renders its
+      # Service as a ClusterMesh stub. `enabled` follows
+      # SOVEREIGN_ENABLE_CNPG_PAIR — a single-region prov leaves it false.
+      crossRegion:
+        enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+        # Per-region cloud-init substitute (primary on region-A + on every
+        # single-region prov, secondary on region-B).
+        role: ${SOVEREIGN_REGION_ROLE:=primary}
+        # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
+        # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume.
+        peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for guacamole (the
     # canonical instance representation every console surface reads),
@@ -274,43 +247,3 @@ spec:
       helmRelease:
         name: bp-guacamole
         namespace: flux-system
-    guacamole:
-      database:
-        cluster:
-          enabled: true  # #4291 DE-VCLUSTER — guacamole renders its OWN CNPG Cluster natively in host ns `guacamole` (host cnpg-operator reconciles it; was suppressed by the #3642 host-bridge)
-          # #3971 (Refs #3992 #4012) — name the per-provider durable CSI class
-          # explicitly so the guacamole-pg PVC is NEVER created classless. An
-          # UNSET storageClassName freezes to "" the instant a PVC is created
-          # before any default StorageClass exists, permanently stranding it
-          # Pending (caught live on hw174: guacamole-pg-1 Pending<empty> → the
-          # guacamole DB never came up). A NAMED class keeps the PVC Pending
-          # (recoverable) until the class lands, then binds — race-immune.
-          # Sourced from cloud-init per-provider env (hcloud-volumes on Hetzner,
-          # evs-ssd on Huawei); empty default preserves the legacy
-          # omit-when-empty CI `helm template` path.
-          storageClass: ${SOVEREIGN_CNPG_STORAGE_CLASS:=}
-      # Default-OFF gate flipped ON by the bootstrap-kit slot. Operator
-      # opts out per-Sovereign by removing this slot from
-      # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
-      enabled: true
-      # #5358 — SSO via the slot-13c bp-oidc-gate `guacamole` instance
-      # (authorization-code flow at the gate + guacamole-auth-header
-      # behind it). The gate's HTTPRoute OWNS guacamole.${SOVEREIGN_FQDN}
-      # (see 13c-bp-oidc-gate.yaml), so this chart renders NO HTTPRoute in
-      # header mode and the former `oidc.issuer` value is retired (the
-      # native guacamole-auth-sso-openid implicit flow replayed its
-      # single-use nonce on every SPA route change — "Rejected OpenID
-      # token with invalid/old nonce" live on hw288, UAT rows 35/115).
-      # `header` is the chart default; pinned here explicitly so the
-      # canonical prov path never drifts on a chart-default change.
-      sso:
-        mode: header
-      httproute:
-        enabled: false  # #5358 — the slot-13c oidc-gate HTTPRoute owns guacamole.${SOVEREIGN_FQDN}; two HTTPRoutes on one hostname is undefined routing
-      recordings:
-        # SeaweedFS-CSI is the canonical RWX storageClass for
-        # multi-pod session-recording workloads on Sovereigns; see
-        # platform/seaweedfs/chart values.yaml for the StorageClass
-        # name. Per-Sovereign overlay can override for non-SeaweedFS
-        # backends (e.g. hcloud-volumes single-node fallback).
-        storageClass: seaweedfs-storage

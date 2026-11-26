@@ -5,7 +5,7 @@
  * The controller stamps `batch.kubernetes.io/cronjob-scheduled-timestamp` on
  * every child Job it creates; a manual run (Run now / kubectl create job
  * --from) carries `cronjob.kubernetes.io/instantiate: manual` and no slot.
- * The lag is startTime − slot. Measured on hw307 2026-11-05: the syft-grype
+ * The lag is startTime − slot. Measured on hw307 2026-11-05: a nightly
  * run for slot 2026-11-02T18:30Z started 2026-11-03T02:33Z — 8h03m late —
  * which is exactly the signal this derivation exists to surface.
  */
@@ -62,14 +62,14 @@ function run(
 const REF = new Date(2026, 10, 5, 12, 0)
 
 describe('scheduled vs actual (#6703 P3)', () => {
-  it('reads the slot annotation and derives the lag — the hw307 syft run is 8h03m late', () => {
+  it('reads the slot annotation and derives the lag — a run 8h03m late', () => {
     const snap: K8sSnapshot = new Map([
-      cron('syft-grype-bp-syft-grype', 'syft-grype'),
-      run('syft-grype-bp-syft-grype-29894070', 'syft-grype', 'syft-grype-bp-syft-grype', {
+      cron('trivy-security-scan', 'trivy-system'),
+      run('trivy-security-scan-29894070', 'trivy-system', 'trivy-security-scan', {
         scheduled: '2026-11-02T18:30:00Z',
         start: '2026-11-03T02:33:04Z',
       }),
-      run('syft-grype-bp-syft-grype-29895510', 'syft-grype', 'syft-grype-bp-syft-grype', {
+      run('trivy-security-scan-29895510', 'trivy-system', 'trivy-security-scan', {
         scheduled: '2026-11-03T18:30:00Z',
         start: '2026-11-03T18:30:06Z',
       }),
@@ -77,8 +77,8 @@ describe('scheduled vs actual (#6703 P3)', () => {
     const [row] = deriveCronRows(snap, REF)
     const runs = childRunsOfCron(snap, row)
     expect(runs.map((r) => r.name)).toEqual([
-      'syft-grype-bp-syft-grype-29895510', // newest first
-      'syft-grype-bp-syft-grype-29894070',
+      'trivy-security-scan-29895510', // newest first
+      'trivy-security-scan-29894070',
     ])
     const late = runs[1]
     expect(late.scheduledTime).toBe('2026-11-02T18:30:00Z')
@@ -93,7 +93,7 @@ describe('scheduled vs actual (#6703 P3)', () => {
     expect(adherence.scheduledRuns).toBe(2)
     expect(adherence.lateRuns).toBe(1)
     expect(adherence.worstLagMs).toBe(late.lagMs)
-    expect(adherence.worstRun?.name).toBe('syft-grype-bp-syft-grype-29894070')
+    expect(adherence.worstRun?.name).toBe('trivy-security-scan-29894070')
     expect(adherence.manualRuns).toBe(0)
     // The table flags the LATEST run only when it was late; here the latest
     // run was on time, so the row carries no late flag.

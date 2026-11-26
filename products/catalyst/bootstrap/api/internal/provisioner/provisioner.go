@@ -36,6 +36,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -48,6 +49,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	_ "time/tzdata" // the API image holds no zoneinfo files: Validate checks sovereignTimeZone against this copy
 
@@ -1612,6 +1614,12 @@ type Result struct {
 	// to single-region.
 	MaterializedRegions []string `json:"materializedRegions,omitempty"`
 
+	// PreCreated — the objects the cloud adapter created before the plan,
+	// each imported into the state at its resource address
+	// (providers.PreflightResult.Imports, precreated.go): the record names
+	// what the engine put in the cloud outside OpenTofu's own allocation.
+	PreCreated []providers.StateImport `json:"preCreated,omitempty"`
+
 	// HandoverURL — fully-qualified handover redirect URL (issues
 	// #764 + #768). Shape:
 	//
@@ -2020,7 +2028,7 @@ type Provisioner struct {
 
 	// OperatorCredentials — per provider name, the credentials of the
 	// operator's own cloud account by credential key, read once at New()
-	// (operatorCredentialsFromEnv). The handler stamps the same values onto
+	// (ReadOperatorCredentials). The handler stamps the same values onto
 	// each Request before Validate() (deployments.go); Provision() fills every
 	// key a Request leaves empty from here (#3716), the same pattern as
 	// GHCRPullToken / HarborRobotToken above, so the pre-flight hooks always
@@ -2089,30 +2097,116 @@ func New() *Provisioner {
 		PDMBasicAuthUser:   os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
 		PDMBasicAuthPass:   os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
 		// #3716 — the operator credentials backstop (see field docs).
-		OperatorCredentials: operatorCredentialsFromEnv(),
+		OperatorCredentials: operatorCredentials(),
 	}
 }
 
-// operatorCredentialsFromEnv reads the operator's own cloud credentials, by
-// provider name and credential key, from the environment of the Pod (the
-// Secret huawei-operator-creds projects them; CLD-106 moves them to mounted
-// files). An empty variable sets nothing.
-func operatorCredentialsFromEnv() map[string]map[string]string {
+// DefaultCloudCredentialsDir is the default of flag --cloud-credentials-dir,
+// and the path where the chart mounts the operator's credential files.
+const DefaultCloudCredentialsDir = "/var/run/secrets/openova" //nolint:gosec // G101: a directory path, not a credential
+
+// cloudCredentialsDir holds the directory of the operator's own cloud
+// credentials, flag --cloud-credentials-dir (RegisterFlags), where the Secrets
+// Store CSI driver mounts them from OpenBao (CLD-106). It is atomic: New reads
+// it on a provisioning goroutine while the flag or a test may set it.
+var cloudCredentialsDir atomic.Pointer[string]
+
+// CloudCredentialsDir returns the directory of the operator's credential
+// files: DefaultCloudCredentialsDir until the flag or SetCloudCredentialsDir
+// sets another.
+func CloudCredentialsDir() string {
+	if dir := cloudCredentialsDir.Load(); dir != nil {
+		return *dir
+	}
+	return DefaultCloudCredentialsDir
+}
+
+// SetCloudCredentialsDir sets the directory CloudCredentialsDir returns.
+func SetCloudCredentialsDir(dir string) { cloudCredentialsDir.Store(&dir) }
+
+// credentialFile is the name of one operator credential file:
+// cloud-credential.<provider>.<key>.
+var credentialFile = regexp.MustCompile(`^cloud-credential\.([a-z0-9-]+)\.([a-z0-9_]+)$`)
+
+// credentialsDirFlag is the flag.Value of --cloud-credentials-dir; its zero
+// value prints "", so flag.PrintDefaults shows the default.
+type credentialsDirFlag struct{ registered bool }
+
+func (f credentialsDirFlag) String() string {
+	if !f.registered {
+		return ""
+	}
+	return CloudCredentialsDir()
+}
+
+func (credentialsDirFlag) Set(dir string) error {
+	SetCloudCredentialsDir(dir)
+	return nil
+}
+
+// RegisterFlags adds flag --cloud-credentials-dir to set, default
+// DefaultCloudCredentialsDir.
+func RegisterFlags(set *flag.FlagSet) {
+	SetCloudCredentialsDir(DefaultCloudCredentialsDir)
+	set.Var(credentialsDirFlag{registered: true}, "cloud-credentials-dir",
+		"directory of the operator's cloud credential files cloud-credential.<provider>.<key>")
+}
+
+// ReadOperatorCredentials reads the operator's own cloud credentials, by
+// provider name and key, from the files cloud-credential.<provider>.<key> of
+// dir; links are followed, as the CSI driver links each file into its data
+// directory ("..data", skipped with every name without that prefix). A value
+// is trimmed, a blank one sets nothing, and a dir that does not exist holds
+// none. A file with the prefix but not of that form, or unreadable, is an
+// error that names it; the other files are still read.
+func ReadOperatorCredentials(dir string) (map[string]map[string]string, error) {
 	out := map[string]map[string]string{}
-	for _, v := range []struct{ provider, key, env string }{
-		{"huawei", "access_key", "CATALYST_HUAWEI_ACCESS_KEY"},
-		{"huawei", "secret_key", "CATALYST_HUAWEI_SECRET_KEY"},
-		{"huawei", "project_id", "CATALYST_HUAWEI_PROJECT_ID"},
-		{"huawei", "region", "CATALYST_HUAWEI_REGION"},
-	} {
-		if value := os.Getenv(v.env); value != "" {
-			if out[v.provider] == nil {
-				out[v.provider] = map[string]string{}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return out, fmt.Errorf("operator credentials: %w", err)
+	}
+	var errs []error
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "cloud-credential.") {
+			continue
+		}
+		name := credentialFile.FindStringSubmatch(e.Name())
+		if name == nil {
+			errs = append(errs, fmt.Errorf("operator credentials: file %s is not named cloud-credential.<provider>.<key>", e.Name()))
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // a file of the operator's own credential directory
+		if err != nil {
+			errs = append(errs, fmt.Errorf("operator credentials: %w", err))
+			continue
+		}
+		if value := strings.TrimSpace(string(data)); value != "" {
+			if out[name[1]] == nil {
+				out[name[1]] = map[string]string{}
 			}
-			out[v.provider][v.key] = value
+			out[name[1]][name[2]] = value
 		}
 	}
-	return out
+	return out, errors.Join(errs...)
+}
+
+// OperatorCredentials returns the operator's credentials of provider, by key,
+// from the files of CloudCredentialsDir (ReadOperatorCredentials).
+func OperatorCredentials(provider string) (map[string]string, error) {
+	all, err := ReadOperatorCredentials(CloudCredentialsDir())
+	return all[strings.ToLower(strings.TrimSpace(provider))], err
+}
+
+// operatorCredentials is ReadOperatorCredentials of CloudCredentialsDir for
+// New(), which returns no error: it keeps the files that could be read. The
+// create handler reads the same files before it provisions and refuses the
+// request on the error.
+func operatorCredentials() map[string]map[string]string {
+	creds, _ := ReadOperatorCredentials(CloudCredentialsDir())
+	return creds
 }
 
 // resolveModulePath returns the OpenTofu module directory for the
@@ -2244,21 +2338,34 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// of the cloud that cannot be raised from code is refused here, before any
 	// resource exists, instead of minutes into `tofu apply`. ProtectedIDs holds
 	// every live deployment (#4614, reclaimProtectSet), so an in-band reclaim
-	// never touches a live Sovereign.
+	// never touches a live Sovereign. The objects the adapter creates for the
+	// plan are imported after `tofu init` (precreated.go).
+	inState, err := stateAddresses(deployDir)
+	if err != nil {
+		return nil, err
+	}
+	var preCreated []providers.StateImport
 	if pf, ok, _ := providers.As[providers.Preflighter](req.Provider); ok {
 		in := providers.PreflightInput{
 			Spec:         capabilitySpec(req),
 			ProtectedIDs: reclaimProtectSet(req.DeploymentID),
+			InState:      inState,
 			Progress:     func(msg string) { emit("tofu-init", "info", msg) },
 		}
-		if err := pf.Preflight(ctx, in); err != nil {
+		res, err := pf.Preflight(ctx, in)
+		if err != nil {
 			return nil, err
 		}
+		preCreated = res.Imports
 	}
 
 	emit("tofu-init", "info", "Initialising OpenTofu working directory")
 	if err := p.runTofuInitWithRetry(ctx, deployDir, emit); err != nil {
 		return nil, fmt.Errorf("tofu init: %w", err)
+	}
+	preCreated, err = p.importPreCreated(ctx, deployDir, preCreated, inState, emit)
+	if err != nil {
+		return nil, err
 	}
 
 	emit("tofu-plan", "info", "Planning cloud resources (network, firewall, servers, load balancers, DNS)")
@@ -2442,6 +2549,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		ConsoleURL:            fmt.Sprintf("https://console.%s", req.SovereignFQDN),
 		GitOpsRepoURL:         fmt.Sprintf("https://gitea.%s", req.SovereignFQDN),
 		MaterializedRegions:   materialised,
+		PreCreated:            preCreated,
 	}
 
 	// Only enforce when the operator declared >=2 regions AND the
@@ -2528,7 +2636,7 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 	// (regions/ssh_public_key/org_email/obs_bucket_name). Overwriting the
 	// complete provision-time tofu.auto.tfvars.json with it makes `tofu destroy`
 	// fail variable-validation, forcing the providerPurge fallback. For Huawei
-	// (creds are env-injected via CATALYST_HUAWEI_*, not the tfvars file), when
+	// (creds come from the operator's credential files, not the tfvars file), when
 	// req lacks the regions AND the complete file is already present, PRESERVE
 	// it instead of clobbering. Hetzner keeps the re-write (its token is
 	// re-prompted into req at wipe time). A partially-cleaned workdir (file

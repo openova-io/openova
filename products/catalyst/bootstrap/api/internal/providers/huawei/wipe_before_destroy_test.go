@@ -19,7 +19,7 @@ import (
 // The deployment of these tests: Sovereign t1.omani.works, deployment 0123abcd99.
 const (
 	bdFQDN, bdDep, bdBucket = "t1.omani.works", "0123abcd99", "catalyst-t1-omani-works-0123abcd"
-	bdLB, bdNAT             = "catalyst-t1-omani-works-elb-primary", "catalyst-t1-omani-works-b-nat"
+	bdLB, bdNAT             = "catalyst-t1-omani-works-0123abcd-elb-primary", "catalyst-t1-omani-works-0123abcd-me-east-215-b-nat"
 )
 
 type bdRule struct {
@@ -31,7 +31,8 @@ type bdRule struct {
 // bdCloud: load balancer lb1 with listeners l1 and l2 whose pools are set (a
 // delete is refused with a conflict while the pool is set); gateway gwb with
 // rules s1, s2 (rotated, listed once after its delete) and d1; lb9, gw9 and
-// rule s9 of another Sovereign, s9 in every unfiltered rule listing.
+// rule s9 of another deployment of the same Sovereign, s9 in every
+// unfiltered rule listing.
 type bdCloud struct {
 	t         *testing.T
 	mu        sync.Mutex
@@ -45,8 +46,8 @@ type bdCloud struct {
 
 func newBDCloud(t *testing.T) *bdCloud {
 	return &bdCloud{t: t,
-		lbs:       map[string]string{"lb1": bdLB, "lb9": "catalyst-t2-omani-works-elb-primary"},
-		nats:      map[string]string{"gwb": bdNAT, "gw9": "catalyst-t2-omani-works-b-nat"},
+		lbs:       map[string]string{"lb1": bdLB, "lb9": "catalyst-t1-omani-works-99887766-elb-primary"},
+		nats:      map[string]string{"gwb": bdNAT, "gw9": "catalyst-t1-omani-works-99887766-me-east-215-b-nat"},
 		listeners: map[string][2]string{"l1": {"lb1", "p1"}, "l2": {"lb1", "p2"}, "l9": {"lb9", "p9"}},
 		rules: map[string]*bdRule{"s1": {kind: "snat_rules", gateway: "gwb"}, "s2": {kind: "snat_rules", gateway: "gwb", lag: 1},
 			"d1": {kind: "dnat_rules", gateway: "gwb"}, "s9": {kind: "snat_rules", gateway: "gw9"}},
@@ -78,7 +79,7 @@ func (c *bdCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l, isL := c.listeners[last]
 	isL = isL && strings.Contains(p, "/elb/listeners/")
 	if isL && l[0] != "lb1" && m != http.MethodGet {
-		c.t.Errorf("%s on listener %s of another Sovereign", m, last)
+		c.t.Errorf("%s on listener %s of another deployment", m, last)
 	}
 	switch {
 	case m == http.MethodGet && strings.HasSuffix(p, "/elb/loadbalancers"):
@@ -169,7 +170,7 @@ func bdRun(t *testing.T, cloud *bdCloud, bucket bool) (*providers.WipeResult, *o
 	s3 := bdServe(t, cloud, bucket)
 	out := &providers.WipeResult{ProviderPurge: map[string][]string{}}
 	removeBeforeDestroy(context.Background(), beforeDestroyCloud{client: httpClientFor(bdCreds), hw: hwCreds{AccessKey: "ak", SecretKey: "sk", ProjectID: "proj"},
-		region: defaultRegion, sovereignFQDN: bdFQDN, deployment: bdDep, progress: func(string) {}}, out)
+		region: defaultRegion, sovereignFQDN: bdFQDN, deployment: bdDep, scope: bdScope(t), progress: func(string) {}}, out)
 	return out, s3
 }
 
@@ -177,7 +178,7 @@ var bdNone = map[string][]string{beforeDestroyBuckets: {}, beforeDestroyListener
 
 // The steps remove the bucket, then the two listeners, then the three rules
 // of the deployment, and the report names each; nothing of another
-// Sovereign is touched.
+// deployment of the same Sovereign is touched.
 func TestRemoveBeforeDestroy_RemovesTheThreeAndNamesThem(t *testing.T) {
 	cloud := newBDCloud(t)
 	out, s3 := bdRun(t, cloud, true)
@@ -265,4 +266,13 @@ func TestWipe_RemovesBeforeTheDestroy(t *testing.T) {
 	if p := out.ProviderPurge; !reflect.DeepEqual(p[beforeDestroyBuckets], []string{bdBucket}) || len(p[beforeDestroyListeners]) != 2 || len(p[beforeDestroyNATRules]) != 3 {
 		t.Errorf("report %v; want the bucket, 2 listeners and 3 rules", p)
 	}
+}
+
+// bdScope is the selector of the deployment of these tests.
+func bdScope(t *testing.T) deploymentScope {
+	s, err := newDeploymentScope(bdFQDN, bdDep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }

@@ -82,7 +82,7 @@ if [ -n "${BASE_TREE}" ]; then
   if [ -d "${MAIN_CHART}" ]; then
     helm template ssc "${MAIN_CHART}" --set sovereign.fqdn="${FQDN}" --set mirrorResync.enabled=true \
       >"${TMP}/main.yaml" 2>/dev/null
-    # Normalise TWENTY-FIVE axes that are EXPECTED to differ from origin/main and are NOT
+    # Normalise TWENTY-SEVEN axes that are EXPECTED to differ from origin/main and are NOT
     # the secondary-leg leak this byte-check guards:
     #   1. the chart-version baked into helm.sh/chart labels (the 0.1.19x bump);
     #   2. the #6490 git-auth MECHANISM on the ALWAYS-rendered primary resync push
@@ -269,10 +269,26 @@ if [ -n "${BASE_TREE}" ]; then
     #      tests/step08-fails-at-once-names-what-is-stuck.sh, tests/egress-hold-workspaces.sh
     #      and tests/tofu-cli-config-host-lint.sh execute the change. The axis switches
     #      itself off once origin/main holds the change.
+    #  26. a failed read of the status ConfigMap keeps the node's registry state: step 04's
+    #      pivot.sh reads it once per sweep and, on a failed read, keeps its state and reads
+    #      again, in EVERY topology; not the follower gitea leg. While origin/main lacks that
+    #      WARN, the step-04 document is left out of BOTH trees;
+    #      tests/registry-pivot-keeps-k3s-files.sh executes the change. The axis switches
+    #      itself off once origin/main holds the change.
+    #  27. step 08 waits, before its Workspace baseline, for the re-sync step 11 causes, counts
+    #      the Workspaces it judges in the result line, and its Job sets the org-tenants
+    #      GitRepository and Kustomization names, in EVERY topology; not the follower gitea
+    #      leg. While origin/main lacks ws_settle, the step-08 document is left out of BOTH
+    #      trees; tests/egress-hold-workspaces.sh and tests/step08-pivot-names-owner.sh
+    #      execute the change. The axis switches itself off once origin/main holds it.
+    drop04r=0
+    grep -qF 'status ConfigMap not read on' "${TMP}/main.yaml" || drop04r=1
     drop344=0
     grep -q 'ws_regressed() {' "${TMP}/main.yaml" || drop344=1
     dropstk=0
     grep -q 'workload_pod_states() {' "${TMP}/main.yaml" || dropstk=1
+    dropws=0
+    grep -q 'ws_settle() {' "${TMP}/main.yaml" || dropws=1
     droptofu=0
     grep -q 'tofu_list_read() {' "${TMP}/main.yaml" || droptofu=1
     dropnoa=0
@@ -304,9 +320,9 @@ if [ -n "${BASE_TREE}" ]; then
     drop03s=0
     grep -q 'prewarm_node_sandbox_images() {' "${TMP}/main.yaml" || drop03s=1
     norm() {
-      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" -v drop7938t="${drop7938t}" -v drop08k="${drop08k}" -v drop522="${drop522}" -v droppiv="${droppiv}" -v drop04o="${drop04o}" -v dropcpy="${dropcpy}" -v dropnoa="${dropnoa}" -v droptofu="${droptofu}" -v drop344="${drop344}" -v dropstk="${dropstk}" '
-        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1 || drop7938t==1 || drop08k==1 || drop522==1 || droppiv==1 || drop04o==1 || dropcpy==1 || dropnoa==1 || droptofu==1 || drop344==1 || dropstk==1) && /^---$/ {next}
-        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/) || (drop7938t==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop08k==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop522==1 && $0 ~ /\/templates\/11-crossplane-provider-pivot-job\.yaml$/) || (droppiv==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver)\.yaml$/) || (drop04o==1 && $0 ~ /\/templates\/04-registry-pivot-daemonset\.yaml$/) || (dropcpy==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver|08-egress-block-test-job|12-daytwo-harbor-pin-reconciler|secondary-harbor-prewarm-script-configmap)\.yaml$/) || (dropnoa==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|secondary-harbor-prewarm-script-configmap)\.yaml$/) || (droptofu==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|11-crossplane-provider-pivot-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop344==1 && $0 ~ /\/templates\/(08-egress-block-test-job|rbac)\.yaml$/) || (dropstk==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" -v drop7938t="${drop7938t}" -v drop08k="${drop08k}" -v drop522="${drop522}" -v droppiv="${droppiv}" -v drop04o="${drop04o}" -v dropcpy="${dropcpy}" -v dropnoa="${dropnoa}" -v droptofu="${droptofu}" -v drop344="${drop344}" -v dropstk="${dropstk}" -v drop04r="${drop04r}" -v dropws="${dropws}" '
+        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1 || drop7938t==1 || drop08k==1 || drop522==1 || droppiv==1 || drop04o==1 || dropcpy==1 || dropnoa==1 || droptofu==1 || drop344==1 || dropstk==1 || drop04r==1 || dropws==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/) || (drop7938t==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop08k==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop522==1 && $0 ~ /\/templates\/11-crossplane-provider-pivot-job\.yaml$/) || (droppiv==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver)\.yaml$/) || (drop04o==1 && $0 ~ /\/templates\/04-registry-pivot-daemonset\.yaml$/) || (dropcpy==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03a-offline-mirror-resolver|08-egress-block-test-job|12-daytwo-harbor-pin-reconciler|secondary-harbor-prewarm-script-configmap)\.yaml$/) || (dropnoa==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|secondary-harbor-prewarm-script-configmap)\.yaml$/) || (droptofu==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|11-crossplane-provider-pivot-job|12-daytwo-harbor-pin-reconciler)\.yaml$/) || (drop344==1 && $0 ~ /\/templates\/(08-egress-block-test-job|rbac)\.yaml$/) || (dropstk==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop04r==1 && $0 ~ /\/templates\/04-registry-pivot-daemonset\.yaml$/) || (dropws==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}
@@ -371,12 +387,48 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.nocp" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: every skopeo download is the one skopeo of values skopeo, sha256 checked
+    # (skopeo_fetch in _helpers.tpl), in EVERY topology: step 03, step 08, the day-two
+    # reconciler and the follower prewarm script change; not the follower gitea leg. While
+    # origin/main lacks skopeo_fetch, those documents are left out of BOTH trees;
+    # tests/hermetic/provider-package-copy fetches with it and executes the version. The axis
+    # switches itself off once origin/main holds it.
+    if ! grep -q 'skopeo_fetch() {' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|12-daytwo-harbor-pin-reconciler|secondary-harbor-prewarm-script-configmap)\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nosk"
+        mv "${TMP}/${t}.nosk" "${TMP}/${t}.yaml"
+      done
+    fi
+    # And one more: a delivery's settled-roll pre-flight does not gate a release that is stalled
+    # when the candidate changes its pin (srp_candidate_pins; Phase A2-pins reads the kit
+    # through prewarm_kit_fetch; the Phase A0 comments moved to values.yaml), in EVERY
+    # topology: step 03 changes; not the follower gitea leg. While origin/main lacks
+    # srp_candidate_pins, the step-03 document is left out of BOTH trees;
+    # tests/delivery-repairs-stalled-release.sh executes the change. The axis switches itself
+    # off once origin/main holds it.
+    if ! grep -q 'srp_candidate_pins() {' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nosrp"
+        mv "${TMP}/${t}.nosrp" "${TMP}/${t}.yaml"
+      done
+    fi
+    # And one more: SOV-231, the settled-roll pre-flight does not offer its override for a
+    # release a Flux Kustomization applies (hr_ks_terminal), in EVERY topology: step 03
+    # changes; not the follower gitea leg. While origin/main lacks hr_ks_terminal, the step-03
+    # document is left out of BOTH trees; Case 77 of tests/cutover-contract.sh executes the
+    # change. The axis switches itself off once origin/main holds it.
+    if ! grep -q 'hr_ks_terminal=' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.noks"
+        mv "${TMP}/${t}.noks" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
-      pass "the ENTIRE single-region render is byte-identical to the main this tree left (${BASE_TREE}), modulo the twenty-five axes normalised above, each verified by its own test"
+      pass "the ENTIRE single-region render is byte-identical to the main this tree left (${BASE_TREE}), modulo the twenty-seven axes normalised above, each verified by its own test"
     else
-      fail "single-region render DIFFERS from the main this tree left (${BASE_TREE}) beyond the twenty-five normalised axes — see diff:"
+      fail "single-region render DIFFERS from the main this tree left (${BASE_TREE}) beyond the twenty-seven normalised axes — see diff:"
       diff "${TMP}/main.norm" "${TMP}/off.norm" | head -40
     fi
   else

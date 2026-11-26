@@ -66,6 +66,12 @@ serviceCIDR: 10.96.0.0/12
 components:
   # ── mgmt-tier platform components ──────────────────────────────────────
   - namespace: keycloak            # SSO IdP — the front door every app's OIDC depends on
+    # bp-keycloak's own NetworkPolicy serves the issuer, Pod port 8080, to every
+    # source: the Organizations' namespaces dial keycloak.keycloak.svc and
+    # their names are not fixed. This list governs the other ports; the
+    # function test probes 7800, the Infinispan cluster transport, which only
+    # the Keycloak Pods of both regions may reach (bp-keycloak values
+    # keycloak.networkPolicy).
     gatewayIngress: true           # auth.<fqdn> public route
     allowIngressFrom:
       - cnpg-system                # CNPG operator → keycloak bundled/own PG (when own-cluster)

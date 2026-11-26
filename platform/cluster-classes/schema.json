@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openova.io/schemas/cluster-class/v1",
+  "title": "Cluster class file",
+  "description": "One file <name>.yaml per cluster class (ADR-0037): in platform/cluster-classes/ for a class of provider any, in infra/providers/<provider>/cluster-classes/ for the class of one provider. Check NET-G17 reads it with tests/acceptance/sovereign/internal/suite/cluster_class.go, which applies exactly the keywords of this file and refuses a schema with any other.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "kind", "provider", "distribution", "mayHostControlPlane", "capabilities"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "description": "The file name without the extension .yaml."},
+    "kind": {"type": "string", "enum": ["reference", "managed-byo-cilium", "managed-native-cilium", "managed-chained", "managed-opaque"]},
+    "provider": {"type": "string", "pattern": "^(any|[a-z][a-z0-9-]*)$", "description": "any in platform/cluster-classes/, else the provider pack whose folder holds the file."},
+    "distribution": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$", "description": "The Kubernetes distribution, for example k3s."},
+    "mayHostControlPlane": {"type": "boolean", "description": "Whether a cluster of the class may run the Sovereign's control plane (ADR-0037 MC5)."},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Every flag, true or false. Check NET-G17 probes every flag declared true; a flag declared false is not applicable.",
+      "required": ["policy.k8s", "policy.cilium", "policy.l7", "policy.fqdn", "dataplane.kubeProxyFree", "gateway.cilium", "gateway.hostPort",
+        "mesh.cilium", "encryption.wireguard", "observability.hubble", "node.daemonSets", "lb.noNodePort", "cilium.platformOwned"],
+      "properties": {
+        "policy.k8s": {"type": "boolean", "description": "Kubernetes NetworkPolicy is enforced."},
+        "policy.cilium": {"type": "boolean", "description": "Cilium policies with entities and cluster-wide scope are enforced."},
+        "policy.l7": {"type": "boolean", "description": "HTTP rules are enforced."},
+        "policy.fqdn": {"type": "boolean", "description": "DNS-name egress rules are enforced."},
+        "dataplane.kubeProxyFree": {"type": "boolean", "description": "No kube-proxy runs; Cilium replaces it."},
+        "gateway.cilium": {"type": "boolean", "description": "GatewayClass cilium accepts a Gateway that serves routes."},
+        "gateway.hostPort": {"type": "boolean", "description": "Gateway listeners bind port 443 on the chosen nodes only."},
+        "mesh.cilium": {"type": "boolean", "description": "ClusterMesh with the other regions."},
+        "encryption.wireguard": {"type": "boolean", "description": "WireGuard node-to-node encryption."},
+        "observability.hubble": {"type": "boolean", "description": "Hubble records flows."},
+        "node.daemonSets": {"type": "boolean", "description": "Privileged DaemonSets on the host network run on every node."},
+        "lb.noNodePort": {"const": true, "description": "The public entry needs no node port. A class that needs one is not admitted (ADR-0026)."},
+        "cilium.platformOwned": {"type": "boolean", "description": "Flux installs and upgrades the Helm release cilium."}
+      }
+    },
+    "notes": {"type": "string"}
+  }
+}

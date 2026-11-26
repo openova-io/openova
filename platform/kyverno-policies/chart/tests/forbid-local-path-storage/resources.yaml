@@ -1,0 +1,88 @@
+# Inputs of the suite forbid-local-path-storage. The two shared fixture files
+# (tests/fixtures/forbid-local-path/) are listed in kyverno-test.yaml beside this file.
+
+# 1. A claim of the provisioner's name as its class: not compliant.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provisioner-name-class
+  namespace: example
+spec:
+  storageClassName: rancher.io/local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 2. A claim of local-path in kube-system: not compliant (the policy excludes
+#    no namespace by default).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: system-local-path
+  namespace: kube-system
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# 3. A class whose provisioner is the bare name local-path: not compliant.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: bare-provisioner
+provisioner: local-path
+---
+# 4. A class of a durable cloud provisioner: compliant.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: durable
+provisioner: csi.hetzner.cloud
+---
+# 5. A volume of the local-path class: not compliant.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-local-path
+spec:
+  storageClassName: local-path
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /var/lib/example
+---
+# 6. A volume of a durable class: compliant.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-durable
+spec:
+  storageClassName: hcloud-volumes
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  csi:
+    driver: csi.hetzner.cloud
+    volumeHandle: "1"
+---
+# 7. A volume without a class: compliant.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-no-class
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  csi:
+    driver: csi.hetzner.cloud
+    volumeHandle: "2"

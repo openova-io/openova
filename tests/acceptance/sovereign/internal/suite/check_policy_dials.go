@@ -324,8 +324,38 @@ func (d *Dialer) Pods() []string {
 	return out
 }
 
+// dialNetworkWait is how long Dial dials again while the control dial does not
+// connect, and dialNetworkEvery the pause between two dials.
+var dialNetworkWait, dialNetworkEvery = 30 * time.Second, 2 * time.Second
+
 // Dial dials to from the Pod of the source from, after the control dial.
+//
+// Ready says only that the container of a dial Pod started, not that its
+// network works yet: on hw307 (23 November 2026, NET-G10 in region b) a dial
+// Pod of a new namespace could not resolve the cluster DNS name in its first
+// 10 seconds after Ready, while its twin, created with it and dialed 10
+// seconds later, connected; CoreDNS ran without an error and no Cilium agent
+// restarted. A dial whose control did not connect measured nothing, so Dial
+// dials again, every dialNetworkEvery, until the control connects or
+// dialNetworkWait has passed, and returns the last result. A dial whose
+// control connected is never repeated.
 func (d *Dialer) Dial(ctx context.Context, from DialSource, to DialTarget) (DialResult, error) {
+	deadline := time.Now().Add(dialNetworkWait)
+	for {
+		res, err := d.dialOnce(ctx, from, to)
+		if err != nil || res.Control == DialConnected || !time.Now().Before(deadline) {
+			return res, err
+		}
+		select {
+		case <-ctx.Done():
+			return res, nil
+		case <-time.After(dialNetworkEvery):
+		}
+	}
+}
+
+// dialOnce runs the control dial and the dial to to once in the Pod of from.
+func (d *Dialer) dialOnce(ctx context.Context, from DialSource, to DialTarget) (DialResult, error) {
 	p, ok := d.pods[from.key()]
 	if !ok {
 		return DialResult{}, fmt.Errorf("no dial Pod was started for the source %s", from.key())

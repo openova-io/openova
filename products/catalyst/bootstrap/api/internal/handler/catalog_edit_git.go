@@ -15,7 +15,7 @@
 // reached the UI. The two diverged.
 //
 // AFTER: every `apps` edit additionally COMMITS the edited card fields
-// (name, tagline, supported_topologies, icon_light, icon_dark) into the
+// (name, tagline, icon_light, icon_dark; never a topology change) into the
 // per-Sovereign **catalog-sovereign** Gitea Org as a Blueprint CR
 // (`catalog-sovereign/<bp-name>/blueprint.yaml`) — the exact same repo +
 // shape the /blueprints/curate handler already writes (blueprints.go),
@@ -39,7 +39,10 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -47,6 +50,7 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
 )
 
 // catalogEditGitBranch is the branch the catalog-sovereign Blueprint CRs
@@ -210,12 +214,10 @@ func catalogEditBlueprintName(slug string) string {
 // writeCatalogEditToGit commits one catalog entry's edited card fields
 // into catalog-sovereign/<bp-name>/blueprint.yaml.
 //
-// It is a READ-MODIFY-WRITE: when a Blueprint CR already exists for this
-// entry (curated earlier, or written by a prior edit) the edit is MERGED
-// onto it so non-card fields (spec.source, spec.version, spec.manifests…)
-// survive; when none exists a minimal CR carrying just the edited card +
-// supported topologies is created. Either way the result is a single git
-// commit to the local catalog repo — the IaC source of truth.
+// It is a READ-MODIFY-WRITE: the edit is MERGED onto the live Blueprint CR so
+// non-card fields survive. blueprintedit.Check allows only the card fields and
+// spec.visibility to change and needs blueprint.schema.json to pass (so with
+// no live object the edit is refused); the result is one commit (IaC).
 //
 // Returns (committed, err): committed=false + err=nil when the bytes were
 // byte-equal (no commit). errCatalogGitUnavailable without a commit library;
@@ -235,6 +237,11 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 		return false, nil
 	}
 
+	// Checked before the Org and repo are ensured: a refusal leaves nothing behind.
+	canonical, err := catalogCardEditResult(ctx, h, bpName, edit)
+	if err != nil {
+		return false, err
+	}
 	// Ensure the catalog-sovereign Org + per-Blueprint repo exist
 	// (idempotent — same EnsureOrg/EnsureRepo blueprints.go's curate uses).
 	if _, err := h.giteaClient.EnsureOrg(ctx, catalogSovereignOrg,
@@ -245,56 +252,6 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 	if _, err := h.giteaClient.EnsureRepo(ctx, catalogSovereignOrg, bpName,
 		"Sovereign-curated Blueprint", false); err != nil {
 		return false, fmt.Errorf("ensure repo %s/%s: %w", catalogSovereignOrg, bpName, err)
-	}
-
-	// READ the existing CR (if any) so the edit is a merge, not a clobber.
-	var existing []byte
-	if f, err := h.giteaClient.GetFile(ctx, catalogSovereignOrg, bpName,
-		catalogEditGitBranch, catalogEditBlueprintPath); err == nil {
-		if b, derr := f.Decoded(); derr == nil {
-			existing = b
-		}
-	} else if !gitea.IsNotFound(err) {
-		// A real transport error reading the source (not a plain
-		// missing-file/repo) — surface it rather than silently overwriting
-		// with a fresh minimal CR.
-		return false, fmt.Errorf("get %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
-	}
-
-	// #3668 §5A — the FIRST console edit on a blueprint with no Gitea file
-	// must SEED from the live in-cluster CR's FULL spec, not synthesise a
-	// `version: 0.0.0` stub that drops spec.source / spec.manifests /
-	// spec.sso / spec.placementSchema / spec.endpoints / shareable /
-	// contextSchema (the §3A(b) lossy-stub violation). The seed is the same
-	// full Blueprint the install path reads — fetched via the catalog client
-	// (chainedCatalogClient resolves Gitea → in-cluster CR and returns the
-	// entire object in .Raw). With a full seed the existing setIfAbsent merge
-	// preserves every non-card field; the edit only overlays the card fields.
-	if len(existing) == 0 {
-		if seed := h.seedBlueprintYAMLFromLiveCR(ctx, bpName); len(seed) > 0 {
-			existing = seed
-		}
-	}
-
-	merged, err := mergeCatalogEditIntoBlueprintYAML(existing, bpName, edit)
-	if err != nil {
-		return false, fmt.Errorf("merge blueprint.yaml: %w", err)
-	}
-
-	// #5113 Facets B+C — canonicalize BEFORE committing, through the SAME
-	// serializer the full-CR IaC leg (#5041) uses: metadata.name stamped to
-	// the canonical bp-<slug> live-CR identity (a bare `name: wordpress` from
-	// a bare-named seed / legacy file made Flux swap its inventory entry and
-	// PRUNE the live bp-wordpress CR on hw255), and cluster-populated
-	// metadata scrubbed (uid/resourceVersion/… leaked via legacy Gitea files
-	// survived the read-modify-write and produced the stale-uid Conflict
-	// wedge, gitea commit 7516c865). Both the per-Blueprint read source and
-	// the Flux aggregator get the SAME canonical bytes.
-	canonical := stampBlueprintCRForFluxAggregator(merged, bpName)
-	if len(canonical) == 0 {
-		// Unreachable in practice — merged was just produced by yaml.Marshal —
-		// but never commit a document the canonical serializer cannot parse.
-		return false, fmt.Errorf("canonicalize blueprint.yaml for %s: document did not re-parse", bpName)
 	}
 
 	msg := fmt.Sprintf("catalog: edit %s card via catalyst-api (#3648)", bpName)
@@ -319,6 +276,80 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 	}
 
 	return committed, nil
+}
+
+// liveCatalogBlueprint returns catalog-sovereign/<repo>/blueprint.yaml, else the
+// catalog client's full object (#3668 §5A), in the form the commit legs write;
+// nil when neither has it. A failed read is an error, never "absent"; a document
+// that does not parse is returned as it is, and blueprintedit.Check refuses it.
+func liveCatalogBlueprint(ctx context.Context, h *Handler, repo, bpName string) ([]byte, error) {
+	var live []byte
+	if h.giteaClient != nil {
+		f, err := h.giteaClient.GetFile(ctx, catalogSovereignOrg, repo, catalogEditGitBranch, catalogEditBlueprintPath)
+		if err != nil && !gitea.IsNotFound(err) {
+			return nil, fmt.Errorf("get %s/%s/%s: %w", catalogSovereignOrg, repo, catalogEditBlueprintPath, err)
+		} else if err == nil {
+			if live, err = f.Decoded(); err != nil {
+				return nil, fmt.Errorf("decode %s/%s/%s: %w", catalogSovereignOrg, repo, catalogEditBlueprintPath, err)
+			}
+		}
+	}
+	if len(bytes.TrimSpace(live)) == 0 && h.catalogClient != nil {
+		bp, err := h.catalogClient.Get(ctx, bpName, "")
+		if err != nil && !errors.Is(err, ErrBlueprintNotFound) {
+			return nil, fmt.Errorf("get the live Blueprint %s: %w", bpName, err)
+		} else if err == nil && (bp == nil || len(bp.Raw) == 0) {
+			return nil, fmt.Errorf("the catalog returned Blueprint %s without its object", bpName)
+		} else if err == nil {
+			live = stripBlueprintCRMapForGit(deepCopyYAMLMap(bp.Raw), bpName)
+		}
+	}
+	if c := h.recanonicalizeCommittedIaCSeed(ctx, live, bpName); len(c) > 0 {
+		return c, nil
+	}
+	return live, nil
+}
+
+// checkCatalogWrite checks a whole Blueprint for <repo> against the live one.
+func checkCatalogWrite(ctx context.Context, h *Handler, repo, bpName string, proposed []byte) error {
+	live, err := liveCatalogBlueprint(ctx, h, repo, bpName)
+	if err != nil {
+		return err
+	}
+	return blueprintedit.Check(live, stampBlueprintCRForFluxAggregator(proposed, bpName))
+}
+
+// catalogCardEditResult merges a card edit onto the live Blueprint and returns
+// the bytes both commit legs write (#5113 B+C: metadata.name stamped to bp-<slug>,
+// cluster metadata scrubbed) with the refusal of blueprintedit.Check, if any.
+func catalogCardEditResult(ctx context.Context, h *Handler, bpName string, edit catalogEdit) ([]byte, error) {
+	live, err := liveCatalogBlueprint(ctx, h, bpName, bpName)
+	if err != nil {
+		return nil, err
+	}
+	merged, err := mergeCatalogEditIntoBlueprintYAML(live, bpName, edit)
+	if err != nil {
+		return nil, fmt.Errorf("merge blueprint.yaml: %w", err)
+	}
+	canonical := stampBlueprintCRForFluxAggregator(merged, bpName)
+	return canonical, blueprintedit.Check(live, canonical)
+}
+
+// catalogCardEditRefusal checks an `apps` edit before the store write: a
+// contract-field change or an unreadable live Blueprint stops it there; a
+// schema refusal (no live Blueprint) is reported by the commit after the store.
+func catalogCardEditRefusal(parent context.Context, h *Handler, body []byte) error {
+	var edit catalogEdit
+	if json.Unmarshal(body, &edit) != nil || !edit.hasOverlay() || catalogEditBlueprintName(edit.Slug) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, catalogEditGitBudgetDuration())
+	defer cancel()
+	var se *blueprintedit.SchemaError
+	if _, err := catalogCardEditResult(ctx, h, catalogEditBlueprintName(edit.Slug), edit); !errors.As(err, &se) {
+		return err
+	}
+	return nil
 }
 
 // fetchCatalogEditsFromGit reads every Blueprint CR in the
@@ -366,38 +397,6 @@ func (h *Handler) fetchCatalogEditsFromGit(ctx context.Context) map[string]catal
 // inside its catalog-sovereign per-Blueprint repo. Matches the path
 // blueprints.go's curate writes ("blueprint.yaml").
 const catalogEditBlueprintPath = "blueprint.yaml"
-
-// seedBlueprintYAMLFromLiveCR resolves a blueprint's FULL definition via the
-// catalog client and renders it as the Blueprint CR YAML to seed the
-// catalog-sovereign Gitea file on the first console edit (#3668 §5A). The
-// catalog client is the chainedCatalogClient — it resolves Gitea →
-// in-cluster CR and returns the entire object in CatalogBlueprint.Raw, which
-// is the same full spec (source / version / manifests / sso / placementSchema
-// / endpoints / shareable / contextSchema) the install path consumes.
-//
-// Returns nil (the caller then falls back to mergeCatalogEditIntoBlueprintYAML
-// synthesising a minimal CR) when the client is unwired, the blueprint cannot
-// be resolved, or Raw is empty — seeding is best-effort: it upgrades the first
-// edit from a lossy stub to a full CR when the source is available, and never
-// fails the edit when it isn't.
-//
-// Server-side metadata is stripped so the committed file is a clean,
-// hand-authorable source of truth: status, resourceVersion, uid, generation,
-// creationTimestamp, managedFields, last-applied — while the Helm ownership
-// labels+annotations are PRESERVED (#5113 Facet E; see
-// stripBlueprintCRMapForGit) — leaving apiVersion/kind/metadata (name,
-// labels, annotations) + the full spec that the Blueprint projector and
-// validateBlueprintYAML accept.
-func (h *Handler) seedBlueprintYAMLFromLiveCR(ctx context.Context, bpName string) []byte {
-	if h.catalogClient == nil {
-		return nil
-	}
-	bp, err := h.catalogClient.Get(ctx, bpName, "")
-	if err != nil || bp == nil || len(bp.Raw) == 0 {
-		return nil
-	}
-	return stripBlueprintCRMapForGit(deepCopyYAMLMap(bp.Raw), bpName)
-}
 
 // blueprintCRServerSideMetadataFields are the cluster-populated metadata
 // fields that must NEVER land in a committed Blueprint source file: they are

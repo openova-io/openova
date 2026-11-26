@@ -11,6 +11,7 @@
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "core/controllers/continuum/internal/controller/controller.go", "reason": "Continuum controller ticker; kept until the region-loss contract replaces it"},
     {"count": 1, "metric": "requeue", "owner": "CTL", "path": "core/controllers/environment/internal/controller/environment_controller.go", "reason": "safety net, ten minutes"},
     {"count": 2, "metric": "requeue", "owner": "CTL", "path": "core/controllers/organization/internal/controller/organization_controller.go", "reason": "safety net, ten minutes; clock event"},
+    {"count": 1, "metric": "requeue", "owner": "ACC", "path": "core/controllers/access/internal/controller/grant_controller.go", "reason": "clock event: the next edge of a grant's window, which no object announces"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "clusters/_template/sovereign-region/multi-region-follower/git-sync-script.yaml", "reason": "the follower region's one-minute Git sync job; kept until the follower region's Git has its own database"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-promoter.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
@@ -30,7 +31,6 @@
       "products/catalyst/bootstrap/api/internal/handler/post_handover_gateway_elb.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/post_handover_spine_apps.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/wipe.go": 1,
-      "products/catalyst/bootstrap/api/internal/providers/huawei/preflight_eip.go": 1,
       "products/catalyst/bootstrap/api/internal/provisioner/provisioner.go": 1
     },
     "go_ticker": {

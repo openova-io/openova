@@ -24,11 +24,8 @@ export {
   getResourceCompliance,
   scoreColor,
   scoreLabel,
-  COMPLIANCE_FRAMEWORKS,
 } from '@/pages/admin/compliance/compliance.api'
 export type {
-  ComplianceFramework,
-  ComplianceFrameworkId,
   ComplianceResult,
   FalcoEvent,
   FalcoEventsResponse,

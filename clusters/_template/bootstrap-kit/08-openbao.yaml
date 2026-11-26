@@ -195,7 +195,7 @@ spec:
       #   trusting it into /ui/vault/secrets, instead of trusting a
       #   client-side-only tokenExpirationEpoch that can't see a server-side
       #   revoke — closes the "no login form but 403 on mounts" gap.
-      version: 1.2.84
+      version: 1.2.91
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
@@ -233,11 +233,19 @@ spec:
   #   node file the stanza names and initialises itself; there is no init
   #   Job and no unseal-key Secret. Without the ConfigMap this release does
   #   not install, and without a stanza the server does not start.
+  # - backup.bucket (SEC-181): the bucket name of the object-storage Secret
+  #   that cloud-init seeds in flux-system. Its key pair reaches namespace
+  #   openbao as the reflected copy openbao/object-storage (register entry
+  #   openbao-snapshot-bucket), which the backup and the drill mount as files.
   valuesFrom:
     - kind: ConfigMap
       name: sovereign-seal-profile
       valuesKey: stanza
       targetPath: seal.stanza
+    - kind: Secret
+      name: object-storage
+      valuesKey: s3-bucket
+      targetPath: backup.bucket
   values:
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for openbao (the
@@ -296,6 +304,27 @@ spec:
           disruptionBudget:
             enabled: false
         affinity: ""
+      # SEC-211 — the OpenBao CSI provider DaemonSet of the upstream chart.
+      # The Secrets Store CSI driver of slot 15b (bp-secrets-store-csi) calls
+      # it to mount values from OpenBao into Pods; it logs in with the token
+      # the kubelet hands the driver (audience openbao, role workload). Its
+      # images come through the Harbor proxy and every container declares
+      # requests, as the kyverno policies harbor-proxy-pull and
+      # resource-requests demand (the upstream defaults pull from quay.io and
+      # declare none). The provider writes one Secret of its own,
+      # openbao/openbao-csi-provider-hmac-key (register entry
+      # openbao-csi-provider-hmac-key). The chart keeps the upstream agent
+      # sidecar off (bp-openbao values, openbao.csi.agent): it declares no
+      # probes, and probes-present refuses the DaemonSet with it.
+      csi:
+        enabled: true
+        image:
+          registry: harbor.openova.io
+          repository: proxy-quay/openbao/openbao-csi-provider
+          tag: "2.0.3"
+        resources:
+          requests: { cpu: 20m, memory: 64Mi }
+          limits: { cpu: 200m, memory: 128Mi }
     # ADR-0015 (Refs #7067) — peer-region trust: every region keeps its own
     # OpenBao; a multi-region Application's primary writes its shared material
     # into each peer's OpenBao over ClusterMesh (bp-openbao values §peerTrust).
@@ -307,3 +336,9 @@ spec:
       regions: '${SOVEREIGN_REGIONS_JSON:-}'
     functionTest:
       timeoutSeconds: 900  # T = install.timeout (15m)
+    # SEC-181 — the six-hourly snapshot to the bucket (SEC-180) and its
+    # restore drill, which gate check SEC-G10 reads (docs/RUNBOOKS.md §2.18).
+    backup:
+      enabled: true
+    restoreDrill:
+      enabled: true

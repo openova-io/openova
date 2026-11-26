@@ -19,10 +19,19 @@ import (
 
 // Check CMP-G01, the score moves by push. The check applies one failing
 // workload, the seed, in the first region: the region the API runs in. The
-// change must reach an open compliance stream as a frame, and the Sovereign
-// score must count it. When the seed is deleted the violations must drop it.
+// change must reach an open compliance stream as a frame, and the score must
+// count it. When the seed is deleted the violations must drop it.
 // The check makes no request on a timer: while it waits it only reads the
 // stream, and it reads a route again only after a frame arrived.
+//
+// The score counts the seed when the seed's own subject, the Deployment
+// cmp-bad of the seed's namespace, enters the denominator and fails in it. The
+// Sovereign score is the sum of the scores of its subjects, so the check reads
+// that one subject by its name (GET .../compliance/resource), before the seed
+// and after. It does not compare two readings of the whole Sovereign: other
+// resources of the cluster come and go between them: on 24 November the
+// Sovereign denominator fell from 618 to 615 while the violations listed the
+// seed five times.
 const (
 	compliancePushID = "CMP-G01"
 	complianceSeed   = "cmp-bad"
@@ -85,15 +94,22 @@ func (c compliancePushCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 	seedKey := "/" + ns + "/" + complianceSeed + `"` // how the resource key of the seed ends inside a frame
 	streamCtx, closeStream := context.WithCancel(ctx)
 	defer closeStream()
-	var num0, den0 int
+	var num0, den0, seedNum0, seedDen0 int
 	var frames <-chan string
 
-	if !checkStep(rec, compliancePushID, 1, "the Sovereign has a score (GET /api/v1/sovereigns/{id}/compliance/scorecard)", func(ev Evidence) error {
+	if !checkStep(rec, compliancePushID, 1, "the Sovereign has a score and the seed has none yet (GET /api/v1/sovereigns/{id}/compliance/scorecard and .../resource)", func(ev Evidence) error {
 		var err error
 		num0, den0, err = sovereignScore(ctx, cc.API, base)
 		ev["numerator"], ev["denominator"] = num0, den0
 		if err == nil && den0 <= 0 {
 			err = errors.New("scorecard empty: the Sovereign score has denominator 0")
+		}
+		if err == nil {
+			seedNum0, seedDen0, err = seedScore(ctx, cc.API, base, ns)
+			ev["seed_numerator"], ev["seed_denominator"] = seedNum0, seedDen0
+		}
+		if err == nil && seedDen0 != 0 {
+			err = fmt.Errorf("the seed's subject deployment/%s/%s has denominator %d before the seed exists: the route does not read one subject", ns, complianceSeed, seedDen0)
 		}
 		return err
 	}) {
@@ -133,16 +149,24 @@ func (c compliancePushCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 		ev["frames_read"], ev["waited_seconds"] = n, math.Round(time.Since(start).Seconds()*10)/10
 		return err
 	})
-	ok = ok && checkStep(rec, compliancePushID, 5, "the Sovereign score counts the seed, and the seed fails", func(ev Evidence) error {
+	ok = ok && checkStep(rec, compliancePushID, 5, "the score counts the seed's own subject, and the seed fails", func(ev Evidence) error {
 		_, err := onFrames(frames, c.wait, true, func(string) (bool, string, error) {
 			num, den, err := sovereignScore(ctx, cc.API, base)
 			if err != nil {
 				return false, "", err
 			}
+			seedNum, seedDen, err := seedScore(ctx, cc.API, base, ns)
+			if err != nil {
+				return false, "", err
+			}
 			fails, err := seedViolations(ctx, cc.API, base, ns)
 			ev["numerator"], ev["denominator"], ev["seed_fails"] = num, den, fails
-			return den > den0 && den-num > den0-num0 && len(fails) > 0,
-				fmt.Sprintf("numerator %d and denominator %d (before the seed %d and %d), %d violations of the seed", num, den, num0, den0, len(fails)), err
+			ev["seed_numerator"], ev["seed_denominator"] = seedNum, seedDen
+			counted := seedDen > seedDen0 && seedDen-seedNum > seedDen0-seedNum0 // the seed enters the denominator, and fails in it
+			held := den >= seedDen && den-num >= seedDen-seedNum                 // the Sovereign score holds at least the seed's share
+			return counted && held && len(fails) > 0,
+				fmt.Sprintf("the seed's own score numerator %d and denominator %d (before the seed %d and %d), the Sovereign score numerator %d and denominator %d (before the seed %d and %d), %d violations of the seed",
+					seedNum, seedDen, seedNum0, seedDen0, num, den, num0, den0, len(fails)), err
 		})
 		return err
 	})
@@ -178,6 +202,16 @@ func sovereignScore(ctx context.Context, c *api.Client, base string) (num, den i
 	}
 	_, err = c.Get(ctx, base+"/scorecard", &card)
 	return card.Sovereign.Numerator, card.Sovereign.Denominator, err
+}
+
+// seedScore reads the numerator and the denominator of the seed's own subject,
+// the Deployment cmp-bad of the namespace ns. A subject the API has no verdict
+// for answers zero and zero. No other resource of the cluster moves this score.
+func seedScore(ctx context.Context, c *api.Client, base, ns string) (num, den int, err error) {
+	var res struct{ Numerator, Denominator int }
+	q := url.Values{"kind": {"deployment"}, "ns": {ns}, "name": {complianceSeed}}
+	_, err = c.Get(ctx, base+"/resource?"+q.Encode(), &res)
+	return res.Numerator, res.Denominator, err
 }
 
 // seedViolations returns the policies that the violations route lists for the
@@ -226,19 +260,13 @@ func readFrames(body io.Reader, emit func(data string)) error {
 // sends the data of its frames to a channel. The request has no time limit:
 // it lives until ctx ends. The channel is closed when the body ends.
 func openStream(ctx context.Context, c *api.Client, path string) (<-chan string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.AddCookie(&http.Cookie{Name: "catalyst_session", Value: c.Session})
 	client := &http.Client{} // no Timeout: it would end the stream
 	if c.HTTP != nil {
 		client.Transport = c.HTTP.Transport
 	}
-	res, err := client.Do(req)
+	res, err := c.Stream(ctx, client, path) // an answer HTTP 401 renews the session once
 	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", path, err)
+		return nil, err
 	}
 	if kind := res.Header.Get("Content-Type"); res.StatusCode != http.StatusOK || !strings.HasPrefix(kind, "text/event-stream") {
 		_ = res.Body.Close()

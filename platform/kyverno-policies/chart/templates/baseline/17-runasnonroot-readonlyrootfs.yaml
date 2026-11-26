@@ -13,8 +13,8 @@ matches Kubernetes Pod Security Standards "restricted".
 Default mode permissive per design §4.3.
 */}}
 {{- if .Values.compliancePolicies.runAsNonRootReadonlyRootFs.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: runasnonroot-readonlyrootfs
   labels:
@@ -30,71 +30,38 @@ metadata:
       Pods must declare runAsNonRoot=true at Pod or container level
       AND every container must set readOnlyRootFilesystem=true.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.runAsNonRootReadonlyRootFs.action) }}
-  background: true
-  rules:
-    - name: pod-level-or-container-level-runasnonroot
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.runAsNonRootReadonlyRootFs.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
-          set spec.template.spec.securityContext.runAsNonRoot=true
-          (Pod-level) OR every container must set
-          securityContext.runAsNonRoot=true.
-        anyPattern:
-          - spec:
-              template:
-                spec:
-                  securityContext:
-                    runAsNonRoot: true
-          - spec:
-              template:
-                spec:
-                  containers:
-                    - securityContext:
-                        runAsNonRoot: true
-    - name: container-readonlyrootfilesystem
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.runAsNonRootReadonlyRootFs.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          Every container in
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
-          set securityContext.readOnlyRootFilesystem=true.
-        pattern:
-          spec:
-            template:
-              spec:
-                containers:
-                  - securityContext:
-                      readOnlyRootFilesystem: true
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.runAsNonRootReadonlyRootFs.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.runAsNonRootReadonlyRootFs.excludeNamespaces | quote }}
+  # Both validations read spec.template for every kind. A CronJob has no
+  # spec.template, so it never complies (the legacy patterns read the same
+  # path; measured).
+  validations:
+    - expression: >-
+        has(object.spec.template) &&
+        (object.spec.template.spec.?securityContext.?runAsNonRoot.orValue(false) == true ||
+        object.spec.template.spec.containers.all(c, c.?securityContext.?runAsNonRoot.orValue(false) == true))
+      message: >-
+        This workload must set spec.template.spec.securityContext.runAsNonRoot=true
+        (Pod-level) OR every container must set securityContext.runAsNonRoot=true.
+    - expression: >-
+        has(object.spec.template) &&
+        object.spec.template.spec.containers.all(c, c.?securityContext.?readOnlyRootFilesystem.orValue(false) == true)
+      message: >-
+        Every container in this workload must set
+        securityContext.readOnlyRootFilesystem=true.
 {{- end -}}

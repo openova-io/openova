@@ -28,53 +28,69 @@ func huaweiAdapter(t *testing.T) providers.CloudProvider {
 	return cp
 }
 
-func clearHuaweiEnv(t *testing.T) {
+// operatorCredentialFiles points provisioner.CloudCredentialsDir, for the
+// test, at a new directory with one file cloud-credential.<provider>.<key>
+// per entry of creds (CLD-106).
+func operatorCredentialFiles(t *testing.T, provider string, creds map[string]string) {
 	t.Helper()
-	for _, k := range []string{"ACCESS_KEY", "SECRET_KEY", "PROJECT_ID", "REGION"} {
-		t.Setenv("CATALYST_HUAWEI_"+k, "")
+	dir := t.TempDir()
+	for key, value := range creds {
+		if err := os.WriteFile(filepath.Join(dir, "cloud-credential."+provider+"."+key), []byte(value+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
+	was := provisioner.CloudCredentialsDir()
+	provisioner.SetCloudCredentialsDir(dir)
+	t.Cleanup(func() { provisioner.SetCloudCredentialsDir(was) })
 }
 
-// TestDeploymentCredentials_OperatorEnvFallback_5193 — a body-less wipe
+// huaweiOperator is a complete set of the operator's Huawei credential files.
+var huaweiOperator = map[string]string{"access_key": "TESTAK1234567890", "secret_key": "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890", "project_id": "0a1b2c3d4e5f6789abcd", "region": "me-east-215"}
+
+// TestDeploymentCredentials_OperatorFilesFallback_5193 — a body-less wipe
 // after a Pod roll and a partial destroy (no record creds, no variables
-// file) takes the operator's configuration, and no region is defaulted in
+// file) takes the operator's credential files, and no region is defaulted in
 // the handler: the adapter owns its default region.
-func TestDeploymentCredentials_OperatorEnvFallback_5193(t *testing.T) {
-	clearHuaweiEnv(t)
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "AK-ENV")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "SK-ENV")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "PID-ENV")
+func TestDeploymentCredentials_OperatorFilesFallback_5193(t *testing.T) {
+	operatorCredentialFiles(t, "huawei", map[string]string{"access_key": "AK-OP", "secret_key": "SK-OP", "project_id": "PID-OP"})
 	got, legacy := deploymentCredentials(huaweiAdapter(t), "huawei", nil, nil, provisioner.Request{}, t.TempDir())
-	if got["access_key"] != "AK-ENV" || got["secret_key"] != "SK-ENV" || got["project_id"] != "PID-ENV" {
-		t.Fatalf("env fallback did not fill: %v", got)
+	if got["access_key"] != "AK-OP" || got["secret_key"] != "SK-OP" || got["project_id"] != "PID-OP" {
+		t.Fatalf("the operator's files did not fill: %v", got)
 	}
 	if got["region"] != "" || legacy {
 		t.Fatalf("region = %q legacy = %v, want no handler default and no legacy field", got["region"], legacy)
 	}
 	if fe := missingCredential("huawei", "", got, false); fe != nil {
-		t.Fatalf("complete env creds reported missing %s", fe.Field)
+		t.Fatalf("complete operator creds reported missing %s", fe.Field)
 	}
 }
 
-// TestDeploymentCredentials_BodyWinsOverEnv_5193 — a key of the body's
-// credentials map wins over the operator's configuration; only the keys it
-// leaves out are filled.
-func TestDeploymentCredentials_BodyWinsOverEnv_5193(t *testing.T) {
-	clearHuaweiEnv(t)
+// TestDeploymentCredentials_NotFromTheEnvironment_CLD106 — CATALYST_HUAWEI_*
+// is no source any more: set, with no credential file, it fills nothing.
+func TestDeploymentCredentials_NotFromTheEnvironment_CLD106(t *testing.T) {
+	operatorCredentialFiles(t, "huawei", nil)
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "AK-ENV")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "SK-ENV")
+	if got, _ := deploymentCredentials(huaweiAdapter(t), "huawei", nil, nil, provisioner.Request{}, t.TempDir()); got["access_key"] != "" {
+		t.Fatalf("access_key = %q from the environment; want none without a credential file", got["access_key"])
+	}
+}
+
+// TestDeploymentCredentials_BodyWinsOverTheOperatorFiles_5193 — a key of the
+// body's credentials map wins over the operator's configuration; only the keys
+// it leaves out are filled.
+func TestDeploymentCredentials_BodyWinsOverTheOperatorFiles_5193(t *testing.T) {
+	operatorCredentialFiles(t, "huawei", map[string]string{"access_key": "AK-OP", "secret_key": "SK-OP"})
 	got, _ := deploymentCredentials(huaweiAdapter(t), "huawei", map[string]string{"access_key": " AK-BODY "}, nil, provisioner.Request{}, "")
-	if got["access_key"] != "AK-BODY" || got["secret_key"] != "SK-ENV" {
-		t.Fatalf("got %v, want the body's access_key and the env's secret_key", got)
+	if got["access_key"] != "AK-BODY" || got["secret_key"] != "SK-OP" {
+		t.Fatalf("got %v, want the body's access_key and the operator file's secret_key", got)
 	}
 }
 
 // TestDeploymentCredentials_VariablesFileAfterPodRoll_5135 — the record's
 // secrets are redacted after a Pod roll; the adapter's own variables file on
-// the PVC supplies them, region included, and wins over the operator env.
+// the PVC supplies them, region included, and wins over the operator's files.
 func TestDeploymentCredentials_VariablesFileAfterPodRoll_5135(t *testing.T) {
-	clearHuaweiEnv(t)
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "AK-ENV-MUST-NOT-WIN")
+	operatorCredentialFiles(t, "huawei", map[string]string{"access_key": "AK-OP-MUST-NOT-WIN"})
 	work := t.TempDir()
 	tf := `{"huawei_access_key":"AK-FILE","huawei_secret_key":"SK-FILE","huawei_project_id":"PID-FILE","huawei_region":"region-file","obs_bucket_name":"b"}`
 	if err := os.WriteFile(filepath.Join(work, "tofu.auto.tfvars.json"), []byte(tf), 0o600); err != nil {
@@ -99,7 +115,7 @@ func TestDeploymentCredentials_VariablesFileAfterPodRoll_5135(t *testing.T) {
 // TestDeploymentCredentials_RecordFirst_NoFile — the in-memory record wins
 // over the variables file, and a missing or unreadable file yields nothing.
 func TestDeploymentCredentials_RecordFirst_NoFile(t *testing.T) {
-	clearHuaweiEnv(t)
+	operatorCredentialFiles(t, "huawei", nil)
 	rec := provisioner.Request{Provider: "huawei", Credentials: map[string]string{"access_key": "AK-REC", "secret_key": "SK-REC", "project_id": "PID-REC"}}
 	work := t.TempDir()
 	if err := os.WriteFile(filepath.Join(work, "tofu.auto.tfvars.json"), []byte(`{"huawei_access_key":"AK-FILE"}`), 0o600); err != nil {
@@ -124,7 +140,7 @@ func TestDeploymentCredentials_RecordFirst_NoFile(t *testing.T) {
 // nor the hetznerToken overload reach its credentials; a Hetzner body's
 // legacy token does, and is reported as legacy.
 func TestDeploymentCredentials_NoHuaweiCredentialFromALegacyField(t *testing.T) {
-	clearHuaweiEnv(t)
+	operatorCredentialFiles(t, "huawei", nil)
 	fields := map[string]json.RawMessage{
 		"huaweiAccessKey": json.RawMessage(`"AK-TYPED"`),
 		"hetznerToken":    json.RawMessage(`"TOKEN"`),

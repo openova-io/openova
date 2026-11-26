@@ -1,0 +1,72 @@
+# The resources of the cases that pass, as the policy patches them: each is its
+# resource with policy.cilium.io/enforced: "true" added, and nothing else.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unlabelled
+  namespace: apps
+  labels: {policy.cilium.io/enforced: "true"}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: needs-enforced-label
+  namespace: harbor
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: needs-enforced-label}
+  template:
+    metadata:
+      labels: {app: needs-enforced-label, policy.cilium.io/enforced: "true"}
+    spec:
+      containers:
+        - name: app
+          image: harbor.openova.io/proxy-ghcr/openova-io/openova/example:1.2.3
+          livenessProbe: {httpGet: {path: /healthz, port: 8080}}
+          readinessProbe: {httpGet: {path: /ready, port: 8080}}
+          resources: {requests: {cpu: 50m, memory: 64Mi}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly
+  namespace: apps
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels: {app: nightly, policy.cilium.io/enforced: "true"}
+        spec:
+          restartPolicy: Never
+          containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bare
+  namespace: apps
+spec:
+  template:
+    metadata:
+      labels: {policy.cilium.io/enforced: "true"}
+    spec:
+      restartPolicy: Never
+      containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: legacy-rc
+  namespace: apps
+spec:
+  selector: {app: legacy-rc}
+  template:
+    metadata:
+      labels: {app: legacy-rc, policy.cilium.io/enforced: "true"}
+    spec:
+      containers: [{name: app, image: harbor.example/app:1.0.0}]

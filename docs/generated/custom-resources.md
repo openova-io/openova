@@ -13,14 +13,16 @@ This file says what the tree defines. It does not say what a cluster has install
 
 | Kind | Group | Versions | Scope | Plural | File | Named in Go code |
 |---|---|---|---|---|---|---|
+| AccessGrant | access.openova.io | v1alpha1 | Namespaced | accessgrants | platform/guacamole/chart/crds/accessgrant.yaml | yes |
+| AccessTarget | access.openova.io | v1alpha1 | Namespaced | accesstargets | platform/guacamole/chart/crds/accesstarget.yaml | no |
 | UserAccess | access.openova.io | v1alpha1 | Cluster | useraccesses | platform/crossplane-claims/chart/templates/crds/useraccess.yaml | yes |
 | Application | apps.openova.io | v1 | Namespaced | applications | products/catalyst/chart/crds/application.yaml | yes |
 | Blueprint | catalyst.openova.io | v1alpha1, v1 (storage) | Cluster | blueprints | products/catalyst/chart/crds/blueprint.yaml | yes |
 | Environment | catalyst.openova.io | v1 | Cluster | environments | products/catalyst/chart/crds/environment.yaml | yes |
 | EnvironmentPolicy | catalyst.openova.io | v1 | Cluster | environmentpolicies | products/catalyst/chart/crds/environmentpolicy.yaml | yes |
 | Sovereign | catalyst.openova.io | v1alpha1 | Cluster | sovereigns | products/catalyst/chart/crds/sovereign.yaml | yes |
+| ComplianceModel | compliance.openova.io | v1alpha1 | Cluster | compliancemodels | platform/kyverno-policies/chart/crds/compliancemodel.yaml | no |
 | CNPGPair | dr.openova.io | v1 | Namespaced | cnpgpairs | products/catalyst/chart/crds/cnpgpair.yaml | yes |
-| Continuum | dr.openova.io | v1 | Namespaced | continuums | products/catalyst/chart/crds/continuum.yaml | yes |
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/continuum/chart/crds/continuum.yaml | yes |
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |
 | HardeningBaseline | machines.openova.io | v1alpha1 | Namespaced | hardeningbaselines | platform/machine-operations/chart/crds/hardeningbaselines.yaml | yes |

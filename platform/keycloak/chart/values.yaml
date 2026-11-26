@@ -151,6 +151,11 @@ catalystAPIWorkloadPort: 8080
 # set it via per-Sovereign valuesFrom or SealedSecret-backed overlay.
 sso:
   tier1ClientSecretSalt: ""
+  # SEC-060: when true, an install of this release by Flux without a salt fails
+  # (templates/_helpers.tpl, bp-keycloak.clientSecretSalt); a render without a
+  # cluster does not. Bootstrap-kit slot 09 sets it true and takes the salt from
+  # the seed Secret of first boot; an upgrade without the salt is not refused.
+  requireSalt: false
 
 # sovereignRealm.enabled: when true, the configmap-sovereign-realm.yaml
 # template emits the realm import ConfigMap and keycloakConfigCli references it
@@ -466,6 +471,65 @@ keycloak:
     - name: cache-ispn
       mountPath: /opt/bitnami/keycloak/conf/cluster
       readOnly: true
+  # ─── Who may reach the Keycloak Pods (SVC-G06, 22 Nov 2026) ─────────────
+  # The subchart's NetworkPolicy `keycloak` defaults to allowExternal: true,
+  # one ingress rule with no `from` on 8080 AND 7800: every source of the
+  # cluster, of the peer region and of the outside may reach both ports. 7800
+  # is the cluster transport of Infinispan (JGroups TCP, see cache above),
+  # which has no authentication: a Pod that reaches it can join the cluster
+  # that holds the sessions. Measured on hw307 21 Nov 2026 in both regions:
+  # bp-plane-isolation's function test, a Pod in `default`, reached Keycloak
+  # (`the namespace keycloak is not isolated`), and this rule was the only
+  # one in the namespace that admits every source.
+  #
+  # allowExternal false narrows that rule to Keycloak's own Pods (and Pods
+  # labelled keycloak-client=true) in this namespace. Two rules of extraIngress
+  # (a template the subchart renders, so the ports follow its values) keep
+  # what is used:
+  #   * the ports of the old rule but 7800 stay open to every source, exactly
+  #     as before: the HTTP port 8080 (and HTTPS with tls, the management port
+  #     with metrics). Keycloak's issuer is dialled in-cluster at
+  #     keycloak.keycloak.svc from namespaces no list can name
+  #     (catalyst-system, sso-bridge, gitea, kube-system's hubble proxy, and
+  #     every Organization's namespace: openclaw, agenity's gate, the apps of
+  #     core/services/provisioning), and it is public at auth.<fqdn> anyway.
+  #   * 7800 is admitted from the Keycloak Pods of BOTH regions: the two
+  #     regions' Keycloaks are one Infinispan cluster across the mesh, and
+  #     Cilium runs with policy-default-local-cluster=true, so a podSelector
+  #     matches only this region's Pods unless it names the key
+  #     io.cilium.k8s.policy.cluster (Cilium 1.19.3,
+  #     pkg/k8s/network_policy.go parseNetworkPolicyPeer); Exists names every
+  #     cluster of the mesh.
+  # Egress is unchanged (allowExternalEgress stays true). bp-plane-isolation's
+  # keycloak-default-deny still admits its allow-list on every port; the
+  # gateway reaches 8080 through its keycloak-allow-gateway-ingress.
+  # Locked by tests/network-policy-render.sh.
+  networkPolicy:
+    allowExternal: false
+    extraIngress: |
+      - ports:
+          - port: {{ .Values.containerPorts.http }}
+            protocol: TCP
+          {{- if .Values.tls.enabled }}
+          - port: {{ .Values.containerPorts.https }}
+            protocol: TCP
+          {{- end }}
+          {{- if .Values.metrics.enabled }}
+          - port: {{ .Values.containerPorts.management }}
+            protocol: TCP
+          {{- end }}
+      - ports:
+          - port: 7800
+            protocol: TCP
+        from:
+          - podSelector:
+              matchLabels:
+                app.kubernetes.io/name: {{ include "common.names.name" . }}
+                app.kubernetes.io/instance: {{ .Release.Name }}
+                app.kubernetes.io/component: keycloak
+              matchExpressions:
+                - key: io.cilium.k8s.policy.cluster
+                  operator: Exists
   # ─── Bitnami image-registry consolidation (issue #191) ──────────────────
   # Bitnami consolidated their tag scheme around 2025-09 (see
   # https://github.com/bitnami/charts/issues/30852). The original
@@ -909,6 +973,13 @@ gateway:
 # lives (flux-system for the slot 09 HR).
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —

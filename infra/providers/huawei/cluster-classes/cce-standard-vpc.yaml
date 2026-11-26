@@ -1,0 +1,20 @@
+name: cce-standard-vpc
+kind: managed-byo-cilium
+provider: huawei
+distribution: cce-standard-vpc
+mayHostControlPlane: false
+capabilities:
+  policy.k8s: true
+  policy.cilium: true
+  policy.l7: true
+  policy.fqdn: true
+  dataplane.kubeProxyFree: false
+  gateway.cilium: true
+  gateway.hostPort: true
+  mesh.cilium: false
+  encryption.wireguard: false
+  observability.hubble: true
+  node.daemonSets: true
+  lb.noNodePort: true
+  cilium.platformOwned: true
+notes: Organization workloads in one region. Measured by NET-290; ADR-0037.

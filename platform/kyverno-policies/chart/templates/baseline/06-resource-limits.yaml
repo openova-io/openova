@@ -12,8 +12,8 @@ flip to Enforce on regulated Environments where noisy-neighbor
 isolation is mandatory.
 */}}
 {{- if .Values.compliancePolicies.resourceLimits.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: resource-limits
   labels:
@@ -30,38 +30,30 @@ metadata:
       resources.limits.memory. Without limits, a single Pod can
       exhaust a node and starve neighbors.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.resourceLimits.action) }}
-  background: true
-  rules:
-    - name: containers-must-declare-cpu-memory-limits
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-                - Job
-                - CronJob
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.resourceLimits.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          Every container in
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} must
-          declare resources.limits.cpu and resources.limits.memory.
-        pattern:
-          spec:
-            template:
-              spec:
-                containers:
-                  - resources:
-                      limits:
-                        cpu: "?*"
-                        memory: "?*"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.resourceLimits.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.resourceLimits.excludeNamespaces | quote }}
+  validations:
+    # Read at spec.template for every kind. A CronJob has no spec.template, so
+    # it never complies (the legacy pattern read the same path; measured).
+    - expression: >-
+        has(object.spec.template) && has(object.spec.template.spec.containers) &&
+        object.spec.template.spec.containers.all(c,
+        string(c.?resources.?limits.?cpu.orValue('')) != '' &&
+        string(c.?resources.?limits.?memory.orValue('')) != '')
+      message: "Every container must declare resources.limits.cpu and resources.limits.memory."
 {{- end -}}

@@ -16,15 +16,26 @@
 #       openbao-config-admin;
 #   C3  config-admin SCOPE: configuration surfaces only — no secret data (kv
 #       mount), no sys/raw, sys/seal, sys/unseal, sys/generate-root,
-#       sys/rekey, sys/storage, auth/token, sys/leases, no bare `*`, no delete,
-#       sys/mounts read-only, sys/mounts/secret create + update and no other
-#       sys/mounts/ path; it can rewrite its own policy, not its own role;
+#       sys/rekey, sys/storage, auth/token (but token roles), sys/leases, no
+#       transit path but key configuration, no bare `*`, no delete,
+#       sys/mounts read-only, sys/mounts/secret, mounted and transit create +
+#       update (SEC-190) and no other sys/mounts/ path; it can rewrite its
+#       own policy, not its own role;
 #   C4  no Job renders, and the self-initialisation block is rendered;
 #   C5  policies are written before any role (ordering, #5829);
 #   C6  the reconciler logs in on the mount the role is bound on;
 #   C7  the first op writes sys/policies/acl/openbao-config-admin with the
 #       policy text the self-initialisation writes; the second is
-#       `secrets-mount sys/mounts/secret` with a kv version 2 payload.
+#       `secrets-mount sys/mounts/secret` with a kv version 2 payload;
+#   C8  SEC-192 (shell, yq and jq): the default renders exactly one producer
+#       identity, catalyst-api, whose policy has create + update on its five
+#       patterns and read + delete on their metadata and no read of a value,
+#       and whose role binds the catalyst-api service account with audience
+#       openbao; the simulation back end's own policy and role axon-credential;
+#       an entry of `producers` renders its own pair and replaces the default,
+#       an empty list renders none; the render refuses a pattern outside the
+#       path grammar, a bad or repeated name, an entry without paths or
+#       without a service account, each with its own message.
 #
 # Vacuity: C3's checker must reject a policy granting secret/* and sys/seal,
 # and the self-locked policy that has no grant on sys/mounts/secret.
@@ -57,10 +68,10 @@ def check_scope(hcl):
     pc = caps(hcl)
     if not pc: out.append("C3 config-admin policy is empty / unparsable")
     for p, c in pc.items():
-        if p == "*" or (p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")) and p != "sys/mounts/secret"):
+        if p == "*" or (p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")) and p not in ("sys/mounts/secret", "sys/mounts/mounted", "sys/mounts/transit", "auth/token/roles/*")):
             out.append(f"C3 config-admin reaches forbidden path {p}")
         if "delete" in c: out.append(f"C3 config-admin may delete {p}")
-        if not p.startswith(("sys/policies/acl/", "sys/policy/", "sys/auth", "sys/mounts", "auth/+/", "identity/oidc/")):
+        if not p.startswith(("sys/policies/acl/", "sys/policy/", "sys/auth", "sys/mounts", "auth/+/", "identity/oidc/", "transit/keys/", "auth/token/roles/")):
             out.append(f"C3 config-admin path outside the configuration surfaces: {p}")
     if pc.get("sys/mounts") != ["read"]: out.append(f"C3 sys/mounts must be read-only, got {pc.get('sys/mounts')}")
     if pc.get("sys/mounts/secret") != ["create", "update"]: out.append(f"C3 sys/mounts/secret must be create + update, got {pc.get('sys/mounts/secret')}")
@@ -212,5 +223,70 @@ else
   pass "C1 vacuity: a missing legacy role is caught"
 fi
 
+# ── C8 producer identities and axon-credential (SEC-192) ──────────────────
+desired() {  # $1 render, $2 key of openbao-config-desired -> the value, or nothing
+  yq "select(.kind == \"ConfigMap\" and .metadata.name == \"openbao-config-desired\") | .data[\"$2\"] | select(. != null)" "$1"
+}
+producer_text() {  # $@ patterns -> the text a producer policy must have
+  local p
+  for p in "$@"; do
+    printf 'path "mounted/data/%s" {\n  capabilities = ["create", "update"]\n}\npath "mounted/metadata/%s" {\n  capabilities = ["read", "delete"]\n}\n' "$p" "$p"
+  done
+}
+same_policy() {  # $1 render, $2 policy, $3 file with the exact text it must have
+  desired "$1" "sys.policies.acl.$2.json" | jq -j .policy > "$TMP/got.hcl" && cmp -s "$TMP/got.hcl" "$3"
+}
+same_role() {  # $1 render, $2 role on auth/kubernetes, $3 its payload as sorted JSON
+  [ "$(desired "$1" "auth.kubernetes.role.$2.json" | jq -c -S .)" = "$3" ]
+}
+ops_named() { desired "$1" manifest | grep -F -- "$2" || true; }   # $1 render, $2 fixed string
+check() { if "${@:2}"; then pass "$1"; else echo "  FAIL  $1"; FAIL=1; fi; }
+refused() {  # $1 the message the render must fail with, rest: helm flags
+  local msg=$1; shift
+  ! "${R[@]}" "$@" > /dev/null 2> "$TMP/err" && grep -q -F -- "$msg" "$TMP/err"
+}
+producer_text 'catalyst-system/sa/catalyst-api-cutover-driver/gitea-robot-*' 'axon/sa/axon/model-credential/*' \
+  '+/shared/enrol-*' 'vm-migration-system/sa/vm-migration-worker/source-*' '+/shared/user-*' > "$TMP/want-capi.hcl"
+producer_text '+/shared/binding-*' 'pack-x/sa/probe/binding-x/e1' > "$TMP/want-binding.hcl"
+cat > "$TMP/want-axon.hcl" <<'EOF'
+path "mounted/data/axon/sa/axon/model-credential/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "mounted/metadata/axon/sa/axon/model-credential/*" {
+  capabilities = ["read"]
+}
+EOF
+"${R[@]}" --set-json 'producers=[{"name":"binding","serviceAccount":"binding-producer","namespace":"pack-x","paths":["+/shared/binding-*","pack-x/sa/probe/binding-x/e1"]}]' > "$TMP/binding.yaml"
+"${R[@]}" --set-json 'producers=[]' > "$TMP/noproducer.yaml"
+check "C8 producer-catalyst-api: create + update on its five patterns, read + delete on their metadata, no read" \
+  same_policy "$TMP/default.yaml" producer-catalyst-api "$TMP/want-capi.hcl"
+check "C8 role producer-catalyst-api binds catalyst-api-cutover-driver of catalyst-system, audience openbao, 15m / 1h" \
+  same_role "$TMP/default.yaml" producer-catalyst-api '{"audience":"openbao","bound_service_account_names":["catalyst-api-cutover-driver"],"bound_service_account_namespaces":["catalyst-system"],"max_ttl":"1h","policies":["producer-catalyst-api"],"ttl":"15m"}'
+check "C8 axon-credential: create, update and read on its own model-credential path, read on its metadata" \
+  same_policy "$TMP/default.yaml" axon-credential "$TMP/want-axon.hcl"
+check "C8 role axon-credential binds axon of axon, audience openbao, 15m / 15m" \
+  same_role "$TMP/default.yaml" axon-credential '{"audience":"openbao","bound_service_account_names":["axon"],"bound_service_account_namespaces":["axon"],"max_ttl":"15m","policies":["axon-credential"],"ttl":"15m"}'
+check "C8 the default renders one producer identity, catalyst-api, as one policy and one role" \
+  test "$(ops_named "$TMP/default.yaml" /producer-)" = "$(printf 'write sys/policies/acl/producer-catalyst-api\nwrite auth/kubernetes/role/producer-catalyst-api')"
+check "C8 an entry of producers renders its own policy producer-binding" \
+  same_policy "$TMP/binding.yaml" producer-binding "$TMP/want-binding.hcl"
+check "C8 role producer-binding binds the entry's service account and namespace" \
+  same_role "$TMP/binding.yaml" producer-binding '{"audience":"openbao","bound_service_account_names":["binding-producer"],"bound_service_account_namespaces":["pack-x"],"max_ttl":"1h","policies":["producer-binding"],"ttl":"15m"}'
+check "C8 the entries replace the default: producer-binding only" \
+  test "$(ops_named "$TMP/binding.yaml" /producer-)" = "$(printf 'write sys/policies/acl/producer-binding\nwrite auth/kubernetes/role/producer-binding')"
+check "C8 producers empty: no producer op, axon-credential stays" \
+  test "$(ops_named "$TMP/noproducer.yaml" /producer-)$(ops_named "$TMP/noproducer.yaml" /axon-credential)" = "$(printf 'write sys/policies/acl/axon-credential\nwrite auth/kubernetes/role/axon-credential')"
+E='"name":"x","serviceAccount":"s","namespace":"n"'
+for c in '*' '+/*' '+/shared/*' '+/+/x-*' 'n/sa/s/../x-*' 'secret/data/x'; do
+  check "C8 the render refuses the pattern $c" refused "pattern \"$c\" is not in the path grammar of mounted/" --set-json "producers=[{$E,\"paths\":[\"$c\"]}]"
+done
+check "C8 the render refuses a name outside [a-z0-9-]+" \
+  refused 'producers: name "Bad_x" is not [a-z0-9-]+' --set-json 'producers=[{"name":"Bad_x","serviceAccount":"s","namespace":"n","paths":["+/shared/x-*"]}]'
+check "C8 the render refuses a name listed twice" \
+  refused 'producers: "x" is listed twice' --set-json "producers=[{$E,\"paths\":[\"+/shared/x-*\"]},{$E,\"paths\":[\"+/shared/y-*\"]}]"
+check "C8 the render refuses an entry without paths" refused 'producers: "x" has no paths' --set-json "producers=[{$E,\"paths\":[]}]"
+check "C8 the render refuses an entry without a service account" \
+  refused 'producers: "x" needs a serviceAccount and a namespace' --set-json 'producers=[{"name":"x","namespace":"n","paths":["+/shared/x-*"]}]'
+
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao declarative config render"; exit 1; fi
-echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, the self-initialisation writes only config-admin"
+echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, the self-initialisation writes only config-admin, the producer identities"

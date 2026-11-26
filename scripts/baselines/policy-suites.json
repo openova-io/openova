@@ -1,0 +1,9 @@
+{
+  "allow": [],
+  "counts": {
+    "policy_checks_without_suite": {
+      "useraccess-boundary": 1
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

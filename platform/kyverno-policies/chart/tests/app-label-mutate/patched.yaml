@@ -1,0 +1,80 @@
+# The resources of the cases that pass, as the policy patches them: each is its
+# resource with catalyst.openova.io/application added, and nothing else.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: instance-only
+  namespace: apps
+  labels: {app.kubernetes.io/instance: shop, catalyst.openova.io/application: shop}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: name-only
+  namespace: apps
+  labels: {app.kubernetes.io/name: blog, catalyst.openova.io/application: blog}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: empty-instance
+  namespace: apps
+  labels: {app.kubernetes.io/instance: "", app.kubernetes.io/name: blog, catalyst.openova.io/application: blog}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: both
+  namespace: apps
+  labels: {app.kubernetes.io/instance: shop, app.kubernetes.io/name: blog, catalyst.openova.io/application: shop}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: apps
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/instance: web}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/instance: web, catalyst.openova.io/application: web}
+    spec:
+      containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: report
+  namespace: apps
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels: {app.kubernetes.io/name: report, catalyst.openova.io/application: report}
+        spec:
+          restartPolicy: Never
+          containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: legacy-rc
+  namespace: apps
+spec:
+  selector: {app.kubernetes.io/instance: legacy-rc}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/instance: legacy-rc, catalyst.openova.io/application: legacy-rc}
+    spec:
+      containers: [{name: app, image: harbor.example/app:1.0.0}]

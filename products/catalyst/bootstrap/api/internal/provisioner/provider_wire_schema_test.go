@@ -24,14 +24,19 @@
 //      defaulting to "me-east-215" when the operator omits it.
 //   5. writeTfvars() does NOT emit Huawei keys for a Hetzner-provider
 //      Request — credential hygiene + smaller tfvars file.
+//   6. The operator's own credentials are the files
+//      cloud-credential.<provider>.<key> of --cloud-credentials-dir, never
+//      an environment variable (CLD-106).
 
 package provisioner
 
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -259,9 +264,9 @@ func TestRequestValidate_Provider_UnknownRejected(t *testing.T) {
 }
 
 // TestRequest_HuaweiCreds_NeverFromTheWire — after PR #2144 (Wave 4.5) the
-// Huawei IAM credentials are server-side-only: stamped from K8s Secret
-// `huawei-operator-creds` at CreateDeployment, NEVER accepted from the wizard
-// POST body. Since CLD-104 the request carries them in its credentials map,
+// Huawei IAM credentials are server-side-only: stamped at CreateDeployment
+// from the operator's credential files (CLD-106), NEVER accepted from the
+// wizard POST body. Since CLD-104 the request carries them in its credentials map,
 // so the contract is pinned on the way in: the old JSON names decode into
 // nothing (the Huawei adapter names no legacy alias), and a body whose
 // credentials map names one of the server-only keys is refused.
@@ -383,4 +388,136 @@ func readTfvars(t *testing.T, dir string) map[string]any {
 		t.Fatalf("decode tfvars: %v", err)
 	}
 	return got
+}
+
+// writeCSILayout writes into dir the layout of the Secrets Store CSI driver:
+// the files in a data directory "..<timestamp>", the link "..data" to it, and
+// per file one link of its name into "..data".
+func writeCSILayout(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	data := filepath.Join(dir, "..2026_11_25_10_00_00.000000001")
+	if err := os.Mkdir(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range files {
+		if err := os.WriteFile(filepath.Join(data, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join("..data", name), filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Base(data), filepath.Join(dir, "..data")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReadOperatorCredentials_CSILayout_CLD106 — the files the CSI driver
+// mounts, links into its data directory, are read by provider and key; a
+// value is trimmed, and a blank one or a file of another name sets nothing.
+func TestReadOperatorCredentials_CSILayout_CLD106(t *testing.T) {
+	dir := t.TempDir()
+	writeCSILayout(t, dir, map[string]string{
+		"cloud-credential.huawei.access_key": "AK\n",
+		"cloud-credential.huawei.secret_key": " SK ",
+		"cloud-credential.huawei.region":     " \n",
+		"cloud-credential.hetzner.token":     "TOKEN",
+		"hf-token":                           "not a cloud credential",
+	})
+	got, err := ReadOperatorCredentials(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]string{"huawei": {"access_key": "AK", "secret_key": "SK"}, "hetzner": {"token": "TOKEN"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestReadOperatorCredentials_MissingDirectory_CLD106 — a Sovereign mounts no
+// operator credential: a directory that does not exist holds none, no error.
+func TestReadOperatorCredentials_MissingDirectory_CLD106(t *testing.T) {
+	got, err := ReadOperatorCredentials(filepath.Join(t.TempDir(), "absent"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("got %v, %v; want no credential and no error", got, err)
+	}
+}
+
+// TestReadOperatorCredentials_MisnamedFile_CLD106 — a file with the prefix
+// but without a key is an error that names it; the other files are still
+// read.
+func TestReadOperatorCredentials_MisnamedFile_CLD106(t *testing.T) {
+	dir := t.TempDir()
+	for name, value := range map[string]string{"cloud-credential.huawei": "x", "cloud-credential.huawei.access_key": "AK"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ReadOperatorCredentials(dir)
+	if err == nil || !strings.Contains(err.Error(), "file cloud-credential.huawei is not named cloud-credential.<provider>.<key>") {
+		t.Fatalf("err = %v; want the misnamed file named", err)
+	}
+	if want := (map[string]map[string]string{"huawei": {"access_key": "AK"}}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestNew_OperatorCredentialsFromFilesNotTheEnvironment_CLD106 — New() takes
+// the operator's credentials from the files of CloudCredentialsDir; the
+// variables CATALYST_HUAWEI_* are no source.
+func TestNew_OperatorCredentialsFromFilesNotTheEnvironment_CLD106(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cloud-credential.huawei.access_key"), []byte("AK-FILE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "AK-ENV")
+	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "SK-ENV")
+	was := CloudCredentialsDir()
+	SetCloudCredentialsDir(dir)
+	t.Cleanup(func() { SetCloudCredentialsDir(was) })
+	if got, want := New().OperatorCredentials, (map[string]map[string]string{"huawei": {"access_key": "AK-FILE"}}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("OperatorCredentials = %v, want %v", got, want)
+	}
+}
+
+// TestRegisterFlags_CloudCredentialsDir_CLD106 — flag --cloud-credentials-dir
+// sets CloudCredentialsDir, and its default is /var/run/secrets/openova.
+func TestRegisterFlags_CloudCredentialsDir_CLD106(t *testing.T) {
+	was := CloudCredentialsDir()
+	t.Cleanup(func() { SetCloudCredentialsDir(was) })
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "/var/run/secrets/openova"},
+		{[]string{"--cloud-credentials-dir=/mnt/operator"}, "/mnt/operator"},
+	} {
+		SetCloudCredentialsDir("")
+		set := flag.NewFlagSet("catalyst-api", flag.ContinueOnError)
+		RegisterFlags(set)
+		if err := set.Parse(c.args); err != nil {
+			t.Fatal(err)
+		}
+		if got := CloudCredentialsDir(); got != c.want {
+			t.Errorf("args %v: CloudCredentialsDir() = %q, want %q", c.args, got, c.want)
+		}
+		if got := set.Lookup("cloud-credentials-dir").DefValue; got != DefaultCloudCredentialsDir {
+			t.Errorf("args %v: default = %q, want %q", c.args, got, DefaultCloudCredentialsDir)
+		}
+	}
+}
+
+// TestCloudCredentialsDir_SetWhileNewReads_CLD106 — a provisioning goroutine
+// runs New, which reads the directory, while the flag or a test sets it; under
+// go test -race the two must not race (the handler tests' cleanup did).
+func TestCloudCredentialsDir_SetWhileNewReads_CLD106(t *testing.T) {
+	was := CloudCredentialsDir()
+	t.Cleanup(func() { SetCloudCredentialsDir(was) })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = New()
+	}()
+	SetCloudCredentialsDir(t.TempDir())
+	<-done
 }

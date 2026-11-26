@@ -1,0 +1,42 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: prometheus-scrape
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: observability
+  annotations:
+    policies.kyverno.io/title: Workloads should be Prometheus-scrape-targeted
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      Pod template should carry prometheus.io/scrape="true" annotation,
+      OR the workload labels declare monitoring.coreos.com/managed=true
+      indicating an operator-managed PodMonitor / ServiceMonitor exists.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  validations:
+    # The two patterns of the legacy rule: the annotation on the Pod
+    # template, or the label on the workload itself.
+    - expression: >-
+        object.spec.template.?metadata.?annotations[?'prometheus.io/scrape'].orValue('') == 'true' ||
+        object.metadata.?labels[?'monitoring.coreos.com/managed'].orValue('') == 'true'
+      messageExpression: >-
+        'Workload ' + object.kind + '/' + object.metadata.name + ' is not
+        declared a Prometheus scrape target. Either annotate the Pod template
+        with `prometheus.io/scrape: "true"` or label the workload with
+        `monitoring.coreos.com/managed: "true"`.'

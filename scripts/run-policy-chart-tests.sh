@@ -30,7 +30,11 @@ SHELL_TESTS=(
   nodeport-enforce-5491.sh
   apicall-rbac-correspondence.sh
   bootstrap-window.sh
+  suites-current.sh
   crossplane-runtime-suite-current.sh
+  replication-ca-seed-orphan-current.sh
+  replication-ca-seed-orphan-watchdog.sh
+  model-render.sh
 )
 
 # step <label> <command...>

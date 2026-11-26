@@ -1512,6 +1512,31 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: flux-system
+    # CNPG OPERATOR status (8000) + metrics (9187). The Organization namespace
+    # holds the CNPG Clusters of the platform stack on the host: bp-newapi's
+    # database (the funnel installs bp-newapi on the host, hostPlacedHelmReleaseApps
+    # in core/services/provisioning/gitops), the WordPress database and the
+    # funnel's CNPG primary. endpointSelector {} default-denies their ingress,
+    # and the operator in cnpg-system is in none of the rules above, so it
+    # cannot read an instance: CNPG reports "Instance Status Extraction Error:
+    # HTTP communication issue" and the Cluster stays Ready=False while
+    # Postgres runs (measured for the WordPress database on hw296, #6311). Two
+    # charts carry their own carve-out for it (platform/postgres
+    # networkpolicy-singleton-operator-probe.yaml, platform/wordpress-tenant
+    # networkpolicy-cnpg-operator-probe.yaml) and bp-newapi did not; like DNS
+    # below, it belongs in the namespace baseline. Only those two ports, only
+    # from that namespace. The pods the vCluster syncs stay closed to it: the
+    # organization fence (org-fence.yaml) denies them ingress from every
+    # namespace but this one and flux-system, and a deny wins.
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: cnpg-system
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+            - port: "9187"
+              protocol: TCP
   egress:
     # CLUSTER DNS — 53 UDP + TCP to kube-system CoreDNS.
     #
@@ -1761,7 +1786,7 @@ resources:
 // carries the reserved-entity CiliumNetworkPolicy, which cannot apply into a
 // vanilla vcluster apiserver (no cilium.io/v2 CRD, #4475 §1) and is not a
 // syncable workload object, AND (#4991) the per-Org provisioning-tenant RBAC the
-// org-services/provisioning SA needs to create the kubeconfig mirror Secret +
+// org-services/provisioning SA needs to read the kubeconfig Secret +
 // bounce vcluster-0 during DNS recovery. Both apply to the host `<slug>` ns.
 // Ranges over renderView.HostAppsResources so the index stays deterministic.
 const hostAppsKustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
@@ -1786,15 +1811,13 @@ const appsNamespaceDoc = "namespace.yaml"
 // funnel's GeneratePerOrgAppsTree DELIBERATELY drops the provisioning-rbac.yaml
 // host-scaffolding file (it re-roots only the app workloads into vcluster/apps/),
 // and the org-controller emitted NO provisioning Role either — so
-// `provisioning` had NO create-secrets / delete-pods rights in `<slug>`. The
-// mirrorVClusterKubeconfig step POSTs the kubeconfig mirror into `<slug>` and
-// 403'd (`secrets is forbidden`), which is FATAL (failProvision) → the whole
-// provision aborted at the vcluster step → WordPress/customer apps never served
-// (#4964 added these verbs to the funnel's own generateProvisioningTenantRBAC,
+// `provisioning` had NO delete-pods rights in `<slug>`, and the funnel's former
+// kubeconfig copy 403'd on its Secret writes, which was FATAL (failProvision)
+// (#4964 added the verbs to the funnel's own generateProvisioningTenantRBAC,
 // but on a Sovereign that file is never committed — the Role must be delivered by
 // the boundary owner instead). Emitted into vcluster/host-apps/ so it is ALWAYS
 // applied host-side onto `<slug>` (never via kubeConfig) at Org-create — well
-// before the funnel's mirror step runs. Namespaced (Role, not ClusterRole) to
+// before the funnel's vcluster step runs. Namespaced (Role, not ClusterRole) to
 // preserve the deliberate per-Org write scoping (#75).
 const provisioningRBACTemplate = `apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1812,12 +1835,12 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: [""]
-    # create/update/patch were granted for the funnel's former kubeconfig
-    # copy (#4785). The funnel now only reads tenant-<slug>-kubeconfig
-    # (written by the vCluster, region_local.go); the verbs stay until the
-    # funnel's own copy of this Role (provisioning gitops.go) is narrowed too.
+    # Read only. The funnel writes no Secret through the API: it only waits
+    # for tenant-<slug>-kubeconfig (written by the vCluster, region_local.go,
+    # its only producer). The funnel's own copy of this Role (provisioning
+    # gitops.go) grants the same verbs.
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     # delete: waitForVclusterDNSOrKick bounces vcluster-0 when the syncer's
     # initial DNS reconciliation doesn't publish kube-dns-x-kube-system-x-vcluster.
@@ -1849,6 +1872,56 @@ subjects:
   - kind: ServiceAccount
     name: provisioning
     namespace: org-services
+`
+
+// esoStoresDoc is the host-apps-tree filename of the Organization namespace's
+// External Secrets reader (SEC-205). It holds the same two objects the library
+// chart secrets-lib renders for a platform namespace
+// (platform/secrets-lib/chart/templates/_secret-stores.tpl):
+//
+//   - ServiceAccount eso-reader, with no token mount. OpenBao role eso-ns binds
+//     it in every namespace (platform/openbao/chart/templates/_config.tpl).
+//   - SecretStore openbao: mount secret/, logged in as eso-reader through role
+//     eso-ns, whose policy admits only keys under openova/apps/<namespace>/.
+//
+// There is no store for mount mounted/: a tier B value is written only by a
+// birth Job, never by External Secrets (SEC-140 step 2). An Organization
+// namespace never gets the cluster-wide store (ADR-0018 S10). The file is in
+// the host-apps tree because both objects belong in the host `<slug>`
+// namespace, where External Secrets runs; inside the vCluster there is none.
+const esoStoresDoc = "eso-stores.yaml"
+
+const esoStoresTemplate = `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eso-reader
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    app.kubernetes.io/component: eso-reader
+automountServiceAccountToken: false
+---
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: openbao
+  namespace: {{ .Slug }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+spec:
+  provider:
+    vault:
+      server: "http://openbao.openbao.svc.cluster.local:8200"
+      path: secret
+      version: v2
+      auth:
+        kubernetes:
+          mountPath: kubernetes
+          role: eso-ns
+          serviceAccountRef:
+            name: eso-reader
 `
 
 // appsNamespaceTemplate creates the vcluster-INTERNAL target namespace for the
@@ -1931,8 +2004,9 @@ type renderView struct {
 	// apps Kustomization needs the target ns created INSIDE the vcluster).
 	AppsResources []string
 	// HostAppsResources is the file list vcluster/host-apps/kustomization.yaml
-	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
-	// both always applied host-side onto `<slug>`.
+	// references (#4991) — ciliumnetworkpolicy.yaml, provisioning-rbac.yaml,
+	// org-fence.yaml, org-fence-api.yaml and eso-stores.yaml, all applied
+	// host-side onto `<slug>`.
 	HostAppsResources []string
 	// ResourceQuotaName / LimitRangeName carry BoundaryResourceQuotaName /
 	// BoundaryLimitRangeName into the boundary templates so the rendered object
@@ -2031,6 +2105,9 @@ func ceilDiv(n, d int64, unit string) string {
 //     CiliumNetworkPolicy cannot be applied into the CRD-less vcluster apiserver.
 //   - host-apps/org-fence.yaml + host-apps/org-fence-api.yaml are the
 //     Organization fence (NET-170, see orgFenceTemplate), in the same tree.
+//   - host-apps/eso-stores.yaml is the namespace's External Secrets reader:
+//     ServiceAccount eso-reader and SecretStore openbao (SEC-205, see
+//     esoStoresTemplate), in the same tree.
 func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoName == "" {
 		in.VClusterHelmRepoName = "loft"
@@ -2204,13 +2281,15 @@ func Render(in Inputs) (map[string][]byte, error) {
 	files["vcluster/host-apps/"+ciliumNetworkPolicyDoc] = ciliumNetworkPolicyTemplate
 	// #4991 — the per-Org provisioning-tenant Role+RoleBinding, delivered by the
 	// boundary owner into the ALWAYS-host-applied host-apps tree so the
-	// org-services/provisioning SA can create the kubeconfig mirror Secret +
-	// bounce vcluster-0 in `<slug>` BEFORE the funnel's mirror step 403s and
-	// aborts the whole provision.
+	// org-services/provisioning SA can read the kubeconfig Secret +
+	// bounce vcluster-0 in `<slug>` BEFORE the funnel's vcluster step needs
+	// them; without it that step 403s and aborts the whole provision.
 	files["vcluster/host-apps/"+provisioningRBACDoc] = provisioningRBACTemplate
 	// NET-170 — the Organization fence (see orgFenceTemplate).
 	files["vcluster/host-apps/"+orgFenceDoc] = orgFenceTemplate
 	files["vcluster/host-apps/"+orgFenceAPIDoc] = orgFenceAPITemplate
+	// SEC-205 — the namespace's External Secrets reader (see esoStoresTemplate).
+	files["vcluster/host-apps/"+esoStoresDoc] = esoStoresTemplate
 	// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
 	// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
 	// vcluster (nothing else does → `namespaces "<slug>" not found`).
@@ -2229,8 +2308,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 	files["vcluster/apps/kustomization.yaml"] = appsKustomizationTemplate
 	// Explicit host-apps/kustomization.yaml so the per-Org host-apps Flux
 	// Kustomization's `kustomize build ./vcluster/host-apps` enumerates the CNP
-	// + provisioning RBAC deterministically.
-	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc, orgFenceDoc, orgFenceAPIDoc})
+	// + provisioning RBAC + the fence + the External Secrets reader
+	// deterministically.
+	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc, orgFenceDoc, orgFenceAPIDoc, esoStoresDoc})
 	files["vcluster/host-apps/kustomization.yaml"] = hostAppsKustomizationTemplate
 	// ADR-0015 D1 (Refs #7067) — the controller-owned baseline copies the
 	// non-home regions reconcile instead of the funnel-shared trees, and the

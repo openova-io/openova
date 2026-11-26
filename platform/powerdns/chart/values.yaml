@@ -432,6 +432,22 @@ dnsdist:
   resources:
     requests: { cpu: 50m, memory: 64Mi }
     limits:   { cpu: 250m, memory: 256Mi }
+  # Timings of the two probes of the dnsdist container. Both are a TCP
+  # connect to its own DNS listener (port 53, the dns-tcp port) on the pod's
+  # address, in both modes (templates/dnsdist.yaml). The ClusterPolicy
+  # probes-present enforces both probes after the bootstrap window: without
+  # them every change to the workload is refused at admission.
+  probes:
+    liveness:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 2
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
   config: |
     -- Catalyst dnsdist policy. Forwards to the in-cluster powerdns
     -- Service; rate-limits per source IP. Lua-records-ready downstream.
@@ -445,6 +461,17 @@ dnsdist:
     -- pinning a hostname in cluster is no different than pinning an IP.)
     setLocal('0.0.0.0:53')
     addLocal('[::]:53', { reusePort=true })
+
+    -- ─── Access list (NET-G19) ───────────────────────────────────────
+    -- Without setACL dnsdist keeps its built-in list: private, loopback and
+    -- link-local sources only. This dnsdist is the Sovereign's PUBLIC name
+    -- server: public port 53 reaches it with the client's address kept
+    -- (the hostPort-53 DaemonSet), so that list dropped every query from
+    -- the internet (udp timed out, tcp was reset on read). Its one backend
+    -- is PowerDNS Authoritative (newServer below; no recursor behind it),
+    -- so admitting every source opens no resolver. MaxQPSIPRule below stays
+    -- the per-source limit. The console ACL is not touched (no console).
+    setACL({ '0.0.0.0/0', '::/0' })
 
     local backend = os.getenv("POWERDNS_SERVICE_HOST") or "127.0.0.1"
     newServer({ address = backend .. ":5353", name = 'powerdns-auth' })
@@ -772,6 +799,13 @@ zoneBootstrap:
 # lives (flux-system for the slot 11 HR).
 bootstrapOwned:
   enabled: false
+  # Placement committed to Git (CTL-172; CTL-174 passes it in through the
+  # slot's valuesFrom). Optional keys: `placement` (the shape of the
+  # Application's spec.placement: the object {mode, ...} or a mode string)
+  # and `regions` (a list of strings). A key that is set and not empty wins
+  # over the live Application that templates/application-cr.yaml reads back,
+  # and over the seed. Unset, the render is unchanged.
+  intent: {}
   # Canonical placement token stamped onto the self-registered Application
   # CR's spec.placement (#3375 DoD-1 / #3768 / #3786). MUST be a canonical
   # mode (singleton / active-active / active-hot-standby / active-passive) —

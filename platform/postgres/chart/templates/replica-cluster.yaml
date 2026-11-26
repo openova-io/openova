@@ -255,6 +255,10 @@ spec:
       number: {{ int (default 1 .Values.topology.replication.sync.numSync) }}
       dataDurability: required
       {{- end }}
+  {{- if include "bp-postgres.backupOn" . }}
+  {{- /* Scheduled backup, decision record 0036 B1 (FND-183). */}}
+  {{- include "bp-postgres.backupSpec" . | nindent 2 }}
+  {{- end }}
 
   enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
 

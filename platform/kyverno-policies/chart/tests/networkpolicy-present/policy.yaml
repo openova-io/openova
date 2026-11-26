@@ -1,0 +1,47 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: networkpolicy-present
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: security
+  annotations:
+    policies.kyverno.io/title: Namespaces must declare at least one NetworkPolicy
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Namespaces must contain at least one NetworkPolicy or
+      CiliumNetworkPolicy so east-west traffic is mediated.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["namespaces"]
+  matchConditions:
+    # The policy judges Namespaces, so the list excludes them by name, as the
+    # legacy rule's exclude by names did.
+    - name: exclude-namespaces
+      expression: "!(object.metadata.name in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+  variables:
+    - name: networkPolicies
+      expression: >-
+        dyn(resource.List("networking.k8s.io/v1", "networkpolicies",
+        object.metadata.name).items)
+    - name: ciliumNetworkPolicies
+      expression: >-
+        dyn(resource.List("cilium.io/v2", "ciliumnetworkpolicies",
+        object.metadata.name).items)
+  validations:
+    - expression: "size(variables.networkPolicies) > 0 || size(variables.ciliumNetworkPolicies) > 0"
+      messageExpression: >-
+        'Namespace ' + object.metadata.name + ' contains no NetworkPolicy and
+        no CiliumNetworkPolicy. Add at least one policy to mediate east-west
+        traffic.'

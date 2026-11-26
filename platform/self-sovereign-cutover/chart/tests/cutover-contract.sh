@@ -4751,6 +4751,76 @@ if c77_run "$TMP/c77/artifact-rebuild-annotated.json"; then
   exit 1
 fi
 grep -q 'genuinely mid-roll' "$TMP/c77/out.txt" || { echo "FAIL: artifact-rebuild override rejection does not name the class (#6253)" >&2; exit 1; }
+# ── SOV-231 — the override does not hold on a release a Flux Kustomization
+# applies: kustomize-controller removed the hand-set annotation from
+# bp-powerdns, bp-external-dns and bp-powerdns-admin in both regions of a
+# standing Sovereign within two minutes (25 Nov 2026). The measured shape:
+# flux-system/bp-powerdns, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit,
+# Stalled after a refused upgrade.
+c77_ks='.metadata.labels = {"kustomize.toolkit.fluxcd.io/name":"bootstrap-kit","kustomize.toolkit.fluxcd.io/namespace":"flux-system"}'
+jq ".items[0].metadata.name = \"bp-powerdns\" | .items[0].metadata.namespace = \"flux-system\" | .items[0]${c77_ks}" \
+  "$TMP/c77/stuck.json" > "$TMP/c77/kit-stuck.json"
+jq --slurpfile k "$TMP/c77/kit-stuck.json" '.items += $k[0].items' "$TMP/c77/stuck.json" > "$TMP/c77/kit-mixed.json"
+jq '.items[0].status = {"observedGeneration":5,"conditions":[{"type":"Ready","status":"False","reason":"Progressing","message":"Running upgrade"}]}' \
+  "$TMP/c77/kit-stuck.json" > "$TMP/c77/kit-midroll.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"refused upgrade, ticket 5391"}' \
+  "$TMP/c77/kit-stuck.json" > "$TMP/c77/kit-override.json"
+c77_remedy_kit='[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled release its candidate repairs'
+c77_remedy_reset='[harbor-prewarm]     - repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset'
+c77_remedy_off='[harbor-prewarm]     - or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false'
+# (11) A Kustomization-applied terminal offender alone: BLOCKS, never offers
+#      the annotation (not the command, not the key), names the release with
+#      its Kustomization, and prints the three remedies that work.
+if c77_run "$TMP/c77/kit-stuck.json"; then
+  echo "FAIL: gate PASSED on a Stalled kit release with no override (SOV-231)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if grep -q -E 'catalyst\.openova\.io/cutover-settled-roll-override|kubectl annotate' "$TMP/c77/out.txt"; then
+  echo "FAIL: the remedy for a release a Flux Kustomization applies still offers the override annotation, which kustomize-controller removes within minutes (SOV-231):" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+c77_n=$(grep -c -x -F '  applied by Kustomization bootstrap-kit: HelmRelease/flux-system/bp-powerdns' "$TMP/c77/out.txt" || true)
+[ "${c77_n}" = 1 ] || { echo "FAIL: the kit release is not named once with its Kustomization (found ${c77_n}) (SOV-231)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+for c77_l in "${c77_remedy_kit}" "${c77_remedy_reset}" "${c77_remedy_off}"; do
+  c77_n=$(grep -c -x -F "${c77_l}" "$TMP/c77/out.txt" || true)
+  [ "${c77_n}" = 1 ] || { echo "FAIL: the remedy line is not printed once (found ${c77_n}): ${c77_l} (SOV-231)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+done
+# (12) Mixed: the unlabelled stalled release keeps the override offer; only the
+#      kit release is listed as Kustomization-applied.
+if c77_run "$TMP/c77/kit-mixed.json"; then
+  echo "FAIL: gate PASSED on two Stalled releases with no override (SOV-231)" >&2
+  exit 1
+fi
+grep -q 'kubectl annotate helmrelease' "$TMP/c77/out.txt" || { echo "FAIL: the unlabelled stalled release lost the named-override offer (SOV-231 narrowed too far)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+c77_n=$(grep -c '^  applied by Kustomization ' "$TMP/c77/out.txt" || true)
+[ "${c77_n}" = 1 ] || { echo "FAIL: ${c77_n} releases listed as Kustomization-applied, expected only flux-system/bp-powerdns (SOV-231)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+grep -q -x -F '[harbor-prewarm] 1 of the terminal releases are applied by a Flux Kustomization (label kustomize.toolkit.fluxcd.io/name). It removes a hand-set annotation within minutes, so no per-release override holds on them and none is offered:' "$TMP/c77/out.txt" \
+  || { echo "FAIL: the mixed run does not count 1 Kustomization-applied terminal release (SOV-231)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+# (13) A Kustomization-applied release that is only mid-roll: the summary line
+#      no longer names the annotation; direction (1)'s unlabelled release does.
+if c77_run "$TMP/c77/kit-midroll.json"; then
+  echo "FAIL: gate PASSED on a mid-roll kit release (SOV-231)" >&2
+  exit 1
+fi
+if grep -q -F 'catalyst.openova.io/cutover-settled-roll-override' "$TMP/c77/out.txt"; then
+  echo "FAIL: the summary for a mid-roll kit release still names the override annotation (SOV-231)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+c77_run "$TMP/c77/stuck.json" || true
+grep -q -F '(settled-roll pre-flight #4982/#5391; named per-release override, on a HelmRelease no Flux Kustomization applies: the catalyst.openova.io/cutover-settled-roll-override annotation; whole-gate emergency kill' "$TMP/c77/out.txt" \
+  || { echo "FAIL: the summary for an unlabelled offender lost the override and where it holds (SOV-231)" >&2; cat "$TMP/c77/out.txt" >&2; exit 1; }
+# (14) Validation and record unchanged: an annotation still present on a kit
+#      release is honored and recorded as before.
+if ! c77_run "$TMP/c77/kit-override.json"; then
+  echo "FAIL: a valid override still present on a kit release was refused — SOV-231 must not change the validation" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+grep -q -F 'flux-system/bp-powerdns=refused upgrade, ticket 5391' "$TMP/c77/patch.log" || { echo "FAIL: the honored kit-release override was not recorded (SOV-231)" >&2; cat "$TMP/c77/patch.log" >&2; exit 1; }
+echo "  PASS (SOV-231: a Stalled release a Flux Kustomization applies is refused without offering the annotation and with the three remedies that work; a mixed run keeps the offer for the unlabelled one; a mid-roll kit release's summary drops it; an annotation still present is honored and recorded as before)"
 echo "  PASS (#5391/#6253: gate executed in 13 directions — stuck+no-override blocks with TERMINAL diagnosis and remedy, valid named override passes AND records <ns>/<name>=<reason> durably, empty-reason/healthy/mid-roll overrides all fail-closed, unrecordable override refused, clean pass clears the record, hw290 DependencyNotReady cascade overridable, hw296 hollow pin tagged TERMINAL with the publish/re-pin remedy and NOT the reconcile-reset one and is overridable, two narrowness CONTROLS stay mid-roll and stay non-overridable — a transient chart-pull failure and the live hw296 ArtifactFailed "artifact not found. Retrying in 30s" rebuild that carries both suspect properties; extracted gate ${c77_lines} lines)"
 
 # ── Case 78 (#5439): step-07 Phase 3e — the per-Org IMAGE registry host ──────

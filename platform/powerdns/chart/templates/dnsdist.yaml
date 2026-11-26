@@ -96,6 +96,28 @@ spec:
               hostPort: 53          # §854 node:53 direct bind — NEVER a NodePort (#4765)
               {{- end }}
               protocol: TCP
+          {{- /*
+          The ClusterPolicy probes-present (Enforce after the bootstrap
+          window) refuses any create or change of this workload unless the
+          container declares both probes. Each is a TCP connect to dnsdist's
+          own DNS listener: kubelet dials the pod's address on port 53, where
+          dnsdist listens in both modes (hostPortMode maps the node's port 53
+          to this same socket; the pod has no hostNetwork). The image ships no
+          DNS client, and dnsdist's console and web server each need a second
+          listener and a key, so the listener itself is the check.
+          */}}
+          livenessProbe:
+            tcpSocket:
+              port: dns-tcp
+            {{- with .Values.dnsdist.probes.liveness }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: dns-tcp
+            {{- with .Values.dnsdist.probes.readiness }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -25,6 +25,15 @@
 //	                        (default http://continuum-{region}.<ns>.svc.cluster.local:8082)
 //	TICK_SECONDS            evaluation interval (default 10)
 //	LEASE_TTL_SECONDS       Git lease TTL (default 60)
+//	REBOOT_HOLD             "true" (default): hold this region's reboot agent
+//	                        (kured) while a transition of the region is in
+//	                        progress, and wait for its drains; "false": neither
+//	REBOOT_AGENT_NAMESPACE  namespace of kured's DaemonSet (default kube-system)
+//	REBOOT_AGENT_DAEMONSET  its name (default kured)
+//	REBOOT_HOLD_TTL_SECONDS TTL of the hold: how long it outlives a controller
+//	                        that stopped renewing it (default 300)
+//	REBOOT_WAIT_SECONDS     bound of a move's wait for a region's reboot agent,
+//	                        and of a Failed move's hold of it (default 1200)
 package main
 
 import (
@@ -50,6 +59,8 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/continuum/internal/controller"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/observe"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/reboot"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/transition"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/core/controllers/pkg/regions"
 )
@@ -148,7 +159,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The reboot agent of this region: a move and a drain take turns.
+	var agent *reboot.Agent
+	if env("REBOOT_HOLD", "true") == "true" {
+		agent = &reboot.Agent{
+			Dyn:       dyn,
+			Namespace: env("REBOOT_AGENT_NAMESPACE", reboot.DefaultNamespace),
+			DaemonSet: env("REBOOT_AGENT_DAEMONSET", reboot.DefaultDaemonSet),
+			HolderID:  "continuum-" + region,
+			TTL:       envSeconds("REBOOT_HOLD_TTL_SECONDS", reboot.DefaultTTL),
+		}
+	}
 	obs := &observe.Observer{Dyn: dyn, Region: region}
+	if agent != nil {
+		obs.Reboot = agent
+	}
 	tmpl := env("PEER_URL_TEMPLATE", "http://continuum-{region}."+ns+".svc.cluster.local:8082")
 	peers := observe.Peers{
 		HTTP:   &http.Client{Timeout: 5 * time.Second},
@@ -164,6 +189,11 @@ func main() {
 		Tick:     envSeconds("TICK_SECONDS", controller.DefaultTick),
 		LeaseTTL: envSeconds("LEASE_TTL_SECONDS", controller.DefaultLeaseTTL),
 		Log:      log,
+
+		RebootWait: envSeconds("REBOOT_WAIT_SECONDS", transition.DefaultRebootWait),
+	}
+	if agent != nil {
+		c.Reboot = agent
 	}
 	if err := mgr.Add(manager.RunnableFunc(c.Start)); err != nil {
 		fmt.Fprintf(os.Stderr, "add controller: %v\n", err)

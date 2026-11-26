@@ -8,12 +8,13 @@ checks:
 - id: ACC-G01
   title: Security check ACC-G01
   owner: ACC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g01.go
   delivered_by: ACC-010
 - id: ACC-G02
   title: Recorded pod session with playback
@@ -128,12 +129,13 @@ checks:
 - id: ACC-G13
   title: Grant life cycle from objects
   owner: ACC
-  state: not-built
-  runs_in: [local, cloud]
+  state: required
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Grant life cycle from objects
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g13.go
   delivered_by: ACC-103
 - id: ACC-G14
   title: Credential issue is bound to the session identity
@@ -333,7 +335,8 @@ checks:
   needs: []
   proof: running
   asserts: Simulation back end installed, truthful and fenced
-  delivered_by: AIP-106
+  implemented_by: AIP-106
+  delivered_by: AIP-160
 - id: AIP-G07
   title: Agent tokens
   owner: AIP
@@ -667,12 +670,13 @@ checks:
 - id: CLD-G07
   title: Providers route lists the packs; a create request validates
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The providers route lists exactly the packs and installation documents; a create request without credentials passes validation for an operator-credential pack
+  implementation: tests/acceptance/sovereign/internal/suite/check_providers.go
   delivered_by: CLD-121
 - id: CLD-G08
   title: A new node is in both load-balancer pools within 2 minutes, with no call from the mothership
@@ -790,7 +794,7 @@ checks:
 - id: CMP-G01
   title: The score moves by push
   owner: CMP
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
@@ -802,7 +806,7 @@ checks:
 - id: CMP-G02
   title: The shown mode is the engine's mode
   owner: CMP
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
@@ -810,7 +814,7 @@ checks:
   asserts: The shown mode is the engine's mode
   implementation: tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
   implemented_by: CMP-010
-  delivered_by: CMP-020
+  delivered_by: CMP-021
 - id: CMP-G03
   title: The model is loaded in every region and agrees with the policies
   owner: CMP
@@ -820,7 +824,7 @@ checks:
   needs: []
   proof: running
   asserts: The model is loaded in every region and agrees with the policies
-  delivered_by: CMP-041
+  delivered_by: CMP-042
 - id: CMP-G04
   title: Scores equal their recomputation
   owner: CMP
@@ -1198,13 +1202,14 @@ checks:
 - id: CTL-G10
   title: 'Region loss: recovery within the numbers of decision record 0027'
   owner: CTL
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Region loss: recovery within the numbers of decision record 0027'
-  delivered_by: CTL-820
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_region_loss.go
+  delivered_by: CTL-802
 - id: CTL-G11
   title: Access grant from Git
   owner: CTL
@@ -1445,42 +1450,46 @@ checks:
 - id: FND-G20
   title: 'Console regression: applications and catalogue'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the applications grid, the application detail page and the catalogue passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/applications
   delivered_by: FND-162
 - id: FND-G21
   title: 'Console regression: jobs, resources, cloud pages'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the jobs pages, the resource views and the cloud and infrastructure read pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/operations
   delivered_by: FND-163
 - id: FND-G22
   title: 'Console regression: Organizations, access, settings'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the Organizations, users and access, and settings pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/organizations
   delivered_by: FND-164
 - id: FND-G23
   title: 'Console regression: compliance, hand-over, storefront'
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Every converted ledger row of the compliance, sovereignty and hand-over pages and of the storefront pages passes as a browser test on the candidate.
+  implementation: products/catalyst/bootstrap/ui/e2e/gate/assurance
   delivered_by: FND-165
 - id: INF-G01
   title: Coordinated reboot
@@ -1913,12 +1922,13 @@ checks:
 - id: NET-G17
   title: A managed cluster passes the conformance profile of its class
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A managed cluster passes the conformance profile of its class.
+  implementation: tests/acceptance/sovereign/internal/suite/check_cluster_class.go
   delivered_by: NET-322
 - id: NET-G18
   title: Full-size transfers between workers over the node network
@@ -2147,12 +2157,13 @@ checks:
 - id: SEC-G06
   title: Security check SEC-G06
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_differ.go
   delivered_by: SEC-060
 - id: SEC-G07
   title: Security check SEC-G07
@@ -2168,12 +2179,13 @@ checks:
 - id: SEC-G08
   title: 'Injection negative: the mounted value is in no Secret object'
   owner: SEC
-  state: not-built
-  runs_in: [local, cloud]
+  state: required
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Injection negative: the mounted value is in no Secret object and no other service account can read it'
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_inject.go
   delivered_by: SEC-211
 - id: SEC-G09
   title: Internal certificates of both regions chain to one root
@@ -2188,13 +2200,14 @@ checks:
 - id: SEC-G10
   title: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
-  delivered_by: SEC-180
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_backup.go
+  delivered_by: SEC-181
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
   owner: SEC
@@ -2271,12 +2284,13 @@ checks:
 - id: SOV-G01
   title: Born local
   owner: SOV
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Born local
+  implementation: tests/acceptance/sovereign/internal/suite/check_born_local.go
   delivered_by: SOV-170
 - id: SOV-G02
   title: Zero-touch hand-over

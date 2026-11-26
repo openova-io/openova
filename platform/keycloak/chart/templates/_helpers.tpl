@@ -24,6 +24,34 @@ first-install, the helper relies on the cluster-side cloud-init having
 pre-seeded the Secret OR on Helm's `--install` ordering keeping both
 template renders within the same pass — which IS the case for Helm 3.
 */}}
+
+{{/*
+bp-keycloak.clientSecretSalt (SEC-060) — the salt of every derived client
+secret below: .Values.sso.tier1ClientSecretSalt, the empty text when unset.
+Each of the five derivations appends it to its seed when it is non-empty.
+
+Bootstrap-kit slot 09 sets it from key KEYCLOAK_CLIENT_SECRET_SALT of the
+Secret flux-system/bootstrap-seed (first boot writes a random salt per
+Sovereign there) and sets sso.requireSalt true. The host bridge of
+bp-catalyst-platform (slot 13) reads the same key, so both charts derive the
+same strings. With sso.requireSalt true, an INSTALL of the release by Flux
+without a salt fails here: every secret would be a hash of the release name
+and namespace alone, the same on every Sovereign. "By Flux" is the cluster
+serving helm.toolkit.fluxcd.io/v2, which helm-controller's install sees and a
+render without a cluster (helm template, the kit renderers of CI, which never
+read valuesFrom) does not: such a render never fails here and is unsalted. An
+UPGRADE of a release installed before the salt existed renders without it, so
+that Sovereign keeps the secrets Keycloak already holds (its seed has no such
+key; the valuesFrom is optional). Expects the chart root context.
+*/}}
+{{- define "bp-keycloak.clientSecretSalt" -}}
+{{- $salt := default "" (((.Values).sso).tier1ClientSecretSalt) -}}
+{{- if and (eq $salt "") (((.Values).sso).requireSalt) .Release.IsInstall (.Capabilities.APIVersions.Has "helm.toolkit.fluxcd.io/v2") -}}
+{{- fail "bp-keycloak: sso.requireSalt is true and sso.tier1ClientSecretSalt is empty: an install would derive every Keycloak client secret from the release name and namespace alone (SEC-060). Bootstrap-kit slot 09 reads the salt from key KEYCLOAK_CLIENT_SECRET_SALT of Secret flux-system/bootstrap-seed." -}}
+{{- end -}}
+{{- $salt -}}
+{{- end -}}
+
 {{- define "bp-keycloak.pinBrokerClientSecret" -}}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace "catalyst-pin-broker-credentials" -}}
 {{- if $existing -}}
@@ -43,6 +71,10 @@ template renders within the same pass — which IS the case for Helm 3.
   Release.Name is always set by Helm.
   */ -}}
   {{- $seed := printf "%s|%s|catalyst-pin-broker" .Release.Name .Release.Namespace -}}
+  {{- $salt := include "bp-keycloak.clientSecretSalt" . -}}
+  {{- if ne $salt "" -}}
+  {{- $seed = printf "%s|%s" $seed $salt -}}
+  {{- end -}}
   {{- $seed | sha256sum -}}
 {{- end -}}
 {{- end -}}
@@ -83,7 +115,7 @@ KV → ExternalSecret → per-app namespace.
 {{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $cid := .clientId -}}
-{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
+{{- $salt := include "bp-keycloak.clientSecretSalt" .ctx -}}
 {{- $seed := printf "%s|%s|tier1-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
 {{- if ne $salt "" -}}
 {{- $seed = printf "%s|%s" $seed $salt -}}
@@ -138,7 +170,7 @@ keycloak Release.Name/Release.Namespace via values, so both derive equal.
 {{- $ctx := .ctx -}}
 {{- $relName := .releaseName | default $ctx.Release.Name -}}
 {{- $relNs := .releaseNamespace | default $ctx.Release.Namespace -}}
-{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
+{{- $salt := include "bp-keycloak.clientSecretSalt" .ctx -}}
 {{- $seed := printf "%s|%s|catalyst-api-server-sa" $relName $relNs -}}
 {{- if ne $salt "" -}}
 {{- $seed = printf "%s|%s" $seed $salt -}}
@@ -166,7 +198,7 @@ themselves change.
 {{- /* Expects a dict: {ctx: ., clientId: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $cid := .clientId -}}
-{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
+{{- $salt := include "bp-keycloak.clientSecretSalt" .ctx -}}
 {{- $seed := printf "%s|%s|tier2-sso|%s" $ctx.Release.Name $ctx.Release.Namespace $cid -}}
 {{- if ne $salt "" -}}
 {{- $seed = printf "%s|%s" $seed $salt -}}
@@ -205,7 +237,7 @@ don't rotate per-Org broker secrets.
 {{- /* Expects a dict: {ctx: ., orgSlug: <string>} */ -}}
 {{- $ctx := .ctx -}}
 {{- $slug := .orgSlug -}}
-{{- $salt := default "" (((.ctx.Values).sso).tier1ClientSecretSalt) -}}
+{{- $salt := include "bp-keycloak.clientSecretSalt" .ctx -}}
 {{- $seed := printf "%s|%s|tenant-broker|%s" $ctx.Release.Name $ctx.Release.Namespace $slug -}}
 {{- if ne $salt "" -}}
 {{- $seed = printf "%s|%s" $seed $salt -}}

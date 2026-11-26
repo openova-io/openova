@@ -81,6 +81,13 @@ type Kind struct {
 	Optional bool
 }
 
+// The informer kind names of the engine's two cluster-scoped policy kinds of
+// group policies.kyverno.io (CMP-061).
+const (
+	KindValidatingPolicy = "validatingpolicy"
+	KindMutatingPolicy   = "mutatingpolicy"
+)
+
 // DefaultKinds is the built-in registry — every Sovereign starts with
 // these GVRs registered. Per ADR-0001 §5 these are the K8s objects the
 // Architecture graph and List pages consume.
@@ -196,6 +203,14 @@ var DefaultKinds = []Kind{
 	// SubscribeKinds defaults include `clusterpolicy` so the Factory
 	// fanout streams these too. ClusterPolicy is cluster-scoped.
 	{Name: "clusterpolicy", GVR: schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, Namespaced: false},
+	// CMP-061 — the policy kinds of the 1.19 engine line that replace the
+	// legacy ClusterPolicy. Group policies.kyverno.io, version v1: spike
+	// CMP-S1 measured v1 served (v1beta1 storage, v1alpha1 deprecated) on
+	// engine v1.19.2. Optional: an engine before 1.19 does not serve the
+	// group, and an informer for an absent GVR hot-loops (#5352); CMP-016
+	// starts it when the definition arrives.
+	{Name: KindValidatingPolicy, GVR: schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}, Namespaced: false, Optional: true},
+	{Name: KindMutatingPolicy, GVR: schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "mutatingpolicies"}, Namespaced: false, Optional: true},
 
 	// TBD-V50 (#2125) — Kubernetes Events deliberately NOT registered.
 	//

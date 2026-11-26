@@ -27,6 +27,13 @@ override_resource {
   }
 }
 
+override_resource {
+  target = random_password.keycloak_client_secret_salt
+  values = {
+    result = "SEC060saltSEC060saltSEC060saltSEC060saltSEC060sa"
+  }
+}
+
 variables {
   deployment_id         = jsondecode(file("../_contract/fixtures/two-region.tfvars.json")).deployment_id
   sovereign_fqdn        = jsondecode(file("../_contract/fixtures/two-region.tfvars.json")).sovereign_fqdn

@@ -1,0 +1,36 @@
+apiVersion: v2
+name: secrets-lib
+# 0.1.0 (SEC-200): the ONE way a platform chart declares its secrets.
+#
+#   openova.secretStores    the namespace's External Secrets reader
+#                           (ServiceAccount eso-reader, SecretStore openbao)
+#   openova.generatedSecrets
+#                           the values a chart owns: tier B (delivery
+#                           mounted) is born by the birth Job into OpenBao
+#                           mount mounted/, in this region and, for a shared
+#                           value, in every peer region; tier A (delivery
+#                           synced) is a Password generator, a PushSecret and
+#                           an ExternalSecret
+#   openova.envFromFiles    the entrypoint shim for an image that reads only
+#                           plain variables
+#
+# A LIBRARY chart: it renders nothing on its own and is consumed as a
+# `file://../../secrets-lib/chart` dependency, so `helm dependency build`
+# VENDORS it into every consumer's packaged artifact (the topology-lib way).
+# blueprint-release.yaml skips `type: library` charts: nothing is published
+# on its own. See ../README.md.
+version: 0.1.0
+type: library
+description: |
+  OpenOva secrets library (SEC-200): namespaced stores, generated secrets
+  born once into OpenBao, and the entrypoint shim for mounted files.
+keywords:
+  - catalyst
+  - secrets
+  - openbao
+  - external-secrets
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+annotations:
+  catalyst.openova.io/no-upstream: "true"

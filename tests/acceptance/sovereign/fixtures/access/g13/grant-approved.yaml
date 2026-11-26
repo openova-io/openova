@@ -1,0 +1,18 @@
+# Fixture of check ACC-G13: a grant approved by another person.
+apiVersion: access.openova.io/v1alpha1
+kind: AccessGrant
+metadata:
+  name: ${NAME}
+  namespace: ${NAMESPACE}
+spec:
+  targetRef:
+    name: g13-shell
+  subject:
+    email: g13-subject@example.org
+  reason: Gate check ACC-G13, the grant life cycle
+  window:
+    notBefore: "${NOT_BEFORE}"
+    notAfter: "${NOT_AFTER}"
+  approvals:
+    - by: g13-approver@example.org
+      at: "${APPROVED_AT}"

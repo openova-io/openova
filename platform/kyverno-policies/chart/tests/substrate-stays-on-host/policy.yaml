@@ -1,0 +1,51 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: substrate-stays-on-host
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: architecture
+  annotations:
+    policies.kyverno.io/title: Substrate Blueprints must install on host k3s
+    policies.kyverno.io/category: catalyst-architecture-invariant
+    policies.kyverno.io/severity: high
+    # Changes with the reports controller's read of helmreleases, so an
+    # upgrade that grants it makes Kyverno check the permissions again.
+    catalyst.openova.io/reports-read-checksum: "422273f3b5575f0a"
+    policies.kyverno.io/description: >-
+      The substrate components listed in docs/DOD.md §A4 (Cilium-agent,
+      Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers)
+      MUST install on the host k3s cluster, never inside a vCluster.
+      A HelmRelease for one of these Blueprints with `spec.kubeConfig`
+      set indicates a misconfigured G92.1 vcluster-placement override.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      # Every served version, as the legacy kind match did.
+      - apiGroups: ["helm.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["helmreleases"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in [])"
+    - name: substrate-blueprints
+      expression: "object.metadata.name in ['bp-cilium', 'bp-flux', 'bp-kyverno', 'bp-kyverno-policies', 'bp-cert-manager', 'bp-cert-manager-powerdns-webhook', 'bp-cert-manager-dynadot-webhook', 'bp-external-secrets', 'bp-cnpg', 'bp-cnpg-pair', 'bp-vcluster-helmrepo']"
+  validations:
+    # Forbid `spec.kubeConfig` entirely for substrate HRs (absent or null).
+    - expression: "!has(object.spec.kubeConfig) || object.spec.kubeConfig == null"
+      message: >-
+        This HelmRelease is a substrate Blueprint and MUST install on the host
+        k3s cluster. Detected `spec.kubeConfig.secretRef` set — this would
+        install the substrate INTO a vCluster, violating docs/DOD.md §A4
+        architecture invariant. The G92.1 vcluster-placement seam (Refs #2660)
+        is for non-substrate marketplace applications only. Remove the
+        `spec.kubeConfig` block on this HelmRelease, OR — if your Sovereign
+        legitimately requires bespoke substrate placement — add the namespace
+        to .Values.compliancePolicies.substrateOnHost.excludeNamespaces.

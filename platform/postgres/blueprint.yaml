@@ -104,7 +104,7 @@ spec:
   #   restarts (`Policy denied DROPPED` on :5432) and region-B SSO was dead for
   #   every app. Unconditional on the replica side; singleton + primary renders
   #   byte-identical.
-  version: 0.2.38
+  version: 0.2.40
   card:
     title: PostgreSQL
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).

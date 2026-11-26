@@ -48,3 +48,9 @@ platform/qa-app/chart 0.1.0 ba4a632298d010be9ca800dfb767daa238ec89a0 published 0
 platform/anthropic-adapter/chart 1.0.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
 platform/knative/chart 1.0.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
 platform/librechat/chart 1.1.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
+
+# bp-speech 1.0.0 is not published yet (its registry package refuses the release token; the pin is in the
+# known-gap register, pull request 8835). The only change after its version is the Chart.yaml annotation
+# catalyst.openova.io/smoke-render-mode of pull request 8833: only CI reads it, no template reads
+# .Chart.Annotations, so the rendered manifests are the same with it or without it.
+platform/speech/chart 1.0.0 2bfdcfcdf44eeb7dd52b7fce3799113ee3bcc634 the later change is a CI-only Chart.yaml annotation; renders the same

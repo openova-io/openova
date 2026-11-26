@@ -399,6 +399,12 @@ rules:
   - apiGroups: ["kyverno.io"]
     resources: ["clusterpolicies", "policies"]
     verbs: ["get", "list", "watch"]
+  # CMP-061: the informer kinds validatingpolicy and mutatingpolicy
+  # (k8scache/kinds.go), the policy kinds that replace ClusterPolicy on the
+  # 1.19 engine line. Read-only, like the legacy kind above.
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["validatingpolicies", "mutatingpolicies"]
+    verbs: ["get", "list", "watch"]
 
   # ───────────────────────────────────────────────────────────────
   # APPLICATION CRD — backs slice I (#1152) install-flow handler +

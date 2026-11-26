@@ -1,0 +1,86 @@
+# The score model of the compliance plane (ADR-0029, CMP-041): the fields of
+# ComplianceModel.spec that are not checks or exemptions. The template
+# templates/compliance-model.yaml copies them verbatim into the object named
+# default. Schema: schema/model.schema.json, checked by
+# tools/guards/cmd/check-compliance-model.
+#
+# version is raised by any change to weights, bands, caps or mappings: it is
+# shown beside every score.
+version: "1.0.0"
+levels:
+  - name: L5
+    min: 90
+  - name: L4
+    min: 75
+  - name: L3
+    min: 60
+  - name: L2
+    min: 40
+  - name: L1
+    min: 0
+mandatoryCap:
+  value: 74
+  environmentTypes: [prod]
+severityWeights:
+  critical: 8
+  high: 4
+  medium: 2
+  low: 1
+groups:
+  - id: run
+    title: Build and run
+    weight: 1
+  - id: security
+    title: Security
+    weight: 1
+axes:
+  - id: reliability
+    title: Reliability
+    group: run
+    type: checks
+    naText: No workload in view has a replica, disruption, spread or probe result.
+  - id: capacity
+    title: Capacity
+    group: run
+    type: checks
+    naText: No workload in view has a resource, volume or autoscaler result.
+  - id: resilience
+    title: Resilience
+    group: run
+    type: checks
+    naText: No volume in view has a backup or storage result.
+  - id: delivery
+    title: Delivery
+    group: run
+    type: checks
+    naText: No workload in view has a Flux or placement result.
+  - id: supply-chain
+    title: Supply chain
+    group: run
+    type: checks
+    naText: No container image in view has a source or tag result.
+  - id: observability
+    title: Observability
+    group: run
+    type: checks
+    naText: No workload in view has a metrics or tracing result.
+  - id: hardening
+    title: Hardening
+    group: security
+    type: checks
+    naText: No workload or access grant in view has a hardening result.
+  - id: zero-trust
+    title: Zero trust
+    group: security
+    type: checks
+    naText: No workload or namespace in view has a network policy result.
+  - id: secrets
+    title: Secrets
+    group: security
+    type: checks
+    naText: No container in view has an environment result.
+  - id: exposure
+    title: Exposure
+    group: security
+    type: checks
+    naText: No Service in view has an exposure result.

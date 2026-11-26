@@ -22,7 +22,12 @@
 #       OFFENDER line carries owner=flux-system/org-tenants, the FAIL line names
 #       the writer of the org-tenants tree, each wait prints the time left;
 #   (c) an offender no Flux Kustomization applies still fails the check;
-#   (d) the rendered check keeps its bound, its exclusions and its exit 1.
+#   (d) the rendered check keeps its bound, its exclusions and its exit 1;
+#   (e) the pair it pokes is the one the values name: rendered with other names, step
+#       08's Job sets ORG_TENANTS_GITREPO and ORG_TENANTS_KUSTOMIZATION from
+#       helmRepositories.orgTenantsSource (the GitRepository as step 06 does), and the
+#       check converges only by poking those. Before the repair the Job set neither,
+#       the script took its defaults, and (e) fails.
 #
 # Usage: bash tests/step08-pivot-names-owner.sh [CHART_DIR]
 set -uo pipefail
@@ -73,7 +78,7 @@ kubectl() {
   case "$*" in
     "get helmrepositories.source.toolkit.fluxcd.io -A -o jsonpath="*)
       url="${ghcr}"
-      if [ "${FIXTURE}" = fixed ] && poked gitrepository/openova-org-tenants && poked kustomization/org-tenants; then url="${own}"; fi
+      if [ "${FIXTURE}" = fixed ] && poked "gitrepository/${GIT}" && poked "kustomization/${KS}"; then url="${own}"; fi
       for n in bp-agenity bp-openclaw bp-stalwart-tenant bp-wordpress-tenant; do row "${n}" "${url}" flux-system/org-tenants; done
       row bp-cilium "${own}" flux-system/bootstrap-kit
       row bp-newapi "${ghcr}" flux-system/bootstrap-kit
@@ -87,7 +92,9 @@ kubectl() {
 echo "CONVERGED"
 HARNESS
 
-run() { : >"${TMP}/$1.pokes"; FIXTURE="$1" CHECK="${TMP}/check.sh" POKES="${TMP}/$1.pokes" sh "${TMP}/harness.sh" >"${TMP}/$1.out" 2>&1; echo $? >"${TMP}/$1.rc"; }
+# run <case> [fixture]: GIT and KS are the pair whose poke fixes the source (default the
+# chart's names); the environment is the caller's.
+run() { : >"${TMP}/$1.pokes"; FIXTURE="${2:-$1}" GIT="${GIT:-openova-org-tenants}" KS="${KS:-org-tenants}" CHECK="${TMP}/check.sh" POKES="${TMP}/$1.pokes" sh "${TMP}/harness.sh" >"${TMP}/$1.out" 2>&1; echo $? >"${TMP}/$1.rc"; }
 has() { grep -q -F -- "$2" "${TMP}/$1.out"; }
 rc() { cat "${TMP}/$1.rc"; }
 elapsed() { sed -n 's/^RESULT elapsed=\([0-9]*\)$/\1/p' "${TMP}/$1.out"; }
@@ -116,9 +123,26 @@ echo "[step08-pivot-owner] (c) an offender no Kustomization applies still fails"
 run unowned
 [ "$(rc unowned)" = 1 ] && has unowned "OFFENDER flux-system/bp-by-hand=oci://ghcr.io/openova-io owner=/" && pass "the unowned offender fails the check" || fail "an unowned offender did not fail the check (rc $(rc unowned))"
 
+echo "[step08-pivot-owner] (e) renamed in the values: step 08's Job carries the names and the check pokes them"
+helm template ssc "${CHART_DIR}" --set sovereign.fqdn=t01.omani.works \
+  --set helmRepositories.orgTenantsSource.gitRepositoryName=org-git-x --set helmRepositories.orgTenantsSource.kustomizationName=org-ks-x \
+  >"${TMP}/renamed.yaml" 2>"${TMP}/render.err" || { echo "helm template failed:"; cat "${TMP}/render.err"; exit 1; }
+envof() { yq "select(.kind == \"ConfigMap\" and .metadata.name == \"$1\") | .data[\"podSpec\"]" "${TMP}/renamed.yaml" \
+  | yq ".containers[0].env[] | select(.name == \"$2\") | .value"; }
+e08_git="$(envof cutover-step-08-egress-block-test ORG_TENANTS_GITREPO)"
+e08_ks="$(envof cutover-step-08-egress-block-test ORG_TENANTS_KUSTOMIZATION)"
+e06_git="$(envof cutover-step-06-helmrepository-patches ORG_TENANTS_GITREPO)"
+[ "${e08_git}" = org-git-x ] && [ "${e08_ks}" = org-ks-x ] && [ "${e06_git}" = org-git-x ] \
+  && pass "step 08 sets ORG_TENANTS_GITREPO=org-git-x and ORG_TENANTS_KUSTOMIZATION=org-ks-x, step 06 the same GitRepository" \
+  || fail "step 08 sets ORG_TENANTS_GITREPO='${e08_git}' ORG_TENANTS_KUSTOMIZATION='${e08_ks}' (step 06: '${e06_git}'), want org-git-x and org-ks-x"
+GIT=org-git-x KS=org-ks-x ORG_TENANTS_GITREPO="${e08_git}" ORG_TENANTS_KUSTOMIZATION="${e08_ks}" run renamed fixed
+[ "$(rc renamed)" = 0 ] && has renamed CONVERGED && grep -q -x -F "kustomization/org-ks-x" "${TMP}/renamed.pokes" && grep -q -x -F "gitrepository/org-git-x" "${TMP}/renamed.pokes" \
+  && pass "with the Job's environment the check pokes org-git-x and org-ks-x and converges" \
+  || fail "with the Job's environment the check did not converge by poking org-git-x and org-ks-x (rc $(rc renamed))"
+
 if [ "${FAILURES}" -gt 0 ]; then
   echo "step08-pivot-names-owner: ${FAILURES} check(s) failed"
-  for f in fixed never unowned; do echo "--- ${f}"; cat "${TMP}/${f}.out" 2>/dev/null; echo "pokes:"; cat "${TMP}/${f}.pokes" 2>/dev/null; done
+  for f in fixed never unowned renamed; do echo "--- ${f}"; cat "${TMP}/${f}.out" 2>/dev/null; echo "pokes:"; cat "${TMP}/${f}.pokes" 2>/dev/null; done
   exit 1
 fi
 echo "step08-pivot-names-owner: all checks passed"
