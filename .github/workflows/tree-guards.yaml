@@ -526,6 +526,12 @@ jobs:
       - name: 'check-compliance-model | The compliance model and the policies agree, exemptions only shrink'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/check-compliance-model
+      - name: 'acceptance-exit | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/acceptance-exit
+      - name: 'acceptance-exit | The acceptance commands of the tickets not merged lose no part of their exit status'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/acceptance-exit
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
