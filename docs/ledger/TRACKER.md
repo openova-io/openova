@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T18:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-26T19:00:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8483](https://github.com/openova-io/openova/issues/8483) | NET-213 The console states the region separation | Other |
-| [#8487](https://github.com/openova-io/openova/issues/8487) | SOV-162 The registry finds and heals a cached image index whose children are gon | Other |
 | [#8490](https://github.com/openova-io/openova/issues/8490) | SOV-523 A delivery of the release route resumes after one eviction of any of its | Other |
 | [#8498](https://github.com/openova-io/openova/issues/8498) | SEC-154 Flux renders bootstrap Secrets from one seed: pull login, object storage | Other |
 | [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8887](https://github.com/openova-io/openova/issues/8887) | FND-046 A chart version the release writer publishes is packaged from the chart  | Other |
 | [#8893](https://github.com/openova-io/openova/issues/8893) | CMP-067 The kit's own workloads pass the enforced policies, and a guard proves i | Other |
 | [#8898](https://github.com/openova-io/openova/issues/8898) | NET-322 Class file, schema and conformance probe as a suite profile | Other |
+| [#8904](https://github.com/openova-io/openova/issues/8904) | CMP-078 Mutate policies to MutatingPolicy: app-label-mutate | Other |
+| [#8906](https://github.com/openova-io/openova/issues/8906) | FND-043 An acceptance loop of a ticket stops at its first failing pass | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T18:54 | [#8903](https://github.com/openova-io/openova/pull/8903) | #7087 | docs(ledger): plan update |
 | 2026-11-26T18:24 | [#8899](https://github.com/openova-io/openova/pull/8899) | #8898 | feat(net): cluster class files, their schema and check NET-G |
 | 2026-11-26T17:36 | [#8897](https://github.com/openova-io/openova/pull/8897) | #7087 | docs(ledger): plan update |
 | 2026-11-26T17:14 | [#8896](https://github.com/openova-io/openova/pull/8896) | #8894 | reloader and newapi set container security fields at the pod |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T15:29 | [#8858](https://github.com/openova-io/openova/pull/8858) | #8857 | feat(access): the target and grant kinds, their controller a |
 | 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:36 | [#8855](https://github.com/openova-io/openova/pull/8855) | #7087 | docs(ledger): result of the architect action CLD-166 (CLD-16 |
-| 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
 
 ---
 
