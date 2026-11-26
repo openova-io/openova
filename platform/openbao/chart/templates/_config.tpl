@@ -249,6 +249,32 @@ path "sys/leases/revoke/*" {
 }
 {{ end -}}
 
+{{- /* SEC-192 — a producer identity (ADR-0018 S20), one per entry of the value
+`producers`: create and update on each listed pattern below mounted/data/,
+read and delete on its metadata, never a read of a value. */ -}}
+{{- define "openbao.policy.producer" -}}
+{{- range .paths -}}
+path "mounted/data/{{ . }}" {
+  capabilities = ["create", "update"]
+}
+path "mounted/metadata/{{ . }}" {
+  capabilities = ["read", "delete"]
+}
+{{ end -}}
+{{- end -}}
+
+{{- /* SEC-192 — the named exception of ADR-0018 S20: the simulation back end
+(service account axon of namespace axon) writes back and reads its own model
+credential, and nothing else. */ -}}
+{{- define "openbao.policy.axon-credential" -}}
+path "mounted/data/axon/sa/axon/model-credential/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "mounted/metadata/axon/sa/axon/model-credential/*" {
+  capabilities = ["read"]
+}
+{{ end -}}
+
 {{- /*
 openbao.configAdminPolicy — the reconciler's own grant, written by the
 self-initialisation (the only privileged writer). Configuration surfaces
@@ -327,6 +353,24 @@ peers; each gets one role on every jwt-peer-<peer> mount. */ -}}
 {{- end -}}
 {{- $birthNs = $birthNs | uniq | sortAlpha -}}
 {{- $ns := .Release.Namespace -}}
+{{- /* SEC-192: the producer identities of the value `producers`, each pattern
+in the path grammar that values.yaml states; anything else fails the render. */ -}}
+{{- $dns := `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` -}}
+{{- $grammar := `^(\+|[a-z0-9]([-a-z0-9]*[a-z0-9])?)/(sa/(\+|[a-z0-9]([-a-z0-9]*[a-z0-9])?)|shared)/[a-z0-9-]+(\*|/\*|/e[1-9][0-9]*)$` -}}
+{{- $producers := list -}}
+{{- $seen := dict -}}
+{{- range .Values.producers -}}
+{{- $n := toString .name -}}
+{{- if not (regexMatch "^[a-z0-9-]+$" $n) }}{{ fail (printf "producers: name %q is not [a-z0-9-]+" $n) }}{{ end -}}
+{{- if hasKey $seen $n }}{{ fail (printf "producers: %q is listed twice" $n) }}{{ end -}}
+{{- $_ := set $seen $n true -}}
+{{- if not (and (regexMatch $dns (toString .serviceAccount)) (regexMatch $dns (toString .namespace))) }}{{ fail (printf "producers: %q needs a serviceAccount and a namespace" $n) }}{{ end -}}
+{{- if not .paths }}{{ fail (printf "producers: %q has no paths" $n) }}{{ end -}}
+{{- range .paths -}}
+{{- if not (regexMatch $grammar (toString .)) }}{{ fail (printf "producers: %q: pattern %q is not in the path grammar of mounted/" $n (toString .)) }}{{ end -}}
+{{- end -}}
+{{- $producers = append $producers (dict "name" $n "sa" (toString .serviceAccount) "ns" (toString .namespace) "paths" .paths) -}}
+{{- end -}}
 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
@@ -370,6 +414,12 @@ stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ 
 {{- $roles = append $roles (dict "name" $role "sa" (uniq $sas) "ns" (uniq $nss) "policies" (list $role) "ttl" "15m" "max" (ternary "15m" "1h" (eq $role "tofu-state-backup")) "aud" "openbao") -}}
 {{- end -}}
 {{- end -}}
+{{- /* SEC-192: one role per producer identity, and the simulation back end's
+own role axon-credential (15 minutes, at most 15 minutes). */ -}}
+{{- range $producers -}}
+{{- $roles = append $roles (dict "name" (printf "producer-%s" .name) "sa" .sa "ns" .ns "policies" (list (printf "producer-%s" .name)) "ttl" "15m" "max" "1h" "aud" "openbao") -}}
+{{- end -}}
+{{- $roles = append $roles (dict "name" "axon-credential" "sa" "axon" "ns" "axon" "policies" (list "axon-credential") "ttl" "15m" "max" "15m" "aud" "openbao") -}}
 
 {{- $ops := list
   (dict "kind" "write" "path" "sys/policies/acl/openbao-config-admin" "payload" (dict "policy" (include "openbao.configAdminPolicy" $)))
@@ -385,6 +435,10 @@ stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ 
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/secrets-birth-peer-%s" .) "payload" (dict "policy" (include "openbao.policy.secrets-birth-peer" (dict "birthNs" .)))) -}}
 {{- end -}}
 {{- end -}}
+{{- range $producers -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/producer-%s" .name) "payload" (dict "policy" (include "openbao.policy.producer" .))) -}}
+{{- end -}}
+{{- $ops = append $ops (dict "kind" "write" "path" "sys/policies/acl/axon-credential" "payload" (dict "policy" (include "openbao.policy.axon-credential" $ctx))) -}}
 {{- /* The state key: exportable and with a plaintext backup allowed (both
 one-way), so that the one offline backup can be taken; never deletable. */ -}}
 {{- if hasKey $engines "transit" -}}
