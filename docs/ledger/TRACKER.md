@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T13:30:07Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-26T13:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:08 | [#8869](https://github.com/openova-io/openova/pull/8869) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T20:25 | [#8836](https://github.com/openova-io/openova/pull/8836) | #8788 | A delivery can repair a release that is stalled when the can |
 | 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
 | 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
-| 2026-11-25T15:38 | [#8833](https://github.com/openova-io/openova/pull/8833) | #8787 | bp-speech declares that it renders nothing by default, so th |
 
 ---
 
