@@ -1,11 +1,13 @@
 package adapters
 
 import (
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/compliance"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
@@ -87,3 +89,47 @@ func legacyKindMode(obj *unstructured.Unstructured) string {
 }
 
 func isWord(s, word string) bool { return strings.EqualFold(strings.TrimSpace(s), word) }
+
+// Store is the informer store of the clusters a process watches: the
+// clusters it holds and the objects of one kind. *k8scache.Factory
+// satisfies it.
+type Store interface {
+	compliance.Lister
+	Clusters() []string
+}
+
+// PolicyObjects reads the policy objects of one cluster from the store of
+// each kind of PolicyMode.Kinds at the call, and returns by name what read
+// makes of them: the first kind whose object of a name read accepts gives
+// the entry, the legacy kind first (during an in-place rewrite two kinds
+// hold the name). held is false for a cluster the store does not hold.
+//
+// The informer keeps its store exact; an event of the fanout may never
+// reach a subscriber: Factory.fanout drops the oldest event of a full
+// subscriber buffer, an event sent before a subscriber subscribed reaches
+// none, and with resync 0 neither is sent again. A mode kept from the
+// events alone therefore stayed audit after the engine object flipped to
+// enforce (CMP-023). A kind whose List fails has no informer on the
+// cluster (an optional kind the cluster does not serve, CMP-016), or the
+// cluster left the store after Clusters was read: neither has an object.
+func PolicyObjects[T any](s Store, cluster string, read func(*unstructured.Unstructured) (T, bool)) (byName map[string]T, held bool) {
+	if !slices.Contains(s.Clusters(), cluster) {
+		return nil, false
+	}
+	byName = map[string]T{}
+	for _, kind := range (PolicyMode{}).Kinds() {
+		objs, _, err := s.List(cluster, kind, nil)
+		if err != nil {
+			continue
+		}
+		for _, o := range objs {
+			if _, taken := byName[o.GetName()]; taken {
+				continue
+			}
+			if v, ok := read(o); ok {
+				byName[o.GetName()] = v
+			}
+		}
+	}
+	return byName, true
+}

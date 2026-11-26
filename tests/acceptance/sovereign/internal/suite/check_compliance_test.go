@@ -198,6 +198,15 @@ func TestComplianceMode(t *testing.T) {
 	  {"metadata": {"name": "warns"}, "spec": {"validationActions": ["Warn"]}}]}`
 	const mutating = `{"items": [
 	  {"metadata": {"name": "mutates-new"}, "spec": {"mutations": [{"patchType": "ApplyConfiguration"}]}}]}`
+	// The per-Organization Policy of the kit: a mutate rule and a validate rule
+	// with failureAction Enforce; in org-b the same name audits.
+	const legacyNs = `{"items": [
+	  {"metadata": {"namespace": "org-a", "name": "org-platform-scope"}, "spec": {"rules": [{"name": "stamp", "mutate": {}}, {"name": "synced", "validate": {"failureAction": "Enforce"}}]}},
+	  {"metadata": {"namespace": "org-b", "name": "org-platform-scope"}, "spec": {"validationFailureAction": "Audit", "rules": [{"name": "stamp", "mutate": {}}]}}]}`
+	const validatingNs = `{"items": [
+	  {"metadata": {"namespace": "org-a", "name": "ns-denies"}, "spec": {"validationActions": ["Deny"]}}]}`
+	const mutatingNs = `{"items": [
+	  {"metadata": {"namespace": "org-b", "name": "ns-mutates"}, "spec": {"mutations": [{"patchType": "ApplyConfiguration"}]}}]}`
 	absent, refused := errors.New(`error: the server doesn't have a resource type "x"`), errors.New("connection refused")
 	shown := func(pairs ...string) []map[string]string { // name, mode, name, mode, ...: the list of the API
 		out := []map[string]string{{"name": "judged", "mode": "permissive", "source": "evaluator"}}
@@ -208,9 +217,11 @@ func TestComplianceMode(t *testing.T) {
 	}
 	old := []string{"audits", "permissive", "enforces", "enforcing", "rule-enforces", "enforce", "lower-case", "enforcing", "mutates", "audit"}
 	all := append(append([]string{}, old...), "denies", "enforcing", "warns", "permissive", "mutates-new", "audit")
+	withNs := append(append([]string{}, old...), "org-a/org-platform-scope", "enforcing", "org-b/org-platform-scope", "permissive", "org-a/ns-denies", "enforcing", "org-b/ns-mutates", "audit")
 	for name, tc := range map[string]struct {
 		policies                    []map[string]string
 		legacyErr, validErr, mutErr error
+		nsErr                       error // of the three namespaced kinds
 		want                        string
 	}{
 		"every mode is the engine's":                 {policies: shown(all...)},
@@ -227,16 +238,39 @@ func TestComplianceMode(t *testing.T) {
 		"only a policy the API judges itself":        {policies: shown(), want: "nothing was measured: no listed policy has an engine object"},
 		"no kind is served":                          {policies: shown(old...), legacyErr: absent, validErr: absent, mutErr: absent, want: "the cluster serves none of"},
 		"the region cannot be read":                  {policies: shown(old...), legacyErr: refused, want: "connection refused"},
+		"namespaced policies in their namespace":     {policies: shown(withNs...)},
+		"the API shows audit, the Policy enforces":   {policies: shown("org-a/org-platform-scope", "permissive"), want: `org-a/org-platform-scope: the API shows "permissive" and the engine object carries enforce`},
+		"the API shows enforce, the Policy audits":   {policies: shown("org-b/org-platform-scope", "enforcing"), want: `org-b/org-platform-scope: the API shows "enforcing" and the engine object carries audit`},
+		"a Policy in a namespace without it":         {policies: shown("org-c/org-platform-scope", "permissive"), want: "org-c/org-platform-scope: the engine has no policy object of that name"},
+		"a bare name is no namespaced object":        {policies: shown("org-platform-scope", "enforcing"), want: "org-platform-scope: the engine has no policy object of that name"},
+		"a namespaced name is no cluster object":     {policies: shown("org-a/enforces", "enforcing"), want: "org-a/enforces: the engine has no policy object of that name"},
+		"the namespaced kinds are not served":        {policies: shown("audits", "permissive", "org-a/org-platform-scope", "enforcing"), nsErr: absent, want: "org-a/org-platform-scope: the engine has no policy object of that name"},
+		"the namespaced kinds cannot be read":        {policies: shown(old...), nsErr: refused, want: "connection refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			kubectl := func(_ kube.Region, _ context.Context, _ io.Reader, args ...string) ([]byte, error) {
-				if args[1] == legacyPolicies {
+				// A namespaced kind read without -A answers only the default
+				// namespace, which holds no policy.
+				allNamespaces := len(args) == 5 && args[4] == "-A"
+				switch {
+				case len(args) != 4 && !allNamespaces || args[0] != "get" || args[2] != "-o" || args[3] != "json":
+					return nil, fmt.Errorf("unexpected kubectl %q", args)
+				case args[1] == legacyPolicies:
 					return []byte(legacy), tc.legacyErr
-				}
-				if args[1] == mutatingPolicies {
+				case args[1] == validatingPolicies:
+					return []byte(validating), tc.validErr
+				case args[1] == mutatingPolicies:
 					return []byte(mutating), tc.mutErr
+				case !allNamespaces:
+					return []byte(`{"items": []}`), tc.nsErr
+				case args[1] == "policies.kyverno.io": // the legacy kind Policy of group kyverno.io
+					return []byte(legacyNs), tc.nsErr
+				case args[1] == "namespacedvalidatingpolicies.policies.kyverno.io":
+					return []byte(validatingNs), tc.nsErr
+				case args[1] == "namespacedmutatingpolicies.policies.kyverno.io":
+					return []byte(mutatingNs), tc.nsErr
 				}
-				return []byte(validating), tc.validErr
+				return nil, fmt.Errorf("unexpected kubectl %q", args)
 			}
 			complianceRun(t, &complianceAPI{policies: tc.policies}, complianceModeCheck{kubectl: kubectl}, tc.want)
 		})
