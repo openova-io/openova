@@ -16225,7 +16225,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -16380,7 +16380,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -16535,9 +16535,8 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-061]
+  after: []
   touches:
-  - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
   resources: []
   flips: []
@@ -16549,16 +16548,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/SEC-335.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-335.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/SEC-335.md | cut -d' ' -f1 | grep -qx c6406282e9b63fcdffeefd504bd138a7cce8d9e19dfe59e62ef1b430d5e424ca"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Per class U entry: five answers, the route of 4.9 that works, pod-start result.'
+  delivers: The repository holds the result of the lab test that answered five questions for each of the five class U register entries that SEC-340 removes, found a working injection route for every one of them so that no entry becomes none-upstream, and states which results were rendered with Helm and which were started in local containers.
 - id: SEC-341
   title: 'Upstream pods to injection: Keycloak'
   area: SEC
