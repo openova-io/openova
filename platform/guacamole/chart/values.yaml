@@ -43,7 +43,7 @@ access:
     # it after each build; while it is empty the chart renders no controller.
     image:
       repository: ghcr.io/openova-io/openova/access-controller
-      digest: ""
+      digest: "sha256:aeb2a80777da8a288642029d877767a79919a8d42afb16ee591a03a7ce0986bd"
     replicas: 1
     resources:
       requests:
