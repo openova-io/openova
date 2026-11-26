@@ -11,14 +11,14 @@
 # of jdbc-schema-seed-job.yaml, and guacamole.oidc.clientSecretRef.name of
 # its values.yaml (git show 24086916a^:platform/guacamole/chart/...).
 #
-#   1. An install (the values of kit slot 52, as render.sh) renders only the
-#      Application: no cleanup object.
+#   1. An install (the values of kit slot 52 with a digest, as render.sh) renders
+#      the access plane and the Application: no cleanup object.
 #   2. An upgrade (--is-upgrade) of the primary renders the Application and the
 #      cleanup: ServiceAccount, Role, RoleBinding and Job, all named
 #      guacamole-bp-guacamole-upgrade-cleanup in namespace guacamole, and
-#      nothing else (no ClusterRole, no ClusterRoleBinding).
+#      nothing else of its own (no ClusterRole, no ClusterRoleBinding).
 #   3. An upgrade of the mesh secondary renders the same cleanup, without the
-#      Application: an earlier revision may have left the objects there too.
+#      controller: an earlier revision may have left the objects there too.
 #   4. The Job runs exactly `kubectl delete --namespace=guacamole
 #      --ignore-not-found --wait=false` on the four names, as its own
 #      ServiceAccount.
@@ -55,6 +55,13 @@ ENROLL="guacamole-bp-guacamole-admin-enroll"
 SEED="guacamole-bp-guacamole-jdbc-seed"
 SCRIPTS="guacamole-bp-guacamole-jdbc-seed-scripts"
 OIDC="guacamole-oidc"
+DIGEST="sha256:$(printf '0123456789abcdef%.0s' 1 2 3 4)"
+# The objects of the access plane in a mesh secondary, and in addition in the region that runs the controller.
+STUB="$(printf '%s\n' "Service guacamole/access-controller" "ValidatingAdmissionPolicy /access-kinds-writers" \
+  "ValidatingAdmissionPolicyBinding /access-kinds-writers")"
+ACCESS="$(printf '%s\n' "$STUB" "ClusterRole /bp-guacamole-access-controller" "ClusterRoleBinding /bp-guacamole-access-controller" \
+  "Deployment guacamole/access-controller" "Role guacamole/access-controller-leader-election" \
+  "RoleBinding guacamole/access-controller-leader-election" "ServiceAccount guacamole/access-controller")"
 
 fail() { echo "FAIL: $*"; exit 1; }
 
@@ -66,38 +73,41 @@ same() {
 
 # objects <render file>: "<kind> <namespace>/<name>" per object, sorted.
 objects() {
-  yq -N '.kind + " " + .metadata.namespace + "/" + .metadata.name' "$1" | LC_ALL=C sort
+  yq -N '.kind + " " + (.metadata.namespace // "") + "/" + .metadata.name' "$1" | LC_ALL=C sort
 }
+# want <object>...: the objects, one per line, sorted as objects sorts them.
+want() { printf '%s\n' "$@" | LC_ALL=C sort; }
 
 # The values of slot 52, its substitutes at their defaults (as render.sh).
-sed -e 's/\${[A-Za-z_][A-Za-z0-9_]*:=\([^}]*\)}/\1/g' "$slot" > "$TMP/slot.yaml"
+sed -e 's/\${[A-Za-z_][A-Za-z0-9_]*:[=-]\([^}]*\)}/\1/g' "$slot" > "$TMP/slot.yaml"
 yq 'select(.kind == "HelmRelease" and .metadata.name == "bp-guacamole") | .spec.values' "$TMP/slot.yaml" > "$TMP/slot-values.yaml"
 [ "$(yq '.bootstrapOwned.enabled' "$TMP/slot-values.yaml")" = "true" ] || fail "the values of slot 52 do not turn bootstrapOwned.enabled on"
 
 render() { # <out> [helm args...]
   local out="$1"
   shift
-  helm template guacamole "$chart_dir" --namespace guacamole -f "$TMP/slot-values.yaml" "${APIS[@]}" "$@" > "$out"
+  helm template guacamole "$chart_dir" --namespace guacamole -f "$TMP/slot-values.yaml" "${APIS[@]}" \
+    --set "access.controller.image.digest=$DIGEST" "$@" > "$out"
 }
 
 # 1. An install renders no cleanup object.
 render "$TMP/install.yaml"
-same "the objects of an install" "$(objects "$TMP/install.yaml")" "Application guacamole/guacamole"
+same "the objects of an install" "$(objects "$TMP/install.yaml")" "$(want "$ACCESS" "Application guacamole/guacamole")"
 
 # 2. An upgrade of the primary.
 render "$TMP/upgrade.yaml" --is-upgrade
-same "the objects of an upgrade of the primary" "$(objects "$TMP/upgrade.yaml")" "$(printf '%s\n' \
+same "the objects of an upgrade of the primary" "$(objects "$TMP/upgrade.yaml")" "$(want "$ACCESS" \
   "Application guacamole/guacamole" "Job guacamole/$NAME" "Role guacamole/$NAME" "RoleBinding guacamole/$NAME" \
   "ServiceAccount guacamole/$NAME")"
 
 # 3. An upgrade of the mesh secondary.
-render "$TMP/secondary.yaml" --is-upgrade --set crossRegion.enabled=true --set crossRegion.role=secondary
-same "the objects of an upgrade of the mesh secondary" "$(objects "$TMP/secondary.yaml")" "$(printf '%s\n' \
+render "$TMP/secondary.yaml" --is-upgrade --set access.crossRegion.enabled=true --set access.crossRegion.role=secondary
+same "the objects of an upgrade of the mesh secondary" "$(objects "$TMP/secondary.yaml")" "$(want "$STUB" \
   "Job guacamole/$NAME" "Role guacamole/$NAME" "RoleBinding guacamole/$NAME" "ServiceAccount guacamole/$NAME")"
 
 for k in ServiceAccount Role RoleBinding Job; do
-  yq "select(.kind == \"$k\")" "$TMP/upgrade.yaml" > "$TMP/$k.yaml"
-  same "the number of ${k}s of the upgrade" "$(grep -c '^kind:' "$TMP/$k.yaml" || true)" "1"
+  yq "select(.kind == \"$k\" and .metadata.name == \"$NAME\")" "$TMP/upgrade.yaml" > "$TMP/$k.yaml"
+  same "the number of ${k}s of the cleanup" "$(grep -c '^kind:' "$TMP/$k.yaml" || true)" "1"
 done
 job="$TMP/Job.yaml"
 

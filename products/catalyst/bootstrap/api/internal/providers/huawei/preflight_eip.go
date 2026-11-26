@@ -158,11 +158,11 @@ func chooseNATAddresses(ctx context.Context, spec providers.ProvisionSpec, inSta
 	hw := hwCreds{AccessKey: spec.Creds.Get("access_key"), SecretKey: spec.Creds.Get("secret_key"), ProjectID: spec.Creds.Get("project_id")}
 	switch {
 	case hw.AccessKey == "":
-		return nil, fmt.Errorf("huawei: access_key is required (CATALYST_HUAWEI_ACCESS_KEY missing on catalyst-api — see secret huawei-operator-creds)")
+		return nil, fmt.Errorf("huawei: access_key is required (file cloud-credential.huawei.access_key missing on catalyst-api)")
 	case hw.SecretKey == "":
-		return nil, fmt.Errorf("huawei: secret_key is required (CATALYST_HUAWEI_SECRET_KEY missing on catalyst-api)")
+		return nil, fmt.Errorf("huawei: secret_key is required (file cloud-credential.huawei.secret_key missing on catalyst-api)")
 	case hw.ProjectID == "":
-		return nil, fmt.Errorf("huawei: project_id is required (CATALYST_HUAWEI_PROJECT_ID missing on catalyst-api)")
+		return nil, fmt.Errorf("huawei: project_id is required (file cloud-credential.huawei.project_id missing on catalyst-api)")
 	case len(spec.DeploymentID) < 8 || strings.TrimSpace(spec.SovereignFQDN) == "":
 		return nil, fmt.Errorf("huawei: the NAT EIP pre-flight needs the Sovereign FQDN and a deployment id of at least 8 characters")
 	}

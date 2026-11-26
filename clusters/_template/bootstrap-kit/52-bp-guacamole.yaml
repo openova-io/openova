@@ -1,9 +1,10 @@
 # bp-guacamole — Catalyst bootstrap-kit Blueprint slot 52, the access
 # plane (ADR-0033). ACC-102 removed the Guacamole web application, its
 # database, the seed Job, the CronJob, guacd and the recordings volume
-# (decision A3): the chart renders only the bootstrap-owned Application
-# until the access controller arrives (ACC-103). The slot, its namespace
-# and its dependency list stay (decision A2).
+# (decision A3). The chart renders the access controller of the kinds
+# AccessTarget and AccessGrant, its Service, its writer lock and the
+# bootstrap-owned Application. The slot, its namespace and its dependency
+# list stay (decision A2).
 #
 # Wrapper chart: platform/guacamole/chart/
 # Catalyst-curated values: platform/guacamole/chart/values.yaml
@@ -182,7 +183,7 @@ spec:
       # Sovereign's own node, address from the downward API) and the
       # per-minute enroll CronJob re-converges it. Credentials come from an
       # optional Secret, never from values.
-      version: 0.2.61
+      version: 0.2.63
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
@@ -191,11 +192,15 @@ spec:
     createNamespace: true  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     timeout: 15m
     disableWait: true
+    crds: CreateReplace
     remediation:
       retries: -1
   upgrade:
     timeout: 15m
     disableWait: true
+    # The kinds AccessTarget and AccessGrant ride in the chart's crds/; Helm
+    # skips crds/ on an upgrade unless this says CreateReplace.
+    crds: CreateReplace
     remediation:
       retries: 3
   # Per-Sovereign overlay surface. The Sovereign's FQDN is interpolated
@@ -212,22 +217,26 @@ spec:
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
       imageRegistry: ''
-    # ── Cross-region singleton (#5358, ADR-0033 decision A21) ──────────
-    # This slot installs on EVERY region's control plane; the access plane
-    # runs once per Sovereign, in the primary region. Since ACC-102 only the
-    # Application's self-registration reads `role` (a secondary region does
-    # not register it, so the Sovereign has one instance card); ACC-103 moves
-    # the three values under `access` with the same substitutes.
-    # `enabled` follows SOVEREIGN_ENABLE_CNPG_PAIR — a single-region prov
-    # leaves it false.
-    crossRegion:
-      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
-      # Per-region cloud-init substitute (primary on region-A + on every
-      # single-region prov, secondary on region-B).
-      role: ${SOVEREIGN_REGION_ROLE:=primary}
-      # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
-      # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume.
-      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
+    # ── Access plane (ADR-0033) ─────────────────────────────────────────
+    # The source of the access controller's events is
+    # access-controller/<sovereignFQDN>/<regionID>; regionID is this
+    # region's canonical id (ADR-0015 D3), as for catalyst-api.
+    access:
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+      regionID: '${SOVEREIGN_REGION_CANONICAL_LABEL:-}'
+      # Cross-region singleton (#5358, decision A21). This slot installs on
+      # EVERY region's control plane; the access controller runs once per
+      # Sovereign, in the primary region, and the secondary renders its
+      # Service as a ClusterMesh stub. `enabled` follows
+      # SOVEREIGN_ENABLE_CNPG_PAIR — a single-region prov leaves it false.
+      crossRegion:
+        enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+        # Per-region cloud-init substitute (primary on region-A + on every
+        # single-region prov, secondary on region-B).
+        role: ${SOVEREIGN_REGION_ROLE:=primary}
+        # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
+        # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume.
+        peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for guacamole (the
     # canonical instance representation every console surface reads),

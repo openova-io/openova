@@ -1078,9 +1078,8 @@ func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
 //     only the keys the profile marks not secret;
 //  3. the variables file the adapter wrote into workdir (#5135,
 //     workdirCredentials);
-//  4. the operator's configuration (#5193): the environment variable
-//     CATALYST_<PROVIDER>_<KEY>, from the operator's Secret today. CLD-106
-//     replaces it with the file cloud-credential.<provider>.<key>.
+//  4. the operator's configuration (#5193): the files cloud-credential.<provider>.<key>
+//     of --cloud-credentials-dir (CLD-106); one that cannot be read fills nothing.
 //
 // The keys are those of the cloud profile, the server-only keys, and every
 // key of the body or the record. No value is defaulted: the adapter
@@ -1127,7 +1126,8 @@ func deploymentCredentials(cp providers.CloudProvider, name string, body map[str
 		file := workdirCredentials(cp, sorted, workdir)
 		fill(func(k string) string { return file[k] })
 	}
-	fill(func(k string) string { return os.Getenv("CATALYST_" + strings.ToUpper(name+"_"+k)) })
+	operator, _ := provisioner.OperatorCredentials(name)
+	fill(func(k string) string { return operator[k] })
 	return creds, legacy
 }
 

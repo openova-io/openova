@@ -152,25 +152,22 @@ func TestBuildActivePrefixes_MergesExplicitAllowlist(t *testing.T) {
 	}
 }
 
-// TestSweepCredentials_EnvFallback — #4466 cred-source gap. After the last
+// TestSweepCredentials_OperatorFilesFallback — #4466 cred-source gap. After the last
 // wipe deletes its own tofu.auto.tfvars.json no record of the provider is
 // left; the sweep must still run under the operator's configuration (the
-// huawei-operator-creds Secret env). The region is not defaulted here: the
+// credential files, CLD-106). The region is not defaulted here: the
 // adapter defaults its own.
-func TestSweepCredentials_EnvFallback(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-env")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "sk-env")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-env")
-	t.Setenv("CATALYST_HUAWEI_REGION", "")
+func TestSweepCredentials_OperatorFilesFallback(t *testing.T) {
+	operatorCredentialFiles(t, "huawei", map[string]string{"access_key": "ak-op", "secret_key": "sk-op", "project_id": "proj-op"})
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	cp, _ := providers.Get("huawei")
 
 	c, ok := h.sweepCredentials(cp, "huawei", t.TempDir())
 	if !ok {
-		t.Fatal("post-wipe sweep must fall back to the operator env when no record is left — got ok=false (the short-circuit that strands orphans)")
+		t.Fatal("post-wipe sweep must fall back to the operator's files when no record is left — got ok=false (the short-circuit that strands orphans)")
 	}
-	if c["access_key"] != "ak-env" || c["secret_key"] != "sk-env" || c["project_id"] != "proj-env" {
-		t.Fatalf("env-fallback creds wrong: %v", c)
+	if c["access_key"] != "ak-op" || c["secret_key"] != "sk-op" || c["project_id"] != "proj-op" {
+		t.Fatalf("operator-file creds wrong: %v", c)
 	}
 	if c["region"] != "" {
 		t.Fatalf("the handler defaulted the region to %q; the adapter owns the default", c["region"])
@@ -179,7 +176,7 @@ func TestSweepCredentials_EnvFallback(t *testing.T) {
 
 // TestSweepCredentials_TfvarsWins — a record of the provider whose
 // per-deployment variables file carries credentials is used in preference
-// to the env (the normal path).
+// to the operator's files (the normal path).
 func TestSweepCredentials_TfvarsWins(t *testing.T) {
 	dir := t.TempDir()
 	depDir := filepath.Join(dir, "dep1")
@@ -190,27 +187,25 @@ func TestSweepCredentials_TfvarsWins(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(depDir, "tofu.auto.tfvars.json"), []byte(tf), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-env-should-not-win")
+	operatorCredentialFiles(t, "huawei", map[string]string{"access_key": "ak-op-should-not-win"})
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	h.deployments.Store("dep1", &Deployment{ID: "dep1", Status: "ready", Request: provisioner.Request{Provider: "huawei"}})
 	cp, _ := providers.Get("huawei")
 
 	c, ok := h.sweepCredentials(cp, "huawei", dir)
 	if !ok || c["access_key"] != "ak-tfvars" || c["region"] != "me-east-215" {
-		t.Fatalf("tfvars creds must win over env: ok=%v creds=%v", ok, c)
+		t.Fatalf("tfvars creds must win over the operator files: ok=%v creds=%v", ok, c)
 	}
 }
 
-// TestSweepCredentials_NoneAvailable — no record and no env → ok=false (a
+// TestSweepCredentials_NoneAvailable — no record and no operator file → ok=false (a
 // mothership without that provider; the sweep correctly no-ops).
 func TestSweepCredentials_NoneAvailable(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
+	operatorCredentialFiles(t, "huawei", nil)
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	cp, _ := providers.Get("huawei")
 	if _, ok := h.sweepCredentials(cp, "huawei", t.TempDir()); ok {
-		t.Fatal("with neither a record nor env creds, discovery must report ok=false")
+		t.Fatal("with neither a record nor operator files, discovery must report ok=false")
 	}
 }
 
@@ -273,11 +268,9 @@ func makeFailedReapFixture(t *testing.T, id, status string) *failedReapFixture {
 		FinishedAt: time.Now().Add(-25 * time.Hour),
 	})
 	// Keep the pass's cloud sweeps + cred discovery inert: no tfvars in the
-	// workdir (only a bare tfstate marker) and no operator-env creds, so
+	// workdir (only a bare tfstate marker) and no operator credential file, so
 	// sweepCredentials reports ok=false and no sweep ever dials out.
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
+	operatorCredentialFiles(t, "huawei", nil)
 	return &failedReapFixture{h: h, work: work, kcDir: kcDir, id: id}
 }
 

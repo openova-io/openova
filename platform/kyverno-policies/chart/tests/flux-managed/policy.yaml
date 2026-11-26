@@ -1,0 +1,76 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: flux-managed
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: governance
+  annotations:
+    policies.kyverno.io/title: Workloads must be managed by Flux
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Workload-rendering resources must carry
+      `app.kubernetes.io/managed-by: flux` (the upstream Flux label) OR
+      have an ownerReference pointing at a HelmRelease / Kustomization.
+      Direct kubectl apply is rejected — IaC-first per
+      docs/INVIOLABLE-PRINCIPLES.md #3.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs", "cronjobs"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["services"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ingresses"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco', 'cnpg', 'shared-data', 'powerdns-admin', 'trivy-system'])"
+    - name: exclude-cnpg-operator-objects
+      expression: "object.metadata.?labels.orValue({})[?'app.kubernetes.io/managed-by'].orValue('') != 'cloudnative-pg'"
+    - name: exclude-organization-namespaces
+      expression: "!('openova.io/organization' in namespaceObject.?metadata.?labels.orValue({}))"
+    - name: exclude-vcluster-cidr-probe
+      expression: "!(object.kind == 'Service' && object.metadata.?name.orValue('').startsWith('test-service-delete-me-'))"
+    - name: exclude-helm-hooks
+      expression: "!('helm.sh/hook' in object.metadata.?annotations.orValue({}))"
+  variables:
+    - name: labels
+      expression: object.metadata.?labels.orValue({})
+    - name: crossplaneRevisionLabelled
+      expression: >-
+        object.?spec.?template.?metadata.?labels[?'pkg.crossplane.io/revision'].orValue('') != '' ||
+        object.?spec.?selector[?'pkg.crossplane.io/revision'].orValue('') != ''
+    - name: crossplaneOwnerKinds
+      expression: >-
+        object.metadata.?ownerReferences.orValue([]).filter(r,
+        r.?controller.orValue(false) == true && r.?apiVersion.orValue('').startsWith('pkg.crossplane.io/')).map(r,
+        r.?kind.orValue(''))
+  validations:
+    - expression: >-
+        variables.labels[?'app.kubernetes.io/managed-by'].orValue('') == 'flux' ||
+        variables.labels[?'helm.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        variables.labels[?'kustomize.toolkit.fluxcd.io/name'].orValue('') != '' ||
+        (variables.crossplaneRevisionLabelled && size(variables.crossplaneOwnerKinds) > 0 &&
+        variables.crossplaneOwnerKinds.all(k, k in ['ProviderRevision', 'FunctionRevision']))
+      messageExpression: >-
+        object.kind + '/' + object.metadata.name + ' is not Flux-managed. Add label
+        `app.kubernetes.io/managed-by: flux` on metadata.labels OR attach an
+        ownerReference to a HelmRelease / Kustomization.'

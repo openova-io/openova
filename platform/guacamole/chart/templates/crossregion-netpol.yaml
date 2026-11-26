@@ -1,0 +1,45 @@
+{{- /*
+Cross-region reachability of the access controller (#5358, ADR-0033 decision
+A21): admits the PEER region's sign-on gate pods to the controller's port 8080,
+additive to the namespace's default deny. A k8s NetworkPolicy cannot admit a
+ClusterMesh peer: Cilium AND-injects the local cluster into every selector it
+derives from one, and an ipBlock is inert (#4656 / #4846 / #4854). Rendered in
+both regions, so a role flip needs no policy change. The gate is in namespace
+oidc-gate, so the namespace key is named: fromEndpoints is otherwise narrowed
+to this policy's namespace (#4854). Gated on a peer cluster and on cilium.io/v2.
+*/ -}}
+{{- $a := .Values.access | default dict -}}
+{{- $cr := $a.crossRegion | default dict -}}
+{{- $peers := $cr.peerClusters | default list -}}
+{{- if and $a.enabled $cr.enabled (gt (len $peers) 0) (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: access-controller-crossregion-ingress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-guacamole.controllerSelectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - "oidc-gate"
+          matchLabels:
+            app.kubernetes.io/name: bp-oidc-gate
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+{{- end }}

@@ -1331,8 +1331,8 @@ def run_midrelease_case(name, case, keep, base):
         v = commit_on(baseline, "deploy(%s): bump chart version -> %s (simulated)" % (umbrella_name, umbrella_next),
                       chart_version(UMBRELLA_PATH, umbrella_next))
         print("    window 1: main holds %s %s, its kit pin not yet moved" % (umbrella_name, umbrella_next))
-        expect("main itself: the full pin audit sees the drift",
-               "bash scripts/check-bootstrap-kit-pin-sync.sh", 1, "DRIFT %s" % umbrella_name)
+        expect("main itself: the full pin audit sees the drift, in flight since its commit is seconds old (FND-045)",
+               "bash scripts/check-bootstrap-kit-pin-sync.sh", 0, "IN FLIGHT %s: chart=%s" % (umbrella_name, umbrella_next))
         commit_on(v, "change: touches no pin (simulated pull request)", no_pin_change)
         expect("a change that touches no pin: the drift is inherited",
                pin_audit_cmd("HEAD^1"), 0, "INHERITED %s" % umbrella_name)

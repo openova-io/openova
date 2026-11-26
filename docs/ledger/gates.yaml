@@ -129,12 +129,13 @@ checks:
 - id: ACC-G13
   title: Grant life cycle from objects
   owner: ACC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Grant life cycle from objects
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g13.go
   delivered_by: ACC-103
 - id: ACC-G14
   title: Credential issue is bound to the session identity
@@ -1921,12 +1922,13 @@ checks:
 - id: NET-G17
   title: A managed cluster passes the conformance profile of its class
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A managed cluster passes the conformance profile of its class.
+  implementation: tests/acceptance/sovereign/internal/suite/check_cluster_class.go
   delivered_by: NET-322
 - id: NET-G18
   title: Full-size transfers between workers over the node network

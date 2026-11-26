@@ -59,7 +59,7 @@ spec:
       # disable-tuf so the webhook boots without dialing sigstore's public
       # TUF CDN (#5017 — both denied/impossible under cutover step-08
       # deny-egress; proven live on hw242).
-      version: 1.0.2
+      version: 1.0.3
       sourceRef:
         kind: HelmRepository
         name: bp-sigstore

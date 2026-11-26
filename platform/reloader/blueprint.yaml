@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-reloader
 spec:
-  version: 1.0.5
+  version: 1.0.6
   visibility: unlisted
   class: platform-component
   lifecycle: experimental

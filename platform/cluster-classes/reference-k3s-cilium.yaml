@@ -1,0 +1,20 @@
+name: reference-k3s-cilium
+kind: reference
+provider: any
+distribution: k3s
+mayHostControlPlane: true
+capabilities:
+  policy.k8s: true
+  policy.cilium: true
+  policy.l7: true
+  policy.fqdn: true
+  dataplane.kubeProxyFree: true
+  gateway.cilium: true
+  gateway.hostPort: true
+  mesh.cilium: true
+  encryption.wireguard: true
+  observability.hubble: true
+  node.daemonSets: true
+  lb.noNodePort: true
+  cilium.platformOwned: true
+notes: k3s with the platform's own Cilium (ADR-0019). Every region of the Sovereign's control plane runs this class.

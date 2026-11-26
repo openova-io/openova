@@ -55,7 +55,10 @@ SUITES=(
   "networkpolicy-present baseline/14-networkpolicy-present.yaml"
   "otel-injected baseline/15-otel-injected.yaml"
   "backup-configured baseline/20-backup-configured.yaml"
+  "stamp-cilium-enforced-label mutate/00-stamp-cilium-enforced-label.yaml"
   "inject-gitea-source-secretref mutate/01-inject-gitea-source-secretref.yaml"
+  "app-label-mutate baseline/21-app-label-mutate.yaml"
+  "flux-managed baseline/10-flux-managed.yaml"
 )
 
 # A suite whose copy holds more than one policy is kept current by its own
