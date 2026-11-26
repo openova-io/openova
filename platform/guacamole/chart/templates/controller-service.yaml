@@ -1,0 +1,31 @@
+{{- /*
+The Service access-controller, port 8080 named http, in every region with
+access.enabled (decision A21). With access.crossRegion on it is a ClusterMesh
+global Service of which only the primary exports backends (shared "true"); the
+secondary runs no controller and reaches the primary's.
+*/ -}}
+{{- if .Values.access.enabled }}
+{{- $cr := .Values.access.crossRegion | default dict }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: access-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+  {{- if $cr.enabled }}
+  annotations:
+    # single-region backend: only the primary runs the controller (decision A21).
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: {{ eq (include "bp-guacamole.crossRegionRole" .) "primary" | quote }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "bp-guacamole.controllerSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+{{- end }}
