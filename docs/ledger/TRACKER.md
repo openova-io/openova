@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T12:30:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-26T12:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:27 | [#8864](https://github.com/openova-io/openova/pull/8864) | #7087 | docs(ledger): plan update |
+| 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
 | 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:53 | [#8828](https://github.com/openova-io/openova/pull/8828) | #7087 | docs(ledger): plan update |
 | 2026-11-25T14:35 | [#8827](https://github.com/openova-io/openova/pull/8827) | #8825 | refactor(kyverno): five validate policies rewritten in place |
-| 2026-11-25T13:43 | [#8824](https://github.com/openova-io/openova/pull/8824) | #7087 | docs(ledger): plan update |
-| 2026-11-25T20:19 | [#8822](https://github.com/openova-io/openova/pull/8822) | #8819 | feat(openbao): the kit runs a restore drill that reads a can |
 
 ---
 
