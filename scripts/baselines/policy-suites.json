@@ -2,7 +2,6 @@
   "allow": [],
   "counts": {
     "policy_checks_without_suite": {
-      "flux-managed": 1,
       "useraccess-boundary": 1
     }
   },

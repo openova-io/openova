@@ -1,0 +1,17 @@
+# The labels of the namespaces of resources.yaml: acme is an Organization's
+# namespace (the org-controller stamps openova.io/organization on it).
+# Measured with kyverno apply (CLI v1.19.2) on the legacy render: without
+# this file the Job acme/unlabelled-job is denied, with it it is excluded.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+namespaces:
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: acme
+      labels:
+        openova.io/organization: acme
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: app-prod
