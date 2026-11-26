@@ -1,169 +1,74 @@
 #!/usr/bin/env bash
-# bp-guacamole — cross-region singleton render audit (#5358).
+# bp-guacamole — cross-region render test (#5358, ADR-0033 decision A21).
 #
-# THE DEFECT THIS GUARDS
-# ──────────────────────────────────────────────────────────────────────────
-# Guacamole keeps its REST session in a per-Pod IN-MEMORY HashTokenSessionMap
-# (there is no shared-session option upstream). Until 0.2.36 the bootstrap-kit
-# installed this chart identically on EVERY region's control plane, so a
-# 2-region Sovereign ran TWO independent Guacamoles behind ONE shared wildcard
-# VIP. A browser opens several parallel HTTP/1.1 connections per page load and
-# the VIP spreads them across both regions, so `POST /api/tokens` was minted by
-# one region's Pod and the very next `GET …/connectionGroups/ROOT/tree` landed
-# on the other, which had never seen the token → 403 PERMISSION_DENIED.
+# Slot 52 installs the chart in every region; crossRegion.role tells a region
+# whether it is the primary. Since ACC-102 the chart renders only the
+# bootstrap-owned Application; it has no cross-region policy until ACC-103
+# adds the one of the access controller.
 #
-# The SPA's only error handler for that call is `requestService.DIE`, so
-# `rootConnectionGroups` stays null, `isLoaded()` never turns true, and
-# home.html keeps `class="home-view view loading"` — whose CSS is
-# `.loading * { visibility: hidden }`. Every element stays in the DOM but
-# invisible: the reported BLANK page whose innerText is pure whitespace
-# (UAT rows 35 / R9).
+# Cases (every one with the cilium.io/v2 and apps.openova.io/v1 APIs, a peer
+# cluster, the slot's bootstrapOwned values, and the removed web application's
+# switches set, which on the chart before ACC-102 rendered its workloads, its
+# Service stub and the CiliumNetworkPolicy):
+#   1. enabled + role=primary   — exactly the Application, no CiliumNetworkPolicy
+#   2. enabled + role=secondary — no object: the secondary does not self-register
+#   3. disabled + role=secondary — exactly the Application: role counts only when enabled
+#   4. enabled + role=standby   — the render fails and names the role
 #
-# Proven live on hw292 (dep 1c56518035a83e03) as a control: ONE token minted on
-# region-A's Pod returned 200 on region-A and 403 PERMISSION_DENIED on
-# region-B's Pod in the same instant.
-#
-# The load-bearing assertion is CASE 3: a `secondary` region must render NO
-# webapp Deployment, so its `guacamole-server` Service has ZERO local backends
-# and `service.cilium.io/affinity: local` falls through the ClusterMesh to the
-# primary's singleton (ADR-0001 §11 — ONE Guacamole per Sovereign).
-#
-# VACUITY
-# ──────────────────────────────────────────────────────────────────────────
-# Case 3 fails against the pre-fix chart: origin/main has no `crossRegion`
-# seam at all, so `--set crossRegion.role=secondary` is inert there and the
-# webapp Deployment renders anyway. Case 1 is the paired non-regression check
-# (the default render must carry NO mesh annotations), so the guard cannot be
-# satisfied by simply always-suppressing or always-annotating.
-#
-# Cases:
-#   1. Default (crossRegion.enabled=false) — NO mesh annotations, workloads present
-#   2. enabled + role=primary  — global/shared=true, workloads present, CNP present
-#   3. enabled + role=secondary — webapp/guacd/CNPG ABSENT, Service present, shared=false
-#   4. peerClusters empty      — no CiliumNetworkPolicy rendered
-#   5. invalid role            — render fails fast
+# Each case compares the full list of rendered objects, "<kind> <namespace>/<name>".
 
 set -euo pipefail
 
 chart_dir="$(cd "$(dirname "$0")/.." && pwd)"
-helm="${HELM_BIN:-helm}"
-"$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+if [ -z "$(ls -A "$chart_dir/charts" 2>/dev/null)" ]; then
+  helm dependency build "$chart_dir" > /dev/null || { echo "FAIL: helm dependency build failed: nothing was rendered"; exit 1; }
+fi
 
 base=(
-  --set guacamole.enabled=true
-  --set guacamole.httproute.hostname=guac.smoke.omani.works
-  --set guacamole.oidc.issuer=https://keycloak.smoke.omani.works/realms/ops
+  --namespace guacamole
   --api-versions cilium.io/v2
-  --api-versions postgresql.cnpg.io/v1
+  --api-versions apps.openova.io/v1
+  --set bootstrapOwned.enabled=true
+  --set bootstrapOwned.helmRelease.name=bp-guacamole
+  --set guacamole.enabled=true
+  --set guacamole.httproute.hostname=guacamole.smoke.omani.works
+  --set guacamole.oidc.issuer=https://auth.smoke.omani.works/realms/sovereign
 )
 
-# Extract the resource block for `kind: <k>` named <n> from a render.
-# Uses herestrings throughout — a `grep -q` on a pipe closes it and kills the
-# producer with SIGPIPE 141, which `set -o pipefail` turns into a false FAIL
-# (the #5531/#5537 catalog-wide class).
-svc_block() {
-  awk '/^---$/{f=0} /^# Source: bp-guacamole\/templates\/guacamole-service.yaml$/{f=1} f' <<<"$1"
+# render <case> <want> <helm args...>: the full list of objects is <want> ("" = no object).
+render() {
+  local name="$1" want="$2" got n
+  shift 2
+  helm template guacamole "$chart_dir" "${base[@]}" "$@" > "$TMP/out.yaml"
+  got="$(yq -N '.kind + " " + .metadata.namespace + "/" + .metadata.name' "$TMP/out.yaml")"
+  n="$(grep -c '^kind:' "$TMP/out.yaml" || true)"
+  if [ "$got" != "$want" ] || [ "$n" != "$(printf '%s' "$want" | grep -c .)" ]; then
+    echo "FAIL: $name renders $n object(s) [$got], want [$want]"
+    exit 1
+  fi
+  echo "PASS: $name renders [$want]"
 }
 
-# ── Case 1: default render carries NO mesh annotations ──────────────────────
-echo "[bp-guacamole] Case 1: default (crossRegion off) — no mesh annotations"
-out=$("$helm" template smoke "$chart_dir" "${base[@]}" 2>&1)
-if grep -q "service.cilium.io/global" <<<"$out"; then
-  echo "FAIL: default render carries service.cilium.io/global — single-region Sovereigns must be untouched"
-  exit 1
-fi
-if ! grep -qE "^  name: guacamole-server$" <<<"$(awk '/^kind: Deployment$/{f=1} /^---$/{f=0} f' <<<"$out")"; then
-  echo "FAIL: default render is missing the guacamole-server Deployment"
-  exit 1
-fi
-echo "[bp-guacamole] Case 1: PASS"
+render "case 1, crossRegion primary with a peer" "Application guacamole/guacamole" \
+  --set crossRegion.enabled=true --set crossRegion.role=primary --set 'crossRegion.peerClusters={peer-mesh-b}'
+render "case 2, crossRegion secondary with a peer" "" \
+  --set crossRegion.enabled=true --set crossRegion.role=secondary --set 'crossRegion.peerClusters={peer-mesh-a}'
+render "case 3, crossRegion off, role secondary" "Application guacamole/guacamole" \
+  --set crossRegion.enabled=false --set crossRegion.role=secondary
 
-# ── Case 2: primary exports its backends and keeps the full workload set ────
-echo "[bp-guacamole] Case 2: crossRegion primary — global+shared, workloads present"
-out=$("$helm" template smoke "$chart_dir" "${base[@]}" \
-  --set crossRegion.enabled=true --set crossRegion.role=primary \
-  --set 'crossRegion.peerClusters={peer-mesh-b}' 2>&1)
-svc=$(svc_block "$out")
-for want in 'service.cilium.io/global: "true"' 'service.cilium.io/shared: "true"' 'service.cilium.io/affinity: "local"'; do
-  if ! grep -qF -- "$want" <<<"$svc"; then
-    echo "FAIL: primary guacamole-server Service missing [$want]"
-    exit 1
-  fi
-done
-if ! grep -qE "^  name: guacamole-server$" <<<"$(awk '/^kind: Deployment$/{f=1} /^---$/{f=0} f' <<<"$out")"; then
-  echo "FAIL: primary region must still run the webapp Deployment"
+# Case 4: an unknown role fails the render and names it.
+if helm template guacamole "$chart_dir" "${base[@]}" \
+    --set crossRegion.enabled=true --set crossRegion.role=standby > /dev/null 2> "$TMP/standby.err"; then
+  echo "FAIL: case 4, crossRegion.role=standby rendered instead of failing"
   exit 1
 fi
-if ! grep -q "kind: CiliumNetworkPolicy" <<<"$out"; then
-  echo "FAIL: primary region did not render the cross-region CiliumNetworkPolicy"
+if ! grep -qF 'invalid crossRegion.role "standby"' "$TMP/standby.err"; then
+  echo "FAIL: case 4, the render failed without naming the role: $(cat "$TMP/standby.err")"
   exit 1
 fi
-# The CNP must name the PEER cluster and the gate's own namespace — a rule that
-# omits either is silently narrowed to nothing (the #4854 row 67 L2 trap).
-cnp=$(awk '/^---$/{f=0} /^# Source: bp-guacamole\/templates\/crossregion-netpol.yaml$/{f=1} f' <<<"$out")
-for want in 'io.cilium.k8s.policy.cluster' '- "peer-mesh-b"' '- "oidc-gate"' 'app.kubernetes.io/name: bp-oidc-gate'; do
-  if ! grep -qF -- "$want" <<<"$cnp"; then
-    echo "FAIL: cross-region CNP missing [$want]"
-    exit 1
-  fi
-done
-echo "[bp-guacamole] Case 2: PASS"
+echo "PASS: case 4, crossRegion.role=standby fails the render and names the role"
 
-# ── Case 3: THE LOAD-BEARING ONE — secondary renders no serving workload ────
-echo "[bp-guacamole] Case 3: crossRegion secondary — zero local backends"
-out=$("$helm" template smoke "$chart_dir" "${base[@]}" \
-  --set crossRegion.enabled=true --set crossRegion.role=secondary \
-  --set 'crossRegion.peerClusters={peer-mesh-a}' 2>&1)
-
-# (a) NO Deployment of any kind — neither webapp nor guacd.
-if grep -q "^kind: Deployment$" <<<"$out"; then
-  echo "FAIL: the secondary region rendered a Deployment. Its guacamole-server"
-  echo "      Service must have ZERO local backends, otherwise the shared VIP"
-  echo "      again splits one browser session across two in-memory"
-  echo "      HashTokenSessionMaps and the SPA renders the #5358 blank page."
-  grep -B2 -A4 "^kind: Deployment$" <<<"$out" | head -20
-  exit 1
-fi
-# (b) NO second permission store.
-if grep -q "^kind: Cluster$" <<<"$out"; then
-  echo "FAIL: the secondary region rendered its own CNPG permission store —"
-  echo "      ADR-0001 §11 allows exactly ONE Guacamole per Sovereign."
-  exit 1
-fi
-# (c) but the Service MUST exist — it is the mesh stub the peer merges with.
-svc=$(svc_block "$out")
-if [ -z "$svc" ]; then
-  echo "FAIL: the secondary region must still render the guacamole-server Service —"
-  echo "      Cilium merges ClusterMesh global Services by name+namespace, so the"
-  echo "      name has to exist in every participating cluster."
-  exit 1
-fi
-for want in 'service.cilium.io/global: "true"' 'service.cilium.io/shared: "false"'; do
-  if ! grep -qF -- "$want" <<<"$svc"; then
-    echo "FAIL: secondary guacamole-server Service missing [$want]"
-    exit 1
-  fi
-done
-echo "[bp-guacamole] Case 3: PASS"
-
-# ── Case 4: no peers → no CNP (single-region byte-identity) ─────────────────
-echo "[bp-guacamole] Case 4: empty peerClusters — no CiliumNetworkPolicy"
-out=$("$helm" template smoke "$chart_dir" "${base[@]}" \
-  --set crossRegion.enabled=true --set crossRegion.role=primary 2>&1)
-if grep -q "kind: CiliumNetworkPolicy" <<<"$out"; then
-  echo "FAIL: rendered a cross-region CNP with an empty peerClusters list"
-  exit 1
-fi
-echo "[bp-guacamole] Case 4: PASS"
-
-# ── Case 5: an unknown role must fail the render, never render silently ─────
-echo "[bp-guacamole] Case 5: invalid crossRegion.role fails fast"
-if "$helm" template smoke "$chart_dir" "${base[@]}" \
-    --set crossRegion.enabled=true --set crossRegion.role=standby >/dev/null 2>&1; then
-  echo "FAIL: crossRegion.role=standby rendered instead of failing — a typo'd role"
-  echo "      would silently fall back to a full second Guacamole."
-  exit 1
-fi
-echo "[bp-guacamole] Case 5: PASS"
-
-echo "[bp-guacamole] cross-region render audit: ALL PASS"
+echo "[bp-guacamole] cross-region render test: ALL PASS"

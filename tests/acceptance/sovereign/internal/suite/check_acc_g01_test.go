@@ -34,15 +34,12 @@ func init() {
 	proxy := func(env ...string) string {
 		return accGateFixture("catalyst-system", "k8s-ws-proxy", "k8s-ws-proxy", nil, env...)
 	}
-	// Region a runs the gateway and its database; region b, the mesh secondary, runs neither.
+	// Neither region runs the web application or a database (ACC-102).
 	with := func(changes ...string) map[string]string {
 		m := map[string]string{
 			"* deployments oidc-gate":                 accGateGate(accGateOldUpstream, "--allowed-group=sovereign-admins"),
-			"a clusters.postgresql.cnpg.io guacamole": accGateCluster("guacamole-pg", "guacamole-pg-1"),
-			"a deployments guacamole":                 accGateFixture("guacamole", "guacamole-server", "guacamole", nil),
-			"a exec guacamole-pg-1":                   "0/0\n",
-			"b clusters.postgresql.cnpg.io guacamole": kubeList(),
-			"b deployments guacamole":                 kubeList(),
+			"* clusters.postgresql.cnpg.io guacamole": kubeList(),
+			"* deployments guacamole":                 kubeList(),
 			"* daemonsets catalyst-system":            proxy(append(secret, "ALLOWED_NAMESPACES", "catalyst-system")...),
 		}
 		for i := 0; i+1 < len(changes); i += 2 {
@@ -60,12 +57,12 @@ func init() {
 	fakeAnswers["accgate-gate-admins-and-viewers"] = with("* deployments oidc-gate", accGateGate(accGateOldUpstream, "--allowed-group=sovereign-admins", "--allowed-group=sovereign-viewers"))
 	fakeAnswers["accgate-gate-env-group"] = with("* deployments oidc-gate", accGateFixture("oidc-gate", "oidc-gate-guacamole", "oauth2-proxy", []string{"--allowed-group=sovereign-admins"}, "OAUTH2_PROXY_ALLOWED_GROUPS", "sovereign-admins,sovereign-viewers"))
 	fakeAnswers["accgate-gate-no-container"] = with("* deployments oidc-gate", accGateFixture("oidc-gate", "oidc-gate-guacamole", "sidecar", []string{"--allowed-group=sovereign-admins"}))
-	fakeAnswers["accgate-db-permission"] = with("a exec guacamole-pg-1", "6/0\n")
-	fakeAnswers["accgate-db-node"] = with("a exec guacamole-pg-1", "0/1\n")
-	fakeAnswers["accgate-db-no-primary"] = with("a clusters.postgresql.cnpg.io guacamole", accGateCluster("guacamole-pg", ""))
-	fakeAnswers["accgate-db-webapp-only"] = with("a clusters.postgresql.cnpg.io guacamole", kubeList())
-	fakeAnswers["accgate-db-other-cluster"] = with("b clusters.postgresql.cnpg.io guacamole", accGateCluster("other-pg", "other-pg-1"))
-	fakeAnswers["accgate-db-exec-fails"] = with("a exec guacamole-pg-1", "")
+	fakeAnswers["accgate-store-webapp"] = with("a deployments guacamole", accGateFixture("guacamole", "guacamole-server", "guacamole", nil))
+	fakeAnswers["accgate-store-database"] = with("a clusters.postgresql.cnpg.io guacamole", accGateCluster("guacamole-pg", "guacamole-pg-1"))
+	fakeAnswers["accgate-store-other-cluster"] = with("b clusters.postgresql.cnpg.io guacamole", accGateCluster("other-pg", "other-pg-1"))
+	fakeAnswers["accgate-store-other-deployment"] = with("a deployments guacamole", accGateFixture("guacamole", "access-controller", "controller", nil))
+	fakeAnswers["accgate-store-unlisted"] = with("* clusters.postgresql.cnpg.io guacamole", "", "a clusters.postgresql.cnpg.io guacamole", kubeList())
+	fakeAnswers["accgate-store-not-served"] = with("* clusters.postgresql.cnpg.io guacamole", fakeNotServed)
 	fakeAnswers["accgate-proxy-open"] = with("* daemonsets catalyst-system", proxy(secret...))
 	fakeAnswers["accgate-proxy-wide"] = with("* daemonsets catalyst-system", proxy(append(secret, "ALLOWED_NAMESPACES", "catalyst-system,kube-system")...))
 	fakeAnswers["accgate-proxy-no-shared-secret"] = with("* daemonsets catalyst-system", proxy())
@@ -88,12 +85,12 @@ func TestAccessGateCheck(t *testing.T) {
 		"the gate admits a second group":        {"accgate-gate-admins-and-viewers", "admits the groups [sovereign-admins,sovereign-viewers]"},
 		"the env var adds a group":              {"accgate-gate-env-group", "admits the groups [sovereign-admins,sovereign-admins,sovereign-viewers]"},
 		"the gate has no proxy container":       {"accgate-gate-no-container", "oidc-gate/oidc-gate-guacamole has no container oauth2-proxy"},
-		"the group holds a system permission":   {"accgate-db-permission", "holds 6/0 (system permissions/sovereign-node connections), want 0/0"},
-		"the node connection is still there":    {"accgate-db-node", "holds 0/1"},
-		"the Cluster has no primary":            {"accgate-db-no-primary", "has no current primary"},
-		"the webapp runs without its Cluster":   {"accgate-db-webapp-only", "the Deployment guacamole-server is present=true, but no Cluster guacamole-pg"},
-		"another Cluster and no gateway":        {"accgate-db-other-cluster", "holds 1 Cluster(s) and the Deployment guacamole-server is present=false"},
-		"the database cannot be read":           {"accgate-db-exec-fails", "exec"},
+		"the web application is still there":    {"accgate-store-webapp", "region region-a: namespace guacamole holds the Deployment guacamole-server: true, and the CloudNativePG Clusters []; want neither"},
+		"the database is still there":           {"accgate-store-database", "region region-a: namespace guacamole holds the Deployment guacamole-server: false, and the CloudNativePG Clusters [guacamole-pg]; want neither"},
+		"another Cluster is there":              {"accgate-store-other-cluster", "region region-b: namespace guacamole holds the Deployment guacamole-server: false, and the CloudNativePG Clusters [other-pg]; want neither"},
+		"another Deployment is there":           {"accgate-store-other-deployment", ""},
+		"the Clusters cannot be listed":         {"accgate-store-unlisted", "[region-b] kubectl get clusters.postgresql.cnpg.io"},
+		"the Cluster kind is not served":        {"accgate-store-not-served", "doesn't have a resource type"},
 		"the proxy execs anywhere":              {"accgate-proxy-open", "catalyst-system/k8s-ws-proxy execs into namespaces \"\", want \"catalyst-system\""},
 		"the proxy allows a second namespace":   {"accgate-proxy-wide", "\"catalyst-system,kube-system\""},
 		"the proxy has no shared-secret leg":    {"accgate-proxy-no-shared-secret", ""},
@@ -117,11 +114,16 @@ func TestAccessGateCheck(t *testing.T) {
 	}
 	a, b := r.run.Steps[0], r.run.Steps[1]
 	if a.Journey != accessGateID || a.ID != "ACC-G01.1" || a.Status != Pass || a.Evidence["gate"] != "allowed-group sovereign-admins" ||
-		a.Evidence["database"] != "0/0" || a.Evidence["proxy"] != "ALLOWED_NAMESPACES=catalyst-system" {
+		a.Evidence["store"] != "no web application, no database" || a.Evidence["proxy"] != "ALLOWED_NAMESPACES=catalyst-system" {
 		t.Errorf("the step of region-a does not hold the evidence: %+v", a)
 	}
-	if b.ID != "ACC-G01.2" || b.Status != Pass || b.Evidence["database"] != "no gateway" {
+	if b.ID != "ACC-G01.2" || b.Status != Pass || b.Evidence["store"] != "no web application, no database" {
 		t.Errorf("the step of region-b does not hold the evidence: %+v", b)
+	}
+	// The evidence of a FAIL names what is still there.
+	r = runCheck(t, "accgate-store-database", accessGateCheck{}, &CheckContext{})
+	if got := r.run.Steps[0].Evidence["store"]; got != "Deployment guacamole-server present=false, Clusters [guacamole-pg]" {
+		t.Errorf("the evidence of region-a with the database left: %q", got)
 	}
 	// Without a region the check fails; it never passes on nothing.
 	r.run.Steps, r.run.Checks = nil, nil

@@ -769,7 +769,6 @@ spec:
                   - chargeback
                   - gitea
                   - grafana
-                  - guacamole
                   - harbor
                   - keycloak
                   - kube-system
@@ -794,7 +793,6 @@ spec:
                   - chargeback
                   - gitea
                   - grafana
-                  - guacamole
                   - harbor
                   - keycloak
                   - kube-system
@@ -833,7 +831,6 @@ spec:
                   - chargeback
                   - gitea
                   - grafana
-                  - guacamole
                   - harbor
                   - keycloak
                   - kube-system
