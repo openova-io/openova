@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-sigstore
 spec:
-  version: 1.0.2
+  version: 1.0.3
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
