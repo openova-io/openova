@@ -5,7 +5,6 @@
       "platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml": 1,
       "platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml": 1,
       "platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml": 1,
-      "platform/kyverno-policies/chart/templates/baseline/21-app-label-mutate.yaml": 1,
       "platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml": 1,
       "products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml": 19
     }
