@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T17:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-26T18:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -310,6 +310,7 @@ flowchart LR
 | 2026-11-26T17:36 | [#8897](https://github.com/openova-io/openova/pull/8897) | #7087 | docs(ledger): plan update |
 | 2026-11-26T17:14 | [#8896](https://github.com/openova-io/openova/pull/8896) | #8894 | reloader and newapi set container security fields at the pod |
 | 2026-11-26T15:49 | [#8895](https://github.com/openova-io/openova/pull/8895) | #7087 | docs(ledger): plan update |
+| 2026-11-26T17:58 | [#8894](https://github.com/openova-io/openova/pull/8894) | #8788 | fix(kit): every workload of the kit passes the enforced poli |
 | 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:42 | [#8891](https://github.com/openova-io/openova/pull/8891) | #8885 | fix(ci): the pin-sync audit names the release writer for a d |
 | 2026-11-26T16:16 | [#8890](https://github.com/openova-io/openova/pull/8890) | #8887 | fix(release): a chart version the release writer publishes i |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T11:36 | [#8855](https://github.com/openova-io/openova/pull/8855) | #7087 | docs(ledger): result of the architect action CLD-166 (CLD-16 |
 | 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
 | 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
-| 2026-11-26T00:20 | [#8852](https://github.com/openova-io/openova/pull/8852) | #8772 | The OpenBao chart's CSI provider DaemonSet declares probes,  |
 
 ---
 
