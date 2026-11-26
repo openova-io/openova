@@ -55,6 +55,7 @@ SUITES=(
   "networkpolicy-present baseline/14-networkpolicy-present.yaml"
   "otel-injected baseline/15-otel-injected.yaml"
   "backup-configured baseline/20-backup-configured.yaml"
+  "stamp-cilium-enforced-label mutate/00-stamp-cilium-enforced-label.yaml"
   "inject-gitea-source-secretref mutate/01-inject-gitea-source-secretref.yaml"
 )
 
