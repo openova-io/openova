@@ -195,3 +195,54 @@ func TestASecondDefinitionIsAFinding(t *testing.T) {
 		t.Fatalf("a copy: findings %v, error %v", f, err)
 	}
 }
+
+// workflowWith writes the repository's workflow with old replaced by new, once.
+func workflowWith(t *testing.T, old, new string) string {
+	t.Helper()
+	text := repoFile(t, workflowRel)
+	if strings.Count(text, old) != 1 {
+		t.Fatalf("%s holds %q %d times, want once", workflowRel, old, strings.Count(text, old))
+	}
+	return writeTemp(t, "blueprint-release.yaml", strings.Replace(text, old, new, 1))
+}
+
+// The commit step as it was before FND-046: a retry writes the version onto any main.
+func TestALockstepOntoAChangedChartIsAFinding(t *testing.T) {
+	needReleaseHelm(t)
+	wf := workflowWith(t, "\n            compare_main\n", "\n            main_same=true\n")
+	code, out := runWith(t, "-checks", "lockstep", "-workflow", wf)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1:\n%s", code, out)
+	}
+	for _, want := range []string{
+		"FAIL lockstep: main changed a template of the chart: main names 1.0.1 over files",
+		"FAIL lockstep: main changed the file:// library the chart packs: main names 1.0.1 over files",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the output names no %q:\n%s", want, out)
+		}
+	}
+}
+
+// A comparison that always finds other files never writes a version.
+func TestALockstepThatNeverWritesIsAFinding(t *testing.T) {
+	needReleaseHelm(t)
+	wf := workflowWith(t, "              0) echo \"main packages", "              0) main_same=false; echo \"main packages")
+	code, out := runWith(t, "-checks", "lockstep", "-workflow", wf)
+	if code != 1 || !strings.Contains(out, "FAIL lockstep: main changed only a file the package leaves out: main names 1.0.0") {
+		t.Fatalf("exit %d, want 1 with a finding of the file the package leaves out:\n%s", code, out)
+	}
+}
+
+// The release writer as it was before FND-046: it writes a version the registry holds.
+func TestABumpOntoAHeldVersionIsAFinding(t *testing.T) {
+	needReleaseHelm(t)
+	wf := workflowWith(t, "while held_version ", "while false && held_version ")
+	code, out := runWith(t, "-checks", "lockstep", "-workflow", wf)
+	if code != 1 || !strings.Contains(out, "FAIL lockstep: the registry holds bp-fx 1.0.0 with other files, and 1.0.1: the release writer wrote 1.0.1; want 1.0.2") {
+		t.Fatalf("exit %d, want 1 with a finding of the held version:\n%s", code, out)
+	}
+	if !strings.Contains(out, "ok   lockstep: the registry holds bp-fx 1.0.0 with other files: the release writer wrote 1.0.1") {
+		t.Errorf("a registry without 1.0.1 must still give 1.0.1:\n%s", out)
+	}
+}
