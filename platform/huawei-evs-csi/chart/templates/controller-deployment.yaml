@@ -79,6 +79,13 @@ spec:
             - "--extra-create-metadata"
             - "--leader-election=true"
             - "--v=2"
+            # Probes on every container (CMP-067): probes-present enforces
+            # after the bootstrap window. Each external sidecar serves
+            # /healthz/leader-election on its --http-endpoint (csi-lib-utils
+            # leaderelection; 200 unless the leader stopped renewing).
+            - "--http-endpoint=:8080"
+          livenessProbe: { httpGet: { path: /healthz/leader-election, port: 8080 }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5 }
+          readinessProbe: { httpGet: { path: /healthz/leader-election, port: 8080 }, periodSeconds: 10, timeoutSeconds: 5 }
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -103,6 +110,9 @@ spec:
             - "--timeout=3m"
             - "--leader-election=true"
             - "--v=2"
+            - "--http-endpoint=:8081"
+          livenessProbe: { httpGet: { path: /healthz/leader-election, port: 8081 }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5 }
+          readinessProbe: { httpGet: { path: /healthz/leader-election, port: 8081 }, periodSeconds: 10, timeoutSeconds: 5 }
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -128,6 +138,9 @@ spec:
             - "--leader-election=true"
             - "--handle-volume-inuse-error=false"
             - "--v=2"
+            - "--http-endpoint=:8082"
+          livenessProbe: { httpGet: { path: /healthz/leader-election, port: 8082 }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5 }
+          readinessProbe: { httpGet: { path: /healthz/leader-election, port: 8082 }, periodSeconds: 10, timeoutSeconds: 5 }
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -154,6 +167,9 @@ spec:
             - "--extra-create-metadata"
             - "--leader-election=true"
             - "--v=2"
+            - "--http-endpoint=:8083"
+          livenessProbe: { httpGet: { path: /healthz/leader-election, port: 8083 }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5 }
+          readinessProbe: { httpGet: { path: /healthz/leader-election, port: 8083 }, periodSeconds: 10, timeoutSeconds: 5 }
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -177,6 +193,10 @@ spec:
           args:
             - "--csi-address=$(ADDRESS)"
             - "--health-port=9809"
+          # Its own listener; /healthz on it asks the driver, and the driver's
+          # container probes that.
+          livenessProbe: { tcpSocket: { port: 9809 }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 5 }
+          readinessProbe: { tcpSocket: { port: 9809 }, periodSeconds: 10, timeoutSeconds: 5 }
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -221,6 +241,12 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 10
             failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9809
+            periodSeconds: 10
+            timeoutSeconds: 10
           volumeMounts:
             - name: socket-dir
               mountPath: /csi

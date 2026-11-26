@@ -255,6 +255,14 @@ gitea:
   deployment:
     annotations:
       secret.reloader.stakater.com/reload: "gitea-admin-secret"
+  # The upstream connection test Pod gitea-test-connection — OFF (CMP-067).
+  # Kit slot 10 enables the release's tests, so helm-controller creates it
+  # after each install and upgrade, and it pulls busybox:latest directly with
+  # no requests, which harbor-proxy-pull, image-tag-pinned and
+  # resource-requests refuse. The chart's own function test
+  # (templates/tests/) stays.
+  test:
+    enabled: false
   # Upstream chart Ingress — DISABLED. Catalyst routes via Cilium Gateway
   # API (see top-level `gateway:` block below). Issue #387.
   ingress:
