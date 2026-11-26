@@ -143,7 +143,7 @@ epics:
 - id: CLD-120
   title: 'Epic: providers route; the console reads the profile'
   wave: W1d
-  packages: [CLD-121, CLD-122, CLD-123, CLD-124]
+  packages: [CLD-121, CLD-122, CLD-125, CLD-123, CLD-124]
 - id: CLD-130
   title: 'Epic: the shared template without provider tests'
   wave: W1d
@@ -251,7 +251,7 @@ epics:
 - id: NET-180
   title: 'Epic: edge pool and a load balancer per region'
   wave: W2
-  packages: [NET-181, NET-182, NET-183, NET-184, NET-186, NET-200]
+  packages: [NET-187, NET-181, NET-182, NET-183, NET-184, NET-186, NET-200]
 - id: NET-220
   title: 'Epic: placement contract without tiers'
   wave: W1d
@@ -303,7 +303,7 @@ epics:
 - id: CMP-090
   title: 'Epic: scanner reports'
   wave: W2
-  packages: [CMP-091, CMP-088, CMP-092, CMP-093]
+  packages: [CMP-089, CMP-091, CMP-088, CMP-092, CMP-093]
 - id: CMP-100
   title: 'Epic: runtime'
   wave: W2
@@ -435,7 +435,7 @@ epics:
 - id: ACC-100
   title: 'Epic: kinds, controller and the fenced pod session (order: ACC-101, ACC-102, ACC-103, ACC-105 and ACC-106 in parallel, ACC-104, ACC-108, ACC-107)'
   wave: W2
-  packages: [ACC-101, ACC-102, ACC-103, ACC-106, ACC-105, ACC-109, ACC-104, ACC-108, ACC-107]
+  packages: [ACC-101, ACC-102, ACC-103, ACC-106, ACC-113, ACC-105, ACC-109, ACC-104, ACC-108, ACC-107]
 - id: ACC-110
   title: 'Epic: recording (order: ACC-111, ACC-112)'
   wave: W2
@@ -7788,6 +7788,33 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: LegacyAliaser and Request.UnmarshalJSON deleted one train after the console change
+- id: CLD-125
+  title: Check CLD-G07 reads the provider packs in the region the API runs in
+  area: CLD
+  epic: CLD-120
+  type: fix
+  wave: W1d
+  size: XS
+  lane: CONTROL
+  depends_on: [CLD-121]
+  after: []
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_providers.go
+  - tests/acceptance/sovereign/internal/suite/check_providers_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Check CLD-G07 reads the provider packs in the region the catalyst-api runs in, as CMP-G02 does, so a region whose platform release is suspended by design is no longer a failure; it still reads the installation documents where they are.
 - id: CLD-131
   title: Provider substitutes move from the template into the modules (pure move)
   area: CLD
@@ -13828,6 +13855,48 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'The owner and every User can sign in while the node that runs a region''s Keycloak is drained for a coordinated reboot: the sign-in no longer depends on the one Keycloak pod of that region. Check INF-G01''s node-reboot run drains that node in each region and signs in during the drain.'
+- id: SEC-062
+  title: Client secrets carry the Sovereign's salt on a Sovereign upgraded in place (SEC-G06)
+  area: SEC
+  epic: null
+  type: fix
+  wave: W0
+  size: S
+  lane: SUBSTRATE
+  depends_on: [SEC-060]
+  after: [FND-011, FND-151, FND-182, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
+  touches:
+  - infra/providers/hetzner/main.tf
+  - infra/providers/huawei/main.tf
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  - infra/providers/_shared/tests/render.tf
+  - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
+  - platform/keycloak/chart/templates/_helpers.tpl
+  - platform/keycloak/chart/values.yaml
+  - platform/keycloak/chart/tests/client-secret-salt.sh
+  - products/catalyst/chart/templates/catalyst-keycloak-credentials-host-bridge.yaml
+  - products/catalyst/chart/values.yaml
+  - products/catalyst/chart/tests/client-secret-salt.sh
+  - clusters/_template/bootstrap-kit/09-keycloak.yaml
+  - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+  - tests/acceptance/sovereign/internal/suite/sec_differ.go
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/acceptance-gate.py
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The client secrets of keycloak-sovereign-realm-config carry the Sovereign''s salt on a Sovereign upgraded in place, not only on a fresh install: the package first finds from the source whether SEC-060''s change reaches only a fresh install, and delivers the rotation for a Sovereign upgraded in place.'
 - id: SEC-071
   title: Ratchet on passwords the provisioning service writes to Git
   area: SEC
@@ -19068,6 +19137,37 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: dnsdist's host port 53 on the edge nodes only, behind each region's balancer with listeners 53/UDP and 53/TCP on node:53; the parent's glue at each edgeAddress; port 53 closed on the general security group; LB-IPAM pool deleted; check NET-G13
+- id: NET-187
+  title: The Sovereign's DNS addresses answer on port 53 (NET-G19)
+  area: NET
+  epic: NET-180
+  type: fix
+  wave: W2
+  size: S
+  lane: SUBSTRATE
+  depends_on: [NET-185]
+  after: [FND-011, FND-182, CLD-023, CLD-090, CLD-131, CLD-132, CLD-133, CLD-185, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-342, SEC-020, SEC-030, SEC-040, SEC-060, SEC-150, SEC-152, SEC-153, SEC-154, NET-010, NET-011, NET-020, NET-031, NET-100, NET-110, NET-190, SVC-040, SVC-041, SVC-130, SVC-220, CTL-041, AIP-201, INF-060, ACC-102]
+  touches:
+  - platform/powerdns/chart/templates/dnsdist.yaml
+  - clusters/_template/bootstrap-kit/11-powerdns.yaml
+  - infra/providers/huawei/main.tf
+  - platform/cilium/chart/templates/sovereign-vip-lb-ipam-pool.yaml
+  - clusters/_template/bootstrap-kit/01-cilium.yaml
+  - infra/providers/_shared/cloudinit-control-plane.tftpl
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Both regions'' DNS addresses of the Sovereign answer on port 53, UDP and TCP, from outside and from a Pod in the cluster: the package first finds from the source and the provider modules why port 53 is not reachable (the provider''s security group, the load balancer''s listener, or dnsdist''s access list) and repairs that.'
 - id: NET-190
   title: Route admission by owner
   area: NET
@@ -26890,6 +26990,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The sovereign-admin console has no Security Lead page and none of its three routes, no regulatory-framework list or chip strip, and no policy mode toggle; the page of one policy asks the API for the violations of that policy only and shows its mode read-only, and the old browser specification has no case for the deleted page or the toggle.
+- id: CMP-023
+  title: The policies route shows the mode the engine carries after the audit window, and CMP-G02 reads namespaced policies
+  area: CMP
+  epic: null
+  type: fix
+  wave: W2
+  size: S
+  lane: CONTROL
+  depends_on: [CMP-021]
+  after: [SVC-040, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075]
+  touches:
+  - products/catalyst/bootstrap/api/internal/compliance/**
+  - products/catalyst/bootstrap/api/internal/handler/compliance.go
+  - products/catalyst/bootstrap/api/internal/handler/policy_mode.go
+  - tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
+  - tests/acceptance/sovereign/internal/suite/check_compliance_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The policies route shows the mode the engine object carries after the audit window flips a policy to enforce: the package first finds from the source which side is stale (the route''s cache or its source of the mode) and repairs it. Check CMP-G02 reads a namespaced policy, named <namespace>/<name>, in its namespace, so the per-Organization policies are compared with their objects.'
 - id: CMP-030
   title: 'Package internal/compliance: types and pure score functions'
   area: CMP
@@ -28124,6 +28254,34 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Scanner operator on the release named in the ticket (before CMP-091 instead if spike CMP-S3 finds no publication date)
+- id: CMP-089
+  title: The trivy operator stays within its memory in every region
+  area: CMP
+  epic: CMP-090
+  type: fix
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SOV-151, SOV-337, SVC-040, SVC-041, SVC-220, CTL-041]
+  touches:
+  - platform/trivy/chart/values.yaml
+  - platform/trivy/chart/tests/**
+  - clusters/_template/bootstrap-kit/30-trivy.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The trivy operator is not killed for memory in any region: the package first finds from the source and the record what differs in the region whose operator restarts (the number of workloads to scan, concurrent scan jobs, the operator''s cache), then sets the limit or the concurrency so the operator stays within its memory, proved by a chart test of the rendered values; the live proof is FND-G04 on the next pair.'
 - id: CMP-091
   title: Scanner kinds in the cache; vulnerabilities by workload
   area: CMP
@@ -37766,6 +37924,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Recordings routes with reviewer rule, own-session rule, write-ahead replay event and verification before the first byte; player page.
+- id: ACC-113
+  title: The sign-in probe no longer expects the removed remote-access web page
+  area: ACC
+  epic: ACC-100
+  type: fix
+  wave: W2
+  size: XS
+  lane: SUBSTRATE
+  depends_on: [ACC-102]
+  after: [FND-036, CTL-348]
+  touches:
+  - scripts/sso-zero-click-probe.mjs
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The sign-in probe of FND-G07 no longer lists the remote-access web application that ACC-102 removed (the row guacamole with its marker /guacamole/); the probe's count of applications and any text that names it follow, so FND-G07 judges only the applications a Sovereign serves.
 - id: ACC-121
   title: Intent routes for targets and grants
   area: ACC
