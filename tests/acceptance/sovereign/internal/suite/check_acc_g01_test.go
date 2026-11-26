@@ -27,6 +27,15 @@ func accGateCluster(name, primary string) string {
 	return kubeList(obj{"metadata": kubeMeta("guacamole", name), "status": obj{"currentPrimary": primary}})
 }
 
+// accGateObject is a list of objects of namespace guacamole with these names.
+func accGateObject(names ...string) string {
+	list := []obj{}
+	for _, n := range names {
+		list = append(list, obj{"metadata": kubeMeta("guacamole", n)})
+	}
+	return kubeList(list...)
+}
+
 const accGateOldUpstream = "--upstream=http://guacamole-server.guacamole.svc.cluster.local:80"
 
 func init() {
@@ -41,6 +50,11 @@ func init() {
 			"* clusters.postgresql.cnpg.io guacamole": kubeList(),
 			"* deployments guacamole":                 kubeList(),
 			"* daemonsets catalyst-system":            proxy(append(secret, "ALLOWED_NAMESPACES", "catalyst-system")...),
+			// Nothing the chart before ACC-102 left; the ConfigMap every namespace holds is not one of them.
+			"* cronjobs guacamole":   kubeList(),
+			"* jobs guacamole":       kubeList(),
+			"* configmaps guacamole": accGateObject("kube-root-ca.crt"),
+			"* secrets guacamole":    kubeList(),
 		}
 		for i := 0; i+1 < len(changes); i += 2 {
 			if m[changes[i]] = changes[i+1]; changes[i+1] == "" {
@@ -68,6 +82,18 @@ func init() {
 	fakeAnswers["accgate-proxy-no-shared-secret"] = with("* daemonsets catalyst-system", proxy())
 	fakeAnswers["accgate-proxy-absent"] = with("* daemonsets catalyst-system", kubeList())
 	fakeAnswers["accgate-proxy-no-container"] = with("* daemonsets catalyst-system", accGateFixture("catalyst-system", "k8s-ws-proxy", "other", nil))
+	// One per kind the chart before ACC-102 leaves on an upgrade in place.
+	fakeAnswers["accgate-left-cronjob"] = with("a cronjobs guacamole", accGateObject("guacamole-bp-guacamole-admin-enroll"))
+	fakeAnswers["accgate-left-job"] = with("b jobs guacamole", accGateObject("guacamole-bp-guacamole-jdbc-seed"))
+	fakeAnswers["accgate-left-configmap"] = with("a configmaps guacamole", accGateObject("kube-root-ca.crt", "guacamole-bp-guacamole-jdbc-seed-scripts"))
+	fakeAnswers["accgate-left-secret"] = with("a secrets guacamole", accGateObject("guacamole-oidc"))
+	fakeAnswers["accgate-left-all"] = with("a cronjobs guacamole", accGateObject("guacamole-bp-guacamole-admin-enroll"),
+		"a jobs guacamole", accGateObject("guacamole-bp-guacamole-jdbc-seed"),
+		"a configmaps guacamole", accGateObject("guacamole-bp-guacamole-jdbc-seed-scripts"),
+		"a secrets guacamole", accGateObject("guacamole-oidc"))
+	fakeAnswers["accgate-left-other-names"] = with("a cronjobs guacamole", accGateObject("guacamole-bp-guacamole-other"),
+		"a secrets guacamole", accGateObject("k8s-ws-proxy-client-tls"))
+	fakeAnswers["accgate-left-unlisted"] = with("* secrets guacamole", "", "b secrets guacamole", kubeList())
 	fakeAnswers["accgate-b-unreachable"] = with("* deployments oidc-gate", "", "a deployments oidc-gate", accGateGate("--allowed-group=sovereign-admins"))
 }
 
@@ -97,6 +123,13 @@ func TestAccessGateCheck(t *testing.T) {
 		"the proxy is absent":                   {"accgate-proxy-absent", "no DaemonSet k8s-ws-proxy in namespace catalyst-system: nothing was measured"},
 		"the proxy has no proxy container":      {"accgate-proxy-no-container", "catalyst-system/k8s-ws-proxy has no container k8s-ws-proxy"},
 		"a region cannot be reached":            {"accgate-b-unreachable", "[region-b] kubectl get deployments"},
+		"the admin-enroll CronJob is left":      {"accgate-left-cronjob", "region region-a: namespace guacamole holds what the chart before ACC-102 left: CronJob guacamole-bp-guacamole-admin-enroll; want none"},
+		"the seed Job is left":                  {"accgate-left-job", "region region-b: namespace guacamole holds what the chart before ACC-102 left: Job guacamole-bp-guacamole-jdbc-seed; want none"},
+		"the seed ConfigMap is left":            {"accgate-left-configmap", "region region-a: namespace guacamole holds what the chart before ACC-102 left: ConfigMap guacamole-bp-guacamole-jdbc-seed-scripts; want none"},
+		"the kept Secret is left":               {"accgate-left-secret", "region region-a: namespace guacamole holds what the chart before ACC-102 left: Secret guacamole-oidc; want none"},
+		"all four are left":                     {"accgate-left-all", "left: CronJob guacamole-bp-guacamole-admin-enroll, Job guacamole-bp-guacamole-jdbc-seed, ConfigMap guacamole-bp-guacamole-jdbc-seed-scripts, Secret guacamole-oidc; want none"},
+		"other names of those kinds are there":  {"accgate-left-other-names", ""},
+		"the Secrets cannot be listed":          {"accgate-left-unlisted", "[region-a] kubectl get secrets"},
 	} {
 		r := runCheck(t, c.scenario, accessGateCheck{}, &CheckContext{})
 		got := r.run.Checks[0]
@@ -114,7 +147,8 @@ func TestAccessGateCheck(t *testing.T) {
 	}
 	a, b := r.run.Steps[0], r.run.Steps[1]
 	if a.Journey != accessGateID || a.ID != "ACC-G01.1" || a.Status != Pass || a.Evidence["gate"] != "allowed-group sovereign-admins" ||
-		a.Evidence["store"] != "no web application, no database" || a.Evidence["proxy"] != "ALLOWED_NAMESPACES=catalyst-system" {
+		a.Evidence["store"] != "no web application, no database" || a.Evidence["proxy"] != "ALLOWED_NAMESPACES=catalyst-system" ||
+		a.Evidence["leftovers"] != "nothing of the earlier chart" {
 		t.Errorf("the step of region-a does not hold the evidence: %+v", a)
 	}
 	if b.ID != "ACC-G01.2" || b.Status != Pass || b.Evidence["store"] != "no web application, no database" {
@@ -124,6 +158,10 @@ func TestAccessGateCheck(t *testing.T) {
 	r = runCheck(t, "accgate-store-database", accessGateCheck{}, &CheckContext{})
 	if got := r.run.Steps[0].Evidence["store"]; got != "Deployment guacamole-server present=false, Clusters [guacamole-pg]" {
 		t.Errorf("the evidence of region-a with the database left: %q", got)
+	}
+	r = runCheck(t, "accgate-left-secret", accessGateCheck{}, &CheckContext{})
+	if got := r.run.Steps[0].Evidence["leftovers"]; got != "left: Secret guacamole-oidc" {
+		t.Errorf("the evidence of region-a with the kept Secret left: %q", got)
 	}
 	// Without a region the check fails; it never passes on nothing.
 	r.run.Steps, r.run.Checks = nil, nil

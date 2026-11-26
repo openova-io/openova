@@ -16,8 +16,9 @@ import (
 // --allowed-group and OAUTH2_PROXY_ALLOWED_GROUPS entries; none admits every realm user) are exactly accessGateGroup;
 // (2) namespace guacamole holds no Deployment guacamole-server and no CloudNativePG Cluster: the web application and
 // its database are removed (ACC-102, ADR-0033 decision A3); (3) the DaemonSet catalyst-system/k8s-ws-proxy has
-// ALLOWED_NAMESPACES=catalyst-system or no SHARED_SECRET_FILE. A part that was not measured fails. The check only
-// reads (kubectl get).
+// ALLOWED_NAMESPACES=catalyst-system or no SHARED_SECRET_FILE; (4) namespace guacamole holds none of
+// accessGateLeftovers, what the chart before ACC-102 left on an upgrade in place. A part that was not measured
+// fails. The check only reads (kubectl get).
 const accessGateID = "ACC-G01"
 
 const (
@@ -26,6 +27,17 @@ const (
 	accessGateWebapp      = "guacamole-server"
 	accessGateAllowed     = "catalyst-system"
 )
+
+// accessGateLeftovers are the objects that the chart before ACC-102 leaves in namespace guacamole on an upgrade in
+// place, because Helm never deletes them: the three hooks of its templates/jdbc-schema-seed-job.yaml and the Secret
+// of its templates/secret-sso-oidc-credentials.yaml (helm.sh/resource-policy: keep). The post-upgrade Job of
+// platform/guacamole/chart/templates/upgrade-cleanup.yaml deletes them.
+var accessGateLeftovers = []struct{ kind, resource, name string }{
+	{"CronJob", "cronjobs", "guacamole-bp-guacamole-admin-enroll"},
+	{"Job", "jobs", "guacamole-bp-guacamole-jdbc-seed"},
+	{"ConfigMap", "configmaps", "guacamole-bp-guacamole-jdbc-seed-scripts"},
+	{"Secret", "secrets", "guacamole-oidc"},
+}
 
 type accessGateCheck struct{}
 
@@ -40,7 +52,7 @@ func (accessGateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecord
 	parts := []struct {
 		key   string
 		judge func(context.Context, kube.Region) (string, error)
-	}{{"gate", accessGateGate}, {"store", accessGateStore}, {"proxy", accessGateProxy}}
+	}{{"gate", accessGateGate}, {"store", accessGateStore}, {"proxy", accessGateProxy}, {"leftovers", accessGateLeft}}
 	for i, region := range cc.Regions {
 		rec.Step(accessGateID+"."+strconv.Itoa(i+1), "the access gateway is closed by default in region "+region.ID, func(ev Evidence) error {
 			var fails []string
@@ -140,6 +152,26 @@ func accessGateStore(ctx context.Context, region kube.Region) (string, error) {
 	return fmt.Sprintf("Deployment %s present=%v, Clusters [%s]", accessGateWebapp, w != nil, strings.Join(names, ",")),
 		fmt.Errorf("namespace guacamole holds the Deployment %s: %v, and the CloudNativePG Clusters [%s]; want neither: the web application and its database are not removed",
 			accessGateWebapp, w != nil, strings.Join(names, ","))
+}
+
+// accessGateLeft passes when namespace guacamole holds none of accessGateLeftovers. Each is read by its name only.
+func accessGateLeft(ctx context.Context, region kube.Region) (string, error) {
+	var left []string
+	for _, o := range accessGateLeftovers {
+		_, found, err := getNamed(ctx, region, o.resource, "guacamole", o.name)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			left = append(left, o.kind+" "+o.name)
+		}
+	}
+	if len(left) == 0 {
+		return "nothing of the earlier chart", nil
+	}
+	return "left: " + strings.Join(left, ", "),
+		fmt.Errorf("namespace guacamole holds what the chart before ACC-102 left: %s; want none: the upgrade cleanup of bp-guacamole did not run",
+			strings.Join(left, ", "))
 }
 
 func accessGateProxy(ctx context.Context, region kube.Region) (string, error) {
