@@ -1,37 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { useWizardStore } from '@/entities/deployment/store'
-import type { CloudProvider } from '@/entities/deployment/model'
-import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS, PROVIDER_REGIONS } from '@/entities/deployment/model'
-import { PROVIDER_NODE_SIZES, defaultNodeSizeId, defaultWorkerSizeId, findNodeSize, isSkuAvailableInRegion } from '@/shared/constants/providerSizes'
+import { TOPOLOGY_REGION_COUNT, TOPOLOGY_REGION_LABELS } from '@/entities/deployment/model'
+import { useSession } from '@/shared/lib/useSession'
+import { PinSignInModal } from '@/widgets/auth/PinSignInModal'
+import {
+  useProviders, useProfile, flavorsFor, defaultFlavor, findFlavor, describeFlavor, totalPrice, ProvidersApiError,
+  type CloudProfile, type CredentialSource, type FlavorRole,
+} from '@/lib/providers.api'
 import { StepShell, useStepNav } from './_shared'
-
-/* ── Provider definitions with logos ─────────────────────────────── */
-interface ProviderDef { id: CloudProvider; name: string; logo: React.ReactNode }
-const PROVIDERS: ProviderDef[] = [
-  { id: 'hetzner', name: 'Hetzner Cloud',      logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#D50C2D"/><path d="M5 6h5v12H5zM14 6h5v12h-5z" fill="#fff"/></svg> },
-  { id: 'huawei',  name: 'Huawei Cloud',        logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#CF0A2C"/><path d="M12 5L14 9.5L19 9.5L15 12.5L17 17L12 14L7 17L9 12.5L5 9.5L10 9.5Z" fill="#fff"/></svg> },
-  { id: 'oci',     name: 'Oracle Cloud (OCI)',   logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#F80000"/><ellipse cx={12} cy={12} rx={7} ry={4.5} fill="none" stroke="#fff" strokeWidth={1.5}/></svg> },
-  { id: 'aws',     name: 'Amazon Web Services',  logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#232F3E"/><path d="M7 15c2.5 1.8 7.5 1.8 10 0" stroke="#FF9900" strokeWidth={1.5} fill="none" strokeLinecap="round"/><path d="M12 8v5" stroke="#FF9900" strokeWidth={1.5} strokeLinecap="round"/><path d="M10 11l2-3 2 3" stroke="#FF9900" strokeWidth={1.2} fill="none" strokeLinecap="round"/></svg> },
-  { id: 'azure',   name: 'Microsoft Azure',      logo: <svg viewBox="0 0 24 24" width={18} height={18} style={{flexShrink:0}}><rect width={24} height={24} rx={4} fill="#0078D4"/><path d="M11 7L7 17h4l2-4 2 4h4L15 7z" fill="#fff" opacity={0.9}/></svg> },
-]
-
-/* ── HQ → nearest provider + staggered regions ───────────────────── */
-const HQ_HINTS: Array<{ match: RegExp; provider: CloudProvider; regions: string[] }> = [
-  { match: /germany|frankfurt|berlin|munich|hamburg|cologne/i, provider: 'hetzner', regions: ['fsn1',           'nbg1',           'hel1'] },
-  { match: /finland|helsinki|sweden|norway|denmark|nordic/i,   provider: 'hetzner', regions: ['hel1',           'fsn1',           'nbg1'] },
-  { match: /netherlands|amsterdam|belgium/i,                    provider: 'oci',     regions: ['eu-amsterdam-1', 'eu-frankfurt-1',  'ap-singapore-1'] },
-  { match: /france|paris/i,                                     provider: 'huawei',  regions: ['eu-west-204',    'eu-west-101',     'ap-southeast-1'] },
-  { match: /ireland|dublin|uk|london|britain/i,                 provider: 'aws',     regions: ['eu-west-1',      'eu-central-1',    'us-east-1'] },
-  { match: /virginia|ashburn|washington|new york|east.*us/i,    provider: 'aws',     regions: ['us-east-1',      'us-west-2',       'eu-west-1'] },
-  { match: /california|oregon|seattle|phoenix|west.*us/i,       provider: 'aws',     regions: ['us-west-2',      'us-east-1',       'ap-southeast-1'] },
-  { match: /singapore|malaysia|indonesia/i,                     provider: 'aws',     regions: ['ap-southeast-1', 'us-east-1',       'eu-central-1'] },
-  { match: /hong kong|china|beijing/i,                          provider: 'huawei',  regions: ['ap-southeast-1', 'cn-north-4',      'eu-west-101'] },
-  { match: /saudi|riyadh|dubai|uae|middle east/i,               provider: 'huawei',  regions: ['me-east-1',      'ap-southeast-1',  'eu-west-101'] },
-  { match: /japan|tokyo|korea|seoul/i,                          provider: 'aws',     regions: ['ap-southeast-1', 'us-west-2',       'eu-central-1'] },
-  { match: /australia|sydney|melbourne/i,                       provider: 'oci',     regions: ['ap-singapore-1', 'us-ashburn-1',    'eu-frankfurt-1'] },
-]
-function getHqHint(hq: string) { return HQ_HINTS.find(h => h.match.test(hq)) ?? null }
 
 /* ── Custom dropdown ─────────────────────────────────────────────── */
 interface SelectOption { value: string; label: string; sublabel?: string; logo?: React.ReactNode }
@@ -113,111 +90,66 @@ function CustomSelect({ value, onChange, options, placeholder = 'Select…' }: {
   )
 }
 
-/**
- * Build SKU dropdown options for a provider — pulls labels + specs from
- * the per-provider catalog so this UI never hardcodes a SKU literal.
- *
- * When `region` is supplied, SKUs whose `availableRegions` does NOT
- * include the chosen region are HIDDEN (issue #916). This stops the
- * wizard from letting an operator pick e.g. cpx32 in `ash` —
- * combination Hetzner rejects 41 seconds into `tofu apply` after
- * Phase-0 has already created the CP + LB + firewall (otech109
- * evidence). When `region` is undefined the catalog renders verbatim,
- * which is the shape used while the operator hasn't picked a region
- * yet (= no constraint to enforce).
- */
-function skuOptions(provider: CloudProvider, region?: string): SelectOption[] {
-  return PROVIDER_NODE_SIZES[provider]
-    .filter((s) => !region || isSkuAvailableInRegion(provider, s.id, region))
-    .map((s) => {
-      // Disk shown verbatim when the provider lists local SSD; cloud-disk
-      // SKUs (AWS EBS-only, Azure variable, Huawei/OCI cloud volume) render
-      // their literal disk descriptor.
-      const diskStr = typeof s.disk === 'number' ? `${s.disk} GB SSD` : s.disk
-      return {
-        value: s.id,
-        label: s.label,
-        sublabel: `${s.vcpu} vCPU · ${s.ram} GB · ${diskStr} · €${s.priceHour.toFixed(4)}/hr · €${s.priceMonth.toFixed(2)}/mo`,
-      }
-    })
+type WizardStore = ReturnType<typeof useWizardStore.getState>
+
+const SOURCE_TEXT: Record<CredentialSource, string> = {
+  user: 'Your credentials',
+  operator: "The operator's credentials",
+  either: "Your credentials or the operator's",
 }
 
-/* ── Per-region cost rollup ───────────────────────────────────────── */
-function regionHourlyCost(
-  provider: CloudProvider | undefined,
-  cpId: string | undefined,
-  wkId: string | undefined,
-  wkCount: number,
-): number {
-  if (!provider) return 0
-  const cp = cpId ? findNodeSize(provider, cpId) : undefined
-  const wk = wkId ? findNodeSize(provider, wkId) : undefined
-  const cpCost = cp ? cp.priceHour : 0
-  const wkCost = wk ? wk.priceHour * Math.max(0, wkCount) : 0
-  return cpCost + wkCost
+/** The flavors of the role offered in the region, as dropdown options. */
+function flavorOptions(profile: CloudProfile, role: FlavorRole, region: string): SelectOption[] {
+  return flavorsFor(profile, role, region).map((f) => ({ value: f.name, label: f.name, sublabel: describeFlavor(f) }))
 }
+
+/**
+ * Region i takes the region of the profile with the given code. Its zone
+ * becomes that region's default zone, and a flavor the region does not
+ * offer becomes the default flavor of its role there (issue #916: a flavor
+ * the cloud refuses in that region fails minutes into `tofu apply`).
+ */
+function placeRegion(s: WizardStore, profile: CloudProfile, i: number, code: string) {
+  const keep = (role: FlavorRole, name: string | undefined) =>
+    name && flavorsFor(profile, role, code).some((f) => f.name === name) ? name : defaultFlavor(profile, role, code)
+  s.setRegionCloudRegion(i, code)
+  s.setRegionZone(i, profile.regions.find((r) => r.code === code)?.defaultZone ?? '')
+  s.setRegionControlPlaneSize(i, keep('control-plane', s.regionControlPlaneSizes[i]))
+  s.setRegionWorkerSize(i, keep('worker', s.regionWorkerSizes[i]))
+}
+
+/** Region i has a region and a zone of the profile, a control-plane flavor, and a worker flavor when it has workers. */
+function regionReady(s: WizardStore, profile: CloudProfile, i: number): boolean {
+  const region = profile.regions.find((r) => r.code === s.regionCloudRegions[i])
+  if (!region || !region.zones.includes(s.regionZones[i] ?? '') || !s.regionControlPlaneSizes[i]) return false
+  return (s.regionWorkerCounts[i] ?? 0) === 0 || !!s.regionWorkerSizes[i]
+}
+
+function regionMachines(s: WizardStore, profile: CloudProfile, i: number) {
+  return [
+    { flavor: findFlavor(profile, s.regionControlPlaneSizes[i] ?? ''), count: 1 },
+    { flavor: findFlavor(profile, s.regionWorkerSizes[i] ?? ''), count: s.regionWorkerCounts[i] ?? 0 },
+  ]
+}
+
+const pickerTitle: React.CSSProperties = { fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }
+const notice: React.CSSProperties = { borderRadius: 8, padding: '9px 12px', fontSize: 11, color: 'var(--wiz-text-sub)', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.12)' }
+const warning: React.CSSProperties = { ...notice, color: '#F59E0B', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)' }
 
 /* ── RegionCard ──────────────────────────────────────────────────── */
-function RegionCard({
-  index,
-  label,
-  selectedProvider,
-  selectedCloudRegion,
-  controlPlaneSizeId,
-  workerSizeId,
-  workerCount,
-  onSelectProvider,
-  onSelectCloudRegion,
-  onSelectControlPlaneSize,
-  onSelectWorkerSize,
-  onSelectWorkerCount,
-  isAirgap,
-}: {
-  index: number
-  label: string
-  selectedProvider: CloudProvider | undefined
-  selectedCloudRegion: string | undefined
-  controlPlaneSizeId: string | undefined
-  workerSizeId: string | undefined
-  workerCount: number
-  onSelectProvider: (p: CloudProvider) => void
-  onSelectCloudRegion: (r: string) => void
-  onSelectControlPlaneSize: (id: string) => void
-  onSelectWorkerSize: (id: string) => void
-  onSelectWorkerCount: (n: number) => void
-  isAirgap?: boolean
-}) {
-  const isConfigured =
-    !!selectedProvider &&
-    !!selectedCloudRegion &&
-    !!controlPlaneSizeId &&
-    (workerCount === 0 || !!workerSizeId)
-  const providerDef = PROVIDERS.find(p => p.id === selectedProvider)
+function RegionCard({ index, label, profile, isAirgap }: { index: number; label: string; profile: CloudProfile; isAirgap?: boolean }) {
+  const s = useWizardStore()
+  const code = s.regionCloudRegions[index] ?? ''
+  const region = profile.regions.find((r) => r.code === code)
+  const workerCount = s.regionWorkerCounts[index] ?? 0
+  const isConfigured = regionReady(s, profile, index)
+  const price = totalPrice(regionMachines(s, profile, index))
 
   const accentColor  = isAirgap ? 'rgba(245,158,11,0.5)'  : 'rgba(56,189,248,0.22)'
   const headerColor  = isAirgap ? 'rgba(245,158,11,0.08)' : undefined
 
-  const providerOptions: SelectOption[] = PROVIDERS.map(p => ({
-    value: p.id, label: p.name, logo: p.logo,
-  }))
-
-  const regionOptions: SelectOption[] = selectedProvider
-    ? PROVIDER_REGIONS[selectedProvider].map(r => ({
-        value: r.id, label: r.label, sublabel: r.location,
-      }))
-    : []
-
-  // Issue #916 — pass `selectedCloudRegion` to skuOptions so SKUs
-  // unavailable in that region (e.g. cpx32 in `ash`) drop OUT of the
-  // dropdowns. When no region is selected yet, the unfiltered catalog
-  // renders.
-  const cpOptions = selectedProvider ? skuOptions(selectedProvider, selectedCloudRegion) : []
-  const wkOptions = selectedProvider ? skuOptions(selectedProvider, selectedCloudRegion) : []
-
-  const hourly = regionHourlyCost(selectedProvider, controlPlaneSizeId, workerSizeId, workerCount)
-
   return (
-    <div style={{
+    <div data-testid={`step-provider-region-${index}`} style={{
       borderRadius: 10,
       border: isConfigured ? `1.5px solid ${accentColor}` : '1.5px solid var(--wiz-border-sub)',
       background: 'var(--wiz-bg-xs)',
@@ -248,15 +180,15 @@ function RegionCard({
               <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#F59E0B', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>isolated</span>
             )}
           </div>
-          {isConfigured && providerDef && selectedCloudRegion && (
+          {isConfigured && region && (
             <div style={{ fontSize: 10, color: isAirgap ? '#F59E0B' : 'var(--wiz-accent)', marginTop: 1 }}>
-              {providerDef.name} · {PROVIDER_REGIONS[selectedProvider!].find(r => r.id === selectedCloudRegion)?.location}
+              {profile.displayName} · {region.location}
             </div>
           )}
         </div>
-        {selectedProvider && controlPlaneSizeId && (
+        {price && (
           <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            €{hourly.toFixed(3)}/hr
+            {price.amount.toFixed(2)} {price.currency}/{price.per}
           </div>
         )}
       </div>
@@ -264,73 +196,69 @@ function RegionCard({
       {/* Pickers */}
       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }}>Provider</div>
+          <div style={pickerTitle}>Region</div>
           <CustomSelect
-            value={selectedProvider ?? ''}
-            onChange={v => onSelectProvider(v as CloudProvider)}
-            options={providerOptions}
-            placeholder="Select provider…"
+            value={code}
+            onChange={v => placeRegion(useWizardStore.getState(), profile, index, v)}
+            options={profile.regions.map(r => ({ value: r.code, label: r.label, sublabel: r.location }))}
+            placeholder="Select region…"
           />
         </div>
 
-        {selectedProvider && (
+        {region && (
           <div>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }}>Region</div>
+            <div style={pickerTitle}>Zone</div>
             <CustomSelect
-              value={selectedCloudRegion ?? ''}
-              onChange={v => onSelectCloudRegion(v)}
-              options={regionOptions}
-              placeholder="Select region…"
+              value={s.regionZones[index] ?? ''}
+              onChange={v => s.setRegionZone(index, v)}
+              options={region.zones.map(z => ({ value: z, label: z }))}
+              placeholder="Select zone…"
             />
           </div>
         )}
 
-        {selectedProvider && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)', marginBottom: 5 }}>Control-plane size</div>
-            <CustomSelect
-              value={controlPlaneSizeId ?? ''}
-              onChange={v => onSelectControlPlaneSize(v)}
-              options={cpOptions}
-              placeholder="Select size…"
-            />
-          </div>
-        )}
+        <div>
+          <div style={pickerTitle}>Control-plane size</div>
+          <CustomSelect
+            value={s.regionControlPlaneSizes[index] ?? ''}
+            onChange={v => s.setRegionControlPlaneSize(index, v)}
+            options={flavorOptions(profile, 'control-plane', code)}
+            placeholder="Select size…"
+          />
+        </div>
 
-        {selectedProvider && (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--wiz-text-sub)' }}>Worker nodes</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => onSelectWorkerCount(Math.max(0, workerCount - 1))}
-                  style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
-                  aria-label="Decrease worker count"
-                >−</button>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-hi)', minWidth: 18, textAlign: 'center' }}>{workerCount}</span>
-                <button
-                  type="button"
-                  onClick={() => onSelectWorkerCount(Math.min(50, workerCount + 1))}
-                  style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
-                  aria-label="Increase worker count"
-                >+</button>
-              </div>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+            <div style={{ ...pickerTitle, marginBottom: 0 }}>Worker nodes</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => s.setRegionWorkerCount(index, Math.max(0, workerCount - 1))}
+                style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                aria-label="Decrease worker count"
+              >−</button>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wiz-text-hi)', minWidth: 18, textAlign: 'center' }}>{workerCount}</span>
+              <button
+                type="button"
+                onClick={() => s.setRegionWorkerCount(index, Math.min(50, workerCount + 1))}
+                style={{ width: 22, height: 22, borderRadius: 5, border: '1px solid var(--wiz-border)', background: 'transparent', color: 'var(--wiz-text-md)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                aria-label="Increase worker count"
+              >+</button>
             </div>
-            {workerCount > 0 ? (
-              <CustomSelect
-                value={workerSizeId ?? ''}
-                onChange={v => onSelectWorkerSize(v)}
-                options={wkOptions}
-                placeholder="Select worker size…"
-              />
-            ) : (
-              <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', padding: '6px 0' }}>
-                No worker nodes — control plane runs all workloads (solo mode).
-              </div>
-            )}
           </div>
-        )}
+          {workerCount > 0 ? (
+            <CustomSelect
+              value={s.regionWorkerSizes[index] ?? ''}
+              onChange={v => s.setRegionWorkerSize(index, v)}
+              options={flavorOptions(profile, 'worker', code)}
+              placeholder="Select worker size…"
+            />
+          ) : (
+            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', padding: '6px 0' }}>
+              No worker nodes — control plane runs all workloads (solo mode).
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -348,8 +276,9 @@ const SAME_FAILURE_DOMAIN = 'Regions share one failure domain. Not a disaster-re
  * (core/cmd/sovereign-ops/internal/sovereignobject/separation.go): site when
  * every region has its own cloud region; zone when cloud regions repeat but
  * every region has its own pair of cloud region and zone; none otherwise,
- * and always for fewer than two regions. A request carries no zone, so it
- * gives site or none.
+ * and always for fewer than two regions. Zone is not stated before a cloud
+ * keeps the zone of the request (the open point of spike NET-300), so the
+ * step gives site or none.
  */
 function requestSeparation(cloudRegions: string[]): 'site' | 'none' {
   if (cloudRegions.length < 2) return 'none'
@@ -357,226 +286,154 @@ function requestSeparation(cloudRegions: string[]): 'site' | 'none' {
 }
 
 /**
- * StepProvider mode.
- *   • 'wizard'      — the canonical wizard step (default)
- *   • 'add-region'  — embedded in InfrastructurePage's AddRegionModal.
- *                     Hides the Hetzner-token field (already
- *                     provisioned), shows only region + SKU.
+ * The provider step: the clouds of GET /api/v1/providers, and per region a
+ * region, a zone and flavors of the chosen cloud's profile
+ * (GET /api/v1/providers/{provider}). Every region of a Sovereign is on the
+ * one chosen cloud. The step keeps no list of clouds, regions or flavors.
  */
-export type StepProviderMode = 'wizard' | 'add-region'
-
-export interface StepProviderProps {
-  mode?: StepProviderMode
-}
-
-export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
+export function StepProvider() {
   const store = useWizardStore()
   const { next, back } = useStepNav()
-  const isAddRegion = mode === 'add-region'
-  // Reserved — `isAddRegion` will gate any future provider-token
-  // input once one lands here (Hetzner currently has no in-step
-  // token input — issue #228 reserves the prop for the next step
-  // that does).
-  void isAddRegion
+  const session = useSession()
+  const [attempt, setAttempt] = useState(0)
+  const [signIn, setSignIn] = useState(false)
+
+  const list = useProviders(attempt)
+  const entries = list.state === 'ready' ? list.value : []
+  const chosen = entries.find(e => e.provider === store.provider && e.installation === store.installation)
+  const loaded = useProfile(chosen ? chosen.provider : null, chosen?.installation ?? '', attempt)
+  const profile = loaded?.state === 'ready' ? loaded.value : null
 
   const topology     = store.topology
   const regionCount  = topology ? (TOPOLOGY_REGION_COUNT[topology]  ?? 1) : 1
   const regionLabels = topology ? (TOPOLOGY_REGION_LABELS[topology] ?? ['Region 1']) : ['Region 1']
-  const hint         = getHqHint(store.orgHeadquarters)
   const hasAirgap    = store.airgap
   const totalCards   = regionCount + (hasAirgap ? 1 : 0)
+  const cards        = Array.from({ length: totalCards }, (_, i) => i)
 
-  /* On first visit: apply HQ hint, or fall back to first provider + first region.
-     Each region also gets the chosen provider's recommended starter SKUs so the
-     wizard never lands on the step with empty SKU dropdowns — the operator can
-     change them, but a sensible default is preselected.
-
-     Per-provider CP defaults: CPX22 (hetzner), c7n.xlarge.2 (huawei),
-     VM.Standard.E5.Flex.2.16 (oci), m6i.xlarge (aws), Standard_D4s_v5
-     (azure) — each provider's recommended:true SKU from PROVIDER_NODE_SIZES.
-
-     Per-provider WORKER defaults: CPX32 (hetzner), same-as-CP elsewhere —
-     see defaultWorkerSizeId in providerSizes.ts. Hetzner pairs CPX22 CP
-     with CPX32 workers because RAM (8 GB per worker) is the binding
-     constraint for the bootstrap-kit's worker pods, but the CP's RAM
-     budget fits in 4 GB. Smaller AMD-shared SKUs (cpx21, cpx31) are
-     listed but NOT orderable for new servers in EU DCs (fsn1/nbg1/hel1)
-     as of 2026-05. Total per Sovereign: ~€42.5/mo — 14% cheaper
-     than the prior all-CPX32 default at €49.5/mo, while preserving the
-     multi-node horizontal-scale agreement (issue #733).
-
-     Worker count default 2 — restores the horizontal-scale agreement
-     (issue #733): every Sovereign provisioned through the wizard lands
-     with a TRULY multi-node cluster (1 CP + 2 workers) so the operator
-     sees a real fault-tolerant topology from day one. Operators can
-     dial it back to 0 explicitly for solo dev/POC. */
+  /* A first visit, or a stored cloud the list no longer holds: the first
+     listed cloud is chosen. */
   useEffect(() => {
-    if (Object.keys(store.regionProviders).length > 0) return
-    const provider = hint?.provider ?? PROVIDERS[0].id
-    for (let i = 0; i < totalCards; i++) {
-      store.setRegionProvider(i, provider)
-      if (i === 0) store.setProvider(provider)
-      const regions = PROVIDER_REGIONS[provider]
-      const region  = hint?.regions[i % hint.regions.length] ?? regions[i % regions.length].id
-      store.setRegionCloudRegion(i, region)
-      store.setRegionControlPlaneSize(i, defaultNodeSizeId(provider))
-      store.setRegionWorkerSize(i, defaultWorkerSizeId(provider))
-      store.setRegionWorkerCount(i, 2)
-    }
+    const first = entries[0]
+    if (list.state === 'ready' && !chosen && first) useWizardStore.getState().setProvider(first.provider, first.installation)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [list.state, chosen?.id])
 
-  const allConfigured = Array.from({ length: totalCards }, (_, i) => i)
-    .every((i) => {
-      const provider = store.regionProviders[i]
-      const cloudRegion = store.regionCloudRegions[i]
-      const cpId = store.regionControlPlaneSizes[i]
-      const wkCount = store.regionWorkerCounts[i] ?? 0
-      const wkId = store.regionWorkerSizes[i]
-      if (!provider || !cloudRegion || !cpId) return false
-      if (wkCount > 0 && !wkId) return false
-      return true
-    })
-
-  function handleSelectProvider(i: number, provider: CloudProvider) {
-    store.setRegionProvider(i, provider)
-    if (i === 0) store.setProvider(provider)
-    const regions = PROVIDER_REGIONS[provider]
-    const hintRegion = hint?.provider === provider ? hint.regions[i % hint.regions.length] : null
-    store.setRegionCloudRegion(i, hintRegion ?? regions[0].id)
-    // Per-provider CP / worker defaults — see the first-visit useEffect
-    // above for rationale. Hetzner pairs CPX22 CP with CPX32 workers
-    // (~€42.5/mo Sovereign total); other providers fall through to the
-    // symmetric same-as-CP default until their per-provider asymmetry
-    // is profiled.
-    store.setRegionControlPlaneSize(i, defaultNodeSizeId(provider))
-    store.setRegionWorkerSize(i, defaultWorkerSizeId(provider))
-    // Default worker count = 2 (issue #733) — same rationale as the
-    // first-visit useEffect above: every fresh provider selection lands
-    // a horizontal-scale 1 CP + 2 worker topology. Operators dial to 0
-    // explicitly for solo.
-    store.setRegionWorkerCount(i, 2)
-  }
-
-  /**
-   * Issue #916 — region change handler. When the operator switches
-   * region AFTER picking a SKU, the previously-chosen SKU may no
-   * longer be orderable in the new region (e.g. cpx32 was fine in
-   * `fsn1` but is rejected by Hetzner POST /v1/servers in `ash`).
-   * Swap to the provider's recommended default for that role
-   * (CP / worker) when the current selection has fallen out of
-   * orderability — same way handleSelectProvider auto-defaults the
-   * SKUs when a fresh provider is picked. The defaults themselves
-   * are guarded against the same regional matrix.
-   */
-  function handleSelectCloudRegion(i: number, region: string) {
-    store.setRegionCloudRegion(i, region)
-    const provider = store.regionProviders[i]
-    if (!provider) return
-    const cpId = store.regionControlPlaneSizes[i]
-    if (cpId && !isSkuAvailableInRegion(provider, cpId, region)) {
-      const fallback = defaultNodeSizeId(provider)
-      // Only swap if the fallback is itself valid in the new region;
-      // otherwise leave the existing (now-invalid) selection so the
-      // operator can pick another SKU manually rather than getting a
-      // silent forced default that's also wrong.
-      if (isSkuAvailableInRegion(provider, fallback, region)) {
-        store.setRegionControlPlaneSize(i, fallback)
-      }
+  /* Each region without a region of the profile takes one — region i the
+     i-th region of the profile, round the list — with its default zone and
+     flavors, and 2 workers (issue #733: a first Sovereign is multi-node). */
+  useEffect(() => {
+    if (!profile) return
+    const s = useWizardStore.getState()
+    for (let i = 0; i < totalCards; i++) {
+      if (profile.regions.some(r => r.code === s.regionCloudRegions[i])) continue
+      const region = profile.regions[i % profile.regions.length]
+      if (!region) return
+      placeRegion(useWizardStore.getState(), profile, i, region.code)
+      if (s.regionWorkerCounts[i] === undefined) s.setRegionWorkerCount(i, 2)
     }
-    const wkId = store.regionWorkerSizes[i]
-    if (wkId && !isSkuAvailableInRegion(provider, wkId, region)) {
-      const fallback = defaultWorkerSizeId(provider)
-      if (isSkuAvailableInRegion(provider, fallback, region)) {
-        store.setRegionWorkerSize(i, fallback)
-      }
-    }
-  }
+  }, [profile, totalCards])
 
-  /* Total estimated cost across all regions — each at its OWN provider's
-     pricing. A mixed-provider topology computes correctly because each
-     region's contribution is looked up in its own PROVIDER_NODE_SIZES table. */
-  const totalHourly = Array.from({ length: totalCards }, (_, i) => i).reduce((acc, i) => {
-    const provider = store.regionProviders[i]
-    const cpId = store.regionControlPlaneSizes[i]
-    const wkId = store.regionWorkerSizes[i]
-    const wkCount = store.regionWorkerCounts[i] ?? 0
-    return acc + regionHourlyCost(provider, cpId, wkId, wkCount)
-  }, 0)
+  const oneRegionOnly = !!profile && !profile.capabilities.multiRegion && totalCards > 1
+  const allConfigured = !!profile && !oneRegionOnly && cards.every(i => regionReady(store, profile, i))
+  const total = profile ? totalPrice(cards.flatMap(i => regionMachines(store, profile, i))) : null
 
   /* The region separation of the request: its regions are every card, the
      AIR-GAP region included. Stated once every region of a request of two or
      more regions has its cloud region; with none, the notice says the
      regions are not a disaster-recovery configuration. */
-  const cloudRegions = Array.from({ length: totalCards }, (_, i) => store.regionCloudRegions[i] ?? '')
+  const cloudRegions = cards.map(i => store.regionCloudRegions[i] ?? '')
   const separationShown = cloudRegions.length >= 2 && cloudRegions.every(Boolean)
   const separation = requestSeparation(cloudRegions)
 
   /* Max 3 cards per row */
   const gridCols = `repeat(${Math.min(totalCards, 3)}, 1fr)`
-
-  /* Per-provider default storage class (issue #4057) — placeholder for the
-     optional override input below. Mirrors the catalyst-api Request struct's
-     server-side default so the operator sees what they'll get if they leave
-     the field blank. store.provider tracks Region 1's provider; fall back to
-     the Hetzner default when no provider is selected yet. */
-  const storageClassPlaceholder =
-    store.provider === 'huawei' ? 'evs-ssd' : 'hcloud-volumes'
+  const listError = list.state === 'error' ? list.error : null
+  const unauthorized = listError instanceof ProvidersApiError && listError.status === 401
 
   return (
     <StepShell
       title="Cloud provider per region"
-      description="Pick a provider, region, and instance sizes for each topology slot. Provider, region, and SKU vocabularies are independent — Hetzner CPX32 means nothing on AWS, so each region's SKUs come from its own provider's catalog."
+      description="Pick a provider, region, and instance sizes for each topology slot. The clouds, their regions, zones and instance sizes are those of the cloud profiles the provisioning API serves."
       onNext={() => { if (allConfigured) next() }}
       onBack={back}
       nextDisabled={!allConfigured}
     >
-      {hint && (
-        <div style={{ borderRadius: 8, padding: '7px 12px', background: 'rgba(56,189,248,0.04)', border: '1px solid rgba(56,189,248,0.12)', fontSize: 11, color: 'var(--wiz-accent)' }}>
-          ★ Pre-selected based on HQ: <strong style={{ color: 'var(--wiz-accent)' }}>{store.orgHeadquarters}</strong>
+      {list.state === 'loading' && <div style={notice}>Loading the clouds…</div>}
+      {unauthorized && (
+        <div data-testid="step-provider-sign-in" style={notice}>
+          The clouds are listed for a signed-in sovereign-admin.{' '}
+          <button type="button" onClick={() => setSignIn(true)} style={{ color: 'var(--wiz-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+            Sign in to see them
+          </button>
+        </div>
+      )}
+      {listError && !unauthorized && (
+        <div data-testid="step-provider-list-error" style={warning}>
+          The clouds cannot be read: {listError.message}.{' '}
+          <button type="button" onClick={() => setAttempt(a => a + 1)}>Retry</button>
+        </div>
+      )}
+      {list.state === 'ready' && entries.length === 0 && (
+        <div data-testid="step-provider-no-cloud" style={warning}>
+          No cloud is offered: the provisioning API lists no proven provider pack or installation.
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12, alignItems: 'start' }}>
-        {/* Standard topology regions */}
-        {regionLabels.map((label, i) => (
-          <RegionCard
-            key={i}
-            index={i}
-            label={label}
-            selectedProvider={store.regionProviders[i]}
-            selectedCloudRegion={store.regionCloudRegions[i]}
-            controlPlaneSizeId={store.regionControlPlaneSizes[i]}
-            workerSizeId={store.regionWorkerSizes[i]}
-            workerCount={store.regionWorkerCounts[i] ?? 0}
-            onSelectProvider={p => handleSelectProvider(i, p)}
-            onSelectCloudRegion={r => handleSelectCloudRegion(i, r)}
-            onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(i, id)}
-            onSelectWorkerSize={id => store.setRegionWorkerSize(i, id)}
-            onSelectWorkerCount={n => store.setRegionWorkerCount(i, n)}
-          />
-        ))}
+      {entries.length > 0 && (
+        <div role="radiogroup" aria-label="Cloud" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+          {entries.map(e => {
+            const active = e.id === chosen?.id
+            return (
+              <button
+                key={e.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                data-testid={`provider-card-${e.id}`}
+                onClick={() => { if (!active) store.setProvider(e.provider, e.installation) }}
+                style={{
+                  textAlign: 'left', padding: '9px 12px', borderRadius: 9, cursor: 'pointer',
+                  border: active ? '1.5px solid rgba(56,189,248,0.5)' : '1.5px solid var(--wiz-border-sub)',
+                  background: active ? 'rgba(56,189,248,0.06)' : 'var(--wiz-bg-xs)',
+                  display: 'flex', flexDirection: 'column', gap: 2,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--wiz-text-hi)' }}>{e.displayName}</span>
+                <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)', fontFamily: 'JetBrains Mono, monospace' }}>{e.id}</span>
+                <span style={{ fontSize: 10, color: 'var(--wiz-text-sub)' }}>{SOURCE_TEXT[e.credentialSource]}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
-        {/* AIR-GAP region card — appears when air-gap add-on is enabled */}
-        {hasAirgap && (
-          <RegionCard
-            key="airgap"
-            index={regionCount}
-            label="AIR-GAP Region"
-            selectedProvider={store.regionProviders[regionCount]}
-            selectedCloudRegion={store.regionCloudRegions[regionCount]}
-            controlPlaneSizeId={store.regionControlPlaneSizes[regionCount]}
-            workerSizeId={store.regionWorkerSizes[regionCount]}
-            workerCount={store.regionWorkerCounts[regionCount] ?? 0}
-            onSelectProvider={p => handleSelectProvider(regionCount, p)}
-            onSelectCloudRegion={r => handleSelectCloudRegion(regionCount, r)}
-            onSelectControlPlaneSize={id => store.setRegionControlPlaneSize(regionCount, id)}
-            onSelectWorkerSize={id => store.setRegionWorkerSize(regionCount, id)}
-            onSelectWorkerCount={n => store.setRegionWorkerCount(regionCount, n)}
-            isAirgap
-          />
-        )}
-      </div>
+      {loaded?.state === 'loading' && <div style={notice}>Loading the profile of {chosen?.displayName}…</div>}
+      {loaded?.state === 'error' && (
+        <div data-testid="step-provider-profile-error" style={warning}>
+          The profile of {chosen?.displayName} cannot be read: {loaded.error.message}.{' '}
+          <button type="button" onClick={() => setAttempt(a => a + 1)}>Retry</button>
+        </div>
+      )}
+      {oneRegionOnly && profile && (
+        <div data-testid="step-provider-one-region" style={warning}>
+          {profile.displayName} allows one region. Go back and choose the one-region topology.
+        </div>
+      )}
+
+      {profile && (
+        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 12, alignItems: 'start' }}>
+          {/* Standard topology regions */}
+          {regionLabels.map((label, i) => (
+            <RegionCard key={i} index={i} label={label} profile={profile} />
+          ))}
+
+          {/* AIR-GAP region card — appears when air-gap add-on is enabled */}
+          {hasAirgap && (
+            <RegionCard key="airgap" index={regionCount} label="AIR-GAP Region" profile={profile} isAirgap />
+          )}
+        </div>
+      )}
 
       {separationShown && (
         <div
@@ -598,30 +455,24 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
         </div>
       )}
 
-      {/* Total cost rollup — sums each region's (cp + worker*count) at its
-          OWN provider's pricing. Operators see one bottom-line figure
-          alongside the per-region breakdown above. */}
-      <div style={{
-        marginTop: 6,
-        borderRadius: 8, padding: '9px 12px',
-        background: 'rgba(56,189,248,0.04)',
-        border: '1px solid rgba(56,189,248,0.12)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-      }}>
-        <span style={{ fontSize: 11, color: 'var(--wiz-text-sub)' }}>
-          Estimated infrastructure cost across {totalCards} region{totalCards > 1 ? 's' : ''}
-        </span>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-accent)' }}>
-          €{totalHourly.toFixed(3)}/hr · €{(totalHourly * 730).toFixed(0)}/mo
-        </span>
-      </div>
+      {/* Total cost — the display prices of the profile, shown only when
+          every chosen flavor has one in one currency and period. */}
+      {total && (
+        <div data-testid="step-provider-total" style={{ ...notice, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span>
+            Estimated infrastructure cost across {totalCards} region{totalCards > 1 ? 's' : ''}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wiz-accent)' }}>
+            {total.amount.toFixed(2)} {total.currency}/{total.per}
+          </span>
+        </div>
+      )}
 
       {/* Default storage class (issue #4057) — a single OPTIONAL override.
           Empty is the common case: the catalyst-api Request struct fills the
-          per-provider default (hetzner→hcloud-volumes, huawei→evs-ssd) when
-          this arrives blank. The placeholder mirrors that backend default so
-          the operator sees what they'll get. `local-path` is not permitted —
-          PVCs must land on a durable cloud-volume class. */}
+          default class of the cloud profile when this arrives blank; the
+          placeholder shows it. `local-path` is not permitted — PVCs must land
+          on a durable cloud-volume class. */}
       <label
         style={{
           marginTop: 6,
@@ -638,7 +489,7 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
         <input
           type="text"
           data-testid="step-provider-storage-class"
-          placeholder={storageClassPlaceholder}
+          placeholder={profile?.storage.defaultClass ?? ''}
           value={store.storageClass}
           onChange={e => store.setStorageClass(e.target.value)}
           style={{
@@ -653,11 +504,22 @@ export function StepProvider({ mode = 'wizard' }: StepProviderProps = {}) {
           }}
         />
         <span style={{ fontSize: '0.74rem', fontWeight: 400, color: 'var(--wiz-text-sub)', lineHeight: 1.45 }}>
-          Optional — defaults to the per-provider durable cloud volume class
-          {' '}(<code style={{ fontFamily: 'JetBrains Mono, monospace' }}>{storageClassPlaceholder}</code>).
+          Optional — defaults to the storage class of the cloud profile
+          {profile && <>{' '}(<code style={{ fontFamily: 'JetBrains Mono, monospace' }}>{profile.storage.defaultClass}</code>)</>}.
           {' '}local-path is not permitted.
         </span>
       </label>
+
+      <PinSignInModal
+        open={signIn}
+        onClose={() => setSignIn(false)}
+        title="Sign in to see the clouds"
+        onAuthenticated={() => {
+          setSignIn(false)
+          session.refetch()
+          setAttempt(a => a + 1)
+        }}
+      />
     </StepShell>
   )
 }

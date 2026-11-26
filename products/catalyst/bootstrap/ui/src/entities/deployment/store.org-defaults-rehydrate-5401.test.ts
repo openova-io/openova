@@ -20,9 +20,8 @@
  *         identity fields": `orgName` rehydrates to 'Acme Financial'.
  *   W2 — "the wizard does NOT derive cloud provider/region from a fabricated
  *         value": `orgHeadquarters` rehydrates to 'Frankfurt, Germany', which
- *         StepProvider's `getHqHint()` matches against
- *         `/germany|frankfurt|berlin|munich|hamburg|cologne/i` — deriving
- *         provider 'hetzner' + regions ['fsn1','nbg1','hel1'] AND rendering the
+ *         StepProvider's headquarters map matched until CLD-122 — deriving a
+ *         provider and its regions AND rendering the
  *         "★ Pre-selected based on HQ" banner, from a fabricated value.
  *
  * The fix is a persist `version` bump + `migrate` that drops the retired
@@ -107,16 +106,15 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
     const s = useWizardStore.getState()
 
     expect(s.sovereignSubdomain).toBe('legacy-payload-was-read')
-    // 'Frankfurt, Germany' is what StepProvider's getHqHint() matches to
-    // derive provider 'hetzner' + regions ['fsn1','nbg1','hel1'].
+    // 'Frankfurt, Germany' is what StepProvider's headquarters map matched,
+    // until CLD-122, to derive a provider and its regions.
     expect(s.orgHeadquarters).toBe('')
     expect(/germany|frankfurt|berlin|munich|hamburg|cologne/i.test(s.orgHeadquarters)).toBe(false)
   })
 
   it("W2: a legacy payload's provider/region DERIVATION from the fabricated HQ is dropped too", async () => {
-    // StepProvider's first-visit effect early-returns when regionProviders is
-    // already populated, so a derivation computed from the fabricated HQ would
-    // be frozen in and never recomputed against the operator's real HQ.
+    // A derivation computed from the fabricated HQ (regionProviders is the key
+    // the bundle of that time wrote) must not survive into the provider step.
     seedLegacyPayload({
       ...RETIRED_ORG_DEFAULTS,
       sovereignSubdomain: 'legacy-payload-was-read',
@@ -129,7 +127,7 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
     const s = useWizardStore.getState()
 
     expect(s.sovereignSubdomain).toBe('legacy-payload-was-read')
-    expect(s.regionProviders).toEqual({})
+    expect('regionProviders' in s).toBe(false)
     expect(s.regionCloudRegions).toEqual({})
     expect(s.provider).toBeNull()
   })
@@ -154,7 +152,6 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
           orgSize: '10,000+',
           orgHeadquarters: 'Muscat, Oman',
           provider: 'huawei',
-          regionProviders: { 0: 'huawei' },
           regionCloudRegions: { 0: 'me-east-1' },
         },
         // Written by the post-fix bundle, so no migration is owed.
@@ -172,7 +169,6 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
     expect(s.orgSize).toBe('10,000+')
     expect(s.orgHeadquarters).toBe('Muscat, Oman')
     expect(s.provider).toBe('huawei')
-    expect(s.regionProviders).toEqual({ 0: 'huawei' })
     expect(s.regionCloudRegions).toEqual({ 0: 'me-east-1' })
   })
 
@@ -198,5 +194,51 @@ describe('wizard store — retired ORG_DEFAULTS must not survive rehydration (#5
     expect(s.orgName).toBe('Omantel')
     expect(s.orgHeadquarters).toBe('Muscat, Oman')
     expect(s.orgIndustry).toBe('Telecommunications')
+  })
+})
+
+/**
+ * CLD-122 retired the cloud fields of the store. A browser that ran the
+ * wizard before CLD-122 holds them in a payload that is already at version 1,
+ * so `migrate` does not run on it: `merge` must drop them, or `partialize`
+ * writes the stored token and keys back to localStorage on every save.
+ */
+describe('wizard store — the cloud fields CLD-122 retired do not survive rehydration', () => {
+  const RETIRED_CLOUD_FIELDS = {
+    hetznerToken: 'stored-cloud-token',
+    hetznerProjectId: 'stored-project',
+    providerTokens: { hetzner: 'stored-provider-token' },
+    providerValidated: { hetzner: true },
+    regionProviders: { 0: 'hetzner' },
+    objectStorageRegion: 'fsn1',
+    objectStorageAccessKey: 'stored-access-key',
+    objectStorageSecretKey: 'stored-secret-key',
+    objectStorageValidated: true,
+  }
+
+  it('a current-version payload loses every retired cloud field, in the state and in the next save', async () => {
+    window.localStorage.setItem(
+      PERSIST_KEY,
+      JSON.stringify({
+        state: { ...RETIRED_CLOUD_FIELDS, sovereignSubdomain: 'legacy-payload-was-read' },
+        version: 1,
+      }),
+    )
+
+    await useWizardStore.persist.rehydrate()
+    const s = useWizardStore.getState() as unknown as Record<string, unknown>
+
+    // VACUITY CHECK — prove the seeded payload really was rehydrated.
+    expect(s.sovereignSubdomain).toBe('legacy-payload-was-read')
+    expect(Object.keys(RETIRED_CLOUD_FIELDS).filter((key) => key in s)).toEqual([])
+
+    // The next save writes none of them back.
+    useWizardStore.getState().setOrgName('saved-after-rehydration')
+    const saved = JSON.parse(window.localStorage.getItem(PERSIST_KEY) ?? '{}') as {
+      state: Record<string, unknown>
+    }
+    expect(saved.state.orgName).toBe('saved-after-rehydration')
+    expect(saved.state.sovereignSubdomain).toBe('legacy-payload-was-read')
+    expect(Object.keys(RETIRED_CLOUD_FIELDS).filter((key) => key in saved.state)).toEqual([])
   })
 })
