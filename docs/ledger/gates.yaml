@@ -130,7 +130,7 @@ checks:
   title: Grant life cycle from objects
   owner: ACC
   state: not-built
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
