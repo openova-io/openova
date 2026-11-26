@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T13:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-26T13:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8446](https://github.com/openova-io/openova/issues/8446) | PRD-211 Document conversion parser | Other |
 | [#8449](https://github.com/openova-io/openova/issues/8449) | SVC-136 The foundation function tests pass on a fresh installation | Other |
 | [#8452](https://github.com/openova-io/openova/issues/8452) | SOV-242 The cutover repeats a failed step a few times with a growing pause, then | Other |
 | [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8865](https://github.com/openova-io/openova/issues/8865) | FND-042 An acceptance command of a ticket pipes a tested command only after set  | Other |
 | [#8870](https://github.com/openova-io/openova/issues/8870) | SEC-335 Spike: injection route for each upstream chart | Other |
 | [#8873](https://github.com/openova-io/openova/issues/8873) | CLD-122 The wizard renders providers, credentials, regions and flavors from the  | Other |
+| [#8876](https://github.com/openova-io/openova/issues/8876) | CMP-077 Mutate policies to MutatingPolicy: stamp-cilium-enforced-label | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:08 | [#8869](https://github.com/openova-io/openova/pull/8869) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
 | 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
 | 2026-11-25T15:38 | [#8833](https://github.com/openova-io/openova/pull/8833) | #8787 | bp-speech declares that it renders nothing by default, so th |
-| 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
 
 ---
 
