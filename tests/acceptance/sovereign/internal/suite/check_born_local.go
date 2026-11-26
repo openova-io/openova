@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
@@ -28,9 +29,10 @@ import (
 //     https://<LOCAL_REGISTRY_HOST> first for every name, and has the entry
 //     "*", so that a name it does not list goes to that registry too.
 //     LOCAL_REGISTRY_HOST is the region's, from the ConfigMap
-//     flux-system/sovereign-variables. The file is read as JSON, the form the
-//     provider modules write; only its mirrors are decoded and recorded, never
-//     its configs, which hold a login.
+//     flux-system/sovereign-variables. The file is read as YAML (bornLocalYAML),
+//     of which the JSON the provider modules write is one form and the block
+//     form of the local pack another; only its mirrors are recorded, never its
+//     configs, which hold a login, and an error names a line, never its text.
 //  2. Flux has a GitRepository, and none outside the Sovereign: the host of
 //     every spec.url is a cluster Service (a name ending in .svc or
 //     .svc.cluster.local), SOVEREIGN_FQDN of sovereign-variables or a name
@@ -42,6 +44,11 @@ import (
 //     GitRepository inside the Sovereign with the path
 //     openova/sovereign-regions, and that Kustomization is Ready with a
 //     lastAppliedRevision equal to the revision of its source's artifact.
+//     Each pass reads the Kustomizations, then the GitRepositories, and
+//     judges them together. While every fault of a pass is an owner that is
+//     not Ready or has not applied the revision its source holds, as after a
+//     commit to the Sovereign's repository, the pass is repeated every
+//     bornLocalEvery for up to bornLocalSettle; any other fault fails at once.
 //
 // A ConfigMap, key, annotation, file or list the check cannot read fails the
 // step that needs it; an absent value is never read as a pass.
@@ -68,9 +75,23 @@ echo "own=$3"
 if [ -r "$f" ]; then echo "registries=$(base64 < "$f" | tr -d '\n')"; else echo registries=unreadable; fi
 `
 
-type bornLocalCheck struct{ kubectl kubectlFunc }
+// bornLocalSettle and bornLocalEvery bound the repeated pass of step 3: the
+// owner sovereign-region reconciles within its spec.timeout (5m) once its
+// source has fetched the commit, every spec.interval (1m), both in
+// clusters/_template/sovereign-region/base.
+const bornLocalSettle, bornLocalEvery = 6 * time.Minute, 15 * time.Second
 
-func init() { RegisterCheck(bornLocalCheck{kubectl: kube.Region.Run}) }
+// bornLocalCheck is check SOV-G01. get reads the Flux objects (kube.Region.GetList);
+// settle and every bound the repeated pass of step 3, and a zero settle makes one pass.
+type bornLocalCheck struct {
+	kubectl       kubectlFunc
+	get           func(kube.Region, context.Context, string, string, ...string) ([]kube.Object, error)
+	settle, every time.Duration
+}
+
+func init() {
+	RegisterCheck(bornLocalCheck{kubectl: kube.Region.Run, get: kube.Region.GetList, settle: bornLocalSettle, every: bornLocalEvery})
+}
 
 func (bornLocalCheck) ID() string { return bornLocalID }
 
@@ -78,7 +99,7 @@ func (c bornLocalCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecor
 	n := 0
 	for i, region := range cc.Regions {
 		vars, varsErr := bornLocalVariables(ctx, region)
-		repos, reposErr := region.GetList(ctx, bornLocalGit, "")
+		repos, reposErr := c.get(region, ctx, bornLocalGit, "")
 		n++
 		checkStep(rec, bornLocalID, n, "every node of region "+region.ID+" starts k3s with "+bornLocalFlag, func(ev Evidence) error {
 			return bornLocalNodes(ctx, region, ev)
@@ -91,12 +112,27 @@ func (c bornLocalCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecor
 			return bornLocalSources(region, repos, vars["SOVEREIGN_FQDN"], ev)
 		})
 		n++
-		checkStep(rec, bornLocalID, n, "the root Kustomizations of region "+region.ID+" are Ready and owned by Flux from the Sovereign's own repository", func(ev Evidence) error {
-			ks, err := region.GetList(ctx, bornLocalKs, "flux-system")
-			if err = errors.Join(varsErr, reposErr, err); err != nil {
-				return err
+		checkStep(rec, bornLocalID, n, "the root Kustomizations of region "+region.ID+" are Ready and owned by Flux from the Sovereign's own repository "+
+			"(an owner that settles is read again for up to "+c.settle.String()+")", func(ev Evidence) error {
+			if varsErr != nil {
+				return varsErr
 			}
-			return bornLocalOwned(region, i == 0, ks, repos, vars["SOVEREIGN_FQDN"], ev)
+			passes := 0
+			_, err := poll(ctx, c.settle, c.every, func() (bool, string, error) {
+				passes++
+				ks, err := c.get(region, ctx, bornLocalKs, "flux-system")
+				repos, reposErr := c.get(region, ctx, bornLocalGit, "")
+				if err = errors.Join(err, reposErr); err != nil {
+					return false, "", err
+				}
+				settling, err := bornLocalOwned(region, i == 0, ks, repos, vars["SOVEREIGN_FQDN"], ev)
+				if settling {
+					return false, err.Error(), nil
+				}
+				return true, "", err
+			})
+			ev["passes"] = passes
+			return err
 		})
 	}
 	return secProbe{id: bornLocalID, prefix: "born-local", mode: "born-local", script: bornLocalScript, selector: "kubernetes.io/hostname",
@@ -197,7 +233,9 @@ func bornLocalInside(raw, fqdn string) bool {
 	return strings.HasSuffix(h, ".svc") || strings.HasSuffix(h, ".svc.cluster.local") || (fqdn != "" && (h == fqdn || strings.HasSuffix(h, "."+fqdn)))
 }
 
-func bornLocalOwned(region kube.Region, primary bool, ks, repos []kube.Object, fqdn string, ev Evidence) error {
+// bornLocalOwned judges one pass of step 3. settling reports that it failed
+// and that every fault is an owner that settles by itself (bornLocalOwner).
+func bornLocalOwned(region kube.Region, primary bool, ks, repos []kube.Object, fqdn string, ev Evidence) (settling bool, err error) {
 	byName, sources := map[string]kube.Object{}, map[string]kube.Object{}
 	for _, k := range ks {
 		byName[k.Name()] = k
@@ -225,27 +263,32 @@ func bornLocalOwned(region kube.Region, primary bool, ks, repos []kube.Object, f
 		}
 		owners[owner] = append(owners[owner], name)
 	}
-	read := Evidence{}
+	read, settles := Evidence{}, 0
 	for _, o := range slices.Sorted(maps.Keys(owners)) {
-		source, fault := bornLocalOwner(byName, sources, o, fqdn)
+		source, fault, settling := bornLocalOwner(byName, sources, o, fqdn)
 		read[o] = source
 		if fault != "" {
 			faults = append(faults, fmt.Sprintf("the owner %s of [%s] %s", o, strings.Join(owners[o], " "), fault))
+			if settling {
+				settles++
+			}
 		}
 	}
 	ev["roots"], ev["owners"] = roots, read
 	if len(faults) > 0 {
-		return fmt.Errorf("region %s: %s", region.ID, strings.Join(faults, "; "))
+		return settles == len(faults), fmt.Errorf("region %s: %s", region.ID, strings.Join(faults, "; "))
 	}
-	return nil
+	return false, nil
 }
 
 // bornLocalOwner judges the Kustomization that applied a root Kustomization:
-// the URL of its source, and what is wrong with it ("" when nothing is).
-func bornLocalOwner(byName, sources map[string]kube.Object, name, fqdn string) (string, string) {
+// the URL of its source, what is wrong with it ("" when nothing is), and
+// whether that settles by itself: the owner is not Ready, or its source holds
+// a revision the owner has not applied.
+func bornLocalOwner(byName, sources map[string]kube.Object, name, fqdn string) (string, string, bool) {
 	o, ok := byName[name]
 	if !ok {
-		return "", "is not a Kustomization of flux-system"
+		return "", "is not a Kustomization of flux-system", false
 	}
 	kind, ns := o.Str("spec", "sourceRef", "kind"), o.Str("spec", "sourceRef", "namespace")
 	if ns == "" {
@@ -253,21 +296,21 @@ func bornLocalOwner(byName, sources map[string]kube.Object, name, fqdn string) (
 	}
 	src, ok := sources[ns+"/"+o.Str("spec", "sourceRef", "name")]
 	if kind != "GitRepository" || !ok {
-		return "", fmt.Sprintf("reads the %s %s/%s, which is no GitRepository of the region", kind, ns, o.Str("spec", "sourceRef", "name"))
+		return "", fmt.Sprintf("reads the %s %s/%s, which is no GitRepository of the region", kind, ns, o.Str("spec", "sourceRef", "name")), false
 	}
 	raw := src.Str("spec", "url")
 	u, err := url.Parse(raw)
 	if err != nil || !bornLocalInside(raw, fqdn) || strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), ".git") != bornLocalRepository {
-		return raw, "reads " + raw + ", not the Sovereign's own repository"
+		return raw, "reads " + raw + ", not the Sovereign's own repository", false
 	}
 	if status, _, message, _ := o.Condition("Ready"); status != "True" {
-		return raw, "is not Ready (" + message + ")"
+		return raw, "is not Ready (" + message + ")", true
 	}
 	applied, held := o.Str("status", "lastAppliedRevision"), src.Str("status", "artifact", "revision")
 	if applied == "" || applied != held {
-		return raw, fmt.Sprintf("applied the revision %q, its source holds %q", applied, held)
+		return raw, fmt.Sprintf("applied the revision %q, its source holds %q", applied, held), held != ""
 	}
-	return raw, ""
+	return raw, "", false
 }
 
 // judgeBornLocalRegistry judges what the probe printed in the mode born-local.
@@ -286,8 +329,18 @@ func judgeBornLocalRegistry(v probeValues, ev Evidence) error {
 		} `json:"mirrors"`
 	}
 	b, err := base64.StdEncoding.DecodeString(v.one("registries"))
-	if err != nil || json.Unmarshal(b, &file) != nil {
-		return errors.New("/etc/rancher/k3s/registries.yaml is not the JSON the provider modules write")
+	if err != nil {
+		return errors.New("the probe printed the registry file in no base64")
+	}
+	tree, err := bornLocalYAML(b)
+	if err == nil {
+		j, _ := json.Marshal(tree)
+		if json.Unmarshal(j, &file) != nil {
+			err = errors.New("its mirrors are not names that each hold a list of endpoints")
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("/etc/rancher/k3s/registries.yaml is not YAML this check reads: %w", err)
 	}
 	mirrors, other := map[string][]string{}, []string{}
 	for name, m := range file.Mirrors {
@@ -311,4 +364,231 @@ func judgeBornLocalRegistry(v probeValues, ev Evidence) error {
 		return errors.New(strings.Join(faults, "; "))
 	}
 	return nil
+}
+
+// yamlLine is one line of a YAML document that holds content: its number,
+// its indent in spaces and its text after the indent.
+type yamlLine struct {
+	n, indent int
+	text      string
+}
+
+// bornLocalYAML reads a registry file as YAML into maps, lists and strings.
+// It reads a document that is one JSON value (the provider modules write
+// one), and block mappings and lists (the local pack, scripts/local-pack.sh)
+// whose scalars are plain, single- or double-quoted, or JSON. It refuses
+// every other form (a tab in an indent, an anchor, an alias, a tag, a block
+// scalar, a second document, a line under no key, a repeated key), so that
+// what it cannot read is never judged as absent. An error names a line,
+// never its text.
+func bornLocalYAML(b []byte) (any, error) {
+	lines := []yamlLine{}
+	for i, raw := range strings.Split(string(b), "\n") {
+		raw = strings.TrimRight(raw, " \r")
+		if text := strings.TrimLeft(raw, " "); text != "" && text[0] != '#' && (text != "---" || len(lines) > 0) {
+			lines = append(lines, yamlLine{i + 1, len(raw) - len(text), text})
+		}
+	}
+	if len(lines) == 0 {
+		return nil, errors.New("it holds no document")
+	}
+	if c := lines[0].text[0]; c == '{' || c == '[' {
+		texts := []string{}
+		for _, l := range lines {
+			texts = append(texts, l.text)
+		}
+		return yamlJSON(strings.Join(texts, "\n"), lines[0].n)
+	}
+	for _, l := range lines {
+		if l.text[0] == '\t' {
+			return nil, fmt.Errorf("line %d is indented with a tab", l.n)
+		}
+	}
+	v, err := yamlWhole(lines, lines[0].indent)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func yamlItem(text string) bool { return text == "-" || strings.HasPrefix(text, "- ") }
+
+// yamlWhole reads the block node of lines, which must hold nothing else.
+func yamlWhole(lines []yamlLine, indent int) (any, error) {
+	v, rest, err := yamlNode(lines, indent)
+	if err == nil && len(rest) > 0 {
+		err = fmt.Errorf("line %d is outside the structure above it", rest[0].n)
+	}
+	return v, err
+}
+
+// yamlNode reads the block mapping or list whose lines start at indent and
+// returns the lines after it.
+func yamlNode(lines []yamlLine, indent int) (node any, rest []yamlLine, err error) {
+	if yamlItem(lines[0].text) {
+		node, rest, err = yamlList(lines, indent)
+	} else {
+		node, rest, err = yamlMap(lines, indent)
+	}
+	if err == nil && len(rest) > 0 && rest[0].indent > indent {
+		err = fmt.Errorf("line %d is indented under no key", rest[0].n)
+	}
+	return node, rest, err
+}
+
+func yamlList(lines []yamlLine, indent int) ([]any, []yamlLine, error) {
+	list := []any{}
+	for len(lines) > 0 && lines[0].indent == indent && yamlItem(lines[0].text) {
+		l, end := lines[0], 1
+		for end < len(lines) && lines[end].indent > indent {
+			end++
+		}
+		item := strings.TrimLeft(l.text[1:], " ")
+		col := l.indent + len(l.text) - len(item)
+		var v any
+		var err error
+		keyed := false
+		if item != "" {
+			_, _, keyed, err = yamlKey(item, l.n)
+		}
+		switch {
+		case err != nil:
+		case item == "" && end == 1:
+		case item == "":
+			v, err = yamlWhole(lines[1:end], lines[1].indent)
+		case !keyed && !yamlItem(item) && end == 1:
+			v, err = yamlScalar(item, l.n)
+		default: // "- key: value" or "- - item" opens a node at the column of item
+			v, err = yamlWhole(append([]yamlLine{{l.n, col, item}}, lines[1:end]...), col)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		list, lines = append(list, v), lines[end:]
+	}
+	return list, lines, nil
+}
+
+func yamlMap(lines []yamlLine, indent int) (map[string]any, []yamlLine, error) {
+	m := map[string]any{}
+	for len(lines) > 0 && lines[0].indent == indent && !yamlItem(lines[0].text) {
+		l := lines[0]
+		key, value, keyed, err := yamlKey(l.text, l.n)
+		if _, seen := m[key]; err == nil && (!keyed || seen) {
+			err = fmt.Errorf("line %d is no new key of the mapping it is in", l.n)
+		}
+		lines = lines[1:]
+		switch {
+		case err != nil:
+		case value != "":
+			m[key], err = yamlScalar(value, l.n)
+		case len(lines) > 0 && (lines[0].indent > indent || (lines[0].indent == indent && yamlItem(lines[0].text))):
+			m[key], lines, err = yamlNode(lines, lines[0].indent)
+		default:
+			m[key] = nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return m, lines, nil
+}
+
+// yamlKey splits "key: value"; keyed is false when text is no mapping entry.
+// text is not empty.
+func yamlKey(text string, n int) (key, value string, keyed bool, err error) {
+	rest := ""
+	if text[0] == '"' || text[0] == '\'' {
+		end, qerr := yamlQuoteEnd(text, n)
+		if qerr != nil {
+			return "", "", false, qerr
+		}
+		if rest = text[end:]; rest != ":" && !strings.HasPrefix(rest, ": ") {
+			return "", "", false, nil
+		}
+		k, qerr := yamlScalar(text[:end], n)
+		if qerr != nil {
+			return "", "", false, qerr
+		}
+		key = k.(string)
+	} else {
+		i := strings.Index(text, ": ")
+		if i < 0 && strings.HasSuffix(text, ":") {
+			i = len(text) - 1
+		}
+		if i < 1 {
+			return "", "", false, nil
+		}
+		if key, rest = text[:i], text[i:]; strings.ContainsAny(key[:1], yamlIndicators+"{[]},") {
+			return "", "", false, fmt.Errorf("line %d has a key in a YAML form this check does not read", n)
+		}
+	}
+	if value = strings.TrimLeft(rest[1:], " "); strings.HasPrefix(value, "#") {
+		value = ""
+	}
+	return key, value, true, nil
+}
+
+// yamlIndicators start an anchor, an alias, a tag, a block scalar, a
+// directive, a reserved character or a complex key.
+const yamlIndicators = "&*!|>%@`?"
+
+// yamlScalar reads one scalar or JSON flow collection of line n.
+func yamlScalar(s string, n int) (any, error) {
+	switch {
+	case s[0] == '"' || s[0] == '\'':
+		end, err := yamlQuoteEnd(s, n)
+		if t := strings.TrimLeft(s[end:], " "); err == nil && t != "" && (t[0] != '#' || len(t) == len(s)-end) {
+			err = fmt.Errorf("line %d holds text after a quoted scalar", n)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if s[0] == '\'' {
+			return strings.ReplaceAll(s[1:end-1], "''", "'"), nil
+		}
+		var v string
+		if json.Unmarshal([]byte(s[:end]), &v) != nil {
+			return nil, fmt.Errorf("line %d holds an escape in a double-quoted scalar that this check does not read", n)
+		}
+		return v, nil
+	case s[0] == '{' || s[0] == '[':
+		return yamlJSON(s, n)
+	case strings.ContainsAny(s[:1], yamlIndicators):
+		return nil, fmt.Errorf("line %d holds a value in a YAML form this check does not read", n)
+	}
+	if i := strings.Index(s, " #"); i >= 0 {
+		s = strings.TrimRight(s[:i], " ")
+	}
+	switch {
+	case strings.Contains(s, ": ") || strings.HasSuffix(s, ":"):
+		return nil, fmt.Errorf("line %d holds a mapping where a scalar belongs", n)
+	case s == "~" || s == "null":
+		return nil, nil
+	}
+	return s, nil
+}
+
+// yamlQuoteEnd returns the index after the quote that ends the quoted scalar s.
+func yamlQuoteEnd(s string, n int) (int, error) {
+	for i := 1; i < len(s); i++ {
+		switch {
+		case s[0] == '"' && s[i] == '\\':
+			i++
+		case s[0] == '\'' && s[i] == '\'' && i+1 < len(s) && s[i+1] == '\'':
+			i++
+		case s[i] == s[0]:
+			return i + 1, nil
+		}
+	}
+	return 0, fmt.Errorf("line %d holds a quoted scalar that does not end on it", n)
+}
+
+// yamlJSON reads a flow collection that starts on line n as JSON.
+func yamlJSON(s string, n int) (any, error) {
+	var v any
+	if json.Unmarshal([]byte(s), &v) != nil {
+		return nil, fmt.Errorf("line %d starts a flow collection that is not JSON", n)
+	}
+	return v, nil
 }

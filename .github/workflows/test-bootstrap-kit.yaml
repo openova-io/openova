@@ -72,8 +72,10 @@ on:
   # the slot pin leapfrogged past them. This hourly full-sweep +
   # --check-ghcr run catches any such residual drift (lag OR
   # pinned-but-unpublished) within the hour and fails LOUD (the scheduled
-  # event is excluded from the continue-on-error umbrella below — by then
-  # there is no auto-bump race to excuse the drift).
+  # event is excluded from the continue-on-error umbrella below). FND-045:
+  # a drift whose chart version passed the pin less than this cron's hour
+  # ago is a release still in flight; the audit prints it IN FLIGHT and
+  # does not fail on it. An older one fails.
   schedule:
     - cron: '17 * * * *'
 
@@ -273,11 +275,12 @@ jobs:
     # workflow (blueprint-release.yaml) and pushes the pin bump as a
     # follow-up bot commit, which (per GITHUB_TOKEN convention) does
     # NOT retrigger this workflow. So the FIRST run on every chart-
-    # bumping merge sees `chart=N pin=N-1` drift and would block.
-    # The actual desired-state is that the follow-up bot commit heals
-    # the drift within ~60s. Push-mode is therefore observational, not
-    # blocking; we use `continue-on-error: true` so the workflow stays
-    # green while the drift is still visible on the run summary.
+    # bumping merge sees `chart=N pin=N-1` drift. FND-045: the audit times
+    # that drift from the commit that set the chart's version past the pin
+    # and prints it IN FLIGHT, not failing, while it is younger than the
+    # hourly cron. Push and dispatch stay observational as before
+    # (`continue-on-error: true`); every drift stays visible on the run
+    # summary.
     #
     # TBD-A26 (issue #1872, 2026-05-19): full-sweep mode ALSO runs the
     # `--check-ghcr` phase, which verifies every pinned chart version
@@ -292,9 +295,10 @@ jobs:
     runs-on: ubuntu-latest
     # push/dispatch are observational (they race the auto-bump hook, #4409
     # comment in `on.schedule` above). The `schedule` event is NOT excused:
-    # by the time the hourly run fires there is no auto-bump race, so any
-    # residual drift (lagging slot pin or pinned-but-unpublished tag) is a
-    # genuine propagation failure and MUST fail the run loudly.
+    # a release still in flight when it fires (chart version past the pin
+    # for under an hour) is printed IN FLIGHT (FND-045); any older drift
+    # (lagging slot pin or pinned-but-unpublished tag) is a genuine
+    # propagation failure and MUST fail the run loudly.
     continue-on-error: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     permissions:
       # `gh api /orgs/<org>/packages/container/<chart>/versions` needs
@@ -307,8 +311,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Need history back to the PR base for the --changed-only diff.
+          # Need history back to the PR base for the --changed-only diff,
+          # and (FND-045) to the commit that set a drifted chart past its pin.
           fetch-depth: 0
+
+      - name: Pin-sync audit self-test (FND-045)
+        # Proves the verdicts before the audit below is trusted, on a fixture
+        # repository: a chart set past its pin 600 s ago is IN FLIGHT and
+        # passes; 7200 s ago, a pin past its chart, or a shallow history that
+        # hides the commit fails; a later bump keeps the age of the first one
+        # past the pin; the pull-request mode is unchanged.
+        run: bash scripts/check-bootstrap-kit-pin-sync.sh --self-test
 
       - name: Run pin-sync audit (changed-only on PR, full sweep + --check-ghcr otherwise)
         env:
@@ -330,7 +343,8 @@ jobs:
             # push / workflow_dispatch / schedule all run the full sweep +
             # --check-ghcr. On `schedule` (#4409) this is fail-loud — the
             # job-level continue-on-error does NOT cover the schedule event,
-            # so residual propagation drift turns the hourly run red.
+            # so residual propagation drift turns the hourly run red; a drift
+            # set past the pin under an hour ago is IN FLIGHT (FND-045).
             echo "Running full sweep + --check-ghcr (event=${{ github.event_name }})"
             bash scripts/check-bootstrap-kit-pin-sync.sh --check-ghcr
           fi

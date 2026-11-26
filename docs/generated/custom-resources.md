@@ -13,6 +13,8 @@ This file says what the tree defines. It does not say what a cluster has install
 
 | Kind | Group | Versions | Scope | Plural | File | Named in Go code |
 |---|---|---|---|---|---|---|
+| AccessGrant | access.openova.io | v1alpha1 | Namespaced | accessgrants | platform/guacamole/chart/crds/accessgrant.yaml | yes |
+| AccessTarget | access.openova.io | v1alpha1 | Namespaced | accesstargets | platform/guacamole/chart/crds/accesstarget.yaml | no |
 | UserAccess | access.openova.io | v1alpha1 | Cluster | useraccesses | platform/crossplane-claims/chart/templates/crds/useraccess.yaml | yes |
 | Application | apps.openova.io | v1 | Namespaced | applications | products/catalyst/chart/crds/application.yaml | yes |
 | Blueprint | catalyst.openova.io | v1alpha1, v1 (storage) | Cluster | blueprints | products/catalyst/chart/crds/blueprint.yaml | yes |

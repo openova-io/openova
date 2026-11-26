@@ -129,12 +129,13 @@ checks:
 - id: ACC-G13
   title: Grant life cycle from objects
   owner: ACC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Grant life cycle from objects
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g13.go
   delivered_by: ACC-103
 - id: ACC-G14
   title: Credential issue is bound to the session identity
