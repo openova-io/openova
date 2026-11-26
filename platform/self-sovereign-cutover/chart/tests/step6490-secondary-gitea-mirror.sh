@@ -412,6 +412,17 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.nosrp" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: SOV-231, the settled-roll pre-flight does not offer its override for a
+    # release a Flux Kustomization applies (hr_ks_terminal), in EVERY topology: step 03
+    # changes; not the follower gitea leg. While origin/main lacks hr_ks_terminal, the step-03
+    # document is left out of BOTH trees; Case 77 of tests/cutover-contract.sh executes the
+    # change. The axis switches itself off once origin/main holds it.
+    if ! grep -q 'hr_ks_terminal=' "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.noks"
+        mv "${TMP}/${t}.noks" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then

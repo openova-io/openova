@@ -764,6 +764,19 @@ prewarm:
   # the status ConfigMap (settledRollOverrides) and surfaced on
   # GET /sovereign/cutover/status; recording failure is itself FATAL.
   #
+  # SOV-231 — WHERE THE OVERRIDE HOLDS: on a HelmRelease that no Flux
+  # Kustomization applies. kustomize-controller removes a hand-set annotation
+  # from an object it applies (label kustomize.toolkit.fluxcd.io/name): on a
+  # standing two-region Sovereign, 25 Nov 2026, the annotation set by hand on
+  # bp-powerdns, bp-external-dns and bp-powerdns-admin in both regions was gone
+  # within two minutes, before the pre-flight read it (#5391). So for a
+  # terminal offender with that label the printed remedy does not offer the
+  # annotation; it names what works: a candidate whose kit changes its pin
+  # (the delivery rule below; the kit's releases only), a repair of the
+  # release then `flux reconcile helmrelease <name> -n <ns> --reset`, or the
+  # whole-gate switch prewarm.settledRollPreflight.enabled=false. The
+  # validation and the record of an override are unchanged.
+  #
   # A DELIVERY (PUT /api/v1/sovereign/release: CANDIDATE set, UPSTREAM_BRANCH = release/<candidate>)
   # does not gate a platform release that is terminal (SRP_TERMINAL_JQ), that the kit applies (namespace
   # flux-system, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit: the pins name charts, and an
@@ -801,6 +814,12 @@ prewarm:
   # identically. Emitting the stalled remedy for a hollow pin sends the
   # operator to a command that cannot work; name the real one instead
   # (publish the pinned version, or re-pin to a published one).
+  #
+  # SOV-231: the same enumeration tags a platform offender that carries the
+  # label kustomize.toolkit.fluxcd.io/name, KST when terminal and KSM
+  # otherwise, with the Kustomization's name. The override is offered only
+  # while a terminal offender without the label remains; the KST releases are
+  # listed with the remedies that work for them (see the override above).
   #
   # Deployments + StatefulSets: a pending rollout — observedGeneration
   # behind the spec, or updated/ready replicas short of desired. Skip
