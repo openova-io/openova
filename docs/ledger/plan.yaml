@@ -8270,7 +8270,7 @@ packages:
   title: The mothership holds the checked installation document of the installation in use
   area: CLD
   epic: CLD-160
-  type: refactor
+  type: spike
   wave: W1b
   size: XS
   lane: GATE
@@ -8282,12 +8282,18 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CLD-166.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CLD-166.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CLD-166.md"
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
