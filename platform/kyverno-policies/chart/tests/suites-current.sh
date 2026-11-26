@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# suites-current.sh - each ValidatingPolicy suite of the policy chart judges
+# suites-current.sh - each ValidatingPolicy and MutatingPolicy suite of the policy chart judges
 # the policy as the chart renders it, not a stale copy of it (CMP-062).
 #
 # A policy suite tests/<name>/ holds a COPY of its policy (policy.yaml):
@@ -7,10 +7,10 @@
 # its template would keep the suite green while the real admission changed.
 # For every suite of the list SUITES below this test fails when
 #   C1 policy.yaml is missing, or the template does not render;
-#   C2 the render holds no ValidatingPolicy named like the suite;
+#   C2 the render holds no ValidatingPolicy or MutatingPolicy named like the suite;
 #   C3 policy.yaml is not the render of the template with the chart defaults;
 # and it fails when
-#   C4 a suite under tests/ holds a ValidatingPolicy and is not in SUITES,
+#   C4 a suite under tests/ holds a ValidatingPolicy or a MutatingPolicy and is not in SUITES,
 #      unless it is in ELSEWHERE and the test named there exists and names it.
 # A policy rewritten to the new kind adds its suite to SUITES.
 #
@@ -55,6 +55,7 @@ SUITES=(
   "networkpolicy-present baseline/14-networkpolicy-present.yaml"
   "otel-injected baseline/15-otel-injected.yaml"
   "backup-configured baseline/20-backup-configured.yaml"
+  "inject-gitea-source-secretref mutate/01-inject-gitea-source-secretref.yaml"
 )
 
 # A suite whose copy holds more than one policy is kept current by its own
@@ -79,8 +80,8 @@ check_suite() {
     return 1
   fi
   grep -v '^# Source:' "$render.raw" | sed '1{/^---$/d}' > "$render"
-  if ! grep -q -x 'kind: ValidatingPolicy' "$render" || ! grep -q -x "  name: $name" "$render"; then
-    echo "$TAG FAIL C2 $name: the render of templates/$template holds no ValidatingPolicy $name"
+  if ! grep -q -x -E 'kind: (ValidatingPolicy|MutatingPolicy)' "$render" || ! grep -q -x "  name: $name" "$render"; then
+    echo "$TAG FAIL C2 $name: the render of templates/$template holds no ValidatingPolicy or MutatingPolicy $name"
     return 1
   fi
   if ! diff -u "$copy" "$render" > "$TMP/diff"; then
@@ -92,13 +93,13 @@ check_suite() {
 }
 
 # check_listed <chart>: C4. Prints one line per suite that holds a
-# ValidatingPolicy and is neither in SUITES nor in ELSEWHERE with a test that
+# ValidatingPolicy or a MutatingPolicy and is neither in SUITES nor in ELSEWHERE with a test that
 # exists and names it. Returns 1 when there is one.
 check_listed() {
   local chart="$1" copy name entry listed rc=0
   for copy in "$chart"/tests/*/policy.yaml; do
     [ -f "$copy" ] || continue
-    grep -q -x 'kind: ValidatingPolicy' "$copy" || continue
+    grep -q -x -E 'kind: (ValidatingPolicy|MutatingPolicy)' "$copy" || continue
     name="$(basename "$(dirname "$copy")")"
     listed=0
     for entry in "${SUITES[@]}"; do
@@ -111,7 +112,7 @@ check_listed() {
       fi
     done
     if [ "$listed" -eq 0 ]; then
-      echo "$TAG FAIL C4 $name: the suite holds a ValidatingPolicy and is not in SUITES of this file"
+      echo "$TAG FAIL C4 $name: the suite holds a ValidatingPolicy or a MutatingPolicy and is not in SUITES of this file"
       rc=1
     fi
   done
@@ -146,7 +147,7 @@ st_case() {
 }
 
 self_test() {
-  local doc legacy
+  local doc legacy mutating
   ST_TMP="$(mktemp -d)"
   trap 'rm -rf "$ST_TMP" "$TMP"' EXIT
   mkdir -p "$ST_TMP/chart/tests/s1" "$ST_TMP/chart/tests/s2" "$ST_TMP/chart/tests/s3"
@@ -191,8 +192,14 @@ self_test() {
   st_case "9 C4 a suite in ELSEWHERE whose test exists and names it passes" 0 check_listed "$ST_TMP/chart"
   rm "$ST_TMP/chart/tests/s2-current.sh"
   st_case "10 C4 a suite in ELSEWHERE whose test does not exist fails" 1 check_listed "$ST_TMP/chart"
+  mutating=$'apiVersion: policies.kyverno.io/v1\nkind: MutatingPolicy\nmetadata:\n  name: s1\nspec:\n  mutations: []'
+  printf '%s\n' "$mutating" > "$ST_TMP/render"
+  printf '%s\n' "$mutating" > "$ST_TMP/chart/tests/s1/policy.yaml"
+  st_case "11 C2 a copy equal to a MutatingPolicy render passes" 0 check_suite "$ST_TMP/chart" s1 t.yaml
+  printf '%s\n' "${mutating/s1/s2}" > "$ST_TMP/chart/tests/s2/policy.yaml"
+  st_case "12 C4 a suite with a MutatingPolicy that is not listed fails" 1 check_listed "$ST_TMP/chart"
 
-  echo "self-test: 10 cases passed"
+  echo "self-test: 12 cases passed"
 }
 
 TMP="$(mktemp -d)"

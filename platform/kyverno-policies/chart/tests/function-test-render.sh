@@ -15,8 +15,8 @@ python3 "$CHECK" --self-test > "$TMP/self-test.txt" || { cat "$TMP/self-test.txt
 
 cd "$CHART_DIR"
 
-# policies <render> <kind>: the names of the policies of that kind (ClusterPolicy or
-# ValidatingPolicy) of a render, sorted, one per line.
+# policies <render> <kind>: the names of the policies of that kind (ClusterPolicy,
+# ValidatingPolicy or MutatingPolicy) of a render, sorted, one per line.
 policies() {
   python3 -c '
 import sys, yaml
@@ -26,16 +26,19 @@ for doc in yaml.safe_load_all(open(sys.argv[1])):
 ' "$1" "$2" | sort
 }
 # asked <test render> <variable>: the names the test asks for in that variable
-# (POLICIES: the ClusterPolicies; VALIDATING_POLICIES: the ValidatingPolicies), sorted.
+# (POLICIES: the ClusterPolicies; VALIDATING_POLICIES: the ValidatingPolicies;
+# MUTATING_POLICIES: the MutatingPolicies), sorted.
 asked() {
   awk -v v="$2" 'f { sub(/^ *value: "/, ""); sub(/"$/, ""); print; exit } $0 ~ "^ *- name: " v "$" { f = 1 }' "$1" \
     | tr ' ' '\n' | sed '/^$/d' | sort
 }
 # both <render> <test render> <out prefix>: writes <prefix>-want.txt and <prefix>-got.txt,
-# the policies of both kinds, each line "<kind> <name>".
+# the policies of the three kinds, each line "<kind> <name>".
 both() {
-  { policies "$1" ClusterPolicy | sed 's/^/ClusterPolicy /'; policies "$1" ValidatingPolicy | sed 's/^/ValidatingPolicy /'; } > "$3-want.txt"
-  { asked "$2" POLICIES | sed 's/^/ClusterPolicy /'; asked "$2" VALIDATING_POLICIES | sed 's/^/ValidatingPolicy /'; } > "$3-got.txt"
+  { policies "$1" ClusterPolicy | sed 's/^/ClusterPolicy /'; policies "$1" ValidatingPolicy | sed 's/^/ValidatingPolicy /'
+    policies "$1" MutatingPolicy | sed 's/^/MutatingPolicy /'; } > "$3-want.txt"
+  { asked "$2" POLICIES | sed 's/^/ClusterPolicy /'; asked "$2" VALIDATING_POLICIES | sed 's/^/ValidatingPolicy /'
+    asked "$2" MUTATING_POLICIES | sed 's/^/MutatingPolicy /'; } > "$3-got.txt"
 }
 
 echo "[function-test] Case 1: the file list of the test equals the policy templates of the chart"
@@ -52,9 +55,11 @@ sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-tes
 both "$TMP/default-plain.yaml" "$TMP/default-test.yaml" "$TMP/default"
 [ "$(wc -l < "$TMP/default-want.txt")" -ge 20 ] || fail "the default render holds fewer than 20 ClusterPolicies and ValidatingPolicies"
 grep -q '^ValidatingPolicy ' "$TMP/default-want.txt" || fail "the default render holds no ValidatingPolicy, so the second list is not under test"
+grep -q '^MutatingPolicy ' "$TMP/default-want.txt" || fail "the default render holds no MutatingPolicy, so the third list is not under test"
 diff "$TMP/default-want.txt" "$TMP/default-got.txt" > "$TMP/names.diff" || { cat "$TMP/names.diff" >&2; fail "the test does not ask for exactly the ClusterPolicies and ValidatingPolicies of the default render"; }
 grep -q -F 'resources: ["clusterpolicies"]' "$TMP/default-test.yaml" || fail "the test ClusterRole does not name clusterpolicies"
 grep -q -F 'resources: ["validatingpolicies"]' "$TMP/default-test.yaml" || fail "the test ClusterRole does not name validatingpolicies"
+grep -q -F 'resources: ["mutatingpolicies"]' "$TMP/default-test.yaml" || fail "the test ClusterRole does not name mutatingpolicies"
 grep -q -F 'verbs: ["get"]' "$TMP/default-test.yaml" || fail "the test ClusterRole grants more than get"
 grep -q -F 'name: kyverno-kyverno-policies-function-test' "$TMP/default-test.yaml" || fail "the cluster-wide names do not carry the namespace"
 
@@ -87,8 +92,8 @@ for key in multiReplica pdb topologySpread probesPresent resourceRequests resour
 done
 mapfile -t off < "$TMP/off.yaml"
 helm template kyverno-policies . --namespace kyverno "${off[@]}" > "$TMP/none.yaml"
-if grep -q -E '^kind: (ClusterPolicy|ValidatingPolicy)$' "$TMP/none.yaml"; then
-  fail "the render with every policy off still holds a ClusterPolicy or a ValidatingPolicy"
+if grep -q -E '^kind: (ClusterPolicy|ValidatingPolicy|MutatingPolicy)$' "$TMP/none.yaml"; then
+  fail "the render with every policy off still holds a ClusterPolicy, a ValidatingPolicy or a MutatingPolicy"
 fi
 python3 "$CHECK" --chart bp-kyverno-policies --release kyverno-policies --absent < "$TMP/none.yaml"
 

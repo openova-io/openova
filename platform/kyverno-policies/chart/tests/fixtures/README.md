@@ -90,7 +90,7 @@ cd platform/kyverno-policies/chart
 # (re-render policy.yaml if the template/values changed — see the header
 #  of tests/inject-gitea-source-secretref/kyverno-test.yaml)
 kyverno test tests/inject-gitea-source-secretref/
-# → 5 tests passed and 0 tests failed
+# → 6 tests passed and 0 tests failed
 ```
 
 | Case | Input fixture | Expectation |
@@ -100,6 +100,7 @@ kyverno test tests/inject-gitea-source-secretref/
 | github.com public, no secretRef | `resource-github-public-no-secretref.yaml` | SKIP (no `gitea` host substring) |
 | local Gitea WITH secretRef | `resource-incluster-gitea-with-secretref.yaml` | SKIP (idempotent — never overrides) |
 | OCIRepository at Gitea host, no secretRef | `resource-ocirepository-gitea-no-secretref.yaml` | MUTATE → inject (cross-kind coverage; `patched-ocirepository-gitea.yaml`) |
+| local Gitea, secretRef naming no Secret | `resource-incluster-gitea-with-secretref.yaml` (second document) | SKIP (left as it is, as the legacy anchor left it) |
 
 The DEFERRED live-conformance proof (a controlled `kubectl apply` on a running
 Sovereign → observe the injected secretRef) is the command in the PR body;
