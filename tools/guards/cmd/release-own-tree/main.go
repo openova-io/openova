@@ -12,7 +12,8 @@
 // without one (every push run) it fetches from the URL itself. Checks:
 //
 //	workflow  every `helm dependency build` of the workflow is in one of those two
-//	          steps, after the step sources scripts/lib/helm-dep-repos.sh and calls
+//	          steps or the commit step (FND-046, below), after the step sources
+//	          scripts/lib/helm-dep-repos.sh and calls
 //	          add_dep_repos; add_dep_repos is defined once in the tree, in that file;
 //	          the step "Helm dependency build" passes on a fixture chart with one
 //	          https dependency served by a local stand-in (no network) and an empty
@@ -43,6 +44,20 @@
 //
 // Not seen: a tree named through a variable (`ref=origin/main; git archive "$ref"`).
 //
+// The version commit (FND-046, candidate 24 of 24 Nov 2026). Run 45381811491
+// published bp-catalyst-platform 1.4.2315 from its checkout, and the retry of its
+// commit step wrote 1.4.2315 onto a main whose values had changed since: main named
+// a version whose published files it did not hold. Checks:
+//
+//	lockstep  the commit step, run as a job runs it after main moved on: when main
+//	          changed a template of the chart, or a file:// library it packs, it
+//	          writes no site, main keeps 1.0.0, and the step "Release writer: release
+//	          main again when main changed the chart" dispatches exactly one release of
+//	          main for the chart; when main changed only a file the package leaves out
+//	          (.helmignore), it packages main, finds the same files and writes 1.0.1.
+//	          And the release writer writes 1.0.2 when the registry holds 1.0.0 with
+//	          other files and 1.0.1, and 1.0.1 when it holds only 1.0.0.
+//
 // It needs bash, git, tar, yq, the python3 the release writer and step6490 call,
 // and the Helm that blueprint-release.yaml installs (another version stops it).
 //
@@ -72,6 +87,8 @@ const (
 	libRel       = "scripts/lib/helm-dep-repos.sh"
 	writerStep   = "Release writer: bump the chart version"
 	depBuildStep = "Helm dependency build"
+	commitStep   = "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
+	againStep    = "Release writer: release main again when main changed the chart"
 	cutoverChart = "platform/self-sovereign-cutover/chart"
 	cutoverTest  = "tests/step6490-secondary-gitea-mirror.sh"
 	// The pass line of step6490's comparison: without it the comparison was skipped.
@@ -96,7 +113,7 @@ func run(args []string, out, errw io.Writer) int {
 	scratch := fs.String("scratch", "", "the folder for the fixtures (default: a new temporary folder)")
 	keep := fs.Bool("keep", false, "keep the scratch folder")
 	chartTest := fs.String("chart-test", "", "the file run as "+cutoverChart+"/"+cutoverTest+" in the fixtures (default: the repository's)")
-	only := fs.String("checks", "workflow,coverage,charttests", "the checks to run, comma-separated")
+	only := fs.String("checks", "workflow,coverage,charttests,lockstep", "the checks to run, comma-separated")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -108,7 +125,7 @@ func run(args []string, out, errw io.Writer) int {
 	o := options{root: strings.TrimSpace(root), workflow: *workflow, chartTest: *chartTest, checks: map[string]bool{}}
 	for _, c := range strings.Split(*only, ",") {
 		switch c = strings.TrimSpace(c); c {
-		case "workflow", "coverage", "charttests":
+		case "workflow", "coverage", "charttests", "lockstep":
 			o.checks[c] = true
 		default:
 			say(errw, "release-own-tree: unknown check %q\n", c)
@@ -156,7 +173,7 @@ func runChecks(o options, out io.Writer) ([]string, error) {
 		return nil, err
 	}
 	var findings []string
-	if o.checks["workflow"] || o.checks["coverage"] {
+	if o.checks["workflow"] || o.checks["coverage"] || o.checks["lockstep"] {
 		if err := helmIsTheRelease(string(text)); err != nil {
 			return nil, err
 		}
@@ -177,6 +194,13 @@ func runChecks(o options, out io.Writer) ([]string, error) {
 	}
 	if o.checks["charttests"] {
 		f, err := checkChartTests(o, out)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, f...)
+	}
+	if o.checks["lockstep"] {
+		f, err := checkLockstep(o, string(text), out)
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +251,11 @@ func checkWorkflow(o options, text string, out io.Writer) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	findings = append(findings, buildsAfterRepos(text, map[string]step{writerStep: writer, depBuildStep: dep})...)
+	commit, err := extractStep(text, commitStep)
+	if err != nil {
+		return nil, err
+	}
+	findings = append(findings, buildsAfterRepos(text, map[string]step{writerStep: writer, depBuildStep: dep, commitStep: commit})...)
 	f, err := oneDefinition(o.root)
 	if err != nil {
 		return nil, err
@@ -323,7 +351,7 @@ func buildsAfterRepos(text string, steps map[string]step) []string {
 		}
 	}
 	if total != inSteps {
-		findings = append(findings, fmt.Sprintf("workflow: %d line(s) run `helm dependency build`, %d of them in the steps %q and %q that this command runs: run every dependency build of a release after add_dep_repos and add its step here", total, inSteps, writerStep, depBuildStep))
+		findings = append(findings, fmt.Sprintf("workflow: %d line(s) run `helm dependency build`, %d of them in the steps %q that this command runs: run every dependency build of a release after add_dep_repos and add its step here", total, inSteps, names))
 	}
 	return findings
 }
@@ -415,16 +443,20 @@ func newFixture(root, dir string) (*fixture, error) {
 		}
 	}
 	fx.published = filepath.Join(dir, "registry", "bp-fx-1.0.0.tgz")
-	// The registry stand-in: `helm pull` hands out the published package, every
-	// other command goes to the real helm.
+	// The registry stand-in: `helm pull` hands out <name>-<version>.tgz of the
+	// folder $FX_REGISTRY, or answers not found as the registry does; every other
+	// command goes to the real helm.
 	fx.stubDir = filepath.Join(dir, "registry-stand-in")
 	real, err := exec.LookPath("helm")
 	if err != nil {
 		fx.close()
 		return nil, err
 	}
-	stub := "#!/bin/sh\nif [ \"$1\" = pull ]; then\n  dest=\"\"; prev=\"\"\n  for a in \"$@\"; do [ \"$prev\" = --destination ] && dest=\"$a\"; prev=\"$a\"; done\n" +
-		"  cp \"$FX_PUBLISHED\" \"$dest/\" || exit 1\n  echo \"Pulled: $2\"\n  exit 0\nfi\nexec \"$FX_REAL_HELM\" \"$@\"\n"
+	stub := "#!/bin/sh\nif [ \"$1\" = pull ]; then\n  dest=\"\"; ver=\"\"; prev=\"\"\n" +
+		"  for a in \"$@\"; do [ \"$prev\" = --destination ] && dest=\"$a\"; [ \"$prev\" = --version ] && ver=\"$a\"; prev=\"$a\"; done\n" +
+		"  src=\"$FX_REGISTRY/${2##*/}-$ver.tgz\"\n" +
+		"  [ -f \"$src\" ] || { echo \"Error: $2:$ver: not found\" >&2; exit 1; }\n" +
+		"  cp \"$src\" \"$dest/\" || exit 1\n  echo \"Pulled: $2:$ver\"\n  exit 0\nfi\nexec \"$FX_REAL_HELM\" \"$@\"\n"
 	if err := os.MkdirAll(fx.stubDir, 0o750); err != nil {
 		fx.close()
 		return nil, err
@@ -449,6 +481,8 @@ func (fx *fixture) tree(name string) (string, error) {
 			"  - name: common\n    version: 0.1.3\n    repository: " + fx.repoURL + "\n",
 		fxChart + "/chart/values.yaml":       "name: fx\n",
 		fxChart + "/chart/templates/cm.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ include \"common.name\" . }}-fx\n",
+		fxChart + "/chart/.helmignore":       "tests/\n",
+		fxChart + "/chart/tests/note.sh":     "# a chart test, which the package leaves out\n",
 		fxLib + "/chart/Chart.yaml":          "apiVersion: v2\nname: fx-lib\nversion: 0.1.0\ntype: library\n",
 		fxLib + "/chart/templates/_lib.tpl":  "{{- define \"fx-lib.name\" -}}fx{{- end -}}\n",
 		".gitignore":                         "platform/*/chart/charts/\nplatform/*/chart/Chart.lock\n",
@@ -499,7 +533,7 @@ func (fx *fixture) env(tree string) []string {
 		"HELM_CACHE_HOME="+filepath.Join(home, "cache"),
 		"HELM_DATA_HOME="+filepath.Join(home, "data"),
 		"SSL_CERT_FILE="+fx.certFile,
-		"FX_PUBLISHED="+fx.published,
+		"FX_REGISTRY="+filepath.Dir(fx.published),
 		"FX_REAL_HELM="+fx.realHelm,
 	)
 }
@@ -534,6 +568,16 @@ func (fx *fixture) runIn(dir, home string, extra []string, pathFirst string, nam
 // tree, with the step's env and a GITHUB_OUTPUT file; it returns what the step
 // wrote there. stub puts the registry stand-in first on PATH.
 func (fx *fixture) runStep(st step, tree string, vals map[string]string, stub bool) (result, string, error) {
+	first := ""
+	if stub {
+		first = fx.stubDir
+	}
+	return fx.runStepWith(st, tree, vals, nil, first)
+}
+
+// runStepWith is runStep with extra env and the folder first put first on PATH.
+// The step's temporary files go to a folder of the scratch (TMPDIR).
+func (fx *fixture) runStepWith(st step, tree string, vals map[string]string, extra []string, first string) (result, string, error) {
 	env, err := st.envFor(vals)
 	if err != nil {
 		return result{}, "", err
@@ -546,11 +590,11 @@ func (fx *fixture) runStep(st step, tree string, vals map[string]string, stub bo
 	if err := os.WriteFile(outputs, nil, 0o600); err != nil {
 		return result{}, "", err
 	}
-	env = append(env, "GITHUB_OUTPUT="+outputs, "GITHUB_STEP_SUMMARY="+script+".summary")
-	first := ""
-	if stub {
-		first = fx.stubDir
+	if err := os.MkdirAll(script+".tmp", 0o750); err != nil {
+		return result{}, "", err
 	}
+	env = append(env, "GITHUB_OUTPUT="+outputs, "GITHUB_STEP_SUMMARY="+script+".summary", "TMPDIR="+script+".tmp")
+	env = append(env, extra...)
 	res := fx.runIn(tree, tree, env, first, "bash", "--noprofile", "--norc", "-eo", "pipefail", script)
 	b, err := os.ReadFile(filepath.Clean(outputs))
 	if err != nil {
@@ -574,6 +618,195 @@ func (fx *fixture) depBuild(dep step, tree, label string, out io.Writer) []strin
 	}
 	say(out, "ok   workflow: %s: %q built the https dependency\n", label, depBuildStep)
 	return nil
+}
+
+// ── check lockstep ────────────────────────────────────────────────────────────
+
+// checkLockstep runs the release writer on a registry that holds versions, and the
+// commit step of a job on a main that moved on after the checkout (FND-046).
+func checkLockstep(o options, text string, out io.Writer) ([]string, error) {
+	steps := map[string]step{}
+	for _, name := range []string{writerStep, depBuildStep, commitStep, againStep} {
+		st, err := extractStep(text, name)
+		if err != nil {
+			return nil, err
+		}
+		steps[name] = st
+	}
+	fx, err := newFixture(o.root, filepath.Join(o.scratch, "lockstep"))
+	if err != nil {
+		return nil, err
+	}
+	defer fx.close()
+	var findings []string
+	for _, c := range []struct {
+		label, want string
+		held        []string
+	}{
+		{"the registry holds bp-fx 1.0.0 with other files", "1.0.1", nil},
+		{"the registry holds bp-fx 1.0.0 with other files, and 1.0.1", "1.0.2", []string{"1.0.1"}},
+	} {
+		f, err := fx.skipCase(steps[writerStep], c.label, c.want, c.held, out)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, f...)
+	}
+	for _, c := range []struct {
+		label, file, text string
+		written           bool
+	}{
+		{"main changed a template of the chart", fxChart + "/chart/templates/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: fx-changed-on-main\n", false},
+		{"main changed the file:// library the chart packs", fxLib + "/chart/templates/_lib.tpl", "{{- define \"fx-lib.name\" -}}fx-changed-on-main{{- end -}}\n", false},
+		{"main changed only a file the package leaves out", fxChart + "/chart/tests/note.sh", "# changed on main\n", true},
+	} {
+		f, err := fx.retryCase(steps, c.label, c.file, c.text, c.written, out)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, f...)
+	}
+	return findings, nil
+}
+
+// skipCase runs the release writer's dispatched route on a registry that holds
+// bp-fx 1.0.0 with other files and the versions held, and reads the version it wrote.
+func (fx *fixture) skipCase(writer step, label, want string, held []string, out io.Writer) ([]string, error) {
+	tree, err := fx.gitTree("skip-" + want)
+	if err != nil {
+		return nil, err
+	}
+	registry := tree + ".registry"
+	if err := os.MkdirAll(registry, 0o750); err != nil {
+		return nil, err
+	}
+	pkg, err := os.ReadFile(filepath.Clean(fx.published))
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range append([]string{"1.0.0"}, held...) {
+		if err := os.WriteFile(filepath.Join(registry, "bp-fx-"+v+".tgz"), pkg, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	head, err := git(tree, fx.env(tree), "rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	vals := map[string]string{"CHART_PATH": fxChart, "PUSH_BEFORE": "", "PUSH_AFTER": strings.TrimSpace(head)}
+	res, _, err := fx.runStepWith(writer, tree, vals, []string{"FX_REGISTRY=" + registry}, fx.stubDir)
+	if err != nil {
+		return nil, err
+	}
+	if res.err != nil {
+		return []string{fmt.Sprintf("lockstep: %s: the step %q failed: %v\n%s", label, writerStep, res.err, tail(res.out, 20))}, nil
+	}
+	b, err := os.ReadFile(filepath.Clean(filepath.Join(tree, fxChart, "chart", "Chart.yaml")))
+	if err != nil {
+		return nil, err
+	}
+	if got := chartVersion(string(b)); got != want {
+		return []string{fmt.Sprintf("lockstep: %s: the release writer wrote %s; want %s, the next version the registry does not hold\n%s", label, got, want, tail(res.out, 12))}, nil
+	}
+	say(out, "ok   lockstep: %s: the release writer wrote %s\n", label, want)
+	return nil, nil
+}
+
+// retryCase is a job that published bp-fx 1.0.1 from its checkout, while another
+// commit, which changes file, landed on main: its commit step's first push is
+// refused, and the retry runs on that main.
+func (fx *fixture) retryCase(steps map[string]step, label, file, text string, written bool, out io.Writer) ([]string, error) {
+	tree, err := fx.gitTree(slug(label))
+	if err != nil {
+		return nil, err
+	}
+	origin, env := tree+".git", fx.env(tree)
+	if err := bumpVersion(filepath.Join(tree, fxChart, "chart", "Chart.yaml")); err != nil {
+		return nil, err
+	}
+	charts := tree + ".charts"
+	if res, _, err := fx.runStep(steps[depBuildStep], tree, map[string]string{"CHART_PATH": fxChart}, false); err != nil || res.err != nil {
+		return nil, fmt.Errorf("%s: the job's dependency build: %v %v\n%s", label, err, res.err, res.out)
+	}
+	if res := fx.runIn(tree, tree, nil, "", "helm", "package", fxChart+"/chart", "--destination", charts); res.err != nil {
+		return nil, fmt.Errorf("%s: the job's package: %v\n%s", label, res.err, res.out)
+	}
+	other := tree + ".other"
+	if _, err := git(filepath.Dir(tree), env, "clone", "-q", origin, other); err != nil {
+		return nil, err
+	}
+	if err := commitOn(other, map[string]string{file: text}, "main moves on"); err != nil {
+		return nil, err
+	}
+	if _, err := git(other, env, "push", "-q", "origin", "HEAD:main"); err != nil {
+		return nil, err
+	}
+	moved, err := git(origin, env, "rev-parse", "main")
+	if err != nil {
+		return nil, err
+	}
+	vals := map[string]string{"CHART_PATH": fxChart, "CHART_BUMPED": "true", "CHART_FILE": fxChart + "/chart/Chart.yaml",
+		"CHART_PREV_VERSION": "1.0.0", "CHART_NAME": "bp-fx", "CHART_VERSION": "1.0.1", "PIN_FILE": "", "PREV_VERSION": "",
+		"BP_FILE": "", "BP_PREV_VERSION": "", "PIN_BUMPED": "false", "BP_BUMPED": "false", "SEED_BUMPED": "false"}
+	res, outputs, err := fx.runStepWith(steps[commitStep], tree, vals, []string{"CHARTS_DIR=" + charts, "LOCKSTEP_PUSH_PAUSE_MAX=0"}, "")
+	if err != nil {
+		return nil, err
+	}
+	if res.err != nil {
+		return []string{fmt.Sprintf("lockstep: %s: the step %q failed: %v\n%s", label, commitStep, res.err, tail(res.out, 20))}, nil
+	}
+	shown, err := git(origin, env, "show", "main:"+fxChart+"/chart/Chart.yaml")
+	if err != nil {
+		return nil, err
+	}
+	parent, err := git(origin, env, "rev-parse", "main^")
+	if err != nil {
+		return nil, err
+	}
+	ver, again := chartVersion(shown), strings.Contains(outputs, "redispatch=true")
+	if written {
+		if ver != "1.0.1" || parent != moved || again || !strings.Contains(res.out, "main packages to the files of the published bp-fx 1.0.1") {
+			return []string{fmt.Sprintf("lockstep: %s: main names %s (want 1.0.1, committed on the moved main), redispatch %v (want false), and the step must say it packaged main and found the same files\n%s", label, ver, again, tail(res.out, 12))}, nil
+		}
+		say(out, "ok   lockstep: %s: the step packaged main, found the published files and wrote 1.0.1\n", label)
+		return nil, nil
+	}
+	head, err := git(origin, env, "rev-parse", "main")
+	if err != nil {
+		return nil, err
+	}
+	if ver != "1.0.0" || head != moved || !again {
+		return []string{fmt.Sprintf("lockstep: %s: main names %s over files bp-fx 1.0.1 was not published with (want 1.0.0 and no commit), redispatch %v (want true)\n%s", label, ver, again, tail(res.out, 12))}, nil
+	}
+	ghDir, ghLog := tree+".gh", tree+".gh.log"
+	if err := os.MkdirAll(ghDir, 0o750); err != nil {
+		return nil, err
+	}
+	if err := writeExec(filepath.Join(ghDir, "gh"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GH_LOG\"\n"); err != nil {
+		return nil, err
+	}
+	res, _, err = fx.runStepWith(steps[againStep], tree, map[string]string{"GH_TOKEN": "fixture", "CHART_PATH": fxChart},
+		[]string{"GH_LOG=" + ghLog, "GITHUB_REPOSITORY=openova-io/openova"}, ghDir)
+	if err != nil {
+		return nil, err
+	}
+	calls, _ := os.ReadFile(filepath.Clean(ghLog))
+	const want = "workflow run blueprint-release.yaml --repo openova-io/openova --ref main -f blueprint=fx -f tree=platform\n"
+	if res.err != nil || string(calls) != want {
+		return []string{fmt.Sprintf("lockstep: %s: the step %q called gh %q (exit %v); want one call %q", label, againStep, string(calls), res.err, want)}, nil
+	}
+	say(out, "ok   lockstep: %s: no site written, main keeps 1.0.0, one release of main dispatched\n", label)
+	return nil, nil
+}
+
+var chartVersionRe = regexp.MustCompile(`(?m)^version:\s*"?([^"\s]+)`)
+
+// chartVersion reads the top-level version of a Chart.yaml; "" when it has none.
+func chartVersion(text string) string {
+	if m := chartVersionRe.FindStringSubmatch(text); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // ── check coverage ────────────────────────────────────────────────────────────
