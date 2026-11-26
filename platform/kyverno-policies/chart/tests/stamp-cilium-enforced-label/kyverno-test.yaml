@@ -1,0 +1,84 @@
+# Suite of the policy stamp-cilium-enforced-label
+# (templates/mutate/00-stamp-cilium-enforced-label.yaml), CMP-077.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2, each result naming the legacy rule given in its
+# comment (the Pod rule, or the rule the legacy autogen made for the kind).
+# The template is now a MutatingPolicy: only policy.yaml and that key of each
+# result (isMutatingPolicy: true) changed; the resources, the expected results
+# and the patched resources (patched.yaml) are the same on both kinds.
+# Case 3: a label present with the empty value is left alone on both kinds.
+# Case 8: the Job has no template metadata; both kinds create it.
+# On the legacy kind the CLI reports the excluded case 4 as "Excluded" and
+# accepts that for any expected result; the MutatingPolicy gives it a skip.
+# The CLI does the same for a resource of a kind the policy does not match, so
+# a case holds only while its row's reason is Ok, never Excluded.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/stamp-cilium-enforced-label
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: stamp-cilium-enforced-label-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+  - ../fixtures/cilium-enforced-label-mutate/needs-mutate-deployment.yaml
+  - ../fixtures/cilium-enforced-label-mutate/already-stamped-deployment.yaml
+results:
+  # 1. A Pod with no labels at all gets the label.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: stamp-pod-label
+    kind: Pod
+    resources: [apps/unlabelled]
+    patchedResources: patched.yaml
+    result: pass
+  # 2. and 3. A label that is present is never changed.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: stamp-pod-label
+    kind: Pod
+    resources: [apps/already-true, apps/empty-value]
+    result: skip
+  # 4. An excluded namespace.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: stamp-pod-label
+    kind: Pod
+    resources: [kube-system/excluded]
+    result: skip
+  # 5. The fixture that needs the label gets it on its Pod template.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: autogen-stamp-pod-label
+    kind: Deployment
+    resources: [harbor/needs-enforced-label]
+    patchedResources: patched.yaml
+    result: pass
+  # 6. The fixture that already carries it is left alone.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: autogen-stamp-pod-label
+    kind: Deployment
+    resources: [harbor/already-stamped]
+    result: skip
+  # 7. A CronJob gets it on the Pod template of its Job template.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: autogen-cronjob-stamp-pod-label
+    kind: CronJob
+    resources: [apps/nightly]
+    patchedResources: patched.yaml
+    result: pass
+  # 8. A Job whose Pod template has no metadata.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: autogen-stamp-pod-label
+    kind: Job
+    resources: [apps/bare]
+    patchedResources: patched.yaml
+    result: pass
+  # 9. A ReplicationController, the one kind the engine's own autogen of a
+  #    MutatingPolicy would not cover.
+  - policy: stamp-cilium-enforced-label
+    isMutatingPolicy: true # legacy rule: autogen-stamp-pod-label
+    kind: ReplicationController
+    resources: [apps/legacy-rc]
+    patchedResources: patched.yaml
+    result: pass

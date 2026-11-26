@@ -1,10 +1,8 @@
 # Catalyst Blueprint values for bp-guacamole, the access plane (ADR-0033).
 #
-# ACC-102 removed the Guacamole web application, its PostgreSQL database, the
-# seed Job, the CronJob, guacd and the recordings volume (decision A3). The
-# chart renders one object: the bootstrap-owned Application, when the slot
-# turns bootstrapOwned.enabled on. The access controller, its Service and the
-# kinds arrive with ACC-103 and read `access`.
+# The chart renders the access controller with its Service, its roles and the
+# writer lock of the kinds AccessTarget and AccessGrant (crds/), and the
+# bootstrap-owned Application when the slot turns bootstrapOwned.enabled on.
 
 catalystBlueprint:
   upstream:
@@ -18,38 +16,52 @@ catalystBlueprint:
 # registry.<sovereign-fqdn> so post-cutover pulls hit the Sovereign's own
 # Harbor rather than ghcr.io (which the step-08 deny-egress hold blocks).
 # Empty = no rewrite. The helper bp-guacamole.registryImage in
-# templates/_helpers.tpl applies it; since ACC-102 the chart renders no image.
+# templates/_helpers.tpl applies it to the controller's image.
 global:
   imageRegistry: ""
-# ── Cross-region singleton discipline (#5358, ADR-0033 decision A21) ──────
-# Slot 52 installs this chart in every region of a Sovereign. The access
-# plane runs once per Sovereign, in the region whose role is primary; the
-# other region reaches it over Cilium ClusterMesh.
-#
-# What reads these values since ACC-102:
-#   role: a secondary region does not self-register the Application
-#     (templates/application-cr.yaml through bp-guacamole.isMeshSecondary), so
-#     the Sovereign has one instance card. An unknown role fails the render.
-#   enabled: switches `role` on.
-#   peerClusters: read by no template. ACC-102 deleted the cross-region
-#     policy with the web application it admitted; slot 52 still stamps the
-#     value. ACC-103 moves enabled, role and peerClusters under `access` and
-#     adds the cross-region policy of the access controller.
-crossRegion:
-  # Honour `role`. Default OFF.
-  enabled: false
-  # This region's role in the pair: primary | secondary. Slot 52 stamps it
-  # from the per-region ${SOVEREIGN_REGION_ROLE} cloud-init substitute.
-  role: primary
-  # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
-  # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume,
-  # ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}.
-  peerClusters: []
 # ── Access plane (ADR-0033) ──────────────────────────────────────────────
-# The switch of the access controller, its Service and the kinds AccessTarget
-# and AccessGrant, which ACC-103 adds. No template reads it before ACC-103.
 access:
+  # false renders no object of the access plane; Helm installs crds/ always.
   enabled: true
+  # From the substitutions of slot 52. The controller's events have the source
+  # access-controller/<sovereignFQDN>/<regionID>; it does not start without both.
+  sovereignFQDN: ""
+  regionID: ""
+  # Cross-region singleton (#5358, decision A21): slot 52 installs the chart in
+  # every region; the controller runs in the primary only (role primary, or
+  # enabled false), the secondary reaches it over ClusterMesh. Any other role
+  # fails the render. peerClusters are the clusters whose gate pods
+  # templates/crossregion-netpol.yaml admits. Slot 52 stamps the three from
+  # ${SOVEREIGN_ENABLE_CNPG_PAIR}, ${SOVEREIGN_REGION_ROLE} and
+  # ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}.
+  crossRegion:
+    enabled: false
+    role: primary
+    peerClusters: []
+  controller:
+    # By digest only: .github/workflows/access-controller-build.yaml writes
+    # it after each build; while it is empty the chart renders no controller.
+    image:
+      repository: ghcr.io/openova-io/openova/access-controller
+      digest: "sha256:aeb2a80777da8a288642029d877767a79919a8d42afb16ee591a03a7ce0986bd"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+  session:
+    # A target of kind pod in one of these namespaces is not Ready
+    # (reason NamespaceNotAllowed).
+    deniedTargetNamespaces:
+      - openbao
+      - kube-system
+      - flux-system
+      - guacamole
+  nats:
+    # The stream CATALYST_ORG of bp-nats-jetstream.
+    url: nats://nats-jetstream.nats-system.svc.cluster.local:4222
 # ── Bootstrap self-registration (#3687, extends #3370) ───────────────────
 # When a bootstrap-kit slot installs this chart, it flips
 # bootstrapOwned.enabled=true so templates/application-cr.yaml renders the

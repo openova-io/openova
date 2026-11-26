@@ -196,6 +196,8 @@ func TestComplianceMode(t *testing.T) {
 	const validating = `{"items": [
 	  {"metadata": {"name": "denies"}, "spec": {"validationActions": ["Audit", "Deny"]}},
 	  {"metadata": {"name": "warns"}, "spec": {"validationActions": ["Warn"]}}]}`
+	const mutating = `{"items": [
+	  {"metadata": {"name": "mutates-new"}, "spec": {"mutations": [{"patchType": "ApplyConfiguration"}]}}]}`
 	absent, refused := errors.New(`error: the server doesn't have a resource type "x"`), errors.New("connection refused")
 	shown := func(pairs ...string) []map[string]string { // name, mode, name, mode, ...: the list of the API
 		out := []map[string]string{{"name": "judged", "mode": "permissive", "source": "evaluator"}}
@@ -205,27 +207,34 @@ func TestComplianceMode(t *testing.T) {
 		return out
 	}
 	old := []string{"audits", "permissive", "enforces", "enforcing", "rule-enforces", "enforce", "lower-case", "enforcing", "mutates", "audit"}
-	all := append(append([]string{}, old...), "denies", "enforcing", "warns", "permissive")
+	all := append(append([]string{}, old...), "denies", "enforcing", "warns", "permissive", "mutates-new", "audit")
 	for name, tc := range map[string]struct {
-		policies            []map[string]string
-		legacyErr, validErr error
-		want                string
+		policies                    []map[string]string
+		legacyErr, validErr, mutErr error
+		want                        string
 	}{
-		"every mode is the engine's":               {policies: shown(all...)},
-		"validating policies are not served":       {policies: shown(old...), validErr: absent},
-		"the API shows audit, the engine enforces": {policies: shown("enforces", "permissive"), want: `enforces: the API shows "permissive" and the engine object carries enforce`},
-		"the API shows enforce, the engine audits": {policies: shown("warns", "enforcing"), want: `warns: the API shows "enforcing" and the engine object carries audit`},
-		"a mode word that is neither":              {policies: shown("audits", "relaxed"), want: `audits: the API shows "relaxed"`},
-		"a policy without an engine object":        {policies: shown("ghost", "permissive"), want: "ghost: the engine has no policy object of that name"},
-		"the API lists no policy":                  {want: "nothing was measured: the API lists no policy"},
-		"only a policy the API judges itself":      {policies: shown(), want: "nothing was measured: no listed policy has an engine object"},
-		"no kind is served":                        {policies: shown(old...), legacyErr: absent, validErr: absent, want: "the cluster serves neither"},
-		"the region cannot be read":                {policies: shown(old...), legacyErr: refused, want: "connection refused"},
+		"every mode is the engine's":                 {policies: shown(all...)},
+		"validating policies are not served":         {policies: shown(old...), validErr: absent},
+		"mutating policies are not served":           {policies: shown(old...), mutErr: absent},
+		"only the mutating kind holds the policy":    {policies: shown("mutates-new", "audit")},
+		"the API shows enforce, the mutation audits": {policies: shown("mutates-new", "enforcing"), want: `mutates-new: the API shows "enforcing" and the engine object carries audit`},
+		"a mutating policy and its kind not served":  {policies: shown("mutates-new", "audit"), mutErr: absent, want: "mutates-new: the engine has no policy object of that name"},
+		"the API shows audit, the engine enforces":   {policies: shown("enforces", "permissive"), want: `enforces: the API shows "permissive" and the engine object carries enforce`},
+		"the API shows enforce, the engine audits":   {policies: shown("warns", "enforcing"), want: `warns: the API shows "enforcing" and the engine object carries audit`},
+		"a mode word that is neither":                {policies: shown("audits", "relaxed"), want: `audits: the API shows "relaxed"`},
+		"a policy without an engine object":          {policies: shown("ghost", "permissive"), want: "ghost: the engine has no policy object of that name"},
+		"the API lists no policy":                    {want: "nothing was measured: the API lists no policy"},
+		"only a policy the API judges itself":        {policies: shown(), want: "nothing was measured: no listed policy has an engine object"},
+		"no kind is served":                          {policies: shown(old...), legacyErr: absent, validErr: absent, mutErr: absent, want: "the cluster serves none of"},
+		"the region cannot be read":                  {policies: shown(old...), legacyErr: refused, want: "connection refused"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			kubectl := func(_ kube.Region, _ context.Context, _ io.Reader, args ...string) ([]byte, error) {
 				if args[1] == legacyPolicies {
 					return []byte(legacy), tc.legacyErr
+				}
+				if args[1] == mutatingPolicies {
+					return []byte(mutating), tc.mutErr
 				}
 				return []byte(validating), tc.validErr
 			}

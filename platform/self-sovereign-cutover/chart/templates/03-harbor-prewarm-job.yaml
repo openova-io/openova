@@ -127,6 +127,8 @@ data:
      sovereign-admin may exclude ONE genuinely-stuck release:
        kubectl annotate helmrelease <name> -n <ns> \
          catalyst.openova.io/cutover-settled-roll-override="<reason>"
+     It holds only on a HelmRelease no Flux Kustomization applies (SOV-231:
+     above the key prewarm.settledRollPreflight of values.yaml, #6004).
      Validated FAIL-CLOSED: an empty reason, a HEALTHY release, or one still
      mid-roll (neither Stalled=True nor Ready.reason=DependencyNotReady) FATALs.
      Honored overrides are recorded in the cutover status ConfigMap
@@ -439,17 +441,24 @@ data:
         | _stalled as $stalled
         | _source_absent as $source_absent
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
-        | (if _in_org_ns($orgns) then "ORG " elif ("\(.metadata.namespace)/\(.metadata.name)" as $k | any($rep[]; . == $k)) then "REP " else "PLT " end)
+        | (if _in_org_ns($orgns) then "ORG " elif ("\(.metadata.namespace)/\(.metadata.name)" as $k | any($rep[]; . == $k)) then "REP " else "PLT " end) as $tag
+        | ((.metadata.labels // {})["kustomize.toolkit.fluxcd.io/name"] // "") as $ks
+        | ($tag
           + "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
           + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]"
              elif $source_absent then "  [TERMINAL: the pinned chart version does not exist in the registry — retrying cannot create it]"
              else "" end)
-          + (if ($why | length) > 0 then "  (\($why))" else "" end)') || {
+          + (if ($why | length) > 0 then "  (\($why))" else "" end)),
+          (if $tag != "PLT " or $ks == "" then empty
+           elif $stalled or $source_absent then "KST HelmRelease/\(.metadata.namespace)/\(.metadata.name)\t\($ks)"
+           else "KSM HelmRelease/\(.metadata.namespace)/\(.metadata.name)\t\($ks)" end)') || {
         echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
       hr_pending=$(printf '%s\n' "${hr_all}" | grep '^PLT ' | sed 's/^PLT //' || true)
       hr_org=$(printf '%s\n' "${hr_all}" | grep '^ORG ' | sed 's/^ORG //' || true)
+      hr_ks_terminal=$(printf '%s\n' "${hr_all}" | grep '^KST ' | sed 's/^KST //' || true)
+      hr_ks_count=$(printf '%s\n' "${hr_all}" | grep -c '^KS[TM] ' || true)
       {{- /*
        #6262 — the own-release exclusion must not be SILENT. Skipping the
        gate is the right call (the deadlock above), but an unsettled own
@@ -549,9 +558,20 @@ data:
             echo "[harbor-prewarm]     - re-pin the release to a version that IS published, and let Flux reconcile."
             echo "[harbor-prewarm]   The parenthesised message above names the exact chart reference that 404'd."
           fi
-          echo "[harbor-prewarm] If a release is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
-          echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
-          echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."
+          terminal_ks=$(printf '%s\n' "${hr_ks_terminal}" | grep -c . || true)
+          if [ "${terminal}" -gt "${terminal_ks}" ]; then
+            echo "[harbor-prewarm] If a release that no Flux Kustomization applies is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
+            echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
+            echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."
+          fi
+          if [ "${terminal_ks}" -gt 0 ]; then
+            echo "[harbor-prewarm] ${terminal_ks} of the terminal releases are applied by a Flux Kustomization (label kustomize.toolkit.fluxcd.io/name). It removes a hand-set annotation within minutes, so no per-release override holds on them and none is offered:"
+            printf '%s\n' "${hr_ks_terminal}" | awk -F '\t' '{print "  applied by Kustomization " $2 ": " $1}'
+            echo "[harbor-prewarm]   What works for them:"
+            echo "[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled release its candidate repairs"
+            echo "[harbor-prewarm]     - repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset"
+            echo "[harbor-prewarm]     - or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false"
+          fi
         fi
         if [ "${unsettled}" -gt "${terminal}" ]; then
           echo "[harbor-prewarm] The remainder are genuinely mid-roll — wait for them to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover."
@@ -560,7 +580,11 @@ data:
           echo "[harbor-prewarm] NOTE: these named overrides were validated and WOULD be honored, but the offenders above remain outside them:"
           printf '%s\n' "${or_used}" | sed 's/^/  override: /'
         fi
-        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; named per-release override: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; whole-gate emergency kill for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
+        srp_or_hint=""
+        if [ "$(printf '%s\n' "${hr_pending}" | grep -c . || true)" -gt "${hr_ks_count}" ]; then
+          srp_or_hint="named per-release override, on a HelmRelease no Flux Kustomization applies: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; "
+        fi
+        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; ${srp_or_hint}whole-gate emergency kill for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
         return 1
       fi
       srp_record_overrides "$(printf '%s\n%s\n' "${or_used}" "${srp_rep_rec}" | grep . || true)" || return 1
