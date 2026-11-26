@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T11:30:07Z` |
+| Last refreshed | `2026-11-26T11:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
+| 2026-11-26T11:36 | [#8855](https://github.com/openova-io/openova/pull/8855) | #7087 | docs(ledger): result of the architect action CLD-166 (CLD-16 |
 | 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
 | 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
 | 2026-11-26T00:20 | [#8852](https://github.com/openova-io/openova/pull/8852) | #8772 | The OpenBao chart's CSI provider DaemonSet declares probes,  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T20:19 | [#8822](https://github.com/openova-io/openova/pull/8822) | #8819 | feat(openbao): the kit runs a restore drill that reads a can |
 | 2026-11-25T13:14 | [#8820](https://github.com/openova-io/openova/pull/8820) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:07 | [#8818](https://github.com/openova-io/openova/pull/8818) | #7087 | docs(ledger): plan update |
-| 2026-11-25T14:12 | [#8817](https://github.com/openova-io/openova/pull/8817) | #8814 | docs(ledger): result of the lab test SOV-722, the k3s releas |
 
 ---
 
