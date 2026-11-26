@@ -10796,8 +10796,8 @@ packages:
   wave: W1a
   size: S
   lane: SUBSTRATE
-  depends_on: [SOV-170]
-  after: []
+  depends_on: []
+  after: [SOV-170]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_born_local.go
   - tests/acceptance/sovereign/internal/suite/check_born_local_test.go
