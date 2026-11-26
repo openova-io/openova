@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T19:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-26T19:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,8 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-26T19:14 | [#8909](https://github.com/openova-io/openova/pull/8909) | #7087 | docs(ledger): plan update |
+| 2026-11-26T19:36 | [#8908](https://github.com/openova-io/openova/pull/8908) | #8906 | feat(guards): an acceptance loop of a ticket stops at its fi |
+| 2026-11-26T19:32 | [#8907](https://github.com/openova-io/openova/pull/8907) | #8904 | refactor(kyverno): app-label-mutate rewritten in place to Mu |
 | 2026-11-26T19:04 | [#8905](https://github.com/openova-io/openova/pull/8905) | #7087 | docs(ledger): plan update |
 | 2026-11-26T18:54 | [#8903](https://github.com/openova-io/openova/pull/8903) | #7087 | docs(ledger): plan update |
 | 2026-11-26T18:24 | [#8899](https://github.com/openova-io/openova/pull/8899) | #8898 | feat(net): cluster class files, their schema and check NET-G |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T13:06 | [#8863](https://github.com/openova-io/openova/pull/8863) | #8858 | fix(guards): the DNS guard renders the remote-access chart w |
 | 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
 | 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
-| 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
-| 2026-11-26T15:29 | [#8858](https://github.com/openova-io/openova/pull/8858) | #8857 | feat(access): the target and grant kinds, their controller a |
 
 ---
 
