@@ -1376,29 +1376,29 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// Resolve the provider once, before any server-side stamp: the top-level
 	// field, else the one every regions[] entry names (the wizard's shape).
 	req.Provider = provisioner.ResolveProvider(&req)
-	// The operator's Huawei IAM access key, secret key, project id and
-	// region are server-only keys of the credentials map: a body map that
-	// names one of them is refused here, and the env vars below (Secret
-	// `huawei-operator-creds`) fill them (CLD-104). So no body
-	// can set them or choose the region, and with it the endpoints, the
-	// operator's keys are used against. Empty env = Validate() refuses.
+	// The operator's IAM access key, secret key, project id and region are
+	// server-only keys of the credentials map: a body map that names one of
+	// them is refused here, and the operator's credential files of the
+	// provider fill them below, with every other key the body left empty
+	// (cloud-credential.<provider>.<key> of flag --cloud-credentials-dir,
+	// mounted from OpenBao: CLD-106). So no body can set them or choose the
+	// region, and with it the endpoints, the operator's keys are used against.
+	// No file = Validate() refuses; a file that cannot be read refuses here.
 	if fe := provisioner.RefuseServerOnlyCredentials(&req); fe != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid-field", "field": fe.Field, "message": fe.Message})
 		return
 	}
+	operator, err := provisioner.OperatorCredentials(req.Provider)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "operator-credentials-unreadable", "message": err.Error()})
+		return
+	}
+	for key, value := range operator {
+		if strings.TrimSpace(req.Credential(key)) == "" {
+			req.SetCredential(key, value)
+		}
+	}
 	if req.Provider == "huawei" {
-		if v := os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"); v != "" {
-			req.SetCredential("access_key", v)
-		}
-		if v := os.Getenv("CATALYST_HUAWEI_SECRET_KEY"); v != "" {
-			req.SetCredential("secret_key", v)
-		}
-		if v := os.Getenv("CATALYST_HUAWEI_PROJECT_ID"); v != "" {
-			req.SetCredential("project_id", v)
-		}
-		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
-			req.SetCredential("region", v)
-		}
 		// The worker minimum and the flavor floors are the adapter's
 		// Normalize, read from the cloud profile (CLD-103). Object Storage
 		// uses the same IAM AK/SK as compute (#2528): fill only the fields

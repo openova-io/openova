@@ -507,53 +507,6 @@ spec:
                 secretKeyRef:
                   name: harbor-robot-token
                   key: token
-            # CATALYST_HUAWEI_ACCESS_KEY / _SECRET_KEY / _PROJECT_ID / _REGION
-            # — Huawei Cloud Stack (HCS) operator IAM credentials used by the
-            # Huawei provider adapter (Wave 3, PR #2142). Server-side-only:
-            # the wizard payload never carries these — Request.Huawei* are
-            # json:"-" — so the only path AK/SK reach catalyst-api is via this
-            # Secret. Mirrors the GHCR/Harbor/Dynadot/PowerDNS/PDM pattern.
-            #
-            # Required Secret shape (operator creates manually on each
-            # mothership during cloud-onboarding, NOT auto-rotated):
-            #   apiVersion: v1
-            #   kind: Secret
-            #   metadata: { name: huawei-operator-creds, namespace: catalyst }
-            #   type: Opaque
-            #   stringData:
-            #     access_key: <Huawei IAM access key>
-            #     secret_key: <Huawei IAM secret key>
-            #     project_id: <region-scoped project ID>
-            #     region:     me-east-215  # canonical HCS region; omit for public Huawei
-            #
-            # optional: true so mothership Sovereigns that never provision Huawei
-            # deployments don't require the Secret at all (Hetzner-only stays
-            # backward-compatible). If the Secret is missing, the Huawei branch
-            # of Validate() fails fast at /api/v1/deployments POST.
-            - name: CATALYST_HUAWEI_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: huawei-operator-creds
-                  key: access_key
-                  optional: true
-            - name: CATALYST_HUAWEI_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: huawei-operator-creds
-                  key: secret_key
-                  optional: true
-            - name: CATALYST_HUAWEI_PROJECT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: huawei-operator-creds
-                  key: project_id
-                  optional: true
-            - name: CATALYST_HUAWEI_REGION
-              valueFrom:
-                secretKeyRef:
-                  name: huawei-operator-creds
-                  key: region
-                  optional: true
             # CATALYST_EGRESS_CIDRS / CATALYST_DEFAULT_ADMIN_CIDRS (NET-011)
             # — the sources, besides a new Sovereign's own addresses, that
             # reach its Kubernetes API port 6443: this API's egress ranges and
@@ -1631,6 +1584,16 @@ spec:
             - name: handover-jwt-public
               mountPath: /etc/catalyst/handover-jwt-public
               readOnly: true
+            # cloud-credentials (CLD-106) — the operator's own cloud
+            # credentials as files cloud-credential.<provider>.<key>, mounted
+            # by the Secrets Store CSI driver from OpenBao at the default of
+            # catalyst-api's flag --cloud-credentials-dir, through the
+            # SecretProviderClass catalyst-api-cloud-credentials of this
+            # namespace. No Secret object and no environment variable carries
+            # them. The Pod waits in ContainerCreating until that class exists.
+            - name: cloud-credentials
+              mountPath: /var/run/secrets/openova
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
@@ -1667,3 +1630,10 @@ spec:
             items:
               - key: public.jwk
                 path: public.jwk
+        # cloud-credentials (CLD-106) — see its volumeMount above.
+        - name: cloud-credentials
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: catalyst-api-cloud-credentials

@@ -1325,6 +1325,17 @@ provisioner:
 # operator-overridable from the per-Sovereign overlay without rebuilding
 # the chart.
 catalystApi:
+  # ── Operator cloud credentials (CLD-106) ─────────────────────────────
+  # The name of a SecretProviderClass (provider openbao, role workload) in
+  # the release namespace whose objects are the operator's own cloud
+  # credentials, each named cloud-credential.<provider>.<key>. The Secrets
+  # Store CSI driver mounts them at /var/run/secrets/openova, the default of
+  # catalyst-api's flag --cloud-credentials-dir. "" mounts nothing: a
+  # Sovereign provisions with no operator credential. The mothership's
+  # literal manifest (api-deployment-kustomize.yaml) names
+  # catalyst-api-cloud-credentials.
+  cloudCredentials:
+    secretProviderClass: ""
   # ── Janitor configuration (#4466, UAT row 228) ───────────────────────
   # The janitor reads SEVEN env vars, and until now the chart emitted NONE
   # of them: a repo-wide grep for `CATALYST_JANITOR_DESTRUCTIVE` across
