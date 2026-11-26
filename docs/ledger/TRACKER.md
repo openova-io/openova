@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T13:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-26T14:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,14 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8441](https://github.com/openova-io/openova/issues/8441) | AIP-070 Delete the hollow gateway charts | Other |
-| [#8445](https://github.com/openova-io/openova/issues/8445) | AIP-227 Console read path: reverse proxy /api/v1/ops/* in catalyst-api | Other |
-| [#8446](https://github.com/openova-io/openova/issues/8446) | PRD-211 Document conversion parser | Other |
-| [#8449](https://github.com/openova-io/openova/issues/8449) | SVC-136 The foundation function tests pass on a fresh installation | Other |
-| [#8452](https://github.com/openova-io/openova/issues/8452) | SOV-242 The cutover repeats a failed step a few times with a growing pause, then | Other |
-| [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
-| [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
-| [#8472](https://github.com/openova-io/openova/issues/8472) | PRD-206 cortex screens | Other |
 | [#8475](https://github.com/openova-io/openova/issues/8475) | SEC-153 Flux renders bootstrap Secrets from one seed: robot token, pool-domain l | Other |
 | [#8483](https://github.com/openova-io/openova/issues/8483) | NET-213 The console states the region separation | Other |
 | [#8487](https://github.com/openova-io/openova/issues/8487) | SOV-162 The registry finds and heals a cached image index whose children are gon | Other |
@@ -300,6 +292,14 @@ flowchart LR
 | [#8857](https://github.com/openova-io/openova/issues/8857) | ACC-103 The target and grant kinds, their controller and the grant life cycle | Other |
 | [#8861](https://github.com/openova-io/openova/issues/8861) | CMP-065 Mutate policies to MutatingPolicy: inject-gitea-source-secretref | Other |
 | [#8865](https://github.com/openova-io/openova/issues/8865) | FND-042 An acceptance command of a ticket pipes a tested command only after set  | Other |
+| [#8870](https://github.com/openova-io/openova/issues/8870) | SEC-335 Spike: injection route for each upstream chart | Other |
+| [#8873](https://github.com/openova-io/openova/issues/8873) | CLD-122 The wizard renders providers, credentials, regions and flavors from the  | Other |
+| [#8876](https://github.com/openova-io/openova/issues/8876) | CMP-077 Mutate policies to MutatingPolicy: stamp-cilium-enforced-label | Other |
+| [#8879](https://github.com/openova-io/openova/issues/8879) | SOV-231 The settled-roll pre-flight no longer offers its annotation override for | Other |
+| [#8882](https://github.com/openova-io/openova/issues/8882) | SOV-171 Check SOV-G01 retries its reads of a settling Flux and reads the registr | Other |
+| [#8885](https://github.com/openova-io/openova/issues/8885) | FND-045 The pin-sync audit names the release writer for a drift of release-owned | Other |
+| [#8887](https://github.com/openova-io/openova/issues/8887) | FND-046 A chart version the release writer publishes is packaged from the chart  | Other |
+| [#8893](https://github.com/openova-io/openova/issues/8893) | CMP-067 The kit's own workloads pass the enforced policies, and a guard proves i | Other |
 
 ---
 
@@ -307,10 +307,17 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
+| 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
+| 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
+| 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
+| 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
+| 2026-11-26T13:08 | [#8869](https://github.com/openova-io/openova/pull/8869) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:55 | [#8868](https://github.com/openova-io/openova/pull/8868) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:42 | [#8867](https://github.com/openova-io/openova/pull/8867) | #7087 | docs(ledger): plan update |
 | 2026-11-26T12:58 | [#8866](https://github.com/openova-io/openova/pull/8866) | #8865 | feat(guards): an acceptance command of a ticket pipes a test |
 | 2026-11-26T12:27 | [#8864](https://github.com/openova-io/openova/pull/8864) | #7087 | docs(ledger): plan update |
+| 2026-11-26T13:06 | [#8863](https://github.com/openova-io/openova/pull/8863) | #8858 | fix(guards): the DNS guard renders the remote-access chart w |
 | 2026-11-26T12:36 | [#8862](https://github.com/openova-io/openova/pull/8862) | #8861 | refactor(kyverno): inject-gitea-source-secretref rewritten i |
 | 2026-11-26T12:04 | [#8860](https://github.com/openova-io/openova/pull/8860) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-25T21:40 | [#8840](https://github.com/openova-io/openova/pull/8840) | #8838 | chore(newapi): the old gateway values drop a commented chann |
 | 2026-11-25T21:43 | [#8839](https://github.com/openova-io/openova/pull/8839) | #8833 | fix(release): the candidate cut accepts the speech chart's C |
 | 2026-11-25T21:16 | [#8837](https://github.com/openova-io/openova/pull/8837) | #7087 | docs(ledger): plan update |
-| 2026-11-25T20:25 | [#8836](https://github.com/openova-io/openova/pull/8836) | #8788 | A delivery can repair a release that is stalled when the can |
-| 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
-| 2026-11-25T16:12 | [#8834](https://github.com/openova-io/openova/pull/8834) | #7087 | docs(ledger): plan update |
-| 2026-11-25T15:38 | [#8833](https://github.com/openova-io/openova/pull/8833) | #8787 | bp-speech declares that it renders nothing by default, so th |
-| 2026-11-25T15:13 | [#8832](https://github.com/openova-io/openova/pull/8832) | #8831 | chore(console): the pod shell opens the exec WebSocket direc |
-| 2026-11-25T14:40 | [#8830](https://github.com/openova-io/openova/pull/8830) | #8826 | feat(secrets-lib): the birth Job writes a named key and an e |
-| 2026-11-25T14:01 | [#8829](https://github.com/openova-io/openova/pull/8829) | #7087 | docs(ledger): plan update |
 
 ---
 
