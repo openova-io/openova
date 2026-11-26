@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T21:00:01Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-26T21:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8498](https://github.com/openova-io/openova/issues/8498) | SEC-154 Flux renders bootstrap Secrets from one seed: pull login, object storage | Other |
 | [#8500](https://github.com/openova-io/openova/issues/8500) | AIP-152 The tool server reads its bearer from a file at every call | Other |
 | [#8501](https://github.com/openova-io/openova/issues/8501) | AIP-153 The token route admits the workspace of each Organization for its own Or | Other |
 | [#8509](https://github.com/openova-io/openova/issues/8509) | AIP-154 An agent token acts for a person of tier admin, for create_application o | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8904](https://github.com/openova-io/openova/issues/8904) | CMP-078 Mutate policies to MutatingPolicy: app-label-mutate | Other |
 | [#8906](https://github.com/openova-io/openova/issues/8906) | FND-043 An acceptance loop of a ticket stops at its first failing pass | Other |
 | [#8910](https://github.com/openova-io/openova/issues/8910) | SOV-163 The platform repositories Job runs in the primary region only and stops  | Other |
+| [#8913](https://github.com/openova-io/openova/issues/8913) | CMP-084 Validate policies to ValidatingPolicy: flux-managed, and the CronJob gua | Other |
 
 ---
 
