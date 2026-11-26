@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T01:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-26T01:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
 | 2026-11-26T00:20 | [#8852](https://github.com/openova-io/openova/pull/8852) | #8772 | The OpenBao chart's CSI provider DaemonSet declares probes,  |
 | 2026-11-25T23:18 | [#8851](https://github.com/openova-io/openova/pull/8851) | #7087 | docs(ledger): plan update |
 | 2026-11-25T22:02 | [#8850](https://github.com/openova-io/openova/pull/8850) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T12:53 | [#8816](https://github.com/openova-io/openova/pull/8816) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:31 | [#8813](https://github.com/openova-io/openova/pull/8813) | #7087 | docs(ledger): plan update |
 | 2026-11-25T12:11 | [#8809](https://github.com/openova-io/openova/pull/8809) | #7087 | docs(ledger): plan update |
-| 2026-11-25T11:54 | [#8808](https://github.com/openova-io/openova/pull/8808) | #7087 | docs(ledger): plan update |
 
 ---
 
