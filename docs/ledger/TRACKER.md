@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T14:45:05Z` |
+| Last refreshed | `2026-11-26T15:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
+| 2026-11-26T14:52 | [#8889](https://github.com/openova-io/openova/pull/8889) | #8862 | fix(gate): check CMP-G02 reads the MutatingPolicy kind too |
 | 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
 | 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-25T22:00 | [#8843](https://github.com/openova-io/openova/pull/8843) | #8842 | test(gate): check SOV-G01 reads the registry file of each no |
 | 2026-11-25T21:33 | [#8841](https://github.com/openova-io/openova/pull/8841) | #7087 | docs(ledger): plan update |
 | 2026-11-25T21:40 | [#8840](https://github.com/openova-io/openova/pull/8840) | #8838 | chore(newapi): the old gateway values drop a commented chann |
-| 2026-11-25T21:43 | [#8839](https://github.com/openova-io/openova/pull/8839) | #8833 | fix(release): the candidate cut accepts the speech chart's C |
-| 2026-11-25T21:16 | [#8837](https://github.com/openova-io/openova/pull/8837) | #7087 | docs(ledger): plan update |
 
 ---
 
