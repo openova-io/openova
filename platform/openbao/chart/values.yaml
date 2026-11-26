@@ -128,6 +128,21 @@ openbao:
     agentImage:
       registry: harbor.openova.io
       repository: proxy-quay/openbao/openbao
+  # The CSI provider DaemonSet is off here; kit slot 08 switches it on
+  # (SEC-211). Its agent sidecar stays off. The upstream subchart (0.30.7)
+  # gives that sidecar no livenessProbe and no readinessProbe, and has no
+  # value for either, so the policy probes-present (Enforce) refuses the
+  # DaemonSet: on 25 November every upgrade of bp-openbao 1.2.88 -> 1.2.89
+  # was refused and rolled back. The provider container declares both probes
+  # (httpGet /health/ready on its health port 8080). Without the sidecar the
+  # provider dials the server at the address the sidecar's configuration
+  # named (VAULT_ADDR, openbao.<namespace>.svc:8200); a SecretProviderClass
+  # that names openbaoAddress, as gate check SEC-G08 does, dials it directly
+  # either way. The sidecar was a cache of logins only.
+  # tests/kit-probes-present.sh renders the kit slot and holds this.
+  csi:
+    agent:
+      enabled: false
   # ServiceMonitor — DEFAULT OFF.
   #
   # Per docs/INVIOLABLE-PRINCIPLES.md #4 and docs/BLUEPRINT-AUTHORING.md
@@ -285,6 +300,20 @@ backup:
   prefix: openbao/
   retentionDays: 30
   image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+
+# ── Restore drill (SEC-181) ─────────────────────────────────────────────
+# CronJob openbao-restore-drill (templates/restore-drill.yaml) runs
+# leadMinutes before each backup. As service account openbao-config it mints
+# a token of token role sec-g10-drill (policy sec-g10-drill: only
+# <kv>/data/sec-g10-drill/canary; 15 minutes, not renewable), writes a fresh
+# canary there, waits at most waitSeconds for the next snapshot in the bucket,
+# restores it into a scratch OpenBao in its own pod (the store's seal stanza,
+# never the live store), reads the canary back and records both digests in
+# ConfigMap openbao-restore-drill. Needs backup.enabled. docs/RUNBOOKS.md §2.18.
+restoreDrill:
+  enabled: false
+  leadMinutes: 5
+  waitSeconds: 540
 
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support

@@ -12,6 +12,9 @@ metadata:
     policies.kyverno.io/category: catalyst-storage-durability
     policies.kyverno.io/severity: critical
     policies.kyverno.io/subject: PersistentVolumeClaim,StorageClass,PersistentVolume
+    # Changes with the reports controller's read of persistentvolumes, so an
+    # upgrade that grants it makes Kyverno check the permissions again.
+    catalyst.openova.io/reports-read-checksum: "422273f3b5575f0a"
     policies.kyverno.io/description: >-
       local-path (rancher.io/local-path) is ephemeral node-local disk with no
       cloud block volume behind it — a node replacement destroys the data,

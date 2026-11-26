@@ -12,10 +12,11 @@
 #   C2 the probes of the runtime container in the two Crossplane Deployments of
 #      resources.yaml equal the probes of the runtime configs in
 #      clusters/_template/infrastructure/providers/base;
-#   C3 the ValidatingPolicy probes-present of the render matches CREATE and
-#      UPDATE only. Case 10 of the suite is a DELETE, which the command-line
-#      tool sends to no ValidatingPolicy, so the suite cannot show that
-#      probes-present admits it; this check shows that it never judges it.
+#   C3 the ValidatingPolicies flux-managed and probes-present of the render
+#      match CREATE and UPDATE only. The DELETE that Crossplane's deactivation
+#      sends for an old revision's runtime Deployment is one the command-line
+#      tool sends to no ValidatingPolicy, so the suite cannot show that the two
+#      admit it; this check shows that neither judges it.
 #
 # Usage:
 #   bash crossplane-runtime-suite-current.sh              the chart above this file
@@ -99,21 +100,25 @@ EOF
   return "$rc"
 }
 
-# check_operations <chart>: C3. Prints the operations lists of the
-# ValidatingPolicy probes-present of the render; fails when there is none or
-# one is not exactly CREATE and UPDATE.
+# check_operations <chart>: C3. For each of the two ValidatingPolicies, reads
+# the operations lists of the render; fails when a policy has none or one is
+# not exactly CREATE and UPDATE.
 check_operations() {
-  local got
+  local got policy rc=0
   render "$1" > "$TMP/render-ops.yaml" || { echo "$TAG render of $1 failed"; return 2; }
-  got="$(awk '/^---$/ { vp = 0; name = "" }
-    /^kind: ValidatingPolicy$/ { vp = 1 }
-    /^  name: / { name = $2 }
-    vp && name == "probes-present" && /^ *operations:/ { sub(/^ *operations: */, ""); print }' "$TMP/render-ops.yaml")"
-  if [ -z "$got" ] || grep -v -x -F '["CREATE", "UPDATE"]' <<<"$got" > /dev/null; then
-    echo "$TAG FAIL C3: the ValidatingPolicy probes-present must match CREATE and UPDATE only; its operations: ${got:-none}"
-    return 1
-  fi
-  echo "$TAG PASS C3: probes-present matches CREATE and UPDATE only, so it never judges a DELETE"
+  for policy in flux-managed probes-present; do
+    got="$(awk -v want="$policy" '/^---$/ { vp = 0; name = "" }
+      /^kind: ValidatingPolicy$/ { vp = 1 }
+      /^  name: / { name = $2 }
+      vp && name == want && /^ *operations:/ { sub(/^ *operations: */, ""); print }' "$TMP/render-ops.yaml")"
+    if [ -z "$got" ] || grep -v -x -F '["CREATE", "UPDATE"]' <<<"$got" > /dev/null; then
+      echo "$TAG FAIL C3: the ValidatingPolicy $policy must match CREATE and UPDATE only; its operations: ${got:-none}"
+      rc=1
+      continue
+    fi
+    echo "$TAG PASS C3: $policy matches CREATE and UPDATE only, so it never judges a DELETE"
+  done
+  return "$rc"
 }
 
 if [ "$SELF_TEST" -eq 0 ]; then
@@ -130,7 +135,7 @@ mkdir -p "$TMP/chart" "$TMP/suite" "$TMP/configs"
 cp -R "$CHART/." "$TMP/chart/"
 cp "$SUITE/"* "$TMP/suite/"
 cp "$CONFIGS/"*.yaml "$TMP/configs/"
-sed -i 's/operator: AnyNotIn/operator: AnyIn/' "$TMP/chart/templates/baseline/10-flux-managed.yaml"
+sed -i "s/k in \['ProviderRevision', 'FunctionRevision'\]/k in ['ProviderRevision']/" "$TMP/chart/templates/baseline/10-flux-managed.yaml"
 if check_copy "$TMP/chart" "$TMP/suite" > "$TMP/st1.txt" 2>&1; then
   echo "self-test FAIL: C1 passed with a changed template"; fails=$((fails + 1))
 else echo "self-test ok: C1 fails when the template changes and the copy does not"; fi
@@ -151,5 +156,10 @@ sed -i 's/operations: \["CREATE", "UPDATE"\]/operations: ["CREATE", "UPDATE", "D
 if check_operations "$TMP/chart" > "$TMP/st4.txt" 2>&1; then
   echo "self-test FAIL: C3 passed with a template that matches DELETE"; fails=$((fails + 1))
 else echo "self-test ok: C3 fails when probes-present matches DELETE"; fi
+cp "$CHART/templates/baseline/04-probes.yaml" "$TMP/chart/templates/baseline/04-probes.yaml"
+sed -i '0,/operations: \["CREATE", "UPDATE"\]/s//operations: ["CREATE", "UPDATE", "DELETE"]/' "$TMP/chart/templates/baseline/10-flux-managed.yaml"
+if check_operations "$TMP/chart" > "$TMP/st5.txt" 2>&1; then
+  echo "self-test FAIL: C3 passed with a template of flux-managed that matches DELETE in one rule"; fails=$((fails + 1))
+else echo "self-test ok: C3 fails when one resource rule of flux-managed matches DELETE"; fi
 [ "$fails" -eq 0 ] || exit 1
-echo "self-test: 4 cases passed"
+echo "self-test: 5 cases passed"

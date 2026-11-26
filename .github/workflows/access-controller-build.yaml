@@ -1,0 +1,112 @@
+name: Build access-controller
+
+# The controller of the access kinds (ADR-0033), installed by bp-guacamole.
+# The shape of useraccess-controller-build.yaml: test on every change; on main
+# build and sign the image, write its digest into the chart's values (the chart
+# pins it by digest only) and dispatch blueprint-release for the chart.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/controllers/access/**'
+      - 'core/controllers/pkg/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - '.github/workflows/access-controller-build.yaml'
+  pull_request:
+    paths:
+      - 'core/controllers/access/**'
+      - 'core/controllers/pkg/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - '.github/workflows/access-controller-build.yaml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/openova-io/openova/access-controller
+  VALUES: platform/guacamole/chart/values.yaml
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.23'
+          cache-dependency-path: core/controllers/go.sum
+      - name: go vet
+        working-directory: core/controllers
+        run: go vet ./access/... ./pkg/natsbus/...
+      - name: go test (race + count=1)
+        working-directory: core/controllers
+        run: go test -count=1 -race ./access/... ./pkg/natsbus/...
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the deploy step pushes the digest into the values
+      packages: write
+      id-token: write
+      actions: write # the dispatch of blueprint-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: core/controllers/access/Containerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:${{ github.sha }}
+          provenance: false
+      # Signed and attested before its digest is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+      - name: Bump access.controller.image.digest in values.yaml
+        if: github.ref == 'refs/heads/main'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          case "${DIGEST}" in sha256:*) ;; *) echo "::error::the build gave no digest: '${DIGEST}'"; exit 1 ;; esac
+          yq -i '.access.controller.image.digest = strenv(DIGEST)' "${VALUES}"
+          got="$(yq '.access.controller.image.digest' "${VALUES}")"
+          [ "${got}" = "${DIGEST}" ] || { echo "::error::${VALUES} holds '${got}', not ${DIGEST}"; exit 1; }
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: ${{ env.VALUES }}
+          commit-message: "deploy: bump access-controller image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
+      # The bump commit starts no workflow ([skip ci]): this dispatch publishes the chart.
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run blueprint-release.yaml --repo "${GITHUB_REPOSITORY}" --ref main -f blueprint=guacamole -f tree=platform

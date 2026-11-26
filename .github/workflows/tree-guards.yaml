@@ -10,8 +10,9 @@
 #
 # The job needs a checkout of two commits, Python 3.12 with PyYAML, the Go of the module
 # tools/guards (set up from its go.mod, before the steps of its guards), bash and git, and
-# the Helm of the release for cronjob-jobs and edge-hosts, which render the kit (the yq and jq of the
-# runner), the Helm of blueprint-release.yaml for release-own-tree, and nothing else. A guard that needs another tool (Node), the Go of another module or a
+# the Helm of the release for cronjob-jobs, edge-hosts and kit-policies, which render the kit (the yq and jq of the
+# runner; kit-policies also the kubectl of the runner, for its kustomize, and the Kyverno CLI of the
+# engine, which it installs), the Helm of blueprint-release.yaml for release-own-tree, and nothing else. A guard that needs another tool (Node), the Go of another module or a
 # secret, or that reads the pull request itself, runs elsewhere: go-lint.yaml,
 # console-lint.yaml, check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
 #
@@ -448,7 +449,7 @@ jobs:
       - name: 'cronjob-jobs | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/cronjob-jobs
-      - name: 'cronjob-jobs | Every CronJob of the kit creates Jobs that the ClusterPolicy flux-managed admits'
+      - name: 'cronjob-jobs | Every CronJob of the kit creates Jobs that the ValidatingPolicy flux-managed admits'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
           mkdir "$RUNNER_TEMP/kit-render"
@@ -469,6 +470,26 @@ jobs:
           KIT_VALUE_SETS=tests/fixtures/variables/today.env+tests/fixtures/variables/two-region-secondary.env \
             KIT_RENDER_DIR="$RUNNER_TEMP/edge-secondary" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
           cd tools/guards && go run ./cmd/edge-hosts -primary "$RUNNER_TEMP/edge-primary" -secondary "$RUNNER_TEMP/edge-secondary"
+      # kit-policies renders the kit once more, under the same Helm and on the same dependency
+      # builds, the way Flux installs it (postRenderers, test hooks, origin labels), and judges it
+      # with the Kyverno CLI of the engine: the version and checksum of policy-chart-tests.yaml,
+      # and the guard stops on a CLI that is not the appVersion of platform/kyverno/chart.
+      - name: 'kit-policies | Install the Kyverno CLI of the engine (pinned, checksum-verified)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          version=v1.19.2
+          sum=357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a
+          curl -fsSL -o "$RUNNER_TEMP/kyverno.tar.gz" "https://github.com/kyverno/kyverno/releases/download/${version}/kyverno-cli_${version}_linux_x86_64.tar.gz"
+          echo "${sum}  $RUNNER_TEMP/kyverno.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/kyverno-cli"
+          tar -xzf "$RUNNER_TEMP/kyverno.tar.gz" -C "$RUNNER_TEMP/kyverno-cli" kyverno
+          "$RUNNER_TEMP/kyverno-cli/kyverno" version
+      - name: 'kit-policies | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && PATH="$RUNNER_TEMP/kyverno-cli:$PATH" KIT_POLICIES_TOOLS=required go test -count=1 ./cmd/kit-policies
+      - name: 'kit-policies | Every workload of the kit is admitted by the policies that enforce after the window, and every kind a policy matches or looks up is granted to its controller'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/kit-policies -kyverno "$RUNNER_TEMP/kyverno-cli/kyverno"
       - name: 'coherence-credential | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/coherence-credential
@@ -526,6 +547,12 @@ jobs:
       - name: 'check-compliance-model | The compliance model and the policies agree, exemptions only shrink'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/check-compliance-model
+      - name: 'acceptance-exit | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/acceptance-exit
+      - name: 'acceptance-exit | The acceptance commands of the tickets not merged lose no part of their exit status'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/acceptance-exit
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

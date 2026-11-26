@@ -4,14 +4,24 @@ Job makes sure the organisation platformRepos.org exists (visibility public)
 and each repository of platformRepos.repos in it: private, created with
 auto_init; one without a commit gets a README on main; one with commits is
 left as it is. The regions share one Gitea database with a disk each, so it is
-rendered only when writerRegionId is empty or equals regionId (slot 10).
+rendered only in the region that takes the writes (SOV-163): not where
+follower is true (slot 10 passes SECONDARY_HR_SUSPEND, which cloud-init writes
+on every control plane), and only where writerRegionId is empty or equals
+regionId (slot 10; cloud-init writes those two only with the region
+Kustomization, so an install born without them has both empty).
+A login that Gitea refuses (401) exits 3, and podFailurePolicy fails the Job
+at once on it; any other failure is retried up to backoffLimit. A Gitea that
+does not answer yet is waited for.
 A plain Job, not a hook: slot 10 installs with disableWait. The name hash
 re-runs it when an input or the chart version changes.
 */ -}}
 {{- $pr := .Values.platformRepos }}
-{{- if and $pr.enabled (or (not $pr.writerRegionId) (eq (toString $pr.regionId) (toString $pr.writerRegionId))) }}
+{{- $follower := eq (toString $pr.follower) "true" }}
+{{- $writer := or (not $pr.writerRegionId) (eq (toString $pr.regionId) (toString $pr.writerRegionId)) }}
+{{- if and $pr.enabled (not $follower) $writer }}
 {{- $svc := printf "%s-http" (ternary .Release.Name (printf "%s-gitea" .Release.Name) (contains "gitea" .Release.Name)) }}
 {{- $hash := printf "%s|%s|%s|%s" $pr.org (join " " $pr.repos) $pr.image .Chart.Version | sha256sum | trunc 8 }}
+{{- $secret := .Values.giteaAdmin.secretName | default "gitea-admin-secret" }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -23,6 +33,13 @@ metadata:
 spec:
   backoffLimit: 6
   activeDeadlineSeconds: 3600
+  podFailurePolicy:
+    rules:
+      - action: FailJob
+        onExitCodes:
+          containerName: ensure
+          operator: In
+          values: [3]
   template:
     metadata:
       labels:
@@ -53,6 +70,8 @@ spec:
               value: {{ $pr.org | quote }}
             - name: REPOS
               value: {{ join " " $pr.repos | quote }}
+            - name: ADMIN_SECRET
+              value: {{ printf "%s/%s" .Release.Namespace $secret | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -61,6 +80,12 @@ spec:
               user="$(cat /etc/gitea-admin/username)"
               pw="$(cat /etc/gitea-admin/password)"
               code=000
+              refused() {
+                echo "[platform-repos] FATAL: Gitea refused user ${user} (401 on $1) with the password of Secret ${ADMIN_SECRET} of this region." >&2
+                echo "[platform-repos] Each Gitea start sets the password of ${user} in the Gitea database from its own region's Secret, and the regions share that database: the region whose Gitea started last holds it. Not retried." >&2
+                cat /tmp/out >&2 || true
+                exit 3
+              }
               call() {
                 if [ $# -ge 3 ]; then
                   code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 40 -u "${user}:${pw}" \
@@ -69,6 +94,7 @@ spec:
                   code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 40 -u "${user}:${pw}" \
                     -X "$1" "${api}$2") || code=000
                 fi
+                if [ "${code}" = 401 ]; then refused "$1 $2"; fi
               }
               fatal() { echo "[platform-repos] FATAL: $1 answered ${code}" >&2; cat /tmp/out >&2 || true; exit 1; }
               up=""
@@ -120,7 +146,7 @@ spec:
       volumes:
         - name: gitea-admin
           secret:
-            secretName: {{ .Values.giteaAdmin.secretName | default "gitea-admin-secret" }}
+            secretName: {{ $secret }}
         - name: tmp
           emptyDir:
             sizeLimit: 16Mi

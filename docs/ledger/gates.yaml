@@ -129,12 +129,13 @@ checks:
 - id: ACC-G13
   title: Grant life cycle from objects
   owner: ACC
-  state: not-built
-  runs_in: [local, cloud]
+  state: required
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Grant life cycle from objects
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g13.go
   delivered_by: ACC-103
 - id: ACC-G14
   title: Credential issue is bound to the session identity
@@ -1921,12 +1922,13 @@ checks:
 - id: NET-G17
   title: A managed cluster passes the conformance profile of its class
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A managed cluster passes the conformance profile of its class.
+  implementation: tests/acceptance/sovereign/internal/suite/check_cluster_class.go
   delivered_by: NET-322
 - id: NET-G18
   title: Full-size transfers between workers over the node network
@@ -2177,12 +2179,13 @@ checks:
 - id: SEC-G08
   title: 'Injection negative: the mounted value is in no Secret object'
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Injection negative: the mounted value is in no Secret object and no other service account can read it'
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_inject.go
   delivered_by: SEC-211
 - id: SEC-G09
   title: Internal certificates of both regions chain to one root
@@ -2197,12 +2200,13 @@ checks:
 - id: SEC-G10
   title: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: An OpenBao snapshot younger than 7 hours exists and its restore returns a known key
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_backup.go
   delivered_by: SEC-181
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
@@ -2280,12 +2284,13 @@ checks:
 - id: SOV-G01
   title: Born local
   owner: SOV
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: fresh
   asserts: Born local
+  implementation: tests/acceptance/sovereign/internal/suite/check_born_local.go
   delivered_by: SOV-170
 - id: SOV-G02
   title: Zero-touch hand-over

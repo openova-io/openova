@@ -1,0 +1,71 @@
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: app-label-mutate
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: observability
+  annotations:
+    policies.kyverno.io/title: Auto-stamp catalyst.openova.io/application label
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      MUTATE policy: on Pod CREATE, copy app.kubernetes.io/instance into
+      catalyst.openova.io/application when the latter is missing. Enables
+      per-Application compliance rollups for every chart without per-chart
+      patches.
+spec:
+  # Admission only, as the legacy background: false: no background scan and
+  # no report results.
+  evaluation:
+    admission:
+      enabled: true
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "replicationcontrollers"]
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["cronjobs", "jobs"]
+  variables:
+    # The labels of the Pod, or of the Pod template of a controller kind.
+    - name: labels
+      expression: >-
+        object.kind == 'Pod' ? object.metadata.?labels.orValue({}) :
+        object.kind == 'CronJob' ? object.?spec.?jobTemplate.?spec.?template.?metadata.?labels.orValue({}) :
+        object.?spec.?template.?metadata.?labels.orValue({})
+    # The legacy rules stamp-from-instance-label and its fallback
+    # stamp-from-name-label-fallback: instance, or name when instance is empty.
+    - name: application
+      expression: >-
+        variables.labels[?'app.kubernetes.io/instance'].orValue('') != '' ?
+        variables.labels['app.kubernetes.io/instance'] :
+        variables.labels[?'app.kubernetes.io/name'].orValue('')
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    # Only adds when absent — never overrides an operator-set value.
+    - name: application-label-absent
+      expression: "!('catalyst.openova.io/application' in variables.labels)"
+    - name: source-label-set
+      expression: "variables.application != ''"
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          object.kind == 'Pod' ?
+          Object{metadata: Object.metadata{labels: {"catalyst.openova.io/application": variables.application}}} :
+          object.kind == 'CronJob' ?
+          Object{spec: Object.spec{jobTemplate: Object.spec.jobTemplate{spec: Object.spec.jobTemplate.spec{template: Object.spec.jobTemplate.spec.template{metadata: Object.spec.jobTemplate.spec.template.metadata{labels: {"catalyst.openova.io/application": variables.application}}}}}}} :
+          Object{spec: Object.spec{template: Object.spec.template{metadata: Object.spec.template.metadata{labels: {"catalyst.openova.io/application": variables.application}}}}}

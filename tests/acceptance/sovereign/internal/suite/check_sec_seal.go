@@ -31,7 +31,7 @@ import (
 // does not start k3s without it (exit code 96 of the node start-up). Then, per
 // region: none of the four Secrets of the old init flow (secSealSecrets:
 // unseal keys, root token, init trace, recovery seed) and no Job exists in namespace
-// openbao; `bao status` in openbao-0 reports initialised, unsealed and a seal
+// openbao but those of the CronJobs openbao-backup and openbao-restore-drill; `bao status` in openbao-0 reports initialised, unsealed and a seal
 // type other than shamir; a token-free PUT of the root-generation attempt from
 // inside the cluster is refused with a 4xx answer; and after `delete pod
 // openbao-0` the new pod is Ready and unsealed within 60 seconds. The
@@ -60,6 +60,9 @@ const (
 var (
 	secSealSecrets  = []string{"openbao-unseal-" + "keys", "openbao-root-token", "openbao-init-trace", "openbao-recovery-seed"}
 	secGenerateRoot = "sys/generate-" + "root/attempt"
+	// The Jobs of the chart's CronJobs openbao-backup (SEC-180) and
+	// openbao-restore-drill (SEC-181) are no leftover of the old init flow.
+	secSealScheduledJob = regexp.MustCompile(`^job\.batch/(openbao-backup|openbao-restore-drill)-[0-9]+$`)
 )
 
 // secSealPod is the probe Pod of SEC-G03: the OpenBao user and group, no
@@ -186,8 +189,15 @@ func (c secSealCheck) noLeftovers(ctx context.Context, region kube.Region, ev Ev
 	if err != nil {
 		return err
 	}
-	secrets, found := strings.Fields(string(out)), strings.Fields(string(jobs))
-	ev["secrets"], ev["jobs"] = secrets, found
+	secrets, found, scheduled := strings.Fields(string(out)), []string{}, []string{}
+	for _, j := range strings.Fields(string(jobs)) {
+		if secSealScheduledJob.MatchString(j) {
+			scheduled = append(scheduled, j)
+		} else {
+			found = append(found, j)
+		}
+	}
+	ev["secrets"], ev["jobs"], ev["scheduled_jobs"] = secrets, found, scheduled
 	faults := []string{}
 	if len(secrets) > 0 {
 		faults = append(faults, "Secrets exist: "+strings.Join(secrets, ", "))

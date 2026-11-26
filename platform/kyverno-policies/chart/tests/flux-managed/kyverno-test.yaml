@@ -1,0 +1,130 @@
+# Suite of the policy flux-managed (templates/baseline/10-flux-managed.yaml), CMP-084.
+#
+# Written on the legacy ClusterPolicy render first, where every case passed
+# with the kyverno CLI v1.19.2 and each result named its rule (rule:
+# workload-must-be-flux-managed). The template is now a ValidatingPolicy,
+# which has no rule names: only policy.yaml and that key of each result
+# (isValidatingPolicy: true) changed; the resources, values.yaml and the
+# expected results are the same.
+# On the legacy kind the CLI reports an excluded resource as "Excluded" and
+# accepts that for any expected result (--detailed-results named cases 8 to
+# 12 so, and kyverno apply measured each as not judged); the
+# ValidatingPolicy gives each a skip through one of its match conditions.
+# The Crossplane carve-out is judged by crossplane-package-runtime-admitted.
+#
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/flux-managed
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: flux-managed-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  # 1-3. One of the three labels: admitted.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - app-prod/flux-labelled
+      - app-prod/helm-release-labelled
+    result: pass
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Service
+    resources:
+      - app-prod/kustomization-labelled
+    result: pass
+  # 4-6. No label the policy accepts: denied.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - app-prod/unlabelled
+      - app-prod/managed-by-helm
+      - app-prod/empty-release-label
+      - app-prod/managed-by-flux-capitalised
+    result: fail
+  # 7. Each other kind the policy judges: denied.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: StatefulSet
+    resources:
+      - app-prod/unlabelled-statefulset
+    result: fail
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: DaemonSet
+    resources:
+      - app-prod/unlabelled-daemonset
+    result: fail
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - app-prod/unlabelled-job
+    result: fail
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: CronJob
+    resources:
+      - app-prod/unlabelled-cronjob
+    result: fail
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Service
+    resources:
+      - app-prod/unlabelled-service
+    result: fail
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Ingress
+    resources:
+      - app-prod/unlabelled-ingress
+    result: fail
+  # 8-10. An excluded namespace, a CNPG operator object, an Organization's
+  #       namespace: not judged.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - kube-system/unlabelled
+    result: skip
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Service
+    resources:
+      - cnpg/shared-pg-rw
+      - app-prod/app-pg-rw
+    result: skip
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - acme/unlabelled-job
+    result: skip
+  # 11. The vCluster CIDR probe Service: not judged; a Deployment of its name: denied.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Service
+    resources:
+      - app-prod/test-service-delete-me-x7k2p
+    result: skip
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - app-prod/test-service-delete-me-deployment
+    result: fail
+  # 12. A Helm hook: not judged.
+  - policy: flux-managed
+    isValidatingPolicy: true
+    kind: Job
+    resources:
+      - app-prod/hook
+      - app-prod/hook-empty-value
+    result: skip

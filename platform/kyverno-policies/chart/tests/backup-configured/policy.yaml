@@ -1,0 +1,43 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: backup-configured
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: Stateful workloads must have a Velero backup configured
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      PVCs must declare a Velero backup binding via either annotation
+      `velero.io/backup-volumes` on the owning Pod template OR label
+      `velero.io/managed-by-schedule` on the PVC itself.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    - name: exclude-cnpg-claims
+      expression: "!('cnpg.io/cluster' in object.metadata.?labels.orValue({}))"
+  validations:
+    # The two patterns of the legacy rule, each any non-empty value (`?*`).
+    - expression: >-
+        object.metadata.?labels[?'velero.io/managed-by-schedule'].orValue('') != '' ||
+        object.metadata.?annotations[?'velero.io/backup-volumes'].orValue('') != ''
+      messageExpression: >-
+        'PVC ' + object.metadata.name + ' is not declared as part of a Velero
+        backup. Add label `velero.io/managed-by-schedule: "<schedule-name>"`
+        (matching a Velero ScheduledBackup) or annotate the owning Pod
+        template with `velero.io/backup-volumes`.'

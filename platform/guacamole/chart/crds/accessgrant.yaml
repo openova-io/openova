@@ -1,0 +1,98 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: accessgrants.access.openova.io
+  labels:
+    app.kubernetes.io/name: bp-guacamole
+spec:
+  group: access.openova.io
+  scope: Namespaced
+  names:
+    kind: AccessGrant
+    listKind: AccessGrantList
+    singular: accessgrant
+    plural: accessgrants
+    shortNames: [agrt]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Target, type: string, jsonPath: .spec.targetRef.name}
+        - {name: Subject, type: string, jsonPath: .spec.subject.email}
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Not-Before, type: date, jsonPath: .spec.window.notBefore}
+        - {name: Not-After, type: date, jsonPath: .spec.window.notAfter}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            AccessGrant is one person's request for one target and, once approved, their
+            time-bound right to it (ADR-0033). It lives in the namespace of its target. It
+            is desired state: Flux applies it from Git, an approval is an entry committed
+            by the approver, and the access controller writes only its status.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [targetRef, subject, reason, window]
+              x-kubernetes-validations:
+                - rule: self.window.notAfter > self.window.notBefore
+                  message: spec.window.notAfter must be later than spec.window.notBefore
+                - rule: "!has(self.suspended) || !self.suspended || has(self.suspendReason)"
+                  message: spec.suspendReason is required when spec.suspended is true
+                - rule: "!has(self.approvals) || self.approvals.all(a, a.by != self.subject.email)"
+                  message: an approval may not be given by the grant's own subject
+                - rule: "has(self.account) == has(oldSelf.account) && (!has(self.account) || self.account == oldSelf.account)"
+                  message: spec.account is immutable
+              properties:
+                targetRef:
+                  type: object
+                  required: [name]
+                  x-kubernetes-validations:
+                    - {rule: self == oldSelf, message: spec.targetRef is immutable}
+                  properties:
+                    name: {type: string, minLength: 1, maxLength: 253, description: The AccessTarget in the same namespace.}
+                subject:
+                  type: object
+                  required: [email]
+                  x-kubernetes-validations:
+                    - {rule: self == oldSelf, message: spec.subject is immutable}
+                  properties:
+                    email: {type: string, maxLength: 254, pattern: '^[a-z0-9._%+-]+@[a-z0-9.-]+$', description: The identity the gate presents, in lower case.}
+                account: {type: string, minLength: 1, maxLength: 64, description: The account of the session. A target of kind pod offers none.}
+                reason: {type: string, minLength: 10, maxLength: 500}
+                ticket: {type: string, minLength: 1, maxLength: 80, description: A change or incident reference.}
+                window:
+                  type: object
+                  required: [notBefore, notAfter]
+                  x-kubernetes-validations:
+                    - {rule: self == oldSelf, message: spec.window is immutable}
+                  properties:
+                    notBefore: {type: string, format: date-time}
+                    notAfter: {type: string, format: date-time}
+                approvals:
+                  type: array
+                  maxItems: 3
+                  description: Written only by the approval route of the Catalyst API.
+                  items:
+                    type: object
+                    required: [by, at]
+                    properties:
+                      by: {type: string, maxLength: 254, pattern: '^[a-z0-9._%+-]+@[a-z0-9.-]+$', description: The approver's e-mail, in lower case.}
+                      at: {type: string, format: date-time}
+                suspended: {type: boolean, default: false}
+                suspendReason: {type: string, maxLength: 300}
+            status:
+              type: object
+              properties:
+                observedGeneration: {type: integer, format: int64}
+                phase: {type: string, enum: [Pending, Scheduled, Active, Expired, Suspended, Invalid]}
+                reason: {type: string, maxLength: 64, description: 'For Invalid: TargetNotFound, AccountNotAllowed, WindowTooLong, SelfApproval or DuplicateApprover.'}
+                activatedAt: {type: string, format: date-time}
+                endedAt: {type: string, format: date-time}

@@ -12,10 +12,14 @@ context.apiCall enumeration; the canonical seam is the label, which
 the operator adds when generating monitoring resources for a workload.
 
 Default mode permissive per design §4.3.
+
+A ValidatingPolicy of policies.kyverno.io since CMP-064 (the legacy
+ClusterPolicy of the same name before); tests/prometheus-scrape holds its
+suite.
 */}}
 {{- if .Values.compliancePolicies.prometheusScrape.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: prometheus-scrape
   labels:
@@ -32,38 +36,28 @@ metadata:
       OR the workload labels declare monitoring.coreos.com/managed=true
       indicating an operator-managed PodMonitor / ServiceMonitor exists.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.prometheusScrape.action) }}
-  background: true
-  rules:
-    - name: workload-must-be-scrape-targeted
-      match:
-        any:
-          - resources:
-              kinds:
-                - Deployment
-                - StatefulSet
-                - DaemonSet
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range $ns := .Values.compliancePolicies.prometheusScrape.excludeNamespaces }}
-                - {{ $ns }}
-                {{- end }}
-      validate:
-        message: >-
-          Workload
-          {{ `{{request.object.kind}}/{{request.object.metadata.name}}` }} is
-          not declared a Prometheus scrape target. Either annotate the
-          Pod template with `prometheus.io/scrape: "true"` or label the
-          workload with `monitoring.coreos.com/managed: "true"`.
-        anyPattern:
-          - spec:
-              template:
-                metadata:
-                  annotations:
-                    prometheus.io/scrape: "true"
-          - metadata:
-              labels:
-                monitoring.coreos.com/managed: "true"
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.prometheusScrape.action) }}
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.prometheusScrape.excludeNamespaces | quote }}
+  validations:
+    # The two patterns of the legacy rule: the annotation on the Pod
+    # template, or the label on the workload itself.
+    - expression: >-
+        object.spec.template.?metadata.?annotations[?'prometheus.io/scrape'].orValue('') == 'true' ||
+        object.metadata.?labels[?'monitoring.coreos.com/managed'].orValue('') == 'true'
+      messageExpression: >-
+        'Workload ' + object.kind + '/' + object.metadata.name + ' is not
+        declared a Prometheus scrape target. Either annotate the Pod template
+        with `prometheus.io/scrape: "true"` or label the workload with
+        `monitoring.coreos.com/managed: "true"`.'
 {{- end -}}

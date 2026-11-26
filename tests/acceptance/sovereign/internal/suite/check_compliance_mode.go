@@ -15,11 +15,13 @@ import (
 // the policies route lists, the mode in the answer must be the mode that the
 // policy object of the engine carries in the first region: the region the API
 // runs in. The engine object is the legacy ClusterPolicy of that name, or the
-// ValidatingPolicy of that name when there is no ClusterPolicy.
+// ValidatingPolicy of that name when there is no ClusterPolicy, or the
+// MutatingPolicy of that name when there is neither.
 const (
 	complianceModeID   = "CMP-G02"
 	legacyPolicies     = "clusterpolicies.kyverno.io"
 	validatingPolicies = "validatingpolicies.policies.kyverno.io"
+	mutatingPolicies   = "mutatingpolicies.policies.kyverno.io"
 	notServed          = "the server doesn't have a resource type" // kubectl says this of a kind the cluster does not serve
 	modeEnforce        = "enforce"
 	modeAudit          = "audit"
@@ -97,7 +99,7 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 	var listed struct {
 		Items []struct{ Name, Mode, Source string } `json:"items"`
 	}
-	var legacy, validating map[string]kube.Object
+	var legacy, validating, mutating map[string]kube.Object
 
 	if !checkStep(rec, complianceModeID, 1, "the API lists the policies (GET /api/v1/sovereigns/{id}/compliance/policies)", func(ev Evidence) error {
 		_, err := cc.API.Get(ctx, base+"/policies", &listed)
@@ -110,7 +112,7 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 		return nil
 	}
 	if !checkStep(rec, complianceModeID, 2, "the policy objects of the engine are read in region "+region.ID, func(ev Evidence) error {
-		var servedLegacy, servedValidating bool
+		var servedLegacy, servedValidating, servedMutating bool
 		var err error
 		if legacy, servedLegacy, err = c.policyObjects(ctx, region, legacyPolicies); err != nil {
 			return err
@@ -118,9 +120,12 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 		if validating, servedValidating, err = c.policyObjects(ctx, region, validatingPolicies); err != nil {
 			return err
 		}
-		ev[legacyPolicies], ev[validatingPolicies] = len(legacy), len(validating)
-		if !servedLegacy && !servedValidating {
-			return errors.New("the cluster serves neither " + legacyPolicies + " nor " + validatingPolicies)
+		if mutating, servedMutating, err = c.policyObjects(ctx, region, mutatingPolicies); err != nil {
+			return err
+		}
+		ev[legacyPolicies], ev[validatingPolicies], ev[mutatingPolicies] = len(legacy), len(validating), len(mutating)
+		if !servedLegacy && !servedValidating && !servedMutating {
+			return errors.New("the cluster serves none of " + legacyPolicies + ", " + validatingPolicies + " and " + mutatingPolicies)
 		}
 		return nil
 	}) {
@@ -132,6 +137,9 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 			o, found := legacy[p.Name]
 			if !found {
 				o, found = validating[p.Name]
+			}
+			if !found {
+				o, found = mutating[p.Name]
 			}
 			switch {
 			case !found && p.Source == sourceEvaluator:

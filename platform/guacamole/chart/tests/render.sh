@@ -1,365 +1,141 @@
 #!/usr/bin/env bash
-# bp-guacamole helm-render smoke test (EPIC-4 G1, #1099).
-#
-# Verifies three INVIOLABLE-PRINCIPLES contracts at chart-render time:
-#
-#   #1 (waterfall)   — when fully enabled the chart renders the FULL
-#                      target shape (guacd + webapp + HTTPRoute + PVC +
-#                      SealedSecret + NetworkPolicy + Keycloak realm-config
-#                      ConfigMap). 9 documents.
-#
-#   #4a (SHA-pinned) — when enabled with empty .image.tag, render fails
-#                      fast with the exact `bp-guacamole: ... image.tag
-#                      is empty` message from _helpers.tpl.
-#
-#   CC3 default-OFF  — when default-OFF, render produces ZERO
-#                      Kubernetes resources. The default-OFF gate is
-#                      the canonical pattern for non-bootstrap
-#                      Blueprints (canon §3 — "ship the full chart but
-#                      gate it OFF").
-#
-# Wired into the platform/guacamole CI from
-# .github/workflows/blueprint-release.yaml's `helm template` smoke step.
-# Runs in <5s when helm + the sigstore/common subchart are cached.
-#
-# Usage: bash tests/render.sh [CHART_DIR]
-#   CHART_DIR defaults to the parent directory of this script.
+# bp-guacamole render test (ACC-103, ADR-0033). The chart renders the access
+# controller, its Service, its rights, the writer lock of the kinds and the
+# bootstrap-owned Application:
+#   1. with no digest of the controller's image (CI writes it after the first
+#      build) the values of kit slot 52 render no controller: the Service, the
+#      writer lock and the Application, and default values the first two;
+#   2. the values of kit slot 52, substituted as Flux does, with a digest,
+#      render exactly the objects of the access plane and the Application;
+#   3. the Deployment: image by digest, flags with the slot's values, one
+#      replica, the hardened container, probes; global.imageRegistry moves it;
+#   4. a digest that is not sha256:<64 hex digits> fails the render;
+#   5. the ClusterRole reads the kinds and writes only their status;
+#   6. the writer lock names Flux and the controller, and its binding denies;
+#   7. access.enabled=false renders only the Application;
+#   8. the top-level keys of values.yaml, and the access values of slot 52;
+#   9. crds/ holds exactly the definitions of AccessGrant and AccessTarget.
+# Usage: bash tests/render.sh. Needs helm and yq (CI: the versions of
+# .github/workflows/blueprint-release.yaml).
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+chart_dir="$(cd "$(dirname "$0")/.." && pwd)"
+repo_root="$(cd "$chart_dir/../../.." && pwd)"
+slot="$repo_root/clusters/_template/bootstrap-kit/52-bp-guacamole.yaml"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-cd "$CHART_DIR"
+fail() { echo "FAIL: $*"; exit 1; }
+# same <what> <got> <want>
+same() {
+  [ "$2" = "$3" ] || fail "$1 is [$2], want [$3]"
+  echo "PASS: $1 is [$3]"
+}
+# objects <render file>: "<kind> <namespace>/<name>" per object, sorted.
+objects() {
+  yq -N '.kind + " " + (.metadata.namespace // "") + "/" + .metadata.name' "$1" | LC_ALL=C sort
+}
 
-# Resolve dependencies only if not vendored. Same pattern as
-# platform/cilium/chart/tests/observability-toggle.sh.
-if [[ ! -d charts ]] || [[ -z "$(ls -A charts 2>/dev/null)" ]]; then
-  helm dependency update >/dev/null 2>&1 || {
-    echo "WARNING: helm dependency update failed (no network in CI sandbox)"
-    echo "         skipping render assertions — re-run after \`helm dep build\`"
-    exit 0
-  }
+[ -f "$slot" ] || fail "the slot file $slot does not exist"
+if [ -z "$(ls -A "$chart_dir/charts" 2>/dev/null)" ]; then
+  helm dependency build "$chart_dir" > /dev/null || fail "helm dependency build failed: nothing was rendered"
 fi
 
-# ─────────────────────────────────────────────────────────────────────
-# 1. Default-OFF: zero K8s resources rendered.
-#    The chart still emits comments / NOTES.txt; we count `^kind:`
-#    matches in the rendered YAML stream.
-# ─────────────────────────────────────────────────────────────────────
-render_off="$TMP/off.yaml"
-helm template bp-guacamole . > "$render_off"
-off_count="$(grep -cE '^kind:' "$render_off" || true)"
-if [[ "$off_count" != "0" ]]; then
-  echo "FAIL: default-OFF rendered $off_count resources, want 0"
-  grep -E '^kind:' "$render_off"
-  exit 1
-fi
-echo "PASS: default-OFF renders 0 resources"
+APIS=(--api-versions apps.openova.io/v1 --api-versions cilium.io/v2 --api-versions batch/v1)
+DIGEST="sha256:$(printf '0123456789abcdef%.0s' 1 2 3 4)"
+REPO="ghcr.io/openova-io/openova/access-controller"
 
-# ─────────────────────────────────────────────────────────────────────
-# 2. Fail-fast on empty image tag (when operator explicitly clears it).
-#    qa-loop iter-7 Fix #39: defaults seed `1.5.5` so the chart is
-#    installable without operator intervention; the empty-tag fail-fast
-#    contract now exercises the operator-override path (per the
-#    INVIOLABLE-PRINCIPLES #4a fail-fast contract — empty tag still
-#    aborts render).
-# ─────────────────────────────────────────────────────────────────────
-if helm template bp-guacamole . \
-    --set guacamole.enabled=true \
-    --set guacamole.guacd.image.tag= \
-    --set guacamole.webapp.image.tag= \
-    --set guacamole.httproute.hostname=guacamole.test \
-    --set guacamole.oidc.issuer=https://kc.test/realms/c \
-    >/dev/null 2>"$TMP/empty-tag.err"; then
-  echo "FAIL: empty image.tag did not abort render"
-  exit 1
-fi
-if ! grep -q 'image.tag is empty' "$TMP/empty-tag.err"; then
-  echo "FAIL: empty-tag error didn't mention 'image.tag is empty':"
-  cat "$TMP/empty-tag.err"
-  exit 1
-fi
-echo "PASS: empty image.tag fails fast"
+# The values of slot 52, substituted as Flux does.
+sed -e 's/\${SOVEREIGN_FQDN}/t1.omani.works/g' -e 's/\${SOVEREIGN_REGION_CANONICAL_LABEL:-}/region-a/g' \
+  -e 's/\${[A-Za-z_][A-Za-z0-9_]*:[=-]\([^}]*\)}/\1/g' "$slot" > "$TMP/slot.yaml"
+yq 'select(.kind == "HelmRelease" and .metadata.name == "bp-guacamole") | .spec.values' "$TMP/slot.yaml" > "$TMP/slot-values.yaml"
+same "bootstrapOwned.enabled of slot 52" "$(yq '.bootstrapOwned.enabled' "$TMP/slot-values.yaml")" "true"
+render() { # <out> [helm args...]
+  local out="$1"
+  shift
+  helm template guacamole "$chart_dir" --namespace guacamole -f "$TMP/slot-values.yaml" "${APIS[@]}" \
+    --set "access.controller.image.digest=$DIGEST" "$@" > "$out"
+}
+STUB="$(printf '%s\n' "Service guacamole/access-controller" "ValidatingAdmissionPolicy /access-kinds-writers" \
+  "ValidatingAdmissionPolicyBinding /access-kinds-writers")"
+# 1. No digest yet.
+render "$TMP/no-digest.yaml" --set access.controller.image.digest=
+same "the objects of slot 52 with no digest" "$(objects "$TMP/no-digest.yaml")" "$(printf '%s\n' "Application guacamole/guacamole" "$STUB" | LC_ALL=C sort)"
+helm template guacamole "$chart_dir" --namespace guacamole "${APIS[@]}" --set access.controller.image.digest= > "$TMP/default.yaml"
+same "the objects of default values with no digest" "$(objects "$TMP/default.yaml")" "$STUB"
+# 2. With a digest.
+render "$TMP/slot-render.yaml"
+same "the objects of the values of slot 52" "$(objects "$TMP/slot-render.yaml")" "$(printf '%s\n' \
+  "Application guacamole/guacamole" "ClusterRole /bp-guacamole-access-controller" \
+  "ClusterRoleBinding /bp-guacamole-access-controller" "Deployment guacamole/access-controller" \
+  "Role guacamole/access-controller-leader-election" "RoleBinding guacamole/access-controller-leader-election" \
+  "Service guacamole/access-controller" "ServiceAccount guacamole/access-controller" \
+  "ValidatingAdmissionPolicy /access-kinds-writers" "ValidatingAdmissionPolicyBinding /access-kinds-writers")"
+same "the HelmRelease the Application names" \
+  "$(yq -N 'select(.kind == "Application") | .spec.helmRelease.namespace + "/" + .spec.helmRelease.name' "$TMP/slot-render.yaml")" \
+  "flux-system/bp-guacamole"
 
-# ─────────────────────────────────────────────────────────────────────
-# 3. Full-ON: the canonical 14-resource bundle.
-#
-# 0.2.0 (G117.5 W3.D1 #2744, 2026-06-02) — bundle delta:
-#   - DELETE divergent realm-patch ConfigMap (templates/keycloak-realm-
-#     config.yaml). Realm-import for `guacamole` is now consolidated in
-#     bp-keycloak 1.4.13 sovereign-realm-import. Net -1 ConfigMap.
-#   - chartManagedSecret default ON gates the legacy SealedSecret +
-#     pre-install Job + matching RBAC (SA + Role + RoleBinding) OFF.
-#     The chart-managed `lookup`-or-generate Secret renders ONE plain
-#     Secret instead. Net delta: -1 SealedSecret -1 Job -1 SA -1 Role
-#     -1 RoleBinding +1 Secret = -4.
-# Total: 19 - 1 (ConfigMap deletion) - 4 (bootstrap Job + RBAC swap)
-# = 14 in the default chartManagedSecret=true mode.
-#
-# qa-loop iter-11 Fix #45 Cluster-A recordings storageClass-migration
-# pre-upgrade hook stays (Job + SA + Role + RB + ClusterRole +
-# ClusterRoleBinding).
-# ─────────────────────────────────────────────────────────────────────
-render_on="$TMP/on.yaml"
-# #3374 (2026-06-14): recordings.persistence is now DEFAULT false (emptyDir,
-# no node-pin). The canonical "full" bundle includes the recordings PVC + its
-# storageClass-migration hook (Job + SA + Role + RB), so the full-ON case sets
-# persistence=true to exercise that complete shape. The default (emptyDir)
-# path drops those 5 resources by design — covered by the dedicated
-# persistence-default check below.
-#
-# #5358: the DEFAULT sso mode is now `header` (bp-oidc-gate code flow in
-# front + guacamole-auth-header behind). In header mode the chart renders NO
-# HTTPRoute (the gate owns the hostname) and NO oidc Secret (the client
-# secret belongs to the gate via bp-sso-bridge/OpenBao), and ADDS the webapp
-# ingress-guard NetworkPolicy. Neither httproute.hostname nor oidc.issuer is
-# required.
-helm template bp-guacamole . \
-  --set guacamole.enabled=true \
-  --set guacamole.guacd.image.tag=1.5.5-r1 \
-  --set guacamole.webapp.image.tag=1.5.5-r1 \
-  --set guacamole.recordings.persistence=true \
-  > "$render_on"
+# 3. The Deployment.
+yq 'select(.kind == "Deployment")' "$TMP/slot-render.yaml" > "$TMP/deploy.yaml"
+pod() { yq -N -o=json -I=0 ".spec.template.spec$1" "$TMP/deploy.yaml"; }
+same "the image" "$(pod '.containers[0].image')" "\"$REPO@$DIGEST\""
+same "the flags" "$(pod '.containers[0].args')" "$(printf '%s' '["--http-address=:8080","--sovereign-fqdn=t1.omani.works",' \
+  '"--region-id=region-a","--nats-url=nats://nats-jetstream.nats-system.svc.cluster.local:4222",' \
+  '"--session-namespace=guacamole","--denied-target-namespaces=openbao,kube-system,flux-system,guacamole","--leader-elect=true"]')"
+same "the replicas" "$(yq '.spec.replicas' "$TMP/deploy.yaml")" "1"
+same "the service account" "$(pod '.serviceAccountName')" '"access-controller"'
+same "the pod security context" "$(pod '.securityContext')" '{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}}'
+same "the container security context" "$(pod '.containers[0].securityContext')" \
+  '{"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}}'
+same "the probes" "$(pod '.containers[0] | [.livenessProbe.httpGet, .readinessProbe.httpGet]')" \
+  '[{"path":"/healthz","port":"http"},{"path":"/healthz","port":"http"}]'
+same "the ports" "$(pod '.containers[0].ports')" '[{"name":"http","containerPort":8080,"protocol":"TCP"}]'
+same "the selector of the Service" "$(yq -N -o=json -I=0 'select(.kind == "Service") | .spec.selector' "$TMP/slot-render.yaml")" \
+  "$(yq -N -o=json -I=0 '.spec.selector.matchLabels' "$TMP/deploy.yaml")"
+render "$TMP/pivot.yaml" --set global.imageRegistry=registry.t1.omani.works
+same "the image with global.imageRegistry" "$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "$TMP/pivot.yaml")" \
+  "registry.t1.omani.works/openova-io/openova/access-controller@$DIGEST"
 
-# 14-doc target in default header mode: Deployment×2 (guacd + webapp),
-# Service×2, PVC, NetworkPolicy×3 (webapp egress + #5358 ingress guard +
-# #5991 guacd egress), Job (recordings-migrate), ServiceAccount, Role,
-# RoleBinding, ClusterRole, ClusterRoleBinding.
-#
-# 13 → 14 in 0.2.40 (#5991): guacd's `kubernetes` protocol dials
-# bp-k8s-ws-proxy from GUACD, over its own libwebsockets client rather
-# than through the webapp, so the webapp's egress policy does not cover
-# it. Under the Sovereign's namespace-wide default-deny
-# (bp-plane-isolation) the seeded cluster-shell connection would render
-# in ALL CONNECTIONS and then hang on click. tests/connection-seed-
-# render.sh asserts that policy's CONTENT and carries the control that
-# it does NOT render when no mTLS connection is declared.
-# 14 -> 17 (#5991). The three added objects are the jdbc-seed ConfigMap + Job
-# and the admin-enroll CronJob. They were ALWAYS meant to be in this bundle;
-# they were absent because the whole seed template was gated on a RENDER-TIME
-# `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"`, and this script does
-# not pass --api-versions. So the old expectation of 14 was calibrated against
-# the buggy render — the count encoded the defect, which is why a guard that
-# counts can ratify a bug as the norm.
-#
-# The live consequence of that gate: a Sovereign whose chart rendered before
-# the CNPG CRD was visible got NO seed Job at all, and since it is a
-# post-install hook it never re-ran, so `guacamole_connection` stayed empty
-# forever while the admin looked healthy (UAT row 115).
-expect_total=17
-got_total="$(grep -cE '^kind:' "$render_on")"
-if [[ "$got_total" != "$expect_total" ]]; then
-  echo "FAIL: full-ON (header mode) rendered $got_total resources, want $expect_total"
-  grep -E '^kind:' "$render_on" | sort
-  exit 1
+# 4. A digest of another form.
+if render "$TMP/bad.yaml" --set access.controller.image.digest=latest 2> "$TMP/bad.err"; then
+  fail "the digest latest rendered"
 fi
-echo "PASS: full-ON (header mode) renders $got_total resources"
+grep -qF 'access.controller.image.digest is "latest", not sha256:<64 hex digits>' "$TMP/bad.err" || fail "the digest latest failed for another reason: $(cat "$TMP/bad.err")"
+echo "PASS: the digest latest fails the render"
 
-# Each individual kind must appear at least once.
-required_kinds=(
-  Deployment
-  Service
-  PersistentVolumeClaim
-  NetworkPolicy
-  Job
-  ServiceAccount
-  Role
-  RoleBinding
-  ClusterRole
-  ClusterRoleBinding
-)
-for k in "${required_kinds[@]}"; do
-  if ! grep -qE "^kind: ${k}$" "$render_on"; then
-    echo "FAIL: missing kind ${k} in full-ON render"
-    exit 1
-  fi
-done
-echo "PASS: every required kind present"
+# 5. The ClusterRole.
+same "the rules of the ClusterRole" "$(yq -N 'select(.kind == "ClusterRole") | .rules[] | (.apiGroups | join(",")) + "|" + (.resources | join(",")) + "|" + (.verbs | join(","))' "$TMP/slot-render.yaml")" \
+  "$(printf '%s\n' "access.openova.io|accesstargets,accessgrants|get,list,watch" \
+    "access.openova.io|accesstargets/status,accessgrants/status|get,update,patch" "|serviceaccounts|get,create")"
 
-# ─────────────────────────────────────────────────────────────────────
-# 3a. #5358 header-mode contract:
-#   - guacamole-auth-header wired (HEADER_ENABLED + HTTP_AUTH_HEADER)
-#   - EXTENSION_PRIORITY puts header before the JDBC store
-#   - ZERO OPENID_* env (no implicit flow anywhere)
-#   - NO HTTPRoute (the slot-13c oidc-gate owns the hostname; a direct
-#     route would bypass the gate and expose the header-trusting webapp)
-#   - the webapp ingress guard admits ONLY the oidc-gate pods
-# ─────────────────────────────────────────────────────────────────────
-if ! grep -q 'name: HEADER_ENABLED' "$render_on"; then
-  echo "FAIL: header mode missing HEADER_ENABLED env"
-  exit 1
-fi
-if ! grep -q 'value: "X-Forwarded-Email"' "$render_on"; then
-  echo "FAIL: header mode missing HTTP_AUTH_HEADER=X-Forwarded-Email"
-  exit 1
-fi
-if ! grep -q 'value: "header, postgresql"' "$render_on"; then
-  echo "FAIL: header mode EXTENSION_PRIORITY is not 'header, postgresql'"
-  exit 1
-fi
-if grep -q 'OPENID_' "$render_on"; then
-  echo "FAIL: header mode still renders OPENID_* env (implicit flow must be gone)"
-  grep 'OPENID_' "$render_on"
-  exit 1
-fi
-if grep -qE '^kind: HTTPRoute$' "$render_on"; then
-  echo "FAIL: header mode rendered a direct HTTPRoute (gate owns the hostname)"
-  exit 1
-fi
-if ! grep -q 'name: guacamole-server-ingress' "$render_on"; then
-  echo "FAIL: header mode missing the webapp ingress-guard NetworkPolicy"
-  exit 1
-fi
-if ! grep -q 'kubernetes.io/metadata.name: oidc-gate' "$render_on"; then
-  echo "FAIL: ingress guard does not scope to the oidc-gate namespace"
-  exit 1
-fi
-echo "PASS: header mode wires guacamole-auth-header + ingress guard, no OPENID/HTTPRoute"
+# 6. The writer lock.
+yq 'select(.kind == "ValidatingAdmissionPolicy")' "$TMP/slot-render.yaml" > "$TMP/vap.yaml"
+same "the resources the lock matches" "$(yq -N -o=json -I=0 '.spec.matchConstraints.resourceRules' "$TMP/vap.yaml")" \
+  '[{"apiGroups":["access.openova.io"],"apiVersions":["*"],"operations":["CREATE","UPDATE","DELETE"],"resources":["accesstargets","accessgrants","accesssessions"]}]'
+same "the writers the lock names" "$(yq -N '.spec.variables[] | select(.name == "isFlux" or .name == "isController") | .expression' "$TMP/vap.yaml")" \
+  "$(printf '%s\n' "variables.user == 'system:serviceaccount:flux-system:kustomize-controller'" \
+    "variables.user == 'system:serviceaccount:guacamole:access-controller'")"
+same "the failure policy of the lock" "$(yq '.spec.failurePolicy' "$TMP/vap.yaml")" "Fail"
+same "the binding of the lock" "$(yq -N -o=json -I=0 'select(.kind == "ValidatingAdmissionPolicyBinding") | .spec' "$TMP/slot-render.yaml")" \
+  '{"policyName":"access-kinds-writers","validationActions":["Deny"]}'
 
-# ─────────────────────────────────────────────────────────────────────
-# 3b. LEGACY sso.mode=openid keeps the pre-#5358 14-doc bundle
-#     byte-compatible: HTTPRoute + chart-managed oidc Secret return, the
-#     ingress guard is NOT rendered, and the OPENID_* env is present.
-# ─────────────────────────────────────────────────────────────────────
-render_legacy="$TMP/legacy-openid.yaml"
-helm template bp-guacamole . \
-  --set guacamole.enabled=true \
-  --set guacamole.sso.mode=openid \
-  --set guacamole.guacd.image.tag=1.5.5-r1 \
-  --set guacamole.webapp.image.tag=1.5.5-r1 \
-  --set guacamole.httproute.hostname=guacamole.test \
-  --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
-  --set guacamole.recordings.persistence=true \
-  > "$render_legacy"
-# 14 → 15 in 0.2.40 (#5991): the guacd egress NetworkPolicy. It is keyed
-# on the mTLS connection being declared, NOT on the SSO mode, so it
-# renders in both modes — guacd dials bp-k8s-ws-proxy either way.
-# 15 -> 18 (#5991): same three seed objects as the full-ON case above.
-expect_legacy=18
-got_legacy="$(grep -cE '^kind:' "$render_legacy")"
-if [[ "$got_legacy" != "$expect_legacy" ]]; then
-  echo "FAIL: legacy openid mode rendered $got_legacy resources, want $expect_legacy"
-  grep -E '^kind:' "$render_legacy" | sort
-  exit 1
-fi
-if ! grep -qE '^kind: HTTPRoute$' "$render_legacy"; then
-  echo "FAIL: legacy openid mode did not render the HTTPRoute"
-  exit 1
-fi
-if ! grep -q 'name: OPENID_AUTHORIZATION_ENDPOINT' "$render_legacy"; then
-  echo "FAIL: legacy openid mode missing OPENID_* env"
-  exit 1
-fi
-if ! grep -q 'value: "openid, postgresql"' "$render_legacy"; then
-  echo "FAIL: legacy openid mode EXTENSION_PRIORITY is not 'openid, postgresql'"
-  exit 1
-fi
-if grep -q 'name: guacamole-server-ingress' "$render_legacy"; then
-  echo "FAIL: legacy openid mode rendered the header-mode ingress guard"
-  exit 1
-fi
-echo "PASS: legacy sso.mode=openid keeps the pre-#5358 bundle ($got_legacy docs)"
+# 7. access.enabled=false.
+render "$TMP/off.yaml" --set access.enabled=false
+same "the objects with access.enabled=false" "$(objects "$TMP/off.yaml")" "Application guacamole/guacamole"
 
-# #3374 (2026-06-14): recordings.persistence DEFAULT false → the webapp Pod
-# uses an emptyDir recordings volume (no node-pin) + Recreate strategy, and
-# the recordings PVC / migration hook are NOT rendered. This is what unwedges
-# the JDBC-permission-store pod on a CPU-pressured local-path Sovereign.
-render_default="$TMP/default-recordings.yaml"
-helm template bp-guacamole . \
-  --set guacamole.enabled=true \
-  --set guacamole.guacd.image.tag=1.5.5-r1 \
-  --set guacamole.webapp.image.tag=1.5.5-r1 \
-  > "$render_default"
-if grep -qE '^kind: PersistentVolumeClaim$' "$render_default"; then
-  echo "FAIL: recordings PVC rendered with persistence default (should be emptyDir)"
-  exit 1
-fi
-if ! grep -qE 'type: "?Recreate"?' "$render_default"; then
-  echo "FAIL: webapp Deployment missing strategy type: Recreate"
-  exit 1
-fi
-if ! grep -qE 'emptyDir' "$render_default"; then
-  echo "FAIL: default recordings volume is not an emptyDir"
-  exit 1
-fi
-echo "PASS: persistence-default renders emptyDir recordings + Recreate, no PVC"
+# 8. The values and the slot.
+same "the top-level keys of values.yaml" "$(yq -N 'keys | sort | join(",")' "$chart_dir/values.yaml")" "access,bootstrapOwned,catalystBlueprint,global"
+same "access.enabled of values.yaml" "$(yq '.access.enabled' "$chart_dir/values.yaml")" "true"
+yq 'select(.kind == "HelmRelease" and .metadata.name == "bp-guacamole") | .spec.values' "$slot" > "$TMP/raw-values.yaml"
+same "the access values of slot 52" "$(yq -N -o=json -I=0 '.access' "$TMP/raw-values.yaml")" "$(printf '%s' \
+  '{"sovereignFQDN":"${SOVEREIGN_FQDN}","regionID":"${SOVEREIGN_REGION_CANONICAL_LABEL:-}","crossRegion":' \
+  '{"enabled":"${SOVEREIGN_ENABLE_CNPG_PAIR:=false}","role":"${SOVEREIGN_REGION_ROLE:=primary}","peerClusters":"${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}"}}')"
+same "the top-level keys of the values of slot 52" "$(yq -N 'keys | sort | join(",")' "$TMP/raw-values.yaml")" "access,bootstrapOwned,global"
 
-# G117.5 W3.D1 #2744 (2026-06-02): the chart-managed Secret carries
-# `helm.sh/resource-policy: keep` per memory
-# feedback_chart_credential_persistence_defense.md so reinstalls don't
-# rotate the OIDC client-secret. #5358: the Secret only exists on the
-# LEGACY sso.mode=openid path (header mode has no chart-side client
-# secret), so this contract is asserted against the legacy render.
-if ! grep -q "helm.sh/resource-policy: keep" "$render_legacy"; then
-  echo "FAIL: chart-managed Secret missing helm.sh/resource-policy: keep annotation"
-  exit 1
-fi
-echo "PASS: chart-managed OIDC Secret has resource-policy: keep (legacy openid mode)"
+# 9. The definitions.
+same "the files of crds/" "$(cd "$chart_dir/crds" && ls | LC_ALL=C sort | tr '\n' ' ')" "accessgrant.yaml accesstarget.yaml "
+same "the definitions" "$(yq -N '.metadata.name + " " + .spec.scope + " " + .spec.versions[0].name' "$chart_dir"/crds/*.yaml)" \
+  "$(printf '%s\n' "accessgrants.access.openova.io Namespaced v1alpha1" "accesstargets.access.openova.io Namespaced v1alpha1")"
 
-# qa-loop iter-7 Fix #39 — canonical short resource names. The
-# catalyst-api shells/issue handler + the qa-loop test matrix
-# (TC-228 / TC-230 / TC-245 / TC-246) assume the Deployments are
-# addressable as `guacd` and `guacamole-server` regardless of release
-# name. Override-driven (.Values.guacamole.guacd.name +
-# .Values.guacamole.webapp.name) — but the defaults must be the
-# canonical names.
-required_names=(
-  "name: guacd"
-  "name: guacamole-server"
-  "name: guacamole-recordings"
-)
-for n in "${required_names[@]}"; do
-  if ! grep -qE "^  ${n}\$" "$render_on"; then
-    echo "FAIL: missing canonical resource ${n} in full-ON render"
-    grep -E '^  name:' "$render_on" | sort -u
-    exit 1
-  fi
-done
-echo "PASS: canonical resource names (guacd / guacamole-server / guacamole-recordings) present"
-
-# G117.5 W3.D1 #2744 (2026-06-02): the divergent bp-guacamole-realm-patch
-# ConfigMap was DELETED in chart 0.2.0 — the realm-import for the
-# `guacamole` client is now consolidated in bp-keycloak 1.4.13's
-# sovereign realm-import. This test guards against accidental
-# re-introduction of the template.
-if grep -q "name: bp-guacamole-realm-patch" "$render_on"; then
-  echo "FAIL: bp-guacamole-realm-patch ConfigMap rendered (template should be deleted)"
-  exit 1
-fi
-echo "PASS: divergent realm-patch ConfigMap is not rendered (consolidated in bp-keycloak)"
-
-# qa-loop iter-11 Fix #45 Cluster-A — recordings storageClass-migration
-# pre-upgrade hook is wired to the correct hook lifecycle (pre-install
-# AND pre-upgrade so a chart-overlay storageClass change at any point
-# in the Sovereign's lifetime is recoverable) and references the
-# desired storageClass via env var (so the in-Pod script can compare
-# against the live PVC's existing storageClass).
-if ! grep -q '"helm.sh/hook": pre-install,pre-upgrade' "$render_on"; then
-  echo "FAIL: recordings migration hook missing pre-install,pre-upgrade lifecycle"
-  exit 1
-fi
-if ! grep -q 'name: DESIRED_STORAGECLASS' "$render_on"; then
-  echo "FAIL: migration hook missing DESIRED_STORAGECLASS env"
-  exit 1
-fi
-echo "PASS: recordings storageClass-migration hook wired correctly"
-
-# Toggle: when allowMigration=false, the hook must NOT render (operator
-# escape hatch for Sovereigns with live recording state).
-no_mig="$TMP/no-migration.yaml"
-helm template bp-guacamole . \
-  --set guacamole.enabled=true \
-  --set guacamole.guacd.image.tag=1.5.5-r1 \
-  --set guacamole.webapp.image.tag=1.5.5-r1 \
-  --set guacamole.recordings.allowMigration=false \
-  > "$no_mig"
-if grep -q 'storageclass-migrate' "$no_mig"; then
-  echo "FAIL: allowMigration=false still rendered the migration Job"
-  exit 1
-fi
-echo "PASS: allowMigration=false suppresses the migration hook"
-
-echo ""
 echo "All render tests passed."

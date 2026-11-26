@@ -1,0 +1,44 @@
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: pdb-permits-eviction
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: compliance-policy
+    catalyst.openova.io/policy-tier: compliance
+    catalyst.openova.io/policy-domain: resilience
+  annotations:
+    policies.kyverno.io/title: PodDisruptionBudgets must permit eviction
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      A PodDisruptionBudget with maxUnavailable=0 (or minAvailable equal
+      to the workload's full replica count) wedges every voluntary
+      disruption. This policy rejects PDBs whose maxUnavailable is 0.
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["policy"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["poddisruptionbudgets"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: "!(object.metadata.?namespace.orValue('') in ['kube-system', 'flux-system', 'cilium', 'cilium-gateway', 'dragonfly', 'cert-manager', 'openova-system', 'catalyst', 'kyverno', 'monitoring', 'ingress', 'sso-bridge', 'falco'])"
+    # A budget that sets no maxUnavailable is not judged, as the legacy
+    # rule's precondition left it out.
+    - name: maxunavailable-set
+      expression: "has(object.spec.maxUnavailable)"
+  validations:
+    # maxUnavailable is an integer or a percentage; string() reads both, so
+    # 0 and "0%" are refused and "10%" is not.
+    - expression: "!(string(object.spec.maxUnavailable) in ['0', '0%'])"
+      messageExpression: >-
+        'PodDisruptionBudget ' + object.metadata.name + ' has maxUnavailable=0
+        which blocks every voluntary eviction. Set maxUnavailable to >=1 (or a
+        percentage), or use minAvailable strictly less than the replica count
+        of the workload.'

@@ -8,8 +8,6 @@ G2	platform/cnpg-pair/chart/templates/dr-promoter.yaml	1
 G2	platform/cnpg-pair/chart/templates/networkpolicy.yaml	5
 G2	platform/external-dns/chart/templates/ciliumnetworkpolicy.yaml	1
 G2	platform/external-dns/chart/templates/networkpolicy.yaml	1
-G2	platform/guacamole/chart/templates/crossregion-netpol.yaml	1
-G2	platform/guacamole/chart/templates/networkpolicy.yaml	3
 G2	platform/harbor/chart/templates/networkpolicy.yaml	1
 G2	platform/harbor/chart/templates/redis-crossregion-netpol.yaml	2
 G2	platform/keycloak/chart/templates/catalyst-backchannel-egress-cnp.yaml	1

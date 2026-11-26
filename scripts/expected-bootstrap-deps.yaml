@@ -289,6 +289,13 @@ slots:
     # Flux is needed to install it.
     depends_on: [bp-flux]
     wave: W2.K1
+  - slot: 15b
+    name: bp-secrets-store-csi
+    # The Secrets Store CSI driver (chart bp-secrets-store-csi). It reaches
+    # OpenBao through the OpenBao CSI provider of bp-openbao (slot 08,
+    # openbao.csi.enabled), so it installs after bp-openbao (SEC-211).
+    depends_on: [bp-openbao]
+    wave: W2.K1
   - slot: 16
     name: bp-cnpg
     # The durable default StorageClass EVERY cnpg PVC (shared-pg / cnpg-pair /

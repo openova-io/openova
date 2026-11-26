@@ -1,0 +1,13 @@
+{
+  "gaps": [
+    {
+      "kind": "CronJob",
+      "namespace": "syft-grype",
+      "name": "syft-grype-bp-syft-grype",
+      "policy": "harbor-proxy-pull",
+      "reason": "The scanner image ghcr.io/anchore/grype is pulled directly (platform/syft-grype/chart/values.yaml; slot 33 sets no image), not through a Harbor proxy project. The chart is removed with its slot and pins, so routing its image would be lost work.",
+      "since": "2026-11-26",
+      "retiredBy": "FND-193"
+    }
+  ]
+}

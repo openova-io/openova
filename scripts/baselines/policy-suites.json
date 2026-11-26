@@ -2,14 +2,6 @@
   "allow": [],
   "counts": {
     "policy_checks_without_suite": {
-      "backup-configured": 1,
-      "cilium-l7-mtls": 1,
-      "flux-managed": 1,
-      "networkpolicy-present": 1,
-      "otel-injected": 1,
-      "pdb-permits-eviction": 1,
-      "prometheus-scrape": 1,
-      "pvc-volume-expansion": 1,
       "useraccess-boundary": 1
     }
   },

@@ -1,0 +1,62 @@
+{{- /*
+The writer lock of the access kinds (ADR-0033 decision A6), in Deny from its
+first day: these kinds are born from Git and have no earlier writer. A
+create, update or delete of a target or a grant passes when it comes from
+Flux, leaves spec unchanged, or is a delete by the garbage or namespace
+collector; a session (its kind arrives later) is written by the access
+controller only. No rule names /status, so the controller's status writes are
+not matched. Rendered in every region with access.enabled.
+*/ -}}
+{{- if .Values.access.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: access-kinds-writers
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["access.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["accesstargets", "accessgrants", "accesssessions"]
+  variables:
+    - name: user
+      expression: "request.userInfo.username"
+    - name: isFlux
+      expression: "variables.user == 'system:serviceaccount:flux-system:kustomize-controller'"
+    - name: isController
+      expression: "variables.user == 'system:serviceaccount:{{ .Release.Namespace }}:access-controller'"
+    - name: isCollector
+      expression: >-
+        request.operation == 'DELETE' && variables.user in [
+          'system:serviceaccount:kube-system:generic-garbage-collector',
+          'system:serviceaccount:kube-system:namespace-controller',
+          'system:kube-controller-manager']
+    - name: specUnchanged
+      expression: >-
+        request.operation == 'UPDATE' && has(object.spec) == has(oldObject.spec) &&
+        (!has(object.spec) || object.spec == oldObject.spec)
+    - name: isSession
+      expression: "request.resource.resource == 'accesssessions'"
+  validations:
+    - expression: >-
+        variables.isCollector ||
+        (variables.isSession && variables.isController) ||
+        (!variables.isSession && (variables.isFlux || variables.specUnchanged))
+      messageExpression: >-
+        request.kind.kind + ' may be written only by ' + (variables.isSession ? 'the access controller' : 'Git through the Catalyst API')
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: access-kinds-writers
+  labels:
+    {{- include "bp-guacamole.controllerLabels" . | nindent 4 }}
+spec:
+  policyName: access-kinds-writers
+  validationActions: ["Deny"]
+{{- end }}

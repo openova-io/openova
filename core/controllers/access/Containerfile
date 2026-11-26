@@ -1,0 +1,23 @@
+# access-controller (ADR-0033), built only by
+# .github/workflows/access-controller-build.yaml. Static binary, numeric
+# non-root user 10001 (the Deployment's), the binary and the CA bundle only.
+# The build context is the repository root: one go.mod at core/controllers.
+
+FROM docker.io/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
+WORKDIR /workspace
+COPY core/controllers/go.mod core/controllers/go.sum core/controllers/
+WORKDIR /workspace/core/controllers
+RUN go mod download
+
+WORKDIR /workspace
+COPY core/controllers/pkg /workspace/core/controllers/pkg
+COPY core/controllers/access /workspace/core/controllers/access
+WORKDIR /workspace/core/controllers/access
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /access-controller ./cmd
+
+FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+RUN apk add --no-cache ca-certificates
+COPY --from=build /access-controller /access-controller
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/access-controller"]

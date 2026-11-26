@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-kyverno-policies
 spec:
-  version: 1.0.64
+  version: 1.0.71
   visibility: unlisted
   class: platform-component
   lifecycle: experimental

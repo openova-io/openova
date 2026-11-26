@@ -1,0 +1,250 @@
+# Inputs of the suite otel-injected. One workload per case; the number is
+# the case of kyverno-test.yaml.
+
+# 1. The one container is named otel-collector.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-only
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: collector-only
+  template:
+    metadata:
+      labels:
+        app: collector-only
+    spec:
+      containers:
+        - name: otel-collector
+          image: ghcr.io/example/otel-collector:v1.0.0
+---
+# 2. An app container beside an otel-collector sidecar: the legacy array pattern
+# required EVERY container to be named otel-collector, so this fails.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-sidecar
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: app-with-sidecar
+  template:
+    metadata:
+      labels:
+        app: app-with-sidecar
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+        - name: otel-collector
+          image: ghcr.io/example/otel-collector:v1.0.0
+---
+# 3. Annotated inject-java "true" (Instrumentation default in the same namespace).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inject-java
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-java
+  template:
+    metadata:
+      labels:
+        app: inject-java
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 4. Annotated inject-python with a named Instrumentation.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: inject-python
+  namespace: example
+spec:
+  serviceName: inject-python
+  selector:
+    matchLabels:
+      app: inject-python
+  template:
+    metadata:
+      labels:
+        app: inject-python
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "my-instrumentation"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 5. Annotated inject-nodejs with a namespace/name reference.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: inject-nodejs
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-nodejs
+  template:
+    metadata:
+      labels:
+        app: inject-nodejs
+      annotations:
+        instrumentation.opentelemetry.io/inject-nodejs: "opentelemetry/default"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 6. Annotated inject-go.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inject-go
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-go
+  template:
+    metadata:
+      labels:
+        app: inject-go
+      annotations:
+        instrumentation.opentelemetry.io/inject-go: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 7. Annotated inject-dotnet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inject-dotnet
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-dotnet
+  template:
+    metadata:
+      labels:
+        app: inject-dotnet
+      annotations:
+        instrumentation.opentelemetry.io/inject-dotnet: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 8. Annotated inject-java with an empty value.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inject-empty
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-empty
+  template:
+    metadata:
+      labels:
+        app: inject-empty
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: ""
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 9. Annotated inject-sdk, a language the policy does not list.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inject-sdk
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: inject-sdk
+  template:
+    metadata:
+      labels:
+        app: inject-sdk
+      annotations:
+        instrumentation.opentelemetry.io/inject-sdk: "true"
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 10. Neither a collector container nor an annotation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uninstrumented
+  namespace: example
+spec:
+  selector:
+    matchLabels:
+      app: uninstrumented
+  template:
+    metadata:
+      labels:
+        app: uninstrumented
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 11. The annotation on the workload, not on its Pod template.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: annotation-on-workload
+  namespace: example
+  annotations:
+    instrumentation.opentelemetry.io/inject-java: "true"
+spec:
+  selector:
+    matchLabels:
+      app: annotation-on-workload
+  template:
+    metadata:
+      labels:
+        app: annotation-on-workload
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0
+---
+# 12. Case 10 in kube-system, a namespace the chart defaults exclude.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uninstrumented
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: uninstrumented
+  template:
+    metadata:
+      labels:
+        app: uninstrumented
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/example/app:v1.0.0

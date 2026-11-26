@@ -825,7 +825,7 @@ spec:
 // hrAppPinSeedDrift stays green (ADR-0015 integration, Refs #7067).
 // 2026-11-15: openclaw 0.2.20 -> 0.2.24, newapi 1.4.157 -> 1.4.161, written by
 // scripts/sync-funnel-pin.py, which the release bump now runs beside the seed writer (#7829).
-const DefaultHRAppChartVersions = "openclaw=0.2.25,stalwart-mail=0.1.17,newapi=1.4.171,agenity=0.5.40"
+const DefaultHRAppChartVersions = "openclaw=0.2.25,stalwart-mail=0.1.17,newapi=1.4.173,agenity=0.5.40"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
