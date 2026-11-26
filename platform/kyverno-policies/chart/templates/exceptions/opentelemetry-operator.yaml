@@ -1,0 +1,24 @@
+{{- /*
+opentelemetry-operator.yaml - the OpenTelemetry Operator is exempt from
+probes-present (CMP-067). The upstream chart opentelemetry-operator 0.61.0,
+the dependency of bp-opentelemetry-operator, renders the Deployment
+opentelemetry-operator with probes on its manager container and none on its
+kube-rbac-proxy sidecar, and offers no value that sets them there. The engine
+honours an exception only in this namespace (namespace-exceptions.yaml). Held
+by tools/guards/cmd/kit-policies, which judges the kit's render.
+*/ -}}
+apiVersion: policies.kyverno.io/v1
+kind: PolicyException
+metadata:
+  name: opentelemetry-operator-probes
+  namespace: catalyst-policy-exceptions
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/component: policy-exceptions
+spec:
+  policyRefs:
+    - name: probes-present
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'opentelemetry' && object.kind == 'Deployment' && object.metadata.name == 'opentelemetry-operator'"
