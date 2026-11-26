@@ -1,0 +1,23 @@
+keycloak:
+  extraEnvVars:
+    - name: KC_BOOTSTRAP_ADMIN_PASSWORD_FILE
+      value: /var/run/secrets/openova/admin-password
+  extraVolumes:
+    - name: cache-ispn
+      configMap:
+        name: '{{ .Release.Name }}-cache-ispn'
+    - name: openova-secrets
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: keycloak-openova
+  extraVolumeMounts:
+    - name: cache-ispn
+      mountPath: /opt/bitnami/keycloak/conf/cluster
+      readOnly: true
+    - name: openova-secrets
+      mountPath: /var/run/secrets/openova
+      readOnly: true
+  keycloakConfigCli:
+    enabled: false

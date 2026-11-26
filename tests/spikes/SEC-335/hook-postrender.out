@@ -1,0 +1,10 @@
+WARNING: Kubernetes configuration file is group-readable. This is insecure. Location: /dev/null
+WARNING: Kubernetes configuration file is world-readable. This is insecure. Location: /dev/null
+v3.16.3+gcfd0749
+post-render rc=0
+hook Job (helm.sh/hook: post-install,post-upgrade,post-rollback) env names:
+KEYCLOAK_PASSWORD
+env ConfigMap keycloak-env-vars keys:
+POSTRENDERED_KC_FILE
+helm-controller pinned by the kit: tag:v1.1.0
+its Helm library (go.mod of fluxcd/helm-controller v1.1.0): helm.sh/helm/v3 v3.16.1

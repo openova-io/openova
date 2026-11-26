@@ -1,0 +1,12 @@
+using podman due to KIND_EXPERIMENTAL_PROVIDER
+enabling experimental podman provider
+Cgroup controller detection is not implemented for Podman. If you see cgroup-related errors, you might need to set systemd property "Delegate=yes", see https://kind.sigs.k8s.io/docs/user/rootless/
+Creating cluster "sec335" ...
+ • Ensuring node image (kindest/node:v1.31.0) 🖼  ...
+WARNING: Overriding podman network due to KIND_EXPERIMENTAL_PODMAN_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.31.0) 🖼
+ • Preparing nodes 📦   ...
+ ✗ Preparing nodes 📦 
+Deleted nodes: ["sec335-control-plane"]
+ERROR: failed to create cluster: could not find a log line that matches "Reached target .*Multi-User System.*|detected cgroup v1"

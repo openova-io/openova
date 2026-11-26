@@ -1,0 +1,11 @@
+gitea-route1 PASS add-oauth received --secret equal to the mounted value
+gitea-control PASS without the mount: no kubectl call, the script waits for the files
+harbor-route1 PASS PUT /api/v2.0/configurations carried oidc_client_secret equal to the mounted value
+harbor-control PASS without the mount: no PUT, the script waits for the files
+grafana-route1 PASS the token request to the identity provider carried the mounted value as the client secret
+grafana-control PASS without the mount: Grafana exits non-zero and names the missing file (exited 1)
+pda-route2 PASS the token request to the identity provider carried the mounted value as the client secret
+pda-control PASS without the mount: PowerDNS-Admin exits non-zero and names the missing file (exited 1)
+keycloak-route2 PASS admin login with the mounted value 200, with another value 401
+keycloak-config-cli-route1 PASS exit 0 and realm sec335 imported (GET 200) with the password from the configtree file
+keycloak-config-cli-control PASS without the configtree import: exit 1, realm absent (GET 404)

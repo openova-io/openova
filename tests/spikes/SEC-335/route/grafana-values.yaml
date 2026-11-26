@@ -1,0 +1,16 @@
+grafana:
+  envFromSecret: ""
+  extraVolumes:
+    - name: openova-secrets
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: grafana-sso
+  extraVolumeMounts:
+    - name: openova-secrets
+      mountPath: /var/run/secrets/openova
+      readOnly: true
+  grafana.ini:
+    auth.generic_oauth:
+      client_secret: "$__file{/var/run/secrets/openova/client-secret}"
