@@ -1,0 +1,75 @@
+# Resources of the suite stamp-cilium-enforced-label (CMP-077). The two
+# Deployments of tests/fixtures/cilium-enforced-label-mutate/ are cases 5 and 6.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unlabelled
+  namespace: apps
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: already-true
+  namespace: apps
+  labels: {policy.cilium.io/enforced: "true"}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: empty-value
+  namespace: apps
+  labels: {policy.cilium.io/enforced: ""}
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: excluded
+  namespace: kube-system
+spec:
+  containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly
+  namespace: apps
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels: {app: nightly}
+        spec:
+          restartPolicy: Never
+          containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bare
+  namespace: apps
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers: [{name: app, image: harbor.example/app:1.0.0}]
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: legacy-rc
+  namespace: apps
+spec:
+  selector: {app: legacy-rc}
+  template:
+    metadata:
+      labels: {app: legacy-rc}
+    spec:
+      containers: [{name: app, image: harbor.example/app:1.0.0}]
