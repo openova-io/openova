@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T11:15:03Z` |
+| Last refreshed | `2026-11-26T11:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T11:27 | [#8859](https://github.com/openova-io/openova/pull/8859) | #7087 | docs(ledger): plan update |
 | 2026-11-26T11:14 | [#8856](https://github.com/openova-io/openova/pull/8856) | #7087 | docs(ledger): plan update |
 | 2026-11-26T02:01 | [#8854](https://github.com/openova-io/openova/pull/8854) | #8846 | Every kind a policy of the new kind matches is readable by t |
 | 2026-11-26T01:25 | [#8853](https://github.com/openova-io/openova/pull/8853) | #8849 | An in-place upgrade to the reduced remote-access chart leave |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T13:14 | [#8820](https://github.com/openova-io/openova/pull/8820) | #7087 | docs(ledger): plan update |
 | 2026-11-25T13:07 | [#8818](https://github.com/openova-io/openova/pull/8818) | #7087 | docs(ledger): plan update |
 | 2026-11-25T14:12 | [#8817](https://github.com/openova-io/openova/pull/8817) | #8814 | docs(ledger): result of the lab test SOV-722, the k3s releas |
-| 2026-11-25T12:53 | [#8816](https://github.com/openova-io/openova/pull/8816) | #7087 | docs(ledger): plan update |
 
 ---
 
