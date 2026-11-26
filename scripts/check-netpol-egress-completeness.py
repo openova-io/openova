@@ -115,8 +115,7 @@ RENDER_VALUES: dict[str, list[str]] = {
         "cnpgPair.image.tag=16.4",
     ],
     "platform/guacamole/chart": [
-        "access.enabled=true",
-        "access.crossRegion.enabled=true",
+        "access.enabled=true", "access.crossRegion.enabled=true",
         "access.crossRegion.peerClusters={peer-b}",
     ],
     "platform/harbor/chart": ["harborOverlay.networkPolicy.enabled=true"],
