@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-26T14:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-26T14:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8456](https://github.com/openova-io/openova/issues/8456) | SEC-162 OpenBao 2.7.2, static seal, self-initialisation and declared audit devic | Other |
 | [#8466](https://github.com/openova-io/openova/issues/8466) | PRD-205 Assistants: models list, answers with citations, residency refusal | Other |
 | [#8472](https://github.com/openova-io/openova/issues/8472) | PRD-206 cortex screens | Other |
 | [#8475](https://github.com/openova-io/openova/issues/8475) | SEC-153 Flux renders bootstrap Secrets from one seed: robot token, pool-domain l | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8876](https://github.com/openova-io/openova/issues/8876) | CMP-077 Mutate policies to MutatingPolicy: stamp-cilium-enforced-label | Other |
 | [#8879](https://github.com/openova-io/openova/issues/8879) | SOV-231 The settled-roll pre-flight no longer offers its annotation override for | Other |
 | [#8882](https://github.com/openova-io/openova/issues/8882) | SOV-171 Check SOV-G01 retries its reads of a settling Flux and reads the registr | Other |
+| [#8885](https://github.com/openova-io/openova/issues/8885) | FND-045 The pin-sync audit names the release writer for a drift of release-owned | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
 | 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-25T21:43 | [#8839](https://github.com/openova-io/openova/pull/8839) | #8833 | fix(release): the candidate cut accepts the speech chart's C |
 | 2026-11-25T21:16 | [#8837](https://github.com/openova-io/openova/pull/8837) | #7087 | docs(ledger): plan update |
 | 2026-11-25T20:25 | [#8836](https://github.com/openova-io/openova/pull/8836) | #8788 | A delivery can repair a release that is stalled when the can |
-| 2026-11-25T18:37 | [#8835](https://github.com/openova-io/openova/pull/8835) | #8786 | Main stops pinning the speech chart until it can be publishe |
 
 ---
 
