@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T08:00:02Z` |
+| Last refreshed | `2026-11-27T08:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
 | 2026-11-27T06:10 | [#8963](https://github.com/openova-io/openova/pull/8963) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:04 | [#8962](https://github.com/openova-io/openova/pull/8962) | #4993 | test(gate): check NET-G11 proves a route of one Organization |
 | 2026-11-27T06:12 | [#8961](https://github.com/openova-io/openova/pull/8961) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:50 | [#8959](https://github.com/openova-io/openova/pull/8959) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:46 | [#8958](https://github.com/openova-io/openova/pull/8958) | #8956 | fix(trivy): vulnerability scanning produces reports in every |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T00:40 | [#8930](https://github.com/openova-io/openova/pull/8930) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:49 | [#8929](https://github.com/openova-io/openova/pull/8929) | #8928 | fix(acceptance): CLD-G07 reads the provider packs in the reg |
 | 2026-11-27T00:20 | [#8927](https://github.com/openova-io/openova/pull/8927) | #7087 | docs(ledger): plan update |
-| 2026-11-27T00:38 | [#8926](https://github.com/openova-io/openova/pull/8926) | #8925 | fix(trivy): the trivy operator stays within its memory in ev |
 
 ---
 
