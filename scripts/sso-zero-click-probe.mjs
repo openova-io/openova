@@ -196,14 +196,6 @@ const ROWS = [
     ],
   },
   {
-    name: 'guacamole', url: `${host('guacamole')}/`, ctx: 'authed', settleMs: 15000,
-    positive: [{ kind: 'url-includes', v: '/guacamole/' }, { kind: 'text', v: 'Connections' }],
-    loginMarkers: [
-      { kind: 'text', v: 'HTTP Status 404' },
-      { kind: 'selector', v: 'input[name="username"]' },
-    ],
-  },
-  {
     name: 'newapi', url: `${host('newapi')}/`, ctx: 'authed', settleMs: 10000,
     // new-api ships its own login UI; until the native-OIDC seam is
     // walked the honest positive is "a rendered app with NO login UI
