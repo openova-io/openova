@@ -8716,7 +8716,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-174, CTL-045, CTL-150]
-  after: [FND-011, FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, CMP-042, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, CMP-042, CMP-095, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/nodepool.yaml
   - platform/crossplane-claims/chart/values.yaml
@@ -16760,7 +16760,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-133, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, FND-208, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-212, SEC-216, SEC-261, SEC-344, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, NET-223, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-106, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-133, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, FND-208, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-212, SEC-216, SEC-261, SEC-344, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, NET-223, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, CMP-095, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-106, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -16792,7 +16792,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-058, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, CMP-095]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -16850,7 +16850,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-273, CMP-066]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041]
+  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100, CMP-041, CMP-095]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
@@ -20396,7 +20396,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [NET-254, NET-255, NET-256]
-  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-075, CMP-079]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-075, CMP-079, CMP-095]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/webapplicationfirewall.yaml
   - platform/crossplane-claims/chart/templates/policies/waf-admission.yaml
@@ -20428,7 +20428,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [NET-257]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-040, SVC-041, SVC-100, CMP-095]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/webapplicationfirewall.yaml
   - platform/crossplane-claims/chart/tests/**
@@ -29111,27 +29111,35 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [CMP-066, FND-011, CLD-023, SVC-040, SVC-041, SVC-100, CMP-041]
+  after: [CMP-066, FND-011]
   touches:
   - platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
   - platform/crossplane-claims/chart/values.yaml
-  - platform/crossplane-claims/chart/tests/**
+  - platform/crossplane-claims/chart/tests/composition-validate.sh
+  - platform/crossplane-claims/chart/tests/fixtures/useraccess-boundary-fail-sample-cross-org.yaml
   - platform/kyverno-policies/chart/tests/useraccess-boundary/**
-  - platform/kyverno-policies/chart/model/checks.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x -F '    resources: [sample-acme-developer-wp, sample-cross-org-wp-grant, sample-first-org-scope-decides]' platform/kyverno-policies/chart/tests/useraccess-boundary/owner/kyverno-test.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && mkdir -p \"$d/platform/crossplane-claims\" \"$d/platform/kube-access-lib\" && cp -R platform/crossplane-claims/chart \"$d/platform/crossplane-claims/\" && cp -R platform/kube-access-lib/chart \"$d/platform/kube-access-lib/\" && c=\"$d/platform/crossplane-claims/chart\" && (cd \"$c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency build > /dev/null) && helm template \"$c\" --show-only templates/policies/userAccess-boundary.yaml > \"$d/render.yaml\" && grep -v '^# Source:' \"$d/render.yaml\" | sed '1{/^---$/d}' > \"$d/policy.yaml\" && p=platform/kyverno-policies/chart/tests/useraccess-boundary/policy.yaml && cmp \"$d/policy.yaml\" \"$p\" && test \"$(grep -c -x -F '            any:' \"$p\")\" = 1 && test \"$(grep -c -x -F \"              - key: '{{ request.userInfo.extra.\\\"org\\\" | [0] || ''__none__'' }}'\" \"$p\")\" = 1 && test \"$(grep -c -x -F '                  - \"openova-internal\"' \"$p\")\" = 1 && test \"$(grep -c -x -F '                  - \"owner\"' \"$p\")\" = 1"
+  - id: A2
+    run: "s=platform/kyverno-policies/chart/tests/useraccess-boundary && test \"$(grep -c -x -F '    resources: [sample-acme-developer-wp]' \"$s/owner/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    resources: [sample-cross-org-wp-grant, sample-first-org-scope-decides]' \"$s/owner/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    result: fail' \"$s/owner/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    org: [openova-internal]' \"$s/management-owner/user-info.yaml\")\" = 1 && test \"$(grep -c -x -F '    tier: [owner]' \"$s/management-owner/user-info.yaml\")\" = 1 && test \"$(grep -c -x -F '    result: pass' \"$s/management-owner/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    result: fail' \"$s/management-owner/kyverno-test.yaml\")\" = 0 && test \"$(grep -c -x -F '    org: [openova-internal]' \"$s/management-developer/user-info.yaml\")\" = 1 && test \"$(grep -c -x -F '    tier: [developer]' \"$s/management-developer/user-info.yaml\")\" = 1 && test \"$(grep -c -x -F '    result: pass' \"$s/management-developer/kyverno-test.yaml\")\" = 0 && test \"$(grep -c -x -F '    result: fail' \"$s/management-developer/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    resources: [sample-acme-developer-wp, sample-cross-org-wp-grant, sample-first-org-scope-decides]' \"$s/management-owner/kyverno-test.yaml\")\" = 1 && test \"$(grep -c -x -F '    resources: [sample-acme-developer-wp, sample-cross-org-wp-grant, sample-first-org-scope-decides]' \"$s/management-developer/kyverno-test.yaml\")\" = 1"
+  - id: A3
+    run: "d=\"$(mktemp -d)\" && mkdir -p \"$d/platform/crossplane-claims\" \"$d/platform/kube-access-lib\" && cp -R platform/crossplane-claims/chart \"$d/platform/crossplane-claims/\" && cp -R platform/kube-access-lib/chart \"$d/platform/kube-access-lib/\" && c=\"$d/platform/crossplane-claims/chart\" && (cd \"$c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency build > /dev/null) && helm template \"$c\" --show-only templates/policies/userAccess-boundary.yaml > /dev/null && ! helm template \"$c\" --set-json 'userAccessBoundary.managementOrgs=[]' > \"$d/orgs.yaml\" 2> \"$d/orgs.err\" && test \"$(grep -c -F 'userAccessBoundary.managementOrgs is empty' \"$d/orgs.err\")\" = 1 && ! helm template \"$c\" --set-json 'userAccessBoundary.allowedCrossOrgTiers=[]' > \"$d/tiers.yaml\" 2> \"$d/tiers.err\" && test \"$(grep -c -F 'userAccessBoundary.allowedCrossOrgTiers is empty' \"$d/tiers.err\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The access policy useraccess-boundary refuses a grant into another Organization unless the requester belongs to the management Organization. The package first confirms from the policy and its suite that the deny conditions test the requester's tier and never the requester's Organization; the suite gains a requester of the management Organization, and the cross-Organization verdict of a customer owner becomes fail.
+  delivers: The access policy useraccess-boundary refuses a grant into another Organization unless the requester belongs to a management Organization of the new list managementOrgs and holds a tier of allowedCrossOrgTiers, an empty list of either fails the render, and its suite in the policy chart, a byte copy of that render, holds an owner of a customer Organization refused across Organizations and admitted inside its own, an owner of the management Organization admitted and a developer of it refused.
 - id: CMP-098
   title: Sensor to the current line
   area: CMP
@@ -35271,7 +35279,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CLD-175, INF-220]
-  after: [CLD-075, FND-011, CLD-092, SVC-040, SVC-041]
+  after: [CLD-075, FND-011, CLD-092, SVC-040, SVC-041, CMP-095]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/virtualmachine.yaml
   - platform/crossplane-claims/chart/values.yaml
