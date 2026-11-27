@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T22:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T22:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T22:11 | [#9084](https://github.com/openova-io/openova/pull/9084) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
 | 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
-| 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
 
 ---
 
