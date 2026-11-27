@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T18:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T18:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8667](https://github.com/openova-io/openova/issues/8667) | FND-183 Scheduled backups of the platform databases | Other |
-| [#8674](https://github.com/openova-io/openova/issues/8674) | CMP-032 The aggregator uses the package: subjects, one judge, seven results; dup | Other |
 | [#8684](https://github.com/openova-io/openova/issues/8684) | FND-192 Remove the second matcher from the console | Other |
 | [#8688](https://github.com/openova-io/openova/issues/8688) | FND-162 Console regression: applications grid, application detail, catalogue | Other |
 | [#8690](https://github.com/openova-io/openova/issues/8690) | FND-201 Spike: what the telemetry pipeline delivers today, and which collector s | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#9047](https://github.com/openova-io/openova/issues/9047) | CMP-087 Gate check CMP-G06 after the move of the access policy | Other |
 | [#9049](https://github.com/openova-io/openova/issues/9049) | FND-134 A conformance run runs the pull request's own catalyst-api image | Other |
 | [#9053](https://github.com/openova-io/openova/issues/9053) | NET-331 Port 80 answers the console host | Other |
+| [#9057](https://github.com/openova-io/openova/issues/9057) | CLD-068 A cloud adoption Workspace recovers after a plan that timed out | Other |
+| [#9058](https://github.com/openova-io/openova/issues/9058) | SEC-163 The secrets store's Jobs | Other |
 
 ---
 
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-27T18:12 | [#9054](https://github.com/openova-io/openova/pull/9054) | #7087 | docs(ledger): plan update |
+| 2026-11-27T18:17 | [#9052](https://github.com/openova-io/openova/pull/9052) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:09 | [#9051](https://github.com/openova-io/openova/pull/9051) | #9049 | fix(conformance): a conformance run builds and runs the cata |
 | 2026-11-27T17:45 | [#9050](https://github.com/openova-io/openova/pull/9050) | #9021 | test(gate): check CMP-G06 after the move of the access polic |
 | 2026-11-27T17:18 | [#9048](https://github.com/openova-io/openova/pull/9048) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
-| 2026-11-27T18:04 | [#9011](https://github.com/openova-io/openova/pull/9011) | #9010 | feat(auth): the auth service reads its refresh-token signing |
 
 ---
 
