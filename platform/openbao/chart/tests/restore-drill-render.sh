@@ -6,8 +6,9 @@
 # store, the bucket, the scratch store and the Kubernetes API. When the
 # canary is written the stand-in puts this region's next snapshot into the
 # bucket, as the backup does; an older snapshot, another region's and a
-# foreign name are there from the start. Six cases, one line "  PASS  <case>"
+# foreign name are there from the start. Seven cases, one line "  PASS  <case>"
 # each. On origin/main before SEC-181 there is no drill: every case fails.
+# Before SEC-163 case 7 fails: the scratch store has no writable /tmp.
 # Usage: bash tests/restore-drill-render.sh [CHART_DIR]
 set -uo pipefail
 
@@ -173,6 +174,24 @@ bw="$(rec bad written)"; br="$(rec bad read)"
 rec bad error | grep -q 'is not the one written' || c6="$c6 record-error"
 grep -q -x 'revoke token=admin' "$TMP/bad/log" || c6="$c6 revoke"
 if [ -z "$c6" ]; then pass "the drill fails when the canary read back differs from the value written"; else fail "case 6" "$c6"; sed 's/^/        /' "$TMP/bad/out" "$TMP/bad/log"; fi
+
+# ── 7 ────────────────────────────────────────────────────────────────────
+# SEC-163. The scratch store writes its raft storage (path of scratch.hcl) and,
+# while it restores, the snapshot to os.CreateTemp("", "snapshot") (OpenBao
+# 2.7.2, internal/physical/raft/snapshot/snapshot.go): $TMPDIR of the container,
+# else /tmp. Its root file system is read-only, so each must be a writable
+# emptyDir mount. On the Sovereign, 27 Nov 2026, both regions: "failed to create
+# temp snapshot file: open /tmp/snapshot...: read-only file system".
+c7=""
+[ "$(on "$SC | .securityContext.readOnlyRootFilesystem")" = true ] || c7="$c7 root-fs-writable"
+raft="$(sed -n 's/^ *path *= *"\([^"]*\)"$/\1/p' <<<"$hcl")"
+tmpdir="$(on "$SC | .env[] | select(.name == \"TMPDIR\") | .value")"
+[ "$(grep -c . <<<"$raft")" = 1 ] || c7="$c7 raft-path=[$raft]"
+for dir in "$raft" "${tmpdir:-/tmp}"; do
+  vol="$(on "$SC | .volumeMounts[] | select(.mountPath == \"$dir\" and .readOnly != true) | .name")"
+  [ "$(grep -c . <<<"$vol")" = 1 ] && [ "$(on "$POD | .volumes[] | select(.name == \"$vol\") | has(\"emptyDir\")")" = true ] || c7="$c7 not-writable=$dir"
+done
+if [ -z "$c7" ]; then pass "the scratch store can write its raft storage and its snapshot's temporary file"; else fail "case 7" "$c7"; fi
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao restore drill"; exit 1; fi
 echo "PASS: bp-openbao restore drill — a canary written before the snapshot is read back from a scratch restore with a 15-minute token of the configuration identity"

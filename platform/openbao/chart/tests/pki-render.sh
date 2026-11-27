@@ -25,7 +25,8 @@
 #       account openbao-pki-bootstrap (the one role pki-bootstrap binds), a
 #       token for audience openbao, the OpenBao server image, the domain and
 #       region of the fixture; another domain gives another name, the same
-#       inputs the same name.
+#       inputs the same name; it is deleted as soon as it finishes
+#       (ttlSecondsAfterFinished 0) and is no Helm hook (SEC-163).
 #   P5  the Job's script, run against a stand-in for the bao command: on an
 #       empty store it makes the root, then the intermediate, signs it with
 #       the root and sets exactly the signed certificate; a second run writes
@@ -279,6 +280,11 @@ done
 other="$(helm template openbao "$chart_dir" --namespace openbao -f "$d/values.yaml" --set pki.domain=other.example.test | yq ea -N 'select(.kind == "Job") | .metadata.name')"
 again="$(helm template openbao "$chart_dir" --namespace openbao -f "$d/values.yaml" | yq ea -N 'select(.kind == "Job") | .metadata.name')"
 [ "$other" != "$name" ] && [ "$again" = "$name" ] && pass "another domain renames the Job, the same inputs keep its name" || fail "names: $name, again $again, other domain $other"
+# SEC-163: gate check SEC-G03 admits no Job in namespace openbao but those of the
+# two CronJobs; on the Sovereign the finished Job stayed (no time to live, no hook).
+ttl="$(yq '.spec.ttlSecondsAfterFinished' "$d/job.yaml")"; hook="$(yq '.metadata.annotations["helm.sh/hook"]' "$d/job.yaml")"
+[ "$ttl" = 0 ] && [ "$hook" = null ] && pass "the Job is deleted as soon as it finishes and stays in the release (ttlSecondsAfterFinished $ttl, no hook)" \
+  || fail "ttlSecondsAfterFinished is $ttl and helm.sh/hook is $hook, want 0 and none"
 
 echo "[bp-openbao] P5: the Job's script against a stand-in for bao"
 yq ea -N 'select(.kind == "ConfigMap" and .metadata.name == "openbao-pki-bootstrap-script") | .data["bootstrap.sh"]' "$d/render.yaml" > "$tmp/bootstrap.sh"
