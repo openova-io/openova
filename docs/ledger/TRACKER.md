@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T17:00:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-27T17:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
 | [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
 | [#8667](https://github.com/openova-io/openova/issues/8667) | FND-183 Scheduled backups of the platform databases | Other |
 | [#8674](https://github.com/openova-io/openova/issues/8674) | CMP-032 The aggregator uses the package: subjects, one judge, seven results; dup | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9040](https://github.com/openova-io/openova/issues/9040) | AIP-115 No Organization can take the slug axon | Other |
 | [#9043](https://github.com/openova-io/openova/issues/9043) | SEC-218 Every kit slot whose chart renders a SecretProviderClass depends on bp-s | Other |
 | [#9047](https://github.com/openova-io/openova/issues/9047) | CMP-087 Gate check CMP-G06 after the move of the access policy | Other |
+| [#9049](https://github.com/openova-io/openova/issues/9049) | FND-134 A conformance run runs the pull request's own catalyst-api image | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
 | 2026-11-27T16:47 | [#9044](https://github.com/openova-io/openova/pull/9044) | #7087 | docs(ledger): plan update |
 | 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
 | 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T11:46 | [#9001](https://github.com/openova-io/openova/pull/9001) | #8858 | The access controller's image is not served by the Sovereign |
 | 2026-11-27T11:22 | [#9000](https://github.com/openova-io/openova/pull/9000) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:37 | [#8998](https://github.com/openova-io/openova/pull/8998) | #8894 | The disk driver's node registrar is killed by a probe it can |
-| 2026-11-27T11:06 | [#8996](https://github.com/openova-io/openova/pull/8996) | #7087 | docs(ledger): plan update |
 
 ---
 
