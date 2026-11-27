@@ -16,6 +16,10 @@ func loop(kind string) string {
 	return "loop: a " + kind + " loop whose body holds no `|| exit 1` has the status of its last pass, not of its first failing one"
 }
 
+func subst(cmd string) string {
+	return "substitution: " + cmd + ", a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it"
+}
+
 // TestJudge holds each rule to commands that break it and to the forms that keep it.
 func TestJudge(t *testing.T) {
 	for _, c := range []struct{ cmd, want string }{
@@ -36,9 +40,23 @@ func TestJudge(t *testing.T) {
 		{`./x.sh --self-test | tail -1`, pipe("./x.sh")},
 		{`helm template x c | grep -q kind`, pipe("helm")},
 		{`out="$(go test ./... | tail -5)" && test -n "$out"`, pipe("go")},
-		{`test "$(NO_COLOR=1 go test -v ./... | grep -c '^--- PASS: ')" = 3`, ""},
+		{`test "$(NO_COLOR=1 go test -v ./... | grep -c '^--- PASS: ')" = 3`, subst("go")},
+		{`test "$(bash scripts/check-kyverno-legacy-policies.sh | grep -c -x 'legacy_policy_objects=26')" = 1`, subst("bash")}, // CMP-064 A1
+		{`set -o pipefail; test "$("$d/x" | grep -c y)" = 1`, subst("$d/x")},
+		{`set -o pipefail; n="$(bash x.sh | grep -c -x y)" && test "$n" = 1`, ""},
+		{`n="$(bash x.sh | grep -c -x y)" && test "$n" = 1`, pipe("bash")},
+		{`test "$(grep -c x f)" = 1 && test "$(git ls-files | wc -l)" = 0 && test "$(jq -r .a f)" = b`, ""},
+		{`for f in $(go run .); do test -e "$f" || exit 1; done`, subst("go")},
+		{`export n="$(go run .)" && cat "$(helm template x c)" > "$(bash y.sh)"`, subst("go") + "\n" + subst("helm") + "\n" + subst("bash")},
+		{`a="$(go test)" b="$(echo x)" && c="$(go vet)$(echo y)" && d="$(helm lint)" bash z.sh`, subst("go") + "\n" + subst("go") + "\n" + subst("helm")},
+		{`test "$(go test ./...)$(echo)" = ok`, subst("go")}, // two in one word: the first is judged at the word, past the second
+		{`a="$(go test)$(echo)" bash x.sh`, subst("go")},
+		{`test "$(go test)$(bash x.sh)" = ok`, subst("go") + "\n" + subst("bash")},
+		{`a="$(go test)" > f && b="$(go vet)" c=1 && test -n "$a$b"`, ""},
+		{`test "$(echo "$(cd a && go test)")" = ok && (test "$(bash x.sh)" = ok)`, subst("go") + "\n" + subst("bash")},
+		{`out="$(test "$(go test)" = 1 && echo y)" && test "$out" = y`, subst("go")},
 		{`diff <(go run . | sort) want.txt`, ""},
-		{`grep -q x <<<"$(go test ./... | tail -1)"`, ""},
+		{`grep -q x <<<"$(go test ./... | tail -1)"`, subst("go")},
 		{`go test ./... || exit 1`, ""},
 		{`go test ./... |& tail`, pipe("go")},
 		{`grep -E 'a|b' f && grep a\|b f && test "$x" = "a|b"`, ""},
@@ -69,7 +87,7 @@ func TestJudge(t *testing.T) {
 		{`while go test || exit 1; do sleep 1; done`, loop("while")}, // in the condition, not the body
 		{`for f in a; do for g in b; do go test "$g"; done || exit 1; done`, loop("for")},
 		{`out="$(for f in a; do go test "$f"; done)" && test -n "$out"`, loop("for")},
-		{`test "$(for f in a; do echo "$f"; done)" = a`, ""}, // an argument: its status is lost either way
+		{`test "$(for f in a; do echo "$f"; done)" = a`, ""}, // an argument that runs no tested command
 		{`for f in a; do go test "$f" || { echo "$f failed"; exit 1; }; done`, ""},
 		{"for f in a; do go test \"$f\" ||\n  exit 1\ndone", ""},
 		{`for f in a; do if test -e "$f"; then bash "$f" || exit 1; fi; done`, ""},
@@ -115,7 +133,7 @@ func TestRun(t *testing.T) {
 	put(done+"/AAA-004.yaml", marker("AAA-005", "1", "v1")) // another id
 	put(tickets+"/AAA-005.md", ticket("1", item("A1", "test -e a")))
 	put(tickets+"/AAA-006.md", ticket("1", "None.\n"))
-	put(tickets+"/AAA-007.md", ticket("1", "**A1.** No block.\n\n"+item("A2", "go test | tail")+item("A3", "")+item("A4", `for f in a; do test -e "$f"; done`)))
+	put(tickets+"/AAA-007.md", ticket("1", "**A1.** No block.\n\n"+item("A2", "go test | tail")+item("A3", "")+item("A4", `for f in a; do test -e "$f"; done`)+item("A5", `test "$(go test | grep -c ok)" = 1`)))
 	var out, errw bytes.Buffer
 	code := run([]string{"-root", root}, &out, &errw)
 	want := []string{
@@ -127,7 +145,8 @@ func TestRun(t *testing.T) {
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A2 " + pipe("go"),
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A3 unreadable: it holds no command",
 		"FAIL docs/ledger/plan/tickets/AAA-007.md A4 " + loop("for"),
-		"acceptance-exit: 8 finding(s) in the 6 tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`.",
+		"FAIL docs/ledger/plan/tickets/AAA-007.md A5 " + subst("go"),
+		"acceptance-exit: 9 finding(s) in the 6 tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`; a substitution that runs one is assigned.",
 	}
 	if code != 1 || out.String() != strings.Join(want, "\n")+"\n" {
 		t.Fatalf("exit %d, output\n%s\nwant exit 1 and\n%s", code, out.String(), strings.Join(want, "\n"))
@@ -136,7 +155,7 @@ func TestRun(t *testing.T) {
 		put(tickets+"/"+id+".md", ticket("3", item("A1", "set -o pipefail; for f in a; do go test \"$f\" || exit 1; done | tail")))
 	}
 	out.Reset()
-	if code := run([]string{"-root", root}, &out, &errw); code != 0 || out.String() != "acceptance-exit: the acceptance commands of the 6 tickets not merged (of 7) lose the status of no piped tested command and of no loop pass\n" {
+	if code := run([]string{"-root", root}, &out, &errw); code != 0 || out.String() != "acceptance-exit: the acceptance commands of the 6 tickets not merged (of 7) lose the status of no piped tested command, of no loop pass and of no substitution\n" {
 		t.Fatalf("exit %d, output %q; want exit 0 with 6 of 7 judged", code, out.String())
 	}
 	errw.Reset()

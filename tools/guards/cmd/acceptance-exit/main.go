@@ -1,6 +1,7 @@
 // Command acceptance-exit keeps an acceptance command from exiting 0 while a
 // tested command in it failed: a tested command is piped only after
-// set -o pipefail, and a loop stops at its first failing pass.
+// set -o pipefail, a loop stops at its first failing pass, and a command
+// substitution that runs one is assigned.
 //
 // An acceptance command is the sh block of an item A1, A2, ... of field 18 of
 // a ticket, docs/ledger/plan/tickets/<ID>.md; it passes when it exits 0. The
@@ -14,6 +15,11 @@
 //	            (or `|| { ...; exit 1; }`) in the shell of the loop: a loop
 //	            has the status of its last pass (CTL-232 A4 tested three
 //	            files in a for loop); an exit inside a subshell leaves only it
+//	substitution
+//	            a command substitution that runs a tested command and is not
+//	            assigned: its status is lost with or without pipefail (CMP-064
+//	            A1 read bash through test "$(...)" = 1); only the last
+//	            substitution of a command of assignments alone (n="$(...)") keeps it
 //	unreadable  a command it cannot read (an unclosed quote, an unbalanced
 //	            parenthesis or keyword, a backtick, a case statement, a
 //	            here-document), an empty command and a field 18 without items: never a pass
@@ -22,10 +28,9 @@
 // printf, grep, sed and git, builtins such as cd): a test runner, a build, an
 // interpreter, a script, a program named by a path or a variable, and a
 // subshell, group or loop that runs one. A pipe or a loop inside a command
-// substitution is judged only when a variable is assigned the substitution
-// (out="$(go test | tail)"), whose status the assignment has; as the argument
-// of a command (test "$(...)" = 3) or as a process substitution its status is
-// lost with or without pipefail.
+// substitution is judged only when the substitution keeps its status
+// (out="$(go test | tail)"); one that loses it is judged as a whole. A process
+// substitution (diff <(...) f) and the words of [[ ]] are not judged.
 //
 // A merged ticket keeps its text and is not judged: its done marker
 // docs/ledger/plan/done/<ID>.yaml is the three lines the finish step writes,
@@ -132,10 +137,10 @@ func run(args []string, out, errw io.Writer) int {
 		}
 	}
 	if findings > 0 {
-		say(out, "acceptance-exit: %d finding(s) in the %d tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`.\n", findings, judged)
+		say(out, "acceptance-exit: %d finding(s) in the %d tickets not merged. A tested command is piped only after `set -o pipefail`; a loop body holds `|| exit 1`; a substitution that runs one is assigned.\n", findings, judged)
 		return 1
 	}
-	say(out, "acceptance-exit: the acceptance commands of the %d tickets not merged (of %d) lose the status of no piped tested command and of no loop pass\n", judged, len(files))
+	say(out, "acceptance-exit: the acceptance commands of the %d tickets not merged (of %d) lose the status of no piped tested command, of no loop pass and of no substitution\n", judged, len(files))
 	return 0
 }
 
@@ -354,7 +359,10 @@ type frame struct {
 	exits, orElse    bool     // a loop: its body holds || exit 1; a group: it follows ||
 	pipefail         bool     // the top: set -o pipefail was read
 	stage, any       string   // the first tested command of the current pipeline stage, and of this frame
-	pipes            []string // a substitution: its pipe findings, which count only if a variable is assigned it
+	sub              string   // the first tested command in this frame, at any depth; read of a command substitution
+	pipes            []string // a substitution: its pipe findings, which count only if it keeps its status
+	held             *frame   // a substitution: the held substitution of the command around it
+	pending          []*frame // a substitution: the substitutions read before it in its word, judged at that word
 }
 
 func (f *frame) loop() bool { return f.kind == "for" || f.kind == "while" || f.kind == "until" }
@@ -365,7 +373,9 @@ func judge(command string) []string {
 	l.list(false) // on an error the tokens before it are judged, and a keyword this guard does not read is named first
 	stack := []*frame{{kind: "top"}}
 	cmd, redir, wrap, skip, bad := true, false, false, false, ""
-	var out, pending []string
+	var out []string
+	var pending []*frame // the command substitutions of the word being read, judged at that word
+	var held *frame      // the last substitution of an assignment of this command: its status if no command word follows
 	report := func(msgs ...string) {
 		for k := len(stack) - 1; k > 0; k-- {
 			if s := stack[k]; s.kind == "$(" || s.kind == "<(" {
@@ -375,12 +385,27 @@ func judge(command string) []string {
 		}
 		out = append(out, msgs...)
 	}
+	lose := func(subs ...*frame) { // the pipe and loop findings of a lost substitution fall with it
+		for _, s := range subs {
+			if s != nil && s.sub != "" {
+				report(fmt.Sprintf("substitution: %s, a tested command, runs in a command substitution whose status is lost with or without `set -o pipefail`; only the last substitution of a command of assignments alone keeps it", s.sub))
+			}
+		}
+	}
+	keep := func() { // the command ends: its held substitution has its status
+		if held != nil {
+			report(held.pipes...)
+		}
+		held = nil
+	}
 	pop := func() *frame {
 		f := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		if p := stack[len(stack)-1]; f.kind == "$(" || f.kind == "<(" {
-			cmd, redir, wrap = f.cmd, f.redir, f.wrap
-			pending = append(pending, f.pipes...) // a process substitution is an argument, never assigned: its findings fall
+			cmd, redir, wrap, held, pending = f.cmd, f.redir, f.wrap, f.held, f.pending
+			if f.kind == "$(" {
+				pending = append(pending, f)
+			} // a process substitution is an argument and is not judged: its findings fall
 		} else if f.any != "" {
 			p.stage, p.any = cmp.Or(p.stage, f.any), cmp.Or(p.any, f.any)
 		}
@@ -394,10 +419,16 @@ func judge(command string) []string {
 	for i := 0; i < len(l.toks) && bad == ""; i++ {
 		t, f := l.toks[i], stack[len(stack)-1]
 		kw := !t.op && !t.quoted && cmd && !skip
-		if !t.op && len(pending) > 0 {
-			if cmd && !redir && assignRe.MatchString(t.bare) {
-				report(pending...) // out="$(a | b)": the assignment has the status of the substitution
+		if !t.op { // out="$(a | b)" has the status of its substitution; test "$(a)" = 1, a=$(b) c=$(d) and a=$(b) c do not
+			assign := cmd && !redir && assignRe.MatchString(t.bare)
+			if cmd && !redir && !assign || assign && len(pending) > 0 {
+				lose(held) // a command word, or a later substitution of the assignments, has the status
+				held = nil
 			}
+			if assign && len(pending) > 0 {
+				held, pending = pending[len(pending)-1], pending[:len(pending)-1]
+			}
+			lose(pending...)
 			pending = nil
 		}
 		switch {
@@ -408,12 +439,12 @@ func judge(command string) []string {
 			if t.text == "(" && !cmd {
 				bad = "a ( that opens no subshell (a function or an array)"
 			}
-			stack = append(stack, &frame{kind: t.text, cmd: cmd, redir: redir, wrap: wrap})
-			cmd, redir, wrap = true, false, false
+			stack = append(stack, &frame{kind: t.text, cmd: cmd, redir: redir, wrap: wrap, held: held, pending: pending})
+			cmd, redir, wrap, held, pending = true, false, false, nil, nil
 		case t.op && t.text == ")":
 			if f.kind != "(" && f.kind != "$(" && f.kind != "<(" {
 				bad = "an unbalanced )"
-			} else if pop().kind == "(" {
+			} else if keep(); pop().kind == "(" {
 				cmd = false
 			}
 		case redir:
@@ -422,10 +453,12 @@ func judge(command string) []string {
 			if f.stage != "" && !stack[0].pipefail {
 				report(fmt.Sprintf("pipe: %s, a tested command, is piped with no `set -o pipefail` before it; the pipeline has the status of its last command", f.stage))
 			}
+			keep()
 			f.stage, cmd, wrap = "", true, false
 		case t.op && (t.text == ";;" || t.text == "<<"):
 			bad = map[string]string{";;": "a case statement", "<<": "a here-document"}[t.text]
 		case t.op && (t.text == "&&" || t.text == "||" || t.text == ";" || t.text == "&" || t.text == "\n"):
+			keep()
 			f.stage, cmd, wrap = "", true, false
 		case t.op:
 			redir = true
@@ -470,10 +503,14 @@ func judge(command string) []string {
 			}
 			if t.quoted || strings.ContainsAny(t.text, "$/") || !untested[t.text] {
 				f.stage, f.any = cmp.Or(f.stage, t.text), cmp.Or(f.any, t.text)
+				for _, s := range stack {
+					s.sub = cmp.Or(s.sub, t.text)
+				}
 			}
 			cmd, wrap = false, false
 		}
 	}
+	keep()
 	if bad == "" && l.err != "" {
 		bad = l.err
 	} else if bad == "" && (skip || len(stack) > 1) {
