@@ -59,6 +59,12 @@ generatedSecrets:
     sharedAcrossRegions: false
     key: document            # mounted only; default password
     placeholder: true        # mounted only; default false
+  master-key:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: chargeback
+    length: 43
+    seedFrom: {name: chargeback-master-key, key: master-key}   # mounted only
   api-key:
     delivery: synced
     registerId: <register entry>
@@ -88,6 +94,22 @@ generatedSecrets:
   exists. A later writer with update rights replaces it; the Job reads the
   path as present and never writes it again. Raising the epoch creates a new
   empty placeholder at the new path.
+- **mounted, `seedFrom`** (SEC-226) — `name` and `key` of a Secret of the
+  value's namespace that holds the value today. When the store's path is
+  absent the Job writes that key's value; only when the Secret does not exist
+  (404) a new random value of `length` and `symbols`; a value the store holds
+  is never read against the Secret or replaced. A Secret without the key, an
+  empty value, a value that is not printable ASCII and any other answer of the
+  API (a 403 too) fail the run before anything is written (exit 1), never a
+  random value. The Job reads as its ServiceAccount `secrets-birth`, with a
+  projected token of the API's audience and the cluster CA
+  (`kube-root-ca.crt`); Role `secrets-birth-seed` grants `get` on exactly the
+  Secrets its plan names (`resourceNames`) and RoleBinding
+  `secrets-birth-seed` binds it. The value passes only through pipes and the
+  Job's memory directory: never an argument, the environment or the log. A
+  plan without a seed renders none of this, and the same script. Raising the
+  epoch of a seeded value writes the Secret's value again at the new path
+  while that Secret exists: to rotate, drop `seedFrom` with the raise.
 - **synced** — Password generator and PushSecret (`IfNotExists`) into
   SecretStore `openbao` at `openova/apps/<ns>/<name>/e<epoch>`, plus
   ClusterSecretStore `vault-<peer>` per peer in the primary; ExternalSecret
@@ -156,8 +178,11 @@ an unknown field, with a name that is not a Secret name, that is a value's
 or an earlier copy's, or in another namespace; a join of an unknown or
 mounted value, of the value itself, of `password` or of one value twice; a
 joined value with its own `registerId`, `template`, `copies`, `join` or
-`mountedCopies`; and `mountedCopies` with template data whose `password` is
-not `{{ .password }}`.
+`mountedCopies`; `mountedCopies` with template data whose `password` is
+not `{{ .password }}`; and (SEC-226) `seedFrom` on a synced value (its
+PushSecret reads one source and has no fallback), a `seedFrom` that is not a
+map of `name` and `key`, a name that is not a Secret name, a key that is not
+a Secret key, and `seedFrom` on a placeholder.
 
 ## Configuration
 
@@ -181,15 +206,21 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
   them). The Job's pods carry `app.kubernetes.io/name: secrets-birth`;
   bp-openbao's peer ingress admits them on 8200 from any ClusterMesh cluster.
   A namespace whose egress is closed, and a single-region Sovereign, admit the
-  Job to OpenBao through bp-plane-isolation.
+  Job to OpenBao through bp-plane-isolation. A Job with a seed also dials the
+  Kubernetes API (`kubernetes.default.svc:443`); where egress is closed it
+  fails with exit 1 and names the Secret it could not read.
 
 ## Tests
 
 - `chart/tests/render.sh` — every template, every refused input (helm, awk);
-  R11 to R13 and F25 to F44 the template, copies and join of SEC-219.
+  R11 to R13 and F25 to F44 the template, copies and join of SEC-219; R14 and
+  F45 to F51 the seedFrom of SEC-226.
 - `chart/tests/birth-live.sh` — the birth script against two real OpenBao
   servers configured by bp-openbao's own reconciler: present in every region
   after one run, a second run changes nothing, the create-only rights, the
   failures that name a region, a named key, a placeholder that a later
   writer replaces and the Job never writes again, and a named namespace: a
-  Job of the release's namespace is refused its path, the Job there writes it.
+  Job of the release's namespace is refused its path, the Job there writes it;
+  L10 seedFrom against a Kubernetes API stand-in (a KV mount at the API's
+  path, its token's policy the rendered Role): seeded, fresh (43), already
+  present, a Secret without the key, a 403.
