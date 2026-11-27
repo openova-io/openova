@@ -271,7 +271,7 @@ epics:
 - id: SVC-240
   title: 'Epic: first capability with two implementations, object storage'
   wave: W1d
-  packages: [SVC-250, SVC-260, SVC-270, SVC-275, SVC-280, SVC-290, SVC-300]
+  packages: [SVC-250, SVC-260, SVC-261, SVC-270, SVC-275, SVC-280, SVC-290, SVC-300]
 - id: SVC-310
   title: 'Epic: PostgreSQL as a capability'
   wave: W2
@@ -5652,6 +5652,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: scripts/acceptance-gate.py judges a check that runs in the cloud on the newest valid pair of records, and a check stays green on that pair until a newer record fails it.
+- id: FND-208
+  title: The size check of a pull request measures a chart that has dependencies
+  area: FND
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: GATE
+  depends_on: []
+  after: [SEC-216, FND-059]
+  touches:
+  - scripts/check-helm-release-payload-size.py
+  - .github/workflows/check-helm-release-payload-size.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The size check of a pull request builds the dependencies of a chart that has a dependencies block and measures it, instead of leaving it to the release job (scripts/check-helm-release-payload-size.py line 289); since SEC-216 the umbrella chart (792,634 bytes on main, 75.59 % of the 1 MiB limit, the largest chart measured, against a budget of 90 %) is measured again before a merge.
 - id: FND-900
   title: Topology soak fixes (standing package)
   area: FND
@@ -16384,7 +16411,7 @@ packages:
   dropped: false
   delivers: Field allowedUnmatched set to the number of the newest gate record after the roll-out packages merged. The pull request lists every Secret still unmatched and the package that owns it.
 - id: SEC-250
-  title: PKI engine, internal issuer and mesh issuer
+  title: PKI engine, internal issuer and mesh issuer in the primary region and on a Sovereign of one region
   area: SEC
   epic: null
   type: new
@@ -16414,7 +16441,71 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: One root in the primary region, one intermediate per region, ClusterIssuer openbao-internal, role mesh and ClusterIssuer sovereign-mesh-ca. The signing request of a secondary region travels over the north-south gateway. If case B of NET-120 fails, the package is re-planned to one authority in the first region.
+  delivers: The PKI engine, the internal issuer (ClusterIssuer openbao-internal) and the mesh issuer (role mesh, ClusterIssuer sovereign-mesh-ca) run in the primary region and on a Sovereign of one region, and the role cert-manager-pki accepts the audience openbao and the issuers' audiences, so cert-manager's token is not refused. A secondary region's issuers are SEC-252's, over the path spike SEC-251 names; until then SEC-G09, which this package flips, cannot pass on two regions.
+- id: SEC-251
+  title: 'Spike: how a secondary region''s OpenBao has its intermediate signed by the primary'
+  area: SEC
+  epic: null
+  type: spike
+  wave: W1a
+  size: S
+  lane: SPIKE
+  depends_on: []
+  after: []
+  touches:
+  - docs/ledger/plan/spikes/SEC-251.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-251.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-251.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-251.md"
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 5
+    lines: 800
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A record docs/ledger/plan/spikes/SEC-251.md names the path by which a secondary region''s OpenBao has its intermediate signed by the primary, what that path needs from the provisioning, and what a renewal does; candidates measured: the regions'' existing peer path (the peer trust of the OpenBao chart over the cluster mesh) and a name per region for OpenBao. The parent carrying the signing request at provisioning is refused in advance: a renewal after the hand-over would need the parent again.'
+- id: SEC-252
+  title: A secondary region's issuers are signed by the primary
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: M
+  lane: SUBSTRATE
+  depends_on: [SEC-250, SEC-251]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-172]
+  touches:
+  - platform/openbao/chart/templates/_config.tpl
+  - platform/openbao/chart/values.yaml
+  - platform/openbao/chart/templates/pki-bootstrap-job.yaml
+  - platform/openbao/chart/tests/pki-render.sh
+  - platform/cert-manager-issuers/chart/templates/clusterissuer-openbao-internal.yaml
+  - clusters/_template/bootstrap-kit/08-openbao.yaml
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A secondary region's OpenBao has its intermediate signed by the primary over the path spike SEC-251 names, and the secondary's internal and mesh issuers are issued from it, so gate check SEC-G09 passes on a Sovereign of two regions.
 - id: SEC-261
   title: Conformance test for External Secrets against OpenBao
   area: SEC
@@ -22875,6 +22966,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The Blueprint definition and platform/_schemas/blueprint.schema.json carry spec.provides and spec.requires (a Blueprint that provides must be shareable), platform/_schemas/capability.schema.json is the contract file format, the Go command behind products/catalyst/bootstrap/api/internal/capability/write.sh writes the capability index with its own drift workflow, the package internal/capability resolves a capability to one implementation by the default rule and the Sovereign's catalogue choices, and POST /catalyst/v1/apps/instances accepts a backing element that names a required capability, writes the canonical Context entry on the provider and spec.parameters.bindings.<alias> on the consumer, while an element that names a Blueprint writes the same objects as before.
+- id: SVC-261
+  title: A request with two reuse bindings of one capability on one instance is refused before any write
+  area: SVC
+  epic: SVC-240
+  type: fix
+  wave: W1d
+  size: S
+  lane: CONTROL
+  depends_on: []
+  after: [SVC-260]
+  touches:
+  - products/catalyst/bootstrap/api/internal/instances/create.go
+  - products/catalyst/bootstrap/api/internal/capability/binding/**
+  - products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go
+  - products/catalyst/bootstrap/api/internal/handler/endpoint_backing_by_blueprint_test.go
+  - products/catalyst/bootstrap/api/internal/handler/endpoint_backing_capability_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A request with two reuse bindings of one capability on one instance is refused before any write: the whole backing list is judged before the first one is written. Today the first binding is written and committed, the second answers 409, the consumer is never created and the backing instance keeps an orphan Context.'
 - id: SVC-270
   title: In-cluster object storage and the capability probe
   area: SVC
