@@ -50,6 +50,37 @@ func listeners(t *testing.T, g Gateway) (map[string]string, []string) {
 	return byName, order
 }
 
+// writeBack writes a merged Gateway back, as the handler's
+// updateConsoleGateway does: this package returns what to write and writes
+// nothing itself.
+func writeBack(t *testing.T, g Gateway, obj *unstructured.Unstructured) {
+	t.Helper()
+	if _, err := g.Dyn.Resource(gatewayGVR).Namespace(g.Namespace).Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update Gateway: %v", err)
+	}
+}
+
+// ensure runs EnsurePassthrough and writes back every Gateway it changed.
+func ensure(t *testing.T, org *unstructured.Unstructured, slug, zone, ns string, gws []Gateway) error {
+	t.Helper()
+	changes, err := EnsurePassthrough(context.Background(), org, slug, zone, ns, gws)
+	for _, c := range changes {
+		writeBack(t, c.Gateway, c.Object)
+	}
+	return err
+}
+
+// removeOrg runs RemoveOrg, writes back the Gateway it changed and reports
+// whether it changed one.
+func removeOrg(t *testing.T, g Gateway, slug string) (bool, error) {
+	t.Helper()
+	obj, err := g.RemoveOrg(context.Background(), slug)
+	if obj != nil {
+		writeBack(t, g, obj)
+	}
+	return obj != nil, err
+}
+
 func updates(dyn *dynamicfake.FakeDynamicClient) int {
 	n := 0
 	for _, a := range dyn.Actions() {
@@ -74,21 +105,20 @@ func org(hosts any) *unstructured.Unstructured {
 // host none; a second pass and an unreadable host list write nothing.
 func TestEnsurePassthrough_NET195_WritesListedHostsOnce(t *testing.T) {
 	g, dyn := seeded(t, map[string]any{"name": "console-https", "port": int64(9443), "protocol": "HTTPS"})
-	ctx := context.Background()
-	if err := EnsurePassthrough(ctx, org([]any{"api", "console"}), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil {
+	if err := ensure(t, org([]any{"api", "console"}), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil {
 		t.Fatalf("EnsurePassthrough: %v", err)
 	}
 	got, order := listeners(t, g)
 	if got["console-tls-uatco-api"] != wantUatcoAPI || len(order) != 2 || updates(dyn) != 1 {
 		t.Fatalf("after pass 1 (%d updates): %v\n got %s\nwant %s", updates(dyn), order, got["console-tls-uatco-api"], wantUatcoAPI)
 	}
-	if err := EnsurePassthrough(ctx, org([]any{"api"}), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil || updates(dyn) != 1 {
+	if err := ensure(t, org([]any{"api"}), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil || updates(dyn) != 1 {
 		t.Errorf("pass 2 must not write: err=%v, %d updates", err, updates(dyn))
 	}
-	if err := EnsurePassthrough(ctx, org("api"), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err == nil || updates(dyn) != 1 {
+	if err := ensure(t, org("api"), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err == nil || updates(dyn) != 1 {
 		t.Errorf("an unreadable host list must be an error and write nothing: err=%v, %d updates", err, updates(dyn))
 	}
-	if err := EnsurePassthrough(ctx, org(nil), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil {
+	if err := ensure(t, org(nil), "uatco", "uatco.omani.homes", "catalyst-system", []Gateway{g}); err != nil {
 		t.Fatalf("EnsurePassthrough without hosts: %v", err)
 	}
 	if _, order := listeners(t, g); strings.Join(order, ",") != "console-https" {
@@ -105,14 +135,14 @@ func TestRemoveOrg_NET195_StripsPairAndPassthroughListeners(t *testing.T) {
 		map[string]any{"name": "console-https-gone", "protocol": "HTTPS"},
 		map[string]any{"name": "console-http-gone", "protocol": "HTTP"},
 		tls("console-tls-gone-api"), tls("console-tls-gone-x-api"))
-	removed, err := g.RemoveOrg(context.Background(), "gone")
+	removed, err := removeOrg(t, g, "gone")
 	if err != nil || !removed {
 		t.Fatalf("RemoveOrg: removed=%v err=%v", removed, err)
 	}
 	if _, order := listeners(t, g); strings.Join(order, ",") != "console-https,console-tls-gone-x-api" {
 		t.Errorf("left after RemoveOrg: %v", order)
 	}
-	if removed, err := g.RemoveOrg(context.Background(), "gone"); err != nil || removed {
+	if removed, err := removeOrg(t, g, "gone"); err != nil || removed {
 		t.Errorf("a second RemoveOrg must change nothing: removed=%v err=%v", removed, err)
 	}
 }

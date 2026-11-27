@@ -73,6 +73,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -165,7 +166,11 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 			}
 		}
 		names, _ := resolveOrgConsoleTLSNames(rec)
-		if err := orglisteners.EnsurePassthrough(ctx, &list.Items[i], names.Slug, names.OrgZone, catalystConsoleNamespace, gateways); err != nil {
+		changes, err := orglisteners.EnsurePassthrough(ctx, &list.Items[i], names.Slug, names.OrgZone, catalystConsoleNamespace, gateways)
+		for _, c := range changes {
+			err = errors.Join(err, updateConsoleGateway(ctx, c.Dyn, c.Object))
+		}
+		if err != nil {
 			h.log.Error("org-console-tls: passthrough listeners not written — reconcile will retry (NET-195)",
 				"organization", list.Items[i].GetName(), "err", err)
 		}

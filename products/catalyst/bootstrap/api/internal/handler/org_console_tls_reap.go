@@ -115,6 +115,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orglisteners"
 )
@@ -583,7 +584,11 @@ func (h *Handler) reapScanOrphans(ctx context.Context, sc *orgConsoleReapScan, l
 		if !orphan(slug) {
 			continue
 		}
-		removed, err := orglisteners.Gateway{Dyn: sc.target.dyn, Namespace: consoleGatewayNamespace, Name: consoleGatewayName}.RemoveOrg(ctx, slug)
+		gw, err := orglisteners.Gateway{Dyn: sc.target.dyn, Namespace: consoleGatewayNamespace, Name: consoleGatewayName}.RemoveOrg(ctx, slug)
+		if err == nil && gw != nil {
+			err = updateConsoleGateway(ctx, sc.target.dyn, gw)
+		}
+		removed := gw != nil
 		if err != nil {
 			h.log.Error("org-console-reap: strip orphaned console Gateway listeners failed — next tick retries",
 				"region", sc.target.region, "org", slug, "err", err)
@@ -657,6 +662,21 @@ func (h *Handler) reapScanOrphans(ctx context.Context, sc *orgConsoleReapScan, l
 		h.log.Info("org-console-reap: pass complete",
 			"region", sc.target.region, "clusterID", sc.target.clusterID, "reaped", reaped)
 	}
+}
+
+// updateConsoleGateway writes back a console Gateway whose listeners
+// internal/orglisteners merged: the reaper's removal of an orphaned Org's
+// listeners and the reconcile's passthrough listeners (NET-196). It is the
+// read-modify-write Update this file has always made — SSA cannot prune list
+// entries another field manager owns, and the funnel-door listeners were
+// written by the org-controller via Update — kept here, unchanged, so the
+// passthrough listeners add no new direct cluster write.
+func updateConsoleGateway(ctx context.Context, dyn dynamic.Interface, gw *unstructured.Unstructured) error {
+	if _, err := dyn.Resource(consoleGatewayGVR).Namespace(consoleGatewayNamespace).
+		Update(ctx, gw, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // deleteAbsentOK runs a delete and treats NotFound as success (idempotent

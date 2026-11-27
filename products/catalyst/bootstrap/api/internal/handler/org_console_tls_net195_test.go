@@ -1,7 +1,7 @@
 // org_console_tls_net195_test.go — NET-195. A host an Organization lists in
 // spec.tenantPublic.passthroughHosts gets a TLS passthrough listener on the
-// console Gateway of every region (PRD-050, outcome B), written by the CR
-// reconcile (internal/orglisteners).
+// console Gateway of every region (PRD-050, outcome B), merged by
+// internal/orglisteners and written back by the CR reconcile.
 
 package handler
 
