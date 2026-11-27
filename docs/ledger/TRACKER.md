@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T08:45:03Z` |
+| Last refreshed | `2026-11-27T09:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8578](https://github.com/openova-io/openova/issues/8578) | NET-121 A cloud-free test moves full-size packets between two workers through th | Other |
 | [#8586](https://github.com/openova-io/openova/issues/8586) | INF-057 Check INF-G01 requires every moved workload back within 180 seconds of l | Other |
 | [#8594](https://github.com/openova-io/openova/issues/8594) | NET-185 The Sovereign's name servers answer on public port 53, over UDP and TCP, | Other |
 | [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8977](https://github.com/openova-io/openova/issues/8977) | NET-223 Application controller without the tier pivot | Other |
 | [#8980](https://github.com/openova-io/openova/issues/8980) | SEC-250 PKI engine, internal issuer and mesh issuer in the primary region and on | Other |
 | [#8981](https://github.com/openova-io/openova/issues/8981) | SEC-251 Spike: how a secondary region's OpenBao has its intermediate signed by t | Other |
+| [#8983](https://github.com/openova-io/openova/issues/8983) | SEC-344 Upstream pods to injection: Grafana | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T08:57 | [#8982](https://github.com/openova-io/openova/pull/8982) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
 | 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:45 | [#8934](https://github.com/openova-io/openova/pull/8934) | #8770 | fix(k3s): the kit runs k3s v1.33.13+k3s2, whose node mirror  |
 | 2026-11-27T01:22 | [#8933](https://github.com/openova-io/openova/pull/8933) | #7087 | docs(ledger): plan update |
-| 2026-11-27T01:36 | [#8932](https://github.com/openova-io/openova/pull/8932) | #8931 | chore: Blueprint data without tiers (NET-222) |
-| 2026-11-27T00:40 | [#8930](https://github.com/openova-io/openova/pull/8930) | #7087 | docs(ledger): plan update |
 
 ---
 
