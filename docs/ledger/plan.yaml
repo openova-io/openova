@@ -243,7 +243,7 @@ epics:
 - id: SEC-240
   title: 'EPIC: roll-out, remaining charts'
   wave: W1a
-  packages: [SEC-241, SEC-243, SEC-242, SEC-244, SEC-245, SEC-247, SEC-246, SEC-248]
+  packages: [SEC-241, SEC-243, SEC-242, SEC-244, SEC-245, SEC-246, SEC-247, SEC-248]
 - id: SEC-260
   title: 'EPIC: External Secrets upgrade'
   wave: W1a
@@ -16236,23 +16236,33 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200]
-  after: [FND-011, SEC-201, SEC-217, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
-  - platform/secrets-lib/**
+  - platform/secrets-lib/README.md
+  - platform/secrets-lib/chart/templates/_generated-secrets.tpl
+  - platform/secrets-lib/chart/tests/render.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'openova.secretsExternalSecret' platform/secrets-lib/chart/templates/_generated-secrets.tpl"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && NO_COLOR=1 bash platform/secrets-lib/chart/tests/render.sh platform/secrets-lib/chart > \"$d/render.txt\" && test \"$(grep -c -E '^  PASS  (R1[123] |F(2[5-9]|3[0-9]|4[0-4]) refused: )' \"$d/render.txt\")\" = 23 && test \"$(grep -c -E '^  PASS  ' \"$d/render.txt\")\" = 58 && test \"$(grep -c -E '^  FAIL  ' \"$d/render.txt\")\" = 0"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && NO_COLOR=1 bash platform/secrets-lib/chart/tests/render.sh platform/secrets-lib/chart > \"$d/render.txt\" && test \"$(grep -c -x -E '  PASS  R11 template: the role Secret in postgres, type kubernetes\\.io/basic-auth, label cnpg\\.io/reload, keys username and password' \"$d/render.txt\")\" = 1 && test \"$(grep -c -x -E '  PASS  F33 refused: copies\\[0\\]: namespace \"external-dns\" is not the value.s namespace \"acme\"\\. A copy stays in its value.s namespace; a value read in another namespace is written through by its producer \\(SEC-225\\)' \"$d/render.txt\")\" = 1"
+  - id: A3
+    run: "f=platform/secrets-lib/README.md && test \"$(grep -c -F -e '- **synced, `template`** (SEC-219)' \"$f\")\" = 1 && test \"$(grep -c -F -e '- **synced, `copies`** (SEC-219)' \"$f\")\" = 1 && test \"$(grep -c -F -e '- **synced, `join`** (SEC-219)' \"$f\")\" = 1 && test \"$(grep -c -F -e 'R11 to R13 and F25 to F44 the template, copies and join of SEC-219.' \"$f\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A synced value of the secrets library accepts template (the target's type, labels and the keys built from the value), several of the library's values may be joined in one target Secret, each under its own key, and copies (further Secrets, by name, that carry the same value) are made inside the value's namespace; a copy that names another namespace is refused at render with a message that names SEC-225. Tests for each; nothing that uses the library today renders differently.
+  delivers: A synced value of the library secrets-lib accepts template (the target Secret's type, labels, annotations and keys built from the value), join (other synced values of the chart carried in the same Secret, each under its own key) and copies (further Secrets of the same value, by name, inside the value's namespace); a copy that names another namespace is refused at render with a message that names SEC-225; the chart test render.sh holds each input and each refusal, and the one chart that uses the library today renders byte for byte as before.
 - id: SEC-221
   title: 'Roll-out: platform/keycloak'
   area: SEC
@@ -17165,7 +17175,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-261, SOV-720, SOV-721]
-  after: [FND-011, SEC-200, SEC-201, SEC-217, SVC-040, SVC-041]
+  after: [FND-011, SEC-200, SEC-201, SEC-217, SEC-219, SVC-040, SVC-041]
   touches:
   - platform/external-secrets/chart/Chart.yaml
   - platform/external-secrets/chart/values.yaml
@@ -17500,7 +17510,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211, SEC-252]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-219, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
