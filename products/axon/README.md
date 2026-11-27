@@ -1,244 +1,120 @@
-# OpenOva Axon
+# Axon
 
-OpenAI-compatible API gateway backed by Claude. Drop-in replacement for any OpenAI SDK client.
+The simulation back end of the model plane: until a Sovereign runs its own
+models, Axon answers the model contract by running the agent kit of one
+subscription login. Blueprint `bp-axon` (chart `products/axon/chart`).
 
-**Role in Catalyst.** Axon is the OpenOva **SaaS LLM Gateway** product (a composite Application Blueprint shipped from `products/axon/`), not control plane. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where products sit in the model.
+## Role in Catalyst
 
-**Base URL:** `https://api.openova.io/axon/v1`
+Control-plane plumbing, never a user surface and never installed from the
+catalogue. Kit slot 82 and the Blueprint file (visibility `unlisted`) follow
+the chart's first release, because a slot or a catalogue pin may only name a
+published chart version. The slot installs it in every
+region of a Sovereign: one replica in the primary region, zero in every other,
+where the Service stays and reaches the primary region's Axon through the mesh.
+There is one Axon per login, because Axon is the only party that refreshes
+that login's credential.
 
----
+Its one caller is the meter of the model gateway; the gateway is the model
+plane's front door (decision record
+[`docs/adr/0030-model-plane.md`](../../docs/adr/0030-model-plane.md), M5).
 
-## Quick Start
+## Contract
 
-```bash
-curl https://api.openova.io/axon/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-sonnet-4-6",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
+Axon serves the HTTP interface of
+[`docs/contracts/model-contract.md`](../../docs/contracts/model-contract.md)
+section 1 on port 3000, for the upstream model names of `axon.modelMap`
+(`sim-default`, `sim-fast`). A name outside the map gets 404
+`model_not_found`. A caller's tools come back as tool calls and never run in
+Axon; tool results are accepted in later turns.
 
-## SDK Integration
+Port 3001 serves the admin routes:
 
-### Python
+| Route | Answer |
+|---|---|
+| `GET /healthz` | 200 while the event loop runs (liveness) |
+| `GET /health` | 200 once both listeners are up, whatever the credential state (readiness) |
+| `GET /stats` | the credential state (`absent`, `valid`, `expired`, `rejected` or `conflict`), the runs active, parked and queued, and the counters |
 
-```bash
-pip install openai
-```
+Axon has no caller keys. The chart's `CiliumNetworkPolicy` is the fence:
+port 3000 admits only pods `app.kubernetes.io/name=model-meter` of namespace
+`model-gateway`, port 3001 only `catalyst-api` of namespace `catalyst-system`,
+each from any region of the mesh (`io.cilium.k8s.policy.cluster` Exists).
+Egress is cluster DNS, OpenBao on 8200, and the two hosts of `egress.hosts`
+on 443. The Service is ClusterIP; there is no route and no node port.
 
-```python
-from openai import OpenAI
+## The credential
 
-client = OpenAI(
-    base_url="https://api.openova.io/axon/v1",
-    api_key="YOUR_API_KEY",
-)
+The credential document lives in OpenBao only, at
+`mounted/data/axon/sa/axon/model-credential/e1`, key `document`. The Secrets
+Store CSI driver mounts it as `/var/run/secrets/openova/model-credential`
+(`SecretProviderClass` `axon`, role `workload`); the chart renders no Secret
+object. Axon reads it once at start, refreshes it before it expires, and
+writes each refreshed document back with check-and-set, logging in with its
+projected token of audience `openbao` as role `axon-credential`. A child
+process receives the access token alone.
 
-response = client.chat.completions.create(
-    model="claude-sonnet-4-6",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)
-```
+On a fresh install the path holds an empty placeholder that kit slot 82 asks
+the birth Job of `platform/secrets-lib` for, so the mount succeeds, the Pod
+becomes Ready, and `/stats` reports `absent` until the real document is
+stored. Every step then answers 503 `simulation_credential_invalid`.
 
-### Node.js
+## Configuration
 
-```bash
-npm install openai
-```
+| Value | Default | Meaning |
+|---|---|---|
+| `secondary` | `false` | `true` in every region but the primary: zero replicas. Kit slot 82 sets it from `SECONDARY_HR_SUSPEND`. A boolean |
+| `image.repository`, `image.digest` | the published image | the image by digest; `axon-build.yaml` writes the digest of each image it pushes from `main` |
+| `imagePullSecrets` | `ghcr-pull` | the login the Pod pulls its image with; after the cutover the Sovereign's private project `openova-io` needs it |
+| `axon.maxActive`, `axon.maxParked` | `4`, `8` | runs generating at once, and runs waiting for tool results |
+| `axon.modelMap` | `sim-default`, `sim-fast` | upstream model name to the agent kit's model |
+| `axon.rssActiveMi`, `axon.rssParkedMi` | `223`, `243.1` | resident memory of one child process (spike AIP-020); the memory limit is 512Mi plus each times its count, rounded up (3349Mi at the defaults) |
+| `openbao.address` | `http://openbao.openbao.svc.cluster.local:8200` | OpenBao, for the mount and the write-back |
+| `egress.hosts` | the provider's API host and token host | the only hosts outside the cluster that Axon reaches |
+| `generatedSecrets` | `{}` | values for the birth Job of `secrets-lib`; kit slot 82 lists the placeholder |
 
-```typescript
-import OpenAI from "openai";
+## Operations
 
-const client = new OpenAI({
-  baseURL: "https://api.openova.io/axon/v1",
-  apiKey: "YOUR_API_KEY",
-});
+- **Storing the credential**: write the document to key `document` of its
+  OpenBao path as an identity that may update it there (bp-openbao grants that
+  to its producer `catalyst-api` and to Axon's own role). Axon reads the file
+  at start, so restart the Deployment `axon/axon` after the first store. The
+  strategy is `Recreate`: two Axons would be two refreshers of one login.
+- **State `conflict`**: another writer changed the document; Axon stopped
+  refreshing. Store a fresh document and restart Axon.
+- **Multi-region**: each region's birth Job creates its own placeholder; only
+  the primary region runs Axon. A region with zero replicas keeps the Service.
+- **Backups**: none. Axon keeps nothing but parked runs in memory; the
+  credential is in OpenBao.
 
-const response = await client.chat.completions.create({
-  model: "claude-sonnet-4-6",
-  messages: [{ role: "user", content: "Hello!" }],
-});
-console.log(response.choices[0].message.content);
-```
+## Limits of the simulation
 
-### Environment Variables
+These are limits of the back end, not defects:
 
-Works with any tool that reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`:
+1. **Sampling.** `temperature`, `top_p`, `seed`, penalties, `logit_bias` and
+   `logprobs` are accepted and ignored; `n` above 1 is refused.
+2. **Output ceiling.** `max_tokens` is not enforced by the model; a caller
+   cannot bound the cost of one answer.
+3. **Forced tool choice.** `tool_choice: required` or a named function becomes
+   an instruction; `strict` argument schemas are not guaranteed.
+4. **Token counts.** They are the upstream model's real counts, including the
+   agent kit's own overhead; prices and budgets calibrated here do not carry
+   over to the Sovereign's own models. An abandoned stream has no usage block.
+5. **Model behaviour.** The alias hides another model family than the one that
+   will be self-hosted; agent quality measured here is an upper bound.
+6. **Throughput.** Each run in flight or parked holds one child process, and
+   the login has rate limits that are not published: concurrency is a small
+   fixed number.
+7. **History after a restart.** When a parked run is lost, earlier tool calls
+   reach the model as text.
+8. **Context window, reasoning text, stop sequences.** The window is the
+   upstream model's; reasoning text is not returned; stop sequences are
+   applied by cutting the output.
 
-```bash
-export OPENAI_BASE_URL="https://api.openova.io/axon/v1"
-export OPENAI_API_KEY="YOUR_API_KEY"
-```
-
----
-
-## Models
-
-| Model ID | Alias (OpenAI) | Description |
-|----------|----------------|-------------|
-| `claude-opus-4-6` | `gpt-4` | Most capable |
-| `claude-sonnet-4-6` | `gpt-4o`, `gpt-4-turbo` | Balanced speed and quality (default) |
-| `claude-haiku-4-5` | `gpt-3.5-turbo`, `gpt-4o-mini` | Fastest |
-
-OpenAI model names are automatically mapped to their Claude equivalents.
-
-```bash
-# List available models
-curl https://api.openova.io/axon/v1/models \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
----
-
-## API Reference
-
-### `POST /v1/chat/completions`
-
-OpenAI-compatible chat completion endpoint.
-
-**Request:**
-
-```json
-{
-  "model": "claude-sonnet-4-6",
-  "messages": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "What is Kubernetes?"}
-  ],
-  "stream": false,
-  "temperature": 0.7,
-  "max_tokens": 1024
-}
-```
-
-**Response:**
-
-```json
-{
-  "id": "chatcmpl-...",
-  "object": "chat.completion",
-  "model": "claude-sonnet-4-6",
-  "choices": [{
-    "index": 0,
-    "message": {"role": "assistant", "content": "..."},
-    "finish_reason": "stop"
-  }],
-  "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-  "conversation_id": "conv-..."
-}
-```
-
-### Streaming
-
-Set `"stream": true` to receive Server-Sent Events:
+## Development
 
 ```bash
-curl -N https://api.openova.io/axon/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-sonnet-4-6",
-    "stream": true,
-    "messages": [{"role": "user", "content": "Count to 5."}]
-  }'
+cd products/axon
+npm ci && npm run build && npm test
+bash chart/tests/render.sh chart      # needs helm and yq
 ```
-
-### Conversations
-
-Every response includes a `conversation_id`. Pass it back to continue the conversation:
-
-```bash
-# Start a conversation
-CONV_ID=$(curl -s https://api.openova.io/axon/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"Remember: the answer is 42."}]}' \
-  | jq -r '.conversation_id')
-
-# Continue it
-curl https://api.openova.io/axon/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"model\":\"claude-sonnet-4-6\",\"conversation_id\":\"$CONV_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"What is the answer?\"}]}"
-```
-
-### `GET /v1/models`
-
-List available models. Requires authentication.
-
-### `GET /health`
-
-Health check. No authentication required. Returns `{"status": "ok"}`.
-
-### `GET /stats`
-
-Pool and conversation metrics. No authentication required.
-
----
-
-## Supported Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `model` | string | Model ID or OpenAI alias |
-| `messages` | array | Chat messages (`role` + `content`) |
-| `stream` | boolean | Enable SSE streaming (default: `false`) |
-| `temperature` | number | Sampling temperature |
-| `max_tokens` | number | Maximum response length |
-| `top_p` | number | Nucleus sampling |
-| `stop` | string/array | Stop sequences |
-| `conversation_id` | string | Continue an existing conversation |
-| `response_format` | object | `{"type": "json_object"}` for JSON output |
-| `stream_options` | object | `{"include_usage": true}` for usage in stream |
-
----
-
-## Authentication
-
-All `/v1/*` endpoints require a Bearer token:
-
-```
-Authorization: Bearer YOUR_API_KEY
-```
-
-Unauthenticated requests return `401`.
-
----
-
-## Architecture
-
-```mermaid
-flowchart LR
-    Client[OpenAI SDK Client] -->|HTTPS| Ingress[Traefik Ingress]
-    Ingress -->|StripPrefix /axon| Axon[Axon Gateway :3000]
-    Axon -->|Session Pool| Claude[Claude API]
-    Axon -->|Conversations| Valkey[(Valkey :6379)]
-```
-
-Axon maintains a pre-warmed pool of Claude Agent SDK sessions for low-latency responses. Conversations are stored in Valkey with a 7-day TTL.
-
----
-
-## Self-Hosting
-
-Axon ships as a Helm chart at `products/axon/chart/`. See [chart/values.yaml](chart/values.yaml) for configuration.
-
-```bash
-# Requires: Claude subscription credentials, K8s cluster with Traefik
-helm install axon ./products/axon/chart \
-  --namespace axon --create-namespace \
-  --set image.tag=latest \
-  --set ingress.host=your-domain.com
-```
-
-Required secrets:
-- `axon-secrets` — `AXON_API_KEYS` (comma-separated bearer tokens)
-- `axon-claude-auth` — `.credentials.json` from a Claude subscription
-- `ghcr-pull-secret` — Docker registry credentials for GHCR
-
----
-
-*Part of [OpenOva](https://openova.io)*

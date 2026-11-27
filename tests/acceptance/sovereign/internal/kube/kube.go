@@ -5,7 +5,7 @@
 // verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup, and
 // `cat` of catalyst-api's session signer when the console session is renewed,
 // suite/signin.go, kept in memory only), and
-// `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks CMP-G01,
+// `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks AIP-G06, CMP-G01,
 // SEC-G01, SEC-G02, SEC-G07, CTL-G04, CTL-G07, INF-G01, INF-G02, NET-G06, NET-G10 and NET-G18 only. It never patches — every other mutation of the
 // Sovereign goes through the console API the way a sovereign-admin would.
 // A run in self (suite/report.go) also applies one object, the conformance
@@ -13,8 +13,10 @@
 // SEC-G07 (suite/check_sec_scope.go) stores nothing: its `create` and `apply`
 // are server-side dry runs, its `create token` returns a token of 10 minutes
 // that is not stored, and its one `exec` in an OpenBao server pod logs in,
-// reads two paths with the output thrown away and revokes its token. Ten gate checks
-// write to a cluster. NET-G18 (suite/check_network_full_size.go) creates a namespace of its
+// reads two paths with the output thrown away and revokes its token. Eleven gate checks
+// write to a cluster. AIP-G06 (suite/check_aip_g06.go) creates one dial Pod in the
+// namespace default of the primary region with the Dialer of check_policy_dials.go,
+// runs nc in it with `exec`, and deletes it. NET-G18 (suite/check_network_full_size.go) creates a namespace of its
 // own in every region and one probe Pod on the host network of each of two workers in
 // it, runs ip, cat and wget in them with `exec`, and deletes that namespace. INF-G02 (suite/check_inf_g02.go) creates one MachineRun in
 // catalyst-infra in every region and deletes it. NET-G10 (suite/check_metadata_blocked.go) creates a namespace of

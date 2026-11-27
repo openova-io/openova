@@ -11,6 +11,7 @@ rules:
     - products/agenity/chart/Chart.yaml
     - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml
     - products/agenity/chart/values.yaml
+    - products/axon/chart/values.yaml
     - products/axon/src/credential.ts
     - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
     - scripts/check-products.py
