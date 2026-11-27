@@ -28236,7 +28236,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-091]
-  after: [FND-011, SOV-337, SVC-040, SVC-041]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
   touches:
   - platform/trivy/chart/Chart.yaml
   - platform/trivy/chart/values.yaml
@@ -28263,25 +28263,30 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SOV-151, SOV-337, SVC-040, SVC-041, SVC-220, CTL-041]
+  after: [FND-011]
   touches:
   - platform/trivy/chart/values.yaml
-  - platform/trivy/chart/tests/**
-  - clusters/_template/bootstrap-kit/30-trivy.yaml
+  - platform/trivy/chart/tests/operator-memory.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c GOMEMLIMIT platform/trivy/chart/values.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && mkdir \"$d/c\" && cp -R platform/trivy/chart/Chart.yaml platform/trivy/chart/values.yaml platform/trivy/chart/.helmignore \"$d/c/\" && (cd \"$d/c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$d/c/charts\")\" = \"trivy-operator-0.32.1.tgz\" && awk '/^  values:$/{f=1;next} f && /^    /{print substr($0,5); next} f{exit}' clusters/_template/bootstrap-kit/30-trivy.yaml > \"$d/slot30.yaml\" && test \"$(grep -c -x 'trivy-operator:' \"$d/slot30.yaml\")\" = 1 && helm template \"trivy\" \"$d/c\" --namespace=trivy-system --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/alone.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system -f \"$d/slot30.yaml\" --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/slot.yaml\" && for f in \"$d/alone.yaml\" \"$d/slot.yaml\"; do test \"$(grep -c -E '^ +- name: \"?trivy-operator\"?$' \"$f\")\" = 1 && test \"$(grep -c -E '^ +image: ' \"$f\")\" = 1 && test \"$(awk '/^ +limits:$/{l=1;next} l && /^ +memory:/{print $2; exit}' \"$f\")\" = 2Gi && test \"$(grep -c -E '^ +- name: GOMEMLIMIT$' \"$f\")\" = 1 && test \"$(awk '/^ +- name: GOMEMLIMIT$/{getline; print $2}' \"$f\")\" = 1800MiB || exit 1; done"
+  - id: A2
+    run: "bash -n platform/trivy/chart/tests/operator-memory.sh && test \"$(sha256sum platform/trivy/chart/tests/operator-memory.sh | cut -d\" \" -f1)\" = fc0d9795dd246a40c2fe6b4121aaf93615d629fb152e8025d9621b59c5137bf6"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The trivy operator is not killed for memory in any region: the package first finds from the source and the record what differs in the region whose operator restarts (the number of workloads to scan, concurrent scan jobs, the operator''s cache), then sets the limit or the concurrency so the operator stays within its memory, proved by a chart test of the rendered values; the live proof is FND-G04 on the next pair.'
+  delivers: The trivy operator's container carries the memory limit 2Gi and the Go soft limit GOMEMLIMIT=1800MiB, for the chart alone and with the values the kit passes, proved by the chart test tests/operator-memory.sh, with the scan Jobs' limits and the scan concurrency unchanged.
 - id: CMP-091
   title: Scanner kinds in the cache; vulnerabilities by workload
   area: CMP
@@ -28556,7 +28561,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011, SOV-337, SVC-040, SVC-041]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
