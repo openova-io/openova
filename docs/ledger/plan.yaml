@@ -203,7 +203,7 @@ epics:
 - id: SOV-700
   title: 'EPIC: Day-2 with the parent switched off'
   wave: W1b
-  packages: [SOV-725, SOV-726, SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-710, SOV-730]
+  packages: [SOV-725, SOV-726, SOV-750, SOV-760, SOV-761, SOV-765, SOV-720, SOV-740, SOV-710, SOV-730]
 - id: SOV-800
   title: 'EPIC: Mothership mode and the child walk'
   wave: W1b
@@ -13283,14 +13283,17 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, SOV-170, SOV-180]
-  after: [FND-014, CLD-090, CLD-103, CLD-104, CLD-105, CLD-106, CLD-115, CLD-121, SOV-030, SOV-135, SOV-181, SOV-323, SOV-338, SOV-721, SEC-150, NET-011, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-231, CTL-232, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-032, CMP-075, BSS-040, AIP-120, AIP-227, INF-054]
+  after: [CLD-121, SOV-181, NET-071, SVC-040, CTL-038, CTL-039, CTL-231, CTL-232, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, AIP-227]
   touches:
+  - docs/contracts/C9-mutating-routes.yaml
+  - docs/contracts/c5-kit-keys-settable.txt
+  - products/catalyst/bootstrap/api/cmd/api/contract/c5-kit-keys-settable.txt
+  - products/catalyst/bootstrap/api/cmd/api/kitkeys_wire.go
+  - products/catalyst/bootstrap/api/cmd/api/kitkeys_wire_test.go
+  - products/catalyst/bootstrap/api/cmd/api/routes_sovereign.go
+  - products/catalyst/bootstrap/api/cmd/api/testdata/routes.golden
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys.go
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys_test.go
-  - products/catalyst/bootstrap/api/cmd/api/**
-  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
-  - docs/contracts/c5-kit-keys-settable.txt
-  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -13304,7 +13307,43 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Route PUT /api/v1/sovereign/kit-keys/{key} with body {"value":"<string>","regions":["<region-id>"]} (regions optional, default all) commits the key to the named regions' variables.yaml through the commit library, write class git. The create request accepts an optional map kitKeys. Both accept only keys listed in docs/contracts/c5-kit-keys-settable.txt; the package that ships a key's reader adds its line there.
+  delivers: Route PUT /api/v1/sovereign/kit-keys/{key} with body {"value":"<string>","regions":["<region-id>"]} (regions optional, default all) commits the key to the named regions' variables.yaml through the commit library, write class git. It accepts only keys listed in docs/contracts/c5-kit-keys-settable.txt; the package that ships a key's reader adds its line there. The create request's field is SOV-761's.
+- id: SOV-761
+  title: Kit keys are set at provisioning
+  area: SOV
+  epic: SOV-700
+  type: new
+  wave: W1b
+  size: S
+  lane: SUBSTRATE
+  depends_on: [SOV-760]
+  after: [FND-014, CLD-070, CLD-086, CLD-090, CLD-092, CLD-103, CLD-104, CLD-105, CLD-106, CLD-115, SOV-030, SOV-132, SOV-135, SOV-323, SOV-335, SOV-338, SOV-342, SOV-721, SEC-060, SEC-150, SEC-152, SEC-154, NET-010, NET-011, NET-012, NET-100, NET-185, NET-210, SVC-040, AIP-201, INF-054]
+  touches:
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/api/internal/provisioner/kit_keys_test.go
+  - products/catalyst/bootstrap/api/cmd/api/kitkeys_wire.go
+  - products/catalyst/bootstrap/api/cmd/api/contract/c5-kit-keys-settable.txt
+  - docs/contracts/c5-kit-keys-settable.txt
+  - infra/providers/hetzner/variables.tf
+  - infra/providers/huawei/variables.tf
+  - infra/providers/local/variables.tf
+  - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - infra/providers/PROVIDER-INTERFACE.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The create request's optional map kitKeys, refused unless every key is listed in docs/contracts/c5-kit-keys-settable.txt, travels in the module input variables into variables.env.
 - id: SOV-765
   title: Ring switches by commit
   area: SOV
