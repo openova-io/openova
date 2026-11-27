@@ -15534,7 +15534,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-080, SEC-095, SEC-190]
-  after: [FND-011, SEC-180, SEC-181, SEC-192, SEC-200, SEC-250, SEC-344, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/config-desired-render.sh
@@ -15543,16 +15543,20 @@ packages:
   flips: []
   implements: []
   proven_by: SOV-420
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'define \"openbao.policy.sovereign-ops\"' platform/openbao/chart/templates/_config.tpl"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "c=platform/openbao/chart && out=\"$(bash $c/tests/config-desired-render.sh $c)\" && test \"$(grep -c -F '  PASS  C9 ' <<<\"$out\")\" = 6 && grep -q -F ', the hand-over identity sovereign-ops' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Policy and auth role sovereign-ops of section 4.6.
+  delivers: The bp-openbao configuration reconciler writes the policy sovereign-ops (create, update and read below catalyst/tofu/ and catalyst/cloud/ of the kv mount, read of the hand-over archive and read and delete of its metadata) and the Kubernetes auth role sovereign-ops, which binds service account sovereign-ops in the namespace of the first stateKey.jobIdentities entry with audience openbao and the policies sovereign-ops and tofu-state for 15 minutes, at most one hour.
 - id: SEC-197
   title: The hand-over inputs Secret
   area: SEC
@@ -16665,7 +16669,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-251, NET-184]
-  after: [SEC-250, FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SEC-344, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-172]
+  after: [SEC-250, FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-196, SEC-200, SEC-211, SEC-344, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -16975,7 +16979,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-213, SEC-231, SEC-280]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-250, SEC-344, SVC-040, SVC-041, CTL-172]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-196, SEC-250, SEC-344, SVC-040, SVC-041, CTL-172]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -17039,7 +17043,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-161, SEC-190, SEC-250]
-  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-344, SVC-040, SVC-041, CTL-172]
+  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-196, SEC-200, SEC-344, SVC-040, SVC-041, CTL-172]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -35280,7 +35284,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-132, INF-135, NET-150, SEC-190, SEC-211, SVC-275, INF-133]
-  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, SEC-180, SEC-181, SEC-200, SEC-250, SEC-344, NET-030, NET-040, CTL-041, CTL-172, CTL-346, INF-050]
+  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, SEC-180, SEC-181, SEC-196, SEC-200, SEC-250, SEC-344, NET-030, NET-040, CTL-041, CTL-172, CTL-346, INF-050]
   touches:
   - clusters/_template/bootstrap-kit/36-bp-machine-operations.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -35724,7 +35728,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [INF-160, SEC-190, SEC-310]
-  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-200, SEC-344, CTL-172]
+  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-196, SEC-200, SEC-344, CTL-172]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -35929,7 +35933,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-330, INF-455, SEC-190]
-  after: [FND-011, SOV-760, SEC-180, SEC-181, CTL-231, CTL-232, CTL-345, BSS-040, AIP-120, AIP-227, INF-140]
+  after: [FND-011, SOV-760, SEC-180, SEC-181, SEC-196, CTL-231, CTL-232, CTL-345, BSS-040, AIP-120, AIP-227, INF-140]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/operations/enrol.go
   - products/machine-runner/content/playbooks/enrol.yml
@@ -38620,7 +38624,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [ACC-030, ACC-103, SEC-190, SEC-211, SEC-250]
-  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-344, CTL-172]
+  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-196, SEC-200, SEC-344, CTL-172]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/values.yaml
@@ -39044,7 +39048,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-020, ACC-030, ACC-112, SEC-310]
-  after: [FND-011, CLD-076, SEC-080, SEC-126, SEC-180, SEC-181, SEC-200, SVC-137, CTL-815]
+  after: [FND-011, CLD-076, SEC-080, SEC-126, SEC-180, SEC-181, SEC-196, SEC-200, SVC-137, CTL-815]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go
@@ -39465,7 +39469,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-221]
-  after: [FND-011, SEC-180, SEC-181]
+  after: [FND-011, SEC-180, SEC-181, SEC-196]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - core/controllers/access/api/v1alpha1/types.go
@@ -41489,7 +41493,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-190, SEC-250]
-  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SVC-040, SVC-041]
+  after: [FND-011, SEC-080, SEC-180, SEC-181, SEC-192, SEC-196, SEC-200, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/policy-templates-render.sh
@@ -41726,7 +41730,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [PRD-510, SEC-190]
-  after: [FND-011, SEC-180, SEC-181]
+  after: [FND-011, SEC-180, SEC-181, SEC-196]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/policy-templates-render.sh
