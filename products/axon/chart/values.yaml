@@ -7,7 +7,7 @@ secondary: false
 # image it pushes from main here.
 image:
   repository: ghcr.io/openova-io/openova/axon
-  digest: sha256:33609332d6b5620203e5f1cf7888cf12b6c5357cd7a96e9be58b61cd7c6896d7
+  digest: sha256:998acf153b4c34acccd61b26b166eaf9fdb74be2867cddf9a54ba3316dc316c3
 
 # The login the Pod pulls its image with. After the cutover the node pulls it
 # from the Sovereign's own registry, project openova-io, which is private and
