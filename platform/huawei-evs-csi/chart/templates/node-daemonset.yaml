@@ -37,8 +37,16 @@ spec:
     matchLabels:
       app.kubernetes.io/name: bp-huawei-evs-csi
       app.kubernetes.io/component: node
+  # OnDelete: an upgrade changes the template and replaces NO Pod. The plugin
+  # stages each EVS volume (NodeStage, the kubelet's globalmount) in its own
+  # mount namespace, so a replaced Pod drops the globalmount of every volume
+  # attached to its node, and an EVS-backed Pod that restarts there stays
+  # ContainerCreating ("globalmount does not exist", exit 32; hw251, hw271)
+  # until the volume detaches. A node takes the new template only when its
+  # Pod is deleted after the node is drained (README "Upgrading the node
+  # plugin"); a new node gets it at once.
   updateStrategy:
-    type: RollingUpdate
+    type: OnDelete
   template:
     metadata:
       labels:
@@ -58,7 +66,14 @@ spec:
       tolerations:
         - operator: Exists
       containers:
-        - name: evs-driver-registrar
+        # Named evs-driver-registrar up to 1.0.13. Helm diffs an upgrade
+        # against the last DEPLOYED release. Where 1.0.12 failed, that is
+        # 1.0.11 (no probe), while the live container still has 1.0.12's
+        # httpGet probes: under the old name the patch kept httpGet beside
+        # exec and the API server refused it (more than 1 handler type). A
+        # new name makes the patch delete the old container whole and add
+        # this one (tests/upgrade-over-failed.sh).
+        - name: node-driver-registrar
           # #4973: honour global.imageRegistry so step-07 cutover pivot reaches
           # the sidecar too (post-cutover deny-egress blocks harbor.openova.io).
           image: "{{ include "bp-huawei-evs-csi.sidecarImage" (dict "repository" $img.sidecars.nodeDriverRegistrar.repository "tag" $img.sidecars.nodeDriverRegistrar.tag "global" .Values.global) }}"
@@ -119,7 +134,7 @@ spec:
             capabilities: { drop: [ALL] }
             seccompProfile: { type: RuntimeDefault }
         - name: liveness-probe
-          # #4973: honour global.imageRegistry (see evs-driver-registrar above).
+          # #4973: honour global.imageRegistry (see node-driver-registrar above).
           image: "{{ include "bp-huawei-evs-csi.sidecarImage" (dict "repository" $img.sidecars.livenessProbe.repository "tag" $img.sidecars.livenessProbe.tag "global" .Values.global) }}"
           imagePullPolicy: {{ $img.driver.pullPolicy | default "IfNotPresent" }}
           args:
