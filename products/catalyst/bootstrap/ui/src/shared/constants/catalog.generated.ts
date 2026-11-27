@@ -487,7 +487,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "depends": [],
     "shareable": false,
     "contextSchema": null,

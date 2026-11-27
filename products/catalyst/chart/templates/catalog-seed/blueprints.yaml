@@ -388,7 +388,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.3
+  version: 1.0.4
   card:
     title: cert-manager — Issuers
     summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
@@ -403,7 +403,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-issuers
-    version: 1.0.3
+    version: 1.0.4
   topology:
     supported: [singleton]
     defaults:
