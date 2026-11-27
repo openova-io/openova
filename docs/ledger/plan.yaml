@@ -28509,7 +28509,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-091]
-  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089, CMP-094]
   touches:
   - platform/trivy/chart/Chart.yaml
   - platform/trivy/chart/values.yaml
@@ -28667,24 +28667,30 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [CMP-089, FND-011, SOV-151, SOV-337, SVC-040, SVC-041, SVC-220, CTL-041]
+  after: [CMP-089, FND-011]
   touches:
-  - platform/trivy/chart/**
-  - clusters/_template/bootstrap-kit/30-trivy.yaml
+  - platform/trivy/chart/values.yaml
+  - platform/trivy/chart/tests/scan-job-lifecycle.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x '    scanJobTTL: 5m' platform/trivy/chart/values.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && mkdir \"$d/c\" && cp -R platform/trivy/chart/Chart.yaml platform/trivy/chart/values.yaml platform/trivy/chart/.helmignore \"$d/c/\" && (cd \"$d/c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$d/c/charts\")\" = \"trivy-operator-0.32.1.tgz\" && awk '/^  values:$/{f=1;next} f && /^    /{print substr($0,5); next} f{exit}' clusters/_template/bootstrap-kit/30-trivy.yaml > \"$d/slot30.yaml\" && test \"$(grep -c -x 'trivy-operator:' \"$d/slot30.yaml\")\" = 1 && helm template \"trivy\" \"$d/c\" --namespace=trivy-system --show-only charts/trivy-operator/templates/configmaps/trivy-operator-config.yaml > \"$d/alone.cm.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/alone.deploy.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system -f \"$d/slot30.yaml\" --show-only charts/trivy-operator/templates/configmaps/trivy-operator-config.yaml > \"$d/slot.cm.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system -f \"$d/slot30.yaml\" --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/slot.deploy.yaml\" && for v in alone slot; do test \"$(grep -c -x '  OPERATOR_SCAN_JOB_TTL: \"\"' \"$d/$v.cm.yaml\")\" = 1 && test \"$(grep -c -x '  OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT: \"2\"' \"$d/$v.cm.yaml\")\" = 1 && test \"$(grep -c -E '^ +- name: OPERATOR_EXCLUDE_NAMESPACES$' \"$d/$v.deploy.yaml\")\" = 1 && test \"$(awk '/^ +- name: OPERATOR_EXCLUDE_NAMESPACES$/{getline; sub(/^ +/, \"\"); print}' \"$d/$v.deploy.yaml\")\" = 'value: \"kube-system,kube-public,kube-node-lease\"' && test \"$(grep -c -E '^ +- name: OPERATOR_TARGET_NAMESPACES$' \"$d/$v.deploy.yaml\")\" = 1 && test \"$(awk '/^ +- name: OPERATOR_TARGET_NAMESPACES$/{getline; sub(/^ +/, \"\"); print}' \"$d/$v.deploy.yaml\")\" = 'value: \"\"' || exit 1; done"
+  - id: A2
+    run: "bash -n platform/trivy/chart/tests/scan-job-lifecycle.sh && test \"$(sha256sum platform/trivy/chart/tests/scan-job-lifecycle.sh | cut -d\" \" -f1)\" = 12fca22203f888744ddbdfb094b1c7731b6c8e99c363f244d925ee4e1ec93888"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Vulnerability scanning produces VulnerabilityReports, SbomReports and ExposedSecretReports in every region, not in one region only: the package first finds the cause from the source (region a held none of the three with 307 Pods while region b held 132, 167 and 166) and repairs it in the chart or its kit slot.'
+  delivers: The trivy chart gives scan Jobs no time-to-live, so the operator deletes each finished scan Job and a finished Job no longer holds a scan slot, and the operator's namespace scope sits at the keys the upstream chart reads, for the chart alone and with the values the kit passes, proved by the chart test tests/scan-job-lifecycle.sh.
 - id: CMP-098
   title: Sensor to the current line
   area: CMP
@@ -28861,7 +28867,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089, CMP-094]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
