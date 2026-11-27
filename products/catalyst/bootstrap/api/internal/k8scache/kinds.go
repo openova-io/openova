@@ -88,6 +88,10 @@ const (
 	KindMutatingPolicy   = "mutatingpolicy"
 )
 
+// KindComplianceModel is the registry name of the ComplianceModel kind
+// (CMP-042).
+const KindComplianceModel = "compliancemodel"
+
 // DefaultKinds is the built-in registry — every Sovereign starts with
 // these GVRs registered. Per ADR-0001 §5 these are the K8s objects the
 // Architecture graph and List pages consume.
@@ -211,6 +215,16 @@ var DefaultKinds = []Kind{
 	// starts it when the definition arrives.
 	{Name: KindValidatingPolicy, GVR: schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}, Namespaced: false, Optional: true},
 	{Name: KindMutatingPolicy, GVR: schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "mutatingpolicies"}, Namespaced: false, Optional: true},
+
+	// CMP-042 — compliance.openova.io/v1alpha1 ComplianceModel, the score
+	// model of the compliance plane: one cluster-scoped object named
+	// `default` per cluster, rendered by the policy chart. A module kind of
+	// the Blueprint bp-kyverno-policies: its definition arrives with that
+	// chart (platform/kyverno-policies/chart/crds/compliancemodel.yaml), so
+	// the kind is Optional and its informer starts when the definition does
+	// (CMP-016). The read model of internal/compliance loads each cluster's
+	// object; without it every score of the cluster is null.
+	{Name: KindComplianceModel, GVR: schema.GroupVersionResource{Group: "compliance.openova.io", Version: "v1alpha1", Resource: "compliancemodels"}, Namespaced: false, Optional: true},
 
 	// TBD-V50 (#2125) — Kubernetes Events deliberately NOT registered.
 	//

@@ -818,12 +818,13 @@ checks:
 - id: CMP-G03
   title: The model is loaded in every region and agrees with the policies
   owner: CMP
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The model is loaded in every region and agrees with the policies
+  implementation: tests/acceptance/sovereign/internal/suite/check_compliance_model.go
   delivered_by: CMP-042
 - id: CMP-G04
   title: Scores equal their recomputation

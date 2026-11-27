@@ -26,6 +26,7 @@ import (
 func scoreOfResults(t *testing.T, results map[string]string) Score {
 	t.Helper()
 	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil)
+	loadTestModel(t, c, "c", kyverno("a", "b"))
 	rows := []map[string]any{}
 	for p, r := range results {
 		rows = append(rows, map[string]any{"policy": p, "rule": p, "result": r,

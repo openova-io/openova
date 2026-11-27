@@ -2,11 +2,23 @@
 compliance-model.yaml - the one ComplianceModel object of the cluster
 (ADR-0029, CMP-041). The kind is defined by crds/compliancemodel.yaml.
 
-spec is model/model.yaml verbatim, plus `checks` (the list of
-model/checks.yaml, verbatim) and `exemptions`, which this template builds:
-for every namespace in the excludeNamespaces or extraExcludeNamespaces list
-of the values block of a check (compliancePolicies.<valuesKey>), one entry
-naming that namespace, the checks whose lists hold it (in the order of
+spec is model/model.yaml verbatim, plus `checks` and `exemptions`, which
+this template builds.
+
+`checks` is the list of model/checks.yaml, each entry verbatim and in its
+order, less every check whose policy this render does not install: a check
+whose values block compliancePolicies.<valuesKey> is a map with no true
+`enabled`. That is the one switch each policy template of this chart reads
+(it renders its policy only if compliancePolicies.<valuesKey>.enabled), so
+the model and the installed policies come from the same value: a kit that
+turns a policy off (the local pack turns forbidLocalPath off: its only
+storage class is local-path) gets a model without that check, and check
+CMP-G03 finds the two in agreement. With the chart's values every check is
+in the model.
+
+`exemptions`: for every namespace in the excludeNamespaces or
+extraExcludeNamespaces list of the values block of a check of `checks`, one
+entry naming that namespace, the checks whose lists hold it (in the order of
 checks.yaml), and the reason and owner of the namespace in
 model/exemptions.yaml.
 
@@ -19,8 +31,9 @@ has no namespace) contributes no exemption. The guard
 tools/guards/cmd/check-compliance-model holds that every check's valuesKey
 is a block of compliancePolicies that its own policy template reads.
 
-The object is release content: every installation of a release carries the
-same model, and nothing in values changes a weight.
+The data files are release content: every installation of a release carries
+the same model files, and nothing in values changes a weight. Values decide
+only which checks the object names, through the switches of the policies.
 */ -}}
 {{- $model := .Files.Get "model/model.yaml" | fromYaml -}}
 {{- $checksDoc := .Files.Get "model/checks.yaml" | fromYaml -}}
@@ -30,10 +43,17 @@ same model, and nothing in values changes a weight.
 {{- fail (printf "compliance model: %s is missing or does not parse: %v" $name (get $doc "Error")) -}}
 {{- end -}}
 {{- end -}}
-{{- $checks := get $checksDoc "checks" -}}
+{{- $allChecks := get $checksDoc "checks" -}}
 {{- $reasons := get $reasonsDoc "namespaces" -}}
-{{- if not (kindIs "slice" $checks) -}}
+{{- if not (kindIs "slice" $allChecks) -}}
 {{- fail "compliance model: model/checks.yaml has no list checks" -}}
+{{- end -}}
+{{- $checks := list -}}
+{{- range $c := $allChecks -}}
+{{- $switch := index $.Values.compliancePolicies (get $c "valuesKey" | toString) -}}
+{{- if or (not (kindIs "map" $switch)) (get $switch "enabled") -}}
+{{- $checks = append $checks $c -}}
+{{- end -}}
 {{- end -}}
 {{- if not (kindIs "map" $reasons) -}}
 {{- fail "compliance model: model/exemptions.yaml has no map namespaces" -}}

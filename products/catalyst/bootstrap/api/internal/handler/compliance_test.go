@@ -122,7 +122,35 @@ func mkSyntheticReport(policy, result, kind, ns, name string) *unstructured.Unst
 	}}
 }
 
+// newComplianceTestRig starts a compliance handler on a factory of its own. No
+// cluster has a model: a test that needs scores publishes the model of the
+// checks it reports first (CMP-042: a cluster with no model has no score).
 func newComplianceTestRig(t *testing.T) (*Handler, *ComplianceHandler, *fakeNATS, *k8scache.Factory) {
+	t.Helper()
+	f := newComplianceFactory(t)
+	nats := newFakeNATS()
+	c := NewComplianceHandler(ComplianceConfig{
+		SSEHeartbeatInterval: 100 * time.Millisecond,
+		ViolationsPageSize:   10,
+		ViolationsMaxPage:    100,
+	}, quietComplianceLogger(), f, nats)
+
+	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	h.SetComplianceHandler(c)
+	c.Start(context.Background())
+	t.Cleanup(c.Stop)
+	wctx, wcancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer wcancel()
+	if err := c.WaitReady(wctx); err != nil {
+		t.Fatalf("compliance handler not ready: %v", err)
+	}
+	return h, c, nats, f
+}
+
+// newComplianceFactory is a factory with the minimal registry of the
+// aggregator's kinds; events are injected with Publish.
+func newComplianceFactory(t *testing.T) *k8scache.Factory {
 	t.Helper()
 	cfg := k8scache.Config{
 		Logger:   quietComplianceLogger(),
@@ -149,25 +177,7 @@ func newComplianceTestRig(t *testing.T) (*Handler, *ComplianceHandler, *fakeNATS
 		t.Fatalf("NewFactory: %v", err)
 	}
 	t.Cleanup(f.Stop)
-
-	nats := newFakeNATS()
-	c := NewComplianceHandler(ComplianceConfig{
-		SSEHeartbeatInterval: 100 * time.Millisecond,
-		ViolationsPageSize:   10,
-		ViolationsMaxPage:    100,
-	}, quietComplianceLogger(), f, nats)
-
-	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
-	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
-	h.SetComplianceHandler(c)
-	c.Start(context.Background())
-	t.Cleanup(c.Stop)
-	wctx, wcancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer wcancel()
-	if err := c.WaitReady(wctx); err != nil {
-		t.Fatalf("compliance handler not ready: %v", err)
-	}
-	return h, c, nats, f
+	return f
 }
 
 // publishToFactory injects an event onto the Factory's fanout — the
@@ -198,6 +208,7 @@ func waitFor(t *testing.T, dur time.Duration, cond func() bool) {
 
 func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 	_, c, nats, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("probes-present", "flux-managed"), 1))
 
 	// First seed a Deployment so the resolver knows its labels.
 	dep := &unstructured.Unstructured{Object: map[string]any{
@@ -273,6 +284,7 @@ func TestCompliance_IngestPolicyReportAndPublish(t *testing.T) {
 
 func TestCompliance_IngestSyntheticReport(t *testing.T) {
 	_, _, nats, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(map[string]compliance.Source{"flux-managed": compliance.SourceEvaluator}, 1))
 
 	report := mkSyntheticReport("flux-managed", "fail", "Deployment", "ns1", "billing")
 	publishToFactory(f, k8scache.KindComplianceEvaluator, report)
@@ -318,6 +330,7 @@ func complianceScoreSeriesExists(id string) bool {
 // series → unbounded registry growth → catalyst-api OOM (28× on hw288).
 func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
 	_, c, nats, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("probes-present"), 1))
 
 	const key = "pod/ns1/pod-xyz" // resourceKey(Pod, ns1, pod-xyz), kind lower-cased
 
@@ -371,6 +384,7 @@ func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
 
 func TestCompliance_ScorecardEndpoint(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("probes-present", "flux-managed"), 1))
 
 	// Seed a Deployment + PolicyReport.
 	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
@@ -419,6 +433,7 @@ func TestCompliance_ScorecardEndpoint(t *testing.T) {
 
 func TestCompliance_PoliciesEndpoint(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("flux-managed"), 1))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("flux-managed", "Enforce", ""))
 	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
@@ -435,7 +450,7 @@ func TestCompliance_PoliciesEndpoint(t *testing.T) {
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}},
 	}))
 	waitFor(t, 1*time.Second, func() bool {
-		// Weight 1: every observed check weighs 1 in the fallback model.
+		// Weight 1: every check of the test model weighs 1.
 		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
 			if p.Name == "flux-managed" && p.Violations == 1 && p.Mode == "enforcing" && p.Weight == 1 {
 				return true
@@ -476,6 +491,7 @@ func TestCompliance_PoliciesEndpoint(t *testing.T) {
 
 func TestCompliance_ViolationsPagination(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("a", "b", "c"), 1))
 	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
 		"metadata": map[string]any{
@@ -522,6 +538,7 @@ func TestCompliance_ViolationsPagination(t *testing.T) {
 // its own table instead of bouncing to the sovereign-wide dashboard.
 func TestCompliance_ResourceFindings(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("disallow-privileged-containers", "require-run-as-nonroot"), 1))
 
 	// ClusterPolicy metadata so findings carry severity/category.
 	publishToFactory(f, "clusterpolicy", &unstructured.Unstructured{Object: map[string]any{
@@ -634,6 +651,7 @@ func TestCompliance_ResourceFindings(t *testing.T) {
 // dashboard green).
 func TestCompliance_SovereignAlertCount(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("alpha", "bravo", "charlie"), 1))
 
 	// Pre-violation: zero alerts.
 	if got := h.ComplianceHandler().SovereignAlertCount("acme"); got != 0 {
@@ -677,6 +695,7 @@ func TestCompliance_SovereignAlertCount_NilReceiver(t *testing.T) {
 
 func TestCompliance_StreamSendsScores(t *testing.T) {
 	h, c, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("p"), 1))
 
 	// Subscribe directly to the SSE channel without HTTP — the
 	// HTTP path is identical wiring on top.
@@ -949,6 +968,7 @@ func TestCompliance_PolicyModeOfTheNewKinds(t *testing.T) {
 // shows the mode of its engine object, and a changed object changes it.
 func TestCompliance_PoliciesModeFollowsEngineObject(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("audited"), 1))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("enforced", "Enforce", ""))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("rule-enforced", "Audit", "Enforce"))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("audited", "Audit", ""))
@@ -979,6 +999,7 @@ func TestCompliance_PoliciesModeFollowsEngineObject(t *testing.T) {
 // carries no baseline keys.
 func TestCompliance_PoliciesIgnoreBaselineParameter(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("some-custom-policy"), 1))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("disallow-privileged-containers", "Enforce", ""))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("some-custom-policy", "Audit", ""))
 	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr", []map[string]any{
@@ -1017,6 +1038,7 @@ func TestCompliance_PoliciesIgnoreBaselineParameter(t *testing.T) {
 func TestCompliance_ScorecardCarriesOnlyMeasuredData(t *testing.T) {
 	t.Setenv("CATALYST_QA_APPLICATIONS", "qa-wordpress,qa-wp")
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("probes-present"), 1))
 	publishToFactory(f, "deployment", &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
 		"metadata": map[string]any{
@@ -1066,6 +1088,7 @@ func TestCompliance_ScorecardCarriesOnlyMeasuredData(t *testing.T) {
 // violations of that policy, filtered on the server before the page.
 func TestCompliance_ViolationsPolicyFilter(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("a", "b", "c"), 1))
 	for _, p := range []string{"a", "b", "c"} {
 		publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr-"+p, []map[string]any{
 			{"policy": p, "rule": p, "result": "fail",
@@ -1100,6 +1123,7 @@ func TestCompliance_ViolationsPolicyFilter(t *testing.T) {
 // delivered, 404 for any other name. No cluster client is wired here.
 func TestCompliance_PolicyByNameFromCache(t *testing.T) {
 	h, _, _, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("require-probes"), 1))
 	publishToFactory(f, "clusterpolicy", mkClusterPolicy("require-probes", "Enforce", ""))
 	publishToFactory(f, "policyreport", mkPolicyReport("ns1", "pr", []map[string]any{
 		{"policy": "require-probes", "rule": "require-probes-rule", "result": "fail",
@@ -1162,10 +1186,11 @@ func TestCompliance_PolicyByNameFromCache(t *testing.T) {
 // TestCompliance_PolicyRoutesReadNoClusterPerRequest — the list and the
 // by-name route answer from the read model and the policy objects the
 // aggregator keeps: a policy object lists before the cluster has any
-// report, and a check takes its weight from the model (1 for every observed
-// check of the fallback model) with no read of a cluster.
+// report, and a check takes its weight from the model (1 for every check of
+// the test model) with no read of a cluster.
 func TestCompliance_PolicyRoutesReadNoClusterPerRequest(t *testing.T) {
 	c := NewComplianceHandler(ComplianceConfig{}, quietComplianceLogger(), nil, nil)
+	loadTestModel(t, c, "acme", kyverno("weighted"))
 	c.policyMetaByName["acme"] = map[string]policyMeta{"only-object": {mode: "enforce"}}
 	h := NewWithPDM(quietComplianceLogger(), &fakePDM{})
 	h.SetComplianceHandler(c)
@@ -1341,6 +1366,7 @@ func goldenScorecard(t *testing.T, h *Handler, nats *fakeNATS, f *k8scache.Facto
 // resource route of the Pod shows its Deployment.
 func TestCompliance_PodVerdictJudgedOnItsController(t *testing.T) {
 	h, _, nats, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(kyverno("disallow-latest-tag"), 1))
 	lbls := map[string]any{"catalyst.openova.io/application": "web"}
 	publishToFactory(f, "deployment", goldenObj("apps/v1", "Deployment", "ns1", "web", lbls, "", ""))
 	publishToFactory(f, "replicaset", goldenObj("apps/v1", "ReplicaSet", "ns1", "web-1", lbls, "Deployment", "web"))
@@ -1367,6 +1393,7 @@ func TestCompliance_PodVerdictJudgedOnItsController(t *testing.T) {
 // scorecard of the code before CMP-032. UPDATE_GOLDEN=1 writes the after file.
 func TestCompliance_GoldenScorecard_CMP032(t *testing.T) {
 	h, _, nats, f := newComplianceTestRig(t)
+	publishModel(f, k8scache.EventAdded, testComplianceModel(goldenChecks(), 1))
 	got := goldenScorecard(t, h, nats, f)
 	const file = "testdata/golden/cmp-032-after.json"
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
