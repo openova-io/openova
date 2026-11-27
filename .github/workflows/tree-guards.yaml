@@ -455,6 +455,13 @@ jobs:
           mkdir "$RUNNER_TEMP/kit-render"
           KIT_RENDER_DIR="$RUNNER_TEMP/kit-render" bash scripts/check-freshprov-image-registry.sh --list-images > /dev/null
           cd tools/guards && go run ./cmd/cronjob-jobs -render "$RUNNER_TEMP/kit-render"
+      # pull-credentials reads the render of the kit the step above wrote.
+      - name: 'pull-credentials | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/pull-credentials
+      - name: 'pull-credentials | Every Pod of the kit that runs a first-party image names a pull secret, itself or through its ServiceAccount'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/pull-credentials -render "$RUNNER_TEMP/kit-render"
       # edge-hosts renders the kit twice more, with the value set of each control plane of a
       # two-region install, under the same Helm; the dependency builds of the render above stay
       # in the checkout (charts/ of each chart, ignored by git), so each render only templates.

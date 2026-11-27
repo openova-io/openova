@@ -23,6 +23,10 @@ spec:
         {{- include "bp-guacamole.controllerLabels" . | nindent 8 }}
     spec:
       serviceAccountName: access-controller
+      {{- with $a.controller.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
