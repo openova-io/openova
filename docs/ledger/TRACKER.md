@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T16:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T17:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
 | [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
 | [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
 | [#8667](https://github.com/openova-io/openova/issues/8667) | FND-183 Scheduled backups of the platform databases | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9036](https://github.com/openova-io/openova/issues/9036) | SEC-196 Hand-over identity sovereign-ops | Other |
 | [#9040](https://github.com/openova-io/openova/issues/9040) | AIP-115 No Organization can take the slug axon | Other |
 | [#9043](https://github.com/openova-io/openova/issues/9043) | SEC-218 Every kit slot whose chart renders a SecretProviderClass depends on bp-s | Other |
+| [#9047](https://github.com/openova-io/openova/issues/9047) | CMP-087 Gate check CMP-G06 after the move of the access policy | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T16:47 | [#9044](https://github.com/openova-io/openova/pull/9044) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
 | 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
@@ -318,6 +320,7 @@ flowchart LR
 | 2026-11-27T14:18 | [#9027](https://github.com/openova-io/openova/pull/9027) | #7087 | docs(ledger): plan update |
 | 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:50 | [#9025](https://github.com/openova-io/openova/pull/9025) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:51 | [#9024](https://github.com/openova-io/openova/pull/9024) | #6004 | A delivery cannot repair a release that keeps failing, nor a |
 | 2026-11-27T13:31 | [#9023](https://github.com/openova-io/openova/pull/9023) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
 | 2026-11-27T16:13 | [#9020](https://github.com/openova-io/openova/pull/9020) | #9015 | feat(network): hosts an Organization lists are served by TLS |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T11:22 | [#9000](https://github.com/openova-io/openova/pull/9000) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:37 | [#8998](https://github.com/openova-io/openova/pull/8998) | #8894 | The disk driver's node registrar is killed by a probe it can |
 | 2026-11-27T11:06 | [#8996](https://github.com/openova-io/openova/pull/8996) | #7087 | docs(ledger): plan update |
-| 2026-11-27T11:16 | [#8995](https://github.com/openova-io/openova/pull/8995) | #8973 | fix(conformance): the conformance run of a pull request inst |
-| 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
-| 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
 
 ---
 
