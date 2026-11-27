@@ -37,7 +37,17 @@
 #       org-services and nothing names acme. In both the Job's namespace is
 #       the first part of every path it writes: a birth Job in one namespace
 #       is never given a path of another unless the input names it;
-#   F1-F24 every refused input fails the render with its message.
+#   R11 a template (SEC-219), the role Secret of a database operator in
+#       namespace postgres: target.template with type kubernetes.io/basic-auth,
+#       label cnpg.io/reload "true" and keys username and password, exactly;
+#   R12 copies (SEC-219): one ExternalSecret per copy, by name, in the value's
+#       namespace (a copy that names that namespace too), each of the same
+#       remote key and register id, with its own template or none;
+#   R13 join (SEC-219): one Secret carries two values, each under its own
+#       key; the joined value is born (Password, PushSecret) but renders no
+#       ExternalSecret; a copy carries both; the other region reads only;
+#   F1-F44 every refused input fails the render with its message; F33 is a
+#       copy in another namespace.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -449,7 +459,233 @@ NC="$(nslines "$TMP/r10c.yaml" || true)"
 diff -u "$TMP/r10a.want" "$TMP/r10c.got" && [ "$NC" = '8 "acme";' ] || r10="$r10 c-null-not-default($NC)"
 [ -z "$r10" ] && pass "R10 namespace input: absent or null, all 8 objects and every plan path in acme; org-services, all 8 objects, paths, keys and peer roles in org-services, nothing names acme; the Job writes only below its own namespace" || fail "R10:$r10"
 
-# ── F1-F21 ──────────────────────────────────────────────────────────────
+# ── R11 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r11.v" <<'EOF'
+namespace: postgres
+generatedSecrets:
+  shared-pg-harbor:
+    delivery: synced
+    registerId: shared-pg-role-passwords
+    epoch: 1
+    template:
+      type: kubernetes.io/basic-auth
+      labels:
+        cnpg.io/reload: "true"
+      data:
+        username: harbor
+        password: "{{ .password }}"
+EOF
+cat > "$TMP/r11.want" <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: shared-pg-harbor
+  namespace: "postgres"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "shared-pg-role-passwords"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: shared-pg-harbor
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: "kubernetes.io/basic-auth"
+      metadata:
+        labels:
+          "cnpg.io/reload": "true"
+      data:
+        "password": "{{ .password }}"
+        "username": "harbor"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/postgres/shared-pg-harbor/e1
+        property: password
+EOF
+r11=""
+r "$TMP/r11.v" "$TMP/r11.yaml" || r11="$r11 render($(tr '\n' ' ' < "$TMP/r11.yaml.err"))"
+doc "$TMP/r11.yaml" ExternalSecret shared-pg-harbor > "$TMP/r11.got"
+diff -u "$TMP/r11.want" "$TMP/r11.got" || r11="$r11 external-secret"
+K11="$(kinds "$TMP/r11.yaml" || true)"
+[ "$K11" = "ExternalSecret=1 Password=1 PushSecret=1 " ] || r11="$r11 kinds($K11)"
+[ -z "$r11" ] && pass "R11 template: the role Secret in postgres, type kubernetes.io/basic-auth, label cnpg.io/reload, keys username and password" || fail "R11:$r11"
+
+# ── R12 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r12.v" <<'EOF'
+self: hw-a
+peers: [hw-b]
+primary: true
+generatedSecrets:
+  app-owner:
+    delivery: synced
+    registerId: reg-app
+    epoch: 2
+    copies:
+      - name: app-db
+        template:
+          type: Opaque
+          labels:
+            catalyst.openova.io/binding-secret: app
+          annotations:
+            helm.sh/resource-policy: keep
+          data:
+            password: "{{ .password }}"
+            uri: "postgresql://app:{{ .password }}@pg-rw.acme.svc.cluster.local:5432/app"
+      - name: app-db-x-mgmt-x-mgmt-vcluster
+        namespace: acme
+EOF
+cat > "$TMP/r12.want" <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: "app-db"
+  namespace: "acme"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "reg-app"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: "app-db"
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      type: "Opaque"
+      metadata:
+        labels:
+          "catalyst.openova.io/binding-secret": "app"
+        annotations:
+          "helm.sh/resource-policy": "keep"
+      data:
+        "password": "{{ .password }}"
+        "uri": "postgresql://app:{{ .password }}@pg-rw.acme.svc.cluster.local:5432/app"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/acme/app-owner/e2
+        property: password
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: "app-db-x-mgmt-x-mgmt-vcluster"
+  namespace: "acme"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "reg-app"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: "app-db-x-mgmt-x-mgmt-vcluster"
+    creationPolicy: Owner
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/acme/app-owner/e2
+        property: password
+EOF
+r12=""
+r "$TMP/r12.v" "$TMP/r12.yaml" || r12="$r12 render($(tr '\n' ' ' < "$TMP/r12.yaml.err"))"
+{ doc "$TMP/r12.yaml" ExternalSecret '"app-db"'; doc "$TMP/r12.yaml" ExternalSecret '"app-db-x-mgmt-x-mgmt-vcluster"'; } > "$TMP/r12.got"
+diff -u "$TMP/r12.want" "$TMP/r12.got" || r12="$r12 copies"
+K12="$(kinds "$TMP/r12.yaml" || true)"
+[ "$K12" = "ExternalSecret=3 Password=1 PushSecret=1 " ] || r12="$r12 kinds($K12)"
+has "$TMP/r12.yaml" ExternalSecret app-owner '    name: app-owner' || r12="$r12 own-target"
+[ "$(grep -c -x -F '  namespace: "acme"' "$TMP/r12.yaml")" = 5 ] || r12="$r12 namespaces"
+sed 's/^self: hw-a/self: hw-b/; s/^peers: \[hw-b\]/peers: [hw-a]/; s/^primary: true/primary: false/' "$TMP/r12.v" > "$TMP/r12b.v"
+r "$TMP/r12b.v" "$TMP/r12b.yaml" || r12="$r12 b-render"
+K12B="$(kinds "$TMP/r12b.yaml" || true)"
+[ "$K12B" = "ExternalSecret=3 " ] || r12="$r12 b-kinds($K12B)"
+[ -z "$r12" ] && pass "R12 copies: ExternalSecrets app-db (own template) and app-db-x-mgmt-x-mgmt-vcluster (namespace acme named) beside app-owner, all in acme, one remote key and register id; the other region reads all three" || fail "R12:$r12"
+
+# ── R13 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r13.v" <<'EOF'
+self: hw-a
+peers: [hw-b]
+primary: true
+generatedSecrets:
+  powerdns-api-credentials:
+    delivery: synced
+    registerId: reg-pdns
+    epoch: 1
+    join: [webserver-password]
+    template:
+      data:
+        api-key: "{{ .password }}"
+        webserver-password: '{{ index . "webserver-password" }}'
+    copies:
+      - name: pdns-zone-bootstrap
+  webserver-password:
+    delivery: synced
+    epoch: 2
+    length: 24
+EOF
+cat > "$TMP/r13.want" <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: powerdns-api-credentials
+  namespace: "acme"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "reg-pdns"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: powerdns-api-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        "api-key": "{{ .password }}"
+        "webserver-password": "{{ index . \"webserver-password\" }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/acme/powerdns-api-credentials/e1
+        property: password
+    - secretKey: webserver-password
+      remoteRef:
+        key: openova/apps/acme/webserver-password/e2
+        property: password
+EOF
+r13=""
+r "$TMP/r13.v" "$TMP/r13.yaml" || r13="$r13 render($(tr '\n' ' ' < "$TMP/r13.yaml.err"))"
+doc "$TMP/r13.yaml" ExternalSecret powerdns-api-credentials > "$TMP/r13.got"
+diff -u "$TMP/r13.want" "$TMP/r13.got" || r13="$r13 joined-secret"
+K13="$(kinds "$TMP/r13.yaml" || true)"
+[ "$K13" = "ExternalSecret=2 Password=2 PushSecret=2 " ] || r13="$r13 kinds($K13)"
+has "$TMP/r13.yaml" PushSecret webserver-password-e2 '          remoteKey: openova/apps/acme/webserver-password/e2' || r13="$r13 joined-born"
+has "$TMP/r13.yaml" Password webserver-password-e2 '  length: 24' || r13="$r13 joined-length"
+[ -z "$(doc "$TMP/r13.yaml" ExternalSecret webserver-password)" ] || r13="$r13 joined-has-own-secret"
+doc "$TMP/r13.yaml" ExternalSecret '"pdns-zone-bootstrap"' > "$TMP/r13.copy"
+[ "$(grep -c -x -E '    - secretKey: (password|webserver-password)' "$TMP/r13.copy")" = 2 ] || r13="$r13 copy-carries-both"
+sed 's/^self: hw-a/self: hw-b/; s/^peers: \[hw-b\]/peers: [hw-a]/; s/^primary: true/primary: false/' "$TMP/r13.v" > "$TMP/r13b.v"
+r "$TMP/r13b.v" "$TMP/r13b.yaml" || r13="$r13 b-render"
+K13B="$(kinds "$TMP/r13b.yaml" || true)"
+[ "$K13B" = "ExternalSecret=2 " ] || r13="$r13 b-kinds($K13B)"
+doc "$TMP/r13b.yaml" ExternalSecret powerdns-api-credentials > "$TMP/r13b.got"
+diff -u "$TMP/r13.want" "$TMP/r13b.got" || r13="$r13 b-joined-secret"
+[ -z "$r13" ] && pass "R13 join: Secret powerdns-api-credentials carries both values under api-key and webserver-password; webserver-password is born but has no Secret; the copy carries both; the other region reads only" || fail "R13:$r13"
+
+# ── F1-F44 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
   printf '%s\n' "$3" > "$TMP/$1.v"
@@ -481,6 +717,28 @@ refused F21 "a placeholder is empty: it takes no length or symbols" 'generatedSe
 refused F22 'namespace "" is not a namespace name'  "$(printf 'namespace: ""\ngeneratedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared}}')"
 refused F23 'namespace "Org_Services" is not a namespace name' "$(printf 'namespace: Org_Services\ngeneratedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared}}')"
 refused F24 'namespace "-org" is not a namespace name' "$(printf 'stores: true\nnamespace: "-org"\n')"
+# SEC-219: template, copies and join. S is a synced value that takes them.
+S='delivery: synced, registerId: r, epoch: 1'
+refused F25 "template is only for delivery synced"  'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, template: {type: Opaque}}}'
+refused F26 "copies is only for delivery synced"    'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, copies: [{name: c}]}}'
+refused F27 "join is only for delivery synced"      "generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, join: [w]}, w: {$S}}"
+refused F28 'template field "label" is none of type, labels, annotations and data' "generatedSecrets: {x: {$S, template: {label: {a: b}}}}"
+refused F29 'template labels "cnpg.io/reload" must be a string (quote it)' "generatedSecrets: {x: {$S, template: {labels: {cnpg.io/reload: true}}}}"
+refused F30 'template data key "a b" must match'     "generatedSecrets: {x: {$S, template: {data: {\"a b\": v}}}}"
+refused F31 'template type "basic auth" is not a Secret type' "generatedSecrets: {x: {$S, template: {type: basic auth}}}"
+refused F32 "copies[0]: name is required, a Secret name" "generatedSecrets: {x: {$S, copies: [{template: {type: Opaque}}]}}"
+refused F33 "copies[0]: namespace \"external-dns\" is not the value's namespace \"acme\". A copy stays in its value's namespace; a value read in another namespace is written through by its producer (SEC-225)" "generatedSecrets: {x: {$S, copies: [{name: c, namespace: external-dns}]}}"
+refused F34 'copies[0]: name "w" is the name of a value of this chart' "generatedSecrets: {x: {$S, copies: [{name: w}]}, w: {$S}}"
+refused F35 'copies[0]: name "c" is already a copy of generatedSecrets.w' "generatedSecrets: {x: {$S, copies: [{name: c}]}, w: {$S, copies: [{name: c}]}}"
+refused F36 'copies[0]: field "keys" is none of name, namespace and template' "generatedSecrets: {x: {$S, copies: [{name: c, keys: [password]}]}}"
+refused F37 'copies[0]: name "Bad_Name" is not a Secret name' "generatedSecrets: {x: {$S, copies: [{name: Bad_Name}]}}"
+refused F38 'join names "nope", which is not a synced value of this chart' "generatedSecrets: {x: {$S, join: [nope]}}"
+refused F39 'join names "w", which is not a synced value of this chart' "generatedSecrets: {x: {$S, join: [w]}, w: {delivery: mounted, epoch: 1, scope: shared}}"
+refused F40 "a value does not join itself"          "generatedSecrets: {x: {$S, join: [x]}}"
+refused F41 'join names "w" twice'                  "generatedSecrets: {x: {$S, join: [w, w]}, w: {delivery: synced, epoch: 1}}"
+refused F42 "join names password, the key of the value itself" "generatedSecrets: {x: {$S, join: [password]}, password: {delivery: synced, epoch: 1}}"
+refused F43 "generatedSecrets.x joins this value, so it renders no Secret of its own and takes no registerId" "generatedSecrets: {x: {$S, join: [w]}, w: {$S}}"
+refused F44 "mountedCopies reads key password of Secret x, so template data must hold password" "generatedSecrets: {x: {$S, mountedCopies: [{serviceAccount: a}], template: {data: {token: '{{ .password }}'}}}}"
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"

@@ -32,6 +32,19 @@ generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
                              # the key with an empty string (no length, no symbols)
     mountedCopies: []        # synced only: [{serviceAccount: x}], one copy
                              # of the synced value as a mounted file each
+    template: {}             # synced only (SEC-219): the target Secret's
+                             # type, labels, annotations and data; each data
+                             # entry is an ESO template (engine v2) over the
+                             # value, {{ .password }}, and each joined value,
+                             # {{ index . "<name>" }}
+    copies: []               # synced only (SEC-219): [{name, namespace,
+                             # template}], one more Secret of the value each,
+                             # in the value's namespace (namespace, if given,
+                             # must be it)
+    join: []                 # synced only (SEC-219): names of other synced
+                             # values whose value this value's Secrets also
+                             # carry, each under its name; a joined value
+                             # renders no Secret of its own
 
 delivery mounted, scope sa:     mounted/<ns>/sa/<serviceAccount>/<name>/e<epoch>
 delivery mounted, scope shared: mounted/<ns>/shared/<name>/e<epoch>
@@ -50,6 +63,12 @@ delivery synced:   Password generator <name>-e<epoch>, PushSecret
   ExternalSecret <name> that materialises Secret <name> (key password).
   Each mountedCopies entry: the birth Job copies Secret <name> to
   mounted/<ns>/sa/<serviceAccount>/<name>/e<epoch> in this region.
+  A template gives the ExternalSecret target.template; each copies entry an
+  ExternalSecret <copy name> of the same value in the same namespace (a copy
+  in another namespace is refused: there, the value's producer writes it
+  through, SEC-225); join adds each joined value to the data of every
+  ExternalSecret of this value, and the joined value renders only its
+  Password and PushSecret.
 
 The Job, its ServiceAccount secrets-birth and its plan ConfigMap render only
 when this region has a value to write, in the namespace of the values. Their
@@ -75,7 +94,12 @@ Settings, under .Values.openova.secrets (all optional):
 {{- $self := .self | default ((($ctx.Values.openova | default dict).topology | default dict).self | default "") -}}
 {{- $plan := list -}}
 {{- $copies := list -}}
-{{- range $name, $spec := (.secrets | default dict) -}}
+{{- $all := .secrets | default dict -}}
+{{- /* SEC-219: each value that another synced value joins, and that value. */ -}}
+{{- $joined := dict -}}
+{{- range $n, $sp := $all }}{{ if kindIs "map" $sp }}{{ if and (eq (toString $sp.delivery) "synced") (kindIs "slice" $sp.join) }}{{ range $sp.join }}{{ if ne (toString .) $n }}{{ $_ := set $joined (toString .) $n }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+{{- $copyNames := dict -}}
+{{- range $name, $spec := $all -}}
 {{- $spec = $spec | default dict -}}
 {{- $where := printf "openova.generatedSecrets: generatedSecrets.%s" $name -}}
 {{- if not (regexMatch "^[a-z0-9-]+$" $name) }}{{ fail (printf "%s: the name must match [a-z0-9-]+" $where) }}{{ end -}}
@@ -98,6 +122,7 @@ Settings, under .Values.openova.secrets (all optional):
 {{- if eq $delivery "mounted" -}}
 {{- if ne $reg "" }}{{ fail (printf "%s: registerId is only for delivery synced" $where) }}{{ end -}}
 {{- if $mc }}{{ fail (printf "%s: mountedCopies is only for delivery synced" $where) }}{{ end -}}
+{{- range list "template" "copies" "join" }}{{ if hasKey $spec . }}{{ fail (printf "%s: %s is only for delivery synced" $where .) }}{{ end }}{{ end -}}
 {{- $key := "password" -}}
 {{- if hasKey $spec "key" -}}
 {{- if not (regexMatch "^[A-Za-z0-9][-._A-Za-z0-9]*$" (toString $spec.key)) }}{{ fail (printf "%s: key %q must match [A-Za-z0-9][-._A-Za-z0-9]*" $where (toString $spec.key)) }}{{ end -}}
@@ -125,7 +150,48 @@ Settings, under .Values.openova.secrets (all optional):
 {{- end -}}
 {{- else -}}
 {{- if or (hasKey $spec "key") (hasKey $spec "placeholder") }}{{ fail (printf "%s: key and placeholder are only for delivery mounted" $where) }}{{ end -}}
-{{- if eq $reg "" }}{{ fail (printf "%s: registerId is required for delivery synced" $where) }}{{ end -}}
+{{- $isJoined := hasKey $joined $name -}}
+{{- if $isJoined -}}
+{{- range list "registerId" "template" "copies" "join" "mountedCopies" }}{{ if hasKey $spec . }}{{ fail (printf "%s: generatedSecrets.%s joins this value, so it renders no Secret of its own and takes no %s" $where (index $joined $name) .) }}{{ end }}{{ end -}}
+{{- else if eq $reg "" }}{{ fail (printf "%s: registerId is required for delivery synced" $where) }}{{ end -}}
+{{- $tpl := index $spec "template" -}}
+{{- if hasKey $spec "template" }}{{ include "openova.secretsCheckTemplate" (dict "t" $tpl "where" $where) }}{{ end -}}
+{{- if and $mc (kindIs "map" $tpl) -}}
+{{- if hasKey $tpl "data" -}}
+{{- if ne (toString (index $tpl.data "password")) "{{ .password }}" }}{{ fail (printf "%s: mountedCopies reads key password of Secret %s, so template data must hold password: \"{{ .password }}\"" $where $name) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- $cps := index $spec "copies" | default list -}}
+{{- if not (kindIs "slice" $cps) }}{{ fail (printf "%s: copies must be a list" $where) }}{{ end -}}
+{{- range $i, $c := $cps -}}
+{{- $cw := printf "%s: copies[%d]" $where $i -}}
+{{- if not (kindIs "map" $c) }}{{ fail (printf "%s must be a map of name, namespace and template" $cw) }}{{ end -}}
+{{- range $f, $_ := $c }}{{ if not (has $f (list "name" "namespace" "template")) }}{{ fail (printf "%s: field %q is none of name, namespace and template" $cw $f) }}{{ end }}{{ end -}}
+{{- if not (kindIs "string" $c.name) }}{{ fail (printf "%s: name is required, a Secret name" $cw) }}{{ end -}}
+{{- if or (gt (len $c.name) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" $c.name)) }}{{ fail (printf "%s: name %q is not a Secret name" $cw $c.name) }}{{ end -}}
+{{- if hasKey $all $c.name }}{{ fail (printf "%s: name %q is the name of a value of this chart" $cw $c.name) }}{{ end -}}
+{{- if hasKey $copyNames $c.name }}{{ fail (printf "%s: name %q is already a copy of generatedSecrets.%s" $cw $c.name (index $copyNames $c.name)) }}{{ end -}}
+{{- $_ := set $copyNames $c.name $name -}}
+{{- if hasKey $c "namespace" }}{{ if not (kindIs "invalid" $c.namespace) }}{{ if ne (toString $c.namespace) $ns }}{{ fail (printf "%s: namespace %q is not the value's namespace %q. A copy stays in its value's namespace; a value read in another namespace is written through by its producer (SEC-225)" $cw (toString $c.namespace) $ns) }}{{ end }}{{ end }}{{ end -}}
+{{- if hasKey $c "template" }}{{ include "openova.secretsCheckTemplate" (dict "t" (index $c "template") "where" $cw) }}{{ end -}}
+{{- end -}}
+{{- $entries := list (dict "secretKey" "password" "key" (printf "openova/apps/%s/%s/e%d" $ns $name $epoch)) -}}
+{{- if hasKey $spec "join" -}}
+{{- if not (kindIs "slice" $spec.join) }}{{ fail (printf "%s: join must be a list of value names" $where) }}{{ end -}}
+{{- $jseen := dict -}}
+{{- range $spec.join -}}
+{{- $j := toString . -}}
+{{- if eq $j $name }}{{ fail (printf "%s: a value does not join itself" $where) }}{{ end -}}
+{{- if eq $j "password" }}{{ fail (printf "%s: join names password, the key of the value itself" $where) }}{{ end -}}
+{{- if hasKey $jseen $j }}{{ fail (printf "%s: join names %q twice" $where $j) }}{{ end -}}
+{{- $_ := set $jseen $j true -}}
+{{- $js := index $all $j -}}
+{{- $jd := "" -}}
+{{- if kindIs "map" $js }}{{ $jd = toString (index $js "delivery") }}{{ end -}}
+{{- if ne $jd "synced" }}{{ fail (printf "%s: join names %q, which is not a synced value of this chart" $where $j) }}{{ end -}}
+{{- $entries = append $entries (dict "secretKey" $j "key" (printf "openova/apps/%s/%s/e%d" $ns $j (int (index $js "epoch")))) -}}
+{{- end -}}
+{{- end -}}
 {{- if not $waits }}
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
@@ -174,29 +240,12 @@ spec:
           remoteKey: {{ printf "openova/apps/%s/%s/e%d" $ns $name $epoch }}
           property: password
 {{- end }}
----
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: {{ $name }}
-  namespace: {{ $ns | quote }}
-  labels:
-    secrets.openova.io/library: secrets-lib
-  annotations:
-    secrets.openova.io/register-id: {{ $reg | quote }}
-spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    kind: SecretStore
-    name: openbao
-  target:
-    name: {{ $name }}
-    creationPolicy: Owner
-  data:
-    - secretKey: password
-      remoteRef:
-        key: {{ printf "openova/apps/%s/%s/e%d" $ns $name $epoch }}
-        property: password
+{{- if not $isJoined }}
+{{- include "openova.secretsExternalSecret" (dict "name" $name "ns" $ns "reg" $reg "tpl" $tpl "entries" $entries) }}
+{{- range $cps }}
+{{- include "openova.secretsExternalSecret" (dict "name" (quote .name) "ns" $ns "reg" $reg "tpl" (index . "template") "entries" $entries) }}
+{{- end }}
+{{- end }}
 {{- range $mc -}}
 {{- $csa := (. | default dict).serviceAccount | default "" -}}
 {{- if eq $csa "" }}{{ fail (printf "%s: every mountedCopies entry needs a serviceAccount" $where) }}{{ end -}}
@@ -355,4 +404,87 @@ label: [a-z0-9-], at most 63 characters, a letter or digit at each end).
 {{- if or (gt (len $ns) 63) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ns)) }}{{ fail (printf "openova.secrets: namespace %q is not a namespace name (a DNS label)" $ns) }}{{ end -}}
 {{- end -}}
 {{- $ns -}}
+{{- end -}}
+
+{{- /*
+openova.secretsExternalSecret (SEC-219) — one ExternalSecret of a synced
+value: the value's own target <name>, or a copy. Input: dict "name" (as it
+is written), "ns", "reg" (the register id), "tpl" (the template, or absent)
+and "entries" (secretKey and remote key per value the Secret carries: the
+value itself as password, then each joined value under its name). Without a
+template the object is the one of SEC-200, byte for byte.
+*/ -}}
+{{- define "openova.secretsExternalSecret" }}
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: {{ .name }}
+  namespace: {{ .ns | quote }}
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: {{ .reg | quote }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: {{ .name }}
+    creationPolicy: Owner
+{{- with .tpl }}
+    template:
+      engineVersion: v2
+{{- if hasKey . "type" }}
+      type: {{ .type | quote }}
+{{- end }}
+{{- if or .labels .annotations }}
+      metadata:
+{{- $t := . }}
+{{- range $f := list "labels" "annotations" }}
+{{- with index $t $f }}
+        {{ $f }}:
+{{- range $k, $v := . }}
+          {{ $k | quote }}: {{ $v | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .data }}
+      data:
+{{- range $k, $v := . }}
+        {{ $k | quote }}: {{ $v | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+  data:
+{{- range .entries }}
+    - secretKey: {{ .secretKey }}
+      remoteRef:
+        key: {{ .key }}
+        property: password
+{{- end }}
+{{- end -}}
+
+{{- /*
+openova.secretsCheckTemplate (SEC-219) — fails the render on a template that
+is not a map of type (a Secret type), labels, annotations and data (maps of
+strings; a data key is a Secret key). Input: dict "t" "where". Renders nothing.
+*/ -}}
+{{- define "openova.secretsCheckTemplate" -}}
+{{- $w := .where -}}
+{{- if not (kindIs "map" .t) }}{{ fail (printf "%s: template must be a map of type, labels, annotations and data" $w) }}{{ end -}}
+{{- range $f, $_ := .t }}{{ if not (has $f (list "type" "labels" "annotations" "data")) }}{{ fail (printf "%s: template field %q is none of type, labels, annotations and data" $w $f) }}{{ end }}{{ end -}}
+{{- if hasKey .t "type" }}{{ if not (kindIs "string" .t.type) }}{{ fail (printf "%s: template type must be a Secret type (a string)" $w) }}{{ end }}{{ if not (regexMatch "^[A-Za-z0-9][-._/A-Za-z0-9]*$" .t.type) }}{{ fail (printf "%s: template type %q is not a Secret type" $w .t.type) }}{{ end }}{{ end -}}
+{{- range $f := list "labels" "annotations" "data" -}}
+{{- if hasKey $.t $f -}}
+{{- $m := index $.t $f -}}
+{{- if not (kindIs "map" $m) }}{{ fail (printf "%s: template %s must be a map of strings" $w $f) }}{{ end -}}
+{{- range $k, $v := $m -}}
+{{- if not (kindIs "string" $v) }}{{ fail (printf "%s: template %s %q must be a string (quote it)" $w $f $k) }}{{ end -}}
+{{- if and (eq $f "data") (not (regexMatch "^[-._a-zA-Z0-9]+$" $k)) }}{{ fail (printf "%s: template data key %q must match [-._a-zA-Z0-9]+" $w $k) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
