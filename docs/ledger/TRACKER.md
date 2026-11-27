@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T05:00:03Z` |
+| Last refreshed | `2026-11-27T05:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8547](https://github.com/openova-io/openova/issues/8547) | The harbor chart's admin-secret test cannot fail on a broken pipe: six printf |  | Other |
 | [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
 | [#8556](https://github.com/openova-io/openova/issues/8556) | SOV-343 The cutover copies the OpenTofu provider packages into the Sovereign and | Other |
 | [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8944](https://github.com/openova-io/openova/issues/8944) | NET-191 Organization listeners admit only their Organization | Other |
 | [#8950](https://github.com/openova-io/openova/issues/8950) | CMP-066 Delete what is left: stub and test-only set; move the access policy home | Other |
 | [#8952](https://github.com/openova-io/openova/issues/8952) | FND-132 The conformance run of a pull request installs the kit charts of that pu | Other |
+| [#8956](https://github.com/openova-io/openova/issues/8956) | CMP-094 Vulnerability scanning produces reports in every region | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T05:13 | [#8955](https://github.com/openova-io/openova/pull/8955) | #7087 | docs(ledger): plan update |
+| 2026-11-27T05:00 | [#8951](https://github.com/openova-io/openova/pull/8951) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:49 | [#8949](https://github.com/openova-io/openova/pull/8949) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:29 | [#8948](https://github.com/openova-io/openova/pull/8948) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:16 | [#8947](https://github.com/openova-io/openova/pull/8947) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T22:41 | [#8915](https://github.com/openova-io/openova/pull/8915) | #7087 | docs(ledger): plan update |
 | 2026-11-26T21:44 | [#8914](https://github.com/openova-io/openova/pull/8914) | #8913 | refactor(kyverno): flux-managed rewritten in place to Valida |
 | 2026-11-26T21:16 | [#8912](https://github.com/openova-io/openova/pull/8912) | #7087 | docs(ledger): plan update |
-| 2026-11-26T19:47 | [#8911](https://github.com/openova-io/openova/pull/8911) | #8910 | fix(gitea): the platform repositories Job runs in the primar |
-| 2026-11-26T19:14 | [#8909](https://github.com/openova-io/openova/pull/8909) | #7087 | docs(ledger): plan update |
 
 ---
 
