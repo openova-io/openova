@@ -99,6 +99,17 @@ spec:
         spec:
           containers:
             - name: package-runtime
+              # CLD-068, measured on the Sovereign on 27 Nov 2026 and held by
+              # tools/guards/cmd/opentofu-runtime. Workers: the default is one;
+              # 24 Workspaces polled every 10 minutes are 144 reconciles an hour,
+              # and the one worker did 3452 in the 29.6 hours before it was held
+              # (116.7 an hour), so it was behind even then. --timeout=20m is the
+              # default, written out because the liveness probe is bound to it:
+              # all tofu calls of a reconcile share it, plus 30 s for the status
+              # write (crossplane-runtime v2.0.0), so after 1230 s one is held.
+              args:
+                - --max-reconcile-rate=2
+                - --timeout=20m
               # Cloud creds surfaced as env vars the inline tofu modules
               # reference via `var`/`TF_VAR_*`. Optional so a Hetzner-only
               # Sovereign (no huawei-* keys) still starts the controller.
@@ -126,13 +137,21 @@ spec:
               # and resources.requests.memory") → deployment 0/1,
               # UnhealthyPackageRevision → ALL crossplane CloudAdoptions stuck
               # non-Ready (rows 206/207/239, live-observed hw225 2026-07-05).
+              # CLD-068 limits. At 500m the container was throttled in 230349 of
+              # 722486 periods and held back 242.6 ms in each: it asked for 2.93
+              # CPUs and ran 5.85 times slower, and a reconcile got at most 600
+              # CPU-seconds in its 20 minutes. 3 CPUs run one plan at that peak
+              # unthrottled and two 1.95 times slower: 600 CPU-seconds take 205 s
+              # or 400 s. One plan beside the provider (152 MiB resident) fit in
+              # 512Mi with no memory event, so two need 152 + 2 x 360 = 872 MiB.
+              # Requests unchanged: the throttling was the limit's.
               resources:
                 requests:
                   cpu: 50m
                   memory: 256Mi
                 limits:
-                  cpu: 500m
-                  memory: 512Mi
+                  cpu: "3"
+                  memory: 1Gi
               # The Kyverno policy probes-present (Enforce) refuses a
               # Deployment whose containers lack a liveness or a readiness
               # probe. Crossplane 2.4.3 creates a new Deployment for every
@@ -149,6 +168,16 @@ spec:
               # runtime/runtime.go, MetricsPortNumber = 8080). The server
               # starts with the manager, after the RBAC pre-check, so the
               # liveness probe waits 30 s and tolerates 2 minutes of silence.
+              #
+              # CLD-068 liveness: read /metrics in the container (sh, curl and
+              # busybox awk) and fail when it does not answer, does not list the
+              # Workspace queue, or shows a queue holding one item over 1800 s; a
+              # reconcile ends by 1230 s. v1.1.11 can hold a worker forever after
+              # a timeout kill: runCommand (internal/opentofu/opentofu.go) calls
+              # Cmd.Wait while its goroutine's Cmd.Output waits too, and the loser
+              # blocks on os/exec's one context result (measured: 208099 s). The
+              # restart frees it; Workspace state is in the kubernetes backend.
+              # v1.2.0 runs one Cmd.Output with Cmd.Cancel.
               readinessProbe:
                 httpGet:
                   path: /metrics
@@ -157,9 +186,19 @@ spec:
                 timeoutSeconds: 5
                 failureThreshold: 3
               livenessProbe:
-                httpGet:
-                  path: /metrics
-                  port: 8080
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - |
+                      m="$(curl -sf --max-time 4 http://127.0.0.1:8080/metrics)" || exit 1
+                      printf '%s\n' "$m" | awk -v max=1800 '
+                        /^workqueue_longest_running_processor_seconds[{]/ {
+                          v = $0; sub(/^[^}]*[}] /, "", v); split(v, f, " ")
+                          if (f[1] + 0 > max) held = 1
+                          if (index($0, "name=\"managed/workspace.opentofu.upbound.io\"")) seen = 1
+                        }
+                        END { if (seen && !held) exit 0; exit 1 }'
                 initialDelaySeconds: 30
                 periodSeconds: 20
                 timeoutSeconds: 5

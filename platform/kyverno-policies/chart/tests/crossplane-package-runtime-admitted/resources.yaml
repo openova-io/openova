@@ -46,7 +46,10 @@ spec:
         pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
     spec:
       containers:
-      - env:
+      - args:
+        - --max-reconcile-rate=2
+        - --timeout=20m
+        env:
         - name: TLS_CLIENT_CERTS_DIR
           value: /tls/client
         - name: TLS_SERVER_CERTS_DIR
@@ -74,10 +77,20 @@ spec:
         image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
         imagePullPolicy: IfNotPresent
         livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - |
+              m="$(curl -sf --max-time 4 http://127.0.0.1:8080/metrics)" || exit 1
+              printf '%s\n' "$m" | awk -v max=1800 '
+                /^workqueue_longest_running_processor_seconds[{]/ {
+                  v = $0; sub(/^[^}]*[}] /, "", v); split(v, f, " ")
+                  if (f[1] + 0 > max) held = 1
+                  if (index($0, "name=\"managed/workspace.opentofu.upbound.io\"")) seen = 1
+                }
+                END { if (seen && !held) exit 0; exit 1 }'
           failureThreshold: 6
-          httpGet:
-            path: /metrics
-            port: 8080
           initialDelaySeconds: 30
           periodSeconds: 20
           timeoutSeconds: 5
@@ -96,8 +109,8 @@ spec:
           timeoutSeconds: 5
         resources:
           limits:
-            cpu: 500m
-            memory: 512Mi
+            cpu: "3"
+            memory: 1Gi
           requests:
             cpu: 50m
             memory: 256Mi

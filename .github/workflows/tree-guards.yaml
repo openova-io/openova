@@ -543,6 +543,12 @@ jobs:
       - name: 'cilium-mtu | The MTU every provider pack, the kit and the chart give Cilium is the node interface MTU of the provider, never a subtraction'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/cilium-mtu
+      - name: 'opentofu-runtime | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/opentofu-runtime
+      - name: 'opentofu-runtime | The Workspace controller has the workers, CPU and memory measured for it and a liveness probe that ends a held reconcile'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/opentofu-runtime
       - name: 'pinned-sources | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/pinned-sources
