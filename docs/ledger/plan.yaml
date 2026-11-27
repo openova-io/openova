@@ -12481,7 +12481,7 @@ packages:
   wave: W1b
   size: S
   lane: CONTROL
-  depends_on: [CLD-171, CTL-110, CTL-112, FND-032, SEC-196, SOV-240, SOV-410]
+  depends_on: [CLD-171, CTL-110, CTL-112, FND-032, SEC-196, SEC-197, SOV-240, SOV-410]
   after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-121, CLD-125, SOV-171, SOV-175, SOV-344, SEC-010, SEC-060, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, CMP-042, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03x-ownership-pivot-job.yaml
@@ -13405,7 +13405,7 @@ packages:
   wave: W1b
   size: M
   lane: CONTROL
-  depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-330, SOV-405, SOV-430, SOV-510, SOV-311]
+  depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SEC-197, SOV-180, SOV-190, SOV-330, SOV-405, SOV-430, SOV-510, SOV-311]
   after: [FND-011, FND-192, CLD-105, CLD-113, CLD-115, CLD-122, SOV-323, SOV-338, SOV-721, NET-041, NET-070, NET-213, SVC-040, SVC-162, SVC-164, SVC-190, SVC-230, CTL-347, CMP-020, AIP-120, INF-054]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
@@ -15526,7 +15526,7 @@ packages:
   dropped: false
   delivers: The bp-openbao configuration reconciler writes, for each entry of the new value producers (default entry catalyst-api), a policy and a Kubernetes auth role producer-<name> that create and update values on the listed patterns below mounted/data/ and never read one, and the policy and role axon-credential with which the simulation back end reads and writes back its own model credential.
 - id: SEC-196
-  title: Hand-over identity sovereign-ops and the hand-over inputs Secret
+  title: Hand-over identity sovereign-ops
   area: SEC
   epic: null
   type: new
@@ -15534,11 +15534,37 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-080, SEC-095, SEC-190]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SEC-250, SEC-344, SVC-040, SVC-041]
+  after: [FND-011, SEC-180, SEC-181, SEC-192, SEC-200, SEC-250, SEC-344, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/config-desired-render.sh
   - tests/e2e/bp-openbao-config-live.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: SOV-420
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Policy and auth role sovereign-ops of section 4.6.
+- id: SEC-197
+  title: The hand-over inputs Secret
+  area: SEC
+  epic: null
+  type: new
+  wave: W1b
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-196, CLD-171]
+  after: [FND-183, FND-184, SOV-143, SOV-322, SOV-323, SOV-342, SEC-060, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344]
+  touches:
+  - clusters/_template/infrastructure/base/**
   - scripts/secret-guard-baselines/secret-object-register.yaml
   resources: []
   flips: []
@@ -15553,7 +15579,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Policy and auth role sovereign-ops of section 4.6. An ExternalSecret that fills Secret catalyst-infra/sovereign-base-secret-inputs from secret/data/catalyst/tofu/sovereign-base-inputs, with its class K register entry. The chart file that holds the ExternalSecret is named by the architect when the ticket is cut.
+  delivers: The hand-over inputs Secret.
 - id: SEC-198
   title: Remove the transitional cloud-credential Secrets
   area: SEC
