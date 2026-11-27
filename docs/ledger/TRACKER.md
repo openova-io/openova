@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T00:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T00:15:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8517](https://github.com/openova-io/openova/issues/8517) | AIP-155 Agent workspace: the Organization's own sign-in by mount and a short-liv | Other |
 | [#8528](https://github.com/openova-io/openova/issues/8528) | SVC-137 The function tests wait for their subject in their own region within the | Other |
 | [#8532](https://github.com/openova-io/openova/issues/8532) | SOV-136 Nodes share the images they hold: the k3s embedded registry mirror is on | Other |
 | [#8533](https://github.com/openova-io/openova/issues/8533) | SOV-137 The registry pivot keeps the nodes' shared mirror first and starts with  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8916](https://github.com/openova-io/openova/issues/8916) | FND-044 A tested command of an acceptance command is not read through a command  | Other |
 | [#8922](https://github.com/openova-io/openova/issues/8922) | ACC-113 The sign-in probe no longer expects the removed remote-access web page | Other |
 | [#8925](https://github.com/openova-io/openova/issues/8925) | CMP-089 The trivy operator stays within its memory in every region | Other |
+| [#8928](https://github.com/openova-io/openova/issues/8928) | CLD-125 Check CLD-G07 reads the provider packs in the region the API runs in | Other |
 
 ---
 
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T00:10 | [#8924](https://github.com/openova-io/openova/pull/8924) | #7087 | docs(ledger): plan update |
 | 2026-11-26T23:49 | [#8921](https://github.com/openova-io/openova/pull/8921) | #7087 | docs(ledger): plan update |
 | 2026-11-26T23:16 | [#8919](https://github.com/openova-io/openova/pull/8919) | #7087 | docs(ledger): plan update |
 | 2026-11-26T22:57 | [#8918](https://github.com/openova-io/openova/pull/8918) | #7087 | docs(ledger): plan update |
+| 2026-11-27T00:13 | [#8917](https://github.com/openova-io/openova/pull/8917) | #8916 | feat(guards): a tested command of an acceptance command is n |
 | 2026-11-26T22:41 | [#8915](https://github.com/openova-io/openova/pull/8915) | #7087 | docs(ledger): plan update |
 | 2026-11-26T21:44 | [#8914](https://github.com/openova-io/openova/pull/8914) | #8913 | refactor(kyverno): flux-managed rewritten in place to Valida |
 | 2026-11-26T21:16 | [#8912](https://github.com/openova-io/openova/pull/8912) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:25 | [#8877](https://github.com/openova-io/openova/pull/8877) | #8876 | refactor(kyverno): stamp-cilium-enforced-label rewritten in  |
 | 2026-11-26T13:31 | [#8875](https://github.com/openova-io/openova/pull/8875) | #7087 | docs(ledger): plan update |
-| 2026-11-26T13:20 | [#8872](https://github.com/openova-io/openova/pull/8872) | #7087 | docs(ledger): plan update |
-| 2026-11-26T23:45 | [#8871](https://github.com/openova-io/openova/pull/8871) | #8870 | docs(ledger): result of the lab test SEC-335, the injection  |
 
 ---
 
