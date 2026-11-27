@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T13:15:02Z` |
+| Last refreshed | `2026-11-27T13:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
+| 2026-11-27T13:29 | [#9019](https://github.com/openova-io/openova/pull/9019) | #9013 | fix(crossplane-claims): an owner of a customer Organization  |
+| 2026-11-27T13:24 | [#9018](https://github.com/openova-io/openova/pull/9018) | #9009 | fix(payload-size): the size check of a pull request measures |
 | 2026-11-27T12:54 | [#9017](https://github.com/openova-io/openova/pull/9017) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:46 | [#8973](https://github.com/openova-io/openova/pull/8973) | #8954 | revert: the conformance run installs changed kit charts from |
-| 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
-| 2026-11-27T10:38 | [#8971](https://github.com/openova-io/openova/pull/8971) | #8969 | refactor(catalyst): the umbrella chart depends on secrets-li |
-| 2026-11-27T10:27 | [#8970](https://github.com/openova-io/openova/pull/8970) | #8967 | feat(api): provides, requires, the contract format, the regi |
 
 ---
 
