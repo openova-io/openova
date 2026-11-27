@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T16:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T16:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
 | [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
 | [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
 | [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9015](https://github.com/openova-io/openova/issues/9015) | NET-195 Organization listener: client-certificate validation or TLS passthrough, | Other |
 | [#9032](https://github.com/openova-io/openova/issues/9032) | CMP-086 The access policy moves into the policy chart | Other |
 | [#9036](https://github.com/openova-io/openova/issues/9036) | SEC-196 Hand-over identity sovereign-ops | Other |
+| [#9040](https://github.com/openova-io/openova/issues/9040) | AIP-115 No Organization can take the slug axon | Other |
 
 ---
 
