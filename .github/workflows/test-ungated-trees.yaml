@@ -61,6 +61,7 @@ on:
       - 'products/catalyst/bootstrap/ui/**'
       - 'products/fingate/**'
       - 'products/ops-records/**'
+      - 'tools/chart-upgrade/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
       - '**/go.mod'
@@ -82,6 +83,7 @@ on:
       - 'products/catalyst/bootstrap/ui/**'
       - 'products/fingate/**'
       - 'products/ops-records/**'
+      - 'tools/chart-upgrade/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
       - '**/go.mod'
@@ -190,6 +192,36 @@ jobs:
             echo "::error::${{ matrix.module }} go test exited ${rc} — see the FAIL output above."
             exit "${rc}"
           fi
+
+  # tools/chart-upgrade: the upgrade Helm 3 performs, object by object (the
+  # three-way strategic merge patch over the deployed and the live release, and
+  # the API server's verdict on it), with a case per chart. A case reads the
+  # charts of earlier releases from the history and renders them with the Helm
+  # of the release: this job checks out the full history, sets up that Helm
+  # and runs with UPGRADE_PROOF=required, so a missing tool fails a case
+  # instead of skipping it. The chart tests of a chart run its case too, on
+  # every change of the chart (chart-tests-pr.yaml) and at its release.
+  chart-upgrade:
+    name: go test — tools/chart-upgrade (+ its chart cases, with the history and Helm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/chart-upgrade/go.mod
+          cache-dependency-path: tools/chart-upgrade/go.sum
+      # The Helm of blueprint-release.yaml (its azure/setup-helm version).
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+      - name: go test
+        working-directory: tools/chart-upgrade
+        env:
+          UPGRADE_PROOF: required
+        run: go test -count=1 -v ./...
 
   pool-domain-manager:
     name: go test — core/pool-domain-manager (+ Postgres reservation integration)

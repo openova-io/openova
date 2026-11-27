@@ -65,9 +65,9 @@ check() {
 }
 
 # registrar <render> <expression>: the expression on the container
-# evs-driver-registrar of the DaemonSet csi-evs-node.
+# node-driver-registrar of the DaemonSet csi-evs-node.
 registrar() {
-  yq ea -N "[select(.kind == \"DaemonSet\" and .metadata.name == \"csi-evs-node\")] | .[0] | .spec.template.spec.containers[] | select(.name == \"evs-driver-registrar\") | $2" "$1"
+  yq ea -N "[select(.kind == \"DaemonSet\" and .metadata.name == \"csi-evs-node\")] | .[0] | .spec.template.spec.containers[] | select(.name == \"node-driver-registrar\") | $2" "$1"
 }
 
 # registrar_probe_file <label> <render> <kubelet dir>
@@ -128,7 +128,7 @@ render() {
 }
 
 render --set volumeSnapshotClass.enabled=false
-check "slot 55b" "$TMP/render.yaml" DaemonSet csi-evs-node "evs-driver-registrar liveness-probe evs-csi-plugin"
+check "slot 55b" "$TMP/render.yaml" DaemonSet csi-evs-node "node-driver-registrar liveness-probe evs-csi-plugin"
 registrar_probe_file "slot 55b" "$TMP/render.yaml" /var/lib/kubelet
 render --set volumeSnapshotClass.enabled=false --set kubeletDir=/var/lib/k0s/kubelet
 registrar_probe_file "kubeletDir /var/lib/k0s/kubelet" "$TMP/render.yaml" /var/lib/k0s/kubelet
