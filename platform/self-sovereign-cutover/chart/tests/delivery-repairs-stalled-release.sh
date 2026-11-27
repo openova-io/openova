@@ -38,6 +38,26 @@
 # On the tree before the change, cases 1, 2, 3 and 4 fail; case 5 fails before
 # the repair is restricted to the releases the kit applies.
 #
+# Measured on the same Sovereign, 27 Nov 2026: the delivery of the candidate
+# that pins bp-huawei-evs-csi 1.0.13 and bp-guacamole 0.2.66 failed in Phase A0:
+#   FATAL: env NOT settled - 2 PLATFORM-namespace release(s)/workload(s) are mid-roll
+#   mid-roll: HelmRelease/flux-system/bp-huawei-evs-csi (Helm rollback to previous
+#     release huawei-evs-csi/huawei-evs-csi.v2 with chart bp-huawei-evs-csi@1.0.12
+#     failed: release huawei-evs-csi failed: context deadline exceeded)
+#   mid-roll: Deployment/guacamole/access-controller
+# bp-huawei-evs-csi fails at 1.0.12 for ever and Flux never stalls it (between
+# attempts its Ready reads "Running 'upgrade' action ..."); access-controller is
+# an unready Deployment of the Ready release bp-guacamole 0.2.64. The cases:
+#   0. values.yaml states the rule word for word;
+#   7. the two measured shapes, each alone and together, and the failing
+#      release while it runs its next attempt: PASS, each named with both
+#      versions and recorded as an R release is;
+#   8. the negatives: the candidate pins the same version (release, workload),
+#      a release that never failed and is mid-roll, a release whose failures
+#      belong to an earlier version and generation, a workload of no kit
+#      release, a workload without Helm ownership, and no candidate: FATAL.
+# On the tree before this change cases 0 and 7 fail; 8 refuses on both.
+#
 # Usage: bash tests/delivery-repairs-stalled-release.sh [CHART_DIR]
 set -uo pipefail
 
@@ -73,7 +93,7 @@ case "$*" in
     printf '{"items":[]}' ;;
   *"get helmreleases"*) cat "${HR_FIXTURE:?}" ;;
   *"get secret catalyst-gitea-token -o jsonpath={.data.token}"*) printf '%s' "${KIT_PAT:?}" | base64 ;;
-  *"get deployments,statefulsets"*) printf '{"items":[]}' ;;
+  *"get deployments,statefulsets"*) if [ -n "${WL_FIXTURE:-}" ]; then cat "${WL_FIXTURE}"; else printf '{"items":[]}'; fi ;;
   *"patch configmap"*) printf '%s\n' "$*" >>"${PATCH_LOG:?}" ;;
   *) echo "stub: unhandled kubectl $*" >&2; exit 9 ;;
 esac
@@ -150,6 +170,8 @@ run() {
     export GITEA_INTERNAL_URL=http://gitea-http.gitea.svc:3000/ GITEA_ORG=openova GITEA_REPO=openova
     export UPSTREAM_PREFIX=oci://ghcr.io/openova-io HARBOR_PUBLIC_URL=https://registry.sov.example.test/
     export KIT_PAT=pat-of-the-local-gitea KIT_DIR="${TMP}/kit" KIT_REF="release/${CAND}" KIT_LISTING="${KIT_LISTING:-ok}"
+    # The Deployments and StatefulSets (cases 7 and 8); none when unset.
+    export WL_FIXTURE="${WL_FIXTURE:-}"
     if [ -n "$5" ]; then export CANDIDATE="$5"; else unset CANDIDATE; fi
     sh "${GATE:-${TMP}/gate.sh}" ) >"$1/out" 2>&1
   echo "$?" >"$1/rc"
@@ -365,6 +387,140 @@ midroll "$d"
 [ "$(rc_of "$d")" != 0 ] && [ "$(grep -c . "$d/midroll")" = 3 ] && pass "a listing that fails keeps the delivery FATAL on all three" || fail "the delivery passed without its pins (rc $(rc_of "$d"))"
 grep -qF "could not read its candidate's kit pins at release/${CAND}" "$d/out" && pass "it says it could not read the pins" || fail "it does not say the pins were unreadable"
 grep -q '=' "$d/patch.log" && fail "a refused delivery recorded an exclusion" || pass "nothing is recorded"
+
+echo "[delivery-repairs] 0. values.yaml states the rule above the key prewarm.settledRollPreflight"
+while IFS= read -r l; do
+  grep -qxF "$l" "${CHART_DIR}/values.yaml" && pass "values.yaml: ${l#  # }" || fail "values.yaml lacks the line: ${l}"
+done <<'EOF'
+  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ) or failing (SRP_DELIVERY_JQ
+  # FAILING: not ready (Ready != True, or observedGeneration behind generation) and failed at least
+  # once at its desired version (spec.chart.spec.version), whether or not Flux has stalled it and also
+  # version. A release rolling for the first time that never failed stays gated, as does one whose
+  # IN A DELIVERY the workload pass does not gate an unready platform Deployment or StatefulSet whose
+  # Helm ownership (annotations meta.helm.sh/release-name and meta.helm.sh/release-namespace) names the
+  # deployed one. It is named with both versions and the HelmRelease, and recorded as an R release is
+EOF
+
+echo "[delivery-repairs] 7. the measured shapes of 27 Nov: a release that keeps failing, an unready workload of a release the candidate re-pins"
+# bp-huawei-evs-csi as the cluster gave it: generation 2, observedGeneration 1,
+# failures 17, upgradeFailures 1, Reconciling=True ProgressingWithRetry,
+# Ready=False RollbackFailed, Released=False UpgradeFailed, Remediated=False
+# RollbackFailed, upgrade retries 3, history all 1.0.12 failed; never Stalled.
+# bp-guacamole Ready at 0.2.64; its Deployment access-controller never ready.
+evs_msg="Helm rollback to previous release huawei-evs-csi/huawei-evs-csi.v2 with chart bp-huawei-evs-csi@1.0.12 failed: release huawei-evs-csi failed: context deadline exceeded"
+evs_hist='{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.12","status":"failed"'
+cat >"${TMP}/evs.json" <<EOF
+{"items":[
+$(settled bp-cert-manager 1.4.0),
+$(settled bp-reflector 1.0.2),
+{"metadata":{"name":"bp-guacamole","namespace":"flux-system",${KIT},"generation":5},
+ "spec":{"releaseName":"guacamole","targetNamespace":"guacamole","chart":{"spec":{"chart":"bp-guacamole","version":"0.2.64"}}},
+ "status":{"observedGeneration":5,"lastAttemptedRevision":"0.2.64","lastAppliedRevision":"0.2.64",
+  "history":[{"name":"guacamole","namespace":"guacamole","chartName":"bp-guacamole","chartVersion":"0.2.64","status":"deployed","version":7}],
+  "conditions":[{"type":"Ready","status":"True","reason":"UpgradeSucceeded","message":"Helm upgrade succeeded for release guacamole/guacamole.v7 with chart bp-guacamole@0.2.64"}]}},
+{"metadata":{"name":"bp-huawei-evs-csi","namespace":"flux-system",${KIT},"generation":2},
+ "spec":{"releaseName":"huawei-evs-csi","targetNamespace":"huawei-evs-csi","chart":{"spec":{"chart":"bp-huawei-evs-csi","version":"1.0.12"}},"upgrade":{"remediation":{"retries":3}}},
+ "status":{"observedGeneration":1,"failures":17,"upgradeFailures":1,
+  "history":[${evs_hist},"version":3},${evs_hist},"version":2}],
+  "conditions":[
+   {"type":"Reconciling","status":"True","reason":"ProgressingWithRetry","message":"${evs_msg}"},
+   {"type":"Ready","status":"False","reason":"RollbackFailed","message":"${evs_msg}"},
+   {"type":"Released","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release huawei-evs-csi/huawei-evs-csi with chart bp-huawei-evs-csi@1.0.12: context deadline exceeded"},
+   {"type":"Remediated","status":"False","reason":"RollbackFailed","message":"${evs_msg}"}]}}
+]}
+EOF
+jq -e '.items | length == 4' "${TMP}/evs.json" >/dev/null || { echo "FAIL: the bp-huawei-evs-csi fixture is not valid JSON"; exit 1; }
+jq -e 'any(.items[]; any(.status.conditions[]; .type == "Stalled")) | not' "${TMP}/evs.json" >/dev/null || { echo "FAIL: the bp-huawei-evs-csi fixture must carry no Stalled condition"; exit 1; }
+# Between attempts, the same release while Flux runs its next one.
+jq '(.items[] | select(.metadata.name == "bp-huawei-evs-csi") | .status.conditions) |= map(if .type == "Ready" then {"type":"Ready","status":"Unknown","reason":"Progressing","message":"Running '"'"'upgrade'"'"' action with timeout of 15m0s"} else . end)' \
+  "${TMP}/evs.json" >"${TMP}/evs-running.json"
+grep -qF "Running 'upgrade' action with timeout of 15m0s" "${TMP}/evs-running.json" || { echo "FAIL: could not build the running fixture"; exit 1; }
+# The same kit with bp-huawei-evs-csi settled at 1.0.12: only the workload is unready.
+jq --argjson s "$(settled bp-huawei-evs-csi 1.0.12)" '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= $s' "${TMP}/evs.json" >"${TMP}/kit-settled.json"
+wl() { printf '{"kind":"%s","metadata":{"name":"%s","namespace":"%s","generation":1,"labels":{"app.kubernetes.io/managed-by":"Helm"}%s},"spec":{"replicas":1},"status":{"observedGeneration":1,"replicas":1,"updatedReplicas":1%s}}' "$1" "$2" "$3" "$4" "$5"; }
+guac_owner=',"annotations":{"meta.helm.sh/release-name":"guacamole","meta.helm.sh/release-namespace":"guacamole"}'
+printf '{"items":[%s,%s]}' "$(wl Deployment guacamole guacamole "${guac_owner}" ',"readyReplicas":1,"availableReplicas":1')" \
+  "$(wl Deployment access-controller guacamole "${guac_owner}" ',"unavailableReplicas":1')" >"${TMP}/wl-guac.json"
+printf '{"items":[%s]}' "$(wl Deployment guacamole guacamole "${guac_owner}" ',"readyReplicas":1,"availableReplicas":1')" >"${TMP}/wl-ready.json"
+jq -e '.items | length == 2' "${TMP}/wl-guac.json" >/dev/null && jq -e '.items | length == 1' "${TMP}/wl-ready.json" >/dev/null || { echo "FAIL: the workload fixtures are not valid JSON"; exit 1; }
+printf 'bp-cert-manager\t1.4.0\nbp-guacamole\t0.2.66\nbp-huawei-evs-csi\t1.0.13\nbp-reflector\t1.0.2\n' >"${TMP}/pins-repair.tsv"
+evs_r='R HelmRelease/flux-system/bp-huawei-evs-csi: bp-huawei-evs-csi 1.0.12 (last attempted; deployed -) -> 1.0.13'
+guac_r="R Deployment/guacamole/access-controller: bp-guacamole 0.2.64 (last attempted; deployed 0.2.64) -> 0.2.66 (pinned by release/${CAND}; its release is HelmRelease/flux-system/bp-guacamole)"
+evs_rec="flux-system/bp-huawei-evs-csi=the delivery of ${CAND} moves bp-huawei-evs-csi 1.0.12 -> 1.0.13 (deployed -)"
+guac_rec="Deployment/guacamole/access-controller=the delivery of ${CAND} moves bp-guacamole 0.2.64 -> 0.2.66 (deployed 0.2.64)"
+# c7 <dir> <hr fixture> <wl fixture> <what>: a delivery of the repairing candidate that must pass.
+c7() {
+  d="${TMP}/$1"; mkdir -p "$d"
+  WL_FIXTURE="$3" run "$d" "$2" "${TMP}/pins-repair.tsv" yes
+  [ "$(rc_of "$d")" = 0 ] && pass "$4: the pre-flight passes" || fail "$4: the pre-flight refused the delivery (rc $(rc_of "$d")): $(grep -m1 FATAL "$d/out") $(grep '^  mid-roll: ' "$d/out" | tr '\n' ' ')"
+  [ -s "$d/pins.log" ] && pass "$4: it read the candidate's pins" || fail "$4: it did not read the candidate's pins"
+  grep -F 'settledRollOverrides' "$d/patch.log" >"$d/record" || true
+}
+c7 c7a "${TMP}/evs.json" "${TMP}/wl-ready.json" "bp-huawei-evs-csi between attempts (Ready=False RollbackFailed)"
+grep -qF "${evs_r}" "$d/out" && pass "it names bp-huawei-evs-csi with both versions" || fail "bp-huawei-evs-csi is not named with 1.0.12 and 1.0.13: $(grep -E '^  [RDN] ' "$d/out" | tr '\n' ' ')"
+grep -qF "${evs_rec}" "$d/record" && pass "the status ConfigMap records it as an R release" || fail "the record lacks: ${evs_rec}"
+c7 c7b "${TMP}/evs-running.json" "${TMP}/wl-ready.json" "bp-huawei-evs-csi while it runs its next attempt"
+grep -qF "${evs_r}" "$d/out" && pass "it names bp-huawei-evs-csi with both versions" || fail "bp-huawei-evs-csi is not named with 1.0.12 and 1.0.13"
+c7 c7c "${TMP}/kit-settled.json" "${TMP}/wl-guac.json" "the unready Deployment of bp-guacamole alone"
+grep -qF "${guac_r}" "$d/out" && pass "it names access-controller with both versions and its release" || fail "access-controller is not named: $(grep -E '^  [RDN] ' "$d/out" | tr '\n' ' ')"
+grep -qF "${guac_rec}" "$d/record" && pass "the status ConfigMap records it as an R release" || fail "the record lacks: ${guac_rec}"
+c7 c7d "${TMP}/evs.json" "${TMP}/wl-guac.json" "the measured Job: both together"
+grep -qF "${evs_r}" "$d/out" && grep -qF "${guac_r}" "$d/out" && pass "it names both" || fail "it does not name both: $(grep -E '^  [RDN] ' "$d/out" | tr '\n' ' ')"
+grep -qF "${evs_rec}" "$d/record" && grep -qF "${guac_rec}" "$d/record" && pass "the status ConfigMap records both" || fail "the record lacks one of the two: $(cat "$d/record")"
+grep -qF "env settled for the delivery of ${CAND}: 2 release(s)/workload(s) it repairs" "$d/out" && pass "it counts the two it repairs" || fail "it does not count the two it repairs"
+
+echo "[delivery-repairs] 8. the negatives: each stays FATAL"
+# c8 <dir> <hr fixture> <wl fixture> <pins> <delivery> <what> <offender>...: FATAL, each offender named mid-roll, nothing recorded.
+c8() {
+  d="${TMP}/$1"; what="$6"
+  mkdir -p "$d"
+  WL_FIXTURE="$3" run "$d" "$2" "$4" "$5"
+  midroll "$d"
+  shift 6
+  [ "$(rc_of "$d")" != 0 ] && pass "${what}: the pre-flight fails" || fail "${what}: the pre-flight passed"
+  for o in "$@"; do
+    grep -qF "mid-roll: ${o}" "$d/midroll" && pass "${what}: ${o} is named mid-roll" || fail "${what}: ${o} is not named mid-roll: $(tr '\n' ' ' <"$d/midroll")"
+  done
+  [ "$(grep -c . "$d/midroll")" = "$#" ] && pass "${what}: no other offender is named" || fail "${what}: it names: $(tr '\n' ' ' <"$d/midroll")"
+  grep -q '=' "$d/patch.log" && fail "${what}: a refused delivery recorded an exclusion" || pass "${what}: nothing is recorded"
+}
+sed 's/^bp-huawei-evs-csi\t1\.0\.13$/bp-huawei-evs-csi\t1.0.12/' "${TMP}/pins-repair.tsv" >"${TMP}/pins-evs-same.tsv"
+sed 's/^bp-guacamole\t0\.2\.66$/bp-guacamole\t0.2.64/' "${TMP}/pins-repair.tsv" >"${TMP}/pins-guac-same.tsv"
+grep -q "$(printf '^bp-huawei-evs-csi\t1.0.12$')" "${TMP}/pins-evs-same.tsv" && grep -q "$(printf '^bp-guacamole\t0.2.64$')" "${TMP}/pins-guac-same.tsv" \
+  || { echo "FAIL: could not build the same-version pins fixtures"; exit 1; }
+c8 c8a "${TMP}/evs.json" "${TMP}/wl-guac.json" "${TMP}/pins-evs-same.tsv" yes "the candidate pins bp-huawei-evs-csi 1.0.12" HelmRelease/flux-system/bp-huawei-evs-csi
+grep -qF 'N HelmRelease/flux-system/bp-huawei-evs-csi: the candidate pins bp-huawei-evs-csi 1.0.12, not a new version for it' "$d/out" \
+  && pass "it says why bp-huawei-evs-csi is not repaired" || fail "it does not say why bp-huawei-evs-csi is not repaired"
+c8 c8b "${TMP}/kit-settled.json" "${TMP}/wl-guac.json" "${TMP}/pins-guac-same.tsv" yes "the candidate pins bp-guacamole 0.2.64" Deployment/guacamole/access-controller
+grep -qF 'N Deployment/guacamole/access-controller: HelmRelease/flux-system/bp-guacamole owns it, and the candidate pins bp-guacamole 0.2.64, not a new version for it' "$d/out" \
+  && pass "it says why access-controller is not repaired" || fail "it does not say why access-controller is not repaired"
+# A kit release rolling for the first time to 1.0.12 that never failed; and one
+# whose failures belong to 1.0.11 and an earlier generation (Flux has not yet
+# taken the new desired state).
+jq '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedRevision":"1.0.11",
+     "history":[{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.11","status":"deployed","version":2}],
+     "conditions":[{"type":"Reconciling","status":"True","reason":"Progressing","message":"Running '"'"'upgrade'"'"' action with timeout of 15m0s"},{"type":"Ready","status":"Unknown","reason":"Progressing","message":"Running '"'"'upgrade'"'"' action with timeout of 15m0s"}]})' \
+  "${TMP}/evs.json" >"${TMP}/evs-first.json"
+jq '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedGeneration":2,"lastAttemptedRevision":"1.0.11","failures":3,"upgradeFailures":1,
+     "history":[{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.11","status":"failed","version":3},{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.10","status":"deployed","version":2}],
+     "conditions":[{"type":"Ready","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release huawei-evs-csi/huawei-evs-csi with chart bp-huawei-evs-csi@1.0.11: context deadline exceeded"}]})' \
+  "${TMP}/evs.json" >"${TMP}/evs-stale.json"
+jq -e 'all(.items[]; .status.conditions != null)' "${TMP}/evs-first.json" "${TMP}/evs-stale.json" >/dev/null || { echo "FAIL: could not build the never-failed fixtures"; exit 1; }
+c8 c8c "${TMP}/evs-first.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "a release rolling for the first time that never failed" HelmRelease/flux-system/bp-huawei-evs-csi
+grep -qE '^  [RD] ' "$d/out" && fail "a release that never failed was counted as repaired" || pass "nothing is counted as repaired"
+c8 c8d "${TMP}/evs-stale.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "failures of 1.0.11 and of an earlier generation" HelmRelease/flux-system/bp-huawei-evs-csi
+grep -qE '^  [RD] ' "$d/out" && fail "failures of an earlier version counted as failures of the desired one" || pass "nothing is counted as repaired"
+# An unready workload whose Helm release no kit release installs (an unlabelled
+# namespace is platform), and one without Helm ownership.
+printf '{"items":[%s]}' "$(wl StatefulSet keycloak delta-corp ',"annotations":{"meta.helm.sh/release-name":"keycloak","meta.helm.sh/release-namespace":"delta-corp"}' '')" >"${TMP}/wl-nokit.json"
+printf '{"items":[%s]}' "$(wl Deployment access-controller guacamole '' '')" >"${TMP}/wl-noowner.json"
+c8 c8e "${TMP}/kit-settled.json" "${TMP}/wl-nokit.json" "${TMP}/pins-repair.tsv" yes "a workload of no kit release" StatefulSet/delta-corp/keycloak
+grep -qF 'N StatefulSet/delta-corp/keycloak: its Helm release delta-corp/keycloak is no release of the kit' "$d/out" && pass "it says why" || fail "it does not say the release is no kit release"
+c8 c8f "${TMP}/kit-settled.json" "${TMP}/wl-noowner.json" "${TMP}/pins-repair.tsv" yes "a workload without Helm ownership" Deployment/guacamole/access-controller
+grep -qF 'N Deployment/guacamole/access-controller: it carries no Helm ownership' "$d/out" && pass "it says why" || fail "it does not say the workload carries no Helm ownership"
+c8 c8g "${TMP}/evs.json" "${TMP}/wl-guac.json" "${TMP}/pins-repair.tsv" no "no candidate (the first cutover)" HelmRelease/flux-system/bp-huawei-evs-csi Deployment/guacamole/access-controller
+[ -s "$d/pins.log" ] && fail "the first cutover read a candidate's pins" || pass "no candidate pins are read"
+grep -q 'delivery of' "$d/out" && fail "the first cutover speaks of a delivery" || pass "no delivery line"
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "delivery-repairs-stalled-release: ${FAILURES} failure(s)"; exit 1; fi

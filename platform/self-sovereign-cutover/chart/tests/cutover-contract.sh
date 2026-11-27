@@ -4765,7 +4765,7 @@ jq '.items[0].status = {"observedGeneration":5,"conditions":[{"type":"Ready","st
   "$TMP/c77/kit-stuck.json" > "$TMP/c77/kit-midroll.json"
 jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"refused upgrade, ticket 5391"}' \
   "$TMP/c77/kit-stuck.json" > "$TMP/c77/kit-override.json"
-c77_remedy_kit='[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled release its candidate repairs'
+c77_remedy_kit='[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled or failing release its candidate repairs'
 c77_remedy_reset='[harbor-prewarm]     - repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset'
 c77_remedy_off='[harbor-prewarm]     - or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false'
 # (11) A Kustomization-applied terminal offender alone: BLOCKS, never offers

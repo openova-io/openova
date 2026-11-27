@@ -423,6 +423,18 @@ if [ -n "${BASE_TREE}" ]; then
         mv "${TMP}/${t}.noks" "${TMP}/${t}.yaml"
       done
     fi
+    # And one more: a delivery's settled-roll pre-flight does not gate a kit release that keeps
+    # failing, nor an unready workload of a kit release, when the candidate changes its pin
+    # (SRP_DELIVERY_JQ), in EVERY topology: step 03 changes; not the follower gitea leg. While
+    # origin/main lacks SRP_DELIVERY_JQ, the step-03 document is left out of BOTH trees;
+    # tests/delivery-repairs-stalled-release.sh executes the change. The axis switches itself
+    # off once origin/main holds it.
+    if ! grep -q "SRP_DELIVERY_JQ='" "${TMP}/main.yaml"; then
+      for t in main off; do
+        awk '/^# Source: / {d = ($0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)} d != 1 {print}' "${TMP}/${t}.yaml" >"${TMP}/${t}.nofail"
+        mv "${TMP}/${t}.nofail" "${TMP}/${t}.yaml"
+      done
+    fi
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then

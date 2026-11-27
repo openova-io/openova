@@ -778,7 +778,8 @@ prewarm:
   # validation and the record of an override are unchanged.
   #
   # A DELIVERY (PUT /api/v1/sovereign/release: CANDIDATE set, UPSTREAM_BRANCH = release/<candidate>)
-  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ), that the kit applies (namespace
+  # does not gate a platform release that is terminal (SRP_TERMINAL_JQ) or failing (SRP_DELIVERY_JQ
+  # _failing), that the kit applies (namespace
   # flux-system, label kustomize.toolkit.fluxcd.io/name=bootstrap-kit: the pins name charts, and an
   # unlabelled namespace's bp-keycloak shares a kit chart name), when the candidate's kit pins
   # its chart at ONE version that is neither its desired, last attempted nor deployed one: the promote
@@ -787,6 +788,31 @@ prewarm:
   # override is. Standing two-region Sovereign, 25 Nov 2026: bp-powerdns 1.2.32 refused by a policy,
   # rolled back to 1.2.30, Stalled; the gate refused the candidate pinning the repair 1.2.33. The first
   # cutover is no delivery: its gate is unchanged.
+  #
+  # FAILING: not ready (Ready != True, or observedGeneration behind generation) and failed at least
+  # once at its desired version (spec.chart.spec.version), whether or not Flux has stalled it and also
+  # while it runs its next attempt: status failures, installFailures or upgradeFailures above 0, or Ready
+  # reason InstallFailed, UpgradeFailed, TestFailed, RollbackFailed, RollbackSucceeded, UninstallFailed or
+  # UninstallSucceeded, each only when lastAttemptedRevision (if set, digest dropped) is that version and
+  # lastAttemptedGeneration (if set) is the generation; or a newest history entry that failed at that
+  # version. A release rolling for the first time that never failed stays gated, as does one whose
+  # failures belong to an earlier version or generation.
+  #
+  # IN A DELIVERY the workload pass does not gate an unready platform Deployment or StatefulSet whose
+  # Helm ownership (annotations meta.helm.sh/release-name and meta.helm.sh/release-namespace) names the
+  # release of ONE kit HelmRelease (its spec.releaseName, else <targetNamespace>-<name> or <name>, in
+  # its targetNamespace, else its namespace; or a release of its status.history), not suspended, whose
+  # chart the candidate's kit pins at ONE version that is neither its desired, last attempted nor
+  # deployed one. It is named with both versions and the HelmRelease, and recorded as an R release is
+  # (key <Kind>/<namespace>/<name>). A workload without the ownership, of no kit release or of several,
+  # or whose release the candidate does not re-pin, stays gated and the gate says why.
+  #
+  # Standing two-region Sovereign, 27 Nov 2026: the gate refused the candidate pinning the repairs
+  # bp-huawei-evs-csi 1.0.13 and bp-guacamole 0.2.66, naming HelmRelease/flux-system/bp-huawei-evs-csi
+  # (failures 17, Ready=False RollbackFailed, between attempts Ready "Running 'upgrade' action", never
+  # Stalled, history all 1.0.12 failed) and Deployment/guacamole/access-controller of bp-guacamole
+  # (Ready=True at 0.2.64, the Pod without a pull secret). A failed delivery could not be repaired by
+  # the next delivery, nor rolled back by one.
   #
   # Phase A0 of step 03, word for word (#6004: a template's comments are stored in every
   # Helm release Secret; those of values.yaml are not):
@@ -932,6 +958,48 @@ prewarm:
   # needed — but a sovereign-admin who annotated one under the old
   # fail-closed contract would otherwise have that stale annotation
   # FATAL the whole cutover the moment the customer's app recovered.
+  #
+  # #6273 — the OWNERSHIP partition: an Organization's application release must
+  # not fail-close the Sovereign's cutover; a PLATFORM namespace offender still
+  # does. The label is a FIXED contract with the org-controller, like the
+  # override key above: core/controllers/organization/internal/gitops/
+  # manifests.go stamps openova.io/organization=<slug> on every Organization's
+  # host Namespace at every tier (pinned by org_namespace_invariant_4292_test.go),
+  # and kubeconfig_reconciler.go already lists namespaces by it. The predicate
+  # is POSITIVE, so fail-closed: an unlabelled namespace is platform and stays
+  # FATAL (hw296, 2026-08-13: 4 of 55 namespaces labelled; all 7 offenders in one).
+  #
+  # #6273 — SRP_ORG_NS_JQ, defined ONCE and consumed by ALL THREE jq sites (the override
+  # validation, the HelmRelease offender pass, and the workload
+  # `wl_pending` pass). Re-hand-rolling `index` at each site is how the
+  # two terminal classifiers drifted apart before #6253; and a partition
+  # applied to only one of the two passes fixes nothing, because the
+  # #5391 override annotation is HelmRelease-only — a workload offender's
+  # ONLY escape today is the whole-gate kill switch.
+  #
+  # SRP_DELIVERY_JQ — a delivery's FAILING release, an unready workload, and the kit release that
+  # owns a workload (A DELIVERY above). Definitions only, after SRP_TERMINAL_JQ (_cond);
+  # _wl_unready is also the workload pass's own test, so the two can never disagree.
+  #
+  # SRP_REPAIR_JQ — a delivery's repaired set (A DELIVERY above), over the gated releases:
+  # "R\t<ns>/<name>\t<chart>\t<from>\t<deployed>\t<to>" per terminal or failing release the
+  # candidate's pin ($pins: chart -> its versions) moves, "D\t<ns>/<name>\t<deps>" per dependent
+  # that waits on those alone, and "N\t<ns>/<name>\t<why>" per terminal or failing release the
+  # candidate does not change. No field is empty. The pins name charts, not releases: only a
+  # release the kit applies (flux-system, Kustomization bootstrap-kit) can be R.
+  #
+  # SRP_WL_REPAIR_JQ — a delivery's unready workloads (A DELIVERY above), over [HelmReleases,
+  # Deployments+StatefulSets]: "W\t<Kind>/<ns>/<name>\t<chart>\t<from>\t<deployed>\t<to>\t<ns>/<HelmRelease>"
+  # per platform workload whose Helm ownership names ONE kit release whose chart the candidate's
+  # pin moves, and "X\t<Kind>/<ns>/<name>\t<why>" per other one. No field is empty. A W row is
+  # printed and recorded as an R row is; an X row is printed as an N row is.
+  #
+  # #5391 — srp_kubectl_json: kubectl get "$@" -o json with a bounded retry; JSON on stdout,
+  # diagnostics on stderr. The gate must SEE the roll state to certify
+  # anything — a read failure returns 1 and the caller FATALs
+  # (fail-closed) instead of silently passing on an empty offender
+  # list (the assert-on-the-VALUE-not-the-KEY trap: the pre-#5391 gate
+  # PASSED whenever the kubectl read itself failed).
   settledRollPreflight:
     enabled: true
   # #5237 round 2 (Refs #5007 #3379) — PIN-AWARE prewarm: union the chart-
