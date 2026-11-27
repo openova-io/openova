@@ -11105,7 +11105,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-180, SOV-134]
-  after: [FND-191, CLD-102, CLD-103, CLD-104, CLD-106, CLD-109, CLD-111, CLD-112, CLD-113, SOV-030, SOV-137, SOV-175, SOV-242, SOV-322, SOV-323, SOV-341, NET-011, NET-071, NET-125, SVC-040, SVC-170, SVC-200, CTL-040, CTL-223, CTL-231, CTL-232, CTL-320, CTL-340, CTL-345, CTL-348, CTL-350, CTL-355, CMP-020, CMP-023, CMP-032, CMP-062, AIP-040, AIP-041, AIP-120, AIP-156, AIP-157]
+  after: [FND-191, CLD-102, CLD-103, CLD-104, CLD-106, CLD-109, CLD-111, CLD-112, CLD-113, SOV-030, SOV-137, SOV-175, SOV-242, SOV-322, SOV-323, SOV-341, NET-011, NET-071, NET-125, NET-191, SVC-040, SVC-170, SVC-200, CTL-040, CTL-223, CTL-231, CTL-232, CTL-320, CTL-340, CTL-345, CTL-348, CTL-350, CTL-355, CMP-020, CMP-023, CMP-032, CMP-062, AIP-040, AIP-041, AIP-120, AIP-156, AIP-157]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/**
   - products/catalyst/bootstrap/api/internal/handoverjwt/**
@@ -15646,7 +15646,7 @@ packages:
   dropped: false
   delivers: Bootstrap-kit slot 15b installs bp-secrets-store-csi 0.1.0, the Secrets Store CSI driver 1.6.2 with Secret sync off, hourly rotation and kubelet tokens of audience openbao; slot 08 runs the OpenBao CSI provider through the Harbor proxy; the provider's HMAC key Secret has its register entry; and the required gate check SEC-G08 proves on every region that a mounted canary is in no Secret object, that the driver cannot create a Secret and that another service account gets 403 on the canary path.
 - id: SEC-212
-  title: 'First-party proof: the marketplace API reads its signing secret from a mounted file'
+  title: 'First-party proof: the auth service reads its refresh-token signing secret from a mounted file'
   area: SEC
   epic: SEC-210
   type: new
@@ -15654,13 +15654,12 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-200, SEC-211]
-  after: [FND-011, FND-183, FND-184, CLD-030, CLD-106, CLD-113, SOV-035, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, NET-011, NET-080, SVC-040, SVC-060, SVC-190, SVC-205, CTL-150, CTL-333, BSS-040, AIP-120, AIP-153, INF-135, ACC-102, PRD-201]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SVC-040, CTL-330, CTL-333, BSS-040, ACC-102, PRD-201]
   touches:
-  - core/marketplace-api/internal/secretfile/
-  - core/marketplace-api/main.go
-  - products/catalyst/chart/templates/marketplace-api/
-  - products/catalyst/chart/Chart.yaml
-  - products/catalyst/chart/values.yaml
+  - core/services/auth/internal/secretfile/
+  - core/services/auth/main.go
+  - products/catalyst/chart/templates/org-services/auth.yaml
+  - products/catalyst/chart/templates/org-services/org-services-secrets.yaml
   - scripts/secret-guard-baselines/*.txt
   resources: []
   flips: []
@@ -15675,7 +15674,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Package secretfile; one chart-generated Secret and its random site replaced by a mounted value.
+  delivers: Package secretfile in the auth service's module; the chart-generated refresh-token signing value and its random site are replaced by a mounted value read from a file, with one writer and one reader; the Secret sme-secrets stays for its other keys.
 - id: SEC-213
   title: 'First Application proof: WordPress runs with its database password injected'
   area: SEC
@@ -16452,7 +16451,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-212, NET-221, NET-222, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -19261,24 +19260,37 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [NET-190, NET-172]
-  after: [SVC-040]
+  after: []
   touches:
   - core/controllers/organization/internal/controller/tenant_console_tls.go
+  - core/controllers/organization/internal/controller/tenant_console_tls_net191_test.go
+  - core/controllers/pkg/orglistener/orglistener.go
+  - core/controllers/pkg/orglistener/orglistener_test.go
   - products/catalyst/bootstrap/api/internal/handler/org_console_tls.go
+  - products/catalyst/bootstrap/api/internal/handler/org_console_tls_net191_test.go
+  - scripts/network-guards-baseline.tsv
   resources: []
   flips: [NET-G11]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "cat core/controllers/organization/internal/controller/tenant_console_tls.go products/catalyst/bootstrap/api/internal/handler/org_console_tls.go | grep -c '\"from\": \"All\"'"
+    expect: "4"
+  acceptance:
+  - id: A1
+    run: "cd core/controllers && o=\"$(NO_COLOR=1 go test -count=1 -v -run '^(TestReconcileTenantConsoleTLS_NET191_PairAdmitsOnlyItsOrganization|TestEnsureConsoleOrgListener_NET191_(RepairsAdmitAllInPlace|FollowsConsoleRouteNamespace)|TestAllowedRoutes_(SelectsTheTwoNamespacesByName|ReturnsAFreshValue))$' ./organization/internal/controller/ ./pkg/orglistener/)\" && test \"$(printf '%s\\n' \"$o\" | grep -cE '^--- PASS: (TestReconcileTenantConsoleTLS_NET191_PairAdmitsOnlyItsOrganization|TestEnsureConsoleOrgListener_NET191_(RepairsAdmitAllInPlace|FollowsConsoleRouteNamespace)|TestAllowedRoutes_(SelectsTheTwoNamespacesByName|ReturnsAFreshValue)) ')\" = 5"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && o=\"$(NO_COLOR=1 go test -count=1 -v -run '^TestEnsureOrgConsoleListener_NET191_PairAdmitsOnlyItsOrganization$' ./internal/handler/)\" && test \"$(printf '%s\\n' \"$o\" | grep -cE '^    --- PASS: TestEnsureOrgConsoleListener_NET191_PairAdmitsOnlyItsOrganization/(BSS_door_record|record_of_an_internal_Organization_CR) ')\" = 2"
+  - id: A3
+    run: "python3 scripts/check-network-guards.py check && test \"$(grep -c -F '\"from\": \"All\"' core/controllers/organization/internal/controller/tenant_console_tls.go)\" = 0 && test \"$(grep -c -F '\"from\": \"All\"' products/catalyst/bootstrap/api/internal/handler/org_console_tls.go)\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Four code sites select the Organization's namespace by name
+  delivers: Both listeners of an Organization's pair on the console Gateway admit HTTPRoutes only from the Organization's own namespace and from the namespace of its console route, by a selector on the namespace name label that both writers of the pair take from one shared package, and the organization controller repairs a pair that still admits every namespace in place.
 - id: NET-195
   title: 'Organization listener: client-certificate validation or TLS passthrough, by the outcome of PRD-050 (conditional, dropped until PRD-050 closes)'
   area: NET
@@ -20457,7 +20469,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-213, NET-221, NET-222, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-023, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, ACC-101, PRD-201, PRD-304]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-191, NET-212, NET-213, NET-221, NET-222, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-023, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, ACC-101, PRD-201, PRD-304]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -24597,7 +24609,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-180, CTL-201]
-  after: [CLD-114, SEC-205, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-170, NET-191, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_dns.go
@@ -24625,7 +24637,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-202]
-  after: [CLD-114, SEC-205, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-170, NET-191, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_keycloak.go
@@ -24653,7 +24665,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-203, SEC-095]
-  after: [CLD-114, SEC-205, NET-081, NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, SEC-205, NET-081, NET-170, NET-191, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - core/controllers/organization/internal/gitops/manifests.go
