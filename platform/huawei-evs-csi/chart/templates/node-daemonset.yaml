@@ -37,8 +37,16 @@ spec:
     matchLabels:
       app.kubernetes.io/name: bp-huawei-evs-csi
       app.kubernetes.io/component: node
+  # OnDelete: an upgrade changes the template and replaces NO Pod. The plugin
+  # stages each EVS volume (NodeStage, the kubelet's globalmount) in its own
+  # mount namespace, so a replaced Pod drops the globalmount of every volume
+  # attached to its node, and an EVS-backed Pod that restarts there stays
+  # ContainerCreating ("globalmount does not exist", exit 32; hw251, hw271)
+  # until the volume detaches. A node takes the new template only when its
+  # Pod is deleted after the node is drained (README "Upgrading the node
+  # plugin"); a new node gets it at once.
   updateStrategy:
-    type: RollingUpdate
+    type: OnDelete
   template:
     metadata:
       labels:

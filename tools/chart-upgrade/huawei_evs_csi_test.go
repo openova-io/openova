@@ -16,6 +16,7 @@ package chartupgrade
 // patch), and an upgrade by another Helm (Helm 4 applies on the server side).
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -69,18 +70,18 @@ func TestHuaweiEVSCSIAppliesOverEveryState(t *testing.T) {
 		}
 	})
 	t.Run("fresh install", func(t *testing.T) {
-		evsCheck(t, upgradeAll(t, nil, nil, next), next)
+		evsCheck(t, upgradeAll(t, nil, nil, next), nil, next)
 	})
 	for _, s := range evsStates {
 		t.Run(s.name, func(t *testing.T) {
-			evsCheck(t, upgradeAll(t, renders[s.deployed], renders[s.live], next), next)
+			evsCheck(t, upgradeAll(t, renders[s.deployed], renders[s.live], next), renders[s.live], next)
 		})
 	}
 }
 
-// evsCheck: the upgrade converges, and the registrar's probes are the exec
-// form on the plugin directory it mounts.
-func evsCheck(t *testing.T, outcomes map[string]Outcome, next map[string]Object) {
+// evsCheck: the upgrade converges, it replaces no node plugin Pod, and the
+// registrar's probes are the exec form on the plugin directory it mounts.
+func evsCheck(t *testing.T, outcomes map[string]Outcome, live, next map[string]Object) {
 	t.Helper()
 	converges(t, outcomes, next)
 	ds, ok := outcomes["DaemonSet/csi-evs-node"]
@@ -88,7 +89,48 @@ func evsCheck(t *testing.T, outcomes map[string]Outcome, next map[string]Object)
 		t.Fatal("the render has no DaemonSet/csi-evs-node")
 	}
 	if ds.Refusal == "" {
+		var before *Object
+		if o, ok := live["DaemonSet/csi-evs-node"]; ok {
+			before = &o
+		}
+		evsNoRoll(t, before, ds.Object)
 		evsRegistrar(t, ds.Object)
+	}
+}
+
+// evsNoRoll: after the patch the DaemonSet is OnDelete, so the DaemonSet
+// controller replaces no Pod whatever the patch did to the template. The plugin
+// stages each EVS volume in its own mount namespace, so a replaced Pod drops
+// the globalmount of every volume attached to its node and an EVS-backed Pod
+// that restarts there stays ContainerCreating (exit 32; hw251, hw271). It
+// reports whether the patch changed the pod template, which under RollingUpdate
+// would replace the node plugin on every node.
+func evsNoRoll(t *testing.T, live *Object, got Object) {
+	t.Helper()
+	var after appsv1.DaemonSet
+	if err := json.Unmarshal(got.JSON, &after); err != nil {
+		t.Fatal(err)
+	}
+	changed := false
+	if live != nil {
+		var before appsv1.DaemonSet
+		if err := json.Unmarshal(live.JSON, &before); err != nil {
+			t.Fatal(err)
+		}
+		b, err := json.Marshal(before.Spec.Template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := json.Marshal(after.Spec.Template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed = !bytes.Equal(a, b)
+	}
+	t.Logf("DaemonSet/csi-evs-node: the patch changes the pod template: %t; updateStrategy after it: %q", changed, after.Spec.UpdateStrategy.Type)
+	if after.Spec.UpdateStrategy.Type != appsv1.OnDeleteDaemonSetStrategyType {
+		t.Errorf("DaemonSet/csi-evs-node after the upgrade has updateStrategy %q, want %q: the controller replaces the node plugin Pods (template changed: %t) and each replaced Pod drops the stage mounts of the EVS volumes on its node",
+			after.Spec.UpdateStrategy.Type, appsv1.OnDeleteDaemonSetStrategyType, changed)
 	}
 }
 
