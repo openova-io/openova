@@ -1,89 +1,131 @@
+{{- /*
+One Axon in the primary region and none elsewhere (secondary true): two
+instances would be two refreshers of one login and two sets of parked runs, so
+the strategy is Recreate.
+
+Port 3000 serves the model contract (/v1/*), port 3001 the admin routes:
+/healthz (liveness: the event loop runs), /health (readiness: both listeners
+are up, whatever the credential state) and /stats.
+
+The root filesystem is read-only. HOME and TMPDIR are one memory-backed
+emptyDir: each child process gets an empty HOME below TMPDIR. The credential
+document is the CSI file /var/run/secrets/openova/model-credential, read once at
+start; the write-back logs in to OpenBao with the projected token of audience
+openbao at /var/run/secrets/openova-token/token.
+*/ -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: axon
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "axon.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ if .Values.secondary }}0{{ else }}1{{ end }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "axon.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "axon.selectorLabels" . | nindent 8 }}
+        {{- include "axon.labels" . | nindent 8 }}
     spec:
-      {{- if .Values.image.pullSecretName }}
+      serviceAccountName: axon
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        - name: {{ .Values.image.pullSecretName }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
-      initContainers:
-        - name: copy-credentials
-          image: busybox:1.36
-          command: ["sh", "-c", "cp /secret/.credentials.json /claude-home/ && chmod 600 /claude-home/.credentials.json && mkdir -p /claude-home/debug"]
-          volumeMounts:
-            - name: claude-auth-secret
-              mountPath: /secret
-              readOnly: true
-            - name: claude-home
-              mountPath: /claude-home
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1001
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: axon
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: {{ .Values.axon.port }}
+            - name: model
+              containerPort: 3000
+              protocol: TCP
+            - name: admin
+              containerPort: 3001
               protocol: TCP
           env:
             - name: HOME
               value: /home/axon
+            - name: TMPDIR
+              value: /home/axon
             - name: AXON_PORT
-              value: "{{ .Values.axon.port }}"
-            - name: AXON_DEFAULT_MODEL
-              value: "{{ .Values.axon.defaultModel }}"
-            - name: AXON_API_KEYS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.axon.existingSecret }}
-                  key: AXON_API_KEYS
+              value: "3000"
+            - name: AXON_ADMIN_PORT
+              value: "3001"
+            - name: AXON_MODEL_MAP
+              value: {{ toJson .Values.axon.modelMap | quote }}
+            - name: AXON_MAX_ACTIVE
+              value: {{ toString .Values.axon.maxActive | quote }}
+            - name: AXON_MAX_PARKED
+              value: {{ toString .Values.axon.maxParked | quote }}
+            - name: AXON_CREDENTIAL_FILE
+              value: /var/run/secrets/openova/model-credential
+            - name: AXON_CREDENTIAL_KV_PATH
+              value: {{ include "axon.credentialPath" . }}
+            - name: AXON_CREDENTIAL_ROLE
+              value: axon-credential
+            - name: OPENBAO_ADDR
+              value: {{ .Values.openbao.address | quote }}
           volumeMounts:
-            - name: claude-home
-              mountPath: /home/axon/.claude
+            - name: credential
+              mountPath: /var/run/secrets/openova
+              readOnly: true
+            - name: openbao-token
+              mountPath: /var/run/secrets/openova-token
+              readOnly: true
+            - name: home
+              mountPath: /home/axon
           resources:
-            {{- toYaml .Values.resources.axon | nindent 12 }}
-          # Liveness = process-death detection. /healthz returns 200
-          # whenever the Fastify event loop is alive, regardless of
-          # upstream state. Kubelet must NEVER restart the pod because
-          # an external dependency is degraded — that's readiness's job.
-          # Issue #2203: pointing liveness at /health caused 97 restarts
-          # in 6h08m when an upstream endpoint dropped TLS handshakes.
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: {{ include "axon.memoryMi" . }}Mi
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.axon.port }}
-            initialDelaySeconds: 30
+              port: admin
+            initialDelaySeconds: 10
             periodSeconds: 15
-          # Readiness = traffic gating. /health returns ok once the
-          # gateway serves; a failed readiness drops the pod from the
-          # Service endpoint without restarting it.
           readinessProbe:
             httpGet:
               path: /health
-              port: {{ .Values.axon.port }}
-            initialDelaySeconds: 10
+              port: admin
             periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            runAsNonRoot: true
-            runAsUser: 1001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
       volumes:
-        - name: claude-auth-secret
-          secret:
-            secretName: {{ .Values.axon.claudeAuthSecret }}
-        - name: claude-home
-          emptyDir: {}
+        - name: credential
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: axon
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: openbao
+                  expirationSeconds: 3600
+                  path: token
+        - name: home
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

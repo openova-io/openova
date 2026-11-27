@@ -1,0 +1,74 @@
+{{- /*
+The fence of Axon: it has no caller keys, so this policy is what keeps every
+other Pod off it. Rendered always; Cilium (kit slot 01) is a dependency of the
+slot.
+
+Ingress: port 3000 from the meter of the model gateway only (pods
+app.kubernetes.io/name=model-meter of namespace model-gateway, in any region of
+the mesh); port 3001 from catalyst-api only (namespace catalyst-system). The
+kubelet's probes and kubectl port-forward come from the node and are not
+judged by it.
+
+Egress: cluster DNS (through Cilium's DNS proxy, which the name rule below
+needs); OpenBao's servers on 8200 (the write-back); and egress.hosts by DNS
+name on 443. Nothing else.
+*/ -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: axon
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "axon.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "axon.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: model-gateway
+            k8s:app.kubernetes.io/name: model-meter
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: catalyst-system
+            k8s:app.kubernetes.io/name: catalyst-api
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: openbao
+            k8s:app.kubernetes.io/name: openbao
+            k8s:component: server
+      toPorts:
+        - ports:
+            - port: "8200"
+              protocol: TCP
+    - toFQDNs:
+        {{- range .Values.egress.hosts }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

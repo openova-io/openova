@@ -428,6 +428,9 @@ spec:
     # CNPG Cluster already lived host-side so the DB is undisturbed).
     - {file: 80-newapi.yaml, hr: bp-newapi, vcluster: host, target: host, namespace: newapi,
        justification: "#4291 DE-VCLUSTER §C — LLM gateway is a platform plane, not a tenant boundary; native host ns renders its own route/CNPG/seams (split collapsed, 80a retired) + per-component default-deny CNP (Refs #4293)"}
+    # ── bp-axon (82, AIP-106) — the simulation back end of the model plane ──
+    - {file: 82-bp-axon.yaml, hr: bp-axon, vcluster: host, target: host, namespace: axon,
+       justification: "AIP-106 — the model plane's simulation back end is a platform plane, not a tenant boundary; its own host namespace, fenced by the chart's CiliumNetworkPolicy (meter to 3000, catalyst-api to 3001)"}
 
     # ── bp-stalwart-sovereign (95, SOV-322) — the Sovereign's own mail server ──
     - {file: 95-bp-stalwart-sovereign.yaml, hr: bp-stalwart-sovereign, vcluster: host, target: host,

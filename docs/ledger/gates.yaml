@@ -329,12 +329,13 @@ checks:
 - id: AIP-G06
   title: Simulation back end installed, truthful and fenced
   owner: AIP
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Simulation back end installed, truthful and fenced
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g06.go
   implemented_by: AIP-106
   delivered_by: AIP-160
 - id: AIP-G07

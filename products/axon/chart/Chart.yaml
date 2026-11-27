@@ -1,16 +1,20 @@
 apiVersion: v2
-name: axon
-description: OpenAI-compatible API gateway backed by Claude Agent SDK
+name: bp-axon
+description: |
+  Catalyst Blueprint chart for Axon, the simulation back end of the model
+  plane (products/axon). It serves the model contract on port 3000 to the
+  model gateway's meter only, and its admin routes on port 3001. Kit slot 82
+  installs it in every region: one replica in the primary region, zero
+  elsewhere. The credential is a file mounted from OpenBao; the chart renders
+  no Secret object. See README.md.
 type: application
-# 0.1.2 (#6755): repin the token-refresh CronJob image bitnami/kubectl:1.30 ->
-# alpine/k8s:1.31.4 (Bitnami purged docker.io/bitnami/kubectl versioned tags).
 version: 0.1.9
-appVersion: "0.1.7"
+appVersion: "0.1.8"
 
-# Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
-# this chart legitimately ships only Catalyst-authored resources
-# (Deployment + Service). It is a product chart with NO upstream Helm subchart to
-# bundle. Same shape as bp-kyverno-policies (PR #2023) and bp-continuum
-# (PR #2081).
-annotations:
-  catalyst.openova.io/no-upstream: "true"
+# The library of the platform's secrets (SEC-200, SEC-201): its birth Job
+# creates the empty placeholder of the credential that the SecretProviderClass
+# mounts, so the Pod starts before the real document is stored.
+dependencies:
+  - name: secrets-lib
+    version: 0.1.0
+    repository: "file://../../../platform/secrets-lib/chart"

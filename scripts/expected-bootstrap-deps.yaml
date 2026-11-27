@@ -852,6 +852,14 @@ slots:
     depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
     wave: present
 
+  # ---- Slot 82 — bp-axon, the simulation back end of the model plane
+  # (AIP-106). bp-openbao holds the credential's mount and roles,
+  # bp-secrets-store-csi mounts it as a file, bp-cilium enforces the chart's
+  # CiliumNetworkPolicy and publishes its global Service. No slot depends on it.
+  - slot: 82
+    name: bp-axon
+    depends_on: [bp-openbao, bp-secrets-store-csi, bp-cilium]
+    wave: present
 
   # ---- Slot 95 — bp-stalwart-sovereign, the Sovereign's own mail server. It
   # sends the console's sign-in codes. The chart renders a cert-manager

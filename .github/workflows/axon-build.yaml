@@ -1,8 +1,24 @@
 name: Build Axon
 
+# Builds the Axon image (products/axon, the simulation back end of the model
+# plane) that the chart bp-axon of kit slot 82 runs by digest.
+#
+# Every run builds, tests and smoke-tests the image the way the chart runs it:
+# read-only root filesystem, HOME and TMPDIR on a memory-backed volume, and the
+# empty credential file of a fresh install. A push to main then pushes the image
+# under the short commit SHA (never `latest`: the chart pins the digest), signs
+# it, writes its digest into products/axon/chart/values.yaml (image.digest) in a
+# deploy commit, and dispatches blueprint-release.yaml, which publishes bp-axon
+# with that digest (oci://ghcr.io/openova-io/bp-axon).
+
 on:
   push:
-    paths: ['products/axon/**']
+    # A chart or document change cannot change the image, so it starts no build.
+    paths:
+      - 'products/axon/**'
+      - '!products/axon/chart/**'
+      - '!products/axon/**/*.md'
+      - '.github/workflows/axon-build.yaml'
     branches: [main]
   pull_request:
     paths: ['products/axon/**', '.github/workflows/axon-build.yaml']
@@ -14,13 +30,18 @@ env:
 
 permissions:
   contents: read
-  packages: write
-  # The step that signs the image needs a GitHub OIDC token (FND-062).
-  id-token: write
 
 jobs:
   build-axon:
     runs-on: ubuntu-latest
+    permissions:
+      # The deploy commit of the digest.
+      contents: write
+      packages: write
+      # The step that signs the image needs a GitHub OIDC token (FND-062).
+      id-token: write
+      # The dispatch of blueprint-release.yaml.
+      actions: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -39,7 +60,7 @@ jobs:
 
       - name: Set short SHA
         id: vars
-        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+        run: echo "sha_short=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
@@ -58,22 +79,39 @@ jobs:
           load: true
           tags: ${{ env.IMAGE }}:test
 
+      # The container as the chart runs it: read-only root, HOME and TMPDIR on a
+      # tmpfs (the emptyDir of medium Memory, mode 1777), and the credential
+      # file of a fresh install, which holds the empty placeholder. The admin
+      # port must serve the liveness and readiness routes, and /stats must
+      # report the credential state absent.
       - name: Smoke test
         run: |
-          # Verify container starts without crashing: the process stays
-          # alive (no import/build errors) without Claude auth.
-          docker run -d --name smoke \
-            -e AXON_API_KEYS=sk-smoke-test \
+          set -euo pipefail
+          cred="$(mktemp -d)"
+          : > "${cred}/model-credential"
+          chmod 0755 "${cred}"
+          chmod 0644 "${cred}/model-credential"
+          docker run -d --name smoke -p 127.0.0.1:13001:3001 \
+            --read-only --tmpfs /home/axon:rw,mode=1777 \
+            -e HOME=/home/axon -e TMPDIR=/home/axon \
+            -v "${cred}:/var/run/secrets/openova:ro" \
             ${{ env.IMAGE }}:test
-          sleep 5
-
-          if ! docker ps --filter "name=smoke" --filter "status=running" -q | grep -q .; then
-            echo "Container crashed:"
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:13001/health > /tmp/health.json 2>/dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::the admin port never answered GET /health"
             docker logs smoke
             exit 1
           fi
-          echo "Smoke test passed: container running"
-          docker stop smoke
+          jq -e '.status == "ok"' /tmp/health.json
+          curl -fsS http://127.0.0.1:13001/healthz | jq -e '.status == "alive"'
+          curl -fsS http://127.0.0.1:13001/stats | jq -e '.credential.state == "absent"'
+          docker logs smoke
+          docker rm -f smoke
+          echo "Smoke test passed: /healthz, /health and /stats on the admin port, read-only root"
 
       - name: Push image
         if: github.event_name != 'pull_request'
@@ -85,10 +123,9 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.IMAGE }}:latest
 
       # Sign the image and attest its bill of materials through the shared
-      # action, before its tag is pinned (FND-062).
+      # action, before its digest is pinned (FND-062).
       - name: Sign and attest the image
         if: github.event_name != 'pull_request'
         uses: ./.github/actions/sign-and-attest
@@ -97,3 +134,41 @@ jobs:
           digest: ${{ steps.push.outputs.digest }}
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      - name: Write the digest into products/axon/chart/values.yaml
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          VALUES=products/axon/chart/values.yaml
+          if ! printf '%s\n' "${DIGEST}" | grep -qxE 'sha256:[0-9a-f]{64}'; then
+            echo "::error::the push gave no digest (got '${DIGEST}')"
+            exit 1
+          fi
+          sed -i -E "s|^  digest: sha256:[0-9a-f]{64}$|  digest: ${DIGEST}|" "${VALUES}"
+          if [ "$(grep -c -x "  digest: ${DIGEST}" "${VALUES}")" != 1 ]; then
+            echo "::error::${VALUES} does not hold exactly one line image.digest ${DIGEST}"
+            exit 1
+          fi
+          grep -n -A3 '^image:' "${VALUES}"
+
+      - name: Commit and push the digest
+        id: deploy_commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: products/axon/chart/values.yaml
+          commit-message: "deploy: bump axon image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
+
+      - name: Dispatch blueprint-release for the chart
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=axon \
+            -f tree=products

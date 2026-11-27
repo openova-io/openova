@@ -142,6 +142,47 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
+  name: bp-axon
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 0.1.9
+  card:
+    title: Axon
+    summary: The simulation back end of the model plane — serves the model contract through the agent kit of a subscription login until the Sovereign's own models run.
+    description: One Axon per Sovereign, in its primary region, serves the model contract on port 3000 to the model gateway's meter only, and its admin routes on port 3001 to catalyst-api only. Its credential is a file mounted from OpenBao and refreshed by Axon alone; the chart renders no Secret object.
+    license: MIT
+    tags: [ai, model-plane, simulation]
+    docs: https://github.com/openova-io/openova/tree/main/products/axon
+  visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-axon
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-axon
+    version: 0.1.9
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+  multiInstance:
+    enabled: false
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
   name: bp-bge
   labels:
     catalyst.openova.io/managed-by: catalog-seed

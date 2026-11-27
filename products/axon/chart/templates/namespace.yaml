@@ -1,0 +1,16 @@
+{{- /*
+The release namespace (kit slot 82 installs into axon). Flux keeps the release
+record in the HelmRelease's own namespace, so the chart may create the
+namespace it installs into. Every Pod of the chart meets the restricted Pod
+Security Standard.
+*/ -}}
+{{- include "axon.validate" . }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-axon
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

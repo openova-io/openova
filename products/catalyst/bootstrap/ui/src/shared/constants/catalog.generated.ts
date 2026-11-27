@@ -251,6 +251,36 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-axon",
+    "slug": "axon",
+    "title": "Axon",
+    "summary": "The simulation back end of the model plane — serves the model contract through the agent kit of a subscription login until the Sovereign's own models run.",
+    "icon": null,
+    "tagline": null,
+    "tags": [
+      "ai",
+      "model-plane",
+      "simulation"
+    ],
+    "visibility": "unlisted",
+    "class": "ai-service",
+    "lifecycle": "experimental",
+    "version": "0.1.9",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {}
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-bge",
     "slug": "bge",
     "title": "Embeddings and reranker",
@@ -4856,6 +4886,7 @@ export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Objec
 export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/agenity/blueprint.yaml",
   "platform/alloy/blueprint.yaml",
+  "platform/axon/blueprint.yaml",
   "platform/bge/blueprint.yaml",
   "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
@@ -5298,6 +5329,14 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "newapi",
     "file": "80-newapi.yaml",
     "order": 80,
+    "ring": "ai"
+  },
+  {
+    "id": "bp-axon",
+    "slug": "axon",
+    "label": "axon",
+    "file": "82-bp-axon.yaml",
+    "order": 82,
     "ring": "ai"
   },
   {

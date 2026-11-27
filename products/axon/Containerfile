@@ -15,9 +15,10 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
-# Claude SDK needs .claude/ directory tree (auth + debug logs)
-RUN mkdir -p /home/axon/.claude/debug && chown -R axon:axon /home/axon/.claude
-
-USER axon
-EXPOSE 3000
+# The root filesystem is read-only in the chart (bp-axon): HOME and TMPDIR are a
+# memory-backed emptyDir at /home/axon, below which each child process gets an
+# empty HOME of its own. Port 3000 serves the model contract, port 3001 the
+# admin routes (/healthz, /health, /stats).
+USER 1001:1001
+EXPOSE 3000 3001
 CMD ["node", "dist/index.js"]

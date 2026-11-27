@@ -103,7 +103,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/vpa | bp-vpa | bp-vpa | unlisted | 29 |
 | platform/wordpress-tenant | bp-wordpress-tenant | bp-wordpress-tenant | listed | - |
 | products/agenity | bp-agenity | bp-agenity | listed | - |
-| products/axon | axon | - | - | - |
+| products/axon | bp-axon | bp-axon | unlisted | 82 |
 | products/catalyst | bp-catalyst-platform | bp-catalyst-platform | unlisted | 13 |
 | products/catalyst-migrator | - | - | - | - |
 | products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | unlisted | 13f |
