@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T11:00:03Z` |
+| Last refreshed | `2026-11-27T11:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T11:06 | [#8996](https://github.com/openova-io/openova/pull/8996) | #7087 | docs(ledger): plan update |
 | 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
 | 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:23 | [#8990](https://github.com/openova-io/openova/pull/8990) | #7087 | docs(ledger): plan update |
+| 2026-11-27T11:05 | [#8989](https://github.com/openova-io/openova/pull/8989) | #8980 | feat(openbao): PKI engine, internal issuer and mesh issuer i |
 | 2026-11-27T10:23 | [#8988](https://github.com/openova-io/openova/pull/8988) | #8983 | refactor(grafana): the sign-on client secret reaches Grafana |
 | 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T05:13 | [#8955](https://github.com/openova-io/openova/pull/8955) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:50 | [#8954](https://github.com/openova-io/openova/pull/8954) | #8952 | fix(conformance): the conformance run of a pull request inst |
 | 2026-11-27T10:18 | [#8953](https://github.com/openova-io/openova/pull/8953) | #8950 | chore(kyverno): delete the comment-only stub and the test-on |
-| 2026-11-27T05:00 | [#8951](https://github.com/openova-io/openova/pull/8951) | #7087 | docs(ledger): plan update |
-| 2026-11-27T04:49 | [#8949](https://github.com/openova-io/openova/pull/8949) | #7087 | docs(ledger): plan update |
 
 ---
 
