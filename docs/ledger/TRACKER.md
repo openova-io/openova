@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T17:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T17:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T17:18 | [#9048](https://github.com/openova-io/openova/pull/9048) | #7087 | docs(ledger): plan update |
 | 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
+| 2026-11-27T17:25 | [#9045](https://github.com/openova-io/openova/pull/9045) | #9043 | fix(kit): every kit slot that renders a SecretProviderClass  |
 | 2026-11-27T16:47 | [#9044](https://github.com/openova-io/openova/pull/9044) | #7087 | docs(ledger): plan update |
 | 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
 | 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T12:07 | [#9005](https://github.com/openova-io/openova/pull/9005) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:37 | [#9004](https://github.com/openova-io/openova/pull/9004) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:46 | [#9001](https://github.com/openova-io/openova/pull/9001) | #8858 | The access controller's image is not served by the Sovereign |
-| 2026-11-27T11:22 | [#9000](https://github.com/openova-io/openova/pull/9000) | #7087 | docs(ledger): plan update |
-| 2026-11-27T11:37 | [#8998](https://github.com/openova-io/openova/pull/8998) | #8894 | The disk driver's node registrar is killed by a probe it can |
 
 ---
 
