@@ -303,7 +303,7 @@ epics:
 - id: CMP-090
   title: 'Epic: scanner reports'
   wave: W2
-  packages: [CMP-089, CMP-091, CMP-088, CMP-092, CMP-093]
+  packages: [CMP-089, CMP-094, CMP-091, CMP-088, CMP-092, CMP-093]
 - id: CMP-100
   title: 'Epic: runtime'
   wave: W2
@@ -4246,6 +4246,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: When a run of the acceptance suite requests no journey, the three discovery steps that only the journeys need (the own Organization, its Environment over both regions, the Blueprint) are not run, and the subject of the run lists them as not requested; a run that requests a journey and a discover run are unchanged.
+- id: FND-132
+  title: The conformance run of a pull request installs the kit charts of that pull request
+  area: FND
+  epic: null
+  type: fix
+  wave: W1a
+  size: M
+  lane: GATE
+  depends_on: []
+  after: [FND-130, FND-155, CLD-087, CLD-089, CLD-091, CLD-093, SEC-154, CMP-079]
+  touches:
+  - .github/workflows/conformance-local.yaml
+  - scripts/local-pack.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The conformance run of a pull request installs the kit charts of that pull request, so a chart change that breaks a required check fails its own run and not main's (CMP-065 passed its conformance run and broke CMP-G02 on main for 2 hours 16 minutes once its chart was published). The package first states from the source which charts the local pack installs.
 - id: FND-141
   title: 'Flight workflow: one fresh installation with pre-flight and leftover sweep'
   area: FND
@@ -27102,6 +27129,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: GET /api/v1/sovereigns/{id}/compliance/policies takes the mode and metadata of each policy from the informer store of the policy kinds, so a policy the engine flipped to enforce is shown enforcing even when its event never reached the route; check CMP-G02 reads the namespaced policy kinds in every namespace and compares a listed <namespace>/<name> with the object of that name in that namespace.
+- id: CMP-024
+  title: The API's cache holds the namespaced policy kinds, and its fan-out never sends on a closed channel
+  area: CMP
+  epic: null
+  type: fix
+  wave: W2
+  size: S
+  lane: CONTROL
+  depends_on: []
+  after: [CMP-023, SVC-040, CMP-016, CMP-030, CMP-032, CMP-061, CMP-062, CMP-071, CMP-075]
+  touches:
+  - products/catalyst/bootstrap/api/internal/k8scache/**
+  - products/catalyst/bootstrap/api/internal/compliance/**
+  - products/catalyst/bootstrap/api/internal/handler/compliance.go
+  - tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
+  - tests/acceptance/sovereign/internal/suite/check_compliance_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The API's cache registers the namespaced policy kinds, so the policies route shows each per-Organization policy in the mode its object carries and CMP-G02 is no longer red on them; an unsubscribe no longer closes a channel the fan-out may still send on.
 - id: CMP-030
   title: 'Package internal/compliance: types and pure score functions'
   area: CMP
@@ -28479,6 +28536,33 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Screens S4, S6, S7; Pod vulnerability tab re-pointed
+- id: CMP-094
+  title: Vulnerability scanning produces reports in every region
+  area: CMP
+  epic: CMP-090
+  type: fix
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-089, FND-011, SOV-151, SOV-337, SVC-040, SVC-041, SVC-220, CTL-041]
+  touches:
+  - platform/trivy/chart/**
+  - clusters/_template/bootstrap-kit/30-trivy.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Vulnerability scanning produces VulnerabilityReports, SbomReports and ExposedSecretReports in every region, not in one region only: the package first finds the cause from the source (region a held none of the three with 307 Pods while region b held 132, 167 and 166) and repairs it in the chart or its kit slot.'
 - id: CMP-098
   title: Sensor to the current line
   area: CMP
@@ -29545,6 +29629,38 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Check BSS-G01 is required in the gate manifest, set only when the two newest gate records both pass it and both record price_list_state published.
+- id: BSS-071
+  title: Deleting an Organization from the storefront removes it and its namespaces in every region
+  area: BSS
+  epic: null
+  type: fix
+  wave: W0
+  size: M
+  lane: CONTROL
+  depends_on: []
+  after: [FND-089, FND-095, CLD-114, SEC-205, NET-032, NET-170, SVC-040, CTL-035, CTL-330, CTL-420, AIP-156, AIP-157]
+  touches:
+  - core/services/tenant/handlers/**
+  - products/catalyst/bootstrap/api/cmd/api/routes_organizations.go
+  - products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go
+  - products/catalyst/bootstrap/api/internal/handler/organization_provisioning_test.go
+  - core/controllers/organization/internal/controller/organization_controller.go
+  - core/controllers/organization/internal/controller/organization_controller_test.go
+  - core/controllers/organization/internal/controller/tenant_networking_teardown.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Deleting an Organization from the storefront removes the Organization and its namespaces in every region. The package first finds the cause from the source (the storefront''s delete route, the API''s delete route, the Organization controller''s removal): today the storefront''s delete answers 2xx, the Organization and its namespace stay in both regions after 10 minutes, and DELETE /api/v1/organizations/<id> answers 404.'
 - id: BSS-090
   title: The engine's bus client and outbox
   area: BSS

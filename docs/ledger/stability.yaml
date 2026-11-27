@@ -148,11 +148,13 @@ entries:
     class: thrashing
     change_policy: open
     paths:
-      - products/catalyst/chart/**
+      - products/catalyst/chart/Chart.yaml
+      - products/catalyst/chart/values.yaml
+      - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
     evidence:
-      date: 2026-11-13
+      date: 2026-11-27
       kind: churn
-      ref: "commit 8599f27c1, 90 days: 338 human commits, 66 fixes"
+      ref: "90 days before 27 November, release-writer and deploy commits left out: 174 human commits, 69 fixes; of 145 file touches by a fix, blueprints.yaml 49, Chart.yaml 44, values.yaml 6, no other file above 3 (ruling 194)"
   - id: api-handlers
     title: Catalyst API handlers
     class: thrashing
