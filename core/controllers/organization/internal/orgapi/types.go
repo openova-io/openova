@@ -207,6 +207,13 @@ type OrganizationTenantPublic struct {
 	// Surfaced on the access-matrix UI so operators can filter routes
 	// by installed product. Optional — empty just omits the label.
 	Product string `json:"product,omitempty"`
+
+	// PassthroughHosts (NET-195) are the leftmost labels of hosts
+	// <label>.<subdomain>.<parentDomain> that the console Gateway serves by
+	// TLS passthrough: the back end terminates TLS and verifies a client
+	// certificate itself (PRD-050, outcome B). Letters and digits only;
+	// "console" is never passed through. Empty for an Org that needs none.
+	PassthroughHosts []string `json:"passthroughHosts,omitempty"`
 }
 
 // OrganizationCostSource is one GitOps-declared external cost source
@@ -507,6 +514,9 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 	if s.CostSources != nil {
 		out.CostSources = make([]OrganizationCostSource, len(s.CostSources))
 		copy(out.CostSources, s.CostSources)
+	}
+	if s.TenantPublic.PassthroughHosts != nil {
+		out.TenantPublic.PassthroughHosts = append([]string(nil), s.TenantPublic.PassthroughHosts...)
 	}
 	if s.Commerce != nil {
 		c := *s.Commerce

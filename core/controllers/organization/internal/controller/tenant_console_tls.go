@@ -291,6 +291,10 @@ type orgConsoleTLSNames struct {
 	CertName     string // org-wildcard-tls-<slug>-<parent-dashed> (== secretName)
 	HTTPSName    string // console-https-<slug> — listener name
 	HTTPName     string // console-http-<slug>  — listener name
+
+	// PassthroughHosts — spec.tenantPublic.passthroughHosts: the host labels
+	// that get a TLS passthrough listener console-tls-<slug>-<label> (NET-195).
+	PassthroughHosts []string
 }
 
 // orgConsoleTLSNamesFor computes the deterministic per-Org names from a
@@ -480,6 +484,9 @@ func (r *Reconciler) reconcileOrgWildcardCert(ctx context.Context, org *orgapi.O
 // an Organization leaves tenantPublic.subdomain unset or sets it to spec.slug,
 // and the catalyst-api twin derives the same value the same way. A live
 // listener that still admits every namespace is drift and pass 1 repairs it.
+//
+// NET-195 — pass 3 writes the Org's TLS passthrough listeners
+// (orglistener.PassthroughListeners) in the same Update.
 func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Client, names orgConsoleTLSNames) (bool, error) {
 	gwNS := r.consoleGatewayNamespace()
 	gwName := r.consoleGatewayName()
@@ -578,9 +585,17 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Clie
 		changed = true
 	}
 
+	// Pass 3 (NET-195) — one TLS passthrough listener per host label of
+	// spec.tenantPublic.passthroughHosts, on the HTTPS port; a passthrough
+	// listener of this Org that the CR no longer lists is removed.
+	listeners, passthroughChanged := orglistener.MergePassthrough(listeners, names.Slug,
+		orglistener.PassthroughListeners(names.Slug, names.OrgZone, names.PassthroughHosts, httpsPort, r.consoleRouteNamespace()))
+	changed = changed || passthroughChanged
+
 	if !changed {
 		// Both listeners present AND already carrying the desired hostname,
-		// port, protocol and certificateRef — idempotent no-op.
+		// port, protocol and certificateRef, and the passthrough listeners as
+		// listed — idempotent no-op.
 		return false, nil
 	}
 
@@ -748,8 +763,11 @@ func (r *Reconciler) removeConsoleOrgListener(ctx context.Context, c client.Clie
 		}
 		kept = append(kept, l)
 	}
+	// NET-195 — and every TLS passthrough listener of the Org.
+	kept, passthroughRemoved := orglistener.MergePassthrough(kept, names.Slug, nil)
+	removed = removed || passthroughRemoved
 	if !removed {
-		// Neither per-Org listener present — idempotent no-op.
+		// No per-Org listener present — idempotent no-op.
 		return false, nil
 	}
 
