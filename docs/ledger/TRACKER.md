@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T14:45:03Z` |
+| Last refreshed | `2026-11-27T15:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8634](https://github.com/openova-io/openova/issues/8634) | SEC-190 Mounts, templated policies and generic roles | Other |
 | [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
 | [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
 | [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9013](https://github.com/openova-io/openova/issues/9013) | CMP-095 An owner of a customer Organization cannot grant into another Organizati | Other |
 | [#9015](https://github.com/openova-io/openova/issues/9015) | NET-195 Organization listener: client-certificate validation or TLS passthrough, | Other |
 | [#9032](https://github.com/openova-io/openova/issues/9032) | CMP-086 The access policy moves into the policy chart | Other |
+| [#9036](https://github.com/openova-io/openova/issues/9036) | SEC-196 Hand-over identity sovereign-ops | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T14:56 | [#9033](https://github.com/openova-io/openova/pull/9033) | #7087 | docs(ledger): plan update |
 | 2026-11-27T14:18 | [#9028](https://github.com/openova-io/openova/pull/9028) | #7087 | docs(ledger): plan update |
 | 2026-11-27T14:18 | [#9027](https://github.com/openova-io/openova/pull/9027) | #7087 | docs(ledger): plan update |
 | 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
 | 2026-11-27T09:02 | [#8985](https://github.com/openova-io/openova/pull/8985) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:36 | [#8984](https://github.com/openova-io/openova/pull/8984) | #8975 | docs(ledger): result of the lab test PRD-050, client certifi |
 
 ---
 
