@@ -257,3 +257,7 @@ platform/guacamole/chart/tests/secondary-retires-enroll-render.sh
 docs/topology-matrix.md
 platform/kyverno-policies/chart/templates/baseline/16-hubble-flows-seen.yaml
 products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml
+platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+platform/crossplane-claims/chart/tests/kyverno-test.yaml
+platform/crossplane-claims/chart/tests/fixtures/useraccess-boundary-fail-sample-cross-org.yaml
+platform/crossplane-claims/chart/tests/fixtures/useraccess-boundary-pass-sample-org.yaml

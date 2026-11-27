@@ -657,6 +657,38 @@ jobs:
       # a hardcoded `serviceMonitor.enabled: true` fails this gate and
       # the publish job dies BEFORE the OCI artifact is pushed (issue
       # #182).
+      #
+      # A chart test that runs tools/chart-upgrade (the upgrade patch Helm 3
+      # builds, a Go module) reads the charts of earlier releases from the
+      # history and needs the Go of that module. For such a chart only: the
+      # full history, then that Go. chart-tests-pr.yaml does the same at pull
+      # request time.
+      - name: Chart tests that run tools/chart-upgrade — the history and the Go they need
+        if: steps.chart.outputs.skip != 'true'
+        id: upgrade
+        run: |
+          set -euo pipefail
+          need=false
+          for f in "${{ matrix.path }}"/chart/tests/*.sh; do
+            if [ -f "$f" ] && grep -Fq "tools/chart-upgrade" "$f"; then need=true; fi
+          done
+          echo "need=${need}" >> "$GITHUB_OUTPUT"
+          if [ "$need" = false ]; then
+            echo "No chart test of ${{ matrix.path }} runs tools/chart-upgrade."
+            exit 0
+          fi
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --quiet --unshallow origin
+          fi
+          echo "The history holds $(git rev-list --count HEAD) commits."
+
+      - name: Set up the Go of tools/chart-upgrade
+        if: steps.chart.outputs.skip != 'true' && steps.upgrade.outputs.need == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/chart-upgrade/go.mod
+          cache-dependency-path: tools/chart-upgrade/go.sum
+
       - name: "Run chart integration tests (chart/tests/*.sh)"
         if: steps.chart.outputs.skip != 'true'
         id: chart_tests

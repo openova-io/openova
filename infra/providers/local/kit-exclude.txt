@@ -8,9 +8,13 @@
 # the pack's machines (4000m each; lab test CLD-055, docs/ledger/plan/spikes/CLD-055.md).
 # No release that the console needs depends on these. A later package that needs one of
 # them takes it out of this list and shows that the kit still fits.
+# bp-openbao left this list in SEC-218: slot 13 renders a SecretProviderClass, whose kind
+# slot 15b (bp-secrets-store-csi) installs, and slot 15b depends on bp-openbao. The fit,
+# measured on the secondary region, one machine: 3280m of 4000m requested in conformance
+# run 46000535054 (Gitea, 110m, not yet placed); bp-openbao adds 145m (server 100m, the
+# CSI provider 20m a node, three small Deployments 25m) and the driver 70m a node: 3605m.
 bp-external-secrets
 bp-harbor
-bp-openbao
 bp-powerdns
 bp-seaweedfs
 #

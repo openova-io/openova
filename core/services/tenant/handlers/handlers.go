@@ -43,7 +43,7 @@ var reservedSlugs = func() map[string]bool {
 		oci aws gcp azure contabo
 		rtz dmz mgt mgmt prod stg uat dev poc
 		monitoring ingress default edge platform org-services
-		alloy catalyst-system cert-manager chargeback cluster-autoscaler
+		alloy axon catalyst-system cert-manager chargeback cluster-autoscaler
 		cnpg cnpg-system coraza crossplane-system dragonfly external-dns
 		external-secrets-system falco flux-system grafana guacamole harbor
 		keycloak kube-system kyverno loki mimir nats-system newapi

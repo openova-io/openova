@@ -14,12 +14,10 @@ The render fails when a data file is missing or does not parse, and when a
 namespace of any exclude list under compliancePolicies has no reason in
 model/exemptions.yaml: "exemption <namespace> has no reason".
 
-A check whose valuesKey is not a block of compliancePolicies contributes no
-exemption: that is useraccess-boundary, whose policy is in the chart
-bp-crossplane-claims and excludes no namespace. The guard
+A check whose block has no exclude list (useraccess-boundary: a UserAccess
+has no namespace) contributes no exemption. The guard
 tools/guards/cmd/check-compliance-model holds that every check's valuesKey
-is a block that its own policy template reads, in this chart or in that one,
-and that a policy outside this chart excludes nothing.
+is a block of compliancePolicies that its own policy template reads.
 
 The object is release content: every installation of a release carries the
 same model, and nothing in values changes a weight.

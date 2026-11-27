@@ -1,9 +1,9 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: useraccess-boundary
   labels:
-    app.kubernetes.io/name: bp-crossplane-claims
+    app.kubernetes.io/name: bp-kyverno
     app.kubernetes.io/component: rbac-boundary-policy
     catalyst.openova.io/policy-tier: governance
     catalyst.openova.io/policy-domain: rbac
@@ -17,53 +17,49 @@ metadata:
       the management Organization with tier=owner. Permissive Audit by
       default; per-Sovereign overlay flips to Enforce.
 spec:
-  validationFailureAction: Audit
-  background: false  # admission-time only — boundary checks need request.userInfo
-  rules:
-    - name: deny-cross-org-grants
-      match:
-        any:
-          - resources:
-              kinds:
-                - UserAccess
-      preconditions:
-        all:
-          # Skip the rule when no openova.io/org scope is present: a
-          # global / Application-only grant doesn't cross Org boundaries
-          # (the Application-vs-Org partitioning lives in a sibling
-          # policy, slice U follow-up). Comparing the JMESPath `[0]`
-          # to a non-empty sentinel is the canonical Kyverno idiom for
-          # "this field is set".
-          - key: '{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] || ''__none__'' }}'
-            operator: NotEquals
-            value: __none__
-      validate:
-        message: >-
-          UserAccess crosses Organization boundaries: the request grants
-          access to Org `{{ request.object.spec.scopes[?key=="openova.io/org"].value | [0] }}`
-          but the requester is in Org
-          `{{ request.userInfo.extra."org" | [0] || '<unknown>' }}`
-          (tier `{{ request.userInfo.extra."tier" | [0] || '<unknown>' }}`).
-          Only the management Organization's owner (tier=owner in the
-          openova-internal Org) may sign cross-Org grants. Adjust the
-          scope's openova.io/org value to match your own Org or escalate
-          the grant to a management-Org owner.
-        deny:
-          conditions:
-            all:
-              # 1. The scope's Org differs from the requester's Org.
-              - key: '{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] }}'
-                operator: NotEquals
-                value: '{{ request.userInfo.extra."org" | [0] || ''__none__'' }}'
-              # 2. The requester is NOT a management-Org owner.
-              #    Two clauses ANDed: requester's org is NOT the
-              #    management-org slug AND/OR tier is not "owner". We
-              #    use `AnyIn` against a values-driven allowlist so
-              #    multiple management Orgs (e.g. openova-internal +
-              #    a partner SI) can sign cross-Org grants without
-              #    template edits.
-              - key: '{{ request.userInfo.extra."tier" | [0] || ''__none__'' }}'
-                operator: NotIn
-                value:
-                  - "owner"
-                  - "catalyst-owner"
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["access.openova.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["useraccesses"]
+  matchConditions:
+    - name: has-org-scope
+      expression: >-
+        object.?spec.?scopes.orValue([]).exists(s, s.?key.orValue('') == 'openova.io/org') &&
+        object.spec.scopes.filter(s, s.?key.orValue('') == 'openova.io/org')[0].?value.orValue('') != ''
+  variables:
+    - name: scopeOrg
+      expression: "object.spec.scopes.filter(s, s.?key.orValue('') == 'openova.io/org')[0].value"
+    - name: requesterOrgs
+      expression: "request.userInfo.?extra[?'org'].orValue([])"
+    - name: requesterTiers
+      expression: "request.userInfo.?extra[?'tier'].orValue([])"
+    - name: requesterOrg
+      expression: "size(variables.requesterOrgs) > 0 ? variables.requesterOrgs[0] : ''"
+    - name: requesterTier
+      expression: "size(variables.requesterTiers) > 0 ? variables.requesterTiers[0] : ''"
+    - name: managementOrgs
+      expression: "['openova-internal']"
+    - name: allowedTiers
+      expression: "['owner', 'catalyst-owner']"
+  validations:
+    - expression: >-
+        variables.scopeOrg == variables.requesterOrg ||
+        (variables.requesterOrg != '' && variables.requesterOrg in variables.managementOrgs &&
+        variables.requesterTier != '' && variables.requesterTier in variables.allowedTiers)
+      message: >-
+        UserAccess crosses Organization boundaries. Only the management
+        Organization's owner (tier=owner in the openova-internal Org) may
+        sign cross-Org grants. Adjust the scope's openova.io/org value to
+        match your own Org or escalate the grant to a management-Org owner.
+      messageExpression: >-
+        'UserAccess crosses Organization boundaries: the request grants access to Org `' +
+        variables.scopeOrg + '` but the requester is in Org `' +
+        (variables.requesterOrg != '' ? variables.requesterOrg : '<unknown>') + '` (tier `' +
+        (variables.requesterTier != '' ? variables.requesterTier : '<unknown>') +
+        "`). Only the management Organization's owner (tier=owner in the openova-internal Org) may sign cross-Org grants. Adjust the scope's openova.io/org value to match your own Org or escalate the grant to a management-Org owner."

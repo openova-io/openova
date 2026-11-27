@@ -866,6 +866,14 @@ func TestReleaseRunDeliversOneRegionThroughTheCandidatesMechanism(t *testing.T) 
 	if e := env(job.Spec.Template.Spec.Containers[0], "RELEASE_REGION"); e == nil || e.Value != "region-b" {
 		t.Fatalf("the delivery Job's promote has RELEASE_REGION %v, want region-b", e)
 	}
+	// Step 03's settled-roll gate reads the region: a delivery that does not
+	// promote the primary repairs none of the primary's releases.
+	if len(job.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("the delivery Job has %d init containers, want the prewarm alone", len(job.Spec.Template.Spec.InitContainers))
+	}
+	if e := env(job.Spec.Template.Spec.InitContainers[0], "RELEASE_REGION"); e == nil || e.Value != "region-b" {
+		t.Fatalf("the delivery Job's prewarm has RELEASE_REGION %v, want region-b", e)
+	}
 	if r.followerRef("main") != bStaged || r.remote("main") != f.main {
 		t.Fatalf("after the delivery: region b main %s (staged %s), primary main %s (want %s)", r.followerRef("main"), bStaged, r.remote("main"), f.main)
 	}

@@ -92,6 +92,12 @@ spec:
     # shape as bp-gitea/bp-harbor → bp-postgres-shared).
     - name: bp-postgres-shared-b
       namespace: flux-system
+    # bp-secrets-store-csi (SEC-218): the chart renders SecretProviderClass
+    # grafana-sso (SEC-344), a kind whose CRD slot 15b installs; without
+    # this edge the install races it and fails with `no matches for kind
+    # "SecretProviderClass"`. tools/guards/cmd/kit-spc-depends holds it.
+    - name: bp-secrets-store-csi
+      namespace: flux-system
   chart:
     spec:
       chart: bp-grafana

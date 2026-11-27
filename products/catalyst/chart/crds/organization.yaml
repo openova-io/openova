@@ -97,7 +97,7 @@ spec:
                       hetzner, huawei, hcloud-csi, huawei-evs-csi, oci, aws, gcp, azure, contabo,
                       rtz, dmz, mgt, mgmt, prod, stg, uat, dev, poc,
                       monitoring, ingress, default, edge, platform, org-services,
-                      alloy, catalyst-system, cert-manager, chargeback, cluster-autoscaler,
+                      alloy, axon, catalyst-system, cert-manager, chargeback, cluster-autoscaler,
                       cnpg, cnpg-system, coraza, crossplane-system, dragonfly, external-dns,
                       external-secrets-system, falco, flux-system, grafana, guacamole, harbor,
                       keycloak, kube-system, kyverno, loki, mimir, nats-system, newapi,
@@ -515,6 +515,19 @@ spec:
                         HTTPRoute labels (e.g. "wordpress", "nextcloud",
                         "gitlab"). Surfaced on the access-matrix UI for
                         per-product filtering. Optional.
+                    passthroughHosts:
+                      type: array
+                      maxItems: 4
+                      x-kubernetes-list-type: set
+                      description: |
+                        NET-195. Labels of hosts <label>.<subdomain>.<parentDomain>
+                        served by TLS passthrough (listener console-tls-<slug>-<label>,
+                        TLSRoutes only): the back end terminates TLS and verifies the
+                        client itself; no firewall in the path. "console" gets none.
+                        At most 4: a Gateway holds at most 64 listeners.
+                      items:
+                        type: string
+                        pattern: '^[a-z0-9]{1,63}$'
                   x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-preserve-unknown-fields: true
             status:

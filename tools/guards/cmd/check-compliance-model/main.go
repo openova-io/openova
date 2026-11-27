@@ -21,16 +21,12 @@
 //	M3  Every validating policy template has a check of its metadata.name, and every
 //	    check of source kyverno has exactly one such template. A validating policy
 //	    template is a document of kind ValidatingPolicy, or of kind ClusterPolicy with a
-//	    validate rule, in a file under templates/ of the policy chart or under
-//	    platform/crossplane-claims/chart/templates/policies/ (useraccess-boundary lives
-//	    there until CMP-066 moves it). Its metadata.name must be literal. A ClusterPolicy
-//	    whose rules only mutate or only verify images is not a check.
+//	    validate rule, in a file under templates/ of the policy chart (since CMP-086 no
+//	    policy of a check lives in another chart). Its metadata.name must be literal. A
+//	    ClusterPolicy whose rules only mutate or only verify images is not a check.
 //	M4  The valuesKey of a kyverno check names the values block its own template
-//	    reads: in the policy chart, a map under compliancePolicies of values.yaml and
-//	    the text .Values.compliancePolicies.<valuesKey>. in the template; in the claims
-//	    chart, the text .Values.<valuesKey>. in the template, and that template has no
-//	    exclude block (the model's exemptions are built from the policy chart's values
-//	    only, so a policy elsewhere must exempt nothing).
+//	    reads: a map under compliancePolicies of values.yaml and the text
+//	    .Values.compliancePolicies.<valuesKey>. in the template.
 //	M5  Every kyverno check has a suite tests/<check id>/kyverno-test.yaml in the policy
 //	    chart, or is listed in scripts/baselines/policy-suites.json. The list only falls:
 //	    an entry whose check has a suite, or that is not a kyverno check, is a finding.
@@ -83,7 +79,6 @@ const (
 	Values          = Chart + "/values.yaml"
 	Templates       = Chart + "/templates"
 	Suites          = Chart + "/tests"
-	ClaimsPolicies  = "platform/crossplane-claims/chart/templates/policies"
 	ModuleCRDs      = Chart + "/crds"
 	PlatformCRDs    = "products/catalyst/chart/crds"
 	SuitesBaseline  = "scripts/baselines/policy-suites.json"
@@ -194,7 +189,6 @@ type check struct {
 // policyTemplate is one validating policy document of a template file.
 type policyTemplate struct {
 	file, name, text string
-	inChart          bool
 }
 
 // Check judges the tree at root. It returns the findings, a summary of what it read,
@@ -430,7 +424,6 @@ var (
 	policyKind  = regexp.MustCompile(`(?m)^kind:[ \t]*(ClusterPolicy|ValidatingPolicy)[ \t]*$`)
 	metaName    = regexp.MustCompile(`(?m)^metadata:[ \t]*\n(?:[ \t]+.*\n|[ \t]*\n)*?  name:[ \t]*(.*?)[ \t]*$`)
 	validates   = regexp.MustCompile(`(?m)^[ \t]+validate:`)
-	excludes    = regexp.MustCompile(`(?m)^[ \t]+exclude:`)
 )
 
 // stripComments drops Helm comments and YAML comment lines.
@@ -451,39 +444,37 @@ func stripComments(text string) string {
 // which no check carries.
 func readPolicies(t tree) ([]policyTemplate, error) {
 	var out []policyTemplate
-	for _, dir := range []string{Templates, ClaimsPolicies} {
-		err := filepath.WalkDir(filepath.Join(t.root, dir), func(p string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
-				return nil
-			}
-			b, err := os.ReadFile(p) // #nosec G304 -- a file of the tree under judgement
-			if err != nil {
-				return err
-			}
-			rel, _ := filepath.Rel(t.root, p)
-			rel = filepath.ToSlash(rel)
-			for _, doc := range docSplit.Split(stripComments(string(b)), -1) {
-				k := policyKind.FindStringSubmatch(doc)
-				if k == nil || (k[1] == "ClusterPolicy" && !validates.MatchString(doc)) {
-					continue
-				}
-				name := ""
-				if m := metaName.FindStringSubmatch(doc); m != nil {
-					name = strings.Trim(m[1], `"'`)
-				}
-				if name == "" || strings.Contains(name, "{{") {
-					name = "<not literal: " + strings.TrimSpace(name) + ">"
-				}
-				out = append(out, policyTemplate{file: rel, name: name, text: doc, inChart: dir == Templates})
-			}
-			return nil
-		})
+	err := filepath.WalkDir(filepath.Join(t.root, Templates), func(p string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("%s cannot be read: %v", dir, err)
+			return err
 		}
+		if d.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
+			return nil
+		}
+		b, err := os.ReadFile(p) // #nosec G304 -- a file of the tree under judgement
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(t.root, p)
+		rel = filepath.ToSlash(rel)
+		for _, doc := range docSplit.Split(stripComments(string(b)), -1) {
+			k := policyKind.FindStringSubmatch(doc)
+			if k == nil || (k[1] == "ClusterPolicy" && !validates.MatchString(doc)) {
+				continue
+			}
+			name := ""
+			if m := metaName.FindStringSubmatch(doc); m != nil {
+				name = strings.Trim(m[1], `"'`)
+			}
+			if name == "" || strings.Contains(name, "{{") {
+				name = "<not literal: " + strings.TrimSpace(name) + ">"
+			}
+			out = append(out, policyTemplate{file: rel, name: name, text: doc})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s cannot be read: %v", Templates, err)
 	}
 	return out, nil
 }
@@ -515,20 +506,11 @@ func checkValuesKey(c check, p policyTemplate, blocks map[string]map[string]any,
 		add("M4", "the kyverno check %s has no valuesKey", c.ID)
 		return
 	}
-	if p.inChart {
-		if _, ok := blocks[c.ValuesKey]; !ok {
-			add("M4", "the check %s names valuesKey %s, which is no block under compliancePolicies of %s", c.ID, c.ValuesKey, Values)
-		}
-		if !strings.Contains(p.text, ".Values.compliancePolicies."+c.ValuesKey+".") {
-			add("M4", "the template %s of the check %s does not read .Values.compliancePolicies.%s", p.file, c.ID, c.ValuesKey)
-		}
-		return
+	if _, ok := blocks[c.ValuesKey]; !ok {
+		add("M4", "the check %s names valuesKey %s, which is no block under compliancePolicies of %s", c.ID, c.ValuesKey, Values)
 	}
-	if !strings.Contains(p.text, ".Values."+c.ValuesKey+".") {
-		add("M4", "the template %s of the check %s does not read .Values.%s", p.file, c.ID, c.ValuesKey)
-	}
-	if excludes.MatchString(p.text) {
-		add("M4", "the template %s of the check %s is outside %s and has an exclude block: the model cannot exempt what it excludes", p.file, c.ID, Chart)
+	if !strings.Contains(p.text, ".Values.compliancePolicies."+c.ValuesKey+".") {
+		add("M4", "the template %s of the check %s does not read .Values.compliancePolicies.%s", p.file, c.ID, c.ValuesKey)
 	}
 }
 

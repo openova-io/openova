@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T12:30:07Z` |
+| Last refreshed | `2026-11-27T17:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8618](https://github.com/openova-io/openova/issues/8618) | SEC-060 Keycloak secrets no longer computable | Other |
-| [#8634](https://github.com/openova-io/openova/issues/8634) | SEC-190 Mounts, templated policies and generic roles | Other |
-| [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
-| [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
-| [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
-| [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
 | [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
 | [#8667](https://github.com/openova-io/openova/issues/8667) | FND-183 Scheduled backups of the platform databases | Other |
 | [#8674](https://github.com/openova-io/openova/issues/8674) | CMP-032 The aggregator uses the package: subjects, one judge, seven results; dup | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#9010](https://github.com/openova-io/openova/issues/9010) | SEC-212 First-party proof: the auth service reads its refresh-token signing secr | Other |
 | [#9013](https://github.com/openova-io/openova/issues/9013) | CMP-095 An owner of a customer Organization cannot grant into another Organizati | Other |
 | [#9015](https://github.com/openova-io/openova/issues/9015) | NET-195 Organization listener: client-certificate validation or TLS passthrough, | Other |
+| [#9032](https://github.com/openova-io/openova/issues/9032) | CMP-086 The access policy moves into the policy chart | Other |
+| [#9036](https://github.com/openova-io/openova/issues/9036) | SEC-196 Hand-over identity sovereign-ops | Other |
+| [#9040](https://github.com/openova-io/openova/issues/9040) | AIP-115 No Organization can take the slug axon | Other |
+| [#9043](https://github.com/openova-io/openova/issues/9043) | SEC-218 Every kit slot whose chart renders a SecretProviderClass depends on bp-s | Other |
+| [#9047](https://github.com/openova-io/openova/issues/9047) | CMP-087 Gate check CMP-G06 after the move of the access policy | Other |
+| [#9049](https://github.com/openova-io/openova/issues/9049) | FND-134 A conformance run runs the pull request's own catalyst-api image | Other |
 
 ---
 
@@ -307,6 +307,29 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:47 | [#9044](https://github.com/openova-io/openova/pull/9044) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
+| 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
+| 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
+| 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
+| 2026-11-27T15:11 | [#9035](https://github.com/openova-io/openova/pull/9035) | #7087 | docs(ledger): plan update |
+| 2026-11-27T15:28 | [#9034](https://github.com/openova-io/openova/pull/9034) | #9032 | refactor(kyverno): the access policy moves into the policy c |
+| 2026-11-27T14:56 | [#9033](https://github.com/openova-io/openova/pull/9033) | #7087 | docs(ledger): plan update |
+| 2026-11-27T15:58 | [#9030](https://github.com/openova-io/openova/pull/9030) | #8998 | The repaired disk-driver chart cannot be applied over the fa |
+| 2026-11-27T14:18 | [#9028](https://github.com/openova-io/openova/pull/9028) | #7087 | docs(ledger): plan update |
+| 2026-11-27T14:18 | [#9027](https://github.com/openova-io/openova/pull/9027) | #7087 | docs(ledger): plan update |
+| 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
+| 2026-11-27T13:50 | [#9025](https://github.com/openova-io/openova/pull/9025) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:51 | [#9024](https://github.com/openova-io/openova/pull/9024) | #6004 | A delivery cannot repair a release that keeps failing, nor a |
+| 2026-11-27T13:31 | [#9023](https://github.com/openova-io/openova/pull/9023) | #7087 | docs(ledger): plan update |
+| 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
+| 2026-11-27T16:13 | [#9020](https://github.com/openova-io/openova/pull/9020) | #9015 | feat(network): hosts an Organization lists are served by TLS |
+| 2026-11-27T13:29 | [#9019](https://github.com/openova-io/openova/pull/9019) | #9013 | fix(crossplane-claims): an owner of a customer Organization  |
+| 2026-11-27T13:24 | [#9018](https://github.com/openova-io/openova/pull/9018) | #9009 | fix(payload-size): the size check of a pull request measures |
+| 2026-11-27T12:54 | [#9017](https://github.com/openova-io/openova/pull/9017) | #7087 | docs(ledger): plan update |
+| 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
+| 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:17 | [#9007](https://github.com/openova-io/openova/pull/9007) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:07 | [#9005](https://github.com/openova-io/openova/pull/9005) | #7087 | docs(ledger): plan update |
@@ -314,29 +337,6 @@ flowchart LR
 | 2026-11-27T11:46 | [#9001](https://github.com/openova-io/openova/pull/9001) | #8858 | The access controller's image is not served by the Sovereign |
 | 2026-11-27T11:22 | [#9000](https://github.com/openova-io/openova/pull/9000) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:37 | [#8998](https://github.com/openova-io/openova/pull/8998) | #8894 | The disk driver's node registrar is killed by a probe it can |
-| 2026-11-27T11:06 | [#8996](https://github.com/openova-io/openova/pull/8996) | #7087 | docs(ledger): plan update |
-| 2026-11-27T11:16 | [#8995](https://github.com/openova-io/openova/pull/8995) | #8973 | fix(conformance): the conformance run of a pull request inst |
-| 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
-| 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:23 | [#8990](https://github.com/openova-io/openova/pull/8990) | #7087 | docs(ledger): plan update |
-| 2026-11-27T11:05 | [#8989](https://github.com/openova-io/openova/pull/8989) | #8980 | feat(openbao): PKI engine, internal issuer and mesh issuer i |
-| 2026-11-27T10:23 | [#8988](https://github.com/openova-io/openova/pull/8988) | #8983 | refactor(grafana): the sign-on client secret reaches Grafana |
-| 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
-| 2026-11-27T09:02 | [#8985](https://github.com/openova-io/openova/pull/8985) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:36 | [#8984](https://github.com/openova-io/openova/pull/8984) | #8975 | docs(ledger): result of the lab test PRD-050, client certifi |
-| 2026-11-27T08:57 | [#8982](https://github.com/openova-io/openova/pull/8982) | #7087 | docs(ledger): plan update |
-| 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
-| 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
-| 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:46 | [#8973](https://github.com/openova-io/openova/pull/8973) | #8954 | revert: the conformance run installs changed kit charts from |
-| 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
-| 2026-11-27T10:38 | [#8971](https://github.com/openova-io/openova/pull/8971) | #8969 | refactor(catalyst): the umbrella chart depends on secrets-li |
-| 2026-11-27T10:27 | [#8970](https://github.com/openova-io/openova/pull/8970) | #8967 | feat(api): provides, requires, the contract format, the regi |
-| 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
-| 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
-| 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
 
 ---
 

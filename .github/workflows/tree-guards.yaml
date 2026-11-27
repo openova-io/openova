@@ -10,7 +10,7 @@
 #
 # The job needs a checkout of two commits, Python 3.12 with PyYAML, the Go of the module
 # tools/guards (set up from its go.mod, before the steps of its guards), bash and git, and
-# the Helm of the release for cronjob-jobs, edge-hosts and kit-policies, which render the kit (the yq and jq of the
+# the Helm of the release for cronjob-jobs, edge-hosts, kit-policies and kit-spc-depends, which render the kit (the yq and jq of the
 # runner; kit-policies also the kubectl of the runner, for its kustomize, and the Kyverno CLI of the
 # engine, which it installs), the Helm of blueprint-release.yaml for release-own-tree, and nothing else. A guard that needs another tool (Node), the Go of another module or a
 # secret, or that reads the pull request itself, runs elsewhere: go-lint.yaml,
@@ -500,6 +500,16 @@ jobs:
       - name: 'kit-policies | Every workload of the kit is admitted by the policies that enforce after the window, and every kind a policy matches or looks up is granted to its controller'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/kit-policies -kyverno "$RUNNER_TEMP/kyverno-cli/kyverno"
+      # kit-spc-depends renders every kit (the shared kit and each pack's own) at the values of
+      # each pack that applies it, in both region roles, under the same Helm and on the same
+      # dependency builds; it refuses a release that renders a SecretProviderClass without an edge
+      # to bp-secrets-store-csi, or in a kit that lacks that release or what it depends on (SEC-218).
+      - name: 'kit-spc-depends | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && KIT_SPC_DEPENDS_TOOLS=required go test -count=1 ./cmd/kit-spc-depends
+      - name: 'kit-spc-depends | Every kit release that renders a SecretProviderClass waits for bp-secrets-store-csi, and its kit holds that release and what it depends on'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/kit-spc-depends
       - name: 'coherence-credential | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./cmd/coherence-credential

@@ -43,7 +43,7 @@ access:
     # it after each build; while it is empty the chart renders no controller.
     image:
       repository: ghcr.io/openova-io/openova/access-controller
-      digest: "sha256:88284aa8685eb87cbc2eb831b6354de0e329e9862d78427e206cd3e892854704"
+      digest: "sha256:ef1c274f87f6c9d627d2bef5175bd515666f6c564588a68cc2082e9c42065fb5"
     # The login the Pod pulls its image with. After the cutover the node pulls
     # it from the Sovereign's own registry, project openova-io, which is
     # private and which the node has no login for; ghcr-pull, mirrored into

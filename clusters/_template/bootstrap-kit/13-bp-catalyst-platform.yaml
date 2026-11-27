@@ -106,6 +106,14 @@ spec:
     # unconditional-edge shape).
     - name: bp-postgres-shared-c
       namespace: flux-system
+    # bp-secrets-store-csi (SEC-218): SEC-212 gives the chart a
+    # SecretProviderClass (the auth Pod's refresh-token signing secret), a
+    # kind whose CRD slot 15b installs. Without this edge the install fails
+    # with `no matches for kind "SecretProviderClass"`, and in a kit without
+    # slot 15b the kind never arrives (the local pack, run 46000535054).
+    # tools/guards/cmd/kit-spc-depends holds the edge in every kit.
+    - name: bp-secrets-store-csi
+      namespace: flux-system
   chart:
     spec:
       chart: bp-catalyst-platform
@@ -1543,7 +1551,7 @@ spec:
       #   bp-wordpress-tenant 0.6.0 + regionLocalVolumes, bp-seaweedfs 1.3.1,
       #   bp-openbao 1.2.71, bp-self-sovereign-cutover 0.1.207, bp-reflector).
       #   Pin bumped to match.
-      version: 1.4.2384
+      version: 1.4.2395
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

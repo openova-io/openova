@@ -1,0 +1,11 @@
+# The requester of kyverno-test.yaml beside this file: a developer of the
+# management Organization openova-internal.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: management-developer
+userInfo:
+  username: dana@openova-internal.example
+  extra:
+    org: [openova-internal]
+    tier: [developer]

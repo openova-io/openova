@@ -8,11 +8,15 @@
 # in CI measured that number; the first place it was observable was a fresh
 # Sovereign's install.
 #
-# The sweep can only PACKAGE charts that vendor no upstream subcharts, so charts
-# declaring `dependencies:` are deferred, by name and by count, to the identical
-# check inside blueprint-release.yaml — which runs after `helm dependency build`
-# and BEFORE `helm push`, so nothing reaches GHCR unmeasured. A dependency-free
-# chart that fails to package is reported as an ERROR, never as a pass.
+# The sweep measures every chart before a merge (FND-208): a chart that declares
+# `dependencies:` is measured after `helm dependency update`, and a chart that
+# cannot be measured is an ERROR, never a pass. The two charts that cannot render
+# at their default values are named in scripts/baselines/payload-sweep.json, each
+# with the value it asks for, its reason and its day; the Go command payload-sweep
+# (tools/guards) runs the sweep without them, fails when a listed chart renders
+# again or the list holds a chart that is not on it at the first parent (the list
+# only shrinks: two commits are checked out), and blueprint-release.yaml still runs
+# the same check on each chart before `helm push`.
 #
 # --self-test runs first and always: it builds one over-budget and one
 # under-budget chart and asserts the gate returns 1 and 0 respectively. A size
@@ -26,6 +30,8 @@ on:
       - "products/*/chart/**"
       - "products/*/charts/*/**"
       - "scripts/check-helm-release-payload-size.py"
+      - "scripts/baselines/payload-sweep.json"
+      - "tools/guards/cmd/payload-sweep/**"
       - ".github/workflows/check-helm-release-payload-size.yaml"
   push:
     branches: [main]
@@ -34,6 +40,8 @@ on:
       - "products/*/chart/**"
       - "products/*/charts/*/**"
       - "scripts/check-helm-release-payload-size.py"
+      - "scripts/baselines/payload-sweep.json"
+      - "tools/guards/cmd/payload-sweep/**"
       - ".github/workflows/check-helm-release-payload-size.yaml"
 
 permissions:
@@ -42,9 +50,11 @@ permissions:
 jobs:
   guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: azure/setup-helm@v4
         with:
           # Same version blueprint-release.yaml publishes with, so the sweep
@@ -55,7 +65,13 @@ jobs:
           python-version: "3.12"
       - name: Install PyYAML
         run: pip install --quiet pyyaml
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
       - name: Self-test — the gate must go red over budget and green under it
         run: python3 scripts/check-helm-release-payload-size.py --self-test
-      - name: Every standalone-packageable chart stays under the 1 MiB ceiling
-        run: python3 scripts/check-helm-release-payload-size.py --all .
+      - name: Tests of payload-sweep (a listed chart that renders, a list that grows, an unlisted chart that cannot be measured each fail)
+        run: cd tools/guards && go test -count=1 ./cmd/payload-sweep
+      - name: Every chart stays under the 1 MiB ceiling; only the listed charts may not render, and the list only shrinks
+        run: cd tools/guards && go run ./cmd/payload-sweep --base HEAD^1

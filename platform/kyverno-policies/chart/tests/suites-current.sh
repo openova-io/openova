@@ -60,6 +60,7 @@ SUITES=(
   "app-label-mutate baseline/21-app-label-mutate.yaml"
   "flux-managed baseline/10-flux-managed.yaml"
   "forbid-nodeport-service baseline/24-forbid-nodeport-service.yaml"
+  "useraccess-boundary baseline/25-useraccess-boundary.yaml"
 )
 
 # A suite whose copy holds more than one policy is kept current by its own

@@ -238,12 +238,12 @@ def measure(chart_dir: str, values_files: list[str], release: str, namespace: st
 
 
 def declares_dependencies(chart_dir: str) -> bool:
-    """True when Chart.yaml declares upstream subcharts.
+    """True when Chart.yaml declares subcharts (a file://, https:// or oci:// source).
 
-    Such a chart cannot be packaged without `helm dependency build` (which needs
-    registry credentials), so a plain repo sweep cannot measure it. It is still
-    gated — blueprint-release.yaml runs this same check after it builds the
-    dependencies and before it pushes, so nothing reaches GHCR unmeasured.
+    It packages only with its dependencies in charts/, so --all first runs `helm
+    dependency update` (unlike `build`, no `helm repo add` needed beside a Chart.lock);
+    a failed update is an error, never a pass. One chart is measured as given, since
+    blueprint-release.yaml builds its dependencies before it runs this check.
     """
     with open(os.path.join(chart_dir, "Chart.yaml"), encoding="utf-8") as fh:
         for line in fh:
@@ -278,16 +278,16 @@ def discover_charts(root: str) -> list[str]:
 
 
 def sweep(root: str, budget_pct: float) -> int:
-    """Measure every chart that packages standalone; defer the rest, loudly."""
-    measured, deferred, over, broken, libraries = [], [], [], [], []
+    """Measure every chart; build the dependencies of one that declares them first."""
+    measured, over, broken, libraries = [], [], [], []
     budget = int(K8S_SECRET_LIMIT * budget_pct / 100.0)
     for chart in discover_charts(root):
         full = os.path.join(root, chart)
         if is_library_chart(full):
             libraries.append(chart)
             continue
-        if declares_dependencies(full):
-            deferred.append(chart)
+        if declares_dependencies(full) and (dep := subprocess.run(["helm", "dependency", "update", full], capture_output=True, text=True)).returncode:
+            broken.append((chart, "helm dependency update failed: " + " ".join(dep.stderr.split())))
             continue
         try:
             m = measure(full, [], "release", "default")
@@ -304,15 +304,15 @@ def sweep(root: str, budget_pct: float) -> int:
         flag = "OVER " if judged > budget else ("near " if pct >= NOTICE_PCT else "     ")
         print(f"  {flag}{judged:>9} bytes {pct:>6.2f}%  {chart}")
     print(f"\nmeasured {len(measured)} chart(s); "
-          f"{len(deferred)} deferred to blueprint-release (declare dependencies:); "
+          f"{sum(declares_dependencies(os.path.join(root, c)) for c, _ in measured)} of them after a dependency update; "
           f"{len(libraries)} library chart(s) skipped (never installed: {', '.join(libraries) or '-'})")
 
     if broken:
         for chart, why in broken:
             print(f"::error title=Chart could not be measured::{chart}: {why}",
                   file=sys.stderr)
-        print("A dependency-free chart that will not package is not a pass — fix it "
-              "or the payload ceiling goes unmeasured for that chart.", file=sys.stderr)
+        print("A chart whose dependencies will not build, or that will not package, is not "
+              "a pass — fix it or the payload ceiling goes unmeasured for that chart.", file=sys.stderr)
         return 1
     if over:
         for chart, judged in over:
@@ -382,7 +382,7 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true",
                     help="prove the gate goes red over budget and green under it")
     ap.add_argument("--all", metavar="REPO_ROOT", nargs="?", const=".",
-                    help="sweep every chart in the repo that packages standalone")
+                    help="sweep every chart in the repo, dependencies updated first")
     ap.add_argument("-f", "--values", action="append", default=[],
                     help="extra values file (repeatable) — pass the per-Sovereign "
                          "overlay to measure what a real install stores")

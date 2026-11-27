@@ -94,6 +94,24 @@ from the driver source (`pkg/config/cloud.go`, `pkg/utils/metadatas/metadata.go`
 | `default-class-hook.yaml` + `-rbac.yaml` | Post-install hook Job (+ scoped ClusterRole) promoting `evs-ssd` to cluster-default. Reuses the provisioner-agnostic flip logic from `bp-hcloud-csi`. |
 | `rbac.yaml` | ServiceAccounts + scoped ClusterRoles for the controller + node sidecars. |
 
+## Upgrading the node plugin
+
+The `csi-evs-node` DaemonSet is `updateStrategy: OnDelete`. The plugin stages
+each EVS volume (the kubelet's NodeStage `globalmount`) inside its own mount
+namespace, so replacing a node plugin Pod drops the stage mount of every EVS
+volume attached to that node; an EVS-backed Pod that restarts there then fails
+`globalmount does not exist` (exit 32) and stays `ContainerCreating` until the
+volume detaches (measured on hw251 and hw271; it is why the cutover never rolls
+this DaemonSet). A chart upgrade therefore updates the template and replaces no
+Pod. A node takes the new template one node at a time, per region:
+
+1. `kubectl cordon <node>` and `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`.
+2. Wait until no `VolumeAttachment` of `evs.csi.huaweicloud.com` names the node.
+3. `kubectl -n huawei-evs-csi delete pod <the csi-evs-node Pod on the node>` and wait until its replacement is Ready.
+4. `kubectl uncordon <node>`, then the next node.
+
+A node added later gets the new template at once.
+
 ## Provider gating
 
 The bootstrap-kit slot (`55b-bp-huawei-evs-csi.yaml`) is **default-suspended**

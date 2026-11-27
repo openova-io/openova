@@ -507,6 +507,28 @@ compliancePolicies:
     # deliberate, documented exception.
     excludeNamespaces: []
 
+  # A3 (EPIC-3 #1098) — templates/baseline/25-useraccess-boundary.yaml denies
+  # a cross-Organization UserAccess grant unless the requester is an owner of
+  # a management Organization. Moved here from platform/crossplane-claims (its
+  # values key userAccessBoundary there) by CMP-086. Audit by default, so a
+  # violation is reported and the grant still applies; action Enforce denies
+  # it once the bootstrap window is closed. managementOrgs: the Organizations
+  # whose members may sign a cross-Org grant; the requester's org claim must
+  # be one of them (default openova-internal; a Sovereign that delegates
+  # cross-Org signing to a partner adds that partner's Organization here).
+  # allowedCrossOrgTiers: the tiers such a member must hold (owner, and the
+  # Keycloak realm role catalyst-owner of EPIC-3 T2). A tier alone never
+  # suffices (CMP-095). An empty list fails the render. No namespace is
+  # excluded: UserAccess has none.
+  useraccessBoundary:
+    enabled: true
+    action: Audit
+    managementOrgs:
+      - openova-internal
+    allowedCrossOrgTiers:
+      - owner
+      - catalyst-owner
+
   # G98 (Refs #2644, 2026-06-01) — MUTATE policy that auto-stamps
   # `catalyst.openova.io/application` label on Pods cluster-wide.
   # Without this label, the Compliance scorecard's per-Application
