@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T15:30:05Z` |
+| Last refreshed | `2026-11-27T15:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
 | 2026-11-27T15:11 | [#9035](https://github.com/openova-io/openova/pull/9035) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:28 | [#9034](https://github.com/openova-io/openova/pull/9034) | #9032 | refactor(kyverno): the access policy moves into the policy c |
 | 2026-11-27T14:56 | [#9033](https://github.com/openova-io/openova/pull/9033) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T09:23 | [#8990](https://github.com/openova-io/openova/pull/8990) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:05 | [#8989](https://github.com/openova-io/openova/pull/8989) | #8980 | feat(openbao): PKI engine, internal issuer and mesh issuer i |
 | 2026-11-27T10:23 | [#8988](https://github.com/openova-io/openova/pull/8988) | #8983 | refactor(grafana): the sign-on client secret reaches Grafana |
-| 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
 
 ---
 
