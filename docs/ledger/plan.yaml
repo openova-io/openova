@@ -187,11 +187,11 @@ epics:
 - id: SOV-300
   title: 'EPIC: Standing tethers cut at bootstrap'
   wave: W1b
-  packages: [SOV-338, SOV-341, SOV-342, SOV-320, SOV-321, SOV-322, SOV-323, SOV-335, SOV-336, SOV-337, SOV-343, SOV-344, SOV-310, SOV-330, SOV-340, SOV-311]
+  packages: [SOV-338, SOV-341, SOV-342, SOV-320, SOV-321, SOV-322, SOV-323, SOV-335, SOV-336, SOV-337, SOV-343, SOV-344, SOV-310, SOV-340, SOV-330, SOV-311]
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
-  packages: [SOV-405, SOV-410, SOV-430, SOV-420, SOV-435, SOV-440, SOV-436, SOV-437, SOV-450]
+  packages: [SOV-430, SOV-405, SOV-410, SOV-420, SOV-435, SOV-440, SOV-436, SOV-437, SOV-450]
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
@@ -8221,7 +8221,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-121, CLD-125, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-155, SOV-161, SOV-163, SOV-170, SOV-171, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SOV-343, SEC-010, SEC-030, SEC-040, SEC-060, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-153, NET-172, NET-185, NET-190, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CTL-820, CMP-010, CMP-023, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-121, CLD-125, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-155, SOV-161, SOV-163, SOV-170, SOV-171, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SOV-343, SEC-010, SEC-030, SEC-040, SEC-060, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-153, NET-172, NET-185, NET-190, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CTL-820, CMP-010, CMP-023, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -10445,7 +10445,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-154, FND-182, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SOV-721, SEC-020, SEC-030, SEC-040, SEC-060, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-185, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, AIP-201, INF-050, INF-054, INF-060, ACC-010, ACC-102, ACC-103]
+  after: [SOV-154, FND-182, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SOV-721, SEC-020, SEC-030, SEC-040, SEC-060, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-185, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, AIP-201, INF-050, INF-054, INF-060, ACC-010, ACC-102, ACC-103]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -11465,7 +11465,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-155, SOV-161, SOV-163, SOV-175, SOV-190, SOV-231, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SOV-344, SOV-721, SEC-060, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, SEC-181, SEC-211, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [SOV-241, SOV-343, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-090, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-115, CLD-141, SOV-020, SOV-040, SOV-155, SOV-161, SOV-163, SOV-175, SOV-190, SOV-231, SOV-322, SOV-323, SOV-336, SOV-337, SOV-338, SOV-344, SOV-721, SEC-060, SEC-100, SEC-104, SEC-105, SEC-150, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -14753,7 +14753,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -14786,7 +14786,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -14819,7 +14819,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -15126,7 +15126,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-135, SEC-162, SEC-152]
-  after: [FND-011, FND-182, CLD-023, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-342, SEC-060, SEC-153, SEC-154, SEC-180, SEC-181, SEC-190, SEC-192, NET-020, NET-100, NET-110, NET-185, SVC-040, SVC-041, CTL-172, AIP-201, INF-060]
+  after: [FND-011, FND-182, CLD-023, CLD-090, CLD-092, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-342, SEC-060, SEC-153, SEC-154, SEC-180, SEC-181, SEC-190, SEC-192, SEC-250, NET-020, NET-100, NET-110, NET-185, SVC-040, SVC-041, CTL-172, AIP-201, INF-060]
   touches:
   - infra/providers/huawei/seal/main.tf
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -15463,7 +15463,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-080, SEC-095, SEC-190]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SVC-040, SVC-041]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SEC-250, SVC-040, SVC-041]
   touches:
   - platform/openbao/chart/templates/_config.tpl
   - platform/openbao/chart/tests/config-desired-render.sh
@@ -16446,29 +16446,36 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-120, SEC-190]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-172]
+  after: [FND-011]
   touches:
+  - clusters/_template/bootstrap-kit/08-openbao.yaml
+  - platform/cert-manager-issuers/chart/templates/clusterissuer-openbao-internal.yaml
+  - platform/cert-manager-issuers/chart/templates/tests/function-test.yaml
+  - platform/cert-manager-issuers/chart/tests/function-test-render.sh
   - platform/openbao/chart/templates/_config.tpl
-  - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/pki-bootstrap-job.yaml
   - platform/openbao/chart/tests/pki-render.sh
-  - platform/cert-manager-issuers/chart/templates/clusterissuer-openbao-internal.yaml
-  - clusters/_template/bootstrap-kit/08-openbao.yaml
-  - docs/ledger/gates.yaml
+  - platform/openbao/chart/values.yaml
   resources: []
   flips: [SEC-G09]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e platform/openbao/chart/templates/pki-bootstrap-job.yaml; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "out=\"$(NO_COLOR=1 bash platform/openbao/chart/tests/pki-render.sh platform/openbao/chart)\" && test \"$(grep -c -E '^  ok    ' <<<\"$out\")\" = 77 && test \"$(grep -c -E '^  ok    secondary: no (line names pki-root or pki-bootstrap|Job)$' <<<\"$out\")\" = 2 && test \"$(grep -c -E '^  ok    (openbao-internal|sovereign-mesh-ca) without the audience openbao is refused in the (primary|secondary) region$' <<<\"$out\")\" = 4"
+  - id: A2
+    run: "helm dependency build platform/openbao/chart > /dev/null && p=\"$(helm template openbao platform/openbao/chart --namespace openbao --set pki.enabled=true --set pki.domain=t1.example.test)\" && s=\"$(helm template openbao platform/openbao/chart --namespace openbao --set pki.enabled=true --set pki.regionRole=secondary --set pki.domain=t1.example.test)\" && test \"$(grep -c -E '^  name: openbao-pki-bootstrap-[0-9a-f]{10}$' <<<\"$p\")\" = 1 && test \"$(grep -c -F 'secrets-mount sys/mounts/pki-root' <<<\"$p\")\" = 1 && test \"$(grep -c -E 'pki-root|pki-bootstrap' <<<\"$s\")\" = 0 && test \"$(grep -c -F 'secrets-mount sys/mounts/pki' <<<\"$s\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The PKI engine, the internal issuer (ClusterIssuer openbao-internal) and the mesh issuer (role mesh, ClusterIssuer sovereign-mesh-ca) run in the primary region and on a Sovereign of one region, and the role cert-manager-pki accepts the audience openbao and the issuers' audiences, so cert-manager's token is not refused. A secondary region's issuers are SEC-252's, over the path spike SEC-251 names; until then SEC-G09, which this package flips, cannot pass on two regions.
+  delivers: With the value pki that kit slot 08 switches on, bp-openbao mounts pki/ in every region with the roles internal-server and mesh, policy pki-sign-internal and the auth role cert-manager-pki, which requires the audience openbao, and in the primary region also pki-root/ and Job openbao-pki-bootstrap-<hash>, which makes the Sovereign's root and the region's intermediate once; bp-cert-manager-issuers renders the ClusterIssuers openbao-internal and sovereign-mesh-ca, whose tokens carry that audience; a secondary region renders nothing that needs the primary region's OpenBao, its issuers are SEC-252's over the path spike SEC-251 names, and until then SEC-G09, which this package flips, cannot pass on two regions.
 - id: SEC-251
   title: 'Spike: how a secondary region''s OpenBao has its intermediate signed by the primary'
   area: SEC
@@ -16491,16 +16498,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/SEC-251.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-251.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/SEC-251.md | cut -d' ' -f1 | grep -qx 359f3e724d50231b55bbc23bc883834dad82613c46096d08e250f28e4e74d858"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'A record docs/ledger/plan/spikes/SEC-251.md names the path by which a secondary region''s OpenBao has its intermediate signed by the primary, what that path needs from the provisioning, and what a renewal does; candidates measured: the regions'' existing peer path (the peer trust of the OpenBao chart over the cluster mesh) and a name per region for OpenBao. The parent carrying the signing request at provisioning is refused in advance: a renewal after the hand-over would need the parent again.'
+  delivers: The repository holds the result of the spike that judged two paths by which a secondary region's OpenBao has its intermediate signed by the primary, recommends a name per region served by each region's own gateway, refuses the peer path over the cluster mesh, and states which answers were read, rendered or run.
 - id: SEC-252
   title: A secondary region's issuers are signed by the primary
   area: SEC
@@ -16632,7 +16639,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -16787,7 +16794,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -16820,7 +16827,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-213, SEC-231, SEC-280]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SVC-040, SVC-041, CTL-172]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-180, SEC-181, SEC-192, SEC-250, SVC-040, SVC-041, CTL-172]
   touches:
   - platform/openbao/chart/values.yaml
   - platform/openbao/chart/templates/_config.tpl
@@ -16912,7 +16919,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-250, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
@@ -20042,7 +20049,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-155, SOV-161, SOV-163, SOV-175, SOV-231, SOV-322, SOV-336, SOV-337, SOV-721, SEC-040, SEC-060, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, SEC-181, SEC-211, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-185, NET-190, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-133, CLD-141, SOV-020, SOV-155, SOV-161, SOV-163, SOV-175, SOV-231, SOV-322, SOV-336, SOV-337, SOV-721, SEC-040, SEC-060, SEC-100, SEC-104, SEC-150, SEC-152, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-153, NET-185, NET-190, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -20637,7 +20644,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-060, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-060, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/
   resources: []
@@ -20717,7 +20724,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SEC-060, SEC-100, SEC-104, SEC-154, SEC-162, SEC-181, SEC-211, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SEC-060, SEC-100, SEC-104, SEC-154, SEC-162, SEC-181, SEC-211, SEC-250, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
@@ -34990,7 +34997,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-132, INF-135, NET-150, SEC-190, SEC-211, SVC-275, INF-133]
-  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, SEC-180, SEC-181, SEC-200, NET-030, NET-040, CTL-041, CTL-172, CTL-346, INF-050]
+  after: [FND-011, SOV-151, SOV-175, SOV-322, SEC-080, SEC-104, SEC-180, SEC-181, SEC-200, SEC-250, NET-030, NET-040, CTL-041, CTL-172, CTL-346, INF-050]
   touches:
   - clusters/_template/bootstrap-kit/36-bp-machine-operations.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -39476,7 +39483,7 @@ packages:
   epic: null
   type: spike
   wave: W2
-  size: S
+  size: M
   lane: SPIKE
   depends_on: [NET-191]
   after: []
@@ -39502,7 +39509,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The repository holds the result of the lab test that asked whether the Organization's gateway listener can verify a client certificate and hand it to the back end in a header only the gateway sets, with outcome B (TLS passthrough, the back end terminates mutual TLS itself), the probe, scripts and output it ran, and for each answer whether it was read, rendered or run.
 - id: PRD-060
