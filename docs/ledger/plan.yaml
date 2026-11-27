@@ -6835,7 +6835,7 @@ packages:
   area: CLD
   epic: null
   type: refactor
-  wave: W1b
+  wave: W1a
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-040, CLD-080, CLD-087, FND-031]
@@ -16661,7 +16661,7 @@ packages:
   wave: W1a
   size: M
   lane: SUBSTRATE
-  depends_on: [SEC-251]
+  depends_on: [SEC-251, NET-184]
   after: [SEC-250, FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-211, SEC-344, SVC-040, SVC-041, SVC-130, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/_config.tpl
@@ -16684,7 +16684,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: A secondary region's OpenBao has its intermediate signed by the primary over the path spike SEC-251 names, and the secondary's internal and mesh issuers are issued from it, so gate check SEC-G09 passes on a Sovereign of two regions.
+  delivers: A secondary region's OpenBao has its intermediate signed by the primary over the path spike SEC-251 names, and the secondary's internal and mesh issuers are issued from it, so gate check SEC-G09 passes on a Sovereign of two regions. The signing routes are open to the peer regions only.
 - id: SEC-261
   title: Conformance test for External Secrets against OpenBao
   area: SEC
@@ -17063,8 +17063,8 @@ packages:
   wave: W2
   size: M
   lane: SUBSTRATE
-  depends_on: [SEC-162, SEC-211]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-250, SEC-344, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
+  depends_on: [SEC-162, SEC-211, SEC-252]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
@@ -17084,7 +17084,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Listener certificate from a bootstrap authority; every client on https.
+  delivers: 'Listener certificate from a bootstrap authority; every client on https. The roll step: the server StatefulSet updates OnDelete, and on a running Sovereign the clients switch to https before the first server Pod restarts; the ticket names the order in which servers and clients move to https and shows that no client is left dialling a scheme its server does not serve.'
 - id: SEC-335
   title: 'Spike: injection route for each upstream chart'
   area: SEC
@@ -19372,7 +19372,7 @@ packages:
   area: NET
   epic: NET-180
   type: new
-  wave: W2
+  wave: W1a
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-090, NET-011, NET-100, NET-132, NET-166]
@@ -19402,7 +19402,7 @@ packages:
   area: NET
   epic: NET-180
   type: fix
-  wave: W2
+  wave: W1a
   size: S
   lane: SUBSTRATE
   depends_on: [NET-181]
@@ -19429,7 +19429,7 @@ packages:
   area: NET
   epic: NET-180
   type: delete
-  wave: W2
+  wave: W1a
   size: S
   lane: SUBSTRATE
   depends_on: [NET-182]
@@ -19456,7 +19456,7 @@ packages:
   area: NET
   epic: NET-180
   type: new
-  wave: W2
+  wave: W1a
   size: M
   lane: SUBSTRATE
   depends_on: [NET-183]
