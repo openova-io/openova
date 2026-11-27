@@ -15646,7 +15646,7 @@ packages:
   dropped: false
   delivers: Bootstrap-kit slot 15b installs bp-secrets-store-csi 0.1.0, the Secrets Store CSI driver 1.6.2 with Secret sync off, hourly rotation and kubelet tokens of audience openbao; slot 08 runs the OpenBao CSI provider through the Harbor proxy; the provider's HMAC key Secret has its register entry; and the required gate check SEC-G08 proves on every region that a mounted canary is in no Secret object, that the driver cannot create a Secret and that another service account gets 403 on the canary path.
 - id: SEC-212
-  title: 'First-party proof: the marketplace API reads its signing secret from a mounted file'
+  title: 'First-party proof: the auth service reads its refresh-token signing secret from a mounted file'
   area: SEC
   epic: SEC-210
   type: new
@@ -15654,13 +15654,12 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-200, SEC-211]
-  after: [FND-011, FND-183, FND-184, CLD-030, CLD-106, CLD-113, SOV-035, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, NET-011, NET-080, SVC-040, SVC-060, SVC-190, SVC-205, CTL-150, CTL-333, BSS-040, AIP-120, AIP-153, INF-135, ACC-102, PRD-201]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SVC-040, CTL-330, CTL-333, BSS-040, ACC-102, PRD-201]
   touches:
-  - core/marketplace-api/internal/secretfile/
-  - core/marketplace-api/main.go
-  - products/catalyst/chart/templates/marketplace-api/
-  - products/catalyst/chart/Chart.yaml
-  - products/catalyst/chart/values.yaml
+  - core/services/auth/internal/secretfile/
+  - core/services/auth/main.go
+  - products/catalyst/chart/templates/org-services/auth.yaml
+  - products/catalyst/chart/templates/org-services/org-services-secrets.yaml
   - scripts/secret-guard-baselines/*.txt
   resources: []
   flips: []
@@ -15675,7 +15674,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Package secretfile; one chart-generated Secret and its random site replaced by a mounted value.
+  delivers: Package secretfile in the auth service's module; the chart-generated refresh-token signing value and its random site are replaced by a mounted value read from a file, with one writer and one reader; the Secret sme-secrets stays for its other keys.
 - id: SEC-213
   title: 'First Application proof: WordPress runs with its database password injected'
   area: SEC
