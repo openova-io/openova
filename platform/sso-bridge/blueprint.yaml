@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-sso-bridge
 spec:
-  version: 0.2.30
+  version: 0.2.31
   card:
     title: SSO Bridge
     summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
