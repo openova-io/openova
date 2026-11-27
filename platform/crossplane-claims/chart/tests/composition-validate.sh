@@ -28,8 +28,8 @@
 #   3e. None of the six deleted day-2 kinds renders (CLD-023).
 #   3d. UserAccess ships as a plain namespaced CRD and NO XUserAccess
 #      composite type is rendered anywhere.
-#   3f. An empty managementOrgs or allowedCrossOrgTiers of
-#      useraccess-boundary fails the render (CMP-095).
+#   3c. No Kyverno policy renders: useraccess-boundary is a policy of
+#      platform/kyverno-policies/chart since CMP-086.
 #   4. Each expected claim/CR kind is present in the render.
 #   5. Each XRC sample fixture under tests/fixtures/ refers to a kind that
 #      matches one of the rendered XRDs / CRDs.
@@ -172,32 +172,17 @@ if [ "$CLUSTERROLE_COUNT" -ne 8 ]; then
 fi
 echo "  PASS ($CLUSTERROLE_COUNT ClusterRoles)"
 
-echo "[composition-validate] Case 3c: render contains 1 ClusterPolicy (useraccess-boundary)"
-# EPIC-3 (#1098) slice A3 ships a single Kyverno ClusterPolicy. The
-# default (.Values.userAccessBoundary.enabled=true) renders it; per-
-# Sovereign overlays may flip it off in which case the count is 0.
-POLICY_COUNT="$(grep -c '^kind: ClusterPolicy$' "$TMP/render.yaml" || true)"
-if [ "$POLICY_COUNT" -ne 1 ]; then
-  echo "FAIL: expected 1 ClusterPolicy (useraccess-boundary), found $POLICY_COUNT" >&2
+echo "[composition-validate] Case 3c: render contains no Kyverno policy (useraccess-boundary moved, CMP-086)"
+# EPIC-3 (#1098) slice A3's policy useraccess-boundary is
+# templates/baseline/25-useraccess-boundary.yaml of
+# platform/kyverno-policies/chart since CMP-086; this chart renders no
+# policy of either Kyverno group.
+POLICY_COUNT="$(grep -c -E '^kind: (ClusterPolicy|Policy|ValidatingPolicy|MutatingPolicy)$' "$TMP/render.yaml" || true)"
+if [ "$POLICY_COUNT" -ne 0 ]; then
+  echo "FAIL: expected no Kyverno policy (useraccess-boundary is a policy of platform/kyverno-policies/chart), found $POLICY_COUNT" >&2
   exit 1
 fi
-echo "  PASS ($POLICY_COUNT ClusterPolicy)"
-
-echo "[composition-validate] Case 3f: an empty signer list of useraccess-boundary is refused at render (CMP-095)"
-# An empty list renders a policy the engine rejects and the Kyverno CLI's
-# test reports as passing, so the template must refuse it.
-for key in managementOrgs allowedCrossOrgTiers; do
-  if helm template smoke-cp . --skip-tests --set-json "userAccessBoundary.$key=[]" > /dev/null 2> "$TMP/empty-$key.err"; then
-    echo "FAIL: userAccessBoundary.$key=[] rendered; the template must refuse it" >&2
-    exit 1
-  fi
-  grep -q "userAccessBoundary.$key is empty" "$TMP/empty-$key.err" || {
-    echo "FAIL: userAccessBoundary.$key=[] failed for another reason:" >&2
-    cat "$TMP/empty-$key.err" >&2
-    exit 1
-  }
-done
-echo "  PASS (both empty lists refused)"
+echo "  PASS (no Kyverno policy)"
 
 echo "[composition-validate] Case 4: every expected CR kind is present"
 # CloudAdoption is the XRD claim kind; UserAccess is a plain CRD kind

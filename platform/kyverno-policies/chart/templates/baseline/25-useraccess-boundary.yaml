@@ -1,0 +1,123 @@
+{{/*
+K25 — useraccess-boundary (EPIC-3 #1098 slice A3; governance, permissive default).
+
+Denies a UserAccess grant (access.openova.io, a kind of
+platform/crossplane-claims) whose openova.io/org scope names another
+Organization than the requester's own, unless the requester is an owner of a
+management Organization: its Organization is one of managementOrgs and its
+tier one of allowedCrossOrgTiers. The contract per
+docs/EPICS-1-6-unified-design.md §6.6:
+
+  - A customer Org owner cannot grant access to a different customer Org's
+    resources.
+  - An internal-team Org owner cannot grant access to a customer Org user
+    (that is a federation concern, slice F).
+  - Only the management Org's owner may sign a cross-Org grant: the rare case
+    where a sub-contractor operates inside a customer's Sovereign during
+    emergency support.
+
+What is judged:
+
+  - A grant with no openova.io/org scope, or whose first openova.io/org scope
+    has an empty value, is not judged (a match condition): it crosses no
+    Organization.
+  - The scope's Organization is the value of the FIRST openova.io/org scope.
+    The requester's Organization and tier are the first value of the keys org
+    and tier of request.userInfo.extra (Keycloak's claims, mapped at the
+    admission webhook); a missing claim is the empty string, which is no
+    Organization and no tier of the lists.
+  - The grant is refused when the two Organizations differ and the requester's
+    Organization is not in managementOrgs or its tier is not in
+    allowedCrossOrgTiers (CMP-095): a tier alone never suffices.
+
+An empty managementOrgs or allowedCrossOrgTiers leaves no one who may sign a
+cross-Org grant, so the render refuses it (CMP-095).
+
+Admission only (background off, as before): the verdict needs the requester,
+which a background scan does not have. So the reports controller needs no
+read of useraccesses (tests/apicall-rbac-correspondence.sh).
+
+A ValidatingPolicy of policies.kyverno.io since CMP-086, which moved it here
+from platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+(a legacy ClusterPolicy with one rule, deny-cross-org-grants, values key
+userAccessBoundary of that chart). Its name, its annotations and its labels
+are kept, except app.kubernetes.io/name, which names this chart's policies
+(bp-kyverno) as on every policy here. The action follows the chart's
+bootstrap window (bp-kyverno-policies.actions), as every policy here. tests/
+useraccess-boundary holds its suite: the same resources and verdicts as on the
+legacy render, as a developer and an owner of a customer Organization and as
+a developer and an owner of the management Organization.
+*/}}
+{{- if .Values.compliancePolicies.useraccessBoundary.enabled -}}
+{{- if not .Values.compliancePolicies.useraccessBoundary.managementOrgs -}}
+{{- fail "compliancePolicies.useraccessBoundary.managementOrgs is empty: name the management Organization whose owner may sign a cross-Org grant" -}}
+{{- end -}}
+{{- if not .Values.compliancePolicies.useraccessBoundary.allowedCrossOrgTiers -}}
+{{- fail "compliancePolicies.useraccessBoundary.allowedCrossOrgTiers is empty: name the tier that may sign a cross-Org grant" -}}
+{{- end -}}
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: useraccess-boundary
+  labels:
+    app.kubernetes.io/name: bp-kyverno
+    app.kubernetes.io/component: rbac-boundary-policy
+    catalyst.openova.io/policy-tier: governance
+    catalyst.openova.io/policy-domain: rbac
+  annotations:
+    policies.kyverno.io/title: Internal-vs-customer Org boundary on UserAccess
+    policies.kyverno.io/category: catalyst-rbac
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Denies UserAccess CRs whose openova.io/org scope differs from the
+      requesting user's org claim, unless the requester is a member of
+      the management Organization with tier=owner. Permissive Audit by
+      default; per-Sovereign overlay flips to Enforce.
+spec:
+  validationActions: {{ include "bp-kyverno-policies.actions" (dict "ctx" . "policy" .Values.compliancePolicies.useraccessBoundary.action) }}
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["access.openova.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["useraccesses"]
+  matchConditions:
+    - name: has-org-scope
+      expression: >-
+        object.?spec.?scopes.orValue([]).exists(s, s.?key.orValue('') == 'openova.io/org') &&
+        object.spec.scopes.filter(s, s.?key.orValue('') == 'openova.io/org')[0].?value.orValue('') != ''
+  variables:
+    - name: scopeOrg
+      expression: "object.spec.scopes.filter(s, s.?key.orValue('') == 'openova.io/org')[0].value"
+    - name: requesterOrgs
+      expression: "request.userInfo.?extra[?'org'].orValue([])"
+    - name: requesterTiers
+      expression: "request.userInfo.?extra[?'tier'].orValue([])"
+    - name: requesterOrg
+      expression: "size(variables.requesterOrgs) > 0 ? variables.requesterOrgs[0] : ''"
+    - name: requesterTier
+      expression: "size(variables.requesterTiers) > 0 ? variables.requesterTiers[0] : ''"
+    - name: managementOrgs
+      expression: "[{{ range $i, $o := .Values.compliancePolicies.useraccessBoundary.managementOrgs }}{{ if $i }}, {{ end }}'{{ $o }}'{{ end }}]"
+    - name: allowedTiers
+      expression: "[{{ range $i, $t := .Values.compliancePolicies.useraccessBoundary.allowedCrossOrgTiers }}{{ if $i }}, {{ end }}'{{ $t }}'{{ end }}]"
+  validations:
+    - expression: >-
+        variables.scopeOrg == variables.requesterOrg ||
+        (variables.requesterOrg != '' && variables.requesterOrg in variables.managementOrgs &&
+        variables.requesterTier != '' && variables.requesterTier in variables.allowedTiers)
+      message: >-
+        UserAccess crosses Organization boundaries. Only the management
+        Organization's owner (tier=owner in the openova-internal Org) may
+        sign cross-Org grants. Adjust the scope's openova.io/org value to
+        match your own Org or escalate the grant to a management-Org owner.
+      messageExpression: >-
+        'UserAccess crosses Organization boundaries: the request grants access to Org `' +
+        variables.scopeOrg + '` but the requester is in Org `' +
+        (variables.requesterOrg != '' ? variables.requesterOrg : '<unknown>') + '` (tier `' +
+        (variables.requesterTier != '' ? variables.requesterTier : '<unknown>') +
+        "`). Only the management Organization's owner (tier=owner in the openova-internal Org) may sign cross-Org grants. Adjust the scope's openova.io/org value to match your own Org or escalate the grant to a management-Org owner."
+{{- end -}}

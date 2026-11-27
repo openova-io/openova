@@ -84,7 +84,7 @@ for key in multiReplica pdb topologySpread probesPresent resourceRequests resour
            hpaEffective ciliumL7Mtls fluxManaged harborProxyPull imageTagPinned prometheusScrape \
            networkpolicyPresent otelInjected runAsNonRootReadonlyRootFs cosignVerified \
            secretNotInEnv backupConfigured appLabelMutate substrateOnHost forbidLocalPath \
-           forbidNodePortService ciliumEnforcedLabelMutate injectGiteaSourceSecretRef; do
+           forbidNodePortService useraccessBoundary ciliumEnforcedLabelMutate injectGiteaSourceSecretRef; do
   printf -- '--set\ncompliancePolicies.%s.enabled=false\n' "$key" >> "$TMP/off.yaml"
 done
 mapfile -t off < "$TMP/off.yaml"

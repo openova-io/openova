@@ -252,31 +252,7 @@ tierActions:
         resources: [organizations]
         verbs: [create, delete]
 
-# A3 — UserAccess boundary validator (EPIC-3 #1098). Kyverno
-# ClusterPolicy at templates/policies/userAccess-boundary.yaml denies
-# cross-Organization UserAccess grants unless the requester is a
-# member of the management Org with tier=owner.
-#
-# Default Audit (permissive) so the rule surfaces violations to the
-# UI's policy report without blocking the apply. Per-Sovereign overlay
-# flips to Enforce when an Org owner is ready to harden the boundary.
-#
-# managementOrgs: the Organizations whose members may sign a cross-Org
-# grant; the requester's org claim must be one of them. The default is
-# the management Organization `openova-internal`; when corporate
-# Sovereigns delegate cross-Org signing to a partner SI, append the
-# SI's Organization here.
-#
-# allowedCrossOrgTiers: realm-role names that a member of a
-# managementOrgs Organization must hold to sign a cross-Org grant. The
-# default is `owner` (matches the EPIC-3 T2 Keycloak realm role
-# `catalyst-owner`). A tier alone never suffices: an owner of a
-# customer Organization cannot grant into another Organization.
-userAccessBoundary:
-  enabled: true
-  action: Audit
-  managementOrgs:
-    - openova-internal
-  allowedCrossOrgTiers:
-    - owner
-    - catalyst-owner
+# A3 — the UserAccess boundary policy (EPIC-3 #1098) is
+# platform/kyverno-policies/chart/templates/baseline/25-useraccess-boundary.yaml,
+# values compliancePolicies.useraccessBoundary of that chart (moved there
+# from this chart's templates/policies/ by CMP-086).

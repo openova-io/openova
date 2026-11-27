@@ -2,7 +2,6 @@
   "allow": [],
   "counts": {
     "legacy_policy_objects": {
-      "platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml": 1,
       "platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml": 1
     }
   },

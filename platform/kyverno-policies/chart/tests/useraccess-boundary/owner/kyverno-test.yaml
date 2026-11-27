@@ -15,17 +15,17 @@ resources:
 userinfo: user-info.yaml
 results:
   - policy: useraccess-boundary
-    rule: deny-cross-org-grants
+    isValidatingPolicy: true
     kind: UserAccess
     resources: [sample-acme-developer-wp]
     result: pass
   - policy: useraccess-boundary
-    rule: deny-cross-org-grants
+    isValidatingPolicy: true
     kind: UserAccess
     resources: [sample-cross-org-wp-grant, sample-first-org-scope-decides]
     result: fail
   - policy: useraccess-boundary
-    rule: deny-cross-org-grants
+    isValidatingPolicy: true
     kind: UserAccess
     resources: [sample-application-only-grant, sample-empty-org-grant]
     result: skip
