@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T16:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-27T16:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
 | [#8655](https://github.com/openova-io/openova/issues/8655) | SEC-200 Library chart and namespaced stores for platform namespaces | Other |
 | [#8664](https://github.com/openova-io/openova/issues/8664) | FND-161 Row map and browser harness | Other |
 | [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9032](https://github.com/openova-io/openova/issues/9032) | CMP-086 The access policy moves into the policy chart | Other |
 | [#9036](https://github.com/openova-io/openova/issues/9036) | SEC-196 Hand-over identity sovereign-ops | Other |
 | [#9040](https://github.com/openova-io/openova/issues/9040) | AIP-115 No Organization can take the slug axon | Other |
+| [#9043](https://github.com/openova-io/openova/issues/9043) | SEC-218 Every kit slot whose chart renders a SecretProviderClass depends on bp-s | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
 | 2026-11-27T15:11 | [#9035](https://github.com/openova-io/openova/pull/9035) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T11:16 | [#8995](https://github.com/openova-io/openova/pull/8995) | #8973 | fix(conformance): the conformance run of a pull request inst |
 | 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
 | 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
-| 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
 
 ---
 
