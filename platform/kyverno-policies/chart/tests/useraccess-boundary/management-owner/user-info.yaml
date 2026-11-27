@@ -1,0 +1,11 @@
+# The requester of kyverno-test.yaml beside this file: an owner of the
+# management Organization openova-internal.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: management-owner
+userInfo:
+  username: mona@openova-internal.example
+  extra:
+    org: [openova-internal]
+    tier: [owner]

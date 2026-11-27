@@ -28,6 +28,8 @@
 #   3e. None of the six deleted day-2 kinds renders (CLD-023).
 #   3d. UserAccess ships as a plain namespaced CRD and NO XUserAccess
 #      composite type is rendered anywhere.
+#   3f. An empty managementOrgs or allowedCrossOrgTiers of
+#      useraccess-boundary fails the render (CMP-095).
 #   4. Each expected claim/CR kind is present in the render.
 #   5. Each XRC sample fixture under tests/fixtures/ refers to a kind that
 #      matches one of the rendered XRDs / CRDs.
@@ -180,6 +182,22 @@ if [ "$POLICY_COUNT" -ne 1 ]; then
   exit 1
 fi
 echo "  PASS ($POLICY_COUNT ClusterPolicy)"
+
+echo "[composition-validate] Case 3f: an empty signer list of useraccess-boundary is refused at render (CMP-095)"
+# An empty list renders a policy the engine rejects and the Kyverno CLI's
+# test reports as passing, so the template must refuse it.
+for key in managementOrgs allowedCrossOrgTiers; do
+  if helm template smoke-cp . --skip-tests --set-json "userAccessBoundary.$key=[]" > /dev/null 2> "$TMP/empty-$key.err"; then
+    echo "FAIL: userAccessBoundary.$key=[] rendered; the template must refuse it" >&2
+    exit 1
+  fi
+  grep -q "userAccessBoundary.$key is empty" "$TMP/empty-$key.err" || {
+    echo "FAIL: userAccessBoundary.$key=[] failed for another reason:" >&2
+    cat "$TMP/empty-$key.err" >&2
+    exit 1
+  }
+done
+echo "  PASS (both empty lists refused)"
 
 echo "[composition-validate] Case 4: every expected CR kind is present"
 # CloudAdoption is the XRD claim kind; UserAccess is a plain CRD kind

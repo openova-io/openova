@@ -1,6 +1,7 @@
 # Suite of the policy useraccess-boundary, run as a developer of the
 # Organization acme (user-info.yaml); owner/kyverno-test.yaml runs the same
-# resources as an owner.
+# resources as an owner, management-owner/ and management-developer/ as an
+# owner and a developer of the management Organization openova-internal.
 #
 # Written on the legacy ClusterPolicy render of
 # platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml

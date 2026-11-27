@@ -4,9 +4,11 @@
 # (simulated) requester's org claim is `acme`. The policy MUST deny
 # this CR when:
 #   - validationFailureAction = Enforce
-#   - the requester's tier is NOT in
+#   - the requester is not an owner of a management Organization: its
+#     org claim is NOT in .Values.userAccessBoundary.managementOrgs
+#     (default: ["openova-internal"]) or its tier is NOT in
 #     .Values.userAccessBoundary.allowedCrossOrgTiers (default:
-#     ["owner", "catalyst-owner"])
+#     ["owner", "catalyst-owner"]); an owner of acme is refused too
 #
 # Audit-mode default surfaces a PolicyReport entry without blocking.
 apiVersion: access.openova.io/v1alpha1

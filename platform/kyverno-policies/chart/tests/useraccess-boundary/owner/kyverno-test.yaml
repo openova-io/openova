@@ -1,6 +1,7 @@
 # The resources of ../resources.yaml run as an owner of the Organization acme
-# (user-info.yaml beside this file): owner is in allowedCrossOrgTiers, so a
-# grant that crosses Organizations is admitted.
+# (user-info.yaml beside this file): owner is in allowedCrossOrgTiers, but acme
+# is not in managementOrgs, so a grant inside acme is admitted and a grant into
+# another Organization is refused (CMP-095).
 #
 # Run: kyverno test platform/kyverno-policies/chart/tests/useraccess-boundary
 apiVersion: cli.kyverno.io/v1alpha1
@@ -16,8 +17,13 @@ results:
   - policy: useraccess-boundary
     rule: deny-cross-org-grants
     kind: UserAccess
-    resources: [sample-acme-developer-wp, sample-cross-org-wp-grant, sample-first-org-scope-decides]
+    resources: [sample-acme-developer-wp]
     result: pass
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    kind: UserAccess
+    resources: [sample-cross-org-wp-grant, sample-first-org-scope-decides]
+    result: fail
   - policy: useraccess-boundary
     rule: deny-cross-org-grants
     kind: UserAccess
