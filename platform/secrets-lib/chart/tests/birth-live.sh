@@ -33,7 +33,12 @@
 #       without the new fields hold only the key password, as before;
 #   L8  a writer with update rights replaces the placeholder: a run of the
 #       two placeholder lines writes nothing, exit 0, the real document stays
-#       at version 2, and the shared placeholder alone still reaches B.
+#       at version 2, and the shared placeholder alone still reaches B;
+#   L9  the namespace input (SEC-217): the chart, released in acme, names
+#       namespace org-services; its Job, account and plan render there and
+#       the plan holds only org-services/sa/auth/auth-signing/e1. A birth Job
+#       of acme given that plan is refused the create right (exit 1, nothing
+#       written); the Job of org-services writes it (32 characters, version 1).
 #
 # The ONLY stand-in: the Job and the reconciler log in through a `jwt` mount
 # (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
@@ -104,7 +109,11 @@ sed "s|$(host "$A")|$AURL|g; s|$(host "$B")|$BURL|g" -i "$TMP/desired-A/manifest
 # ── the birth Job of a chart in namespace acme, region A ─────────────────
 FX="$TMP/fx"; mkdir -p "$FX/templates"
 printf 'apiVersion: v2\nname: fx\nversion: 0.1.0\ndependencies:\n  - name: secrets-lib\n    version: 0.1.0\n    repository: "file://%s"\n' "$LIB" > "$FX/Chart.yaml"
-echo '{{- include "openova.generatedSecrets" (dict "ctx" . "secrets" .Values.generatedSecrets "peers" .Values.peers "primary" .Values.primary "self" .Values.self) }}' > "$FX/templates/all.yaml"
+cat > "$FX/templates/all.yaml" <<'EOF'
+{{- $in := dict "ctx" . "secrets" .Values.generatedSecrets "peers" .Values.peers "primary" .Values.primary "self" .Values.self }}
+{{- if hasKey .Values "namespace" }}{{ $_ := set $in "namespace" .Values.namespace }}{{ end }}
+{{- include "openova.generatedSecrets" $in }}
+EOF
 cat > "$FX/values.yaml" <<EOF
 self: $A
 peers: [$B]
@@ -125,6 +134,11 @@ envof() { sed -n "s/^ *- {name: $1, value: \"\{0,1\}\([^\"}]*\)\"\{0,1\}}\$/\1/p
 [ "$(envof PEER_TOKEN_ROLE)" = openbao-peer-birth-acme ] && [ "$(envof PEER_ROLE)" = secrets-birth-acme ] && [ "$(envof BAO_ROLE)" = secrets-birth ] \
   || die "the rendered Job does not name roles secrets-birth, secrets-birth-acme and openbao-peer-birth-acme"
 [ "$(envof PEERS)" = "$B=$(host "$B")" ] || die "the rendered Job does not name peer $B: $(envof PEERS)"
+# The same chart, still released in acme, with the namespace input org-services (L9).
+FX9="$TMP/fx9"; cp -R "$FX" "$FX9"
+printf 'namespace: org-services\ngeneratedSecrets:\n  auth-signing: {delivery: mounted, epoch: 1, serviceAccount: auth, sharedAcrossRegions: false}\n' > "$FX9/values.yaml"
+helm template fx "$FX9" --namespace acme > "$TMP/fx9.yaml"
+awk '/^  plan: \|/ { on = 1; next } on && /^  [^ ]/ { exit } on { sub(/^    /, ""); if ($0 != "") print }' "$TMP/fx9.yaml" > "$TMP/plan9"
 
 # ── the login stand-in ────────────────────────────────────────────────────
 openssl genrsa -out "$TMP/jwt.key" 2048 2>/dev/null
@@ -264,6 +278,20 @@ if [ "$rc" = 0 ] && [ "$(docof "$AURL" $MC)" = '{"document":"real-document"}' ] 
    && ! grep -q ': written in ' "$TMP/run8.log"; then
   pass "L8 a writer with update rights replaced the placeholder: the next run writes nothing, version 2 stays; the shared placeholder alone still reaches $B"
 else fail "L8 rc=$rc $(docof "$AURL" $MC) v$(ver "$AURL" $MC): $(tr '\n' ' ' < "$TMP/run8.log")"; fi
+
+# ── L9 ────────────────────────────────────────────────────────────────────
+NS9=org-services/sa/auth/auth-signing/e1
+l9=""
+[ "$(cat "$TMP/plan9")" = "$NS9 32 0 - self" ] || l9="$l9 plan($(tr '\n' ';' < "$TMP/plan9"))"
+[ "$(grep -c -x '  namespace: "org-services"' "$TMP/fx9.yaml" || true)" = 3 ] && ! grep -q acme "$TMP/fx9.yaml" || l9="$l9 objects-not-in-org-services"
+rc=0; PLAN="$TMP/plan9" run acme "$TMP/run9a.log" || rc=$?
+[ "$rc" = 1 ] && grep -q "no create right on mounted/data/$NS9" "$TMP/run9a.log" && [ "$(ver "$AURL" $NS9)" = 0 ] \
+  || l9="$l9 acme-job(rc=$rc v$(ver "$AURL" $NS9): $(tr '\n' ' ' < "$TMP/run9a.log"))"
+rc=0; PLAN="$TMP/plan9" run org-services "$TMP/run9b.log" || rc=$?
+v9="$(rd "$AURL" $NS9)"
+[ "$rc" = 0 ] && [ "${#v9}" = 32 ] && [ "$(ver "$AURL" $NS9)" = 1 ] && grep -qx "secrets-birth: $NS9: written in $A" "$TMP/run9b.log" \
+  || l9="$l9 org-services-job(rc=$rc len=${#v9} v$(ver "$AURL" $NS9): $(tr '\n' ' ' < "$TMP/run9b.log"))"
+[ -z "$l9" ] && pass "L9 namespace input org-services of a chart released in acme: the Job, its account and plan are in org-services; a Job of acme is refused $NS9 (exit 1, nothing written), the Job of org-services writes it (32 characters, version 1)" || fail "L9:$l9"
 
 if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
 echo "PASS: secrets-lib birth Job — a shared tier B value in every region, a second run changes nothing"

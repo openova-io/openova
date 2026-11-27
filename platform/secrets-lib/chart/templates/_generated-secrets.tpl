@@ -9,6 +9,11 @@ Input: a dict
            not empty)
   self     this region's id (default .Values.openova.topology.self); needed
            when a shared value goes to peers
+  namespace  the namespace of every value and every object below (SEC-217;
+           default, when absent or null: the release's namespace); a
+           namespace name (DNS label). It must exist; the birth Job runs
+           there because OpenBao lets it create only below its own
+           namespace (mounted/data/<ns>/*)
 
 generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
   db-password:
@@ -47,8 +52,8 @@ delivery synced:   Password generator <name>-e<epoch>, PushSecret
   mounted/<ns>/sa/<serviceAccount>/<name>/e<epoch> in this region.
 
 The Job, its ServiceAccount secrets-birth and its plan ConfigMap render only
-when this region has a value to write. Their name carries
-a hash of the plan, so raising an epoch runs a new Job.
+when this region has a value to write, in the namespace of the values. Their
+name carries a hash of the plan, so raising an epoch runs a new Job.
 
 Settings, under .Values.openova.secrets (all optional):
   openbaoAddress   default http://openbao.openbao.svc.cluster.local:8200
@@ -57,7 +62,7 @@ Settings, under .Values.openova.secrets (all optional):
 */ -}}
 {{- define "openova.generatedSecrets" -}}
 {{- $ctx := .ctx -}}
-{{- $ns := $ctx.Release.Namespace -}}
+{{- $ns := include "openova.secretsNamespace" (dict "in" . "ctx" $ctx) -}}
 {{- $s := ($ctx.Values.openova | default dict).secrets | default dict -}}
 {{- $addr := $s.openbaoAddress | default "http://openbao.openbao.svc.cluster.local:8200" -}}
 {{- $baoNs := $s.openbaoNamespace | default "openbao" -}}
@@ -334,4 +339,20 @@ spec:
               - {key: password, path: password}
 {{- end }}
 {{- end -}}
+{{- end -}}
+
+{{- /*
+openova.secretsNamespace (SEC-217) — the namespace of a template's objects:
+the input's namespace when it is given (not absent, not null), else the
+release's namespace. Input: dict "in" <the template's input> "ctx" <the
+chart's root context>. A given namespace must be a namespace name (a DNS
+label: [a-z0-9-], at most 63 characters, a letter or digit at each end).
+*/ -}}
+{{- define "openova.secretsNamespace" -}}
+{{- $ns := .ctx.Release.Namespace -}}
+{{- if and (hasKey .in "namespace") (not (kindIs "invalid" .in.namespace)) -}}
+{{- $ns = toString .in.namespace -}}
+{{- if or (gt (len $ns) 63) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ns)) }}{{ fail (printf "openova.secrets: namespace %q is not a namespace name (a DNS label)" $ns) }}{{ end -}}
+{{- end -}}
+{{- $ns -}}
 {{- end -}}
