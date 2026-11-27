@@ -115,7 +115,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orglisteners"
 )
 
 // orgConsoleReapMinAge is the age-grace window (safety model #2): a
@@ -582,7 +583,7 @@ func (h *Handler) reapScanOrphans(ctx context.Context, sc *orgConsoleReapScan, l
 		if !orphan(slug) {
 			continue
 		}
-		removed, err := removeOrphanConsoleListeners(ctx, sc.target.dyn, slug)
+		removed, err := orglisteners.Gateway{Dyn: sc.target.dyn, Namespace: consoleGatewayNamespace, Name: consoleGatewayName}.RemoveOrg(ctx, slug)
 		if err != nil {
 			h.log.Error("org-console-reap: strip orphaned console Gateway listeners failed — next tick retries",
 				"region", sc.target.region, "org", slug, "err", err)
@@ -656,54 +657,6 @@ func (h *Handler) reapScanOrphans(ctx context.Context, sc *orgConsoleReapScan, l
 		h.log.Info("org-console-reap: pass complete",
 			"region", sc.target.region, "clusterID", sc.target.clusterID, "reaped", reaped)
 	}
-}
-
-// removeOrphanConsoleListeners strips `console-https-<slug>` +
-// `console-http-<slug>` off the console Gateway via the same
-// read-modify-write Update the org-controller's removeConsoleOrgListener
-// uses — SSA cannot prune list entries another field manager owns, and the
-// funnel-door listeners were written by the org-controller via Update.
-// Every OTHER listener (the apex pair, every live Org's pair) is preserved
-// byte-for-byte. Absent-as-success.
-func removeOrphanConsoleListeners(ctx context.Context, dyn dynamic.Interface, slug string) (bool, error) {
-	gw, err := dyn.Resource(consoleGatewayGVR).Namespace(consoleGatewayNamespace).
-		Get(ctx, consoleGatewayName, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	listeners, found, err := unstructured.NestedSlice(gw.Object, "spec", "listeners")
-	if err != nil || !found {
-		return false, err
-	}
-	drop := map[string]bool{
-		orgConsoleListenerHTTPSPrefix + slug: true,
-		orgConsoleListenerHTTPPrefix + slug:  true,
-	}
-	kept := make([]any, 0, len(listeners))
-	removed := false
-	for _, l := range listeners {
-		if lm, ok := l.(map[string]any); ok {
-			if n, ok := lm["name"].(string); ok && drop[n] {
-				removed = true
-				continue
-			}
-		}
-		kept = append(kept, l)
-	}
-	if !removed {
-		return false, nil
-	}
-	if err := unstructured.SetNestedSlice(gw.Object, kept, "spec", "listeners"); err != nil {
-		return false, err
-	}
-	if _, err := dyn.Resource(consoleGatewayGVR).Namespace(consoleGatewayNamespace).
-		Update(ctx, gw, metav1.UpdateOptions{}); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // deleteAbsentOK runs a delete and treats NotFound as success (idempotent
