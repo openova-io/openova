@@ -15819,23 +15819,35 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SEC-200, SEC-201, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
-  - platform/secrets-lib/**
+  - platform/secrets-lib/README.md
+  - platform/secrets-lib/chart/templates/_generated-secrets.tpl
+  - platform/secrets-lib/chart/templates/_secret-stores.tpl
+  - platform/secrets-lib/chart/tests/birth-live.sh
+  - platform/secrets-lib/chart/tests/render.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x -F '{{- $ns := $ctx.Release.Namespace -}}' platform/secrets-lib/chart/templates/_generated-secrets.tpl"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "out=\"$(NO_COLOR=1 bash platform/secrets-lib/chart/tests/render.sh platform/secrets-lib/chart)\" && test \"$(grep -c -E '^  PASS  [RF][0-9]+ ' <<<\"$out\")\" = 35 && test \"$(grep -c -E '^  PASS  (R10|F2[2-4]) ' <<<\"$out\")\" = 4"
+  - id: A2
+    run: "out=\"$(NO_COLOR=1 bash platform/secrets-lib/chart/tests/birth-live.sh platform/secrets-lib/chart)\" && test \"$(grep -c -E '^  PASS  L[1-9] ' <<<\"$out\")\" = 9 && test \"$(grep -c -E '^  PASS  L9 ' <<<\"$out\")\" = 1"
+  - id: A3
+    run: "test \"$(awk '/^## Templates$/{f=1;next} f && /^\\| `openova\\./{n++} f && /^$/ && n{exit} END{print n+0}' platform/secrets-lib/README.md)\" = 3 && grep -q -F '**`namespace`** (SEC-217)' platform/secrets-lib/README.md"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The library secrets-lib takes an input for the namespace of a generated value and of its birth objects, the release's namespace by default, so a generated secret can be written into a named namespace; a chart test holds both cases.
+  delivers: The library secrets-lib takes an optional input namespace, the release namespace when it is absent or null, and renders every value of generatedSecrets, its External Secrets objects, its birth Job with the Job's account and plan, its OpenBao paths and its peer roles in that namespace, and the stores of secretStores there too; the chart tests render.sh R10 and birth-live.sh L9 hold both cases.
 - id: SEC-221
   title: 'Roll-out: platform/keycloak'
   area: SEC
@@ -16435,7 +16447,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-261, SOV-720, SOV-721]
-  after: [FND-011, SEC-200, SEC-201, SVC-040, SVC-041]
+  after: [FND-011, SEC-200, SEC-201, SEC-217, SVC-040, SVC-041]
   touches:
   - platform/external-secrets/chart/Chart.yaml
   - platform/external-secrets/chart/values.yaml
@@ -16770,7 +16782,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SVC-040, SVC-041, SVC-070, SVC-130, SVC-137, SVC-139, SVC-220, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
