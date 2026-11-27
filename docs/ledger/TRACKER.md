@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T05:15:03Z` |
+| Last refreshed | `2026-11-27T05:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8551](https://github.com/openova-io/openova/issues/8551) | SVC-139 The function tests of bp-openbao, bp-reloader and bp-valkey wait for the | Other |
 | [#8556](https://github.com/openova-io/openova/issues/8556) | SOV-343 The cutover copies the OpenTofu provider packages into the Sovereign and | Other |
 | [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
 | [#8560](https://github.com/openova-io/openova/issues/8560) | CLD-116 The wipe removes first what its own destroy cannot remove on the referen | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8950](https://github.com/openova-io/openova/issues/8950) | CMP-066 Delete what is left: stub and test-only set; move the access policy home | Other |
 | [#8952](https://github.com/openova-io/openova/issues/8952) | FND-132 The conformance run of a pull request installs the kit charts of that pu | Other |
 | [#8956](https://github.com/openova-io/openova/issues/8956) | CMP-094 Vulnerability scanning produces reports in every region | Other |
+| [#8960](https://github.com/openova-io/openova/issues/8960) | NET-192 Gate check NET-G11: route admission by owner | Other |
 
 ---
 
