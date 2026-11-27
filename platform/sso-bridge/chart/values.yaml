@@ -110,6 +110,13 @@ openbao:
     role: "sso-bridge"
     serviceAccountName: sso-bridge-reconciler
     serviceAccountNamespace: sso-bridge
+  # SEC-344: the write-only producer identity of bp-openbao (its value
+  # producers, entry sso-bridge). With it the reconciler writes the client
+  # bundle of an HR with `sso.mountedCopy: true` to
+  # mounted/data/<targetNamespace>/shared/sso-oidc/e1, logging in with a
+  # projected token for audience openbao; it can never read that path.
+  producer:
+    role: producer-sso-bridge
 
 # Operator email override. If empty (default) the reconciler reads the
 # value from the per-Sovereign sovereign-fqdn ConfigMap key `orgEmail`

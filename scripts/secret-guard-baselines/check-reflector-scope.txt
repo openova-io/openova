@@ -1,6 +1,5 @@
 clusters/_template/bootstrap-secrets/ghcr-pull.yaml:1
 platform/gitea/chart/templates/sso-oauth-source-externalsecret.yaml:1
-platform/grafana/chart/templates/sso-oauth-source-externalsecret.yaml:1
 platform/harbor/chart/templates/sso-oauth-source-externalsecret.yaml:1
 platform/langfuse/chart/templates/sso-externalsecret.yaml:1
 platform/librechat/chart/templates/sso-externalsecret.yaml:1

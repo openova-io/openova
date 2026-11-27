@@ -1,0 +1,54 @@
+{{- /*
+SEC-344 — Grafana's sign-on settings, with no Secret object.
+
+bp-sso-bridge writes the OIDC client bundle of this release's namespace to
+mounted/data/<namespace>/shared/sso-oidc/e1 (HelmRelease value
+sso.mountedCopy, producer sso-bridge of bp-openbao). The SecretProviderClass
+lets the Secrets Store CSI driver mount its client_secret as the file
+/var/run/secrets/openova/client-secret (values.yaml grafana.extraVolumes),
+and grafana.ini reads it with $__file{}. spec.secretObjects is never set.
+
+The other settings are not secret. The ConfigMap sets them as GF_ variables
+(values.yaml grafana.envFromConfigMaps), which override grafana.ini: the
+client id, and, when sso.sovereignFqdn is set, the realm's endpoints (the
+authorize URL carries ?kc_idp_hint=<sso.idpHint> unless the hint is empty)
+and root_url, from which Grafana derives its redirect_uri (#3061).
+*/ -}}
+{{- if .Values.sso.enabled }}
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: grafana-sso
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: {{ required "sso.openbaoAddress is required" .Values.sso.openbaoAddress | quote }}
+    roleName: workload
+    audience: openbao
+    objects: |
+      - objectName: client-secret
+        secretPath: mounted/data/{{ .Release.Namespace }}/shared/sso-oidc/e1
+        secretKey: client_secret
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-sso-settings
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-grafana
+data:
+  GF_AUTH_GENERIC_OAUTH_CLIENT_ID: {{ required "sso.clientId is required" .Values.sso.clientId | quote }}
+  {{- with .Values.sso.sovereignFqdn }}
+  {{- $oidc := printf "https://auth.%s/realms/%s/protocol/openid-connect" . (required "sso.realm is required" $.Values.sso.realm) }}
+  {{- $auth := printf "%s/auth" $oidc }}
+  {{- with $.Values.sso.idpHint }}{{ $auth = printf "%s?kc_idp_hint=%s" $auth . }}{{ end }}
+  GF_AUTH_GENERIC_OAUTH_AUTH_URL: {{ $auth | quote }}
+  GF_AUTH_GENERIC_OAUTH_TOKEN_URL: {{ printf "%s/token" $oidc | quote }}
+  GF_AUTH_GENERIC_OAUTH_API_URL: {{ printf "%s/userinfo" $oidc | quote }}
+  GF_SERVER_ROOT_URL: {{ printf "https://grafana.%s/" . | quote }}
+  {{- end }}
+{{- end }}

@@ -76,22 +76,11 @@ spec:
     # gateway.networking.k8s.io/v1 CRDs must be registered first.
     - name: bp-gateway-api
       namespace: flux-system
-    # bp-external-secrets (#3374, 2026-06-14 — #2988 gold-standard pattern,
-    # mirrors bp-harbor slot 19): the chart ships
-    # templates/sso-oauth-source-externalsecret.yaml which renders grafana's
-    # OIDC env-override Secret (GF_AUTH_GENERIC_OAUTH_* + GF_SERVER_ROOT_URL)
-    # that grafana consumes via envFromSecret. That template is guarded by
-    # `.Capabilities.APIVersions.Has "external-secrets.io/v1beta1"`, and
-    # helm-controller snapshots capabilities at INSTALL time and never
-    # re-evaluates on drift. Without this edge grafana installs ~2s before
-    # bp-external-secrets registers the ESO CRD (observed live on hw136:
-    # ESO CRD created 07:08:06, grafana release.v1 07:08:04) → the ES is
-    # permanently omitted → the GF_-shaped Secret never materialises →
-    # grafana's generic_oauth is unconfigured (empty client_id, redirect_uri
-    # falls back to https://localhost/) → zero-click SSO fails with the route
-    # serving 503 "no healthy upstream". Gating on bp-external-secrets makes
-    # grafana wait for the ESO webhook to be Ready so its chart-side ES
-    # renders into the grafana namespace at install time.
+    # bp-external-secrets (#3374): the chart rendered grafana's sign-on
+    # ExternalSecret until SEC-344, which moved the client secret to a
+    # mounted file (SecretProviderClass grafana-sso). The edge stays until
+    # the dependency manifest (scripts/expected-bootstrap-deps.yaml) drops it
+    # in the same change.
     - name: bp-external-secrets
       namespace: flux-system
     # bp-postgres-shared-b (#3188 three-instance model): when grafana
@@ -174,21 +163,16 @@ spec:
     # half-config); with the envsubst SSO works zero-touch on every
     # fresh Sovereign.
     sso:
-      enabled: true  # #4291 DE-VCLUSTER — grafana renders its OWN SSO ExternalSecret natively in host ns `grafana` (host ESO reconciles it; was suppressed by the #3642 host-bridge)
+      enabled: true  # #4291 DE-VCLUSTER — grafana renders its OWN sign-on objects natively in host ns `grafana` (was suppressed by the #3642 host-bridge)
       sovereignFqdn: ${SOVEREIGN_FQDN}
-      # #3374 (2026-06-14): grafana consumes its OIDC secret as DIRECT env
-      # vars via `grafana.envFromSecret: grafana-sso-oidc-credentials`, so it
-      # needs the GF_AUTH_GENERIC_OAUTH_* + GF_SERVER_ROOT_URL keys that ONLY
-      # the chart-side ExternalSecret produces (its target.template renames
-      # the raw OpenBao scalars + derives root_url). bp-sso-bridge projects
-      # RAW keys (client_id/client_secret/authorize_url/...), which grafana
-      # ignores. skipExternalSecret tells bp-sso-bridge to still write the
-      # OpenBao `sso/grafana` bundle (the chart ES's data source) but NOT
-      # apply its own raw-key ES, which would otherwise fight the chart's
-      # transformed ES for ownership of grafana-sso-oidc-credentials and, on a
-      # raw win, leave generic_oauth unconfigured (empty client_id,
-      # redirect_uri https://localhost/). Paired with the bp-external-secrets
-      # dependsOn above (which lets the chart ES actually render at install).
+      # SEC-344: grafana mounts its client secret as a file from
+      # mounted/data/grafana/shared/sso-oidc/e1 (chart template
+      # sso-mounted.yaml). mountedCopy tells bp-sso-bridge to write the
+      # client bundle there as well as to OpenBao `sso/grafana`, with its
+      # write-only producer identity of bp-openbao. skipExternalSecret keeps
+      # bp-sso-bridge from applying its raw-key ExternalSecret, which would
+      # bring the Secret grafana-sso-oidc-credentials back (#3374).
+      mountedCopy: true
       skipExternalSecret: true
     # ── Shared-instance flip (#3188 three-instance model) ───────────────
     # The upstream grafana subchart appends this envFrom secretRef to the
@@ -210,8 +194,7 @@ spec:
     # ConfigError, auto-retried) until reflector pushes the Secret, so
     # grafana can NEVER silently start on sqlite while the binding is
     # live — the race documented in feedback_netpol_carveouts / #3283 is
-    # closed by construction. envFromSecrets (plural) is used because
-    # envFromSecret (singular) already carries the SSO credentials.
+    # closed by construction.
     grafana:
       envFromSecrets:
         - name: grafana-database-env
