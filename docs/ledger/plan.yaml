@@ -19728,6 +19728,37 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: An Organization lists in spec.tenantPublic.passthroughHosts the leftmost labels of hosts under its own domain, and the organization controller writes for each one, on the console Gateway of every region, a TLS passthrough listener console-tls-<slug>-<label> for exactly that host, on the port of the Organization's HTTPS listener, admitting TLSRoutes only from the Organization's namespace and the namespace of its console route, and removes it when the label leaves the list or the Organization is deleted.
+- id: NET-196
+  title: 'Organization passthrough listeners: the platform API writes them for internal Organizations and its orphan reaper removes them'
+  area: NET
+  epic: null
+  type: new
+  wave: W4
+  size: S
+  lane: CONTROL
+  depends_on: [NET-195]
+  after: [FND-093, FND-171, FND-191, CLD-021, CLD-103, CLD-104, CLD-111, CLD-112, CLD-113, SOV-141, SOV-180, SOV-242, SOV-322, NET-071, SVC-040, SVC-200, SVC-260, CTL-025, CTL-030, CTL-035, CTL-223, CTL-231, CTL-232, CTL-240, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, CMP-032, AIP-120, AIP-156, AIP-157]
+  touches:
+  - products/catalyst/bootstrap/api/internal/handler/org_console_tls_net195_test.go
+  - products/catalyst/bootstrap/api/internal/handler/org_console_tls_reap.go
+  - products/catalyst/bootstrap/api/internal/handler/org_console_tls_reconcile.go
+  - products/catalyst/bootstrap/api/internal/orglisteners/orglisteners.go
+  - products/catalyst/bootstrap/api/internal/orglisteners/orglisteners_test.go
+  - scripts/baselines/api-structure.json
+  resources: []
+  flips: []
+  implements: []
+  proven_by: PRD-507
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The second piece of NET-195: the platform API writes the passthrough listeners for internal Organizations, and its orphan reaper (removeOrphanConsoleListeners in org_console_tls_reap.go) removes an orphaned Organization''s passthrough listeners as well as the two pair names, which until then stay in place.'
 - id: NET-200
   title: Entry failover by DNS
   area: NET
@@ -41235,7 +41266,7 @@ packages:
   wave: W4
   size: M
   lane: CHARTS
-  depends_on: [CTL-160, CTL-162, CTL-415, FND-035, NET-170, NET-171, NET-190, NET-191, NET-195, PRD-050, PRD-502, PRD-504, PRD-505, PRD-506, SEC-205, SEC-211, SEC-290, SVC-320]
+  depends_on: [CTL-160, CTL-162, CTL-415, FND-035, NET-170, NET-171, NET-190, NET-191, NET-195, NET-196, PRD-050, PRD-502, PRD-504, PRD-505, PRD-506, SEC-205, SEC-211, SEC-290, SVC-320]
   after: [PRD-800, PRD-513, FND-011, PRD-203, PRD-304]
   touches:
   - products/fingate/blueprint.yaml
