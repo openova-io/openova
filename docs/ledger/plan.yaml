@@ -19907,7 +19907,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [NET-222]
-  after: []
+  after: [FND-120]
   touches:
   - core/controllers/application/cmd/main.go
   - core/controllers/application/internal/controller/application_controller.go
