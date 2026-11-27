@@ -16346,7 +16346,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [ACC-020, SEC-200, SEC-212]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-103, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, CTL-172, BSS-040, ACC-010, ACC-050, ACC-102, ACC-103, PRD-201]
+  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-103, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, CTL-172, BSS-040, ACC-010, ACC-050, ACC-102, ACC-103, ACC-106, PRD-201]
   touches:
   - platform/guacamole/chart/**
   - scripts/secret-guard-baselines/*
@@ -16690,7 +16690,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-133, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-216, SEC-261, SEC-344, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, NET-223, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-133, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-216, SEC-261, SEC-344, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, NET-223, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-106, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -38409,7 +38409,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-020, ACC-103]
-  after: [FND-011, FND-024, SEC-103, CTL-172, ACC-010]
+  after: [FND-011]
   touches:
   - core/cmd/access-session-agent/
   - .github/workflows/build-access-session-agent.yaml
@@ -38417,23 +38417,34 @@ packages:
   - platform/guacamole/chart/values.yaml
   - platform/guacamole/chart/templates/controller-deployment.yaml
   - platform/guacamole/chart/tests/render.sh
-  - tests/acceptance/sovereign/internal/suite/check_acc_g15.go
-  - tests/acceptance/sovereign/fixtures/access/g15/pod.yaml
-  - docs/ledger/gates.yaml
   resources: []
   flips: [ACC-G15]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "printf '%s %s\\n' \"$(ls core/cmd/access-session-agent 2>/dev/null | wc -l)\" \"$(grep -c 'decision: A3 stands' docs/ledger/plan/spikes/ACC-020.md)\""
+    expect: "0 1"
+  acceptance:
+  - id: A1
+    run: "cd core/cmd/access-session-agent && go vet ./... && go test -count=1 ./... && ! grep -r -q -F 'kubernetes.io/serviceaccount' ."
+  - id: A2
+    run: "cd core/cmd/access-session-agent && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^(TestChain|TestRecordingOff|TestBadConfigurationExits78)$' .)\" && test \"$(grep -c -E '^--- PASS: (TestChain|TestRecordingOff|TestBadConfigurationExits78) ' <<<\"$out\")\" = 3 && test \"$(grep -c -F -e '--- SKIP' <<<\"$out\")\" = 0 && test \"$(grep -c -x -F PASS <<<\"$out\")\" = 1"
+  - id: A3
+    run: "c=platform/guacamole/chart && . scripts/lib/helm-dep-repos.sh && add_dep_repos \"$c\" && helm dependency build \"$c\" > /dev/null && d=\"sha256:$(printf '0123456789abcdef%.0s' 1 2 3 4)\" && g=\"sha256:$(printf 'fedcba9876543210%.0s' 1 2 3 4)\" && a=\"sha256:$(printf '0011223344556677%.0s' 1 2 3 4)\" && out=\"$(helm template guacamole \"$c\" --namespace guacamole --set \"access.controller.image.digest=$d\" --set \"access.session.images.guacd.digest=$g\" --set \"access.session.images.agent.digest=$a\")\" && test \"$(awk '/- name: ACCESS_IMAGE_GUACD$/{getline; print}' <<<\"$out\")\" = \"              value: \\\"ghcr.io/openova-io/openova/guacd@$g\\\"\" && test \"$(awk '/- name: ACCESS_IMAGE_AGENT$/{getline; print}' <<<\"$out\")\" = \"              value: \\\"ghcr.io/openova-io/openova/access-session-agent@$a\\\"\" && moved=\"$(helm template guacamole \"$c\" --namespace guacamole --set \"access.controller.image.digest=$d\" --set \"access.session.images.guacd.digest=$g\" --set \"access.session.images.agent.digest=$a\" --set global.imageRegistry=registry.t1.omani.works)\" && test \"$(awk '/- name: ACCESS_IMAGE_AGENT$/{getline; print}' <<<\"$moved\")\" = \"              value: \\\"registry.t1.omani.works/openova-io/openova/access-session-agent@$a\\\"\" && none=\"$(helm template guacamole \"$c\" --namespace guacamole --set \"access.controller.image.digest=$d\" --set-string access.session.images.guacd.digest= --set-string access.session.images.agent.digest=)\" && test \"$(grep -c -x -F '          env:' <<<\"$none\")\" = 0 && test \"$(grep -c -F ACCESS_IMAGE_ <<<\"$none\")\" = 0 && ! helm template guacamole \"$c\" --namespace guacamole --set \"access.controller.image.digest=$d\" --set access.session.images.agent.digest=latest > /dev/null 2>&1"
+  - id: A4
+    run: "f=.github/workflows/build-bp-guacamole.yaml && test \"$(grep -c -x -F \"  GUACD_VERSION: '1.6.0'\" \"$f\")\" = 1 && test \"$(grep -c -x -F \"  GUACD_UPSTREAM_DIGEST: 'sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f'\" \"$f\")\" = 1 && test \"$(grep -c -x -F '          src=\"docker.io/guacamole/guacd@${GUACD_UPSTREAM_DIGEST}\"' \"$f\")\" = 1 && test \"$(grep -c -x -F \"          yq -i '.access.session.images.guacd.digest = strenv(GUACD_DIGEST)' \\\"\\${VALUES}\\\"\" \"$f\")\" = 1 && test \"$(grep -c -x -F '            ${{ env.VALUES }}' \"$f\")\" = 1 && test \"$(grep -c -F upstream_version \"$f\")\" = 0 && test \"$(grep -c -F python3 \"$f\")\" = 0"
+  - id: A5
+    run: "f=.github/workflows/build-access-session-agent.yaml && test \"$(grep -c -x -F '  pull_request:' \"$f\")\" = 1 && test \"$(grep -c -x -F '        run: go test -count=1 -race ./...' \"$f\")\" = 1 && test \"$(grep -c -x -F '          file: core/cmd/access-session-agent/Containerfile' \"$f\")\" = 1 && test \"$(grep -c -x -F '        uses: ./.github/actions/sign-and-attest' \"$f\")\" = 1 && test \"$(grep -c -x -F '          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}' \"$f\")\" = 1 && test \"$(grep -c -x -F '          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}' \"$f\")\" = 1 && test \"$(grep -c -x -F \"          yq -i '.access.session.images.agent.digest = strenv(DIGEST)' \\\"\\${VALUES}\\\"\" \"$f\")\" = 1 && test \"$(grep -c -F -e '-f blueprint=guacamole -f tree=platform' \"$f\")\" = 1"
+  - id: A6
+    run: "f=core/cmd/access-session-agent/Containerfile && test \"$(grep -c -x -F 'RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags=\"-s -w\" -o /access-session-agent .' \"$f\")\" = 1 && test \"$(grep -c -E '^FROM gcr\\.io/distroless/static-debian12@sha256:[0-9a-f]{64}$' \"$f\")\" = 1 && test \"$(grep -c -x -F 'USER 10001:10001' \"$f\")\" = 1 && test \"$(grep -c -x -F 'ENTRYPOINT [\"/access-session-agent\"]' \"$f\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Agent binary (config, handshake, relay, shipper; recording off when chunkBytes is 0) on a distroless image; guacd 1.6.0 mirrored and pinned by digest; image references exposed as controller environment variables.
+  delivers: core/cmd/access-session-agent is a Go module whose static agent reads the session configuration, runs the guacd handshake, relays the broker's tunnel on port 8443 and ships the recording (nothing while chunkBytes is 0), on a distroless image run as user 10001 that its own workflow tests on every pull request and on main builds, signs and pins in the values of bp-guacamole; the mirror workflow of bp-guacamole pulls guacd 1.6.0 by its upstream index digest and pins the mirrored digest; the access controller's Deployment names both session images as ACCESS_IMAGE_GUACD and ACCESS_IMAGE_AGENT, each repository@digest, once its digest is written.
 - id: ACC-107
   title: 'Broker, tunnel and client page: a pod session from the browser'
   area: ACC
