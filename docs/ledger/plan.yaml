@@ -239,11 +239,11 @@ epics:
 - id: SEC-230
   title: 'EPIC: roll-out, data and platform service charts'
   wave: W1a
-  packages: [SEC-231, SEC-232, SEC-233, SEC-234, SEC-235, SEC-236]
+  packages: [SEC-232, SEC-231, SEC-235, SEC-233, SEC-234, SEC-236]
 - id: SEC-240
   title: 'EPIC: roll-out, remaining charts'
   wave: W1a
-  packages: [SEC-241, SEC-243, SEC-242, SEC-244, SEC-245, SEC-246, SEC-247, SEC-248]
+  packages: [SEC-241, SEC-243, SEC-242, SEC-245, SEC-246, SEC-244, SEC-247, SEC-248]
 - id: SEC-260
   title: 'EPIC: External Secrets upgrade'
   wave: W1a
@@ -251,7 +251,7 @@ epics:
 - id: SEC-340
   title: 'EPIC: upstream chart pods move to injection'
   wave: W1a
-  packages: [SEC-344, SEC-342, SEC-343, SEC-341, SEC-345]
+  packages: [SEC-344, SEC-341, SEC-342, SEC-343, SEC-345]
 - id: NET-130
   title: 'Epic: declarative ClusterMesh'
   wave: W1a
@@ -6385,7 +6385,7 @@ packages:
   area: CLD
   epic: null
   type: fix
-  wave: W1b
+  wave: W1a
   size: XS
   lane: CHARTS
   depends_on: [CLD-064]
@@ -6419,7 +6419,7 @@ packages:
   area: CLD
   epic: null
   type: fix
-  wave: W1b
+  wave: W1a
   size: XS
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-065]
@@ -8706,12 +8706,39 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Each node Pod of the disk driver is replaced on its own node at that node's drain, so a node Pod never runs an older template while its disks stay staged, and a node Pod that runs an older template is reported. No start before its ticket.
+- id: CLD-168
+  title: The catalyst API no longer copies the postgres hub Secrets that External Secrets owns
+  area: CLD
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CONTROL
+  depends_on: [SEC-219]
+  after: [CLD-113, NET-125, SVC-040]
+  touches:
+  - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
+  - products/catalyst/bootstrap/api/internal/handler/clustermesh_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The catalyst API's cross-region copy no longer copies the postgres hub Secrets and their vc-mgmt copies once they are ExternalSecrets in both regions (sharedAcrossRegions), so each has one writer; it merges before SEC-231.
 - id: CLD-171
   title: State in the bucket, encrypted; ProviderConfig cloud
   area: CLD
   epic: CLD-170
   type: new
-  wave: W1b
+  wave: W1a
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
@@ -10500,7 +10527,7 @@ packages:
   area: SOV
   epic: null
   type: delete
-  wave: W1a
+  wave: W0
   size: XS
   lane: SUBSTRATE
   depends_on: []
@@ -14152,7 +14179,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SEC-060, SEC-227, FND-011, FND-151, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, SEC-212, SEC-216, SEC-218, SEC-344, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
+  after: [SEC-060, SEC-227, SEC-221, FND-011, FND-151, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, SOV-035, SOV-132, SOV-136, SOV-143, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -15031,7 +15058,7 @@ packages:
   area: SEC
   epic: SEC-160
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, SEC-005, SEC-130, SEC-135, SEC-020, CLD-086]
@@ -15116,7 +15143,7 @@ packages:
   area: SEC
   epic: SEC-160
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-150]
@@ -15336,7 +15363,7 @@ packages:
   area: SEC
   epic: SEC-160
   type: refactor
-  wave: W1a
+  wave: W0
   size: S
   lane: CHARTS
   depends_on: [SEC-100]
@@ -15379,7 +15406,7 @@ packages:
   area: SEC
   epic: SEC-160
   type: refactor
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-100, SEC-130, SEC-161, SEC-152]
@@ -15607,7 +15634,7 @@ packages:
   area: SEC
   epic: null
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: CHARTS
   depends_on: [SEC-162]
@@ -15681,7 +15708,7 @@ packages:
   area: SEC
   epic: null
   type: new
-  wave: W1b
+  wave: W1a
   size: S
   lane: CHARTS
   depends_on: [SEC-080, SEC-095, SEC-190]
@@ -15713,7 +15740,7 @@ packages:
   area: SEC
   epic: null
   type: new
-  wave: W1b
+  wave: W1a
   size: S
   lane: CHARTS
   depends_on: [SEC-196, CLD-171]
@@ -15772,7 +15799,7 @@ packages:
   area: SEC
   epic: null
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: CHARTS
   depends_on: [SEC-080, SEC-140, SEC-190]
@@ -15909,7 +15936,7 @@ packages:
   area: SEC
   epic: SEC-210
   type: new
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-140, SEC-190]
@@ -15964,7 +15991,7 @@ packages:
   area: SEC
   epic: SEC-210
   type: fix
-  wave: W1a
+  wave: W0
   size: M
   lane: CONTROL
   depends_on: [SEC-200, SEC-211, SEC-216, SEC-217, SEC-218]
@@ -16011,7 +16038,7 @@ packages:
   wave: W1a
   size: M
   lane: CHARTS
-  depends_on: [FND-120, SEC-140, SEC-200, SEC-211, SEC-219]
+  depends_on: [FND-120, SEC-140, SEC-200, SEC-211, SEC-219, SEC-226]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-212, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/wordpress-tenant/chart/**
@@ -16031,7 +16058,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: WordPress pods read the database password from a mount; one registered class U Secret remains for the database operator until SEC-290.
+  delivers: 'WordPress pods read the database password from a mount; one registered class U Secret remains for the database operator until SEC-290. The OIDC client secret (W3) is not part of it: it stays as it is, in the register, until the line of SEC-221 and SEC-222 reaches it.'
 - id: SEC-214
   title: 'Marketplace Organization path, single-cluster databases: credentials injected, nothing in Git'
   area: SEC
@@ -16097,7 +16124,7 @@ packages:
   area: SEC
   epic: SEC-210
   type: refactor
-  wave: W1a
+  wave: W0
   size: M
   lane: CHARTS
   depends_on: [SEC-200, SEC-211]
@@ -16146,7 +16173,7 @@ packages:
   area: SEC
   epic: null
   type: fix
-  wave: W1a
+  wave: W0
   size: S
   lane: CHARTS
   depends_on: []
@@ -16184,7 +16211,7 @@ packages:
   area: SEC
   epic: SEC-210
   type: guard
-  wave: W1a
+  wave: W0
   size: M
   lane: CHARTS
   depends_on: []
@@ -16268,11 +16295,11 @@ packages:
   area: SEC
   epic: SEC-220
   type: refactor
-  wave: W1a
+  wave: W0
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-060, SEC-200, SEC-212]
-  after: [FND-011, FND-182, FND-183, FND-184, CLD-023, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-143, SOV-146, SOV-149, SOV-154, SOV-322, SOV-323, SOV-342, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-020, NET-110, NET-133, NET-185, SVC-040, SVC-041, CTL-172, BSS-040, AIP-201, INF-060, ACC-102, PRD-201]
+  after: [FND-011, FND-183, FND-184, CLD-023, CLD-131, CLD-132, CLD-133, SOV-132, SOV-136, SOV-143, SOV-146, SOV-149, SOV-154, SOV-322, SOV-323, SOV-342, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-020, NET-110, NET-133, NET-185, SVC-040, SVC-041, CTL-172, BSS-040, AIP-201, INF-060, ACC-102, PRD-201]
   touches:
   - platform/keycloak/chart/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -16423,7 +16450,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-219]
-  after: [FND-011, SEC-010, SEC-163, SEC-180, SEC-181, SEC-192, SEC-196, SEC-201, SEC-217, SEC-250, SEC-344, SVC-040, SVC-041, SVC-070, SVC-136, SVC-139, SVC-270, CTL-172]
+  after: [SEC-228, FND-011, SEC-010, SEC-163, SEC-180, SEC-181, SEC-192, SEC-196, SEC-201, SEC-217, SEC-250, SEC-344, SVC-040, SVC-041, SVC-070, SVC-136, SVC-139, SVC-270, CTL-172]
   touches:
   - platform/secrets-lib/chart/templates/**
   - platform/secrets-lib/chart/tests/**
@@ -16443,7 +16470,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: The birth Job of the producing namespace writes the value, create-only, under openova/apps/<reader namespace>/... for each reader the chart names, and each reader reads its own prefix (the precedent is S20 and SEC-192). No namespace reads another's prefix; no legacyKeyMap entry is added.
+  delivers: The birth Job of the producing namespace writes the value, create-only, under openova/apps/<reader namespace>/... for each reader the chart names, and each reader reads its own prefix (the precedent is S20 and SEC-192). No namespace reads another's prefix; no legacyKeyMap entry is added. A reader entry carries the reader's Secret name, keys and chart; a seeded value is what it writes through.
 - id: SEC-226
   title: A library value is seeded from the Secret that holds it today
   area: SEC
@@ -16469,7 +16496,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'A value of the library, mounted or synced, takes seedFrom (a Secret and a key in the value''s namespace): the birth writes that Secret''s value when the store''s path is absent and the Secret exists, and a random value of the stated length only when neither exists; it never overwrites a value the store holds. Tests: seeded, fresh, and already present.'
+  delivers: 'A value of the library, mounted or synced, takes seedFrom (a Secret and a key in the value''s namespace): the birth writes that Secret''s value when the store''s path is absent and the Secret exists, and a random value of the stated length only when neither exists; it never overwrites a value the store holds. Tests: seeded, fresh, and already present. Tests also for a source Secret kept by helm.sh/resource-policy: keep and adopted by the ExternalSecret of the same name (X3).'
 - id: SEC-227
   title: The library inputs of every open secret roll-out
   area: SEC
@@ -16502,6 +16529,60 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The repository holds the result of the spike that lists every Secret the nine open secret roll-outs need after the change, maps each to an input of the secrets library on main or of SEC-225 or SEC-226, names each gap no package plans with the smallest input or writer that covers it, and proposes the plan edits.
+- id: SEC-228
+  title: 'A library value given from outside: source external, no generator, no PushSecret'
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-219]
+  after: [SEC-226, FND-011, SEC-201, SEC-217, SVC-040, SVC-041]
+  touches:
+  - platform/secrets-lib/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A synced value of the library takes source: external: no Password and no PushSecret; the ExternalSecret reads openova/apps/<ns>/<name>/e<epoch> with SEC-219''s template and join over the external values and names its writer in the register entry; a missing path keeps the ExternalSecret not ready and never generates a value, so a cloud value is never generated.'
+- id: SEC-229
+  title: The hand-over Job writes the cloud values into each reader's prefix
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-196, SEC-197, SEC-228]
+  after: [FND-011, SOV-342, SEC-010, SEC-163, SEC-180, SEC-181, SEC-192, SEC-250, SEC-344, SVC-040, SVC-041, SVC-070, SVC-136, SVC-139, SVC-270, CTL-172]
+  touches:
+  - platform/openbao/chart/templates/_config.tpl
+  - platform/openbao/chart/tests/**
+  - clusters/_template/infrastructure/base/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The hand-over Job, as sovereign-ops, writes each cloud value once, from the hand-over inputs of SEC-197, under catalyst/cloud/<name> and under openova/apps/<reader ns>/<name>/e1 for each reader (velero, cluster-autoscaler, hcloud-csi, kube-system, huawei-evs-csi), with five policy lines in sovereign-ops; it writes at hand-over, never at first boot, and no namespace reads another's prefix.
 - id: SEC-231
   title: 'Roll-out: platform/postgres'
   area: SEC
@@ -16510,7 +16591,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, CLD-168]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/postgres/chart/**
@@ -16547,7 +16628,7 @@ packages:
   wave: W1a
   size: XS
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219]
+  depends_on: [SEC-200, SEC-212]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, SVC-136, SVC-139, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/valkey/chart/**
@@ -16575,7 +16656,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Chart secrets by Procedure R.
+  delivers: 'Chart secrets by Procedure R: the auth branch''s random site (context-secrets.yaml lines 41 to 49 and 76 to 78) is removed, or V1 is registered as having no secret content. Size stays XS.'
 - id: SEC-233
   title: 'Roll-out: platform/gitea'
   area: SEC
@@ -16658,8 +16739,8 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225]
-  after: [SEC-227, FND-011, FND-183, FND-184, CLD-023, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172, BSS-040, ACC-102, PRD-201]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, SEC-239]
+  after: [SEC-227, FND-011, FND-183, FND-184, CLD-023, CLD-106, CLD-113, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-011, SVC-040, SVC-041, SVC-090, SVC-136, SVC-190, CTL-172, CTL-347, CMP-020, BSS-040, AIP-120, AIP-153, ACC-102, PRD-201]
   touches:
   - platform/powerdns/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16673,6 +16754,9 @@ packages:
   - scripts/secret-guard-baselines/check-secret-object-register.txt
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - scripts/secret-guard-baselines/threat-model.md
+  - platform/external-dns/chart/**
+  - platform/powerdns-admin/chart/**
+  - products/catalyst/chart/templates/api-deployment-kustomize.yaml
   resources: []
   flips: []
   implements: []
@@ -16724,6 +16808,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Chart secrets by Procedure R.
+- id: SEC-237
+  title: Slot 08 names the namespaces of shared mounted values in peerTrust.birthNamespaces
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: XS
+  lane: SUBSTRATE
+  depends_on: [SEC-200]
+  after: [SOV-151, SEC-181, SEC-211, SEC-250, SVC-130, SVC-139, SVC-220, CTL-041]
+  touches:
+  - clusters/_template/bootstrap-kit/08-openbao.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Slot 08 lists in peerTrust.birthNamespaces each namespace of a mounted value that sets sharedAcrossRegions, so the value is born once and is the same in both regions of a two-region Sovereign (the chargeback master key of SEC-246 among them).
 - id: SEC-238
   title: Delete the cross-region Secret copies of the API
   area: SEC
@@ -16752,6 +16862,33 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: The Secret copy functions between lines 1931 and 3031 of clustermesh.go are deleted. Shared values reach the peer region by peer push from OpenBao. Guard G5 baseline and the handler line count fall. Which of the five functions go is fixed by the decision listed under unsettled.
+- id: SEC-239
+  title: powerdns-api-credentials carries helm.sh/resource-policy keep one release before SEC-235
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: XS
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172]
+  touches:
+  - platform/powerdns/chart/templates/api-credentials-secret.yaml
+  - platform/powerdns/chart/tests/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The Secret powerdns/powerdns-api-credentials carries helm.sh/resource-policy: keep one release before SEC-235, so it survives the upgrade that stops rendering it and SEC-226 can seed the two keys from it.'
 - id: SEC-241
   title: 'Roll-out: platform/newapi'
   area: SEC
@@ -16787,7 +16924,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-226]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/stalwart-tenant/chart/**
@@ -16815,7 +16952,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Chart secrets by Procedure R.
+  delivers: The Secret stalwart-admin (key ADMIN_PASSWORD) is a library value with SEC-219's template, seeded from the Secret that holds it today (SEC-226's seedFrom). stalwart-oidc-client-secret (S2) stays as it is, in the register, until the line of SEC-221 and SEC-222 reaches it; stalwart-tls (S3) stays, registered class T naming SEC-249, until SEC-249.
 - id: SEC-243
   title: 'Roll-out: platform/openclaw'
   area: SEC
@@ -16851,8 +16988,8 @@ packages:
   wave: W1a
   size: XS
   lane: CHARTS
-  depends_on: [AIP-155, SEC-200, SEC-212, SEC-219]
-  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, BSS-040, AIP-157, ACC-102, PRD-201]
+  depends_on: [AIP-155, SEC-200, SEC-212, SEC-219, SEC-228, SEC-222]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, BSS-040, AIP-157, ACC-102, PRD-201]
   touches:
   - products/agenity/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16925,7 +17062,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-226]
+  depends_on: [SEC-200, SEC-212, SEC-226, SEC-237]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
@@ -16963,8 +17100,8 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212]
-  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-098, SVC-040, SVC-041, CMP-067, BSS-040, ACC-102, PRD-201]
+  depends_on: [SEC-200, SEC-212, SEC-228, SEC-229]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-098, SVC-040, SVC-041, CMP-067, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/mimir/chart/**
   - platform/velero/chart/**
@@ -16997,7 +17134,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Plain Secret manifests replaced by ExternalSecrets on the namespace store with class U register entries.
+  delivers: 'The Secrets of the drivers that run after hand-over become ExternalSecrets on the namespace store with class U register entries, over values given from outside (SEC-228) that the hand-over Job writes (SEC-229): velero and velero-hcs (velero-objectstorage-credentials, K1) and the cluster autoscaler (hcloud-token, K2; hetzner-node-config, K3). The bring-up drivers hcloud-csi (K4), hcloud-ccm (K5) and huawei-evs-csi (K6) keep the Secret the provisioner writes at first boot (class U, writer: the provisioner), and the metrics chart''s MinIO password (M1) is SEC-253''s.'
 - id: SEC-248
   title: Census limit lowered after the chart roll-out
   area: SEC
@@ -17024,6 +17161,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Field allowedUnmatched set to the number of the newest gate record after the roll-out packages merged. The pull request lists every Secret still unmatched and the package that owns it.
+- id: SEC-249
+  title: The mail chart's TLS comes from the host's cert-manager
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [SEC-242, FND-011, SVC-040, SVC-041]
+  touches:
+  - platform/stalwart-tenant/chart/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The mail chart's certificate (stalwart-tls) is issued by the host's cert-manager and synced in; no chart generates key material, and the self-signed fallback of the chart goes. Until then S3 stays, registered class T naming this package.
 - id: SEC-250
   title: PKI engine, internal issuer and mesh issuer in the primary region and on a Sovereign of one region
   area: SEC
@@ -17131,6 +17294,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: A secondary region's OpenBao has its intermediate signed by the primary over the path spike SEC-251 names, and the secondary's internal and mesh issuers are issued from it, so gate check SEC-G09 passes on a Sovereign of two regions. The signing routes are open to the peer regions only.
+- id: SEC-253
+  title: The metrics chart's object-store password is generated and read from an environment variable
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SVC-040, SVC-041]
+  touches:
+  - platform/mimir/chart/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The MinIO password of the metrics chart (mimir/mimir-minio, rootPassword) is a generated value instead of the chart''s fixed literal, and Mimir reads it from an environment variable in its configuration instead of the configuration file. It is rotated on purpose, never seeded (the old value is public): MinIO and Mimir restart.'
 - id: SEC-261
   title: Conformance test for External Secrets against OpenBao
   area: SEC
@@ -27398,7 +27587,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-126, SEC-180, SEC-181, SEC-218, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, CMP-042, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-126, SEC-180, SEC-181, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, CMP-042, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - tests/acceptance/sovereign/**
