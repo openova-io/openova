@@ -8,7 +8,8 @@
 #   2. the values of kit slot 52, substituted as Flux does, with a digest,
 #      render exactly the objects of the access plane and the Application;
 #   3. the Deployment: image by digest, flags with the slot's values, one
-#      replica, the hardened container, probes; global.imageRegistry moves it;
+#      replica, the pull secret ghcr-pull, the hardened container, probes;
+#      global.imageRegistry moves it;
 #   4. a digest that is not sha256:<64 hex digits> fails the render;
 #   5. the ClusterRole reads the kinds and writes only their status;
 #   6. the writer lock names Flux and the controller, and its binding denies;
@@ -85,6 +86,9 @@ same "the flags" "$(pod '.containers[0].args')" "$(printf '%s' '["--http-address
   '"--session-namespace=guacamole","--denied-target-namespaces=openbao,kube-system,flux-system,guacamole","--leader-elect=true"]')"
 same "the replicas" "$(yq '.spec.replicas' "$TMP/deploy.yaml")" "1"
 same "the service account" "$(pod '.serviceAccountName')" '"access-controller"'
+# After the cutover the image comes from the private project openova-io of the
+# Sovereign's registry; ghcr-pull carries its login (27 Nov 2026: ImagePullBackOff without it).
+same "the pull secrets" "$(pod '.imagePullSecrets')" '[{"name":"ghcr-pull"}]'
 same "the pod security context" "$(pod '.securityContext')" '{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}}'
 same "the container security context" "$(pod '.containers[0].securityContext')" \
   '{"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}}'

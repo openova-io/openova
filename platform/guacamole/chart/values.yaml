@@ -44,6 +44,13 @@ access:
     image:
       repository: ghcr.io/openova-io/openova/access-controller
       digest: "sha256:88284aa8685eb87cbc2eb831b6354de0e329e9862d78427e206cd3e892854704"
+    # The login the Pod pulls its image with. After the cutover the node pulls
+    # it from the Sovereign's own registry, project openova-io, which is
+    # private and which the node has no login for; ghcr-pull, mirrored into
+    # every namespace, carries that registry's login from step 06 of the
+    # cutover on, as for every other first-party controller of the kit.
+    imagePullSecrets:
+      - name: ghcr-pull
     replicas: 1
     resources:
       requests:
