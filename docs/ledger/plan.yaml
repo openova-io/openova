@@ -10556,7 +10556,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-154, FND-182, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SOV-721, SEC-020, SEC-030, SEC-040, SEC-060, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-218, SEC-250, SEC-344, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-185, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, AIP-201, INF-050, INF-054, INF-060, ACC-010, ACC-102, ACC-103]
+  after: [SOV-154, FND-182, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-133, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-149, SOV-151, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-335, SOV-336, SOV-337, SOV-342, SOV-721, SEC-020, SEC-030, SEC-040, SEC-060, SEC-100, SEC-104, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-218, SEC-250, SEC-344, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-185, NET-190, NET-331, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, AIP-201, INF-050, INF-054, INF-060, ACC-010, ACC-102, ACC-103]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -11853,7 +11853,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-310, SOV-330]
-  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-114, CLD-115, CLD-121, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SOV-721, SOV-760, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-205, SEC-211, SEC-212, SEC-216, SEC-344, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, CMP-075, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
+  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-114, CLD-115, CLD-121, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SOV-721, SOV-760, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-205, SEC-211, SEC-212, SEC-216, SEC-344, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, NET-331, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, CMP-075, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
   touches:
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
   - clusters/_template/bootstrap-secrets/kustomization.yaml
@@ -18931,7 +18931,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-010, NET-110, NET-120, NET-125, NET-134]
-  after: [FND-011, FND-182, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, SOV-035, SOV-132, SOV-136, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-342, SEC-060, SEC-153, SEC-154, SEC-212, NET-011, NET-040, NET-080, NET-185, NET-190, SVC-040, SVC-041, SVC-130, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, AIP-153, AIP-201, INF-060, INF-135, ACC-102]
+  after: [FND-011, FND-182, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, SOV-035, SOV-132, SOV-136, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-342, SEC-060, SEC-153, SEC-154, SEC-212, NET-011, NET-040, NET-080, NET-185, NET-190, NET-331, SVC-040, SVC-041, SVC-130, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, AIP-153, AIP-201, INF-060, INF-135, ACC-102]
   touches:
   - clusters/_template/sovereign-tls/cilium-mesh-values.yaml
   - clusters/_template/sovereign-tls/kustomization.yaml
@@ -20993,7 +20993,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-060, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-218, SEC-250, SEC-344, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
+  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-154, SOV-155, SOV-160, SOV-161, SOV-163, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SEC-060, SEC-100, SEC-104, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-218, SEC-250, SEC-344, NET-040, NET-096, NET-110, NET-153, NET-190, NET-331, SVC-060, SVC-130, SVC-137, SVC-138, SVC-139, SVC-220, CTL-041, CTL-346, CTL-348, CMP-036, CMP-075, CMP-079, INF-050, INF-054, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/
   resources: []
@@ -21186,21 +21186,27 @@ packages:
   depends_on: []
   after: []
   touches:
-  - clusters/_template/sovereign-tls/**
+  - clusters/_template/sovereign-tls/console-http-redirect.yaml
+  - clusters/_template/sovereign-tls/kustomization.yaml
+  - tests/e2e/bootstrap-kit/console_port80_net331_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e clusters/_template/sovereign-tls/console-http-redirect.yaml; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "out=\"$(cd tests/e2e/bootstrap-kit && go vet . && NO_COLOR=1 go test -count=1 -run '^TestSovereignTLS_ConsoleHostAnswersOnNodePort80$' -v .)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^--- PASS: TestSovereignTLS_ConsoleHostAnswersOnNodePort80 ')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'GET http://console.<fqdn>/ on port 80 of a node answers for the console host (NET-G17) instead of 404: the console''s Gateway, or a route on port 80, takes the console host there.'
+  delivers: GET http://console.<fqdn>/ on port 80 of a gateway node answers 301 to https://console.<fqdn>/ instead of 404 (gate check NET-G17), because a redirect-only HTTPRoute on the port-80 listener of the shared Gateway holds the console host.
 - id: SVC-010
   title: Decision record and glossary edits
   area: SVC
@@ -28109,7 +28115,7 @@ packages:
   depends_on: []
   after: [CMP-042]
   touches:
-  - docs/ledger/gates.yaml
+  - tests/acceptance/sovereign/local-pack-expected-fail.txt
   resources: []
   flips: []
   implements: []
@@ -28123,7 +28129,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'CMP-G03 is required in the conformance pack. Its precondition: the pinned catalyst-api image holds CMP-042''s model loader.'
+  delivers: 'CMP-G03 is required in the conformance pack. Its precondition: the pinned catalyst-api image holds CMP-042''s model loader. The entry of CMP-G03 leaves tests/acceptance/sovereign/local-pack-expected-fail.txt.'
 - id: CMP-045
   title: Posture routes and the change stream
   area: CMP
