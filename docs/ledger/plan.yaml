@@ -347,7 +347,7 @@ epics:
 - id: AIP-100
   title: 'EPIC: Axon as the simulation back end'
   wave: W2
-  packages: [AIP-101, AIP-109, AIP-108, AIP-102, AIP-103, AIP-104, AIP-105, AIP-115, AIP-106, AIP-107]
+  packages: [AIP-101, AIP-109, AIP-115, AIP-108, AIP-102, AIP-103, AIP-104, AIP-105, AIP-106, AIP-107]
 - id: AIP-110
   title: 'EPIC: model-meter'
   wave: W2
@@ -16180,7 +16180,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-095, FND-096, FND-099, FND-156, FND-183, FND-184, CLD-030, CLD-106, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SOV-322, SOV-323, SEC-095, SEC-096, SEC-105, SEC-153, SEC-154, SEC-181, SEC-344, NET-011, NET-032, NET-040, NET-080, NET-081, NET-102, NET-133, NET-170, NET-195, NET-212, NET-213, NET-221, NET-222, SVC-040, SVC-138, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, SVC-260, CTL-150, CTL-320, CTL-333, CTL-347, CTL-815, CMP-020, CMP-032, CMP-042, CMP-061, CMP-066, CMP-075, CMP-079, BSS-040, BSS-141, AIP-070, AIP-120, AIP-153, INF-135, ACC-102, PRD-201, PRD-304]
+  after: [FND-011, FND-095, FND-096, FND-099, FND-156, FND-183, FND-184, CLD-030, CLD-106, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SOV-322, SOV-323, SEC-095, SEC-096, SEC-105, SEC-153, SEC-154, SEC-181, SEC-344, NET-011, NET-032, NET-040, NET-080, NET-081, NET-102, NET-133, NET-170, NET-195, NET-212, NET-213, NET-221, NET-222, SVC-040, SVC-138, SVC-159, SVC-160, SVC-162, SVC-164, SVC-170, SVC-190, SVC-205, SVC-260, CTL-150, CTL-320, CTL-333, CTL-347, CTL-815, CMP-020, CMP-032, CMP-042, CMP-061, CMP-066, CMP-075, CMP-079, BSS-040, BSS-141, AIP-070, AIP-115, AIP-120, AIP-153, INF-135, ACC-102, PRD-201, PRD-304]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -20266,7 +20266,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-222, NET-223, NET-224, NET-226]
-  after: [FND-011, CLD-114, NET-032, NET-102, NET-195, SVC-260, BSS-141]
+  after: [FND-011, CLD-114, NET-032, NET-102, NET-195, SVC-260, BSS-141, AIP-115]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - products/catalyst/chart/crds/application.yaml
@@ -20997,7 +20997,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SOV-760, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-191, NET-195, NET-212, NET-213, NET-221, NET-222, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, SVC-260, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-023, CMP-030, CMP-032, CMP-042, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, ACC-101, PRD-201, PRD-304]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, FND-191, FND-192, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-106, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-116, CLD-121, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-136, SOV-137, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-242, SOV-322, SOV-323, SOV-338, SOV-341, SOV-343, SOV-521, SOV-522, SOV-523, SOV-721, SOV-760, SEC-103, SEC-104, SEC-105, SEC-150, SEC-154, SEC-211, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-191, NET-195, NET-212, NET-213, NET-221, NET-222, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-180, SVC-200, SVC-220, SVC-230, SVC-260, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-232, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CTL-815, CMP-016, CMP-020, CMP-023, CMP-030, CMP-032, CMP-042, CMP-061, CMP-062, CMP-071, CMP-075, BSS-141, AIP-040, AIP-041, AIP-070, AIP-115, AIP-120, AIP-153, AIP-154, AIP-156, AIP-157, AIP-227, INF-040, INF-054, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050, ACC-101, PRD-201, PRD-304]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -23649,7 +23649,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-240, SVC-040, SVC-160, SVC-190]
-  after: [FND-120, FND-011, FND-102, CLD-114, SEC-216, NET-032, NET-102, NET-195, NET-212, SVC-170, SVC-260, CTL-160, CTL-815, CMP-041, CMP-042, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140, ACC-103]
+  after: [FND-120, FND-011, FND-102, CLD-114, SEC-216, NET-032, NET-102, NET-195, NET-212, SVC-170, SVC-260, CTL-160, CTL-815, CMP-041, CMP-042, BSS-141, AIP-115, INF-110, INF-130, INF-133, INF-135, INF-140, ACC-103]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - .github/workflows/preflight-blueprint-crd-cel.yaml
@@ -27938,6 +27938,10 @@ packages:
   - tests/acceptance/sovereign/README.md
   - tests/acceptance/sovereign/internal/suite/check_compliance_model.go
   - tests/acceptance/sovereign/internal/suite/check_compliance_model_test.go
+  - tests/acceptance/sovereign/internal/suite/pack_hold.go
+  - tests/acceptance/sovereign/internal/suite/pack_hold_test.go
+  - tests/acceptance/sovereign/internal/suite/runner.go
+  - tests/acceptance/sovereign/local-pack-expected-fail.txt
   resources: []
   flips: [CMP-G03]
   implements: []
@@ -27956,12 +27960,14 @@ packages:
     run: "test \"$(awk '/^- id: CMP-G03$/{f=1;next} /^- id: /{f=0} f' docs/ledger/gates.yaml | grep -c -x -E '  (state: required|implementation: tests/acceptance/sovereign/internal/suite/check_compliance_model.go|delivered_by: CMP-042)')\" = 3 && test \"$(grep -c -x -F '| ComplianceModel | compliance.openova.io | v1alpha1 | Cluster | compliancemodels | platform/kyverno-policies/chart/crds/compliancemodel.yaml | yes |' docs/generated/custom-resources.md)\" = 1 && test \"$(grep -c -x -F '    resources: [\"compliancemodels\"]' products/catalyst/chart/templates/clusterrole-cutover-driver.yaml)\" = 1 && test \"$(grep -c -F '| CMP-G03 The model is loaded in every region and agrees with the policies | `check_compliance_model.go` |' tests/acceptance/sovereign/README.md)\" = 1"
   - id: A5
     run: "d=\"$(mktemp -d)\" && helm dependency build platform/kyverno-policies/chart > /dev/null && awk '/^  values.yaml: [|]$/{f=1;next} f{print substr($0,5)}' clusters/_template/providers/local/kit/policy-values.yaml > \"$d/local.yaml\" && helm template k platform/kyverno-policies/chart --show-only templates/compliance-model.yaml > \"$d/default.yaml\" && helm template k platform/kyverno-policies/chart -f \"$d/local.yaml\" --show-only templates/compliance-model.yaml > \"$d/local-model.yaml\" && awk '/^  checks:$/{f=1;next} /^  [a-z]/{f=0} f && /^    id: /{print $2}' \"$d/default.yaml\" > \"$d/default.txt\" && awk '/^  checks:$/{f=1;next} /^  [a-z]/{f=0} f && /^    id: /{print $2}' \"$d/local-model.yaml\" > \"$d/local.txt\" && test \"$(grep -c . \"$d/default.txt\")\" = 22 && test \"$(grep -c -x -F forbid-local-path-storage \"$d/default.txt\")\" = 1 && test \"$(grep -c . \"$d/local.txt\")\" = 21 && test \"$(grep -c -x -F forbid-local-path-storage \"$d/local.txt\")\" = 0 && test \"$(grep -c -x -F forbid-nodeport-service \"$d/local.txt\")\" = 1"
+  - id: A6
+    run: "d=\"$(mktemp -d)\" && f=\"$d/test.out\" && cd tests/acceptance/sovereign && go vet ./internal/suite/ && NO_COLOR=1 go test -count=1 -v -run '^TestPackHold' ./internal/suite/ > \"$f\" && test \"$(grep -c -E '^--- PASS: (TestPackHoldToleratesBothOutcomes|TestPackHoldOnlyInLocal|TestPackHoldNoFile|TestPackHoldRefuses) \\(' \"$f\")\" = 4 && go build -o \"$d/suite\" ./cmd/sovereign-acceptance && cd ../../.. && python3 scripts/acceptance-gate.py export > \"$d/gates.json\" && : > \"$d/kubeconfig\" && { CATALYST_SESSION=unused \"$d/suite\" run --env local-pack --console http://127.0.0.1:9 --kubeconfig-a \"$d/kubeconfig\" --kubeconfig-b \"$d/kubeconfig\" --run-in local --manifest \"$d/gates.json\" --repo-root . --journeys '' > \"$d/run.out\" 2>&1 || true; } && test \"$(grep -c -E '^CMP-G03 runs at expected-fail in the local pack \\(tests/acceptance/sovereign/local-pack-expected-fail\\.txt\\): .+' \"$d/run.out\")\" = 1 && test \"$(grep -c -x -F '  CMP-G03 SKIP (expected-fail) discovery (D0) failed' \"$d/run.out\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: catalyst-api loads the ComplianceModel object default of each cluster and scores that cluster with it; a cluster without one has no score (model not loaded), and check CMP-G03 is required.
 - id: CMP-043
@@ -30399,7 +30405,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: []
-  after: [FND-089, FND-095, CLD-114, SEC-205, NET-032, NET-170, SVC-040, CTL-035, CTL-330, CTL-420, AIP-156, AIP-157]
+  after: [FND-089, FND-095, CLD-114, SEC-205, NET-032, NET-170, SVC-040, CTL-035, CTL-330, CTL-420, AIP-115, AIP-156, AIP-157]
   touches:
   - core/services/tenant/handlers/**
   - products/catalyst/bootstrap/api/cmd/api/routes_organizations.go
@@ -30536,7 +30542,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [BSS-107]
-  after: [FND-011, CLD-114, SEC-205, NET-032, NET-081, NET-170, NET-195, SVC-040, CTL-420, BSS-141, AIP-041]
+  after: [FND-011, CLD-114, SEC-205, NET-032, NET-081, NET-170, NET-195, SVC-040, CTL-420, BSS-141, AIP-041, AIP-115]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/controller/organization_controller.go
@@ -32531,24 +32537,31 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: []
-  after: [FND-011, FND-089, FND-095, NET-032, NET-195, SVC-040, BSS-141]
+  after: [FND-011]
   touches:
   - core/services/tenant/handlers/handlers.go
   - products/catalyst/chart/crds/organization.yaml
+  - products/catalyst/bootstrap/api/internal/intent/crds/schemas.json
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -w -F axon core/services/tenant/handlers/handlers.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && cp --parents clusters/_template/bootstrap-kit/placement.yaml products/catalyst/chart/crds/organization.yaml core/services/tenant/handlers/handlers.go scripts/check-provider-leaks.py \"$d\" && printf '%s\\n' '    - {file: 99-axon.yaml, hr: bp-axon, vcluster: host, target: host, namespace: axon}' >> \"$d/clusters/_template/bootstrap-kit/placement.yaml\" && python3 scripts/check-reserved-slugs.py --repo \"$d\""
+  - id: A2
+    run: "grep -q -F '\"alloy\",\"axon\",\"catalyst-system\"' products/catalyst/bootstrap/api/internal/intent/crds/schemas.json && cd products/catalyst/bootstrap/api && go test -count=1 ./internal/intent/..."
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The slug axon is in the reserved list of the tenant service and of the Organization CRD, so the reserved-slugs guard passes once a slot adds the namespace axon.
+  delivers: The slug axon is in the reserved list of the tenant service, of the Organization kind and of the intent schemas bundle, so the reserved-slugs guard passes once a bootstrap-kit slot adds the namespace axon.
 - id: AIP-120
   title: Agent tokens and the signer key set route
   area: AIP
