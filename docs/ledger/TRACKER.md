@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T00:30:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T00:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8528](https://github.com/openova-io/openova/issues/8528) | SVC-137 The function tests wait for their subject in their own region within the | Other |
 | [#8532](https://github.com/openova-io/openova/issues/8532) | SOV-136 Nodes share the images they hold: the k3s embedded registry mirror is on | Other |
 | [#8533](https://github.com/openova-io/openova/issues/8533) | SOV-137 The registry pivot keeps the nodes' shared mirror first and starts with  | Other |
 | [#8534](https://github.com/openova-io/openova/issues/8534) | SOV-342 The provider pod installs OpenTofu providers only from an OCI mirror of  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8922](https://github.com/openova-io/openova/issues/8922) | ACC-113 The sign-in probe no longer expects the removed remote-access web page | Other |
 | [#8925](https://github.com/openova-io/openova/issues/8925) | CMP-089 The trivy operator stays within its memory in every region | Other |
 | [#8928](https://github.com/openova-io/openova/issues/8928) | CLD-125 Check CLD-G07 reads the provider packs in the region the API runs in | Other |
+| [#8931](https://github.com/openova-io/openova/issues/8931) | NET-222 Blueprint data without tiers | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T00:40 | [#8930](https://github.com/openova-io/openova/pull/8930) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:20 | [#8927](https://github.com/openova-io/openova/pull/8927) | #7087 | docs(ledger): plan update |
+| 2026-11-27T00:38 | [#8926](https://github.com/openova-io/openova/pull/8926) | #8925 | fix(trivy): the trivy operator stays within its memory in ev |
 | 2026-11-27T00:10 | [#8924](https://github.com/openova-io/openova/pull/8924) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:23 | [#8923](https://github.com/openova-io/openova/pull/8923) | #8922 | fix(sso-probe): the sign-in probe no longer expects the remo |
 | 2026-11-26T23:49 | [#8921](https://github.com/openova-io/openova/pull/8921) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:48 | [#8883](https://github.com/openova-io/openova/pull/8883) | #8882 | fix(gate): check SOV-G01 retries its reads of a settling Flu |
 | 2026-11-26T14:00 | [#8881](https://github.com/openova-io/openova/pull/8881) | #7087 | docs(ledger): plan update |
-| 2026-11-26T15:36 | [#8880](https://github.com/openova-io/openova/pull/8880) | #8879 | fix(cutover): the settled-roll pre-flight no longer offers i |
-| 2026-11-26T13:52 | [#8878](https://github.com/openova-io/openova/pull/8878) | #7087 | docs(ledger): plan update |
 
 ---
 
