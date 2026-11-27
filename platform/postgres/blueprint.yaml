@@ -246,7 +246,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
             - rtz-A
           roles:
@@ -261,7 +261,7 @@ spec:
           rtoSeconds: 10
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ''
           clusters:
             - rtz-A
             - rtz-B

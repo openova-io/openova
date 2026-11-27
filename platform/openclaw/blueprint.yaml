@@ -21,16 +21,10 @@ spec:
   placementSchema:
     modes: [single-region]
     default: single-region
-  # Founder NS-1 placement mandate (2026-06-12): every app declares its
-  # vCluster zone. OpenClaw is a TENANT-FACING workspace controller +
-  # per-user runtime pods — production workload class, rtz per the
-  # ARCHITECTURE §4 zone model (the audit's one undeclared app).
-  # #3375 ROW-AMENDMENT (founder-adjudicate): the 2026-06-02 agreement
-  # row for bp-openclaw is TBD (scaffold). The prior declaration used a
-  # non-canonical `single-region` perTopology key with no `supported[]`,
-  # which fails the canonical-enum gate. Pending the founder's real row,
-  # this is the safe scaffold default matching bp-qa-app: singleton in
-  # the rtz tier on rtz-A. See docs/topology-matrix.md §ROW-AMENDMENTS.
+  # OpenClaw (a tenant-facing workspace controller + per-user runtime pods)
+  # takes the scaffold topology: singleton on the host (tier ''), in the
+  # first region. #3375: the earlier `single-region` perTopology key, with
+  # no `supported[]`, failed the canonical-enum gate.
   topology:
     supported: [singleton]
     defaults:

@@ -27,7 +27,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton

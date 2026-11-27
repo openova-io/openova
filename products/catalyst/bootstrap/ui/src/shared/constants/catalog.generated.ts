@@ -282,7 +282,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -334,7 +334,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -349,7 +349,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -398,7 +398,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -413,7 +413,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -553,7 +553,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -744,7 +744,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -903,7 +903,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -943,7 +943,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1025,7 +1025,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1393,7 +1393,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -1408,7 +1408,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1457,7 +1457,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -1472,7 +1472,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1576,7 +1576,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1863,7 +1863,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -1878,7 +1878,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -1927,7 +1927,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -1942,7 +1942,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2147,7 +2147,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2162,7 +2162,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2222,7 +2222,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2237,7 +2237,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2277,7 +2277,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2335,7 +2335,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2350,7 +2350,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2404,7 +2404,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 60
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2419,7 +2419,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2501,7 +2501,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2516,7 +2516,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2565,7 +2565,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 60
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2580,7 +2580,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2629,7 +2629,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 30
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2644,7 +2644,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2700,7 +2700,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -2715,7 +2715,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -2767,7 +2767,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2782,7 +2782,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2964,7 +2964,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2979,7 +2979,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3228,7 +3228,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3343,7 +3343,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -3364,7 +3364,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -3406,7 +3406,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3446,7 +3446,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3491,7 +3491,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -3739,7 +3739,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3779,7 +3779,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3874,7 +3874,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -3923,7 +3923,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -3938,7 +3938,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -4160,7 +4160,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4175,7 +4175,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4215,7 +4215,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -4264,7 +4264,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 60
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -4279,7 +4279,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -4333,7 +4333,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4348,7 +4348,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4388,7 +4388,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -4447,7 +4447,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4462,7 +4462,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4502,7 +4502,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4665,7 +4665,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": null
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4680,7 +4680,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4720,7 +4720,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],

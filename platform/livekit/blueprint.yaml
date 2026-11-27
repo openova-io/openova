@@ -44,7 +44,7 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           - rtz-B
@@ -53,7 +53,7 @@ spec:
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           roles:

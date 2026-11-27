@@ -74,14 +74,14 @@ spec:
           rtoSeconds: 0
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ''
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: passive   # region-a serves routes from the umbrella; edge is dormant here
             rtz-B: active     # region-b runs the edge (proxy to region-a)
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters: [rtz-A]
           roles:
             rtz-A: singleton  # single-region: edge HR is suspended (inert)
