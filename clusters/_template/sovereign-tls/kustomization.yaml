@@ -10,6 +10,10 @@ resources:
   # console. Listeners inlined from ConfigMap key CONSOLE_LISTENERS_YAML via the
   # same Flux postBuild.substituteFrom that feeds the shared gateway.
   - cilium-gateway-console.yaml
+  # NET-331 — node:80 answers for console.<fqdn>: a 301 to https on the shared
+  # Gateway's port-80 listener, which holds node:80 where Gateways bind host
+  # ports (the console Gateway sits on the console ports there).
+  - console-http-redirect.yaml
   # powerdns-api-credentials Secret (#3888 / Refs #3847) — the DNS-01 API key
   # the bp-cert-manager-powerdns-webhook solver reads to issue the wildcard
   # cert above. Evicted OUT of cloud-init into this Flux-reconciled tier so it
