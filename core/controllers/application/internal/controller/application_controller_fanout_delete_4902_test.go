@@ -4,8 +4,8 @@
 // Defect: deleting an Application created via the New-instance flow did
 // NOT cascade-clean the per-region HelmReleases the topology fan-out
 // imperatively upserted (`<app>-<cluster>`). Those HRs carry no
-// ownerReferences (they can live in a DIFFERENT namespace than the
-// Application CR — the vCluster pivot lands them in the tier host
+// ownerReferences (one written before NET-223 removed the tier pivot can
+// live in a DIFFERENT namespace than the Application CR — the tier host
 // namespace — which makes same-namespace ownerRefs unsafe), so K8s GC
 // never reaps them and, because the fan-out suppresses the legacy
 // per-region Gitea path, nothing else did either. handleDeletion now
@@ -57,10 +57,11 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	)
 	env := makeMultiRegionEnv("acme-prod", "acme", "prod")
 	org := makeOrg("acme")
-	// The Application CR lives in the Org namespace `acme`; its fan-out
-	// HRs land in the tier host namespace `mgmt` — a DIFFERENT namespace,
-	// which is exactly why an ownerRef would be unsafe and the finalizer
-	// cascade is required.
+	// The Application CR lives in the Org namespace `acme`, and so do its
+	// Git-delivered fan-out HRs (NET-223 removed the tier pivot). An HR
+	// written before that sits in the tier host namespace `mgmt` — a
+	// DIFFERENT namespace, which is exactly why an ownerRef would be unsafe
+	// and the finalizer cascade is cluster-wide.
 	app := makeApp("acme", "obs", "acme-prod", "bp-grafana", "1.0.6",
 		"active-hotstandby",
 		[]string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"},
@@ -80,13 +81,13 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	r := newReconciler(t, fg, app, env, org, bp, decoy, legacy)
 
 	// First reconcile — commits the region files; every region's Flux
-	// applies its HR into `mgmt` (union in the one fake API).
+	// applies its HR into `acme` (union in the one fake API).
 	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt: %v", err)
+		t.Fatalf("list HRs: %v", err)
 	}
 	ownHRs := 0
 	for _, hr := range hrList.Items {
@@ -94,6 +95,9 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 			continue
 		}
 		ownHRs++
+		if ns := hr.GetNamespace(); ns != "acme" {
+			t.Errorf("fan-out HR %s namespace = %q, want the Application namespace acme", hr.GetName(), ns)
+		}
 		// The cascade keys off the app-uid back-pointer — assert it was
 		// actually stamped by the fan-out (makeApp sets uid = "uid-obs").
 		if got := hr.GetLabels()[LabelAppUID]; got != "uid-obs" {
@@ -128,9 +132,9 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	// (hw307 run 12, J5.2). Git owns them; the region file is gone.
 	gitDelivered, legacyLeft := 0, false
 	midList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt mid-delete: %v", err)
+		t.Fatalf("list HRs mid-delete: %v", err)
 	}
 	for _, hr := range midList.Items {
 		if hr.GetLabels()[LabelAppUID] != "uid-obs" {
@@ -158,9 +162,9 @@ func TestReconcile_DeletionCascade_FanoutHelmReleases_4902(t *testing.T) {
 	fluxPruneAll(t, r, fg)
 
 	afterList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt after delete: %v", err)
+		t.Fatalf("list HRs after delete: %v", err)
 	}
 	decoySurvived := false
 	for _, hr := range afterList.Items {

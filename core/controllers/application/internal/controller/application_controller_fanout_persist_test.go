@@ -7,14 +7,11 @@
 //     2 clusters under the chosen variant produces 2 HelmReleases on
 //     the host k3s — one per cluster.
 //
-//  2. Each HR carries `spec.kubeConfig.secretRef.name = vc-<cluster>`
-//     (lowercased) — the G92.1 #2674 pivot pattern. Without this the
-//     HR would install onto the local cluster instead of the per-Org
-//     vCluster.
+//  2. No HR carries a `spec.kubeConfig` pivot, although the Blueprint's
+//     variant still names the tier mgmt (NET-223 removed the pivot):
+//     each region's own Flux installs its HR onto its host cluster.
 //
-//  3. Each HR lands in the vCluster's host namespace
-//     (`r.Cfg.VClusterPlacements[tier].HostNamespace`) so Flux v2
-//     resolves the SecretReference from the same namespace.
+//  3. Each HR lands in the Application's own namespace, not the tier's.
 //
 //  4. The two HRs carry the canonical role labels
 //     (`catalyst.openova.io/role` ∈ {active, passive, singleton}).
@@ -162,29 +159,31 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
 	}
 
-	// List the HelmReleases the reconciler wrote in the mgmt host
-	// namespace (the per-Tier vCluster host namespace per the default
-	// VClusterPlacements convention).
+	// List the HelmReleases the reconciler wrote in the Application's
+	// namespace; the tier namespace mgmt must stay empty.
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+		Namespace("acme").
+		List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list HRs in acme: %v", err)
+	}
+	if got := len(hrList.Items); got != 2 {
+		t.Fatalf("want 2 per-cluster HRs in acme, got %d", got)
+	}
+	tierList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
 		Namespace("mgmt").
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list HRs in mgmt: %v", err)
 	}
-	if got := len(hrList.Items); got != 2 {
-		t.Fatalf("want 2 per-cluster HRs in mgmt, got %d", got)
+	if got := len(tierList.Items); got != 0 {
+		t.Fatalf("want no HR in the tier namespace mgmt, got %d", got)
 	}
 
-	// Assert per-HR shape (#3375 DoD-4 — the split-side cluster-ID
-	// registry resolution). A 2-region Sovereign is TWO SEPARATE k3s
-	// clusters joined by ClusterMesh (cnpg-pair hw128 PASS), NOT one
-	// stretched cluster — so the kubeConfig pivot is NOT a per-cluster
-	// `vc-mgmt-a`/`vc-mgmt-b` pair in region A's `mgmt` namespace (the
-	// vCluster export Secret is per-tier `vc-mgmt`, and `mgmt-B` is a
-	// different region's cluster). The local region's ID (mgmt-A) pivots
-	// into the local `vc-mgmt` vCluster; the remote region's ID (mgmt-B)
-	// carries NO kubeConfig block — the split-side default where region
-	// B's own Flux owns its half.
+	// Assert per-HR shape. A 2-region Sovereign is TWO SEPARATE k3s
+	// clusters joined by ClusterMesh (cnpg-pair hw128 PASS); each
+	// region's own Flux applies its own leg onto its host cluster, so no
+	// leg carries a kubeConfig block (ADR-0015 D1, NET-223).
 	kcByCluster := map[string]map[string]interface{}{}
 	seenClusters := map[string]bool{}
 	seenRoles := map[string]bool{}
@@ -217,22 +216,11 @@ func TestReconcile_TopologyFanout_TwoClustersTwoHRs(t *testing.T) {
 		t.Errorf("expected both active + passive roles; got %v", seenRoles)
 	}
 
-	// mgmt-A (local region) pivots into the local `vc-mgmt` vCluster.
-	if kcA := kcByCluster["mgmt-A"]; kcA == nil {
-		t.Errorf("HR for mgmt-A missing spec.kubeConfig (local-region G92.1 pivot expected)")
-	} else {
-		ref, _, _ := unstructured.NestedMap(kcA, "secretRef")
-		secName, _, _ := unstructured.NestedString(ref, "name")
-		if secName != "vc-mgmt" {
-			t.Errorf("mgmt-A kubeConfig.secretRef.name = %q, want vc-mgmt (per-tier vCluster export Secret)", secName)
+	// Neither leg pivots: before NET-223 both pivoted into the mgmt vCluster.
+	for _, c := range []string{"mgmt-A", "mgmt-B"} {
+		if kc := kcByCluster[c]; kc != nil {
+			t.Errorf("HR for %s must carry no spec.kubeConfig, got %v", c, kc)
 		}
-	}
-	// ADR-0015 D1 — mgmt-B is applied by region B's own Flux, so it pivots
-	// into region B's OWN `vc-mgmt` exactly like mgmt-A does in region A.
-	if kcB := kcByCluster["mgmt-B"]; kcB == nil {
-		t.Errorf("HR for mgmt-B missing spec.kubeConfig (its own region's tier vCluster)")
-	} else if name, _, _ := unstructured.NestedString(kcB, "secretRef", "name"); name != "vc-mgmt" {
-		t.Errorf("mgmt-B kubeConfig.secretRef.name = %q, want vc-mgmt", name)
 	}
 }
 
@@ -259,10 +247,13 @@ func TestReconcile_TopologyFanout_Idempotent(t *testing.T) {
 	// First reconcile.
 	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 	firstList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").
+		Namespace("acme").
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list HRs after first reconcile: %v", err)
+	}
+	if len(firstList.Items) != 2 {
+		t.Fatalf("want 2 per-cluster HRs in acme after the first reconcile, got %d", len(firstList.Items))
 	}
 	firstSpecs := map[string]map[string]interface{}{}
 	for _, hr := range firstList.Items {
@@ -273,7 +264,7 @@ func TestReconcile_TopologyFanout_Idempotent(t *testing.T) {
 	// Second reconcile — should be a no-op on the HR spec.
 	reconcileAndApplyAll(t, r, fg, "acme", "obs")
 	secondList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").
+		Namespace("acme").
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("list HRs after second reconcile: %v", err)

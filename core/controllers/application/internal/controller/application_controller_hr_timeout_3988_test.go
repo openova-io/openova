@@ -67,10 +67,10 @@ func listFanoutHRs(t *testing.T, bp *unstructured.Unstructured, appName string) 
 	}
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").
+		Namespace("acme").
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt: %v", err)
+		t.Fatalf("list HRs in acme: %v", err)
 	}
 	if len(hrList.Items) == 0 {
 		t.Fatalf("reconcile produced NO fan-out HelmReleases — this test would " +

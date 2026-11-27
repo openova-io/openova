@@ -49,7 +49,9 @@ import (
 	"fmt"
 	"github.com/openova-io/openova/core/controllers/pkg/endpoints"
 	"log/slog"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -242,9 +244,9 @@ const FinalizerName = "application.apps.openova.io/finalizer"
 // metadata.uid — globally unique per instance, so it disambiguates two
 // same-named Applications in different Orgs/namespaces. handleDeletion()
 // cascades on this label because the fan-out HRs carry NO ownerReferences
-// (they can live in a DIFFERENT namespace than the Application CR — the
-// vCluster pivot lands them in the tier host namespace — and K8s
-// ownerRefs only resolve inside a single namespace; see #4902).
+// (an HR written before NET-223 removed the tier pivot can live in a
+// DIFFERENT namespace than the Application CR — the tier host namespace —
+// and K8s ownerRefs only resolve inside a single namespace; see #4902).
 const LabelAppUID = "catalyst.openova.io/app-uid"
 
 // LabelHostFluxApp / LabelHostFluxAppNamespace are the back-pointer labels
@@ -399,17 +401,6 @@ type Config struct {
 	// Application CRs doesn't fire when a SIBLING HR's status changes.
 	HelmReleaseObservationInterval time.Duration
 
-	// VClusterPlacements maps a vCluster name (dmz|mgmt|rtz, the value
-	// the Blueprint declares at spec.placementSchema.vcluster) to its
-	// resolved host namespace + admin kubeconfig Secret name. The
-	// controller stamps these on the rendered HelmRelease so Flux v2
-	// helm-controller pivots into the vCluster apiserver via
-	// spec.kubeConfig.secretRef. Per docs/SOVEREIGN-MULTI-REGION-DOD.md
-	// §A4. Defaults applied in Config.Defaults() if unset.
-	//
-	// G92.1 #2660 (2026-06-01).
-	VClusterPlacements map[string]VClusterPlacement
-
 	// Regions is the Sovereign's region registry (ADR-0015 D3) — the
 	// `sovereign-fqdn` ConfigMap `regionsJson` list (SOVEREIGN_REGIONS_JSON),
 	// in provisioning order. Every placement leg is mapped to one of these
@@ -446,61 +437,6 @@ type Config struct {
 	// organization-controller creates and every region's per-Org Flux
 	// GitRepository tracks.
 	TenantRepoName string
-}
-
-// VClusterPlacement carries the per-vCluster runtime values the
-// controller stamps on the rendered HelmRelease. Both fields default
-// from the loft-sh/vcluster chart convention (host namespace = vCluster
-// name, kubeconfig Secret = `vc-<name>`); operators override via Config
-// when a Sovereign customised the bp-<name>-vcluster chart values.
-//
-// G92.1 #2660.
-type VClusterPlacement struct {
-	// HostNamespace is the namespace ON THE HOST k3s where the
-	// vCluster's pods + kubeconfig Secret live. Stamped on the
-	// rendered HelmRelease's metadata.namespace so Flux v2
-	// helm-controller resolves spec.kubeConfig.secretRef from the
-	// same namespace as the HR.
-	HostNamespace string
-
-	// KubeconfigSecret is the name of the Secret the vCluster chart
-	// exports with the admin kubeconfig YAML (data.config). Stamped
-	// on spec.kubeConfig.secretRef.name.
-	KubeconfigSecret string
-}
-
-// DefaultVClusterPlacements returns the loft-sh/vcluster convention
-// mapping for dmz/mgmt/rtz — host namespace = vCluster name,
-// kubeconfig Secret = "vc-"+name. Matches platform/bp-<name>-vcluster
-// chart values shipped by slots 54/58/59 in the bootstrap-kit.
-//
-// Operators override per Sovereign by setting VCLUSTER_PLACEMENT_<NAME>
-// env vars (see cmd/main.go); this default keeps the controller
-// self-contained for tests + smoke renders.
-func DefaultVClusterPlacements() map[string]VClusterPlacement {
-	return map[string]VClusterPlacement{
-		"dmz":  {HostNamespace: "dmz", KubeconfigSecret: "vc-dmz"},
-		"mgmt": {HostNamespace: "mgmt", KubeconfigSecret: "vc-mgmt"},
-		"rtz":  {HostNamespace: "rtz", KubeconfigSecret: "vc-rtz"},
-	}
-}
-
-// clusterResolver builds the cluster-ID resolver (#3375 DoD-4) from the
-// controller's VClusterPlacements. ADR-0015 D1: a leg is always applied by
-// its own region's Flux, so only the tier decides the kubeConfig pivot.
-func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
-	tiers := map[clusterregistry.Tier]clusterregistry.TierVCluster{}
-	for name, vcp := range r.Cfg.VClusterPlacements {
-		t := clusterregistry.Tier(name)
-		if !clusterregistry.IsKnownTier(t) {
-			continue
-		}
-		tiers[t] = clusterregistry.TierVCluster{
-			HostNamespace:    vcp.HostNamespace,
-			KubeconfigSecret: vcp.KubeconfigSecret,
-		}
-	}
-	return clusterregistry.Resolver{TierVClusters: tiers}
 }
 
 // regionFor maps a placement cluster ID to its canonical region id through
@@ -559,23 +495,10 @@ func pickedRegionsFor(spec appSpec) []string {
 }
 
 // clusterRegionPosition reads the region letter of a canonical cluster ID
-// (`mgmt-A`, `dmz-B`, `rtz-C`) as a zero-based position.
+// (`rtz-A`, `mgmt-B`, `C`) as a zero-based position, through the cluster
+// registry (the region half of the identifier; its prefix means nothing).
 func clusterRegionPosition(cluster string) (int, bool) {
-	t := strings.TrimSpace(cluster)
-	i := strings.LastIndex(t, "-")
-	if i <= 0 || i != len(t)-2 {
-		return 0, false
-	}
-	switch t[:i] {
-	case "mgmt", "dmz", "rtz":
-	default:
-		return 0, false
-	}
-	letter := strings.ToUpper(t[i+1:])[0]
-	if letter < 'A' || letter > 'Z' {
-		return 0, false
-	}
-	return int(letter - 'A'), true
+	return clusterregistry.Position(cluster)
 }
 
 // observesRegion reports whether this controller instance observes legs of
@@ -630,9 +553,6 @@ func (c Config) Defaults() Config {
 	if out.HelmReleaseObservationInterval <= 0 {
 		out.HelmReleaseObservationInterval = 30 * time.Second
 	}
-	if out.VClusterPlacements == nil {
-		out.VClusterPlacements = DefaultVClusterPlacements()
-	}
 	if out.TenantRepoName == "" {
 		out.TenantRepoName = "catalyst-tenant"
 	}
@@ -668,6 +588,10 @@ type Reconciler struct {
 	// production HTTP prober (application_controller_serving.go). Tests
 	// inject a fake so no socket is opened.
 	Prober ServingProber
+
+	// tierLogged records the objects whose ignored tier was already
+	// logged (logIgnoredTier), so each is logged once.
+	tierLogged sync.Map
 }
 
 // New returns a fresh Reconciler with cfg defaults applied.
@@ -967,30 +891,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		}
 	}
 
-	// 5.5 (#3373) — resolve the instance's effective vCluster
-	// placement. Resolution order (founder-ratified law §2.1):
-	//
-	//   1. Application.spec.placement.vcluster   (instance choice —
-	//      console advanced view OR a direct Git edit, equally valid)
-	//   2. Blueprint.spec.defaultPlacement.vcluster (class SUGGESTION)
-	//   3. legacy seams — placementSchema.vcluster (per-region path) /
-	//      topology variant placement.tier (fan-out path), unchanged.
-	//
-	// The resolved value is rendered by the ONE generic mechanism:
-	// the Flux spec.kubeConfig.secretRef pivot (G92.1). Zero per-app
-	// placement code.
-	effVC, effVCSource, effVCFound := "", "", false
-	if spec.PlacementVClusterSet {
-		effVC, effVCSource, effVCFound = spec.PlacementVCluster, "instance", true
-	} else if v, ok := blueprintDefaultPlacementVCluster(bp); ok {
-		effVC, effVCSource, effVCFound = v, "blueprint-default", true
-	}
-	allowedPlacements := blueprintAllowedPlacements(bp)
-	if effVCFound && !vclusterAllowedByBlueprint(effVC, allowedPlacements) {
-		return r.markFailed(ctx, app, ReasonInvalid,
-			fmt.Sprintf("placement vcluster %q not in Blueprint %q allowedPlacements %v",
-				vclusterOrHost(effVC), spec.BlueprintName, allowedPlacements))
-	}
+	// 5.5 (NET-223) — every release is placed on the region's host cluster.
+	// A tier an older Application or Blueprint still names changes nothing;
+	// it is logged once per object.
+	r.logIgnoredTier(app)
+	r.logIgnoredTier(bp)
 
 	// 6. Validate parameters against the Blueprint configSchema.
 	configSchema, _, _ := unstructured.NestedMap(bp.Object, "spec", "configSchema")
@@ -1110,99 +1015,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		// can serve GET /apps/{id}.perCluster[] without re-parsing the
 		// Blueprint topology.
 		//
-		// G117.6a (Refs #2796) — the reconciler PERSISTS each rendered
-		// HR onto the host k3s via the dynamic client. Each HR carries
-		// `spec.kubeConfig.secretRef.name = vc-<cluster-lowered>` so
-		// Flux v2 helm-controller pivots into the per-cluster vCluster
-		// apiserver (G92.1 #2674 pivot pattern). When the Blueprint's
-		// PlacementSpec.Tier is "" the HRs target the host cluster (no
-		// kubeConfig block, no namespace override) — substrate
-		// Blueprints / mgmt-cluster-local install.
+		// G117.6a (Refs #2796) — each rendered HR lands in the
+		// Application's own namespace with no kubeConfig block: the
+		// region's own Flux installs it onto that region's host cluster
+		// (ADR-0015 D1). A placement tier selects nothing (NET-223).
 		if variant != nil && variant.Placement != nil && len(variant.Placement.Clusters) > 0 {
-			// Resolve the per-Tier vCluster host namespace + kubeconfig
-			// Secret convention. Empty Tier = host placement (no
-			// kubeConfig block; HRs land in the Application's own
-			// namespace). Non-empty Tier MUST be mapped via
-			// VClusterPlacements or we surface Invalid (same shape as
-			// the existing single-region vCluster pivot earlier in
-			// this reconcile).
-			placementTier := variant.Placement.Tier
-			// #3373 — the instance's effective vCluster (instance >
-			// blueprint defaultPlacement) overrides the class-level
-			// topology tier. An explicit instance "host" ("" after
-			// normalization) lands the HRs on the host cluster.
-			if effVCFound {
-				placementTier = effVC
-			}
-			if !vclusterAllowedByBlueprint(placementTier, allowedPlacements) {
-				return r.markFailed(ctx, app, ReasonInvalid,
-					fmt.Sprintf("topology placement tier %q not in Blueprint %q allowedPlacements %v",
-						vclusterOrHost(placementTier), spec.BlueprintName, allowedPlacements))
-			}
-			var (
-				fanoutWriteNamespace string
-				fanoutKubeSecretFor  func(cluster string) (string, string)
-			)
-			if placementTier != "" {
-				vcp, vcOK := r.Cfg.VClusterPlacements[placementTier]
-				if !vcOK {
-					return r.markFailed(ctx, app, ReasonInvalid,
-						fmt.Sprintf("Blueprint %q topology variant declares placement.tier=%q but the controller has no VClusterPlacements mapping for it (configure VCLUSTER_PLACEMENT_%s_NS + _SECRET, or drop the tier)",
-							spec.BlueprintName, placementTier, strings.ToUpper(placementTier)))
-				}
-				fanoutWriteNamespace = vcp.HostNamespace
-				// #3375 DoD-4 — resolve each declared canonical cluster
-				// ID (mgmt-A / mgmt-B / dmz-A / …) to its kubeConfig
-				// Secret through the cluster-ID registry, seeded from the
-				// controller's VClusterPlacements + local region. This
-				// replaces the prior `vc-<cluster>` mapping, which was
-				// WRONG for the -B IDs: `mgmt-B` is a DIFFERENT region's
-				// cluster, not a same-host vCluster named `vc-mgmt-b`
-				// (which never exists). The registry encodes the proven
-				// split-side model (cnpg-pair hw128 PASS): same-region IDs
-				// reuse the local tier vCluster pivot; cross-region IDs
-				// resolve to "" so the renderer omits the pivot and the
-				// remote region's own Flux owns its half — unless the
-				// operator wired a remote-region kubeconfig.
-				fanoutKubeSecretFor = r.clusterResolver().SecretFor
-			}
-
-			// #4282 root-cause-B — CNPG-bearing Blueprints reconcile their
-			// `postgresql.cnpg.io/v1 Cluster` CR HOST-SIDE, never inside a
-			// per-Org / plane vCluster. A vCluster apiserver registers NO
-			// `postgresql.cnpg.io/v1` CRD and runs NO cnpg operator (the CNPG
-			// operator + its CRDs are CLUSTER-SINGLETONS owned by the host
-			// cnpg-system release at bootstrap-kit slot 16, and the per-Org
-			// host-ns operator the catalyst funnel installs is webhook-less +
-			// WATCH_NAMESPACE-scoped to that host ns). So a bp-postgres HR
-			// pivoted into a vCluster renders a hollow `InstallSucceeded`: the
-			// chart's `cluster.yaml` is gated on
-			// `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"`, which is
-			// FALSE in the vCluster, so ZERO Cluster CRs render and the
-			// Application hangs Provisioning forever (the #4282 shared-pg-d
-			// repro). This is the SAME invariant the funnel's bp-cnpg-pair path
-			// already enforces (#4293 BLOCKER-1 / TestCNPGPair_PrimaryStaysHost
-			// Side_BothTiers): keep the Cluster CR on the host where the
-			// operator+CRD live; the in-vCluster app pods reach the DB through
-			// the synced Service + the reflected credential Secret. Suppress the
-			// vCluster pivot (no kubeConfig secretRef) and author the HR in the
-			// Application's own host namespace so the host helm-controller
-			// installs the chart into a namespace the host/per-Org cnpg-system
-			// operator reconciles. Detection is by the Blueprint's
-			// `catalyst.openova.io/companion: bp-cnpg` label (present on the LIVE
-			// catalog-seed CR) with a fallback to a `spec.depends[].blueprint:
-			// bp-cnpg` edge for source-authored Blueprints. Non-CNPG Blueprints
-			// (grafana/keycloak/…) keep the proven vCluster pivot unchanged.
-			if placementTier != "" && blueprintRequiresHostCNPGOperator(bp) {
-				r.Log.Info("CNPG-bearing Blueprint placed in a vCluster tier — routing the Cluster CR host-side (no vCluster pivot) so the host cnpg-system operator reconciles it (#4282)",
-					"blueprint", spec.BlueprintName, "tier", placementTier, "hostNamespace", app.GetNamespace())
-				fanoutWriteNamespace = app.GetNamespace()
-				// ADR-0015 D1 — every leg is applied by its own region's
-				// Flux, so "host-side" means host-side IN THAT REGION for
-				// every leg: no vCluster pivot at all.
-				fanoutKubeSecretFor = nil
-			}
-
 			// Source-ref + chart: read from Blueprint.spec.manifests
 			// (same lookup as the per-region path below).
 			fanoutSourceKind, _, _ := unstructured.NestedString(bp.Object, "spec", "manifests", "source", "kind")
@@ -1298,34 +1115,28 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			fanoutUpgradeRetries := r.Cfg.HelmReleaseUpgradeRetries
 
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
-				Endpoints:      r.resolveAppEndpoints(app, bp, org, envSpec.OrganizationRef),
-				Identity:       r.resolveOrgIdentity(org),
-				AppName:        app.GetName(),
-				AppNamespace:   app.GetNamespace(),
-				WriteNamespace: fanoutWriteNamespace,
-				Topology:       choice,
-				Variant:        fanoutVariant,
-				Chart:          firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
-				ChartVersion:   spec.BlueprintVersion,
-				SourceRefName:  ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
+				Endpoints:     r.resolveAppEndpoints(app, bp, org, envSpec.OrganizationRef),
+				Identity:      r.resolveOrgIdentity(org),
+				AppName:       app.GetName(),
+				AppNamespace:  app.GetNamespace(),
+				Topology:      choice,
+				Variant:       fanoutVariant,
+				Chart:         firstNonEmpty(blueprintChart(bp), spec.BlueprintName),
+				ChartVersion:  spec.BlueprintVersion,
+				SourceRefName: ifEmpty(fanoutSourceRef, r.Cfg.CatalogSourceRef),
 				// #4079 — default the source kind when the Blueprint omits
 				// spec.manifests.source.kind. The catalog source
 				// (`openova-catalog`) is a Flux v1 HelmRepository; an empty
 				// sourceRef.kind renders an invalid HelmRelease.
-				SourceRefKind:       ifEmpty(fanoutSourceKind, "HelmRepository"),
-				SourceRefNamespace:  r.Cfg.SourceNamespace,
-				KubeConfigSecretFor: fanoutKubeSecretFor,
+				SourceRefKind:      ifEmpty(fanoutSourceKind, "HelmRepository"),
+				SourceRefNamespace: r.Cfg.SourceNamespace,
 				// ADR-0015 D3 — every leg's region, from the one registry,
 				// in the order the Application picked its regions. An
 				// instance that names its clusters (spec.placement.clusters)
 				// names registry letters, so its legs keep that mapping.
-				RegionFor: r.regionFor(spec.PlacementTargets, pickedRegionsFor(spec)),
-				// #3373 — loft-sh vcluster exportKubeConfig data key
-				// (matches the per-region render path + the
-				// hand-proven bootstrap-kit vCluster slots).
-				KubeConfigSecretKey: "config",
-				DependsOnFor:        fanoutDependsOnFor,
-				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
+				RegionFor:       r.regionFor(spec.PlacementTargets, pickedRegionsFor(spec)),
+				DependsOnFor:    fanoutDependsOnFor,
+				IntervalSeconds: r.Cfg.HelmReleaseIntervalSeconds,
 				// #3988 (UAT row 222) — without these three the rendered HR
 				// inherits helm-controller's 5m timeout and retries=0, so a
 				// per-Org Application that needs longer than 5m to install
@@ -1482,24 +1293,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// for charts whose workload Pod gates on a value populated by one of the
 	// chart's OWN post-install/post-upgrade Helm hooks.
 	bpDisableWait, _, _ := unstructured.NestedBool(bp.Object, "spec", "manifests", "helmRelease", "disableWait")
-	// G92.1 #2660 — spec.placementSchema.vcluster (dmz|mgmt|rtz) names the
-	// vCluster the rendered HelmRelease targets; #3373 the instance's
-	// effective vCluster overrides it. Empty = the region's host cluster.
-	bpVCluster := blueprintVCluster(bp)
-	if effVCFound {
-		bpVCluster = effVC
-	}
-	if !vclusterAllowedByBlueprint(bpVCluster, allowedPlacements) {
-		return r.markFailed(ctx, app, ReasonInvalid,
-			fmt.Sprintf("placement vcluster %q not in Blueprint %q allowedPlacements %v",
-				vclusterOrHost(bpVCluster), spec.BlueprintName, allowedPlacements))
-	}
-	vcPlacement, vcOK := r.Cfg.VClusterPlacements[bpVCluster]
-	if bpVCluster != "" && !vcOK {
-		return r.markFailed(ctx, app, ReasonInvalid,
-			fmt.Sprintf("Blueprint %q declares placementSchema.vcluster=%q but the controller has no VClusterPlacements mapping for it (configure VCLUSTER_PLACEMENT_%s_NS + _SECRET, or drop the field)",
-				spec.BlueprintName, bpVCluster, strings.ToUpper(bpVCluster)))
-	}
 
 	deliveries := append([]*unstructured.Unstructured(nil), perClusterFanout...)
 	regionStatuses := make([]map[string]interface{}, 0, len(plan.Regions))
@@ -1565,12 +1358,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			IntervalSeconds:  r.Cfg.HelmReleaseIntervalSeconds,
 			OwnerAppUID:      string(app.GetUID()),
 			OwnerAppGen:      app.GetGeneration(),
-			// vCluster pivot (G92.1 #2660) — resolved in the region that
-			// applies the file.
-			VCluster:                 bpVCluster,
-			VClusterHostNamespace:    vcPlacement.HostNamespace,
-			VClusterKubeconfigSecret: vcPlacement.KubeconfigSecret,
-			DisableWait:              bpDisableWait,
+			DisableWait:      bpDisableWait,
 		})
 		if err != nil {
 			return r.markDegraded(ctx, app, ReasonRenderError,
@@ -1838,21 +1626,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 
 	// #3373 — surface the EFFECTIVE placement (post-resolution) so the
 	// console reflects the Git-committed truth without re-deriving it.
-	statusPlacementSource := effVCSource
-	if statusPlacementSource == "" {
-		if blueprintVCluster(bp) != "" {
-			statusPlacementSource = "blueprint-placementSchema"
-		} else {
-			statusPlacementSource = "host-default"
-		}
-	}
+	// Every release is on the region's host cluster (NET-223), whatever
+	// tier an older object still names.
 	statusRegions := make([]interface{}, 0, len(spec.Regions))
 	for _, rg := range spec.Regions {
 		statusRegions = append(statusRegions, rg)
 	}
 	su.Placement = map[string]interface{}{
-		"vcluster": vclusterOrHost(bpVCluster),
-		"source":   statusPlacementSource,
+		"vcluster": bpv1alpha1.VClusterHost,
+		"source":   "host-default",
 		"regions":  statusRegions,
 	}
 	if len(spec.PlacementClusters) > 0 {
@@ -2425,13 +2207,14 @@ func (r *Reconciler) cascadeDeleteImperative(ctx context.Context, app *unstructu
 // We select by the globally-unique app-uid back-pointer label rather
 // than an ownerReference: the fan-out HRs deliberately carry no
 // ownerRefs because they may live in a DIFFERENT namespace than the
-// Application CR (the vCluster pivot lands them in the tier host
-// namespace), and K8s ownerRefs only resolve within a single namespace
-// — a cross-namespace ownerRef would get the HR hard-GC'd the instant
-// it is created (the same trap documented on ensureHostFluxBootstrap).
+// Application CR (an HR written before NET-223 removed the tier pivot
+// lives in the tier host namespace), and K8s ownerRefs only resolve within
+// a single namespace — a cross-namespace ownerRef would get the HR
+// hard-GC'd the instant it is created (the same trap documented on
+// ensureHostFluxBootstrap).
 //
-// The List is cluster-scoped because the fan-out authors HRs across the
-// Application's own namespace AND per-Tier vCluster host namespaces: the
+// The List is cluster-scoped because such an older HR may sit outside the
+// Application's own namespace: the
 // app-uid label pre-filters server-side (efficient on a busy Sovereign)
 // and we re-verify it client-side so nothing outside THIS instance is
 // ever deleted. The controller ClusterRole grants list+delete on
@@ -3315,15 +3098,10 @@ type appSpec struct {
 	//
 	// `spec.placement` accepts TWO wire forms:
 	//   string — the legacy BCP-posture enum (parsed into Placement
-	//            above; PlacementVClusterSet stays false).
+	//            above).
 	//   object — {vcluster, regions, clusters, mode}: mode lands in
-	//            Placement; the WHERE lands here.
-	//
-	// PlacementVClusterSet distinguishes "field absent" (inherit the
-	// Blueprint's defaultPlacement / placementSchema suggestion) from
-	// an explicit instance choice — including an explicit "host".
-	PlacementVCluster    string
-	PlacementVClusterSet bool
+	//            Placement; the WHERE lands here. vcluster is not read
+	//            (NET-223: no tier pivot; logIgnoredTier logs it).
 
 	// PlacementClusters — instance override of the topology
 	// variant's PlacementSpec.Clusters (fan-out narrowing).
@@ -3401,24 +3179,13 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	// enum) OR object {vcluster, regions, clusters, mode}. The object
 	// form is the founder-ratified instance-placement law: WHERE an
 	// instance runs is one declared Git-committed field, defaulted from
-	// the Blueprint, rendered by the one generic kubeConfig-pivot
-	// mechanism — never per-app code.
+	// the Blueprint — never per-app code. Its vcluster is not read
+	// (NET-223).
 	if pl, found, serr := unstructured.NestedString(app.Object, "spec", "placement"); serr == nil && found {
 		out.Placement = pl
 	} else if plMap, mfound, merr := unstructured.NestedMap(app.Object, "spec", "placement"); merr == nil && mfound && plMap != nil {
 		if mode, ok := plMap["mode"].(string); ok {
 			out.Placement = mode
-		}
-		if raw, exists := plMap["vcluster"]; exists {
-			s, ok := raw.(string)
-			if !ok {
-				return out, fmt.Errorf("spec.placement.vcluster is not a string: %T", raw)
-			}
-			if !bpv1alpha1.IsKnownVCluster(s) {
-				return out, fmt.Errorf("spec.placement.vcluster %q not in {host, mgmt, dmz, rtz}", s)
-			}
-			out.PlacementVCluster = bpv1alpha1.NormalizeVCluster(s)
-			out.PlacementVClusterSet = true
 		}
 		if raw, exists := plMap["clusters"]; exists {
 			items, ok := raw.([]interface{})
@@ -3636,46 +3403,6 @@ func blueprintChart(bp *unstructured.Unstructured) string {
 	return c
 }
 
-// blueprintRequiresHostCNPGOperator reports whether the Blueprint renders
-// a `postgresql.cnpg.io/v1` resource and therefore needs the host-side CNPG
-// operator (the cluster-singleton bp-cnpg) to reconcile it — which means its
-// per-cluster HelmRelease must NOT pivot into a vCluster (#4282 root-cause-B).
-//
-// Two equivalent signals, either of which is authoritative:
-//
-//   - the `catalyst.openova.io/companion: bp-cnpg` metadata label — set on
-//     the LIVE catalog-seed Blueprint CR (products/catalyst/chart/templates/
-//     catalog-seed/blueprints.yaml) AND on platform/postgres/blueprint.yaml.
-//     This is the primary signal because the seed (the source the catalyst-api
-//     actually materializes into the cluster) carries the label but NOT the
-//     full `spec.depends[]` block.
-//   - a `spec.depends[].blueprint: bp-cnpg` edge — present on source-authored
-//     Blueprints (platform/postgres/blueprint.yaml). Fallback for CRs
-//     reconciled straight from source without the curated seed.
-//
-// A future CNPG-bearing Blueprint (e.g. a dedicated bp-cnpg-pair instance card)
-// inherits the routing for free by declaring either signal — there is no
-// hard-coded `bp-postgres` name here.
-func blueprintRequiresHostCNPGOperator(bp *unstructured.Unstructured) bool {
-	if bp == nil {
-		return false
-	}
-	if bp.GetLabels()["catalyst.openova.io/companion"] == "bp-cnpg" {
-		return true
-	}
-	deps, _, _ := unstructured.NestedSlice(bp.Object, "spec", "depends")
-	for _, d := range deps {
-		dm, ok := d.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if name, _ := dm["blueprint"].(string); name == "bp-cnpg" {
-			return true
-		}
-	}
-	return false
-}
-
 // fanoutOwnerLabels builds the org / env-type / app-uid label set the
 // reconciler stamps on every per-cluster HelmRelease AND (#3375 DoD-3)
 // the per-app Continuum CR, so both participate in the same
@@ -3710,71 +3437,71 @@ func firstNonEmpty(ss ...string) string {
 	return ""
 }
 
-// blueprintVCluster reads spec.placementSchema.vcluster from a
-// Blueprint and returns one of "dmz" / "mgmt" / "rtz" / "". Empty
-// means the Blueprint either doesn't declare the field (treated as
-// host placement — legacy + substrate-only Blueprints per G92.6) or
-// declared it as the empty string. The controller cross-checks
-// against r.Cfg.VClusterPlacements before stamping it on the
-// rendered HelmRelease (G92.1 #2660).
-func blueprintVCluster(bp *unstructured.Unstructured) string {
-	vc, _, _ := unstructured.NestedString(bp.Object, "spec", "placementSchema", "vcluster")
-	return vc
-}
-
-// blueprintDefaultPlacementVCluster reads
-// `spec.defaultPlacement.vcluster` from a Blueprint (#3373) — the
-// class-level placement SUGGESTION every instance inherits unless its
-// own `Application.spec.placement.vcluster` overrides it. The bool
-// reports field presence so an explicit `vcluster: host` default is
-// distinguishable from "not declared" (which falls back to the legacy
-// `placementSchema.vcluster` G92.1 field).
-func blueprintDefaultPlacementVCluster(bp *unstructured.Unstructured) (string, bool) {
-	vc, found, err := unstructured.NestedString(bp.Object, "spec", "defaultPlacement", "vcluster")
-	if err != nil || !found {
-		return "", false
+// logIgnoredTier logs, once per object, the placement tiers a stored
+// Application or Blueprint still names. NET-223 removed the tier pivot:
+// every release is placed on the region's host cluster, so these values
+// change nothing. An object that names no tier is not logged.
+func (r *Reconciler) logIgnoredTier(obj *unstructured.Unstructured) {
+	if obj == nil {
+		return
 	}
-	return bpv1alpha1.NormalizeVCluster(vc), true
+	fields := ignoredTierFields(obj)
+	if len(fields) == 0 {
+		return
+	}
+	key := strings.Join([]string{obj.GetKind(), obj.GetNamespace(), obj.GetName(), string(obj.GetUID())}, "/")
+	if _, seen := r.tierLogged.LoadOrStore(key, struct{}{}); seen {
+		return
+	}
+	r.Log.Info("placement tier ignored: the release is placed on the region's host cluster",
+		"kind", obj.GetKind(),
+		"namespace", obj.GetNamespace(),
+		"name", obj.GetName(),
+		"fields", fields)
 }
 
-// blueprintAllowedPlacements reads `spec.allowedPlacements` from a
-// Blueprint (#3373) — the vCluster tiers an instance MAY be placed in.
-// Empty slice when absent (treated as "unrestricted").
-func blueprintAllowedPlacements(bp *unstructured.Unstructured) []string {
-	raw, _, _ := unstructured.NestedSlice(bp.Object, "spec", "allowedPlacements")
-	out := make([]string, 0, len(raw))
-	for _, r := range raw {
-		if s, ok := r.(string); ok {
-			out = append(out, s)
+// ignoredTierFields returns `<path>=<value>` for every tier obj names: the
+// vcluster of spec.placement and of each spec.placement.targets[] entry (an
+// Application), spec.placementSchema.vcluster, spec.defaultPlacement.vcluster,
+// spec.allowedPlacements[] and the placement.tier of each
+// spec.topology.perTopology variant (a Blueprint). "" and "host" name no tier.
+func ignoredTierFields(obj *unstructured.Unstructured) []string {
+	var out []string
+	add := func(path string, v interface{}) {
+		s, isString := v.(string)
+		if v == nil || (isString && bpv1alpha1.NormalizeVCluster(strings.TrimSpace(s)) == "") {
+			return
 		}
+		out = append(out, fmt.Sprintf("%s=%v", path, v))
+	}
+	if pl, ok, _ := unstructured.NestedMap(obj.Object, "spec", "placement"); ok {
+		add("spec.placement.vcluster", pl["vcluster"])
+		targets, _ := pl["targets"].([]interface{})
+		for i, t := range targets {
+			if tm, ok := t.(map[string]interface{}); ok {
+				add(fmt.Sprintf("spec.placement.targets[%d].vcluster", i), tm["vcluster"])
+			}
+		}
+	}
+	for _, path := range [][]string{{"spec", "placementSchema", "vcluster"}, {"spec", "defaultPlacement", "vcluster"}} {
+		v, _, _ := unstructured.NestedFieldNoCopy(obj.Object, path...)
+		add(strings.Join(path, "."), v)
+	}
+	allowed, _, _ := unstructured.NestedSlice(obj.Object, "spec", "allowedPlacements")
+	for i, a := range allowed {
+		add(fmt.Sprintf("spec.allowedPlacements[%d]", i), a)
+	}
+	perTopology, _, _ := unstructured.NestedMap(obj.Object, "spec", "topology", "perTopology")
+	bcps := make([]string, 0, len(perTopology))
+	for bcp := range perTopology {
+		bcps = append(bcps, bcp)
+	}
+	sort.Strings(bcps)
+	for _, bcp := range bcps {
+		v, _, _ := unstructured.NestedFieldNoCopy(obj.Object, "spec", "topology", "perTopology", bcp, "placement", "tier")
+		add("spec.topology.perTopology."+bcp+".placement.tier", v)
 	}
 	return out
-}
-
-// vclusterAllowedByBlueprint reports whether the effective vCluster
-// placement is permitted by the Blueprint's allowedPlacements
-// declaration (#3373). An empty allow-list permits everything. The
-// "host" sentinel and "" compare equal.
-func vclusterAllowedByBlueprint(effective string, allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	eff := bpv1alpha1.NormalizeVCluster(effective)
-	for _, a := range allowed {
-		if bpv1alpha1.NormalizeVCluster(a) == eff {
-			return true
-		}
-	}
-	return false
-}
-
-// vclusterOrHost maps the internal empty-string host placement back to
-// the user-facing "host" sentinel for status/UI surfaces (#3373).
-func vclusterOrHost(v string) string {
-	if v == "" {
-		return bpv1alpha1.VClusterHost
-	}
-	return v
 }
 
 // branchForEnvType maps env-type → Gitea branch name per NAMING §11.2.

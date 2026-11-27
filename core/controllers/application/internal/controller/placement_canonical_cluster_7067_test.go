@@ -20,9 +20,12 @@ func TestCanonicalizeTargetClusters(t *testing.T) {
 		{Region: "hw-me-east-215-b-rtz-prod", Cluster: "9a1f230f320d7ff9-me-east-215-b-1", Role: "Primary"},
 		{Region: "hw-me-east-215-a-rtz-prod", Cluster: "mgmt-A"},
 		{Region: "elsewhere", Cluster: "x"},
+		// A target's tier no longer changes the id (NET-223): before, this
+		// was rewritten to mgmt-B.
+		{Region: "hw-me-east-215-b-rtz-prod", Cluster: "9a1f230f320d7ff9-me-east-215-b-1", VCluster: "mgmt", Role: "Standby"},
 	}
 	out := r.canonicalizeTargetClusters(in)
-	want := []string{"rtz-A", "rtz-B", "mgmt-A", "x"}
+	want := []string{"rtz-A", "rtz-B", "mgmt-A", "x", "rtz-B"}
 	for i := range want {
 		if out[i].Cluster != want[i] {
 			t.Errorf("target %d cluster = %q, want %q", i, out[i].Cluster, want[i])

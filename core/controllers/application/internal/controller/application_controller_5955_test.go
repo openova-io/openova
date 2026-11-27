@@ -88,7 +88,7 @@ func newAppOverCNPG(t *testing.T, backing ...*unstructured.Unstructured) *Reconc
 		[]string{"hetzner-fsn-rtz-prod"},
 		nil,
 	)
-	hr := readyHR("obs-mgmt-a", "mgmt", "True")
+	hr := readyHR("obs-mgmt-a", "acme", "True")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
@@ -106,7 +106,7 @@ func newAppOverCNPG(t *testing.T, backing ...*unstructured.Unstructured) *Reconc
 // "Setting up primary" is not — so the Application settled on
 // phase=Ready / Ready=True over a database with zero ready instances.
 func TestReconcile_5955_ReadyHR_BackingZeroReadyInstances_NotReady(t *testing.T) {
-	cnpg := makeCNPGClusterWithStatus("mgmt", "postgres", "obs-mgmt-a", hw292PerOrgCNPGStatus())
+	cnpg := makeCNPGClusterWithStatus("acme", "postgres", "obs-mgmt-a", hw292PerOrgCNPGStatus())
 	r := newAppOverCNPG(t, cnpg)
 
 	reconcileFromCluster(t, r, "acme", "obs")
@@ -129,7 +129,7 @@ func TestReconcile_5955_ReadyHR_BackingZeroReadyInstances_NotReady(t *testing.T)
 		t.Errorf("reason = %q, want %q", reason, ReasonBackingNotReady)
 	}
 	// The message must name the object the operator has to go look at.
-	for _, want := range []string{"mgmt/postgres", "Ready"} {
+	for _, want := range []string{"acme/postgres", "Ready"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not mention %q", msg, want)
 		}
@@ -140,7 +140,7 @@ func TestReconcile_5955_ReadyHR_BackingZeroReadyInstances_NotReady(t *testing.T)
 // A backing that reports itself ready must not be swept up: the Application
 // still reaches Ready.
 func TestReconcile_5955_ReadyHR_HealthyBacking_StaysReady(t *testing.T) {
-	cnpg := makeCNPGClusterWithStatus("mgmt", "postgres", "obs-mgmt-a", map[string]interface{}{
+	cnpg := makeCNPGClusterWithStatus("acme", "postgres", "obs-mgmt-a", map[string]interface{}{
 		"phase":          "Cluster in healthy state",
 		"instances":      int64(3),
 		"readyInstances": int64(3),
@@ -197,7 +197,7 @@ func TestReconcile_5955_NoBackingResource_StaysReady(t *testing.T) {
 // The Application must instead report Ready=Unknown: we have no evidence of
 // failure, only an absence of evidence of health.
 func TestReconcile_5955_BackingForbidden_IsUnverifiableNotReady(t *testing.T) {
-	cnpg := makeCNPGClusterWithStatus("mgmt", "postgres", "obs-mgmt-a", map[string]interface{}{
+	cnpg := makeCNPGClusterWithStatus("acme", "postgres", "obs-mgmt-a", map[string]interface{}{
 		"phase":          "Cluster in healthy state",
 		"instances":      int64(3),
 		"readyInstances": int64(3),

@@ -837,65 +837,33 @@ func TestReconcile_PendingOnGiteaOrgMissing(t *testing.T) {
 	}
 }
 
-// --- G92.1 #2660: vCluster placement -------------------------------------
+// --- NET-223: a placementSchema.vcluster selects nothing ------------------
 
-// TestReconcile_VClusterPlacementMGMT asserts the rendered HelmRelease
-// installs INTO the MGMT vCluster when the Blueprint declares
-// spec.placementSchema.vcluster=mgmt. The HR lands in the host
-// `mgmt` namespace (so helm-controller resolves the kubeConfig Secret
-// from the same namespace) but installs the chart inside the vCluster
-// (spec.targetNamespace = Application's inner namespace, vCluster
-// syncer mirrors it back to host as <inner-ns>-x-mgmt).
-//
-// Per docs/SOVEREIGN-MULTI-REGION-DOD.md §A4 the three vClusters
-// (slots 54/58/59) partition workloads. Without this code path every
-// bp-* lands on host k3s and the vClusters stand empty — founder
-// caught this 2026-05-31.
-func TestReconcile_VClusterPlacementMGMT(t *testing.T) {
-	bp := makeBlueprintWithVCluster("bp-gitea", "1.2.11", nil, []string{"single-region"}, "mgmt")
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeApp("acme", "control-plane", "acme-prod", "bp-gitea", "1.2.11", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"}, nil)
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
+// TestReconcile_PlacementSchemaVClusterIgnored asserts a Blueprint that
+// still declares spec.placementSchema.vcluster (a known tier or an unknown
+// one) renders the host placement: the HR in the Application namespace, no
+// kubeConfig pivot, no vcluster label, and no Invalid refusal. Before NET-223
+// mgmt pivoted into the mgmt vCluster and an unknown name failed the Application.
+func TestReconcile_PlacementSchemaVClusterIgnored(t *testing.T) {
+	for _, vc := range []string{"mgmt", "unknown-vc"} {
+		t.Run(vc, func(t *testing.T) {
+			bp := makeBlueprintWithVCluster("bp-gitea", "1.2.11", nil, []string{"single-region"}, vc)
+			env := makeEnv("acme-prod", "acme", "prod")
+			org := makeOrg("acme")
+			app := makeApp("acme", "control-plane", "acme-prod", "bp-gitea", "1.2.11", "single-region",
+				[]string{"hetzner-fsn-rtz-prod"}, nil)
+			fg := newFakeGitea()
+			fg.orgsExist["acme"] = true
+			r := newReconciler(t, fg, app, env, org, bp)
 
-	reconcileFromCluster(t, r, "acme", "control-plane")
+			reconcileFromCluster(t, r, "acme", "control-plane")
 
-	hrBytes, ok := fg.get("acme", "catalyst-tenant", "main", "regions/hetzner-fsn-rtz-prod/apps/control-plane.yaml")
-	if !ok {
-		t.Fatal("HelmRelease should have been committed to Gitea")
-	}
-	hr := string(hrBytes)
-
-	// HR lives in the vCluster's host namespace so the kubeConfig
-	// Secret lookup is co-located (Flux v2 SecretReference contract).
-	if !strings.Contains(hr, "namespace: mgmt") {
-		t.Errorf("HR.metadata.namespace must be the vCluster's host namespace (mgmt), got:\n%s", hr)
-	}
-	// kubeConfig pivot present.
-	if !strings.Contains(hr, "kubeConfig:") {
-		t.Errorf("HR must carry spec.kubeConfig pivot, got:\n%s", hr)
-	}
-	if !strings.Contains(hr, "name: vc-mgmt") {
-		t.Errorf("HR.spec.kubeConfig.secretRef.name must be 'vc-mgmt' (loft-sh/vcluster convention), got:\n%s", hr)
-	}
-	// Inner target namespace = Application's own namespace (vCluster
-	// remaps host-side).
-	if !strings.Contains(hr, "targetNamespace: acme") {
-		t.Errorf("HR.spec.targetNamespace must be the Application's inner namespace (acme), got:\n%s", hr)
-	}
-	// Label for traceability + dashboard grouping.
-	if !strings.Contains(hr, "catalyst.openova.io/vcluster: mgmt") {
-		t.Errorf("HR must stamp catalyst.openova.io/vcluster label, got:\n%s", hr)
-	}
-
-	// Reconcile should complete normally (placement reaches Provisioning).
-	got := readApp(t, r, "acme", "control-plane")
-	phase, reason, message := readPhaseAndReason(t, got)
-	if phase != PhaseProvisioning {
-		t.Errorf("phase = %q, want %q (reason=%q, msg=%q)", phase, PhaseProvisioning, reason, message)
+			assertHostSideHR(t, fg, "acme", "control-plane", "hetzner-fsn-rtz-prod")
+			got := readApp(t, r, "acme", "control-plane")
+			if phase, reason, message := readPhaseAndReason(t, got); phase != PhaseProvisioning {
+				t.Errorf("phase = %q, want %q (reason=%q, msg=%q)", phase, PhaseProvisioning, reason, message)
+			}
+		})
 	}
 }
 
@@ -930,35 +898,6 @@ func TestReconcile_NoVClusterFieldUnchanged(t *testing.T) {
 	}
 	if !strings.Contains(hr, "namespace: acme") {
 		t.Errorf("Host-placement HR.metadata.namespace must be the Application namespace, got:\n%s", hr)
-	}
-}
-
-// TestReconcile_VClusterUnmappedFails asserts the Reconcile fails
-// (status.phase=Failed, reason=Invalid) when the Blueprint declares a
-// placementSchema.vcluster that the controller's Config has no
-// mapping for — better to surface the misconfiguration as a Condition
-// than silently fall back to host placement and confuse operators.
-func TestReconcile_VClusterUnmappedFails(t *testing.T) {
-	bp := makeBlueprintWithVCluster("bp-mystery", "1.0.0", nil, []string{"single-region"}, "unknown-vc")
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeApp("acme", "mystery", "acme-prod", "bp-mystery", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"}, nil)
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	// newReconciler installs DefaultVClusterPlacements which only knows
-	// dmz/mgmt/rtz; "unknown-vc" trips the validation branch.
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "mystery")
-
-	got := readApp(t, r, "acme", "mystery")
-	phase, reason, _ := readPhaseAndReason(t, got)
-	if phase != PhaseFailed {
-		t.Errorf("phase = %q, want %q", phase, PhaseFailed)
-	}
-	if reason != ReasonInvalid {
-		t.Errorf("reason = %q, want %q", reason, ReasonInvalid)
 	}
 }
 

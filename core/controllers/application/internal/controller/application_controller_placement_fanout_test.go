@@ -110,15 +110,28 @@ func TestReconcile_TargetsDriveFanout_TwoClustersTwoHRs(t *testing.T) {
 		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
 	}
 
-	// The targets carry vcluster=mgmt → HRs land in the mgmt host namespace.
+	// The targets still carry vcluster=mgmt; the HRs land in the Application namespace (NET-223).
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").
+		Namespace("acme").
 		List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt: %v", err)
+		t.Fatalf("list HRs in acme: %v", err)
 	}
+	// The per-app Continuum companion (dr-obs) shares the namespace; keep
+	// the per-cluster legs only.
+	legs := hrList.Items[:0]
+	for _, hr := range hrList.Items {
+		if hr.GetLabels()["catalyst.openova.io/cluster"] != "" {
+			legs = append(legs, hr)
+		}
+	}
+	hrList.Items = legs
 	if got := len(hrList.Items); got != 2 {
-		t.Fatalf("want 2 per-cluster HRs driven by targets[], got %d", got)
+		names := make([]string, 0, got)
+		for _, hr := range hrList.Items {
+			names = append(names, hr.GetName())
+		}
+		t.Fatalf("want 2 per-cluster HRs driven by targets[], got %d: %v", got, names)
 	}
 
 	seenClusters := map[string]bool{}
@@ -139,28 +152,11 @@ func TestReconcile_TargetsDriveFanout_TwoClustersTwoHRs(t *testing.T) {
 		t.Errorf("Standby target mgmt-B → role=passive, got %q", roleByCluster["mgmt-B"])
 	}
 
-	// The local-region cluster (mgmt-A) pivots into vc-mgmt; the remote
-	// cluster (mgmt-B) carries no kubeConfig block (split-side default) —
-	// same registry resolution the legacy topology fan-out test asserts.
+	// ADR-0015 D1 — each region applies its own leg onto its host cluster:
+	// no leg pivots, although both targets name the tier mgmt (NET-223).
 	for _, hr := range hrList.Items {
-		cluster := hr.GetLabels()["catalyst.openova.io/cluster"]
-		kc, found, _ := unstructured.NestedMap(hr.Object, "spec", "kubeConfig")
-		if cluster == "mgmt-A" {
-			if !found {
-				t.Errorf("mgmt-A HR must carry a kubeConfig pivot")
-				continue
-			}
-			name, _, _ := unstructured.NestedString(kc, "secretRef", "name")
-			if name != "vc-mgmt" {
-				t.Errorf("mgmt-A kubeConfig secretRef.name = %q, want vc-mgmt", name)
-			}
-		}
-		// ADR-0015 D1 — region B applies mgmt-B into its OWN vc-mgmt.
-		if cluster == "mgmt-B" {
-			name, _, _ := unstructured.NestedString(kc, "secretRef", "name")
-			if !found || name != "vc-mgmt" {
-				t.Errorf("mgmt-B HR must pivot into its own region's vc-mgmt; got %v", kc)
-			}
+		if kc, found, _ := unstructured.NestedMap(hr.Object, "spec", "kubeConfig"); found {
+			t.Errorf("HR %s must carry no kubeConfig pivot; got %v", hr.GetName(), kc)
 		}
 	}
 }
@@ -191,9 +187,9 @@ func TestReconcile_TargetsDriveFanout_SingletonSingleTarget(t *testing.T) {
 	}
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+		Namespace("acme").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt: %v", err)
+		t.Fatalf("list HRs in acme: %v", err)
 	}
 	if got := len(hrList.Items); got != 1 {
 		t.Fatalf("want 1 singleton HR, got %d", got)
@@ -237,9 +233,9 @@ func TestReconcile_SingletonFanout_CarriesParameters_4589(t *testing.T) {
 	reconcileAndApplyAll(t, r, fg, "acme", "agenity")
 
 	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-		Namespace("mgmt").List(context.Background(), metav1.ListOptions{})
+		Namespace("acme").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		t.Fatalf("list HRs in mgmt: %v", err)
+		t.Fatalf("list HRs in acme: %v", err)
 	}
 	if got := len(hrList.Items); got != 1 {
 		t.Fatalf("want 1 singleton fan-out HR, got %d", got)
@@ -338,15 +334,18 @@ func TestReconcile_NoTargets_NoBlueprintTopology_NoFanout(t *testing.T) {
 		t.Fatalf("unexpected Failed phase: reason=%q msg=%q", reason, msg)
 	}
 
-	// No fan-out HRs in any of the vCluster host namespaces.
-	for _, ns := range []string{"mgmt", "dmz", "rtz"} {
-		hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
-			Namespace(ns).List(context.Background(), metav1.ListOptions{})
-		if err != nil {
-			t.Fatalf("list HRs in %s: %v", ns, err)
+	// No fan-out `<app>-<cluster>` HR anywhere: the only HR is the bare
+	// `<app>` the per-region path renders.
+	hrList, err := r.Dynamic.Resource(FluxHelmReleaseGVR).
+		List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list HRs: %v", err)
+	}
+	if len(hrList.Items) != 1 || hrList.Items[0].GetName() != "obs" {
+		names := make([]string, 0, len(hrList.Items))
+		for _, hr := range hrList.Items {
+			names = append(names, hr.GetNamespace()+"/"+hr.GetName())
 		}
-		if len(hrList.Items) != 0 {
-			t.Errorf("targets path must be dormant: expected 0 fan-out HRs in %s, got %d", ns, len(hrList.Items))
-		}
+		t.Errorf("targets path must be dormant: want only the bare HR obs, got %v", names)
 	}
 }

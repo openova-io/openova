@@ -1,39 +1,38 @@
-// Tests for #3373 — instance-level placement.
+// Tests for #3373 — instance-level placement — after NET-223 removed the
+// tier pivot.
 //
-// Founder-ratified law: placement is an INSTANCE property
-// (`Application.spec.placement` object form {vcluster, regions,
-// clusters, mode}), defaulted from the Blueprint
-// (`spec.defaultPlacement` + `spec.allowedPlacements`), rendered by
-// the ONE generic mechanism — the Flux `spec.kubeConfig.secretRef`
-// pivot (G92.1, fanout.go + pkg/render). Zero per-app placement code.
+// `Application.spec.placement` (object form {vcluster, regions, clusters,
+// mode}) still carries the WHERE of an instance, but a placement tier
+// selects nothing any more: every release lands in the Application's own
+// namespace on the region's host cluster, with no `spec.kubeConfig` pivot.
+// A tier an older object still names is ignored and logged once per object.
 //
 // Matrix:
 //
 //  1. parseSpec dual-form — legacy string preserved verbatim.
-//  2. parseSpec object form — vcluster/clusters/regions/mode parsed;
-//     "host" normalizes to ""; unknown vcluster errors.
-//  3. Instance placement.vcluster=rtz → rendered HR pivots into
-//     vc-rtz (HR ns rtz) even when the Blueprint declares nothing.
-//  4. Blueprint spec.defaultPlacement.vcluster=mgmt → instance with
-//     NO placement inherits the suggestion (silent-accept law §2.1).
-//  5. Instance choice OVERRIDES Blueprint defaultPlacement.
-//  6. Explicit instance `vcluster: host` overrides a Blueprint
-//     default into host placement (no kubeConfig pivot).
-//  7. allowedPlacements rejection → phase=Failed reason=Invalid.
-//  8. Git-is-truth (#3373 DoD-7 mechanic): edit spec.placement on the
-//     stored CR (≙ a direct Git edit applied by Flux) → re-reconcile
-//     → the rendered HR moves to the new vCluster and
-//     status.placement reflects it. No console involvement.
-//  9. status.placement reflects the EFFECTIVE placement + source.
+//  2. parseSpec object form — clusters/regions/mode parsed; vcluster is not
+//     read, so even an unknown value is no error.
+//  3. Instance placement.vcluster=rtz → the HR stays host-side.
+//  4. Blueprint spec.defaultPlacement.vcluster=mgmt → host-side.
+//  5. A tier outside the Blueprint's allowedPlacements is no refusal.
+//  6. A Git edit of spec.placement.vcluster changes nothing; status.placement
+//     reports host / host-default.
+//  7. The ignored tier is logged once per object, naming the field.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/core/controllers/pkg/render"
 )
 
 // makeAppWithPlacement builds an Application whose spec.placement is
@@ -75,6 +74,39 @@ func getCommittedHR(t *testing.T, fg *fakeGitea, org, app, region string) string
 	return string(hrBytes)
 }
 
+// assertHostSideHR parses the committed HelmRelease and asserts the host
+// placement: metadata.namespace is the Application's namespace, and there is
+// no spec.kubeConfig and no vcluster label.
+func assertHostSideHR(t *testing.T, fg *fakeGitea, org, app, region string) {
+	t.Helper()
+	hr, err := render.ParseHelmRelease([]byte(getCommittedHR(t, fg, org, app, region)))
+	if err != nil {
+		t.Fatalf("parse committed HR: %v", err)
+	}
+	if ns := hr.GetNamespace(); ns != org {
+		t.Errorf("HR.metadata.namespace = %q, want the Application namespace %q", ns, org)
+	}
+	if kc, found, _ := unstructured.NestedMap(hr.Object, "spec", "kubeConfig"); found {
+		t.Errorf("HR must carry no spec.kubeConfig pivot, got %v", kc)
+	}
+	if vc, ok := hr.GetLabels()["catalyst.openova.io/vcluster"]; ok {
+		t.Errorf("HR must carry no vcluster label, got %q", vc)
+	}
+}
+
+func assertStatusPlacementHost(t *testing.T, r *Reconciler, ns, name string) {
+	t.Helper()
+	got := readApp(t, r, ns, name)
+	vc, _, _ := unstructured.NestedString(got.Object, "status", "placement", "vcluster")
+	if vc != "host" {
+		t.Errorf("status.placement.vcluster = %q, want host", vc)
+	}
+	src, _, _ := unstructured.NestedString(got.Object, "status", "placement", "source")
+	if src != "host-default" {
+		t.Errorf("status.placement.source = %q, want host-default", src)
+	}
+}
+
 // --- 1+2. parseSpec dual-form ---------------------------------------------
 
 func TestParseSpec_PlacementLegacyString(t *testing.T) {
@@ -86,9 +118,6 @@ func TestParseSpec_PlacementLegacyString(t *testing.T) {
 	}
 	if spec.Placement != "single-region" {
 		t.Errorf("Placement = %q, want single-region", spec.Placement)
-	}
-	if spec.PlacementVClusterSet {
-		t.Error("PlacementVClusterSet must be false for the legacy string form")
 	}
 }
 
@@ -105,10 +134,6 @@ func TestParseSpec_PlacementObjectForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSpec: %v", err)
 	}
-	if !spec.PlacementVClusterSet || spec.PlacementVCluster != "rtz" {
-		t.Errorf("PlacementVCluster = (%q, set=%v), want (rtz, true)",
-			spec.PlacementVCluster, spec.PlacementVClusterSet)
-	}
 	if spec.Placement != "single-region" {
 		t.Errorf("mode → Placement = %q, want single-region", spec.Placement)
 	}
@@ -121,152 +146,65 @@ func TestParseSpec_PlacementObjectForm(t *testing.T) {
 	}
 }
 
-func TestParseSpec_PlacementHostSentinelNormalized(t *testing.T) {
+// TestParseSpec_PlacementUnknownVClusterIgnored — before NET-223 an unknown
+// tier made parseSpec fail; vcluster is not read any more.
+func TestParseSpec_PlacementUnknownVClusterIgnored(t *testing.T) {
 	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "host"},
+		map[string]interface{}{"vcluster": "warp-zone", "mode": "single-region"},
 		[]string{"hetzner-fsn-rtz-prod"})
 	spec, err := parseSpec(app)
 	if err != nil {
-		t.Fatalf("parseSpec: %v", err)
+		t.Fatalf("parseSpec must not read spec.placement.vcluster, got error: %v", err)
 	}
-	if !spec.PlacementVClusterSet {
-		t.Error("explicit vcluster: host must register as SET (presence-aware)")
-	}
-	if spec.PlacementVCluster != "" {
-		t.Errorf("PlacementVCluster = %q, want \"\" (host normalizes to empty)", spec.PlacementVCluster)
+	if spec.Placement != "single-region" {
+		t.Errorf("Placement = %q, want single-region", spec.Placement)
 	}
 }
 
-func TestParseSpec_PlacementUnknownVClusterRejected(t *testing.T) {
-	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "warp-zone"},
-		[]string{"hetzner-fsn-rtz-prod"})
-	if _, err := parseSpec(app); err == nil {
-		t.Fatal("parseSpec must reject an unknown vcluster tier")
+// --- 3-5. A tier selects nothing ------------------------------------------
+
+func TestReconcile_TierIgnored_RendersHostSide(t *testing.T) {
+	cases := []struct {
+		name      string
+		bp        *unstructured.Unstructured
+		placement map[string]interface{}
+	}{
+		{"instance vcluster rtz", makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"}),
+			map[string]interface{}{"vcluster": "rtz", "mode": "single-region"}},
+		{"blueprint defaultPlacement mgmt", makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", nil),
+			nil},
+		{"instance dmz outside allowedPlacements [mgmt rtz]", makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", []string{"mgmt", "rtz"}),
+			map[string]interface{}{"vcluster": "dmz", "mode": "single-region"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := makeEnv("acme-prod", "acme", "prod")
+			org := makeOrg("acme")
+			app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
+				[]string{"hetzner-fsn-rtz-prod"}, nil)
+			if c.placement != nil {
+				app = makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
+					c.placement, []string{"hetzner-fsn-rtz-prod"})
+			}
+			fg := newFakeGitea()
+			fg.orgsExist["acme"] = true
+			r := newReconciler(t, fg, app, env, org, c.bp)
+
+			reconcileFromCluster(t, r, "acme", "site")
+
+			got := readApp(t, r, "acme", "site")
+			if phase, reason, msg := readPhaseAndReason(t, got); phase == PhaseFailed {
+				t.Fatalf("a tier must not refuse the Application: phase=%q reason=%q msg=%q", phase, reason, msg)
+			}
+			assertHostSideHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
+			assertStatusPlacementHost(t, r, "acme", "site")
+		})
 	}
 }
 
-// --- 3. Instance placement drives the kubeConfig pivot --------------------
+// --- 6. A Git edit of the tier changes nothing ----------------------------
 
-func TestReconcile_InstancePlacementVClusterRTZ(t *testing.T) {
-	// Blueprint declares NO placement at all — the instance field is
-	// the only truth (law §2.1: placement is an INSTANCE property).
-	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "rtz", "mode": "single-region"},
-		[]string{"hetzner-fsn-rtz-prod"})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	hr := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if !strings.Contains(hr, "namespace: rtz") {
-		t.Errorf("HR.metadata.namespace must be the rtz vCluster host namespace, got:\n%s", hr)
-	}
-	if !strings.Contains(hr, "name: vc-rtz") {
-		t.Errorf("HR.spec.kubeConfig.secretRef.name must be vc-rtz, got:\n%s", hr)
-	}
-	if !strings.Contains(hr, "kubeConfig:") {
-		t.Errorf("HR must carry the ONE generic kubeConfig pivot, got:\n%s", hr)
-	}
-}
-
-// --- 4. Blueprint defaultPlacement inherited silently ---------------------
-
-func TestReconcile_BlueprintDefaultPlacementInherited(t *testing.T) {
-	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", nil)
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	// Instance declares NOTHING — the user accepted the suggestion
-	// silently ("he doesn't even need to know the vcluster detail").
-	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"}, nil)
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	hr := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if !strings.Contains(hr, "name: vc-mgmt") {
-		t.Errorf("Blueprint defaultPlacement.vcluster=mgmt must pivot the HR into vc-mgmt, got:\n%s", hr)
-	}
-}
-
-// --- 5. Instance choice overrides the Blueprint default -------------------
-
-func TestReconcile_InstanceOverridesBlueprintDefault(t *testing.T) {
-	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", nil)
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "dmz", "mode": "single-region"},
-		[]string{"hetzner-fsn-rtz-prod"})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	hr := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if !strings.Contains(hr, "name: vc-dmz") {
-		t.Errorf("instance vcluster=dmz must win over Blueprint default mgmt, got:\n%s", hr)
-	}
-}
-
-// --- 6. Explicit instance host overrides a vCluster default ---------------
-
-func TestReconcile_InstanceHostOverridesBlueprintDefault(t *testing.T) {
-	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", nil)
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "host", "mode": "single-region"},
-		[]string{"hetzner-fsn-rtz-prod"})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	hr := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if strings.Contains(hr, "kubeConfig:") {
-		t.Errorf("explicit instance host placement must NOT emit a kubeConfig pivot, got:\n%s", hr)
-	}
-}
-
-// --- 7. allowedPlacements gate ---------------------------------------------
-
-func TestReconcile_PlacementNotInAllowedPlacements(t *testing.T) {
-	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", []string{"mgmt", "rtz"})
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
-		map[string]interface{}{"vcluster": "dmz", "mode": "single-region"},
-		[]string{"hetzner-fsn-rtz-prod"})
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	got := readApp(t, r, "acme", "site")
-	phase, reason, _ := readPhaseAndReason(t, got)
-	if phase != PhaseFailed {
-		t.Errorf("phase = %q, want %q", phase, PhaseFailed)
-	}
-	if reason != ReasonInvalid {
-		t.Errorf("reason = %q, want %q", reason, ReasonInvalid)
-	}
-}
-
-// --- 8. Git-is-truth: a direct Git edit of spec.placement re-homes --------
-
-func TestReconcile_GitEditOfPlacementRehomesInstance(t *testing.T) {
+func TestReconcile_GitEditOfTierChangesNothing(t *testing.T) {
 	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
 	env := makeEnv("acme-prod", "acme", "prod")
 	org := makeOrg("acme")
@@ -278,14 +216,9 @@ func TestReconcile_GitEditOfPlacementRehomesInstance(t *testing.T) {
 	r := newReconciler(t, fg, app, env, org, bp)
 
 	reconcileFromCluster(t, r, "acme", "site")
-	hr := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if !strings.Contains(hr, "name: vc-mgmt") {
-		t.Fatalf("precondition: HR must pivot into vc-mgmt first, got:\n%s", hr)
-	}
+	before := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
+	assertHostSideHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
 
-	// The advanced user edits spec.placement.vcluster DIRECTLY in the
-	// Git-committed IaC; Flux applies the CR change. No console, no
-	// API — the platform reconciles to whatever Git says (law §2.4).
 	ctx := context.Background()
 	latest, err := r.Dynamic.Resource(ApplicationGVR).Namespace("acme").Get(ctx, "site", metav1.GetOptions{})
 	if err != nil {
@@ -300,74 +233,87 @@ func TestReconcile_GitEditOfPlacementRehomesInstance(t *testing.T) {
 
 	reconcileFromCluster(t, r, "acme", "site")
 
-	hr = getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod")
-	if !strings.Contains(hr, "name: vc-rtz") {
-		t.Errorf("after the Git edit the HR must pivot into vc-rtz, got:\n%s", hr)
+	if after := getCommittedHR(t, fg, "acme", "site", "hetzner-fsn-rtz-prod"); after != before {
+		t.Errorf("a tier edit must not change the committed HR;\nbefore:\n%s\nafter:\n%s", before, after)
 	}
-	if strings.Contains(hr, "name: vc-mgmt") {
-		t.Errorf("stale vc-mgmt pivot must be gone after the Git edit, got:\n%s", hr)
-	}
-
-	// The console reflects Git: status.placement carries the new home.
-	got := readApp(t, r, "acme", "site")
-	vc, _, _ := unstructured.NestedString(got.Object, "status", "placement", "vcluster")
-	if vc != "rtz" {
-		t.Errorf("status.placement.vcluster = %q, want rtz", vc)
-	}
-	src, _, _ := unstructured.NestedString(got.Object, "status", "placement", "source")
-	if src != "instance" {
-		t.Errorf("status.placement.source = %q, want instance", src)
-	}
+	assertStatusPlacementHost(t, r, "acme", "site")
 }
 
-// --- 9. status.placement reflects the effective placement -----------------
+// --- 7. Logged once per object --------------------------------------------
 
-func TestReconcile_StatusPlacementReflectsBlueprintDefault(t *testing.T) {
-	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", nil)
+func TestReconcile_IgnoredTierLoggedOncePerObject(t *testing.T) {
+	bp := makeBlueprintWithDefaultPlacement("bp-wp", "1.0.0", "mgmt", []string{"host", "rtz"})
 	env := makeEnv("acme-prod", "acme", "prod")
 	org := makeOrg("acme")
-	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"}, nil)
+	app := makeAppWithPlacement("acme", "site", "acme-prod", "bp-wp", "1.0.0",
+		map[string]interface{}{"vcluster": "dmz", "mode": "single-region"},
+		[]string{"hetzner-fsn-rtz-prod"})
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, env, org, bp)
+	var buf bytes.Buffer
+	r.Log = slog.New(slog.NewJSONHandler(&buf, nil))
 
 	reconcileFromCluster(t, r, "acme", "site")
+	reconcileFromCluster(t, r, "acme", "site")
 
-	got := readApp(t, r, "acme", "site")
-	vc, _, _ := unstructured.NestedString(got.Object, "status", "placement", "vcluster")
-	if vc != "mgmt" {
-		t.Errorf("status.placement.vcluster = %q, want mgmt", vc)
+	got := map[string][][]string{}
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec struct {
+			Msg    string   `json:"msg"`
+			Kind   string   `json:"kind"`
+			Fields []string `json:"fields"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("log line is not JSON: %q: %v", line, err)
+		}
+		if rec.Msg == "placement tier ignored: the release is placed on the region's host cluster" {
+			got[rec.Kind] = append(got[rec.Kind], rec.Fields)
+		}
 	}
-	src, _, _ := unstructured.NestedString(got.Object, "status", "placement", "source")
-	if src != "blueprint-default" {
-		t.Errorf("status.placement.source = %q, want blueprint-default", src)
+	want := map[string][][]string{
+		"Application": {{"spec.placement.vcluster=dmz"}},
+		"Blueprint":   {{"spec.defaultPlacement.vcluster=mgmt", "spec.allowedPlacements[1]=rtz"}},
 	}
-	regions, _, _ := unstructured.NestedSlice(got.Object, "status", "placement", "regions")
-	if len(regions) != 1 || regions[0] != "hetzner-fsn-rtz-prod" {
-		t.Errorf("status.placement.regions = %v, want [hetzner-fsn-rtz-prod]", regions)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ignored-tier log lines over two reconciles = %v, want %v", got, want)
 	}
 }
 
-func TestReconcile_StatusPlacementHostDefault(t *testing.T) {
-	bp := makeBlueprint("bp-wp", "1.0.0", nil, []string{"single-region"})
-	env := makeEnv("acme-prod", "acme", "prod")
-	org := makeOrg("acme")
-	app := makeApp("acme", "site", "acme-prod", "bp-wp", "1.0.0", "single-region",
-		[]string{"hetzner-fsn-rtz-prod"}, nil)
-	fg := newFakeGitea()
-	fg.orgsExist["acme"] = true
-	r := newReconciler(t, fg, app, env, org, bp)
-
-	reconcileFromCluster(t, r, "acme", "site")
-
-	got := readApp(t, r, "acme", "site")
-	vc, _, _ := unstructured.NestedString(got.Object, "status", "placement", "vcluster")
-	if vc != "host" {
-		t.Errorf("status.placement.vcluster = %q, want host", vc)
+// TestIgnoredTierFields — every tier field is named with its value; "" and
+// "host" name no tier.
+func TestIgnoredTierFields(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"placement": map[string]interface{}{
+				"vcluster": "host",
+				"targets": []interface{}{
+					map[string]interface{}{"cluster": "rtz-A", "vcluster": "rtz"},
+					map[string]interface{}{"cluster": "rtz-B", "vcluster": ""},
+				},
+			},
+			"placementSchema":   map[string]interface{}{"vcluster": "dmz"},
+			"allowedPlacements": []interface{}{"host"},
+			"topology": map[string]interface{}{
+				"perTopology": map[string]interface{}{
+					"singleton":          map[string]interface{}{"placement": map[string]interface{}{"tier": ""}},
+					"active-hot-standby": map[string]interface{}{"placement": map[string]interface{}{"tier": "mgmt"}},
+				},
+			},
+		},
+	}}
+	want := []string{
+		"spec.placement.targets[0].vcluster=rtz",
+		"spec.placementSchema.vcluster=dmz",
+		"spec.topology.perTopology.active-hot-standby.placement.tier=mgmt",
 	}
-	src, _, _ := unstructured.NestedString(got.Object, "status", "placement", "source")
-	if src != "host-default" {
-		t.Errorf("status.placement.source = %q, want host-default", src)
+	if got := ignoredTierFields(obj); !reflect.DeepEqual(got, want) {
+		t.Errorf("ignoredTierFields = %v, want %v", got, want)
+	}
+	host := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"placement": map[string]interface{}{"vcluster": "host"}},
+	}}
+	if got := ignoredTierFields(host); len(got) != 0 {
+		t.Errorf("ignoredTierFields(host placement) = %v, want none", got)
 	}
 }

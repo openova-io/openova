@@ -91,7 +91,7 @@ func gatewayRoute(ns, hr, host string) []*unstructured.Unstructured {
 // "Setting up primary" (Ready=False) for 58 days, so every commit blocks.
 // Before D7 the Application reported Ready=True.
 func TestD7_BlockedSyncWordPress_ServingFalse_Degraded(t *testing.T) {
-	primary := makeCNPGClusterWithStatus("mgmt", "wordpress-db", "obs-mgmt-a", map[string]interface{}{
+	primary := makeCNPGClusterWithStatus("acme", "wordpress-db", "obs-mgmt-a", map[string]interface{}{
 		"phase": "Cluster in healthy state", "instances": int64(1), "readyInstances": int64(1),
 		"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True", "reason": "ClusterIsReady", "message": "Cluster is Ready"}},
 	})
@@ -105,7 +105,7 @@ func TestD7_BlockedSyncWordPress_ServingFalse_Degraded(t *testing.T) {
 	}
 	// The standby half (no instance label — in the D2 layout it belongs to
 	// the other region's render, so the backing gate does not see it).
-	replica := makeCNPGClusterWithStatus("mgmt", "wordpress-db-replica", "other", map[string]interface{}{
+	replica := makeCNPGClusterWithStatus("acme", "wordpress-db-replica", "other", map[string]interface{}{
 		"phase": "Setting up primary", "instances": int64(1),
 		"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "False", "reason": "ClusterIsNotReady", "message": "Cluster Is Not Ready"}},
 	})
@@ -126,7 +126,7 @@ func TestD7_BlockedSyncWordPress_ServingFalse_Degraded(t *testing.T) {
 	if reason != ReasonSynchronousStandbyMissing {
 		t.Fatalf("Ready reason = %q, want %q", reason, ReasonSynchronousStandbyMissing)
 	}
-	for _, want := range []string{"mgmt/wordpress-db", "dataDurability=required", "wordpress-db-replica", "Cluster Is Not Ready", "every commit blocks"} {
+	for _, want := range []string{"acme/wordpress-db", "dataDurability=required", "wordpress-db-replica", "Cluster Is Not Ready", "every commit blocks"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("Ready message %q does not carry %q verbatim", msg, want)
 		}
@@ -143,14 +143,14 @@ func TestD7_BlockedSyncWordPress_ServingFalse_Degraded(t *testing.T) {
 // TestD7_SyncStandbyStreaming_Serving — control: the same primary with its
 // standby Ready reaches Ready (no over-rotation).
 func TestD7_SyncStandbyStreaming_Serving(t *testing.T) {
-	primary := makeCNPGClusterWithStatus("mgmt", "wordpress-db", "obs-mgmt-a", map[string]interface{}{
+	primary := makeCNPGClusterWithStatus("acme", "wordpress-db", "obs-mgmt-a", map[string]interface{}{
 		"instances": int64(1), "readyInstances": int64(1),
 		"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}},
 	})
 	primary.Object["spec"] = map[string]interface{}{"postgresql": map[string]interface{}{"synchronous": map[string]interface{}{
 		"dataDurability": "required", "number": int64(1), "standbyNamesPre": []interface{}{"wordpress-db-replica"},
 	}}}
-	replica := makeCNPGClusterWithStatus("mgmt", "wordpress-db-replica", "other", map[string]interface{}{
+	replica := makeCNPGClusterWithStatus("acme", "wordpress-db-replica", "other", map[string]interface{}{
 		"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True"}},
 	})
 	replica.SetLabels(nil)
@@ -169,7 +169,7 @@ func TestD7_SyncStandbyStreaming_Serving(t *testing.T) {
 // TestD7_HTTPProbe_503_ServingFalse and _200_Serving — the endpoint probe
 // goes through the region gateway Service with Host = route hostname.
 func TestD7_HTTPProbe_503_ServingFalse(t *testing.T) {
-	r := newAppOverCNPG(t, gatewayRoute("mgmt", "obs-mgmt-a", "obs.acme.omani.homes")...)
+	r := newAppOverCNPG(t, gatewayRoute("acme", "obs-mgmt-a", "obs.acme.omani.homes")...)
 	fp := &fakeProber{code: 503}
 	r.Prober = fp
 	reconcileFromCluster(t, r, "acme", "obs")
@@ -191,7 +191,7 @@ func TestD7_HTTPProbe_503_ServingFalse(t *testing.T) {
 }
 
 func TestD7_HTTPProbe_TransportError_ServingFalse(t *testing.T) {
-	r := newAppOverCNPG(t, gatewayRoute("mgmt", "obs-mgmt-a", "obs.acme.omani.homes")...)
+	r := newAppOverCNPG(t, gatewayRoute("acme", "obs-mgmt-a", "obs.acme.omani.homes")...)
 	r.Prober = &fakeProber{err: errors.New("dial tcp: i/o timeout")}
 	reconcileFromCluster(t, r, "acme", "obs")
 	got := readApp(t, r, "acme", "obs")
@@ -201,7 +201,7 @@ func TestD7_HTTPProbe_TransportError_ServingFalse(t *testing.T) {
 }
 
 func TestD7_HTTPProbe_200_Serving(t *testing.T) {
-	r := newAppOverCNPG(t, gatewayRoute("mgmt", "obs-mgmt-a", "obs.acme.omani.homes")...)
+	r := newAppOverCNPG(t, gatewayRoute("acme", "obs-mgmt-a", "obs.acme.omani.homes")...)
 	r.Prober = &fakeProber{code: 302}
 	reconcileFromCluster(t, r, "acme", "obs")
 	got := readApp(t, r, "acme", "obs")
@@ -237,7 +237,7 @@ func TestD7_NoProbeDeclared_DoesNotGateReady(t *testing.T) {
 func TestD7_HRNotReady_ReadyUnknownNotTrue(t *testing.T) {
 	bp := makeBlueprintWithActiveHotStandbyTopology("bp-postgres", "0.2.6", "mgmt", []string{"mgmt-A"})
 	app := makeApp("acme", "obs", "acme-prod", "bp-postgres", "0.2.6", "single-region", []string{"hetzner-fsn-rtz-prod"}, nil)
-	hr := readyHR("obs-mgmt-a", "mgmt", "Unknown")
+	hr := readyHR("obs-mgmt-a", "acme", "Unknown")
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
 	r := newReconciler(t, fg, app, makeEnv("acme-prod", "acme", "prod"), makeOrg("acme"), bp, hr)
@@ -266,7 +266,7 @@ func TestD7_EnvironmentMissing_VerbatimMessage(t *testing.T) {
 // verdict keeps every lastTransitionTime (Ready, Serving, per-region Serving,
 // region row); a status change restamps only what changed.
 func TestD7_LastTransitionTime_OnlyOnStatusChange(t *testing.T) {
-	r := newAppOverCNPG(t, gatewayRoute("mgmt", "obs-mgmt-a", "obs.acme.omani.homes")...)
+	r := newAppOverCNPG(t, gatewayRoute("acme", "obs-mgmt-a", "obs.acme.omani.homes")...)
 	fp := &fakeProber{code: 200}
 	r.Prober = fp
 	reconcileFromCluster(t, r, "acme", "obs")

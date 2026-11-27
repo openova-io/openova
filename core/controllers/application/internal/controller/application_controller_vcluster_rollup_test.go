@@ -7,10 +7,11 @@
 //  1. status.perCluster[].status was HARDCODED to "Pending" with no flip to
 //     the HR's observed readiness.
 //  2. observeRegionHelmReleases read every fan-out HR from app.GetNamespace()
-//     instead of the namespace the HR was AUTHORED in (a fan-out HR lands in
-//     its WriteNamespace — the host app-ns for #4398 CNPG routing or the
-//     vCluster host-ns for the legacy pivot), so a vCluster-placed HR GET-ed
-//     in the wrong namespace returned NotFound → Provisioning forever.
+//     instead of the namespace the HR was AUTHORED in (before NET-223 a
+//     fan-out HR could land in the vCluster host-ns of the tier pivot), so
+//     a vCluster-placed HR GET-ed in the wrong namespace returned NotFound →
+//     Provisioning forever. Since NET-223 every fan-out HR is authored in
+//     the Application namespace; the namespace still travels with the ref.
 //
 // These tests assert the rollup now leaves Provisioning when the per-cluster
 // HR is Ready, stays Provisioning when it is not, and that the host
@@ -87,8 +88,9 @@ func TestReconcile_VClusterPlaced_HRReady_RollsUpOutOfProvisioning(t *testing.T)
 		nil,
 	)
 	// Pre-seed the per-cluster HR Flux installs, Ready=True, in the
-	// vCluster host namespace (mgmt) where the fan-out authors it.
-	hr := readyHR("obs-mgmt-a", "mgmt", "True")
+	// Application namespace where the fan-out authors it (the Blueprint's
+	// tier mgmt places nothing since NET-223).
+	hr := readyHR("obs-mgmt-a", "acme", "True")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
@@ -102,7 +104,7 @@ func TestReconcile_VClusterPlaced_HRReady_RollsUpOutOfProvisioning(t *testing.T)
 		t.Fatalf("vCluster-placed Application with a Ready per-cluster HR stayed phase=Provisioning — the #4282 rollup gap")
 	}
 	if phase != PhaseReady {
-		t.Fatalf("phase = %q, want %q (the per-cluster HR obs-mgmt-a is Ready=True in ns mgmt)", phase, PhaseReady)
+		t.Fatalf("phase = %q, want %q (the per-cluster HR obs-mgmt-a is Ready=True in ns acme)", phase, PhaseReady)
 	}
 	pc := perClusterStatuses(t, got)
 	if pc["mgmt-A"] != PhaseReady {

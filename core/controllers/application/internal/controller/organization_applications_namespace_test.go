@@ -17,7 +17,8 @@ package controller
 // Organization's applications arrived, the customer's own included.
 //
 // These tests read the Blueprint FILES the catalogue seed is generated from
-// (SVC-160), so they fail when a funnel Blueprint names a plane tier again.
+// (SVC-160). Since NET-223 the controller ignores a placement tier, so they
+// keep holding when a funnel Blueprint names one again.
 
 import (
 	"context"

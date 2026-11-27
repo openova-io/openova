@@ -85,7 +85,7 @@ func TestReconcile_5513_CollapsedFanout_ReportsMaterialisedRegionCount(t *testin
 		nil,
 	)
 	// The single materialised HR (fan-out names it <app>-<cluster>), Ready.
-	hr := readyHR("obs-mgmt-a", "mgmt", "True")
+	hr := readyHR("obs-mgmt-a", "acme", "True")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
@@ -127,9 +127,9 @@ func TestReconcile_5513_HealthyTwoRegion_ReportsTwoRegions(t *testing.T) {
 		[]string{"hetzner-fsn-rtz-prod", "hetzner-nbg-rtz-prod"},
 		nil,
 	)
-	// Both per-cluster HRs materialised + Ready (fan-out authors both in mgmt).
-	hrA := readyHR("obs-mgmt-a", "mgmt", "True")
-	hrB := readyHR("obs-mgmt-b", "mgmt", "True")
+	// Both per-cluster HRs materialised + Ready (fan-out authors both in the Application namespace).
+	hrA := readyHR("obs-mgmt-a", "acme", "True")
+	hrB := readyHR("obs-mgmt-b", "acme", "True")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true
@@ -165,10 +165,10 @@ func TestReconcile_5513_ReadyHR_UnrecoverableCNPG_NotReady(t *testing.T) {
 		nil,
 	)
 	// HelmRelease Ready=True (Helm applied the chart) ...
-	hr := readyHR("obs-mgmt-a", "mgmt", "True")
+	hr := readyHR("obs-mgmt-a", "acme", "True")
 	// ... but the backing CNPG Cluster it installed is unrecoverable. The
 	// chart stamps app.kubernetes.io/instance = the HR/release name.
-	cnpg := makeCNPGCluster("mgmt", "postgres", "obs-mgmt-a",
+	cnpg := makeCNPGCluster("acme", "postgres", "obs-mgmt-a",
 		"Cluster is unrecoverable and needs manual intervention")
 
 	fg := newFakeGitea()
@@ -209,8 +209,8 @@ func TestReconcile_5513_ReadyHR_HealthyCNPG_StaysReady(t *testing.T) {
 		[]string{"hetzner-fsn-rtz-prod"},
 		nil,
 	)
-	hr := readyHR("obs-mgmt-a", "mgmt", "True")
-	cnpg := makeCNPGCluster("mgmt", "postgres", "obs-mgmt-a", "Cluster in healthy state")
+	hr := readyHR("obs-mgmt-a", "acme", "True")
+	cnpg := makeCNPGCluster("acme", "postgres", "obs-mgmt-a", "Cluster in healthy state")
 
 	fg := newFakeGitea()
 	fg.orgsExist["acme"] = true

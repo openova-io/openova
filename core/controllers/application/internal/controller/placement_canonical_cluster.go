@@ -1,17 +1,16 @@
 package controller
 
 import (
-	"strings"
-
 	"github.com/openova-io/openova/core/controllers/internal/clusterregistry"
 	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
 
 // canonicalizeTargetClusters rewrites every placement target's `cluster` to
 // the canonical cluster id of the target's REGION (ADR-0015 D3, Refs #7067):
-// `<tier>-<region letter>`, the letter being the region's position in the
+// `rtz-<region letter>`, the letter being the region's position in the
 // region registry — exactly the ids the topology resolver derives for an
-// Application created without targets (rtz-A, rtz-B, …).
+// Application created without targets (rtz-A, rtz-B, …). A target's
+// vCluster no longer changes the id: the tier pivot is gone (NET-223).
 //
 // The cluster token names the per-region HelmRelease (`<app>-<cluster>`).
 // The console's Topology Save sends its own cluster identifiers
@@ -45,11 +44,7 @@ func (r *Reconciler) canonicalizeTargetClusters(targets []bpv1alpha1.PlacementTa
 		if idx < 0 || idx >= len(clusterregistry.KnownRegions()) {
 			continue
 		}
-		tier := clusterregistry.TierRtz
-		if vc := clusterregistry.Tier(strings.ToLower(strings.TrimSpace(t.VCluster))); clusterregistry.IsKnownTier(vc) {
-			tier = vc
-		}
-		out[i].Cluster = clusterregistry.ClusterID{Tier: tier, Region: clusterregistry.KnownRegions()[idx]}.String()
+		out[i].Cluster = clusterregistry.ClusterID{Region: clusterregistry.KnownRegions()[idx]}.String()
 	}
 	return out
 }
