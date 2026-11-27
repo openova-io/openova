@@ -30,6 +30,8 @@
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# The chart depends on platform/secrets-lib (SEC-216): build it into charts/ before the first render.
+helm dependency build --skip-refresh "$CHART_DIR" > /dev/null
 MODE="${2:-}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

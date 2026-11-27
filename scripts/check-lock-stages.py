@@ -98,7 +98,7 @@ def render(root):
     if len(releases) != 1:
         cannot(f"{KIT} holds {len(releases)} HelmReleases, want 1")
     kit = (releases[0].get("spec", {}).get("values") or {}).get("intentLock")
-    cmd = ["helm", "template", "lock", os.path.join(root, CHART), "--show-only", "templates/intent-lock/bindings.yaml"]
+    cmd = ["helm", "template", "lock", os.path.join(root, CHART), "--dependency-update", "--show-only", "templates/intent-lock/bindings.yaml"]
     with tempfile.NamedTemporaryFile("w", suffix=".yaml") as values:
         if kit is not None:
             yaml.safe_dump({"intentLock": kit}, values)
@@ -110,7 +110,7 @@ def render(root):
             cannot(f"helm: {e}")
     if proc.returncode != 0:
         cannot(f"helm template failed: {proc.stderr.strip()}")
-    return rendered_stages(proc.stdout)
+    return rendered_stages(proc.stdout[max(proc.stdout.find("---"), 0):])  # a dependency build prints its lines before the render
 
 
 def binding(stage, acts):

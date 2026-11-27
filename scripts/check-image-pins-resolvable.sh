@@ -99,6 +99,8 @@ else
   HELM="${HELM_BIN:-helm}"
   command -v "${HELM}" >/dev/null 2>&1 || { echo "ERROR: helm not installed (needed to render the reference set)" >&2; exit 2; }
   [ -d "${CHART_DIR}" ] || { echo "ERROR: chart dir '${CHART_DIR}' not found" >&2; exit 2; }
+  # The chart depends on platform/secrets-lib (SEC-216): Helm renders it only after this build.
+  "${HELM}" dependency build --skip-refresh "${CHART_DIR}" > /dev/null || { echo "ERROR: helm dependency build '${CHART_DIR}' failed: the chart cannot render" >&2; exit 2; }
   # Two render profiles: the default install, and the profile that unlocks the
   # per-Organization services (`ingress.marketplace.enabled`) whose images carry
   # their own SHA pins (images.orgTag / images.marketplaceTag / admin / console).

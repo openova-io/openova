@@ -209,6 +209,8 @@ jobs:
         # Sovereign's install. Render it as Helm does and dry-run every object.
         run: |
           set -euo pipefail
+          # The chart depends on platform/secrets-lib (SEC-216): Helm renders it only after this build.
+          helm dependency build --skip-refresh products/catalyst/chart > /dev/null
           helm template x products/catalyst/chart --set catalogSeed.enabled=true \
             --show-only templates/catalog-seed/blueprints.yaml > "$RUNNER_TEMP/seed.yaml"
           n="$(grep -c '^kind: Blueprint$' "$RUNNER_TEMP/seed.yaml")"

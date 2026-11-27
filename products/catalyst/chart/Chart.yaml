@@ -5592,9 +5592,21 @@ type: application
 annotations:
   catalyst.openova.io/no-upstream: "true"
 
-# No subchart dependencies — see 1.1.9 changelog above. The 10
+# No foundation subchart — see 1.1.9 changelog above. The 10
 # foundation Blueprints are installed by clusters/_template/bootstrap-kit/
 # at their own slots, each as a top-level Flux HelmRelease in its own
 # canonical namespace. This umbrella renders only the Catalyst-Zero
 # control-plane workloads (catalyst-ui, catalyst-api, Sovereign
 # HTTPRoute) into targetNamespace: catalyst-system.
+#
+# Its one dependency is a LIBRARY (SEC-216): platform/secrets-lib, the one
+# way a chart declares its secrets. A library renders nothing on its own;
+# `helm dependency build` vendors it into charts/ (gitignored) and into the
+# packaged artifact. Helm refuses to render this chart until that build
+# ran ("missing in charts/ directory: secrets-lib"), so every renderer of
+# it builds its dependencies first; tools/guards/cmd/umbrella-deps fails
+# one that does not.
+dependencies:
+  - name: secrets-lib
+    version: "0.1.0"
+    repository: "file://../../../platform/secrets-lib/chart"

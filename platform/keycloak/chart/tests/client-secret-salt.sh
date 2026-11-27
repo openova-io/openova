@@ -31,6 +31,8 @@ set -euo pipefail
 CHART_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$CHART_DIR/../../.." && pwd)"
 PLATFORM_CHART="$REPO_ROOT/products/catalyst/chart"
+# That chart depends on platform/secrets-lib (SEC-216): build it into its charts/ before case 5 renders it.
+helm dependency build --skip-refresh "$PLATFORM_CHART" > /dev/null
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

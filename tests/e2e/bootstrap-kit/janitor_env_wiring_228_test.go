@@ -67,7 +67,9 @@ func renderCatalystAPI(t *testing.T, root string, sets ...string) (map[string]st
 	// cheap and the failure messages specific.
 	args = append(args, "-s", "templates/api-deployment.yaml")
 	cmd := exec.Command(helmBin, args...)
-	cmd.Dir = filepath.Join(root, "products", "catalyst", "chart")
+	chartDir := filepath.Join(root, "products", "catalyst", "chart")
+	ensureChartDeps(t, helmBin, chartDir) // file:// dependency on platform/secrets-lib (SEC-216), charts/ is gitignored
+	cmd.Dir = chartDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, &renderErr{msg: string(out)}
