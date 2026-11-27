@@ -38,9 +38,9 @@ import (
 // Then it deletes the canary's key in OpenBao (whenever its put was sent)
 // and the namespace (whenever it was created), also when a step failed. The OpenBao calls run inside an OpenBao server pod with
 // `kubectl exec`, the script on standard input; no token and no canary is
-// written to the evidence. The check runs only in a cloud run: the local pack
-// leaves bp-openbao out (infra/providers/local/kit-exclude.txt), and with it
-// slot 15b, which depends on it.
+// written to the evidence. The check runs only in a cloud run (runs_in of its
+// gate in docs/ledger/gates.yaml), although the local pack's kit carries
+// bp-openbao and slot 15b since SEC-218.
 const secInjectID = "SEC-G08"
 
 const (

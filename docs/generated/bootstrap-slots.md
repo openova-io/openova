@@ -35,7 +35,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 12 | 12-external-dns.yaml | bp-external-dns | external-dns | external-dns | bp-external-dns | bp-cert-manager, bp-powerdns, bp-reflector | - | same |
 | 12a | 12a-bp-sovereign-tls-vars.yaml | bp-sovereign-tls-vars | sovereign-tls-vars | flux-system | bp-sovereign-tls-vars | - | - | same |
 | 12b | 12b-sovereign-object.yaml | (none) | - | - | - | - | - | - |
-| 13 | 13-bp-catalyst-platform.yaml | bp-catalyst-platform | catalyst-platform | catalyst-system | bp-catalyst-platform | bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}`, `values.qaFixtures.enabled=${QA_FIXTURES_ENABLED:-false}` | same |
+| 13 | 13-bp-catalyst-platform.yaml | bp-catalyst-platform | catalyst-platform | catalyst-system | bp-catalyst-platform | bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c, bp-secrets-store-csi | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}`, `values.qaFixtures.enabled=${QA_FIXTURES_ENABLED:-false}` | same |
 | 13b | 13b-bp-sso-bridge.yaml | bp-sso-bridge | sso-bridge | sso-bridge | bp-sso-bridge | bp-keycloak, bp-openbao | - | same |
 | 13c | 13c-bp-oidc-gate.yaml | bp-oidc-gate | oidc-gate | oidc-gate | bp-oidc-gate | bp-cilium, bp-keycloak, bp-external-secrets-stores | - | same |
 | 13d | 13d-bp-openova-mcp.yaml | bp-openova-mcp | openova-mcp | catalyst-system | bp-openova-mcp | bp-catalyst-platform, bp-keycloak | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
@@ -61,7 +61,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 22 | 22-loki.yaml | bp-loki | loki | loki | bp-loki | - | - | same |
 | 23 | 23-mimir.yaml | bp-mimir | mimir | mimir | bp-mimir | - | - | same |
 | 24 | 24-tempo.yaml | bp-tempo | tempo | tempo | bp-tempo | - | - | same |
-| 25 | 25-grafana.yaml | bp-grafana | grafana | grafana | bp-grafana | bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b | - | same |
+| 25 | 25-grafana.yaml | bp-grafana | grafana | grafana | bp-grafana | bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b, bp-secrets-store-csi | - | same |
 | 26 | 26-network-policies.yaml | bp-network-policies | network-policies | catalyst-system | bp-network-policies | bp-cilium | `values.enabled=true` | same |
 | 26b | 26b-bp-plane-isolation.yaml | bp-plane-isolation | plane-isolation | catalyst-system | bp-plane-isolation | bp-cilium, bp-network-policies | - | same |
 | 27 | 27-kyverno.yaml | bp-kyverno | kyverno | kyverno | bp-kyverno | bp-cilium, bp-cert-manager | - | same |
