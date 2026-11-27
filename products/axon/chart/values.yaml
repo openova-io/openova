@@ -1,20 +1,47 @@
+# true in every region but the primary: the Deployment has zero replicas there
+# and the Service stays, published to the mesh (one Axon per login). Kit slot 82
+# sets it from SECONDARY_HR_SUSPEND. A boolean; any other value fails the render.
+secondary: false
+
+# The image by digest, never by tag. axon-build.yaml writes the digest of each
+# image it pushes from main here.
 image:
   repository: ghcr.io/openova-io/openova/axon
-  tag: latest
-  pullPolicy: IfNotPresent
-  pullSecretName: ghcr-pull-secret
+  digest: sha256:33609332d6b5620203e5f1cf7888cf12b6c5357cd7a96e9be58b61cd7c6896d7
+
+# The login the Pod pulls its image with. After the cutover the node pulls it
+# from the Sovereign's own registry, project openova-io, which is private and
+# which the node has no login for; ghcr-pull, mirrored into every namespace,
+# carries that registry's login from step 06 of the cutover on.
+imagePullSecrets:
+  - name: ghcr-pull
 
 axon:
-  port: 3000
-  defaultModel: claude-sonnet-4-6
-  existingSecret: axon-secrets
-  claudeAuthSecret: axon-claude-auth
+  # Upstream runs generating at once, and runs waiting for tool results.
+  maxActive: 4
+  maxParked: 8
+  # Upstream model name -> the kit's model value (AXON_MODEL_MAP).
+  modelMap:
+    sim-default: claude-sonnet-4-6
+    sim-fast: claude-haiku-4-5-20251001
+  # Resident memory of one child process, active and parked, in MiB (spike
+  # AIP-020, values rssActiveMi and rssParkedMi). The memory limit is
+  # 512Mi + rssActiveMi x maxActive + rssParkedMi x maxParked, rounded up.
+  rssActiveMi: 223
+  rssParkedMi: 243.1
 
-resources:
-  axon:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 2000m
-      memory: 2Gi
+# Where Axon writes each refreshed credential back, and where the
+# SecretProviderClass reads it from.
+openbao:
+  address: http://openbao.openbao.svc.cluster.local:8200
+
+# The only hosts outside the cluster that Axon reaches, on port 443: the
+# provider's API host and its token host (TOKEN_URL of src/credential.ts).
+egress:
+  hosts:
+    - api.anthropic.com
+    - console.anthropic.com
+
+# Values born by the birth Job of secrets-lib (openova.generatedSecrets). Kit
+# slot 82 lists the placeholder of the credential here.
+generatedSecrets: {}

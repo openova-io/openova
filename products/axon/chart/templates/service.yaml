@@ -1,14 +1,29 @@
+{{- /*
+ClusterIP only, never a node port and never a route. Published to the
+ClusterMesh (service.cilium.io/global): in a region with zero replicas the
+Service exists and reaches the primary region's Axon.
+*/ -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: axon
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "axon.labels" . | nindent 4 }}
+  annotations:
+    # single-region backend: only the primary region runs a replica, so every
+    # other region's Service reaches it through the mesh; no affinity to choose.
+    service.cilium.io/global: "true"
 spec:
   type: ClusterIP
   ports:
-    - port: 80
-      targetPort: {{ .Values.axon.port }}
+    - name: model
+      port: 3000
+      targetPort: model
+      protocol: TCP
+    - name: admin
+      port: 3001
+      targetPort: admin
       protocol: TCP
   selector:
     {{- include "axon.selectorLabels" . | nindent 4 }}
