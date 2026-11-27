@@ -8,7 +8,7 @@ description: |
   elsewhere. The credential is a file mounted from OpenBao; the chart renders
   no Secret object. See README.md.
 type: application
-version: 0.1.9
+version: 0.1.10
 appVersion: "0.1.8"
 
 # The library of the platform's secrets (SEC-200, SEC-201): its birth Job
