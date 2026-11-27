@@ -3,8 +3,7 @@
   "counts": {
     "legacy_policy_objects": {
       "platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml": 1,
-      "platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml": 1,
-      "products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml": 19
+      "platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml": 1
     }
   },
   "schema": "openova.io/guard-baseline/v1"

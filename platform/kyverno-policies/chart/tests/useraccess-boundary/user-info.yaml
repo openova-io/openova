@@ -1,0 +1,11 @@
+# The requester of kyverno-test.yaml: a developer of the Organization acme.
+# The policy reads the claims org and tier from request.userInfo.extra.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: acme-developer
+userInfo:
+  username: alice@acme.example
+  extra:
+    org: [acme]
+    tier: [developer]

@@ -1,0 +1,11 @@
+# The requester of kyverno-test.yaml beside this file: an owner of the
+# Organization acme.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: UserInfo
+metadata:
+  name: acme-owner
+userInfo:
+  username: olivia@acme.example
+  extra:
+    org: [acme]
+    tier: [owner]

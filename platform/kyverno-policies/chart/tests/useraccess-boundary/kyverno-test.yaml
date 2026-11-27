@@ -1,0 +1,42 @@
+# Suite of the policy useraccess-boundary, run as a developer of the
+# Organization acme (user-info.yaml); owner/kyverno-test.yaml runs the same
+# resources as an owner.
+#
+# Written on the legacy ClusterPolicy render of
+# platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+# with that chart's defaults, where every case passes with the kyverno CLI
+# v1.19.2. policy.yaml is that render, made with:
+#   helm dependency build platform/crossplane-claims/chart
+#   helm template platform/crossplane-claims/chart \
+#     --show-only templates/policies/userAccess-boundary.yaml \
+#     | grep -v '^# Source:' | sed '1{/^---$/d}' \
+#     > platform/kyverno-policies/chart/tests/useraccess-boundary/policy.yaml
+# The policy moves into this chart as a ValidatingPolicy with these resources
+# and verdicts; tests/suites-current.sh then keeps policy.yaml current.
+#
+# Run: kyverno test platform/kyverno-policies/chart/tests/useraccess-boundary
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: useraccess-boundary-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+userinfo: user-info.yaml
+results:
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    kind: UserAccess
+    resources: [sample-acme-developer-wp]
+    result: pass
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    kind: UserAccess
+    resources: [sample-cross-org-wp-grant, sample-first-org-scope-decides]
+    result: fail
+  - policy: useraccess-boundary
+    rule: deny-cross-org-grants
+    kind: UserAccess
+    resources: [sample-application-only-grant, sample-empty-org-grant]
+    result: skip

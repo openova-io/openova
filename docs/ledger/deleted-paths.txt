@@ -255,3 +255,5 @@ platform/guacamole/chart/tests/g117-w3d1-sso-secret.sh
 platform/guacamole/chart/tests/httproute-render.sh
 platform/guacamole/chart/tests/secondary-retires-enroll-render.sh
 docs/topology-matrix.md
+platform/kyverno-policies/chart/templates/baseline/16-hubble-flows-seen.yaml
+products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml
