@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T09:00:04Z` |
+| Last refreshed | `2026-11-27T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
+| 2026-11-27T09:02 | [#8985](https://github.com/openova-io/openova/pull/8985) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:57 | [#8982](https://github.com/openova-io/openova/pull/8982) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T03:03 | [#8939](https://github.com/openova-io/openova/pull/8939) | #7087 | docs(ledger): plan update |
 | 2026-11-27T02:46 | [#8938](https://github.com/openova-io/openova/pull/8938) | #7087 | docs(ledger): plan update |
 | 2026-11-27T02:16 | [#8937](https://github.com/openova-io/openova/pull/8937) | #8936 | fix(compliance): the policies route reads the mode from the  |
-| 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
-| 2026-11-27T03:45 | [#8934](https://github.com/openova-io/openova/pull/8934) | #8770 | fix(k3s): the kit runs k3s v1.33.13+k3s2, whose node mirror  |
-| 2026-11-27T01:22 | [#8933](https://github.com/openova-io/openova/pull/8933) | #7087 | docs(ledger): plan update |
 
 ---
 
