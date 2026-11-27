@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/core/services/auth/handlers"
+	"github.com/openova-io/openova/core/services/auth/internal/secretfile"
 	"github.com/openova-io/openova/core/services/auth/store"
 	"github.com/openova-io/openova/core/services/shared/db"
 	"github.com/openova-io/openova/core/services/shared/health"
@@ -25,7 +26,11 @@ func main() {
 	valkeyUsername := getEnv("VALKEY_USERNAME", "")
 	valkeyPassword := getEnv("VALKEY_PASSWORD", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
-	jwtRefreshSecret := []byte(getEnv("JWT_REFRESH_SECRET", ""))
+	jwtRefreshSecret, err := readRefreshSecret()
+	if err != nil {
+		slog.Error("the refresh-token signing secret is not readable", "error", err)
+		os.Exit(1)
+	}
 	googleClientID := getEnv("GOOGLE_CLIENT_ID", "")
 	googleClientSecret := getEnv("GOOGLE_CLIENT_SECRET", "")
 	baseURL := getEnv("BASE_URL", "http://localhost:8081")
@@ -46,7 +51,6 @@ func main() {
 	// is configured; otherwise fall through to the no-auth path so
 	// existing deployments without `requirepass` keep working.
 	var valkeyClient valkey.Client
-	var err error
 	if valkeyPassword != "" {
 		valkeyClient, err = db.ConnectValkeyWithAuth(valkeyAddr, valkeyUsername, valkeyPassword)
 	} else {
@@ -141,6 +145,24 @@ func main() {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
+}
+
+// refreshSigningFile is the file of the refresh-token signing secret: the objectName
+// of SecretProviderClass auth in products/catalyst/chart/templates/org-services/auth.yaml.
+// The birth Job of platform/secrets-lib writes the value into OpenBao once and the
+// Secrets Store CSI driver mounts it; no environment variable carries it (SEC-212).
+// No handler signs with Handler.JWTRefreshSecret today: a refresh token is a random
+// value stored as its SHA-256 hash (handlers.issueTokens), so a new value of this
+// secret ends no session.
+const refreshSigningFile = "jwt-refresh-secret"
+
+// readRefreshSecret reads the refresh-token signing secret from its mounted file.
+func readRefreshSecret() ([]byte, error) {
+	v, err := secretfile.Read(refreshSigningFile)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(v), nil
 }
 
 func getEnv(key, fallback string) string {

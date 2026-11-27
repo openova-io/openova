@@ -143,6 +143,15 @@ components:
                                    # the dial and neither issuer becomes Ready. Same class as
                                    # sso-bridge and catalyst-system above
                                    # (tests/openbao-ingress.sh).
+      - org-services               # SEC-212: the birth Job of platform/secrets-lib that
+                                   # bp-catalyst-platform runs in org-services
+                                   # (templates/org-services/org-services-secrets.yaml) writes
+                                   # the auth service's refresh-token signing secret at
+                                   # openbao.openbao.svc:8200, logging in as auth role
+                                   # secrets-birth. bp-openbao's peer trust admits a birth Job
+                                   # only with peers, so without this carve-out the value is
+                                   # never born on a Sovereign of one region and the auth Pod
+                                   # never mounts it (tests/openbao-birth-ingress.sh).
   - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
     gatewayIngress: true           # guacamole.<fqdn> public route
     allowIngressFrom:

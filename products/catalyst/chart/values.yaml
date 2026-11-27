@@ -1975,7 +1975,7 @@ orgPostgres:
 # service Deployments (auth, billing, catalog, console, domain, gateway,
 # marketplace, notification, provisioning, tenant).
 #
-# JWT_SECRET / JWT_REFRESH_SECRET / ADMIN_PASSWORD are auto-generated on
+# JWT_SECRET / ADMIN_PASSWORD are auto-generated on
 # first install via sprig randAlphaNum and PERSIST across reconciles via
 # Helm `lookup` (same pattern as platform/gitea/chart/templates/
 # admin-secret.yaml — see issue #830 Bug 2). Without lookup every
@@ -2058,6 +2058,26 @@ orgSecrets:
 # CNPG postgres:16; valkey-primary as the bp-valkey 1.0.0 read/write
 # Service name).
 orgServices:
+  # ─── Values the chart owns in namespace org-services (SEC-212) ─────────
+  # The input of openova.generatedSecrets of platform/secrets-lib (rendered by
+  # templates/org-services/org-services-secrets.yaml with the marketplace).
+  # A mounted value is born once by the library's birth Job straight into
+  # OpenBao at mounted/data/org-services/sa/<serviceAccount>/<name>/e<epoch>;
+  # no Secret object holds it. Raising an epoch rotates the value: a new path is
+  # born and the pod that mounts it rolls.
+  #   jwt-refresh-secret: the auth service's refresh-token signing secret, the
+  #     file /var/run/secrets/openova/jwt-refresh-secret of the auth Pod
+  #     (SecretProviderClass auth, templates/org-services/auth.yaml). Its
+  #     serviceAccount is the auth Pod's, and each region keeps its own value,
+  #     as the per-region random of the Secret it replaces did.
+  generatedSecrets:
+    jwt-refresh-secret:
+      delivery: mounted
+      epoch: 1
+      length: 64
+      scope: sa
+      serviceAccount: auth
+      sharedAcrossRegions: false
   # ─── Event bus (issue #942) ────────────────────────────────────────────
   # Per ADR-0001 NATS JetStream is the only event bus of the Organization
   # services. The configmap.yaml template exports its address to them as
