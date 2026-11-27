@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T18:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-27T18:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
+| 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:12 | [#9054](https://github.com/openova-io/openova/pull/9054) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:17 | [#9052](https://github.com/openova-io/openova/pull/9052) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:09 | [#9051](https://github.com/openova-io/openova/pull/9051) | #9049 | fix(conformance): a conformance run builds and runs the cata |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T13:24 | [#9018](https://github.com/openova-io/openova/pull/9018) | #9009 | fix(payload-size): the size check of a pull request measures |
 | 2026-11-27T12:54 | [#9017](https://github.com/openova-io/openova/pull/9017) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
-| 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
-| 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
 
 ---
 
