@@ -429,5 +429,7 @@ func orgConsoleTLSNamesForOrg(org *orgapi.Organization) (orgConsoleTLSNames, boo
 	if subdomain == "" {
 		return orgConsoleTLSNames{}, false
 	}
-	return orgConsoleTLSNamesFor(subdomain, parentDomain), true
+	names := orgConsoleTLSNamesFor(subdomain, parentDomain)
+	names.PassthroughHosts = org.Spec.TenantPublic.PassthroughHosts
+	return names, true
 }

@@ -515,6 +515,19 @@ spec:
                         HTTPRoute labels (e.g. "wordpress", "nextcloud",
                         "gitlab"). Surfaced on the access-matrix UI for
                         per-product filtering. Optional.
+                    passthroughHosts:
+                      type: array
+                      maxItems: 4
+                      x-kubernetes-list-type: set
+                      description: |
+                        NET-195. Labels of hosts <label>.<subdomain>.<parentDomain>
+                        served by TLS passthrough (listener console-tls-<slug>-<label>,
+                        TLSRoutes only): the back end terminates TLS and verifies the
+                        client itself; no firewall in the path. "console" gets none.
+                        At most 4: a Gateway holds at most 64 listeners.
+                      items:
+                        type: string
+                        pattern: '^[a-z0-9]{1,63}$'
                   x-kubernetes-preserve-unknown-fields: true
               x-kubernetes-preserve-unknown-fields: true
             status:
