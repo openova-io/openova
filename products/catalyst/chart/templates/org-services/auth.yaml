@@ -1,4 +1,17 @@
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+{{- /* SEC-212 — the refresh-token signing secret is a file, not a variable.
+The birth Job of platform/secrets-lib (rendered by org-services-secrets.yaml
+from .Values.orgServices.generatedSecrets) writes it once into OpenBao; the
+Secrets Store CSI driver mounts it through SecretProviderClass auth below as
+/var/run/secrets/openova/jwt-refresh-secret, which core/services/auth/main.go
+reads at start (it exits when the file is missing or empty). The pod carries
+the value's OpenBao path, so raising the epoch rolls it onto the new value. */ -}}
+{{- $refresh := index (.Values.orgServices.generatedSecrets | default dict) "jwt-refresh-secret" | default dict -}}
+{{- if ne (toString $refresh.delivery) "mounted" }}{{ fail "orgServices.generatedSecrets.jwt-refresh-secret must be a mounted value: the auth Pod reads it as a file" }}{{ end -}}
+{{- if ne (toString ($refresh.scope | default "sa")) "sa" }}{{ fail "orgServices.generatedSecrets.jwt-refresh-secret must have scope sa: only the auth Pod reads it" }}{{ end -}}
+{{- if ne (toString $refresh.serviceAccount) "auth" }}{{ fail "orgServices.generatedSecrets.jwt-refresh-secret.serviceAccount must be auth, the service account of the auth Pod" }}{{ end -}}
+{{- $refreshPath := printf "mounted/data/org-services/sa/auth/jwt-refresh-secret/e%d" (int $refresh.epoch) -}}
+{{- $baoAddr := ((.Values.openova | default dict).secrets | default dict).openbaoAddress | default "http://openbao.openbao.svc.cluster.local:8200" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,6 +34,7 @@ spec:
         # anonymous signup PIN. This checksum changes when the seed appears,
         # forcing Flux to roll auth onto the populated env. See _smtp-helpers.tpl.
         checksum/smtp-config: {{ include "catalyst.orgSmtpChecksum" . | quote }}
+        secrets.openova.io/jwt-refresh-secret: {{ $refreshPath | quote }}
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
         app: org-auth
@@ -101,11 +115,6 @@ spec:
                 secretKeyRef:
                   name: org-services-secrets
                   key: JWT_SECRET
-            - name: JWT_REFRESH_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: org-services-secrets
-                  key: JWT_REFRESH_SECRET
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -184,6 +193,17 @@ spec:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
+          volumeMounts:
+            - name: openova-secrets
+              mountPath: /var/run/secrets/openova
+              readOnly: true
+      volumes:
+        - name: openova-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: auth
 ---
 apiVersion: v1
 kind: Service
@@ -196,4 +216,26 @@ spec:
   ports:
     - port: 8081
       targetPort: 8081
+---
+# The driver logs in to OpenBao as role workload with the auth Pod's own
+# token (audience openbao), which reads only mounted/data/org-services/sa/auth/*.
+# spec.secretObjects is never set: the value never becomes a Secret object.
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: auth
+  namespace: org-services
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-platform
+    app.kubernetes.io/part-of: catalyst-platform
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: {{ $baoAddr | quote }}
+    roleName: workload
+    audience: openbao
+    objects: |
+      - objectName: jwt-refresh-secret
+        secretPath: {{ $refreshPath }}
+        secretKey: password
 {{- end }}
