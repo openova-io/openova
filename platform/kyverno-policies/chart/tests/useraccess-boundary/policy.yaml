@@ -50,18 +50,24 @@ spec:
           the grant to a management-Org owner.
         deny:
           conditions:
+            # Refused when the condition of all holds and one of any
+            # holds: only an owner of a management Organization may grant
+            # into another Organization.
             all:
               # 1. The scope's Org differs from the requester's Org.
               - key: '{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] }}'
                 operator: NotEquals
                 value: '{{ request.userInfo.extra."org" | [0] || ''__none__'' }}'
-              # 2. The requester is NOT a management-Org owner.
-              #    Two clauses ANDed: requester's org is NOT the
-              #    management-org slug AND/OR tier is not "owner". We
-              #    use `AnyIn` against a values-driven allowlist so
-              #    multiple management Orgs (e.g. openova-internal +
-              #    a partner SI) can sign cross-Org grants without
-              #    template edits.
+            any:
+              # 2. The requester's Org is not a management Org. A
+              #    values-driven list, so several management Orgs (e.g.
+              #    openova-internal + a partner SI) can sign cross-Org
+              #    grants without template edits.
+              - key: '{{ request.userInfo.extra."org" | [0] || ''__none__'' }}'
+                operator: NotIn
+                value:
+                  - "openova-internal"
+              # 3. The requester's tier may not sign a cross-Org grant.
               - key: '{{ request.userInfo.extra."tier" | [0] || ''__none__'' }}'
                 operator: NotIn
                 value:

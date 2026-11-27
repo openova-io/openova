@@ -20,11 +20,11 @@ Implementation:
 
   - `match`:  any UserAccess CR whose spec.scopes carries an
               openova.io/org=<value> entry.
-  - `deny.conditions.all`:
-      1. The scope's openova.io/org value differs from the requester's
-         org claim (cross-Org grant).
-      2. The requester's tier claim is NOT in the management-Org-owner
-         allowlist.
+  - `deny.conditions`: refused when its `all` and its `any` both hold:
+      1. (all) The scope's openova.io/org value differs from the
+         requester's org claim (cross-Org grant).
+      2. (any) The requester's org claim is NOT in managementOrgs, or
+         the requester's tier claim is NOT in allowedCrossOrgTiers.
 
   - Default action: `Audit` per the brief — values-driven so each
     Sovereign's overlay can flip it to `Enforce` independently. The
@@ -46,6 +46,14 @@ Kyverno expression notes:
     enforcement, which is the right default for an Org-less scope).
 */}}
 {{- if .Values.userAccessBoundary.enabled -}}
+{{- /* An empty list renders an invalid policy (`value:` null) that the
+       Kyverno CLI reports as passing; refuse it at render instead. */ -}}
+{{- if not .Values.userAccessBoundary.managementOrgs -}}
+{{- fail "userAccessBoundary.managementOrgs is empty: name the management Organization whose owner may sign a cross-Org grant" -}}
+{{- end -}}
+{{- if not .Values.userAccessBoundary.allowedCrossOrgTiers -}}
+{{- fail "userAccessBoundary.allowedCrossOrgTiers is empty: name the tier that may sign a cross-Org grant" -}}
+{{- end -}}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -98,18 +106,26 @@ spec:
           the grant to a management-Org owner.
         deny:
           conditions:
+            # Refused when the condition of all holds and one of any
+            # holds: only an owner of a management Organization may grant
+            # into another Organization.
             all:
               # 1. The scope's Org differs from the requester's Org.
               - key: '{{ `{{ request.object.spec.scopes[?key==''openova.io/org''].value | [0] }}` }}'
                 operator: NotEquals
                 value: '{{ `{{ request.userInfo.extra."org" | [0] || ''__none__'' }}` }}'
-              # 2. The requester is NOT a management-Org owner.
-              #    Two clauses ANDed: requester's org is NOT the
-              #    management-org slug AND/OR tier is not "owner". We
-              #    use `AnyIn` against a values-driven allowlist so
-              #    multiple management Orgs (e.g. openova-internal +
-              #    a partner SI) can sign cross-Org grants without
-              #    template edits.
+            any:
+              # 2. The requester's Org is not a management Org. A
+              #    values-driven list, so several management Orgs (e.g.
+              #    openova-internal + a partner SI) can sign cross-Org
+              #    grants without template edits.
+              - key: '{{ `{{ request.userInfo.extra."org" | [0] || ''__none__'' }}` }}'
+                operator: NotIn
+                value:
+                  {{- range $org := .Values.userAccessBoundary.managementOrgs }}
+                  - {{ $org | quote }}
+                  {{- end }}
+              # 3. The requester's tier may not sign a cross-Org grant.
               - key: '{{ `{{ request.userInfo.extra."tier" | [0] || ''__none__'' }}` }}'
                 operator: NotIn
                 value:

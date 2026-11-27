@@ -261,14 +261,22 @@ tierActions:
 # UI's policy report without blocking the apply. Per-Sovereign overlay
 # flips to Enforce when an Org owner is ready to harden the boundary.
 #
-# allowedCrossOrgTiers: realm-role names whose holder may sign a
-# cross-Org grant. The default is `owner` (matches the EPIC-3 T2
-# Keycloak realm role `catalyst-owner`); when corporate Sovereigns
-# delegate cross-Org signing to a partner SI, append the SI's tier
-# realm role here.
+# managementOrgs: the Organizations whose members may sign a cross-Org
+# grant; the requester's org claim must be one of them. The default is
+# the management Organization `openova-internal`; when corporate
+# Sovereigns delegate cross-Org signing to a partner SI, append the
+# SI's Organization here.
+#
+# allowedCrossOrgTiers: realm-role names that a member of a
+# managementOrgs Organization must hold to sign a cross-Org grant. The
+# default is `owner` (matches the EPIC-3 T2 Keycloak realm role
+# `catalyst-owner`). A tier alone never suffices: an owner of a
+# customer Organization cannot grant into another Organization.
 userAccessBoundary:
   enabled: true
   action: Audit
+  managementOrgs:
+    - openova-internal
   allowedCrossOrgTiers:
     - owner
     - catalyst-owner
