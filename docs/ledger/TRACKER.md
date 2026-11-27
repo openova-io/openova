@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T22:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T22:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
+| 2026-11-27T22:38 | [#9086](https://github.com/openova-io/openova/pull/9086) | #9085 | test(gate): CMP-G03 is required in the conformance pack (CMP |
 | 2026-11-27T22:11 | [#9084](https://github.com/openova-io/openova/pull/9084) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
@@ -317,6 +319,7 @@ flowchart LR
 | 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
+| 2026-11-27T22:31 | [#9068](https://github.com/openova-io/openova/pull/9068) | #9064 | feat(axon): chart bp-axon with its credential a file mounted |
 | 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
 | 2026-11-27T17:25 | [#9045](https://github.com/openova-io/openova/pull/9045) | #9043 | fix(kit): every kit slot that renders a SecretProviderClass  |
 | 2026-11-27T16:47 | [#9044](https://github.com/openova-io/openova/pull/9044) | #7087 | docs(ledger): plan update |
-| 2026-11-27T16:59 | [#9041](https://github.com/openova-io/openova/pull/9041) | #9040 | fix(tenant): no Organization can take the slug axon (AIP-115 |
-| 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
-| 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
 
 ---
 
