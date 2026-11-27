@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T12:30:07Z` |
+| Last refreshed | `2026-11-27T12:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
+| 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:17 | [#9007](https://github.com/openova-io/openova/pull/9007) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:07 | [#9005](https://github.com/openova-io/openova/pull/9005) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T10:38 | [#8971](https://github.com/openova-io/openova/pull/8971) | #8969 | refactor(catalyst): the umbrella chart depends on secrets-li |
 | 2026-11-27T10:27 | [#8970](https://github.com/openova-io/openova/pull/8970) | #8967 | feat(api): provides, requires, the contract format, the regi |
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
-| 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
-| 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
 
 ---
 
