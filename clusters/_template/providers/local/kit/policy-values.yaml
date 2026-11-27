@@ -3,13 +3,14 @@
 # scripts/generators/local-kit.py lists this file in kustomization.yaml.
 #
 # Gate check FND-G05 runs scripts/check-live-nodeports.sh in every region, and that script
-# fails unless the ClusterPolicy forbid-nodeport-service exists with the action Enforce: a
-# region where a NodePort Service would be admitted fails, even with no NodePort today. The
-# chart renders every policy as Audit while its bootstrap window is open (bootstrapMode true
-# and SOVEREIGN_CONSUME not local); on a Sovereign the hand-over closes the window. The pack
-# has no hand-over, so this document closes the window itself and then holds every other
-# policy whose chart default is Enforce at Audit, as on a Sovereign before its hand-over.
-# The NodePort ban is the one policy that enforces here.
+# fails unless the ValidatingPolicy forbid-nodeport-service exists and denies: a region where a
+# NodePort Service would be admitted fails, even with no NodePort today. The chart renders that
+# policy with a fixed Deny (it does not read forbidNodePortService.action, which stays below)
+# and every other policy as Audit while its bootstrap window is open (bootstrapMode true and
+# SOVEREIGN_CONSUME not local); on a Sovereign the hand-over closes the window. The pack has no
+# hand-over, so this document closes the window itself and then holds every other policy whose
+# chart default is Enforce at Audit, as on a Sovereign before its hand-over. The NodePort ban is
+# the one policy that enforces here.
 #
 # forbid-local-path-storage is left out: the pack's only storage class is local-path
 # (local-path.yaml), and that policy denies every claim, class and volume of it.
@@ -22,7 +23,7 @@
 # region's Kustomization sovereign-region applies platform/policy/policy-values.yaml. Both
 # documents are rendered once (ssa IfNotPresent: Flux creates the ConfigMap when it is absent
 # and never applies it to one that exists). This one is applied first, at boot, so the
-# alignment's empty document never replaces it, and the NodePort ban stays at Enforce. A
+# alignment's empty document never replaces it and the window stays closed. A
 # document that a policy route writes later replaces it, and this file does not write it
 # back. The test TestPolicyFilesLocalKitAgrees in
 # products/catalyst/bootstrap/api/internal/compliance/policyfiles_test.go holds both.

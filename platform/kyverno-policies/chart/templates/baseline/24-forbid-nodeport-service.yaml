@@ -16,26 +16,22 @@ WHY THIS POLICY EXISTS
 templates). Nothing caught a runtime / non-chart NodePort applied straight to a
 live cluster. A live §854 walk (#5088, 2026-07-15) found 4 pre-existing NodePort
 Services on the mothership that the render-time guards never saw. This Kyverno
-ClusterPolicy closes that gap: it flags every `type=NodePort` Service, and every
+policy closes that gap: it denies every `type=NodePort` Service, and every
 `type=LoadBalancer` Service that does not explicitly set
 `allocateLoadBalancerNodePorts: false`, cluster-wide, at admission AND in
 background scans (PolicyReport rows → Compliance Dashboard).
 
-WHY action IS Audit (NOT Enforce) TO START
-===========================================
-This ships in Audit mode DELIBERATELY. Two reasons:
-  1. Four §854 violations already exist live (#5088). Flipping straight to
-     Enforce would not retro-block them (admission is create/update-time) but
-     WOULD risk fail-closing a legitimate ephemeral Service class before the
-     known violations are triaged and the carve-outs are proven correct.
-  2. cert-manager's default HTTP-01 solver auto-creates `type=NodePort` solver
-     Services (`cm-acme-http-solver-*`). Those are carved out below, but Audit
-     first lets us confirm the signal is actionable (only the 4 real violations,
-     zero solver noise) on a live PolicyReport before we harden.
-Enforce is the DELIBERATE FOLLOW-UP once (a) the 4 live violations in #5088 are
-cleared and (b) the Audit PolicyReport confirms zero false positives. Flip via
-`--set compliancePolicies.forbidNodePortService.action=Enforce` (post-handover,
-after bootstrapMode has been flipped to false). See #5088.
+WHY THE ACTION IS A FIXED Deny (NOT the bootstrap-window helper)
+=================================================================
+A NodePort is forbidden without exception, so the ban never weakens: its
+validationActions are hardcoded `[Deny]`, as forbid-local-path-storage's are.
+It started in Audit (#5088) and was flipped to Enforce once the live
+violations were cleared and the Audit report showed zero false positives
+(#5491); until CMP-079 the bootstrap window still held it at Audit. It no
+longer does: the kit's workloads pass it (tools/guards/cmd/kit-policies), and
+the cert-manager solver is carved out below. The value
+`compliancePolicies.forbidNodePortService.action` stays in values.yaml (the
+local pack's policy values set it) and this template does not read it.
 
 CARVE-OUT — cert-manager ACME HTTP-01 solver Services
 =====================================================
@@ -61,10 +57,14 @@ stuck-solver signal.
 Operator override: `--set compliancePolicies.forbidNodePortService.enabled=false`
 disables it entirely; `.excludeNamespaces` adds per-namespace escapes (default
 empty — NodePorts are forbidden EVERYWHERE, including kube-system, per §854).
+
+A ValidatingPolicy of policies.kyverno.io since CMP-079 (the legacy
+ClusterPolicy of the same name before, with one rule per validation);
+tests/forbid-nodeport-service holds its suite.
 */}}
 {{- if .Values.compliancePolicies.forbidNodePortService.enabled -}}
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: forbid-nodeport-service
   labels:
@@ -85,95 +85,44 @@ metadata:
       nodePort. Ships Audit; Enforce is the deliberate follow-up (#5088).
       cert-manager HTTP-01 solver Services are carved out.
 spec:
-  validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.forbidNodePortService.action) }}
-  background: true
-  rules:
-    # ── Rule 1: no Service may be type=NodePort ───────────────────────────
-    - name: service-type-not-nodeport
-      match:
-        any:
-          - resources:
-              kinds:
-                - Service
-      exclude:
-        any:
-          # cert-manager ACME HTTP-01 solver — auto-created type=NodePort,
-          # GCs on challenge completion. Carved out by the upstream solver
-          # LABEL ONLY.
-          #
-          # #5564: there used to be a second clause here matching the NAME
-          # `cm-acme-http-solver-*` with no label requirement. Because `exclude`
-          # is an `any:` list, either clause sufficed, so ANY Service named
-          # `cm-acme-http-solver-<anything>` was exempt from the §854 ban with
-          # no cert-manager involvement at all — a permanent, self-service
-          # bypass available to anyone who can create a Service. It was
-          # described as "belt-and-braces ... the name pattern a fallback", but
-          # a fallback that admits UNLABELLED Services is not a fallback.
-          #
-          # Removing it costs no real coverage: cert-manager sets
-          # acme.cert-manager.io/http01-solver="true" unconditionally on solver
-          # Services, and a live sweep of the mothership found 7 of 7 solvers
-          # carrying it. The label is the contract; the name is not.
-          - resources:
-              selector:
-                matchLabels:
-                  acme.cert-manager.io/http01-solver: "true"
-          {{- with .Values.compliancePolicies.forbidNodePortService.excludeNamespaces }}
-          - resources:
-              namespaces:
-                {{- range . }}
-                - {{ . }}
-                {{- end }}
-          {{- end }}
-      validate:
-        message: >-
-          Service {{ `{{request.object.metadata.namespace}}/{{request.object.metadata.name}}` }}
-          is type=NodePort — FORBIDDEN by §854 (founder #1 ABSOLUTE ban). Never
-          use a NodePort, not even for testing. Expose it DIRECT instead: a
-          ClusterIP Service fronted by a gateway HTTPRoute/TCPRoute, or the
-          cilium LB-IPAM VIP / shared-EIP (lbipam.cilium.io/sharing-key). See
-          #5088.
-        deny:
-          conditions:
-            all:
-              - key: {{ `"{{ request.object.spec.type || '' }}"` }}
-                operator: Equals
-                value: NodePort
-    # ── Rule 2: a LoadBalancer Service must NOT allocate nodePorts ─────────
-    #    allocateLoadBalancerNodePorts defaults to true — an unset value
-    #    silently allocates a nodePort per port. §854-clean LoadBalancer
-    #    Services must set it to false explicitly. to_string() coerces the
-    #    (possibly-absent) bool to a string so the deny condition is nil-safe
-    #    and dodges the JMESPath `false || default` falsy trap.
-    - name: loadbalancer-must-disable-nodeport-allocation
-      match:
-        any:
-          - resources:
-              kinds:
-                - Service
-      {{- with .Values.compliancePolicies.forbidNodePortService.excludeNamespaces }}
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                {{- range . }}
-                - {{ . }}
-                {{- end }}
-      {{- end }}
-      validate:
-        message: >-
-          Service {{ `{{request.object.metadata.namespace}}/{{request.object.metadata.name}}` }}
-          is type=LoadBalancer without allocateLoadBalancerNodePorts=false — it
-          silently allocates a nodePort per port, violating §854. Set
-          `spec.allocateLoadBalancerNodePorts: false` so no nodePort is opened.
-          See #5088.
-        deny:
-          conditions:
-            all:
-              - key: {{ `"{{ request.object.spec.type || '' }}"` }}
-                operator: Equals
-                value: LoadBalancer
-              - key: {{ `"{{ to_string(request.object.spec.allocateLoadBalancerNodePorts) }}"` }}
-                operator: NotEquals
-                value: "false"
+  # HARDCODED Deny — NOT the bootstrap-window helper. See the header comment.
+  validationActions: [Deny]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["services"]
+  matchConditions:
+    - name: exclude-namespaces
+      expression: {{ include "bp-kyverno-policies.excludeNamespacesExpr" .Values.compliancePolicies.forbidNodePortService.excludeNamespaces | quote }}
+    # The cert-manager ACME HTTP-01 solver, by its LABEL ONLY: a solver-shaped
+    # name is no carve-out (#5564). Only a labelled NodePort is skipped, as the
+    # legacy NodePort rule skipped it; a labelled LoadBalancer is still judged.
+    - name: exclude-acme-http01-solver
+      expression: >-
+        !(object.spec.?type.orValue('') == 'NodePort' &&
+        object.metadata.?labels.orValue({})[?'acme.cert-manager.io/http01-solver'].orValue('') == 'true')
+  validations:
+    # ── no Service may be type=NodePort ───────────────────────────────────
+    - expression: "object.spec.?type.orValue('') != 'NodePort'"
+      message: >-
+        This Service is type=NodePort — FORBIDDEN by §854 (founder #1 ABSOLUTE
+        ban). Never use a NodePort, not even for testing. Expose it DIRECT
+        instead: a ClusterIP Service fronted by a gateway HTTPRoute/TCPRoute,
+        or the cilium LB-IPAM VIP / shared-EIP (lbipam.cilium.io/sharing-key).
+        See #5088.
+    # ── a LoadBalancer Service must NOT allocate nodePorts ────────────────
+    #    allocateLoadBalancerNodePorts defaults to true, so an unset one fails.
+    - expression: >-
+        object.spec.?type.orValue('') != 'LoadBalancer' ||
+        object.spec.?allocateLoadBalancerNodePorts.orValue(true) == false
+      message: >-
+        This Service is type=LoadBalancer without
+        allocateLoadBalancerNodePorts=false — it silently allocates a nodePort
+        per port, violating §854. Set `spec.allocateLoadBalancerNodePorts:
+        false` so no nodePort is opened. See #5088.
 {{- end -}}

@@ -5,9 +5,10 @@
 # while six sibling policies enforced. The flip criterion the chart itself
 # names was met (9 clean enumerations, 670 PolicyReport passes / 0 fails,
 # bootstrapMode already false post-handover) and nobody had walked through it.
+# Since CMP-079 it is a ValidatingPolicy with a fixed [Deny] whatever the values.
 #
 # This guard fails if anyone flips it back, AND refuses to report a pass when
-# the policy does not render at all — a grep for "Enforce" against an empty
+# the policy does not render at all — a grep for "Deny" against an empty
 # render succeeds trivially, which is how a guard silently stops guarding.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,28 +18,37 @@ cd "$(dirname "$0")/.."
 # SIGPIPE once the render is larger than a pipe buffer, and pipefail turns
 # that into a false failure (seen when the render grew past 64 KiB).
 
-render() { helm template kyverno-policies . --set compliancePolicies.bootstrapMode=false "$@" 2>/dev/null; }
+render() { helm template kyverno-policies . --show-only templates/baseline/24-forbid-nodeport-service.yaml "$@" 2>/dev/null; }
 
 OUT="$(render)"
 
 # ── vacuity control: the policy object must EXIST in the render ────────────
-if ! grep -q 'name: forbid-nodeport-service' <<<"$OUT"; then
-  echo "ERROR (#5491): forbid-nodeport-service does not render at all — this guard" >&2
+if ! grep -q -x 'kind: ValidatingPolicy' <<<"$OUT" || ! grep -q -x '  name: forbid-nodeport-service' <<<"$OUT"; then
+  echo "ERROR (#5491): forbid-nodeport-service does not render as a ValidatingPolicy — this guard" >&2
   echo "               cannot judge an absent policy. Refusing to report a pass." >&2
   exit 2
 fi
 echo "[nodeport-enforce] vacuity OK — forbid-nodeport-service renders"
 
-# ── the assertion ─────────────────────────────────────────────────────────
-ACTION="$(awk '/name: forbid-nodeport-service/{f=1} f&&/validationFailureAction:/{print $2; exit}' <<<"$OUT")"
-if [ "$ACTION" != "Enforce" ]; then
-  echo "FAIL (#5491): forbid-nodeport-service validationFailureAction=${ACTION:-<unset>}, want Enforce." >&2
-  echo "  §854 is a founder ABSOLUTE ban. In Audit the policy records a NodePort" >&2
-  echo "  and admits it, so every 'zero NodePorts' audit measures OUTCOME, not" >&2
-  echo "  PREVENTION. Do not relax this without clearing #5491." >&2
-  exit 1
-fi
-echo "[nodeport-enforce] PASS — validationFailureAction=Enforce"
+# ── the assertion, in every case of the values ────────────────────────────
+deny_in() { # <label> [helm arguments...]
+  local label="$1" actions
+  shift
+  actions="$(awk '/^  validationActions:/{print $2; exit}' <<<"$(render "$@")")"
+  if [ "$actions" != "[Deny]" ]; then
+    echo "FAIL (#5491): $label: forbid-nodeport-service validationActions=${actions:-<unset>}, want [Deny]." >&2
+    echo "  §854 is a founder ABSOLUTE ban. In Audit the policy records a NodePort" >&2
+    echo "  and admits it, so every 'zero NodePorts' audit measures OUTCOME, not" >&2
+    echo "  PREVENTION. Do not relax this without clearing #5491." >&2
+    exit 1
+  fi
+  echo "[nodeport-enforce] PASS — $label: validationActions=[Deny]"
+}
+deny_in "defaults (the bootstrap window open)"
+deny_in "bootstrapMode=false" --set compliancePolicies.bootstrapMode=false
+deny_in "sovereignConsume=local" --set compliancePolicies.sovereignConsume=local
+deny_in "action=Audit" --set compliancePolicies.forbidNodePortService.action=Audit
+deny_in "action=Audit, bootstrapMode=false" --set compliancePolicies.forbidNodePortService.action=Audit,compliancePolicies.bootstrapMode=false
 
 # ── the carve-out must survive, or Enforce breaks cert issuance ───────────
 if ! grep -q 'acme.cert-manager.io/http01-solver' <<<"$OUT"; then
@@ -49,14 +59,4 @@ if ! grep -q 'acme.cert-manager.io/http01-solver' <<<"$OUT"; then
   exit 1
 fi
 echo "[nodeport-enforce] PASS — cert-manager HTTP-01 solver carve-out intact"
-
-# ── bootstrapMode must still be able to hold it at Audit during Phase 1 ───
-BOOT_OUT="$(render --set compliancePolicies.bootstrapMode=true)"
-BOOT="$(awk '/name: forbid-nodeport-service/{f=1} f&&/validationFailureAction:/{print $2; exit}' <<<"$BOOT_OUT")"
-if [ "$BOOT" != "Audit" ]; then
-  echo "FAIL (#5491): bootstrapMode=true yielded ${BOOT:-<unset>}, want Audit." >&2
-  echo "  Phase-1 must not fail-closed on admission (#2436)." >&2
-  exit 1
-fi
-echo "[nodeport-enforce] PASS — bootstrapMode=true still forces Audit (Phase-1 safety intact)"
 echo "[nodeport-enforce] ALL PASS"

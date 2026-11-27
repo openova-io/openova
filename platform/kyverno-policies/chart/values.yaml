@@ -480,8 +480,8 @@ compliancePolicies:
   # actionable (only the real violations, with the solver carve-out below) before
   # any Enforce flip. Enforce is the DELIBERATE FOLLOW-UP once the 4 live
   # violations are cleared and the Audit PolicyReport shows zero false positives:
-  # `--set compliancePolicies.forbidNodePortService.action=Enforce`. (The
-  # bootstrapMode helper still forces Audit during Phase-1 regardless.)
+  # `--set compliancePolicies.forbidNodePortService.action=Enforce`. (Until
+  # CMP-079 the bootstrapMode helper still forced Audit during Phase-1.)
   #
   # cert-manager ACME HTTP-01 solver Services (`cm-acme-http-solver-*`, label
   # `acme.cert-manager.io/http01-solver: "true"`) are carved out in the template
@@ -506,6 +506,9 @@ compliancePolicies:
   # type=LoadBalancer Service that does not set allocateLoadBalancerNodePorts
   # false is now REJECTED at admission rather than logged. That is the §854
   # intent, and every Service live today already satisfies it.
+  # CMP-079 — a ValidatingPolicy with a FIXED Deny: the template reads neither
+  # `action` nor the bootstrap window, so no value holds the ban at Audit.
+  # `action` stays as a key (the local pack sets it) and is not read.
   forbidNodePortService:
     enabled: true
     action: Enforce

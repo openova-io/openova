@@ -15,7 +15,8 @@
 # renders it) holds Deny. CMP-062 to CMP-064 move policies from the first
 # kind to the second; the counts stay.
 #
-#   defaults                                        1 (forbid-local-path-storage)
+#   defaults                                        2 (forbid-local-path-storage and
+#                                                     forbid-nodeport-service, fixed Deny)
 #   --set compliancePolicies.sovereignConsume=local 9
 #   --set compliancePolicies.bootstrapMode=false    9
 #
@@ -80,7 +81,7 @@ check() {
 }
 
 run_test() {
-  check "defaults" 1
+  check "defaults" 2
   check "sovereignConsume=local" 9 --set compliancePolicies.sovereignConsume=local
   check "bootstrapMode=false" 9 --set compliancePolicies.bootstrapMode=false
   echo "$TAG ALL PASS"
