@@ -1,38 +1,36 @@
 package compliance
 
 import (
-	_ "embed"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/yaml"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
-//go:embed testdata/model-default.yaml
-var defaultModelYAML []byte
+// ModelObjectName is the name of the one ComplianceModel object of a cluster
+// that the read model reads; an object of another name is ignored.
+const ModelObjectName = "default"
 
-// DefaultModel returns the model a cluster is scored with while no
-// ComplianceModel object is loaded: one group and one axis, both "all", no
-// mandatory check, a cap of 100 and no check of its own. The read model adds
-// one check of weight 1 for every check it observes. DefaultModel panics when
-// the embedded file does not load; TestDefaultModelLoads proves that it does.
-func DefaultModel() *Model {
-	obj := &unstructured.Unstructured{}
-	if err := yaml.Unmarshal(defaultModelYAML, &obj.Object); err != nil {
-		panic(fmt.Sprintf("compliance: embedded default model: %v", err))
-	}
-	m, err := LoadModel(obj)
-	if err != nil {
-		panic(fmt.Sprintf("compliance: embedded default model: %v", err))
-	}
-	return m
-}
+// ReasonModelNotLoaded is the reason of every score of a cluster that has no
+// valid ComplianceModel object: no valid object was ever loaded, or the
+// object was deleted. Such a score is null.
+const ReasonModelNotLoaded = "model not loaded"
+
+// metricModelValid is 1 for a cluster whose ComplianceModel object loaded,
+// and 0 when its last version did not load (the read model keeps scoring the
+// cluster with the model it had) or when it was deleted.
+var metricModelValid = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: "catalyst",
+	Subsystem: "compliance",
+	Name:      "model_valid",
+	Help:      "1 when the cluster's ComplianceModel object named default loaded; 0 when its last version did not load or it was deleted.",
+}, []string{"cluster"})
 
 // SourceKeyer is implemented by an adapter whose event objects have no name
 // of their own. The read model keys the findings of such an event by
@@ -48,22 +46,30 @@ type clusterState struct {
 	subjects map[SubjectKey]Subject  // every subject with a finding
 }
 
-// ReadModel holds, per cluster, the findings of every source object and the
-// subjects they judge, and scores them with the package's rules. It is fed
-// one informer event at a time and is safe for concurrent use.
+// ReadModel holds, per cluster, the model loaded from the cluster's own
+// ComplianceModel object, the findings of every source object and the
+// subjects they judge, and scores them with the package's rules. A cluster
+// with no loaded model has subjects and findings but no score. It is fed one
+// informer event at a time and is safe for concurrent use.
 type ReadModel struct {
-	base     *Model
 	resolver Resolver
 	adapters map[string]Adapter
+	warn     WarnFunc
 
 	mu       sync.RWMutex
+	models   map[string]*Model // the valid model of each cluster
 	clusters map[string]*clusterState
 }
 
-// NewReadModel returns a read model that scores with base and feeds each
-// event kind to the adapter that names it.
-func NewReadModel(base *Model, r Resolver, adapters ...Adapter) *ReadModel {
-	rm := &ReadModel{base: base, resolver: r, adapters: map[string]Adapter{}, clusters: map[string]*clusterState{}}
+// WarnFunc logs one line: a message and key-value pairs, as slog.Logger.Warn.
+type WarnFunc func(msg string, args ...any)
+
+// NewReadModel returns a read model that feeds each event kind to the
+// adapter that names it, and the events of kind k8scache.KindComplianceModel
+// to ApplyModel. No cluster has a model until ApplyModel loads one. warn,
+// when not nil, logs the one line of a model object that does not load.
+func NewReadModel(warn WarnFunc, r Resolver, adapters ...Adapter) *ReadModel {
+	rm := &ReadModel{resolver: r, adapters: map[string]Adapter{}, warn: warn, models: map[string]*Model{}, clusters: map[string]*clusterState{}}
 	for _, a := range adapters {
 		for _, k := range a.Kinds() {
 			rm.adapters[k] = a
@@ -72,17 +78,67 @@ func NewReadModel(base *Model, r Resolver, adapters ...Adapter) *ReadModel {
 	return rm
 }
 
-// Handles reports whether an adapter of the read model consumes kind.
-func (rm *ReadModel) Handles(kind string) bool { return rm.adapters[kind] != nil }
+// Handles reports whether the read model consumes events of kind: the kinds
+// of its adapters and the kind of the model objects.
+func (rm *ReadModel) Handles(kind string) bool {
+	return kind == k8scache.KindComplianceModel || rm.adapters[kind] != nil
+}
 
-// owned reports whether a producer of the model owns findings of source s.
-func (rm *ReadModel) owned(s Source) bool {
+// ApplyModel loads the ComplianceModel object of an event of kind
+// k8scache.KindComplianceModel as the model of the event's cluster; a
+// deleted object leaves the cluster with no model. An object not named
+// ModelObjectName is ignored. When the object does not load, the cluster
+// keeps the model it had and ApplyModel returns the error. Otherwise it
+// returns every subject of the cluster, in key order: their scores changed.
+func (rm *ReadModel) ApplyModel(ev k8scache.Event) ([]Subject, error) {
+	if ev.Object == nil || ev.Object.GetName() != ModelObjectName {
+		return nil, nil
+	}
+	var m *Model
+	if ev.Type != k8scache.EventDeleted {
+		loaded, err := LoadModel(ev.Object)
+		if err != nil {
+			metricModelValid.WithLabelValues(ev.Cluster).Set(0)
+			return nil, fmt.Errorf("cluster %s keeps its previous model: %w", ev.Cluster, err)
+		}
+		m = loaded
+	}
+	rm.mu.Lock()
+	if m == nil {
+		delete(rm.models, ev.Cluster)
+	} else {
+		rm.models[ev.Cluster] = m
+	}
+	var current []Subject
+	if cs := rm.clusters[ev.Cluster]; cs != nil {
+		for _, s := range cs.subjects {
+			current = append(current, s)
+		}
+	}
+	rm.mu.Unlock()
+	if m == nil {
+		metricModelValid.WithLabelValues(ev.Cluster).Set(0)
+	} else {
+		metricModelValid.WithLabelValues(ev.Cluster).Set(1)
+	}
+	sortSubjects(current)
+	return current, nil
+}
+
+// owned reports whether a producer owns findings of source s in the cluster:
+// the engine and the evaluators always, any other source when a check of the
+// cluster's model names it.
+func (rm *ReadModel) owned(cluster string, s Source) bool {
 	if s == SourceKyverno || s == SourceEvaluator {
 		return true
 	}
-	for _, c := range rm.base.Checks {
-		if c.Source == s {
-			return true
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	if m := rm.models[cluster]; m != nil {
+		for _, c := range m.Checks {
+			if c.Source == s {
+				return true
+			}
 		}
 	}
 	return false
@@ -99,8 +155,17 @@ func sourceKey(a Adapter, ev k8scache.Event) ObjectRef {
 // Apply replaces every finding of the event's object with what its adapter
 // now returns. It returns the subjects the change touched that still have a
 // finding, and those that lost their last one, both in key order. A finding
-// whose source no producer of the model owns is dropped and counted.
+// whose source no producer owns is dropped and counted. An event of kind
+// k8scache.KindComplianceModel goes to ApplyModel; an object that does not
+// load is logged with warn and changes nothing.
 func (rm *ReadModel) Apply(ev k8scache.Event) (current, gone []Subject) {
+	if ev.Kind == k8scache.KindComplianceModel {
+		current, err := rm.ApplyModel(ev)
+		if err != nil && rm.warn != nil {
+			rm.warn("compliance: the ComplianceModel object did not load", "cluster", ev.Cluster, "name", ev.Object.GetName(), "err", err)
+		}
+		return current, nil
+	}
 	a := rm.adapters[ev.Kind]
 	if a == nil || ev.Object == nil {
 		return nil, nil
@@ -110,7 +175,7 @@ func (rm *ReadModel) Apply(ev k8scache.Event) (current, gone []Subject) {
 	dropped := 0
 	facts := map[SubjectKey]Subject{}
 	for _, f := range a.Apply(ev, rm.resolver) {
-		if !rm.owned(f.Source) {
+		if !rm.owned(ev.Cluster, f.Source) {
 			dropped++
 			continue
 		}
@@ -185,7 +250,7 @@ func (rm *ReadModel) Refresh(k SubjectKey) (Subject, bool) {
 }
 
 // Dropped returns how many results in view of the cluster were dropped because
-// no producer of the model owns their source.
+// no producer owns their source.
 func (rm *ReadModel) Dropped(cluster string) int {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -199,7 +264,8 @@ func (rm *ReadModel) Dropped(cluster string) int {
 }
 
 // view is a copy of one cluster: its subjects in key order, the findings of
-// each subject in a fixed order, and the model that scores them.
+// each subject in a fixed order, and the model that scores them (nil when
+// the cluster has none).
 type view struct {
 	model     *Model
 	subjects  []Subject
@@ -209,7 +275,7 @@ type view struct {
 func (rm *ReadModel) view(cluster string) view {
 	rm.mu.RLock()
 	cs := rm.clusters[cluster]
-	v := view{bySubject: map[SubjectKey][]Finding{}}
+	v := view{model: rm.models[cluster], bySubject: map[SubjectKey][]Finding{}}
 	var all []Finding
 	if cs != nil {
 		for _, s := range cs.subjects {
@@ -225,7 +291,6 @@ func (rm *ReadModel) view(cluster string) view {
 	for _, f := range all {
 		v.bySubject[f.Subject] = append(v.bySubject[f.Subject], f)
 	}
-	v.model = withObserved(rm.base, all)
 	return v
 }
 
@@ -237,56 +302,43 @@ func (v view) findingsOf(subjects []Subject) []Finding {
 	return fs
 }
 
-// withObserved returns base with one check of weight 1 on the first axis of
-// type checks for every check id of fs that base does not hold and whose
-// source has a producer today. Of the two producers the engine wins.
-func withObserved(base *Model, fs []Finding) *Model {
-	have := map[string]bool{}
-	for _, c := range base.Checks {
-		have[c.ID] = true
+// posture is the posture of a scope: scored by the view's model, or with no
+// value and the reason ReasonModelNotLoaded when the view has no model.
+func (v view) posture(scope, id, cluster string, subjects []Subject) (Posture, string) {
+	if v.model == nil {
+		return Posture{Scope: scope, ID: id, Cluster: cluster}, ReasonModelNotLoaded
 	}
-	src := map[string]Source{}
-	for _, f := range fs {
-		if have[f.Check] || (f.Source != SourceKyverno && f.Source != SourceEvaluator) {
-			continue
-		}
-		if s, ok := src[f.Check]; !ok || (s == SourceEvaluator && f.Source == SourceKyverno) {
-			src[f.Check] = f.Source
-		}
-	}
-	if len(src) == 0 {
-		return base
-	}
-	axis := ""
-	for _, a := range base.Axes {
-		if a.Type == AxisTypeChecks {
-			axis = a.ID
-			break
-		}
-	}
-	ids := make([]string, 0, len(src))
-	for id := range src {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	m := *base
-	m.Checks = append([]Check(nil), base.Checks...)
-	for _, id := range ids {
-		m.Checks = append(m.Checks, Check{ID: id, Title: id, Source: src[id], Axis: axis, Weight: 1})
-	}
-	return &m
+	return ScopePosture(v.model, scope, id, cluster, subjects, v.findingsOf(subjects), nil), ""
 }
 
-// Checks returns the checks the cluster is scored with, in model order.
+// Checks returns the checks the cluster is scored with, in model order; nil
+// when the cluster has no model.
 func (rm *ReadModel) Checks(cluster string) []Check {
-	return append([]Check(nil), rm.view(cluster).model.Checks...)
+	m := rm.view(cluster).model
+	if m == nil {
+		return nil
+	}
+	return append([]Check(nil), m.Checks...)
+}
+
+// ModelVersion returns spec.version of the cluster's model, and false when
+// the cluster has none.
+func (rm *ReadModel) ModelVersion(cluster string) (string, bool) {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	if m := rm.models[cluster]; m != nil {
+		return m.Version, true
+	}
+	return "", false
 }
 
 // Rollup is the posture of one scope, with the Organization, Environment and
-// Application of the first subject of the scope in key order.
+// Application of the first subject of the scope in key order. Reason says why
+// the posture has no value when the cluster has no model.
 type Rollup struct {
 	Posture
 	Organization, Environment, Application string
+	Reason                                 string
 }
 
 // Rollups returns the posture of the cluster and of every Application,
@@ -308,7 +360,8 @@ func (rm *ReadModel) Rollups(cluster string) []Rollup {
 	}
 	out := make([]Rollup, 0, len(groups))
 	for g, ss := range groups {
-		out = append(out, Rollup{Posture: ScopePosture(v.model, g.scope, g.id, cluster, ss, v.findingsOf(ss), nil),
+		p, reason := v.posture(g.scope, g.id, cluster, ss)
+		out = append(out, Rollup{Posture: p, Reason: reason,
 			Organization: ss[0].Organization, Environment: ss[0].Environment, Application: ss[0].Application})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Scope+"\x00"+out[i].ID < out[j].Scope+"\x00"+out[j].ID })
@@ -326,23 +379,30 @@ type CheckResult struct {
 }
 
 // SubjectView is the posture of one subject (scope workload) and the effective
-// result of every check that has a finding of its own source on the subject.
+// result of every check of the model that has a finding of its own source on
+// the subject. Reason says why the posture has no value when the cluster has
+// no model; Results is then empty.
 type SubjectView struct {
 	Subject   Subject
 	Posture   Posture
+	Reason    string
 	Results   []CheckResult // in model order
 	UpdatedAt time.Time     // the newest ObservedAt of the subject's findings
 }
 
 func subjectView(v view, s Subject) SubjectView {
 	fs := v.bySubject[s.Key]
-	sv := SubjectView{Subject: s, Posture: ScopePosture(v.model, ScopeWorkload, s.Key.Name, s.Key.Cluster, []Subject{s}, fs, nil)}
-	idx := indexFindings(fs)
+	sv := SubjectView{Subject: s}
+	sv.Posture, sv.Reason = v.posture(ScopeWorkload, s.Key.Name, s.Key.Cluster, []Subject{s})
 	for _, f := range fs {
 		if f.ObservedAt.After(sv.UpdatedAt) {
 			sv.UpdatedAt = f.ObservedAt
 		}
 	}
+	if v.model == nil {
+		return sv
+	}
+	idx := indexFindings(fs)
 	for i := range v.model.Checks {
 		c := &v.model.Checks[i]
 		var own []Finding

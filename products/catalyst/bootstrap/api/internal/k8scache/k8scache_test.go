@@ -259,6 +259,22 @@ func TestDefaultKinds_OpenovaCRDsPinnedToStorageVersion(t *testing.T) {
 	}
 }
 
+// TestDefaultKinds_ComplianceModel pins the module kind of the policy
+// Blueprint (CMP-041): the GVR of platform/kyverno-policies/chart/crds/
+// compliancemodel.yaml, cluster-scoped, and Optional, because the definition
+// exists only where that Blueprint is installed.
+func TestDefaultKinds_ComplianceModel(t *testing.T) {
+	r := NewRegistry()
+	for _, k := range DefaultKinds {
+		_ = r.Add(k)
+	}
+	k, ok := r.Get("compliancemodels")
+	want := schema.GroupVersionResource{Group: "compliance.openova.io", Version: "v1alpha1", Resource: "compliancemodels"}
+	if !ok || KindComplianceModel != "compliancemodel" || k.Name != KindComplianceModel || k.GVR != want || k.Namespaced || !k.Optional {
+		t.Fatalf("compliancemodel: %v %+v, want %v, cluster-scoped, Optional", ok, k, want)
+	}
+}
+
 func TestRegistry_AllAndNames(t *testing.T) {
 	r := NewRegistry()
 	for _, k := range DefaultKinds {

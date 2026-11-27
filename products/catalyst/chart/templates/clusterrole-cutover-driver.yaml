@@ -405,6 +405,14 @@ rules:
   - apiGroups: ["policies.kyverno.io"]
     resources: ["validatingpolicies", "mutatingpolicies"]
     verbs: ["get", "list", "watch"]
+  # CMP-042 — the ComplianceModel object of each cluster (k8scache kind
+  # `compliancemodel`, a module kind of bp-kyverno-policies). The read model
+  # scores a cluster only with that cluster's object; without this rule the
+  # informer is refused and every score stays null. Read-only: the policy
+  # chart renders the object and nothing in the cluster edits it.
+  - apiGroups: ["compliance.openova.io"]
+    resources: ["compliancemodels"]
+    verbs: ["get", "list", "watch"]
 
   # ───────────────────────────────────────────────────────────────
   # APPLICATION CRD — backs slice I (#1152) install-flow handler +

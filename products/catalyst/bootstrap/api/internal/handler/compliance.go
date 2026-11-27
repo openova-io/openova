@@ -327,7 +327,7 @@ func (c *ComplianceConfig) defaults() {
 		c.SubscribeKinds = []string{
 			"policyreport",
 			"clusterpolicyreport",
-			k8scache.KindComplianceEvaluator,
+			k8scache.KindComplianceEvaluator, k8scache.KindComplianceModel, // the score model of each cluster (CMP-042)
 		}
 		// The policy kinds: their events give the policy metadata of a
 		// cluster the Factory does not hold (policyMetaOf).
@@ -474,7 +474,7 @@ func NewComplianceHandler(
 		k8sCache:         k8sCache,
 		publisher:        publisher,
 		resolver:         resolver,
-		model:            compliance.NewReadModel(compliance.DefaultModel(), resolver, adapters.PolicyReport{}, adapters.Evaluator{}),
+		model:            compliance.NewReadModel(log.Warn, resolver, adapters.PolicyReport{}, adapters.Evaluator{}),
 		policyMetaByName: map[string]map[string]policyMeta{},
 		policyObjects:    map[[3]string]policyMeta{},
 		subscribers:      map[int64]*complianceSubscriber{},
@@ -553,9 +553,9 @@ func (c *ComplianceHandler) runWatch(ctx context.Context) {
 	}
 }
 
-// onEvent processes one SSE event. A report event goes to the read model and
-// every subject it touched is published; a workload event updates the
-// resolver and the facts of its subject; an event of a policy kind of the
+// onEvent processes one SSE event. A report or ComplianceModel event goes to the
+// read model and every subject it touched is published; a workload event updates
+// the resolver and the facts of its subject; an event of a policy kind of the
 // engine (enginePolicyKinds) updates the policy metadata of its cluster.
 //
 // #5352 — a DELETED report removes its findings, and a subject left with none

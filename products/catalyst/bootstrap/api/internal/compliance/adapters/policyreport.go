@@ -115,7 +115,8 @@ func ResultOf(result string) compliance.Result {
 // sourceOf maps the source field of a report result: empty or "kyverno" (a
 // legacy ClusterPolicy) and "KyvernoValidatingPolicy" (a ValidatingPolicy,
 // measured by spike CMP-S1) are the engine; any other producer keeps its own
-// name, which no check of the fallback model names.
+// name, which counts only for a check whose source in the cluster's model is
+// that name.
 func sourceOf(s string) compliance.Source {
 	if s == "" || strings.EqualFold(s, "kyverno") || strings.EqualFold(s, "KyvernoValidatingPolicy") {
 		return compliance.SourceKyverno

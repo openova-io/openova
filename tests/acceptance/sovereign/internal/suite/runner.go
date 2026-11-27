@@ -86,6 +86,13 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		if manifest, err = LoadManifest(cfg.Manifest); err != nil {
 			return nil, err
 		}
+		holds, err := HoldForPack(manifest, RunIn(cfg.RunIn), cfg.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range holds {
+			_, _ = fmt.Fprintf(out, "%s runs at expected-fail in the local pack (%s): %s\n", h.ID, PackHoldFile, h.Reason)
+		}
 		if checks, err = SelectChecks(manifest, RunIn(cfg.RunIn)); err != nil {
 			return nil, err
 		}

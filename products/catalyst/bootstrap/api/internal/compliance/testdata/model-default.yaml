@@ -1,5 +1,7 @@
-# The fallback compliance model of the read model, used while no
-# ComplianceModel object named "default" is installed on a cluster.
+# The smallest model the loader accepts, a fixture of model_test.go. Until
+# CMP-042 the read model scored a cluster with this model while the cluster
+# had no ComplianceModel object; it no longer does: such a cluster has no
+# score ("model not loaded").
 # One group and one axis, both "all". Every severity weighs 1. No check is
 # mandatory, and the cap of 100 never lowers a score. It lists no check.
 apiVersion: compliance.openova.io/v1alpha1

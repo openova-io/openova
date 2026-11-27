@@ -401,6 +401,7 @@ func TestHandleFleetSovereignSummary_AlertsFromCompliance(t *testing.T) {
 	// Build a ComplianceHandler with no watch loop and feed its read
 	// model one report directly.
 	c := NewComplianceHandler(ComplianceConfig{}, silentLogger(), nil, nil)
+	loadTestModel(t, c, dep.ID, kyverno("probes-present", "flux-managed", "hpa-effective"))
 	res := func(policy, result string) map[string]any {
 		return map[string]any{"policy": policy, "rule": policy, "result": result,
 			"resources": []any{map[string]any{"kind": "Deployment", "namespace": "ns1", "name": "web"}}}

@@ -1,0 +1,21 @@
+# The expectations of the local provider pack: gate checks that the run in
+# local of this suite (the job conformance-local) holds at expected-fail
+# although docs/ledger/gates.yaml has them required. They stay required on the
+# gate of a Sovereign: a run in cloud or in self reads no such file. One check
+# per line: its identifier, a space and the reason; blank lines and lines
+# starting with # are skipped. The suite reads this file
+# (internal/suite/pack_hold.go) and stops with no record when a line has no
+# reason, or names a check that is not in the manifest, is not required, does
+# not run in local, or is named twice.
+#
+# Why expected-fail: it tolerates both outcomes. A check at expected-fail that
+# fails never fails the run, and one that passes is recorded PASS and fails
+# nothing (Run.Finalize in internal/suite/result.go fails a run on a required
+# check only). So a held check that starts to pass by itself leaves main
+# green; the package that makes it required in the pack takes its line out.
+#
+# Why a check is held: the pack installs the kit charts of a change from the
+# tree, but runs the images that the kit pins from main (the image tags of
+# products/catalyst/chart/values.yaml). A check that proves a change to such
+# an image therefore passes in the pack only after the merge and the next pin.
+CMP-G03 the pack runs the catalyst-api image pinned from main, which holds the per-cluster model loader of CMP-042 only after its merge and the next pin: until then step CMP-G03.3 fails (the API scores with its built-in fallback and does not weigh the checks as the model does). A later package of area CMP makes the check required in the pack once the pinned image holds the loader.
