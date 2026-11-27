@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T10:30:06Z` |
+| Last refreshed | `2026-11-27T10:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -322,6 +322,7 @@ flowchart LR
 | 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:46 | [#8973](https://github.com/openova-io/openova/pull/8973) | #8954 | revert: the conformance run installs changed kit charts from |
 | 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
+| 2026-11-27T10:38 | [#8971](https://github.com/openova-io/openova/pull/8971) | #8969 | refactor(catalyst): the umbrella chart depends on secrets-li |
 | 2026-11-27T10:27 | [#8970](https://github.com/openova-io/openova/pull/8970) | #8967 | feat(api): provides, requires, the contract format, the regi |
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T10:18 | [#8953](https://github.com/openova-io/openova/pull/8953) | #8950 | chore(kyverno): delete the comment-only stub and the test-on |
 | 2026-11-27T05:00 | [#8951](https://github.com/openova-io/openova/pull/8951) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:49 | [#8949](https://github.com/openova-io/openova/pull/8949) | #7087 | docs(ledger): plan update |
-| 2026-11-27T04:29 | [#8948](https://github.com/openova-io/openova/pull/8948) | #7087 | docs(ledger): plan update |
 
 ---
 
