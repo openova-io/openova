@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T10:15:03Z` |
+| Last refreshed | `2026-11-27T10:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8586](https://github.com/openova-io/openova/issues/8586) | INF-057 Check INF-G01 requires every moved workload back within 180 seconds of l | Other |
 | [#8594](https://github.com/openova-io/openova/issues/8594) | NET-185 The Sovereign's name servers answer on public port 53, over UDP and TCP, | Other |
 | [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
 | [#8604](https://github.com/openova-io/openova/issues/8604) | SEC-261 Conformance test for External Secrets against OpenBao | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8980](https://github.com/openova-io/openova/issues/8980) | SEC-250 PKI engine, internal issuer and mesh issuer in the primary region and on | Other |
 | [#8981](https://github.com/openova-io/openova/issues/8981) | SEC-251 Spike: how a secondary region's OpenBao has its intermediate signed by t | Other |
 | [#8983](https://github.com/openova-io/openova/issues/8983) | SEC-344 Upstream pods to injection: Grafana | Other |
+| [#8994](https://github.com/openova-io/openova/issues/8994) | FND-133 The conformance run of a pull request installs the kit charts of that pu | Other |
 
 ---
 
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
 | 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:23 | [#8990](https://github.com/openova-io/openova/pull/8990) | #7087 | docs(ledger): plan update |
+| 2026-11-27T10:23 | [#8988](https://github.com/openova-io/openova/pull/8988) | #8983 | refactor(grafana): the sign-on client secret reaches Grafana |
 | 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
 | 2026-11-27T09:02 | [#8985](https://github.com/openova-io/openova/pull/8985) | #7087 | docs(ledger): plan update |
@@ -320,6 +322,7 @@ flowchart LR
 | 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:46 | [#8973](https://github.com/openova-io/openova/pull/8973) | #8954 | revert: the conformance run installs changed kit charts from |
 | 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
+| 2026-11-27T10:27 | [#8970](https://github.com/openova-io/openova/pull/8970) | #8967 | feat(api): provides, requires, the contract format, the regi |
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
@@ -330,13 +333,10 @@ flowchart LR
 | 2026-11-27T05:46 | [#8958](https://github.com/openova-io/openova/pull/8958) | #8956 | fix(trivy): vulnerability scanning produces reports in every |
 | 2026-11-27T05:13 | [#8955](https://github.com/openova-io/openova/pull/8955) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:50 | [#8954](https://github.com/openova-io/openova/pull/8954) | #8952 | fix(conformance): the conformance run of a pull request inst |
+| 2026-11-27T10:18 | [#8953](https://github.com/openova-io/openova/pull/8953) | #8950 | chore(kyverno): delete the comment-only stub and the test-on |
 | 2026-11-27T05:00 | [#8951](https://github.com/openova-io/openova/pull/8951) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:49 | [#8949](https://github.com/openova-io/openova/pull/8949) | #7087 | docs(ledger): plan update |
 | 2026-11-27T04:29 | [#8948](https://github.com/openova-io/openova/pull/8948) | #7087 | docs(ledger): plan update |
-| 2026-11-27T04:16 | [#8947](https://github.com/openova-io/openova/pull/8947) | #7087 | docs(ledger): plan update |
-| 2026-11-27T04:09 | [#8946](https://github.com/openova-io/openova/pull/8946) | #8944 | fix(network): Organization listeners admit routes only from  |
-| 2026-11-27T03:46 | [#8945](https://github.com/openova-io/openova/pull/8945) | #7087 | docs(ledger): plan update |
-| 2026-11-27T03:35 | [#8943](https://github.com/openova-io/openova/pull/8943) | #7087 | docs(ledger): plan update |
 
 ---
 
