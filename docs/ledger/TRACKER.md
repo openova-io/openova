@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T04:00:05Z` |
+| Last refreshed | `2026-11-27T04:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T04:09 | [#8946](https://github.com/openova-io/openova/pull/8946) | #8944 | fix(network): Organization listeners admit routes only from  |
 | 2026-11-27T03:46 | [#8945](https://github.com/openova-io/openova/pull/8945) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:35 | [#8943](https://github.com/openova-io/openova/pull/8943) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:26 | [#8942](https://github.com/openova-io/openova/pull/8942) | #8940 | refactor(kyverno): forbid-nodeport-service rewritten in plac |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T19:36 | [#8908](https://github.com/openova-io/openova/pull/8908) | #8906 | feat(guards): an acceptance loop of a ticket stops at its fi |
 | 2026-11-26T19:32 | [#8907](https://github.com/openova-io/openova/pull/8907) | #8904 | refactor(kyverno): app-label-mutate rewritten in place to Mu |
 | 2026-11-26T19:04 | [#8905](https://github.com/openova-io/openova/pull/8905) | #7087 | docs(ledger): plan update |
-| 2026-11-26T18:54 | [#8903](https://github.com/openova-io/openova/pull/8903) | #7087 | docs(ledger): plan update |
 
 ---
 
