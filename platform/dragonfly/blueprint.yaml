@@ -81,8 +81,6 @@ spec:
   # host kubelet's containerd — it CANNOT live in a vCluster. The whole mesh
   # (manager/scheduler/seed/dfdaemon) is a host-substrate registry-distribution
   # layer, sibling to the CNI. Self-contained PER CLUSTER (#4639 design §8a).
-  defaultPlacement:
-    vcluster: host
   allowedPlacements: [host]
 
   manifests:

@@ -47,7 +47,7 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           - rtz-B
@@ -56,7 +56,7 @@ spec:
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           roles:

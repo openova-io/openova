@@ -63,7 +63,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ''
           clusters:
           - rtz-A
           - rtz-B

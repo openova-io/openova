@@ -240,7 +240,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -289,14 +289,14 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -461,7 +461,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -627,7 +627,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -879,7 +879,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -923,7 +923,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -959,7 +959,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -1337,14 +1337,14 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -1434,14 +1434,14 @@ spec:
           rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -1586,7 +1586,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -1782,14 +1782,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -1947,14 +1947,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -2017,7 +2017,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: singleton
@@ -2097,14 +2097,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -2164,14 +2164,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 60
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -2249,14 +2249,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -2313,14 +2313,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 60
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -2385,14 +2385,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 30
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -2452,14 +2452,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -2818,7 +2818,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -2917,7 +2917,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -2931,7 +2931,7 @@ spec:
           rtoSeconds: 10
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
@@ -2981,7 +2981,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3036,7 +3036,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3309,7 +3309,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3350,7 +3350,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3466,7 +3466,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -3511,14 +3511,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3668,14 +3668,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -3716,7 +3716,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3769,14 +3769,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 60
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3854,14 +3854,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 0
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -3906,7 +3906,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -3974,14 +3974,14 @@ spec:
           mechanism: sentinel-failover
           rtoSeconds: 30
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -4033,7 +4033,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -4192,14 +4192,14 @@ spec:
         switchover:
           mechanism: none
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: active
       singleton:
         placement:
-          tier: rtz
+          tier: ""
           clusters: [rtz-A]
           roles:
             rtz-A: singleton
@@ -4258,7 +4258,7 @@ spec:
     perTopology:
       singleton:
         placement:
-          tier: mgmt
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton

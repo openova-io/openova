@@ -38,14 +38,14 @@ spec:
           rtoSeconds: 60
           rpoSeconds: 30
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: mgmt
+          tier: ''
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
