@@ -113,6 +113,11 @@ fi
 # manifest. `--show-only` extracts just the catalyst-api Deployment so
 # the apply/grep targets a single document.
 log "step 0/6 — rendering chart template via 'helm template --show-only'"
+# The chart depends on platform/secrets-lib (SEC-216): Helm renders it only after this build.
+if ! helm dependency build --skip-refresh "${CHART_DIR}" > /dev/null; then
+  log "ERROR: helm dependency build ${CHART_DIR} failed: the chart cannot render"
+  exit 2
+fi
 RENDERED_MANIFEST=$(mktemp)
 RENDER_ERR=$(mktemp)
 set +e

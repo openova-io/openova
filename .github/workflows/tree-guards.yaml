@@ -420,6 +420,9 @@ jobs:
       - name: 'kube-access | Every test hook that runs kubectl reaches the API server through kube-access-lib'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/kube-access
+      - name: 'umbrella-deps | Every renderer of the umbrella chart products/catalyst/chart builds its dependencies (helm dependency build) before Helm renders it'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/umbrella-deps
       - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, places on a Sovereign'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1

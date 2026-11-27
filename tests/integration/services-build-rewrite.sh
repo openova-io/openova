@@ -181,10 +181,12 @@ fi
 echo "[services-build-rewrite] Case 3: helm-render — Pods carry new orgTag"
 chart_root="${repo_root}/products/catalyst/chart"
 sandbox_chart="${sandbox}/catalyst-chart"
+# The chart depends on platform/secrets-lib through a file:// path relative to the chart,
+# which the copy cannot resolve (SEC-216): build it in the tree, so the copy carries charts/.
+"$helm" dependency build --skip-refresh "${chart_root}" >/dev/null
 cp -r "${chart_root}" "${sandbox_chart}"
 cp "${sandbox_values}" "${sandbox_chart}/values.yaml"
 cp -r "${sandbox_deploy_dir}"/*.yaml "${sandbox_chart}/templates/org-services/"
-"$helm" dependency build "${sandbox_chart}" >/dev/null 2>&1 || true
 
 render_values=$(mktemp)
 cat > "${render_values}" <<'EOF'

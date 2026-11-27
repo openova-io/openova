@@ -143,6 +143,11 @@ fi
 # read). We isolate the catalog-seed/blueprints.yaml output.
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+# The chart depends on platform/secrets-lib (SEC-216): Helm renders it only after this build.
+"$helm" dependency build --skip-refresh "${REPO_ROOT}/products/catalyst/chart" > /dev/null || {
+  echo "ERROR: helm dependency build products/catalyst/chart failed: the seed cannot be rendered" >&2
+  exit 2
+}
 ( cd "${REPO_ROOT}/products/catalyst/chart" && "$helm" template . --show-only templates/catalog-seed/blueprints.yaml ) > "$TMP/rendered.yaml"
 
 # Split rendered docs on `---` and iterate.

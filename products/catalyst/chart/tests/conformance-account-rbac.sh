@@ -11,6 +11,8 @@
 # Usage: bash tests/conformance-account-rbac.sh [CHART_DIR]
 set -euo pipefail
 CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
+# The chart depends on platform/secrets-lib (SEC-216): build it into charts/ before the first render.
+helm dependency build --skip-refresh "$CHART_DIR" > /dev/null
 REPO_ROOT="${REPO_ROOT:-$(cd "$CHART_DIR/../../.." && pwd)}"
 CHECK="$REPO_ROOT/tests/acceptance/sovereign/internal/suite/check_aip_g07.go"
 TMP="$(mktemp -d)"

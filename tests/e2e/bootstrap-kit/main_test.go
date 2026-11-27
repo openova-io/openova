@@ -677,6 +677,7 @@ func TestBootstrapKit_PerOrgBlueprintsAreHostNative(t *testing.T) {
 		t.Skipf("helm not on PATH (%v) — skipping rendered catalog-seed half; the source-blueprint half above still runs", err)
 	}
 	chartDir := filepath.Join(root, "products", "catalyst", "chart")
+	ensureChartDeps(t, helmBin, chartDir) // file:// dependency on platform/secrets-lib (SEC-216), charts/ is gitignored
 	cmd := exec.Command(helmBin, "template", ".", "--show-only", "templates/catalog-seed/blueprints.yaml")
 	cmd.Dir = chartDir
 	out, err := cmd.CombinedOutput()
