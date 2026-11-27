@@ -1,0 +1,90 @@
+# The UserAccess grants of the suite useraccess-boundary (a cluster-scoped
+# kind of platform/crossplane-claims). Each case names the verdict of the
+# policy for a requester of the Organization acme; kyverno-test.yaml runs them
+# as a developer, owner/kyverno-test.yaml as an owner.
+
+# 1. The scope's Organization is the requester's own: admitted for every tier.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-acme-developer-wp
+  labels:
+    catalyst.openova.io/tier: developer
+    catalyst.openova.io/managed-by: rbac-assign
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-developer
+  scopes:
+    - key: openova.io/org
+      value: acme
+    - key: openova.io/application
+      value: wordpress
+    - key: openova.io/env-type
+      value: dev
+---
+# 2. The scope names another Organization: refused for a developer, admitted
+#    for a tier of allowedCrossOrgTiers.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-cross-org-wp-grant
+  labels:
+    catalyst.openova.io/tier: admin
+    catalyst.openova.io/managed-by: rbac-assign
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-admin
+  scopes:
+    - key: openova.io/org
+      value: other-corp
+    - key: openova.io/application
+      value: wordpress
+---
+# 3. No openova.io/org scope: not judged (the grant crosses no Organization).
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-application-only-grant
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-viewer
+  scopes:
+    - key: openova.io/application
+      value: wordpress
+---
+# 4. An openova.io/org scope with an empty value: not judged, as case 3.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-empty-org-grant
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-viewer
+  scopes:
+    - key: openova.io/org
+      value: ""
+---
+# 5. The first openova.io/org scope decides: the second names acme, the first
+#    another Organization, so the grant is judged as crossing.
+apiVersion: access.openova.io/v1alpha1
+kind: UserAccess
+metadata:
+  name: sample-first-org-scope-decides
+spec:
+  user:
+    keycloakSubject: alice-acme-uuid
+  sovereignRef: omantel
+  tierRoleRef: openova:tier-viewer
+  scopes:
+    - key: openova.io/org
+      value: other-corp
+    - key: openova.io/org
+      value: acme

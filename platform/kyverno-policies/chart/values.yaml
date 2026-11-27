@@ -62,10 +62,9 @@ compliancePolicies:
   # emitting PolicyReport rows, and operators can flip individual policies
   # to enabled: false or action: Enforce per Sovereign overlay.
   #
-  # The 2 exceptions:
-  #   - hubbleFlowsSeen — comment-only stub (W2 evaluator does the real
-  #     check). Setting enabled=true renders nothing. Left false for
-  #     symmetry with its DEFERRED status; future W2 cutover flips it.
+  # The exception (the comment-only stub hubbleFlowsSeen was deleted by
+  # CMP-066; hubble-flows-seen is judged by the evaluator
+  # products/catalyst/bootstrap/api/internal/k8scache/evaluators/hubble.go):
   #   - cosignVerified  — verifyImages rule requires an operator-supplied
   #     publicKey. Empty default would render an INVALID policy that fails
   #     to install. Left false; operator opts in per Sovereign once cosign
@@ -353,15 +352,6 @@ compliancePolicies:
 
   otelInjected:
     enabled: true
-    action: Audit
-    excludeNamespaces: *complianceDefaultExcludes
-
-  hubbleFlowsSeen:
-    # DEFERRED — see template stub for K2 #16. The Kyverno gate is a
-    # no-op; W2 evaluator does the actual check. Setting enabled=true
-    # today is harmless (renders nothing) but reserved as the cutover
-    # knob once W2 lands so operators can toggle a single flag.
-    enabled: false
     action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 

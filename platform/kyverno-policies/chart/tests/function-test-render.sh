@@ -63,29 +63,26 @@ grep -q -F 'resources: ["mutatingpolicies"]' "$TMP/default-test.yaml" || fail "t
 grep -q -F 'verbs: ["get"]' "$TMP/default-test.yaml" || fail "the test ClusterRole grants more than get"
 grep -q -F 'name: kyverno-kyverno-policies-function-test' "$TMP/default-test.yaml" || fail "the cluster-wide names do not carry the namespace"
 
-echo "[function-test] Case 3: the two policies that are off by default are asked for when they are on"
+echo "[function-test] Case 3: the policy that is off by default is asked for when it is on"
 helm template kyverno-policies . --namespace kyverno \
   --set compliancePolicies.bootstrapMode=false \
-  --set compliancePolicies.hubbleFlowsSeen.enabled=true \
   --set compliancePolicies.cosignVerified.enabled=true > "$TMP/all.yaml"
 python3 "$CHECK" --chart bp-kyverno-policies --release kyverno-policies < "$TMP/all.yaml"
 helm template kyverno-policies . --namespace kyverno --skip-tests \
   --set compliancePolicies.bootstrapMode=false \
-  --set compliancePolicies.hubbleFlowsSeen.enabled=true \
   --set compliancePolicies.cosignVerified.enabled=true > "$TMP/all-plain.yaml"
 helm template kyverno-policies . --namespace kyverno --show-only "$TEST" \
   --set compliancePolicies.bootstrapMode=false \
-  --set compliancePolicies.hubbleFlowsSeen.enabled=true \
   --set compliancePolicies.cosignVerified.enabled=true > "$TMP/all-test.yaml"
 both "$TMP/all-plain.yaml" "$TMP/all-test.yaml" "$TMP/all"
 diff "$TMP/all-want.txt" "$TMP/all-got.txt" > "$TMP/names-all.diff" || { cat "$TMP/names-all.diff" >&2; fail "the test does not ask for exactly the ClusterPolicies and ValidatingPolicies of the render with every policy on"; }
-[ "$(wc -l < "$TMP/all-got.txt")" -gt "$(wc -l < "$TMP/default-got.txt")" ] || fail "turning two policies on did not add them to the test"
+[ "$(wc -l < "$TMP/all-got.txt")" -gt "$(wc -l < "$TMP/default-got.txt")" ] || fail "turning the policy on did not add it to the test"
 
 echo "[function-test] Case 4: no ClusterPolicy and no ValidatingPolicy renders no test"
 : > "$TMP/off.yaml"
 for key in multiReplica pdb topologySpread probesPresent resourceRequests resourceLimits pvcExpansion \
            hpaEffective ciliumL7Mtls fluxManaged harborProxyPull imageTagPinned prometheusScrape \
-           networkpolicyPresent otelInjected hubbleFlowsSeen runAsNonRootReadonlyRootFs cosignVerified \
+           networkpolicyPresent otelInjected runAsNonRootReadonlyRootFs cosignVerified \
            secretNotInEnv backupConfigured appLabelMutate substrateOnHost forbidLocalPath \
            forbidNodePortService ciliumEnforcedLabelMutate injectGiteaSourceSecretRef; do
   printf -- '--set\ncompliancePolicies.%s.enabled=false\n' "$key" >> "$TMP/off.yaml"
