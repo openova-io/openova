@@ -233,7 +233,9 @@ slots:
     # bp-postgres-shared-c (#3370): the Organization mesh adopts shared-pg-c's
     # org_* Contexts when SOVEREIGN_ORG_PG_OWN_CLUSTER=false (one-flag
     # enable_shared_pg contract); harmless empty-Ready edge otherwise.
-    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c]
+    # bp-secrets-store-csi (SEC-218): the chart renders a SecretProviderClass
+    # (SEC-212), whose kind slot 15b installs (tools/guards/cmd/kit-spc-depends).
+    depends_on: [bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c, bp-secrets-store-csi]
     wave: present
   - slot: 14
     name: bp-crossplane-claims
@@ -471,7 +473,9 @@ slots:
     # on the bp-mgmt-vcluster runtime (the vc-mgmt Secret doesn't exist until
     # it is Ready). Lockstep with the live 25-grafana.yaml edge (placement.yaml
     # vcluster: mgmt; render-slot-placement.py stamps the edge).
-    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b]
+    # bp-secrets-store-csi (SEC-218): the chart renders SecretProviderClass
+    # grafana-sso (SEC-344), whose kind slot 15b installs.
+    depends_on: [bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b, bp-secrets-store-csi]
     wave: W2.K2
   - slot: 26
     name: bp-network-policies
