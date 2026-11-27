@@ -1,0 +1,17 @@
+# access-session-agent (ADR-0033), the agent beside guacd in every session pod,
+# built only by .github/workflows/build-access-session-agent.yaml. A static
+# binary on a distroless base, numeric non-root user 10001 (the session pod's).
+# The build context is the repository root.
+
+FROM docker.io/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
+WORKDIR /workspace/core/cmd/access-session-agent
+COPY core/cmd/access-session-agent/go.mod core/cmd/access-session-agent/go.sum ./
+RUN go mod download
+COPY core/cmd/access-session-agent ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /access-session-agent .
+
+FROM gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+COPY --from=build /access-session-agent /access-session-agent
+USER 10001:10001
+EXPOSE 8443
+ENTRYPOINT ["/access-session-agent"]

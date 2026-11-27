@@ -59,6 +59,19 @@ access:
       limits:
         memory: 512Mi
   session:
+    # The two images of every session pod, by digest only; CI writes each
+    # digest: guacd 1.6.0 by .github/workflows/build-bp-guacamole.yaml, the
+    # agent by .github/workflows/build-access-session-agent.yaml. The
+    # controller reads them as ACCESS_IMAGE_GUACD and ACCESS_IMAGE_AGENT
+    # (<repository>@<digest>, moved by global.imageRegistry); the chart sets
+    # each variable once its digest is written.
+    images:
+      guacd:
+        repository: ghcr.io/openova-io/openova/guacd
+        digest: ""
+      agent:
+        repository: ghcr.io/openova-io/openova/access-session-agent
+        digest: ""
     # A target of kind pod in one of these namespaces is not Ready
     # (reason NamespaceNotAllowed).
     deniedTargetNamespaces:

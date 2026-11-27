@@ -1,24 +1,22 @@
 name: Build bp-guacamole
 
-# bp-guacamole — the access plane (ADR-0033). ACC-102 removed the Guacamole
-# web application and guacd from the chart (decision A3); `guacd` arrives
-# again with the session image (ACC-106), so its upstream image stays
-# mirrored. Per docs/PRINCIPLES.md #4a we never deploy `:latest` — every
-# image must be SHA-pinned and traceable to a known-good upstream digest.
+# bp-guacamole — the access plane (ADR-0033). `guacd` runs in every session
+# pod beside the session agent (ACC-106); the chart passes its image to the
+# access controller as ACCESS_IMAGE_GUACD. Per docs/PRINCIPLES.md #4a we never
+# deploy `:latest` — every image is pinned by digest and traceable to a
+# known-good upstream digest.
 #
 # This workflow:
-#   1. Pulls the configured upstream `guacamole/guacd:<UPSTREAM_VER>` from
-#      Docker Hub.
-#   2. Resolves it to its repo digest (sha256:...) so we control the
-#      supply-chain reference even if the upstream tag is ever moved.
-#   3. Re-tags + pushes it into GHCR as
-#      `ghcr.io/openova-io/openova/guacd:<UPSTREAM_VER>` so each Sovereign
-#      pulls from a registry we own (no Docker Hub rate limits, no upstream
-#      availability risk).
-#   4. Bumps Chart.yaml `version` patch level and dispatches
-#      blueprint-release.yaml so a fresh bp-guacamole:<semver> OCI
-#      artifact lands. It writes no value of values.yaml: since ACC-102 the
-#      chart names no image.
+#   1. Pulls upstream `guacamole/guacd` 1.6.0 from Docker Hub by the digest
+#      pinned below (the index digest of tag 1.6.0 that spike ACC-020 ran),
+#      never by its tag, so a moved upstream tag changes nothing.
+#   2. Pushes it into GHCR as `ghcr.io/openova-io/openova/guacd:1.6.0` so
+#      each Sovereign pulls from a registry we own (no Docker Hub rate limits,
+#      no upstream availability risk).
+#   3. Writes the GHCR digest into access.session.images.guacd.digest of
+#      values.yaml, bumps Chart.yaml `version` patch level and dispatches
+#      blueprint-release.yaml so a fresh bp-guacamole:<semver> OCI artifact
+#      lands.
 
 on:
   push:
@@ -28,19 +26,15 @@ on:
       - '.github/workflows/build-bp-guacamole.yaml'
     branches: [main]
   workflow_dispatch:
-    inputs:
-      upstream_version:
-        description: 'Apache Guacamole upstream version (e.g. 1.5.5).'
-        required: false
-        default: '1.5.5'
 
 env:
   REGISTRY: ghcr.io
   GUACD_IMAGE: ghcr.io/openova-io/openova/guacd
   CHART_YAML: platform/guacamole/chart/Chart.yaml
-  # Apache Guacamole 1.5.5 is the appVersion declared in the chart
-  # Chart.yaml. Bump in both places when the upstream is rolled.
-  DEFAULT_UPSTREAM_VERSION: '1.5.5'
+  VALUES: platform/guacamole/chart/values.yaml
+  # guacd 1.6.0 and its upstream index digest. Change both together.
+  GUACD_VERSION: '1.6.0'
+  GUACD_UPSTREAM_DIGEST: 'sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f'
 
 jobs:
   mirror:
@@ -49,22 +43,11 @@ jobs:
       contents: write
       packages: write
       actions: write
-    outputs:
-      upstream_version: ${{ steps.vars.outputs.upstream_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve upstream version
-        id: vars
-        run: |
-          set -euo pipefail
-          ver="${{ inputs.upstream_version }}"
-          ver="${ver:-${DEFAULT_UPSTREAM_VERSION}}"
-          echo "upstream_version=${ver}" >> "$GITHUB_OUTPUT"
-          echo "Mirroring Apache Guacamole ${ver} to GHCR"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -77,31 +60,34 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Mirror guacamole/guacd → ghcr.io/openova-io/openova/guacd
-        env:
-          UPSTREAM_VER: ${{ steps.vars.outputs.upstream_version }}
         run: |
           set -euo pipefail
-          src="docker.io/guacamole/guacd:${UPSTREAM_VER}"
-          dst="${GUACD_IMAGE}:${UPSTREAM_VER}"
+          src="docker.io/guacamole/guacd@${GUACD_UPSTREAM_DIGEST}"
+          dst="${GUACD_IMAGE}:${GUACD_VERSION}"
           docker pull "${src}"
-          # Capture the upstream repo digest so the GHCR tag points at
-          # exactly the bytes we tested against, even if upstream re-cuts
-          # the tag in future. Stored as an annotation on the GHCR push.
-          UPSTREAM_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${src}")
-          echo "Upstream digest: ${UPSTREAM_DIGEST}"
           docker tag "${src}" "${GUACD_IMAGE}:latest"
           docker push "${GUACD_IMAGE}:latest"
           # The version tag only through the shared check: a mirrored version
-          # that exists is never moved (Refs #7938).
-          digest="$(docker buildx imagetools inspect "${GUACD_IMAGE}:latest" --format '{{json .Manifest}}' | python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])')"
+          # that exists is never moved (Refs #7938). The chart is pinned to
+          # the digest that version tag names after the check.
+          digest="$(docker buildx imagetools inspect "${GUACD_IMAGE}:latest" --format '{{.Manifest.Digest}}')"
           bash scripts/ci/push-version-tag.sh "${dst}" "${GUACD_IMAGE}@${digest}"
-          echo "GUACD_UPSTREAM_DIGEST=${UPSTREAM_DIGEST}" >> "$GITHUB_ENV"
+          pinned="$(docker buildx imagetools inspect "${dst}" --format '{{.Manifest.Digest}}')"
+          case "${pinned}" in sha256:*) ;; *) echo "::error::${dst} names no digest: '${pinned}'"; exit 1 ;; esac
+          echo "GUACD_DIGEST=${pinned}" >> "$GITHUB_ENV"
 
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
+
+      - name: Write access.session.images.guacd.digest into values.yaml
+        run: |
+          set -euo pipefail
+          yq -i '.access.session.images.guacd.digest = strenv(GUACD_DIGEST)' "${VALUES}"
+          got="$(yq '.access.session.images.guacd.digest' "${VALUES}")"
+          [ "${got}" = "${GUACD_DIGEST}" ] || { echo "::error::${VALUES} holds '${got}', not ${GUACD_DIGEST}"; exit 1; }
 
       - name: Bump Chart.yaml patch version
         run: |
@@ -121,7 +107,8 @@ jobs:
         with:
           paths: |
             ${{ env.CHART_YAML }}
-          commit-message: "deploy: bump bp-guacamole upstream ${{ steps.vars.outputs.upstream_version }} chart ${{ env.CHART_NEW_VERSION }}"
+            ${{ env.VALUES }}
+          commit-message: "deploy: bump bp-guacamole guacd ${{ env.GUACD_VERSION }} chart ${{ env.CHART_NEW_VERSION }}"
           release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release for the chart bump
