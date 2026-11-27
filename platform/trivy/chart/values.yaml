@@ -77,21 +77,28 @@ trivy-operator:
     dbRegistry: mirror.gcr.io
     dbRepository: aquasec/trivy-db
 
-  # Operator scope — target namespaces follow the `bp-*` prefix convention
-  # so Trivy reports map cleanly to Catalyst Blueprint installation units.
-  # Empty string means "scan all namespaces"; per-Sovereign overlays MAY
-  # narrow to a comma-list.
+  # Operator scope. The upstream chart reads these two keys at the top level of
+  # its values (OPERATOR_TARGET_NAMESPACES and OPERATOR_EXCLUDE_NAMESPACES of the
+  # operator's container); under `operator:` they were never read, and the
+  # operator scanned kube-system too (CMP-094). Empty targetNamespaces means
+  # "scan all namespaces"; per-Sovereign overlays MAY narrow it to a comma-list.
+  targetNamespaces: ""
+  excludeNamespaces: "kube-system,kube-public,kube-node-lease"
   operator:
     namespace: ""
-    targetNamespaces: ""
-    excludeNamespaces: "kube-system,kube-public,kube-node-lease"
     # 2, not 10: each vulnerability scan Job unpacks ~1.7G of trivy DB + image
     # layers into node ephemeral storage. Ten at once on a 42G node tripped
     # kubelet DiskPressure on hw307 (2026-11-06), which evicted a CNPG
-    # instance and forced a shared-pg-b failover. Finished Jobs are reaped
-    # after scanJobTTL so failed scans cannot pile up either.
+    # instance and forced a shared-pg-b failover.
     scanJobsConcurrentLimit: 2
-    scanJobTTL: 5m
+    # No time-to-live on scan Jobs (CMP-094): the operator deletes each Job
+    # itself once it has read it, failed ones included. With a time-to-live
+    # the operator (v0.30.1) deletes none, and the limit above counts every Job
+    # it labels, finished or not, so each finished Job held one of the two
+    # slots for the time-to-live more, and a workload whose old Job was still
+    # there got no new one. This is the upstream default, stated so that a
+    # chart bump cannot move it unseen. Proven by tests/scan-job-lifecycle.sh.
+    scanJobTTL: ""
     scanJobsRetryDelay: 30s
     # Scanners enabled — full posture for Catalyst Sovereigns.
     vulnerabilityScannerEnabled: true
