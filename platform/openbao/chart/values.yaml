@@ -300,6 +300,9 @@ stateKey:
 #                 end's model credential, enrolment credentials, migration
 #                 source credentials and the values a manager stores through
 #                 the API.
+#   sso-bridge    the reconciler of bp-sso-bridge: a copy of an application's
+#                 sign-on client bundle in that application's namespace, for a
+#                 pod that mounts its client secret as a file (SEC-344).
 producers:
   - name: catalyst-api
     serviceAccount: catalyst-api-cutover-driver
@@ -310,6 +313,11 @@ producers:
       - "+/shared/enrol-*"
       - "vm-migration-system/sa/vm-migration-worker/source-*"
       - "+/shared/user-*"
+  - name: sso-bridge
+    serviceAccount: sso-bridge-reconciler
+    namespace: sso-bridge
+    paths:
+      - "+/shared/sso-oidc/e1"
 
 # ── Snapshot backup to object storage (SEC-180) ──────────────────────────
 # CronJob openbao-backup (templates/backup-snapshot.yaml) puts one raft snapshot

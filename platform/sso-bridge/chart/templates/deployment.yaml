@@ -137,6 +137,12 @@ spec:
               value: {{ .Values.openbao.kubernetesAuth.mountPath | quote }}
             - name: OPENBAO_K8S_AUTH_ROLE
               value: {{ .Values.openbao.kubernetesAuth.role | quote }}
+            # SEC-344: the producer identity and its token (audience openbao)
+            # with which the reconciler writes mounted copies of client bundles.
+            - name: OPENBAO_PRODUCER_ROLE
+              value: {{ .Values.openbao.producer.role | quote }}
+            - name: OPENBAO_PRODUCER_JWT_FILE
+              value: /var/run/secrets/openbao/token
             - name: INTERVAL_SECONDS
               value: {{ .Values.reconcile.intervalSeconds | quote }}
             - name: TIMEOUT_SECONDS
@@ -163,6 +169,9 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: openbao-token
+              mountPath: /var/run/secrets/openbao
+              readOnly: true
       volumes:
         - name: reconciler-script
           configMap:
@@ -171,4 +180,11 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 32Mi
+        - name: openbao-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: openbao
+                  expirationSeconds: 3600
+                  path: token
 {{- end }}

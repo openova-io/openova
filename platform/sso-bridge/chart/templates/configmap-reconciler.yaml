@@ -113,6 +113,12 @@ data:
     : "${OPENBAO_KV_MOUNT:?OPENBAO_KV_MOUNT must be set}"
     : "${OPENBAO_K8S_AUTH_PATH:?OPENBAO_K8S_AUTH_PATH must be set}"
     : "${OPENBAO_K8S_AUTH_ROLE:?OPENBAO_K8S_AUTH_ROLE must be set}"
+    # SEC-344: the write-only producer identity of bp-openbao (its producers
+    # entry sso-bridge) and the projected token for audience openbao that it
+    # logs in with. Only openbao_put_mounted uses them; it fails when either
+    # is empty.
+    OPENBAO_PRODUCER_ROLE="${OPENBAO_PRODUCER_ROLE:-}"
+    OPENBAO_PRODUCER_JWT_FILE="${OPENBAO_PRODUCER_JWT_FILE:-}"
     : "${INTERVAL_SECONDS:?INTERVAL_SECONDS must be set}"
     : "${TIMEOUT_SECONDS:?TIMEOUT_SECONDS must be set}"
     : "${SOVEREIGN_FQDN_CM_NS:?SOVEREIGN_FQDN_CM_NS must be set}"
@@ -314,6 +320,39 @@ data:
       fi
     }
 
+    openbao_put_mounted() {
+      # SEC-344. $1 = namespace, $2 = JSON bundle. Writes the bundle to
+      # mounted/data/<namespace>/shared/sso-oidc/e1, where a pod of that
+      # namespace mounts it (role workload). Logs in as the producer for the
+      # call; that identity may create and update the path, never read it.
+      local ns="$1" data="$2" path jwt token body code
+      path="mounted/data/${ns}/shared/sso-oidc/e1"
+      if [ -z "${OPENBAO_PRODUCER_ROLE}" ] || [ ! -r "${OPENBAO_PRODUCER_JWT_FILE}" ]; then
+        warn "OpenBao PUT ${path}: no producer role or no readable token file (OPENBAO_PRODUCER_ROLE / OPENBAO_PRODUCER_JWT_FILE)"
+        return 1
+      fi
+      jwt="$(cat "${OPENBAO_PRODUCER_JWT_FILE}")"
+      token="$(curl --max-time 20 --connect-timeout 7 -fsS \
+        -X POST "${OPENBAO_ADDR%/}/v1/auth/${OPENBAO_K8S_AUTH_PATH}/login" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -nc --arg role "${OPENBAO_PRODUCER_ROLE}" --arg jwt "${jwt}" '{role:$role, jwt:$jwt}')" \
+        | jq -r '.auth.client_token // empty')"
+      if [ -z "${token}" ]; then
+        warn "OpenBao login as ${OPENBAO_PRODUCER_ROLE} failed; ${path} not written"
+        return 1
+      fi
+      body="$(jq -nc --argjson d "${data}" '{data:$d}')"
+      code="$(curl --max-time 20 --connect-timeout 7 -sS -o /dev/null -w '%{http_code}' -X POST \
+        "${OPENBAO_ADDR%/}/v1/${path}" \
+        -H "X-Vault-Token: ${token}" \
+        -H "Content-Type: application/json" \
+        -d "${body}")"
+      if [ "${code}" != "200" ] && [ "${code}" != "204" ]; then
+        warn "OpenBao PUT ${path} failed: code=${code}"
+        return 1
+      fi
+    }
+
     operator_email() {
       if [ -n "${OPERATOR_EMAIL_OVERRIDE}" ]; then
         printf '%s' "${OPERATOR_EMAIL_OVERRIDE}"
@@ -459,8 +498,9 @@ data:
     # reconciler's job is now purely client-upsert + secret publication.
 
     emit_external_secret() {
-      # $1 = clientId, $2 = HR namespace, $3 = skip-K8s-ExternalSecret (bool)
-      local cid="$1" hrns="$2" skip_es="${3:-false}"
+      # $1 = clientId, $2 = HR namespace, $3 = skip-K8s-ExternalSecret (bool),
+      # $4 = mounted copy (bool, SEC-344)
+      local cid="$1" hrns="$2" skip_es="${3:-false}" mounted="${4:-false}"
       local secret
       secret="$(cat "/tmp/${cid}.secret")"
       local issuer
@@ -478,6 +518,13 @@ data:
           userinfo_url:($issuer+"/protocol/openid-connect/userinfo"),
           end_session_url:($issuer+"/protocol/openid-connect/logout")}')"
       openbao_put "sso/${cid}" "${bundle}" || return 1
+
+      # SEC-344 — `sso.mountedCopy: true`: the app's pod mounts its client
+      # secret as a file from mounted/data/<HR namespace>/shared/sso-oidc/e1
+      # (grafana: SecretProviderClass grafana-sso); write the same bundle there.
+      if [ "${mounted}" = "true" ]; then
+        openbao_put_mounted "${hrns}" "${bundle}" || return 1
+      fi
 
       # #3374 (2026-06-14) — `sso.skipExternalSecret: true` opt-out. Some
       # apps consume their OIDC secret as DIRECT env vars (grafana's
@@ -580,12 +627,15 @@ data:
       # bundle but does NOT apply a colliding raw-key K8s ExternalSecret.
       local skip_es
       skip_es="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.skipExternalSecret // false')"
+      # SEC-344 — opt-in: the bundle also goes to the app's mounted/ path.
+      local mounted
+      mounted="$(printf '%s' "${hr}" | jq -r '.spec.values.sso.mountedCopy // false')"
 
-      log "reconcile ${name} (ns=${ns} clientId=${cid} skipUpsert=${skip_upsert} skipES=${skip_es})"
+      log "reconcile ${name} (ns=${ns} clientId=${cid} skipUpsert=${skip_upsert} skipES=${skip_es} mountedCopy=${mounted})"
 
       if [ "${skip_upsert}" != "true" ]; then
         upsert_client "${cid}" "${fqdn}" || { err "upsert ${cid} failed"; return 1; }
-        emit_external_secret "${cid}" "${ns}" "${skip_es}" || { err "emit-es ${cid} failed"; return 1; }
+        emit_external_secret "${cid}" "${ns}" "${skip_es}" "${mounted}" || { err "emit-es ${cid} failed"; return 1; }
       else
         log "skipping client upsert + ExternalSecret for ${cid} (sso.skipClientUpsert=true)"
       fi

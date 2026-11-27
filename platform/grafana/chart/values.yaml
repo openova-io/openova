@@ -233,25 +233,36 @@ grafana:
         disableDelete: false
         allowUiUpdates: false
 
-  # G91.grafana (#2658) — inject GF_AUTH_GENERIC_OAUTH_CLIENT_ID +
-  # _CLIENT_SECRET from the ExternalSecret-rendered Secret.
-  # The upstream chart concatenates envFromSecret + envFromSecrets.
-  envFromSecret: "grafana-sso-oidc-credentials"
+  # SEC-344 — sign-on without a Secret object. The Secrets Store CSI driver
+  # mounts the client secret from OpenBao as the file
+  # /var/run/secrets/openova/client-secret (SecretProviderClass grafana-sso,
+  # templates/sso-mounted.yaml), and grafana.ini below reads it with
+  # $__file{}. The sign-on settings that are not secret come from ConfigMap
+  # grafana-sso-settings (same template) as GF_ variables, which override
+  # grafana.ini. Both objects render when sso.enabled is true; an overlay
+  # that sets it false also clears envFromConfigMaps, extraVolumes and
+  # extraVolumeMounts.
+  envFromConfigMaps:
+    - name: grafana-sso-settings
+  extraVolumes:
+    - name: openova-secrets
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: grafana-sso
+  extraVolumeMounts:
+    - name: openova-secrets
+      mountPath: /var/run/secrets/openova
+      readOnly: true
 
   # G91.grafana (#2658) — generic_oauth + auth defaults wired through
-  # grafana.ini. Per Grafana's value-override rule env vars take
-  # precedence over grafana.ini values, so the GF_AUTH_GENERIC_OAUTH_*
-  # env vars injected via envFromSecret above override the placeholders
-  # below. We still set the placeholders so the rendered grafana.ini
-  # carries the right scopes + URLs (env-only-rotation is fine, but
-  # operators inspecting /etc/grafana/grafana.ini see the right block).
-  #
-  # Per-Sovereign cluster overlay should set
-  # `grafana.grafana\.ini.auth\.generic_oauth.auth_url` /
-  # `.token_url` / `.api_url` to the realm URLs computed from
-  # sso.sovereignFqdn. The chart leaves them blank by default so a
-  # half-configured signin attempt errors clearly rather than wedging
-  # the grafana login UI.
+  # grafana.ini. Environment variables take precedence over grafana.ini
+  # values, so the GF_AUTH_GENERIC_OAUTH_* variables of ConfigMap
+  # grafana-sso-settings override the empty URL placeholders below; the
+  # ConfigMap sets them from sso.sovereignFqdn and sso.realm. Without a
+  # sovereignFqdn they stay blank, so a half-configured sign-in errors
+  # clearly rather than wedging the grafana login UI.
   "grafana.ini":
     server:
       root_url: "https://%(domain)s/"
@@ -270,11 +281,11 @@ grafana:
       allow_sign_up: true
       auto_login: true
       client_id: "${GF_AUTH_GENERIC_OAUTH_CLIENT_ID}"
-      client_secret: "${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}"
+      client_secret: "$__file{/var/run/secrets/openova/client-secret}"
       scopes: "openid profile email groups"
-      # Per-Sovereign overlay populates these from sso.sovereignFqdn
-      # + sso.realm. Empty default = clear error on signin (rather
-      # than silent half-config).
+      # ConfigMap grafana-sso-settings overrides these from
+      # sso.sovereignFqdn + sso.realm. Empty default = clear error on
+      # signin (rather than silent half-config).
       auth_url: ""
       token_url: ""
       api_url: ""
@@ -311,13 +322,15 @@ grafanaOverlay:
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support
 # with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
 # `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
-# `secret/sso/grafana` + ExternalSecret in this namespace.
+# `secret/sso/grafana`; with `sso.mountedCopy: true` in the HelmRelease
+# values (kit slot 25) it also writes the bundle to
+# mounted/data/<namespace>/shared/sso-oidc/e1 with its write-only producer
+# identity of bp-openbao (SEC-344).
 #
-# bp-grafana plumbs the OIDC credentials into the upstream grafana chart's
-# generic_oauth path via the env-var-override mechanism — see
-# templates/sso-oauth-source-externalsecret.yaml. The grafana.ini values
-# below + the envFromSecret reference (added under grafana:) wire it all
-# together. role_attribute_path maps Keycloak realm groups to Grafana
+# bp-grafana mounts the client secret of that copy as a file and sets the
+# other generic_oauth settings as GF_ variables, both from
+# templates/sso-mounted.yaml; no Secret object carries the client secret.
+# role_attribute_path maps Keycloak realm groups to Grafana
 # roles: sovereign-admins → Admin, everyone else → Viewer.
 sso:
   enabled: true
@@ -329,8 +342,9 @@ sso:
   # half-config.
   sovereignFqdn: ""
   clientId: grafana
-  externalSecretStoreName: vault-region1
-  refreshInterval: 1h
+  # The OpenBao the CSI provider reads the mounted copy from (role workload,
+  # audience openbao).
+  openbaoAddress: http://openbao.openbao.svc.cluster.local:8200
   # Realm group → Grafana role mapping (JMESPath expression evaluated
   # against the OIDC userinfo response by Grafana's
   # role_attribute_path). The Sovereign owner (deployment orgEmail) is
