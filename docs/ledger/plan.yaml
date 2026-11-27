@@ -14936,7 +14936,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-227, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -14969,7 +14969,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-227, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -15002,7 +15002,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-227, SEC-251, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -16492,16 +16492,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/SEC-227.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-227.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/SEC-227.md | cut -d' ' -f1 | grep -qx 7181c10c76617cf5184e9887702ad4c914007b0b0fd9758abba01155c650005d"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'For SEC-213, SEC-231, SEC-232, SEC-235, SEC-242, SEC-244, SEC-246, SEC-247 and SEC-062, a table in the tree of every Secret the chart needs after the change: namespace, type, labels, keys, where each value comes from (generated, carried over from a Secret that exists today, or given from outside: the cloud account, the provisioner), who reads it and in which namespace, and what a changed value would break on a running Sovereign; each row mapped to an input the library has on main or gets by SEC-219, SEC-225 and SEC-226, and every row no input covers named with the smallest library input or writer that would cover it; and a proposed set of plan edits. It changes no chart.'
+  delivers: The repository holds the result of the spike that lists every Secret the nine open secret roll-outs need after the change, maps each to an input of the secrets library on main or of SEC-225 or SEC-226, names each gap no package plans with the smallest input or writer that covers it, and proposes the plan edits.
 - id: SEC-231
   title: 'Roll-out: platform/postgres'
   area: SEC
@@ -17230,7 +17230,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-227, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -17385,7 +17385,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
+  after: [FND-070, FND-079, FND-201, SOV-148, SOV-321, SOV-722, SOV-750, SEC-227, SEC-251, SEC-335, NET-252, NET-253, NET-270, NET-280, NET-330, SVC-250, CTL-170, BSS-S1, AIP-030, AIP-031, AIP-250, INF-020, INF-210, INF-350, INF-710, MIG-030, PRD-050, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
