@@ -1,0 +1,4 @@
+# Kit keys a sovereign-admin may set by commit: PUT /api/v1/sovereign/kit-keys/{key} (SOV-760).
+# One key per line, sorted. Each key is also a line of docs/contracts/c5-kit-keys.txt.
+# The package that ships a key's reader adds the key here, and to the byte copy
+# products/catalyst/bootstrap/api/cmd/api/contract/c5-kit-keys-settable.txt, in one pull request.

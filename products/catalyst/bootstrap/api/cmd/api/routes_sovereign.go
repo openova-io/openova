@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
@@ -117,6 +119,10 @@ func registerSessionSovereign(rg chi.Router, d routeDeps) {
 	release := lifecycle.NewReleaseRoute(d.log)
 	rg.Put("/api/v1/sovereign/release", release.Request)
 	rg.Get("/api/v1/sovereign/release", release.Status)
+	// A kit key of the variables document, set by one commit to the regions'
+	// documents (SOV-760). See internal/lifecycle/kitkeys.go.
+	kitKeys := newKitKeysRoute(d.log, os.Getenv)
+	rg.Put("/api/v1/sovereign/kit-keys/{key}", kitKeys.Put)
 
 	// Multi-domain Sovereign — admin "Add another parent domain" flow
 	// + live DNS propagation status panel (issue #829, parent #825).
