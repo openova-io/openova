@@ -222,6 +222,27 @@ path "auth/token/create/tofu-state" {
 }
 {{ end -}}
 
+{{- /* SEC-196 — the hand-over Job of the Sovereign-lifecycle area (service
+account sovereign-ops, role sovereign-ops): writes and reads the hand-over
+inputs below catalyst/tofu/ and the cloud credentials below catalyst/cloud/ of
+the legacy prefix, reads the hand-over archive and deletes it (its metadata,
+so every version). No list, no other value. Not the human group sovereign-ops
+of sso-configure, which maps to policy sovereign-admin. */ -}}
+{{- define "openbao.policy.sovereign-ops" -}}
+path "{{ .kv }}/data/catalyst/tofu/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "{{ .kv }}/data/catalyst/cloud/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "{{ .kv }}/data/catalyst/tofu-phase0-archive" {
+  capabilities = ["read"]
+}
+path "{{ .kv }}/metadata/catalyst/tofu-phase0-archive" {
+  capabilities = ["read", "delete"]
+}
+{{ end -}}
+
 {{- /* The human administrators (groups sovereign-admins and sovereign-ops,
 templates/sso-configure-deployment.yaml): read-mostly, no value of any
 mount, no seal, no policy write. Break-glass is cluster administration. */ -}}
@@ -432,7 +453,7 @@ in the path grammar that values.yaml states; anything else fails the render. */ 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
-{{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-admin" "secrets-birth") -}}
+{{- $policies = concat $policies (list "workload" "eso-ns" "tofu-state" "tofu-state-backup" "tofu-state-mint" "sovereign-ops" "sovereign-admin" "secrets-birth") -}}
 {{- $bk := .Values.backup | default dict -}}
 {{- if $bk.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 {{- $drill := (.Values.restoreDrill | default dict).enabled -}}
@@ -472,6 +493,15 @@ stateKey.jobIdentities and .backupIdentities; an empty list renders no role. */ 
 {{- range $ids }}{{ $sas = append $sas .serviceAccount }}{{ $nss = append $nss .namespace }}{{ end -}}
 {{- $roles = append $roles (dict "name" $role "sa" (uniq $sas) "ns" (uniq $nss) "policies" (list $role) "ttl" "15m" "max" (ternary "15m" "1h" (eq $role "tofu-state-backup")) "aud" "openbao") -}}
 {{- end -}}
+{{- end -}}
+{{- /* SEC-196: the hand-over Job, service account sovereign-ops in the
+namespace of the first job identity, with its own policy and the state key's.
+As for tofu-state, an empty jobIdentities renders no role; a first entry
+without a namespace fails the render. */ -}}
+{{- with ($sk.jobIdentities | default list) -}}
+{{- $hns := toString ((index . 0).namespace) -}}
+{{- if not (regexMatch $dns $hns) }}{{ fail (printf "stateKey.jobIdentities: the first entry has no namespace for role sovereign-ops (got %q)" $hns) }}{{ end -}}
+{{- $roles = append $roles (dict "name" "sovereign-ops" "sa" "sovereign-ops" "ns" $hns "policies" (list "sovereign-ops" "tofu-state") "ttl" "15m" "max" "1h" "aud" "openbao") -}}
 {{- end -}}
 {{- /* SEC-192: one role per producer identity, and the simulation back end's
 own role axon-credential (15 minutes, at most 15 minutes). */ -}}

@@ -38,6 +38,14 @@
 #       an empty list renders none; the render refuses a pattern outside the
 #       path grammar, a bad or repeated name, an entry without paths or
 #       without a service account, each with its own message.
+#   C9  SEC-196 (shell, yq and jq): policy sovereign-ops has exactly create,
+#       update and read below catalyst/tofu/ and catalyst/cloud/ of the kv
+#       mount, read of the hand-over archive and read + delete of its
+#       metadata; role sovereign-ops binds service account sovereign-ops in
+#       the namespace of the FIRST stateKey.jobIdentities entry, audience
+#       openbao, policies sovereign-ops and tofu-state, 15m / 1h, written after
+#       its policy; no job identity renders the policy and no role; a first
+#       entry without a namespace fails the render.
 #
 # Vacuity: C3's checker must reject a policy granting secret/* and sys/seal,
 # and the self-locked policy that has no grant on sys/mounts/secret.
@@ -293,5 +301,35 @@ check "C8 the render refuses an entry without paths" refused 'producers: "x" has
 check "C8 the render refuses an entry without a service account" \
   refused 'producers: "x" needs a serviceAccount and a namespace' --set-json 'producers=[{"name":"x","namespace":"n","paths":["+/shared/x-*"]}]'
 
+# ── C9 the hand-over identity sovereign-ops (SEC-196) ─────────────────────
+cat > "$TMP/want-sovops.hcl" <<'EOF'
+path "secret/data/catalyst/tofu/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "secret/data/catalyst/cloud/*" {
+  capabilities = ["create", "update", "read"]
+}
+path "secret/data/catalyst/tofu-phase0-archive" {
+  capabilities = ["read"]
+}
+path "secret/metadata/catalyst/tofu-phase0-archive" {
+  capabilities = ["read", "delete"]
+}
+EOF
+"${R[@]}" --set-json 'stateKey.jobIdentities=[{"serviceAccount":"handover","namespace":"hand-over"},{"serviceAccount":"provider","namespace":"crossplane-system"}]' > "$TMP/sovops-first.yaml"
+"${R[@]}" --set-json 'stateKey.jobIdentities=[]' > "$TMP/sovops-none.yaml"
+check "C9 policy sovereign-ops: create + update + read below catalyst/tofu/ and catalyst/cloud/, read of the hand-over archive, read + delete of its metadata, nothing else" \
+  same_policy "$TMP/default.yaml" sovereign-ops "$TMP/want-sovops.hcl"
+check "C9 role sovereign-ops binds sovereign-ops of catalyst, audience openbao, policies sovereign-ops and tofu-state, 15m / 1h" \
+  same_role "$TMP/default.yaml" sovereign-ops '{"audience":"openbao","bound_service_account_names":["sovereign-ops"],"bound_service_account_namespaces":["catalyst"],"max_ttl":"1h","policies":["sovereign-ops","tofu-state"],"ttl":"15m"}'
+check "C9 the default writes the policy sovereign-ops, then the role, once each" \
+  test "$(ops_named "$TMP/default.yaml" sovereign-ops)" = "$(printf 'write sys/policies/acl/sovereign-ops\nwrite auth/kubernetes/role/sovereign-ops')"
+check "C9 role sovereign-ops keeps its service account and takes the namespace of the first job identity only" \
+  same_role "$TMP/sovops-first.yaml" sovereign-ops '{"audience":"openbao","bound_service_account_names":["sovereign-ops"],"bound_service_account_namespaces":["hand-over"],"max_ttl":"1h","policies":["sovereign-ops","tofu-state"],"ttl":"15m"}'
+check "C9 no job identity: the policy sovereign-ops and no role" \
+  test "$(ops_named "$TMP/sovops-none.yaml" sovereign-ops)" = "write sys/policies/acl/sovereign-ops"
+check "C9 the render refuses a first job identity without a namespace" \
+  refused 'stateKey.jobIdentities: the first entry has no namespace for role sovereign-ops' --set-json 'stateKey.jobIdentities=[{"serviceAccount":"sovereign-ops"}]'
+
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao declarative config render"; exit 1; fi
-echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, the self-initialisation writes only config-admin, the producer identities"
+echo "PASS: bp-openbao declarative config — every legacy policy/role in the desired state, the self-initialisation writes only config-admin, the producer identities, the hand-over identity sovereign-ops"
