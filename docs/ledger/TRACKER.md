@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T19:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-27T19:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
+| 2026-11-27T19:06 | [#9062](https://github.com/openova-io/openova/pull/9062) | #9057 | fix(crossplane): a cloud adoption Workspace recovers after a |
+| 2026-11-27T19:14 | [#9061](https://github.com/openova-io/openova/pull/9061) | #9030 | fix(openbao): the PKI bootstrap Job leaves nothing behind an |
 | 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
 | 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T16:51 | [#9024](https://github.com/openova-io/openova/pull/9024) | #6004 | A delivery cannot repair a release that keeps failing, nor a |
 | 2026-11-27T13:31 | [#9023](https://github.com/openova-io/openova/pull/9023) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
-| 2026-11-27T16:13 | [#9020](https://github.com/openova-io/openova/pull/9020) | #9015 | feat(network): hosts an Organization lists are served by TLS |
-| 2026-11-27T13:29 | [#9019](https://github.com/openova-io/openova/pull/9019) | #9013 | fix(crossplane-claims): an owner of a customer Organization  |
-| 2026-11-27T13:24 | [#9018](https://github.com/openova-io/openova/pull/9018) | #9009 | fix(payload-size): the size check of a pull request measures |
 
 ---
 
