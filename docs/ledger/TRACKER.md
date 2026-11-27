@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T20:15:02Z` |
+| Last refreshed | `2026-11-27T20:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T15:58 | [#9030](https://github.com/openova-io/openova/pull/9030) | #8998 | The repaired disk-driver chart cannot be applied over the fa |
 | 2026-11-27T14:18 | [#9028](https://github.com/openova-io/openova/pull/9028) | #7087 | docs(ledger): plan update |
 | 2026-11-27T14:18 | [#9027](https://github.com/openova-io/openova/pull/9027) | #7087 | docs(ledger): plan update |
-| 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
 
 ---
 
