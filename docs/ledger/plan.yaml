@@ -4919,10 +4919,10 @@ packages:
   epic: FND-160
   type: delete
   wave: W2
-  size: S
+  size: M
   lane: RAILS
   depends_on: [FND-162, FND-163, FND-164, FND-165]
-  after: [FND-026, FND-017, FND-059, FND-072, FND-096, FND-097, FND-101, FND-107, FND-173, FND-206, SOV-010, SOV-030, SOV-344, NET-221, CTL-347]
+  after: [FND-026, FND-017, FND-059, FND-072, FND-075, FND-078, FND-096, FND-097, FND-101, FND-107, FND-173, FND-206, CLD-094, SOV-010, SOV-030, SOV-344, NET-013, NET-221, CTL-347]
   touches:
   - scripts/check-function-rows-cite-acceptance.py
   - scripts/check-uat-fix-sha-citations.py
@@ -4982,6 +4982,8 @@ packages:
   - scripts/plan.py
   - docs/ledger/deleted-paths.txt
   - CLAUDE.md
+  - docs/ledger/UAT.md
+  - .github/workflows/foundation-gate.yaml
   resources: []
   flips: []
   implements: []
