@@ -275,6 +275,8 @@ data:
         else "" end;
     '
     srp_delivery() { [ -n "${CANDIDATE:-}" ] && [ "${UPSTREAM_BRANCH:-}" = "release/${CANDIDATE}" ]; }
+    {{- /* srp_promotes_primary: the delivery's promote moves this region, the primary, whose releases Phase A0 reads: no region named (RELEASE_REGION), or primary. */}}
+    srp_promotes_primary() { [ -z "${RELEASE_REGION:-}" ] || [ "${RELEASE_REGION}" = primary ]; }
     {{- /* SRP_REPAIR_JQ, a delivery's repaired releases as R, D and N rows: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
     SRP_REPAIR_JQ='
       def _settled: (((_cond("Ready").status) // "Unknown") == "True") and ((.status.observedGeneration // -1) >= (.metadata.generation // 0));
@@ -434,9 +436,11 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 override-enumeration jq failed — refusing to fail open (#5391)"
         return 1
       }
-      {{- /* A delivery: the releases and workloads its candidate repairs (head of Phase A0). Without a delivery, or without its pins, none. */}}
+      {{- /* A delivery: the releases and workloads its candidate repairs (head of Phase A0). Without a delivery, one that does not promote the primary, or without its pins, none. */}}
       srp_rep_rows=""; srp_rep_keys='[]'; srp_wrep_keys='[]'
-      if srp_delivery && { printf '%s' "${_srp_hr_json}" | jq -e "${SRP_TERMINAL_JQ}${SRP_DELIVERY_JQ}"'any(.items[]; _terminal or _failing)' >/dev/null 2>&1 \
+      if srp_delivery && ! srp_promotes_primary; then
+        echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} promotes region ${RELEASE_REGION} only, and this pass reads the primary, which it does not move, so no release or workload counts as repaired by it; a delivery with no region, or region primary, repairs them"
+      elif srp_delivery && { printf '%s' "${_srp_hr_json}" | jq -e "${SRP_TERMINAL_JQ}${SRP_DELIVERY_JQ}"'any(.items[]; _terminal or _failing)' >/dev/null 2>&1 \
           || printf '%s' "${_srp_wl_json}" | jq -e "${SRP_TERMINAL_JQ}${SRP_DELIVERY_JQ}"'any(.items[]; _wl_unready)' >/dev/null 2>&1; }; then
         if _srp_pins=$(srp_candidate_pins) && [ -n "${_srp_pins}" ]; then
           _srp_pins_json=$(printf '%s\n' "${_srp_pins}" | jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | select(length == 2)) | group_by(.[0]) | map({key: .[0][0], value: (map(.[1]) | unique)}) | from_entries') \

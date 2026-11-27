@@ -789,6 +789,11 @@ prewarm:
   # rolled back to 1.2.30, Stalled; the gate refused the candidate pinning the repair 1.2.33. The first
   # cutover is no delivery: its gate is unchanged.
   #
+  # ONLY A DELIVERY THAT PROMOTES THE PRIMARY repairs: Phase A0 reads the primary's releases and
+  # workloads, and a request that names one follower (RELEASE_REGION, which the delivery Job gives
+  # its prewarm as it gives its promote) moves that follower alone. Its gate is unchanged, and the
+  # gate says the delivery does not move the primary. No region named, or primary: the rule above.
+  #
   # FAILING: not ready (Ready != True, or observedGeneration behind generation) and failed at least
   # once at its desired version (spec.chart.spec.version), whether or not Flux has stalled it and also
   # while it runs its next attempt: status failures, installFailures or upgradeFailures above 0, or Ready

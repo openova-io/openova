@@ -57,7 +57,12 @@
 #      a release whose failures belong to an earlier version, one whose
 #      failures belong to an earlier generation, a workload of no kit
 #      release, a workload without Helm ownership, and no candidate: FATAL.
+#   9. the measured Job as a request that names one region (RELEASE_REGION):
+#      region-b, whose promote does not move the primary the gate reads, FATAL
+#      as before and nothing recorded; primary: PASS as in case 7.
 # On the tree before this change cases 0 and 7 fail; 8 refuses on both.
+# Before the gate read the region, case 9 passed region-b and recorded moves
+# the promote never made.
 #
 # Usage: bash tests/delivery-repairs-stalled-release.sh [CHART_DIR]
 set -uo pipefail
@@ -174,6 +179,8 @@ run() {
     # The Deployments and StatefulSets (cases 7 and 8); none when unset.
     export WL_FIXTURE="${WL_FIXTURE:-}"
     if [ -n "$5" ]; then export CANDIDATE="$5"; else unset CANDIDATE; fi
+    # The region the request names (case 9); none when unset.
+    if [ -n "${REGION:-}" ]; then export RELEASE_REGION="${REGION}"; else unset RELEASE_REGION; fi
     sh "${GATE:-${TMP}/gate.sh}" ) >"$1/out" 2>&1
   echo "$?" >"$1/rc"
 }
@@ -400,6 +407,7 @@ done <<'EOF'
   # IN A DELIVERY the workload pass does not gate an unready platform Deployment or StatefulSet whose
   # Helm ownership (annotations meta.helm.sh/release-name and meta.helm.sh/release-namespace) names the
   # deployed one. It is named with both versions and the HelmRelease, and recorded as an R release is
+  # ONLY A DELIVERY THAT PROMOTES THE PRIMARY repairs: Phase A0 reads the primary's releases and
 EOF
 
 echo "[delivery-repairs] 7. the measured shapes of 27 Nov: a release that keeps failing, an unready workload of a release the candidate re-pins"
@@ -529,6 +537,18 @@ grep -qF 'N Deployment/guacamole/access-controller: it carries no Helm ownership
 c8 c8g "${TMP}/evs.json" "${TMP}/wl-guac.json" "${TMP}/pins-repair.tsv" no "no candidate (the first cutover)" HelmRelease/flux-system/bp-huawei-evs-csi Deployment/guacamole/access-controller
 [ -s "$d/pins.log" ] && fail "the first cutover read a candidate's pins" || pass "no candidate pins are read"
 grep -q 'delivery of' "$d/out" && fail "the first cutover speaks of a delivery" || pass "no delivery line"
+
+echo "[delivery-repairs] 9. a delivery that names one follower region does not move the primary, whose releases the gate reads"
+# The measured Job of case 7d, as a request for region-b: FATAL as before,
+# nothing recorded, the pins not read, and the gate says why.
+REGION=region-b c8 c9a "${TMP}/evs.json" "${TMP}/wl-guac.json" "${TMP}/pins-repair.tsv" yes "a delivery to region-b alone" HelmRelease/flux-system/bp-huawei-evs-csi Deployment/guacamole/access-controller
+[ -s "$d/pins.log" ] && fail "a delivery to region-b alone read the candidate's pins" || pass "no candidate pins are read"
+grep -qE '^  [RDW] ' "$d/out" && fail "a delivery to region-b alone counted a release of the primary as repaired" || pass "nothing is counted as repaired"
+grep -qF "the delivery of ${CAND} promotes region region-b only, and this pass reads the primary, which it does not move" "$d/out" \
+  && pass "it says the delivery does not move the primary" || fail "it does not say the delivery does not move the primary"
+# The same Job as a request for the primary: the rule of case 7 holds.
+REGION=primary c7 c9b "${TMP}/evs.json" "${TMP}/wl-guac.json" "a delivery to the primary alone"
+grep -qF "${evs_rec}" "$d/record" && grep -qF "${guac_rec}" "$d/record" && pass "the status ConfigMap records both" || fail "the record lacks one of the two: $(cat "$d/record")"
 
 echo
 if [ "${FAILURES}" -gt 0 ]; then echo "delivery-repairs-stalled-release: ${FAILURES} failure(s)"; exit 1; fi
