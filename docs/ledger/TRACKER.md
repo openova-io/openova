@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T18:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T19:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8684](https://github.com/openova-io/openova/issues/8684) | FND-192 Remove the second matcher from the console | Other |
 | [#8688](https://github.com/openova-io/openova/issues/8688) | FND-162 Console regression: applications grid, application detail, catalogue | Other |
 | [#8690](https://github.com/openova-io/openova/issues/8690) | FND-201 Spike: what the telemetry pipeline delivers today, and which collector s | Other |
 | [#8694](https://github.com/openova-io/openova/issues/8694) | FND-184 Scheduled Git bundles of the Sovereign's repositories | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9053](https://github.com/openova-io/openova/issues/9053) | NET-331 Port 80 answers the console host | Other |
 | [#9057](https://github.com/openova-io/openova/issues/9057) | CLD-068 A cloud adoption Workspace recovers after a plan that timed out | Other |
 | [#9058](https://github.com/openova-io/openova/issues/9058) | SEC-163 The secrets store's Jobs | Other |
+| [#9064](https://github.com/openova-io/openova/issues/9064) | AIP-106 bp-axon: chart, Blueprint file and kit slot 82 | Other |
 
 ---
 
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
 | 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
+| 2026-11-27T18:48 | [#9055](https://github.com/openova-io/openova/pull/9055) | #9053 | fix(network): port 80 of a node answers for the console host |
 | 2026-11-27T18:12 | [#9054](https://github.com/openova-io/openova/pull/9054) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:17 | [#9052](https://github.com/openova-io/openova/pull/9052) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:09 | [#9051](https://github.com/openova-io/openova/pull/9051) | #9049 | fix(conformance): a conformance run builds and runs the cata |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T16:13 | [#9020](https://github.com/openova-io/openova/pull/9020) | #9015 | feat(network): hosts an Organization lists are served by TLS |
 | 2026-11-27T13:29 | [#9019](https://github.com/openova-io/openova/pull/9019) | #9013 | fix(crossplane-claims): an owner of a customer Organization  |
 | 2026-11-27T13:24 | [#9018](https://github.com/openova-io/openova/pull/9018) | #9009 | fix(payload-size): the size check of a pull request measures |
-| 2026-11-27T12:54 | [#9017](https://github.com/openova-io/openova/pull/9017) | #7087 | docs(ledger): plan update |
-| 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
 
 ---
 
