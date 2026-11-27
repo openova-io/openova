@@ -854,7 +854,7 @@ checks:
   needs: []
   proof: running
   asserts: No legacy policy object; every policy ready with results
-  delivered_by: CMP-066
+  delivered_by: CMP-087
 - id: CMP-G07
   title: Privileged Pod refused; Pod with a CSI volume admitted
   owner: CMP

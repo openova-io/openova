@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-trivy
 spec:
-  version: 1.0.8
+  version: 1.0.9
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
