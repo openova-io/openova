@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T10:45:03Z` |
+| Last refreshed | `2026-11-27T11:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8594](https://github.com/openova-io/openova/issues/8594) | NET-185 The Sovereign's name servers answer on public port 53, over UDP and TCP, | Other |
 | [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
 | [#8604](https://github.com/openova-io/openova/issues/8604) | SEC-261 Conformance test for External Secrets against OpenBao | Other |
 | [#8607](https://github.com/openova-io/openova/issues/8607) | SVC-180 Screens group by class; the dead branch goes | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8981](https://github.com/openova-io/openova/issues/8981) | SEC-251 Spike: how a secondary region's OpenBao has its intermediate signed by t | Other |
 | [#8983](https://github.com/openova-io/openova/issues/8983) | SEC-344 Upstream pods to injection: Grafana | Other |
 | [#8994](https://github.com/openova-io/openova/issues/8994) | FND-133 The conformance run of a pull request installs the kit charts of that pu | Other |
+| [#8997](https://github.com/openova-io/openova/issues/8997) | ACC-106 Session agent and session images | Other |
 
 ---
 
