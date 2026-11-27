@@ -93,14 +93,71 @@ generatedSecrets:
   ClusterSecretStore `vault-<peer>` per peer in the primary; ExternalSecret
   `<name>` with the register id. Each `mountedCopies` entry makes the birth Job
   copy Secret `<name>` to `mounted/<ns>/sa/<sa>/<name>/e<epoch>` in each region.
+- **synced, `template`** (SEC-219) — the target Secret's `type`, `labels`,
+  `annotations` and `data`, rendered as the ExternalSecret's `target.template`
+  (engine v2). Each `data` entry is a template over the value, `{{ .password }}`,
+  and over each joined value, `{{ index . "<name>" }}`; text around them is
+  kept (`postgresql://app:{{ .password }}@host/app`). Labels, annotations and
+  data are strings (quote `"true"`). Without `template` the ExternalSecret is
+  as before.
+- **synced, `copies`** (SEC-219) — each entry (`name`, optional `namespace`,
+  optional `template`) is one more ExternalSecret `<name of the copy>` of the
+  same value, register id and remote key, in the value's own namespace,
+  through SecretStore `openbao`. A copy that names another namespace is
+  refused: there the namespace's store reads only its own prefix, and a value
+  read in another namespace is written through by its producer (SEC-225).
+- **synced, `join`** (SEC-219) — names of other synced values of the chart;
+  every ExternalSecret of this value (its own and its copies) also carries
+  each joined value, under its name, so one Secret holds several values, each
+  under its own key (with `template.data` under the keys the reader expects).
+  A joined value is born (Password and PushSecret) and renders no
+  ExternalSecret of its own, so it takes no `registerId`, `template`,
+  `copies`, `join` or `mountedCopies`.
+
+```yaml
+generatedSecrets:
+  shared-pg-harbor:            # the role Secret of a database operator
+    delivery: synced
+    registerId: <register entry>
+    epoch: 1
+    template:
+      type: kubernetes.io/basic-auth
+      labels: {cnpg.io/reload: "true"}
+      data: {username: harbor, password: "{{ .password }}"}
+    copies:
+      - name: harbor-db        # same namespace; its own keys
+        template:
+          data: {password: "{{ .password }}", uri: "postgresql://harbor:{{ .password }}@pg-rw:5432/harbor"}
+  powerdns-api-credentials:
+    delivery: synced
+    registerId: <register entry>
+    epoch: 1
+    join: [webserver-password]
+    template:
+      data:
+        api-key: "{{ .password }}"
+        webserver-password: '{{ index . "webserver-password" }}'
+  webserver-password:          # joined: born, no Secret of its own
+    delivery: synced
+    epoch: 1
+```
 
 The render fails on a missing or unknown `delivery`, a synced value without
 `registerId` (or a mounted one with it), a mounted `scope: sa` value without
 `serviceAccount`, `mountedCopies` on a mounted value, an epoch below 1, a
 name outside `[a-z0-9-]+`, a shared value for peers without `self`, `key` or
 `placeholder` on a synced value, an empty or malformed `key`, a `placeholder`
-that is not a boolean, a placeholder with `length` or `symbols`, and a
-`namespace` that is not a namespace name (a DNS label; an empty string too).
+that is not a boolean, a placeholder with `length` or `symbols`, a
+`namespace` that is not a namespace name (a DNS label; an empty string too),
+and (SEC-219) `template`, `copies` or `join` on a mounted value; a template
+field other than `type`, `labels`, `annotations` and `data`, a value in them
+that is not a string, a malformed data key or type; a copy without a name, of
+an unknown field, with a name that is not a Secret name, that is a value's
+or an earlier copy's, or in another namespace; a join of an unknown or
+mounted value, of the value itself, of `password` or of one value twice; a
+joined value with its own `registerId`, `template`, `copies`, `join` or
+`mountedCopies`; and `mountedCopies` with template data whose `password` is
+not `{{ .password }}`.
 
 ## Configuration
 
@@ -128,7 +185,8 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
 
 ## Tests
 
-- `chart/tests/render.sh` — every template, every refused input (helm, awk).
+- `chart/tests/render.sh` — every template, every refused input (helm, awk);
+  R11 to R13 and F25 to F44 the template, copies and join of SEC-219.
 - `chart/tests/birth-live.sh` — the birth script against two real OpenBao
   servers configured by bp-openbao's own reconciler: present in every region
   after one run, a second run changes nothing, the create-only rights, the
