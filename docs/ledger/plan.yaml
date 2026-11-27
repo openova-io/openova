@@ -83,6 +83,18 @@ record_files:
 - scripts/secret-guard-baselines/check-secret-object-register.txt
 - scripts/secret-guard-baselines/secret-object-register.yaml
 - scripts/secret-guard-baselines/threat-model.md
+- docs/generated/components.md
+- docs/generated/security-controls.md
+- docs/generated/custom-resources.md
+- docs/generated/providers.md
+- docs/generated/bootstrap-slots.md
+- docs/contracts/C9-mutating-routes.yaml
+- clusters/_template/providers/local/kit/kustomization.yaml
+- products/catalyst/bootstrap/api/internal/providers/all/all.go
+- products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+- products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+- products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts
+- products/catalyst/chart/templates/catalog-seed/blueprints.yaml
 epics:
 - id: FND-010
   title: Release train rails
@@ -23978,7 +23990,7 @@ packages:
   - id: A2
     run: "d=\"$(mktemp -d)\" && c=platform/object-bucket/chart && y=platform/object-bucket/blueprint.yaml && ctx='[{\"name\":\"probe\",\"capability\":\"object-storage\",\"contract\":\"v1\",\"alias\":\"objects\",\"consumer\":{\"blueprint\":\"bp-capability-probe\",\"application\":\"probe\",\"namespace\":\"acme\",\"mode\":\"shared\"},\"binding\":{\"path\":\"mounted/data/acme/shared/binding-objects/e1\"}}]' && b=\"probe-$(printf '%s' acme/probe/objects | sha256sum | cut -c1-8)\" && helm template ob \"$c\" -n seaweedfs --set-json \"buckets=$ctx\" > \"$d/one.yaml\" && helm template ob \"$c\" -n seaweedfs > \"$d/none.yaml\" && test \"$(grep -c -x -F 'kind: Job' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F 'kind: Secret' \"$d/one.yaml\")\" = 0 && test \"$(grep -c -x -F 'kind: Job' \"$d/none.yaml\")\" = 0 && test \"$(grep -c -x -F \"            - {name: BUCKET, value: \\\"$b\\\"}\" \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '            - {name: BINDING_PATH, value: \"mounted/data/acme/shared/binding-objects/e1\"}' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '      serviceAccountName: object-bucket' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -i 'nodeport' \"$d/one.yaml\")\" = 0 && ! helm template ob \"$c\" -n acme --set-json \"buckets=$ctx\" > /dev/null 2>&1 && test \"$(grep -c -x -F '  class: data-service' \"$y\")\" = 1 && test \"$(grep -c -x -F '  shareable: true' \"$y\")\" = 1 && test \"$(grep -c -x -F '    - capability: object-storage' \"$y\")\" = 1"
   - id: A3
-    run: "d=\"$(mktemp -d)\" && c=platform/capability-probe/chart && y=platform/capability-probe/blueprint.yaml && b='{\"objects\":{\"capability\":\"object-storage\",\"contract\":\"v1\",\"path\":\"mounted/data/acme/shared/binding-objects/e1\",\"mountPath\":\"/bindings/objects\"}}' && helm template probe \"$c\" -n acme --set image.tag=abc1234 --set-json \"bindings=$b\" > \"$d/one.yaml\" && helm template probe \"$c\" -n acme > \"$d/none.yaml\" && test \"$(grep -c -x -F 'kind: SecretProviderClass' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -E '      - objectName: \"(type|provider|endpoint|region|bucket|path-style|access-key-id|secret-access-key|ca\\.crt)\"' \"$d/one.yaml\")\" = 9 && test \"$(grep -c -x -F '        secretPath: \"mounted/data/acme/shared/binding-objects/e1\"' \"$d/one.yaml\")\" = 9 && test \"$(grep -c -F 'secretObjects' \"$d/one.yaml\")\" = 0 && test \"$(grep -c -x -F 'kind: Secret' \"$d/one.yaml\")\" = 0 && test \"$(grep -c -x -F 'kind: Deployment' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '    helm.sh/hook: test' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '    catalyst.openova.io/function-test: \"true\"' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -E ' +driver: secrets-store\\.csi\\.k8s\\.io' \"$d/one.yaml\")\" = 2 && test \"$(grep -c -x -E ' +mountPath: /bindings/objects' \"$d/one.yaml\")\" = 2 && test \"$(grep -c '^kind: ' \"$d/none.yaml\")\" = 0 && ! helm template probe \"$c\" -n acme --set-json \"bindings=$b\" > /dev/null 2>&1 && test \"$(grep -c -x -F '  class: application' \"$y\")\" = 1 && test \"$(grep -c -x -F '  visibility: unlisted' \"$y\")\" = 1 && test \"$(grep -c -x -F '      optional: true' \"$y\")\" = 1"
+    run: "d=\"$(mktemp -d)\" && c=platform/capability-probe/chart && y=platform/capability-probe/blueprint.yaml && b='{\"objects\":{\"capability\":\"object-storage\",\"contract\":\"v1\",\"path\":\"mounted/data/acme/shared/binding-objects/e1\",\"mountPath\":\"/bindings/objects\"}}' && helm template probe \"$c\" -n acme --set image.tag=abc1234 --set-json \"bindings=$b\" > \"$d/one.yaml\" && helm template probe \"$c\" -n acme > \"$d/none.yaml\" && test \"$(grep -c -x -F 'kind: SecretProviderClass' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -E '      - objectName: \"(type|provider|endpoint|region|bucket|path-style|access-key-id|secret-access-key|ca\\.crt)\"' \"$d/one.yaml\")\" = 9 && test \"$(grep -c -x -F '        secretPath: \"mounted/data/acme/shared/binding-objects/e1\"' \"$d/one.yaml\")\" = 9 && test \"$(grep -c -F 'secretObjects' \"$d/one.yaml\")\" = 0 && test \"$(grep -c -x -F 'kind: Secret' \"$d/one.yaml\")\" = 0 && test \"$(grep -c -x -F 'kind: Deployment' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '    helm.sh/hook: test' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -F '    catalyst.openova.io/function-test: \"true\"' \"$d/one.yaml\")\" = 1 && test \"$(grep -c -x -E ' +driver: secrets-store\\.csi\\.k8s\\.io' \"$d/one.yaml\")\" = 2 && test \"$(grep -c -x -E ' +mountPath: /bindings/objects' \"$d/one.yaml\")\" = 2 && test \"$(grep -c -x -F '    type: Recreate' \"$d/one.yaml\")\" = 1 && test \"$(grep -c '^kind: ' \"$d/none.yaml\")\" = 1 && test \"$(grep -c -x -F 'kind: ServiceAccount' \"$d/none.yaml\")\" = 1 && helm template capability-probe \"$c\" -f \"$c/ci/nodeport-render-values.yaml\" > \"$d/sweep.yaml\" && test \"$(grep -c -x -F 'kind: Deployment' \"$d/sweep.yaml\")\" = 1 && test \"$(grep -c -i 'nodeport' \"$d/sweep.yaml\")\" = 0 && ! helm template probe \"$c\" -n acme --set-json \"bindings=$b\" > /dev/null 2>&1 && test \"$(grep -c -x -F '  class: application' \"$y\")\" = 1 && test \"$(grep -c -x -F '  visibility: unlisted' \"$y\")\" = 1 && test \"$(grep -c -x -F '      optional: true' \"$y\")\" = 1"
   - id: A4
     run: "d=\"$(mktemp -d)\" && (cd core/cmd/capability-probe && go vet ./... && NO_COLOR=1 go test -count=1 -v -run '^Test(Run|KeysOnly|Idle)' ./... > \"$d/t.txt\") && test \"$(grep -c -E '^--- PASS: Test(Run|KeysOnly|Idle)' \"$d/t.txt\")\" = 6 && test \"$(grep -c -E '^--- (FAIL|SKIP)' \"$d/t.txt\")\" = 0 && test \"$(grep -c -x -E 'FROM [^ ]+@sha256:[0-9a-f]{64}( AS build)?' core/cmd/capability-probe/Containerfile)\" = 2"
   - id: A5
@@ -23994,7 +24006,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The capability contract object-storage v1 has its first implementation, the Blueprint bp-object-bucket, whose Jobs make one bucket and one key scoped to that bucket per Context on the Sovereign's own SeaweedFS and write the nine contract keys to the Context's binding path in OpenBao as the write-only producer binding, and a consumer, bp-capability-probe, that mounts each binding as files and whose function test runs the probe image built and tested by build-capability-probe.yaml.
 - id: SVC-275
