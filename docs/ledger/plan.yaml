@@ -21643,7 +21643,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, SEC-218, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, CMP-042, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, SEC-218, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, CMP-042, CMP-043, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -27599,7 +27599,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-126, SEC-180, SEC-181, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, CMP-042, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-126, SEC-180, SEC-181, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, CMP-042, CMP-043, CMP-087, BSS-030, BSS-060, AIP-040, AIP-042, AIP-106, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - tests/acceptance/sovereign/**
@@ -28660,16 +28660,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -E '^CMP-G03[[:space:]]' tests/acceptance/sovereign/local-pack-expected-fail.txt"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c -E '^CMP-G03[[:space:]]' tests/acceptance/sovereign/local-pack-expected-fail.txt)\" = 0"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && cd tests/acceptance/sovereign && go vet ./internal/suite/ && go build -o \"$d/suite\" ./cmd/sovereign-acceptance && cd ../../.. && python3 scripts/acceptance-gate.py export > \"$d/gates.json\" && : > \"$d/kubeconfig\" && rc=0 && { NO_COLOR=1 CATALYST_SESSION=unused \"$d/suite\" run --env local-pack --console http://127.0.0.1:9 --kubeconfig-a \"$d/kubeconfig\" --kubeconfig-b \"$d/kubeconfig\" --run-in local --manifest \"$d/gates.json\" --repo-root . --journeys '' > \"$d/run.out\" 2>&1 || rc=$?; } && test \"$rc\" = 4 && test \"$(grep -c -F 'CMP-G03 runs at expected-fail in the local pack' \"$d/run.out\")\" = 0 && test \"$(grep -c -x -F '  CMP-G03 SKIP (required) discovery (D0) failed' \"$d/run.out\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'CMP-G03 is required in the conformance pack. Its precondition: the pinned catalyst-api image holds CMP-042''s model loader. The entry of CMP-G03 leaves tests/acceptance/sovereign/local-pack-expected-fail.txt.'
+  delivers: 'The local pack of conformance-local runs check CMP-G03 as required: its line leaves tests/acceptance/sovereign/local-pack-expected-fail.txt, because the catalyst-api image pinned on main holds the per-cluster model loader of CMP-042.'
 - id: CMP-045
   title: Posture routes and the change stream
   area: CMP
