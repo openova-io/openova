@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T02:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-27T03:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8533](https://github.com/openova-io/openova/issues/8533) | SOV-137 The registry pivot keeps the nodes' shared mirror first and starts with  | Other |
 | [#8534](https://github.com/openova-io/openova/issues/8534) | SOV-342 The provider pod installs OpenTofu providers only from an OCI mirror of  | Other |
 | [#8536](https://github.com/openova-io/openova/issues/8536) | INF-056 Check INF-G01 restarts the node of the registry's front and requires eve | Other |
 | [#8538](https://github.com/openova-io/openova/issues/8538) | SOV-138 No single Pod on the registry's pull path: Harbor's front, core and regi | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8928](https://github.com/openova-io/openova/issues/8928) | CLD-125 Check CLD-G07 reads the provider packs in the region the API runs in | Other |
 | [#8931](https://github.com/openova-io/openova/issues/8931) | NET-222 Blueprint data without tiers | Other |
 | [#8936](https://github.com/openova-io/openova/issues/8936) | CMP-023 The policies route shows the mode the engine carries after the audit win | Other |
+| [#8940](https://github.com/openova-io/openova/issues/8940) | CMP-079 Validate policies to ValidatingPolicy: forbid-nodeport-service and the l | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T02:46 | [#8938](https://github.com/openova-io/openova/pull/8938) | #7087 | docs(ledger): plan update |
 | 2026-11-27T02:16 | [#8937](https://github.com/openova-io/openova/pull/8937) | #8936 | fix(compliance): the policies route reads the mode from the  |
 | 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
 | 2026-11-27T01:22 | [#8933](https://github.com/openova-io/openova/pull/8933) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T15:49 | [#8895](https://github.com/openova-io/openova/pull/8895) | #7087 | docs(ledger): plan update |
 | 2026-11-26T17:58 | [#8894](https://github.com/openova-io/openova/pull/8894) | #8788 | fix(kit): every workload of the kit passes the enforced poli |
 | 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
-| 2026-11-26T15:42 | [#8891](https://github.com/openova-io/openova/pull/8891) | #8885 | fix(ci): the pin-sync audit names the release writer for a d |
 
 ---
 
