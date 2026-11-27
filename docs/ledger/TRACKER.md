@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T17:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-27T17:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8665](https://github.com/openova-io/openova/issues/8665) | FND-182 Scheduled etcd snapshots to the Sovereign's object store | Other |
 | [#8667](https://github.com/openova-io/openova/issues/8667) | FND-183 Scheduled backups of the platform databases | Other |
 | [#8674](https://github.com/openova-io/openova/issues/8674) | CMP-032 The aggregator uses the package: subjects, one judge, seven results; dup | Other |
 | [#8684](https://github.com/openova-io/openova/issues/8684) | FND-192 Remove the second matcher from the console | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9043](https://github.com/openova-io/openova/issues/9043) | SEC-218 Every kit slot whose chart renders a SecretProviderClass depends on bp-s | Other |
 | [#9047](https://github.com/openova-io/openova/issues/9047) | CMP-087 Gate check CMP-G06 after the move of the access policy | Other |
 | [#9049](https://github.com/openova-io/openova/issues/9049) | FND-134 A conformance run runs the pull request's own catalyst-api image | Other |
+| [#9053](https://github.com/openova-io/openova/issues/9053) | NET-331 Port 80 answers the console host | Other |
 
 ---
 
