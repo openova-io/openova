@@ -16492,23 +16492,35 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200]
-  after: [SEC-219, FND-011, SEC-201, SEC-217, SVC-040, SVC-041]
+  after: [SEC-219, FND-011]
   touches:
-  - platform/secrets-lib/**
+  - platform/secrets-lib/README.md
+  - platform/secrets-lib/chart/templates/_birth.tpl
+  - platform/secrets-lib/chart/templates/_generated-secrets.tpl
+  - platform/secrets-lib/chart/tests/birth-live.sh
+  - platform/secrets-lib/chart/tests/render.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'seedFrom' platform/secrets-lib/chart/templates/_generated-secrets.tpl"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && NO_COLOR=1 bash platform/secrets-lib/chart/tests/render.sh platform/secrets-lib/chart > \"$d/render.txt\" && test \"$(grep -c -E '^  PASS  (R14 seedFrom |F(4[5-9]|5[01]) refused: )' \"$d/render.txt\")\" = 8 && test \"$(grep -c -E '^  FAIL  ' \"$d/render.txt\")\" = 0 && test \"$(grep -c -x -E '  PASS  R14 seedFrom \\(SEC-226\\): plan sources seed:.Secret./.key.; Role secrets-birth-seed \\(get on chargeback-master-key and old\\.signing only\\) bound to secrets-birth; the Job.s API token and CA; the other region.s Role names only its own seed; no seed, none of it' \"$d/render.txt\")\" = 1 && test \"$(grep -c -x -E '  PASS  F45 refused: seedFrom is only for delivery mounted' \"$d/render.txt\")\" = 1"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && NO_COLOR=1 bash platform/secrets-lib/chart/tests/birth-live.sh platform/secrets-lib/chart > \"$d/live.txt\" && test \"$(grep -c -E '^  PASS  L([1-9]|10) ' \"$d/live.txt\")\" = 10 && test \"$(grep -c -E '^  FAIL  ' \"$d/live.txt\")\" = 0 && test \"$(grep -c -x -E '  PASS  L10 seedFrom: acme/sa/app/master-key/e1 holds the value of Secret old-master \\(43, not the annotation.s\\), acme/shared/shared-seed/e1 the same in A and B; acme/sa/app/fresh-key/e1 is a new value of 43 \\(no Secret\\); acme/sa/app/kept-key/e1 keeps its value though Secret changed differs, unread; no value in the log; a second run writes and reads nothing; a Secret without the key and a 403 are refused \\(exit 1, nothing written\\)' \"$d/live.txt\")\" = 1"
+  - id: A3
+    run: "f=platform/secrets-lib/README.md && test \"$(grep -c -F -e '- **mounted, `seedFrom`** (SEC-226)' \"$f\")\" = 1 && test \"$(grep -c -F -e 'F45 to F51 the seedFrom of SEC-226.' \"$f\")\" = 1 && test \"$(grep -c -F -e 'Role `secrets-birth-seed` grants `get` on exactly the' \"$f\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'A value of the library, mounted or synced, takes seedFrom (a Secret and a key in the value''s namespace): the birth writes that Secret''s value when the store''s path is absent and the Secret exists, and a random value of the stated length only when neither exists; it never overwrites a value the store holds. Tests: seeded, fresh, and already present. Tests also for a source Secret kept by helm.sh/resource-policy: keep and adopted by the ExternalSecret of the same name (X3).'
+  delivers: 'A mounted value of the library secrets-lib takes seedFrom (the name and key of a Secret of the value''s namespace): the birth Job writes that key''s value when the store''s path is absent, a new random value of the stated length only when the Secret does not exist, and never reads or replaces a value the store holds; a Secret without the key, an empty or unprintable value and any other answer of the API fail the run before anything is written; the Job reads as its ServiceAccount secrets-birth through Role secrets-birth-seed, which grants get on the named Secrets only; seedFrom on a synced value is refused at render; the chart tests render.sh R14 with its refusal checks 45 to 51 and birth-live.sh L10 hold each case, and the two charts that use the library today render byte for byte as before.'
 - id: SEC-227
   title: The library inputs of every open secret roll-out
   area: SEC
@@ -17376,7 +17388,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-261, SOV-720, SOV-721]
-  after: [FND-011, SEC-200, SEC-201, SEC-217, SEC-219, SVC-040, SVC-041]
+  after: [FND-011, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SVC-040, SVC-041]
   touches:
   - platform/external-secrets/chart/Chart.yaml
   - platform/external-secrets/chart/values.yaml
@@ -17711,7 +17723,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211, SEC-252]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-219, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, SVC-270, CTL-041, CTL-172]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, SVC-270, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
