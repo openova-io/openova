@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T21:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-27T22:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8700](https://github.com/openova-io/openova/issues/8700) | CTL-170 Inspection: where chart-seeded Applications live and who reads them | Other |
 | [#8701](https://github.com/openova-io/openova/issues/8701) | CTL-800 Decision record 0027: the region-loss contract | Other |
 | [#8710](https://github.com/openova-io/openova/issues/8710) | CTL-172 Platform charts take placement from values | Other |
 | [#8711](https://github.com/openova-io/openova/issues/8711) | FND-202 Decision record 0035: one telemetry pipeline, alert events, declared obj | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9075](https://github.com/openova-io/openova/issues/9075) | NET-196 Organization passthrough listeners: the platform API writes them for int | Other |
 | [#9076](https://github.com/openova-io/openova/issues/9076) | SVC-270 In-cluster object storage and the capability probe | Other |
 | [#9079](https://github.com/openova-io/openova/issues/9079) | SEC-227 The library inputs of every open secret roll-out | Other |
+| [#9085](https://github.com/openova-io/openova/issues/9085) | CMP-043 CMP-G03 is required in the conformance pack | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
 | 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T16:32 | [#9039](https://github.com/openova-io/openova/pull/9039) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:54 | [#9038](https://github.com/openova-io/openova/pull/9038) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:44 | [#9037](https://github.com/openova-io/openova/pull/9037) | #9036 | feat(openbao): the hand-over identity sovereign-ops, its pol |
-| 2026-11-27T15:11 | [#9035](https://github.com/openova-io/openova/pull/9035) | #7087 | docs(ledger): plan update |
 
 ---
 
