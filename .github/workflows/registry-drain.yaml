@@ -4,15 +4,21 @@
 # scripts/check-registry-drain.sh starts three k3s nodes of the kit's version as containers on
 # the runner (one server, two agents), with the pull flags of the kit's server line, the node
 # registry file rendered by the kit's renderer (upstream.Variables.RegistriesYAML) and the
-# functions of cutover step 04, cuts the nodes' route to the outside and runs five cases, each on
+# functions of cutover step 04, cuts the nodes' route to the outside and runs seven cases, each on
 # a cluster of its own:
 #   shared        drain and reboot of the agent that runs the registry: everything comes back
 #   control       the same without --embedded-registry: it must stay stuck
 #   restart       every node stops and starts: everything comes back
 #   roll          cutover step 08's roll of the registry with the kit's strategy: no gap above 10 s
 #   roll-control  the same with Recreate: it must show the gap
-# Every wait of the script is bounded and a hang fails its case by name. No port is published,
-# no NodePort and no hostPort is used.
+#   silent-peer   the registry port of the agent that holds the image sends its SYN-ACK and
+#                 nothing after it (SOV-721): the other agent's pull, which asks that port,
+#                 finishes from the registry within 60 s
+#   silent-peer-control  the same on k3s v1.31.8+k3s1: the pull must not have finished at 120 s
+# Every wait of the script is bounded and a hang fails its case by name. The two silent-peer steps
+# allow 25 minutes, above the sum of their case's own bounds (about 1,240 s) plus the start of
+# the nodes, and the job allows 90, above the steps' usual time plus one step that runs to its
+# limit. No port is published, no NodePort and no hostPort is used.
 #
 # Triggers: a pull request or a push to main that changes a file the script reads: the server
 # template, the k3s image lists, the k3s_version default (infra/providers/local/variables.tf), the
@@ -71,7 +77,7 @@ jobs:
   registry-drain:
     name: registry-drain
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     # The cases keep their files in $RUNNER_TEMP/registry-drain (the script's default).
     steps:
       - name: Checkout
@@ -127,3 +133,15 @@ jobs:
         timeout-minutes: 15
         run: |
           bash scripts/check-registry-drain.sh roll-control
+
+      - name: Case silent-peer
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        run: |
+          bash scripts/check-registry-drain.sh silent-peer
+
+      - name: Case silent-peer-control
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        run: |
+          bash scripts/check-registry-drain.sh silent-peer-control

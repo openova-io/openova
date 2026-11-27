@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # k3s bootstrap flags, proven on a CI runner (SEC-125).
 #
-# Starts k3s v1.31.8+k3s1 as containers on one container network: three
+# Starts k3s v1.33.13+k3s2 as containers on one container network: three
 # servers and one agent. Every server runs with the bootstrap flags that the
 # shared boot template (infra/providers/_shared/cloudinit-control-plane.tftpl)
 # is to carry:
@@ -41,9 +41,9 @@
 # Exit codes: 0 the four assertions hold, 1 an assertion failed, 2 could not run.
 set -euo pipefail
 
-K3S_VERSION='v1.31.8+k3s1'
+K3S_VERSION='v1.33.13+k3s2'
 # The default image names the release by its tag and fixes its content by the digest of its multi-platform index.
-K3S_IMAGE="${K3S_IMAGE:-docker.io/rancher/k3s:v1.31.8-k3s1@sha256:21ebfbbfaf0e03d04f09b33c846ad52a0258b975167b67e7783cf06d88da4c4d}"
+K3S_IMAGE="${K3S_IMAGE:-docker.io/rancher/k3s:v1.33.13-k3s2@sha256:ada5ff2e138120efe877f76d514dedda65b304122112b982eab532732c028c89}"
 RT="${CONTAINER_RUNTIME:-docker}"
 WAIT_SECONDS="${WAIT_SECONDS:-300}"
 CANARY_SECRET='k3s-flags-canary'

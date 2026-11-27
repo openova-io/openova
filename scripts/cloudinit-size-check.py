@@ -156,7 +156,7 @@ def variables_doc(fqdn, parent_fqdn, api_url):
         "ORIGIN_PARENT_API_URL": api_url,
         "DNS_MODE": "upstream-managed",
         "MAIL_MODE": "local",
-        "K3S_VERSION": "v1.31.8+k3s1",
+        "K3S_VERSION": "v1.33.13+k3s2",
         "CLOUD_CREDENTIAL_MODE": "supplied",
         "SOVEREIGN_TIME_ZONE": "America/Argentina/ComodRivadavia",  # the longest name of the IANA time zone database
     }

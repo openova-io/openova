@@ -99,7 +99,7 @@
     "HANDOVER_AUTO": "true",
     "HANDOVER_HOLD_SECONDS": "600",
     "K3S_UPGRADE_CONCURRENCY": "1",
-    "K3S_VERSION": "v1.31.8+k3s1",
+    "K3S_VERSION": "v1.33.13+k3s2",
     "KURED_END_TIME": "05:00",
     "KURED_START_TIME": "01:00",
     "KURED_TIME_ZONE": "",

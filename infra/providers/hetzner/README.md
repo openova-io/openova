@@ -132,7 +132,7 @@ Per [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) §3.8 + §11, the EP
     { "provider": "hetzner", "cloudRegion": "hel1", "controlPlaneSize": "cpx32", "workerSize": "cpx32", "workerCount": 2 }
   ],
 
-  "k3s_version":        "v1.31.8+k3s1",
+  "k3s_version":        "v1.33.13+k3s2",
   "object_storage_region":      "nbg1",
   "object_storage_access_key":  "<from Hetzner Console>",
   "object_storage_secret_key":  "<from Hetzner Console>",
@@ -335,7 +335,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--node-label catalyst.openova.io/role=control-plane` | Used by NodeAffinity on Catalyst control-plane services (Console, projector, etc.) to pin them off worker nodes. |
 | `--write-kubeconfig-mode=0600` | The administrator kubeconfig `/etc/rancher/k3s/k3s.yaml` is readable by root only. Every reader of it on the node runs in cloud-init as root, and the parent receives a ServiceAccount kubeconfig instead (SOV-140). Gate check SEC-G02 proves the mode. |
 
-The `INSTALL_K3S_VERSION` environment variable is `var.k3s_version` (default `v1.31.8+k3s1`). Pinned so a Sovereign provisioned today and one provisioned next month land on the same Kubernetes minor — the Catalyst compatibility matrix in `docs/ARCHITECTURE.md` §8.1 is keyed to k3s minor versions.
+The `INSTALL_K3S_VERSION` environment variable is `var.k3s_version` (default `v1.33.13+k3s2`). Pinned so a Sovereign provisioned today and one provisioned next month land on the same Kubernetes minor — the Catalyst compatibility matrix in `docs/ARCHITECTURE.md` §8.1 is keyed to k3s minor versions.
 
 ---
 
@@ -377,7 +377,7 @@ See [`variables.tf`](variables.tf) for the authoritative source. Highlights:
 | `worker_size` | `cx32` | `^(cx[0-9]+|ccx[0-9]+|cax[0-9]+)$` |
 | `worker_count` | `0` | `0 ≤ n ≤ 50` |
 | `ha_enabled` | `false` | bool |
-| `k3s_version` | `v1.31.8+k3s1` | `^v\d+\.\d+\.\d+\+k3s\d+$` |
+| `k3s_version` | `v1.33.13+k3s2` | `^v\d+\.\d+\.\d+\+k3s\d+$` |
 | `ssh_public_key` | (required) | OpenSSH formats only |
 | `ssh_allowed_cidrs` | `[]` | every entry must be a valid CIDR |
 | `enable_unattended_upgrades` | `true` | bool |
@@ -415,7 +415,7 @@ cat > sovereign.tfvars.json <<EOF
   "control_plane_size": "cx42",
   "worker_count":       0,
   "ha_enabled":         false,
-  "k3s_version":        "v1.31.8+k3s1",
+  "k3s_version":        "v1.33.13+k3s2",
   "ssh_public_key":     "ssh-ed25519 AAAA... operator@laptop",
   "ssh_allowed_cidrs":  ["203.0.113.7/32"],
   "domain_mode":        "byo",

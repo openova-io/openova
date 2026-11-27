@@ -1,0 +1,12 @@
+# The k3s-images.txt of the k3s release v1.33.13+k3s2, as published (sha256 bb9b2afee19e08135cc81b5cabb6a2e7b14e2354091178a17a9cb22ca63e0711):
+# https://github.com/k3s-io/k3s/releases/download/v1.33.13%2Bk3s2/k3s-images.txt
+# The images k3s itself pulls. scripts/check-mothership-proxy-image-path.sh reads the file named after
+# the default of variable k3s_version (infra/providers/huawei/variables.tf); a new version needs its file.
+docker.io/rancher/klipper-helm:v0.13.3-build20260727
+docker.io/rancher/klipper-lb:v0.4.17
+docker.io/rancher/local-path-provisioner:v0.0.36
+docker.io/rancher/mirrored-coredns-coredns:1.14.6
+docker.io/rancher/mirrored-library-busybox:1.37.0
+docker.io/rancher/mirrored-library-traefik:3.7.8
+docker.io/rancher/mirrored-metrics-server:v0.9.0
+docker.io/rancher/mirrored-pause:3.10.2
