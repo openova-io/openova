@@ -342,3 +342,13 @@ spec:
       enabled: true
     restoreDrill:
       enabled: true
+    # SEC-250 — the internal PKI (bp-openbao values §pki): the root in the
+    # primary region, this region's intermediate, and the roles the
+    # ClusterIssuers openbao-internal and sovereign-mesh-ca of slot 02a sign
+    # through. A secondary region (SOVEREIGN_REGION_ROLE=secondary) renders
+    # nothing that needs the primary region's OpenBao: no root mount and no
+    # bootstrap Job; its intermediate is signed by a later package.
+    pki:
+      enabled: true
+      regionRole: ${SOVEREIGN_REGION_ROLE:=primary}
+      domain: ${SOVEREIGN_FQDN}

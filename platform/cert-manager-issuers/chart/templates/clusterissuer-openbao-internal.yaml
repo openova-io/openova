@@ -1,0 +1,78 @@
+{{- /*
+The two ClusterIssuers of the internal PKI (SEC-250). Both sign at pki/ of
+this region's OpenBao (bp-openbao, kit slot 08), which holds the region's
+intermediate under the Sovereign's one root:
+  openbao-internal   role internal-server: names below svc.cluster.local and
+                     cluster.local, at most 30 days;
+  sovereign-mesh-ca  role mesh: any name, at most 90 days.
+They log in at auth/kubernetes as role cert-manager-pki (policy
+pki-sign-internal, bp-openbao templates/_config.tpl) with a token cert-manager
+asks for its own service account. That token carries the audiences
+vault://<issuer> and, listed here, openbao: the role requires openbao, and a
+token without it is refused. The Role below, in the release namespace where
+cert-manager runs (kit slot 02a), lets cert-manager ask for that token.
+The dial reaches OpenBao because bp-plane-isolation admits this namespace into
+the namespace openbao (its openbao entry; tests/openbao-ingress.sh there).
+
+The key. A ClusterIssuer names no key; each Certificate does, and one that
+names none gets cert-manager's default, RSA 2048. Both roles take key_type
+any, so they sign every key cert-manager makes (RSA of at least 2048 bits,
+ECDSA, Ed25519); ECDSA P-256 is the one to ask for
+(privateKey: {algorithm: ECDSA, size: 256}).
+
+Not for public names: Gateway certificates come from the ACME issuers of
+clusterissuers.yaml. In a secondary region pki/ holds no intermediate yet
+(bp-openbao values §pki), so OpenBao refuses the requests of both issuers
+there.
+*/ -}}
+{{- $server := "http://openbao.openbao.svc.cluster.local:8200" }}
+{{- range $name, $path := dict "openbao-internal" "pki/sign/internal-server" "sovereign-mesh-ca" "pki/sign/mesh" }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $name }}
+  labels:
+    catalyst.openova.io/component: cert-manager
+    catalyst.openova.io/issuer-class: openbao-pki
+spec:
+  vault:
+    server: {{ $server | quote }}
+    path: {{ $path | quote }}
+    auth:
+      kubernetes:
+        mountPath: /v1/auth/kubernetes
+        role: cert-manager-pki
+        serviceAccountRef:
+          name: cert-manager
+          audiences: [openbao]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-manager-openbao-token
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/component: cert-manager
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [cert-manager]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-manager-openbao-token
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/component: cert-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cert-manager-openbao-token
+subjects:
+  - kind: ServiceAccount
+    name: cert-manager
+    namespace: {{ .Release.Namespace | quote }}

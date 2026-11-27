@@ -13,8 +13,8 @@ What the store writes itself, once, on its first start (the initialize block
 of templates/seal-config.yaml): the kubernetes auth mount and its config (the
 reconciler logs in through it), and the openbao-config-admin policy and role
 (openbao.configAdminPolicy below; the policy is also the first op, so a later
-chart version changes it). The kv mount and the mounts of `engines` (SEC-190)
-are secrets-mount ops below.
+chart version changes it). The kv mount, the mounts of `engines` (SEC-190)
+and the PKI mounts of `pki` (SEC-250) are secrets-mount ops below.
 
 Ops, applied in order (policies before the roles that name them, #5829):
   write <api-path>          POST the payload (idempotent on every path used)
@@ -275,6 +275,51 @@ path "mounted/metadata/axon/sa/axon/model-credential/*" {
 }
 {{ end -}}
 
+{{- /* SEC-250 — what cert-manager may do as role cert-manager-pki: sign at the
+two roles of this region's pki/, the ClusterIssuers openbao-internal and
+sovereign-mesh-ca of bp-cert-manager-issuers. */ -}}
+{{- define "openbao.policy.pki-sign-internal" -}}
+path "pki/sign/internal-server" {
+  capabilities = ["create", "update"]
+}
+path "pki/sign/mesh" {
+  capabilities = ["create", "update"]
+}
+{{ end -}}
+
+{{- /* SEC-250 — the PKI bootstrap Job (templates/pki-bootstrap-job.yaml), primary
+region only: exactly the four paths it writes. It makes the root inside
+pki-root/ and this region's key and signing request inside pki/, has the root
+sign that request and sets the signed certificate in pki/. No glob, so neither
+generate/exported (which returns the private key) nor cross-sign is granted.
+The Job also lists issuers/ of both mounts; the PKI engine serves that list
+without a token check (OpenBao 2.7.2 builtin/logical/pki/backend.go, the
+Unauthenticated paths), so it needs no grant here. */ -}}
+{{- define "openbao.policy.pki-bootstrap" -}}
+{{- range list "pki-root/root/generate/internal" "pki-root/root/sign-intermediate" "pki/intermediate/generate/internal" "pki/intermediate/set-signed" -}}
+path "{{ . }}" {
+  capabilities = ["create", "update"]
+}
+{{ end -}}
+{{- end -}}
+
+{{- /* SEC-250 — the PKI of this region, from the value `pki`, as JSON:
+enabled (pki.enabled and kubernetesAuth.enabled), primary (pki.regionRole is
+primary: this region holds the root in pki-root/ and signs its own
+intermediate), and the lifetimes of the root and the intermediate, which are
+also the largest lifetimes of their mounts. With pki.enabled, a regionRole that
+is neither primary nor secondary fails the render, the empty one included: an
+unset role never becomes primary, so a secondary region never makes a root of
+its own. */ -}}
+{{- define "openbao.pki" -}}
+{{- $p := .Values.pki | default dict -}}
+{{- $role := $p.regionRole | default "" | toString -}}
+{{- if and $p.enabled (not (has $role (list "primary" "secondary"))) }}{{ fail (printf "pki.regionRole: %q is neither primary nor secondary" $role) }}{{ end -}}
+{{- $on := false -}}
+{{- if and $p.enabled (.Values.kubernetesAuth | default dict).enabled }}{{ $on = true }}{{ end -}}
+{{- dict "enabled" $on "primary" (eq $role "primary") "rootTTL" "87600h" "intermediateTTL" "8760h" | toJson -}}
+{{- end -}}
+
 {{- /*
 openbao.configAdminPolicy — the reconciler's own grant, written by the
 self-initialisation (the only privileged writer). Configuration surfaces
@@ -282,7 +327,10 @@ only: policies, auth mounts + their roles/config, identity OIDC. No secret
 data, no sys/raw, no seal, no token creation, no delete. It may rewrite its
 own policy (the first op of the desired state) but not its own role (the
 exact-path read-only entry wins over the wildcard), and it may enable only the
-kv mount and the mounts of `engines` (SEC-190). It creates and configures
+kv mount and the mounts of `engines` (SEC-190) and, with `pki` (SEC-250), pki/
+and in the primary region pki-root/; it writes the roles of pki/, never a key,
+an issuer or a certificate (the PKI bootstrap Job does that with its own role).
+It creates and configures
 transit keys and writes token roles (the state key and token role tofu-state,
 SEC-190), but cannot use a key or back one up, and it creates a token only
 through token role sec-g10-drill, for the restore drill (SEC-181). It CAN write
@@ -300,6 +348,14 @@ path "sys/mounts" { capabilities = ["read"] }
 path "sys/mounts/{{ $kv }}" { capabilities = ["create", "update"] }
 {{- range $name, $_ := (.Values.engines | default dict) }}
 path "sys/mounts/{{ $name }}" { capabilities = ["create", "update"] }
+{{- end }}
+{{- $pki := include "openbao.pki" . | fromJson }}
+{{- if $pki.enabled }}
+path "sys/mounts/pki" { capabilities = ["create", "update"] }
+{{- if $pki.primary }}
+path "sys/mounts/pki-root" { capabilities = ["create", "update"] }
+{{- end }}
+path "pki/roles/*" { capabilities = ["create", "update", "read"] }
 {{- end }}
 path "transit/keys/*" { capabilities = ["create", "update", "read"] }
 path "transit/keys/+/config" { capabilities = ["create", "update"] }
@@ -338,6 +394,7 @@ openbao.configOps — the ordered desired state as JSON
 {{- $apps := $cfg.kvPathPrefix | default "openova/apps" | trimSuffix "/" -}}
 {{- $pt := include "openbao.peerTrust" . | fromJson -}}
 {{- $engines := .Values.engines | default dict -}}
+{{- $pki := include "openbao.pki" . | fromJson -}}
 {{- $sk := .Values.stateKey | default dict -}}
 {{- $key := $sk.name | default "tofu-state" -}}
 {{- /* Helm string literals: Helm never reads them as actions (SEC-190). */ -}}
@@ -380,6 +437,8 @@ in the path grammar that values.yaml states; anything else fails the render. */ 
 {{- if $bk.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 {{- $drill := (.Values.restoreDrill | default dict).enabled -}}
 {{- if $drill }}{{ $policies = append $policies "sec-g10-drill" }}{{ end -}}
+{{- if $pki.enabled }}{{ $policies = append $policies "pki-sign-internal" }}{{ end -}}
+{{- if and $pki.enabled $pki.primary }}{{ $policies = append $policies "pki-bootstrap" }}{{ end -}}
 
 {{- /* role: name, sa (one name or a list), ns (one or a list), policies, ttl,
 maxTTL, aud (the audience a service-account token must carry; none = any). */ -}}
@@ -420,12 +479,30 @@ own role axon-credential (15 minutes, at most 15 minutes). */ -}}
 {{- $roles = append $roles (dict "name" (printf "producer-%s" .name) "sa" .sa "ns" .ns "policies" (list (printf "producer-%s" .name)) "ttl" "15m" "max" "1h" "aud" "openbao") -}}
 {{- end -}}
 {{- $roles = append $roles (dict "name" "axon-credential" "sa" "axon" "ns" "axon" "policies" (list "axon-credential") "ttl" "15m" "max" "15m" "aud" "openbao") -}}
+{{- /* SEC-250: cert-manager's own service account, with the token it asks for
+each ClusterIssuer of bp-cert-manager-issuers: audiences vault://<issuer> and
+openbao (serviceAccountRef.audiences). The role requires openbao, so a token
+cert-manager asked for another audience is refused. In the primary region also
+the PKI bootstrap Job. */ -}}
+{{- if $pki.enabled -}}
+{{- $roles = append $roles (dict "name" "cert-manager-pki" "sa" "cert-manager" "ns" "cert-manager" "policies" (list "pki-sign-internal") "ttl" "15m" "max" "1h" "aud" "openbao") -}}
+{{- if $pki.primary -}}
+{{- $roles = append $roles (dict "name" "pki-bootstrap" "sa" "openbao-pki-bootstrap" "ns" $ns "policies" (list "pki-bootstrap") "ttl" "15m" "max" "1h" "aud" "openbao") -}}
+{{- end -}}
+{{- end -}}
 
 {{- $ops := list
   (dict "kind" "write" "path" "sys/policies/acl/openbao-config-admin" "payload" (dict "policy" (include "openbao.configAdminPolicy" $)))
   (dict "kind" "secrets-mount" "path" (printf "sys/mounts/%s" $kv) "payload" (dict "type" "kv" "options" (dict "version" "2"))) -}}
 {{- range $name, $spec := $engines -}}
 {{- $ops = append $ops (dict "kind" "secrets-mount" "path" (printf "sys/mounts/%s" $name) "payload" $spec) -}}
+{{- end -}}
+{{- /* SEC-250: pki/ in every region, pki-root/ in the primary region only. */ -}}
+{{- if $pki.enabled -}}
+{{- $ops = append $ops (dict "kind" "secrets-mount" "path" "sys/mounts/pki" "payload" (dict "type" "pki" "config" (dict "max_lease_ttl" $pki.intermediateTTL))) -}}
+{{- if $pki.primary -}}
+{{- $ops = append $ops (dict "kind" "secrets-mount" "path" "sys/mounts/pki-root" "payload" (dict "type" "pki" "config" (dict "max_lease_ttl" $pki.rootTTL))) -}}
+{{- end -}}
 {{- end -}}
 {{- range $policies -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/%s" .) "payload" (dict "policy" (include (printf "openbao.policy.%s" (ternary "openbao-peer-push" . (eq . $aud))) $ctx))) -}}
@@ -444,6 +521,19 @@ one-way), so that the one offline backup can be taken; never deletable. */ -}}
 {{- if hasKey $engines "transit" -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "transit/keys/%s" $key) "payload" (dict "type" "aes256-gcm96" "exportable" true "allow_plaintext_backup" true)) -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "transit/keys/%s/config" $key) "payload" (dict "deletion_allowed" false "exportable" true "allow_plaintext_backup" true)) -}}
+{{- end -}}
+{{- /* SEC-250: the two roles of pki/. internal-server signs names below
+svc.cluster.local and cluster.local for at most 30 days; mesh signs any name
+for at most 90 days. Both sign server and client certificates and take a
+request without a common name (a cert-manager Certificate that names only
+dnsNames). key_type any: both sign every key cert-manager makes, the RSA 2048
+key of a Certificate that names no key (cert-manager's default) as well as
+ECDSA P-256, the size to ask for; OpenBao still refuses RSA below 2048 bits and
+EC below P-224. A ClusterIssuer has no field for the key, so the roles are
+the side that agrees. */ -}}
+{{- if $pki.enabled -}}
+{{- $ops = append $ops (dict "kind" "write" "path" "pki/roles/internal-server" "payload" (dict "allowed_domains" (list "svc.cluster.local" "cluster.local") "allow_subdomains" true "server_flag" true "client_flag" true "max_ttl" "720h" "key_type" "any" "require_cn" false)) -}}
+{{- $ops = append $ops (dict "kind" "write" "path" "pki/roles/mesh" "payload" (dict "allow_any_name" true "server_flag" true "client_flag" true "max_ttl" "2160h" "key_type" "any" "require_cn" false)) -}}
 {{- end -}}
 {{- range $roles -}}
 {{- $sas := .sa }}{{ if kindIs "string" .sa }}{{ $sas = list .sa }}{{ end -}}

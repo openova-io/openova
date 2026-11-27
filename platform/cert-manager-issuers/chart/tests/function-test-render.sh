@@ -32,7 +32,7 @@ python3 "$CHECK" --chart bp-cert-manager-issuers --release cert-manager-issuers 
 grep -q -F 'value: "letsencrypt-dns01-prod letsencrypt-http01-prod"' "$TMP/both.yaml" || fail "the test does not read both ClusterIssuers"
 grep -q -E '^  name: letsencrypt-dns01-prod$' "$TMP/both.yaml" || fail "the chart renders no ClusterIssuer letsencrypt-dns01-prod"
 
-echo "[function-test] Case 3: no ClusterIssuer renders no test"
+echo "[function-test] Case 3: no ACME ClusterIssuer renders no test"
 helm template cert-manager-issuers . --namespace cert-manager --set certManager.issuers.http01.enabled=false > "$TMP/none.yaml"
 python3 "$CHECK" --chart bp-cert-manager-issuers --release cert-manager-issuers --absent < "$TMP/none.yaml"
 

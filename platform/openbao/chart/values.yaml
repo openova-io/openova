@@ -350,6 +350,36 @@ restoreDrill:
   leadMinutes: 5
   waitSeconds: 540
 
+# ── Internal PKI (SEC-250) ──────────────────────────────────────────────
+# One root for the Sovereign and one intermediate per region, both generated
+# inside OpenBao (the keys never leave it). pki-root/ holds the root
+# "<domain> root" (EC P-384, 10 years) in the primary region; pki/ holds this
+# region's intermediate "<domain> <region> intermediate" (EC P-256, 1 year),
+# signed by the root and set in pki/ without the root. cert-manager signs at
+# pki/ through the ClusterIssuers of bp-cert-manager-issuers: openbao-internal
+# (role internal-server: names below svc.cluster.local and cluster.local, at
+# most 30 days) and sovereign-mesh-ca (role mesh: any name, at most 90 days),
+# logging in as role cert-manager-pki (policy pki-sign-internal). The
+# reconciler mounts pki/ and pki-root/ and writes the roles and the policies
+# (templates/_config.tpl); Job openbao-pki-bootstrap-<hash>
+# (templates/pki-bootstrap-job.yaml) makes the root and the intermediate, each
+# only while its mount holds no issuer.
+#
+# A secondary region renders nothing that needs the primary region's OpenBao:
+# no pki-root/, no Job, no role pki-bootstrap. It gets pki/, its two roles and
+# role cert-manager-pki, but its pki/ holds no intermediate, so OpenBao refuses
+# every signing request there. Signing a secondary region's intermediate with
+# the primary's root needs a path between the regions that is not decided yet;
+# a later package adds it. The kit switches the PKI on (slot 08).
+pki:
+  enabled: false
+  # primary or secondary; the kit sets SOVEREIGN_REGION_ROLE. With enabled,
+  # any other value, the empty one included, fails the render.
+  regionRole: primary
+  # The Sovereign's domain, in the common names of the root and the
+  # intermediate; the kit sets SOVEREIGN_FQDN. Empty: the Job ends with an error.
+  domain: ""
+
 # ─── G91.openbao (#2655) SSO opt-in ───────────────────────────────────────
 # Per SECURITY.md §6.3 every Application Blueprint declares SSO support
 # with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with

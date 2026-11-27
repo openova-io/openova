@@ -135,6 +135,14 @@ components:
                                    # openbao auth-bootstrap already binds this SA (#2655,
                                    # bound_service_account_namespaces=sso-bridge) — network-only gap
                                    # (Refs #4325 #4448 #4437 #4354).
+      - cert-manager               # SEC-250: the ClusterIssuers openbao-internal and
+                                   # sovereign-mesh-ca of bp-cert-manager-issuers sign at
+                                   # openbao.openbao.svc:8200 from the cert-manager controller
+                                   # (kit slot 02, namespace cert-manager), logging in as auth
+                                   # role cert-manager-pki. Without this carve-out Cilium drops
+                                   # the dial and neither issuer becomes Ready. Same class as
+                                   # sso-bridge and catalyst-system above
+                                   # (tests/openbao-ingress.sh).
   - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
     gatewayIngress: true           # guacamole.<fqdn> public route
     allowIngressFrom:
