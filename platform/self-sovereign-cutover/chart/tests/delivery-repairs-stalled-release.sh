@@ -53,8 +53,9 @@
 #      release while it runs its next attempt: PASS, each named with both
 #      versions and recorded as an R release is;
 #   8. the negatives: the candidate pins the same version (release, workload),
-#      a release that never failed and is mid-roll, a release whose failures
-#      belong to an earlier version and generation, a workload of no kit
+#      a release that never failed and is attempting its desired version,
+#      a release whose failures belong to an earlier version, one whose
+#      failures belong to an earlier generation, a workload of no kit
 #      release, a workload without Helm ownership, and no candidate: FATAL.
 # On the tree before this change cases 0 and 7 fail; 8 refuses on both.
 #
@@ -494,22 +495,29 @@ grep -qF 'N HelmRelease/flux-system/bp-huawei-evs-csi: the candidate pins bp-hua
 c8 c8b "${TMP}/kit-settled.json" "${TMP}/wl-guac.json" "${TMP}/pins-guac-same.tsv" yes "the candidate pins bp-guacamole 0.2.64" Deployment/guacamole/access-controller
 grep -qF 'N Deployment/guacamole/access-controller: HelmRelease/flux-system/bp-guacamole owns it, and the candidate pins bp-guacamole 0.2.64, not a new version for it' "$d/out" \
   && pass "it says why access-controller is not repaired" || fail "it does not say why access-controller is not repaired"
-# A kit release rolling for the first time to 1.0.12 that never failed; and one
-# whose failures belong to 1.0.11 and an earlier generation (Flux has not yet
-# taken the new desired state).
-jq '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedRevision":"1.0.11",
-     "history":[{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.11","status":"deployed","version":2}],
+# A kit release rolling for the first time to 1.0.12 that never failed: Flux
+# is attempting 1.0.12 in this generation, so only the absent failure evidence
+# keeps it gated. Then two whose failures do not count, each stale on ONE
+# signal so each guard is tested alone: failures of 1.0.11 in this generation,
+# and failures of 1.0.12 in an earlier generation (Flux has not yet taken the
+# new desired state; the rollback put 1.0.11 back on top of the history).
+evs_h() { printf '{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"%s","status":"%s","version":%s}' "$1" "$2" "$3"; }
+jq --argjson h "[$(evs_h 1.0.11 deployed 2)]" '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedGeneration":3,"lastAttemptedRevision":"1.0.12","history":$h,
      "conditions":[{"type":"Reconciling","status":"True","reason":"Progressing","message":"Running '"'"'upgrade'"'"' action with timeout of 15m0s"},{"type":"Ready","status":"Unknown","reason":"Progressing","message":"Running '"'"'upgrade'"'"' action with timeout of 15m0s"}]})' \
   "${TMP}/evs.json" >"${TMP}/evs-first.json"
-jq '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedGeneration":2,"lastAttemptedRevision":"1.0.11","failures":3,"upgradeFailures":1,
-     "history":[{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.11","status":"failed","version":3},{"name":"huawei-evs-csi","namespace":"huawei-evs-csi","chartName":"bp-huawei-evs-csi","chartVersion":"1.0.10","status":"deployed","version":2}],
+jq --argjson h "[$(evs_h 1.0.11 failed 3),$(evs_h 1.0.10 deployed 2)]" '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":3,"lastAttemptedGeneration":3,"lastAttemptedRevision":"1.0.11","failures":3,"upgradeFailures":1,"history":$h,
      "conditions":[{"type":"Ready","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release huawei-evs-csi/huawei-evs-csi with chart bp-huawei-evs-csi@1.0.11: context deadline exceeded"}]})' \
-  "${TMP}/evs.json" >"${TMP}/evs-stale.json"
-jq -e 'all(.items[]; .status.conditions != null)' "${TMP}/evs-first.json" "${TMP}/evs-stale.json" >/dev/null || { echo "FAIL: could not build the never-failed fixtures"; exit 1; }
+  "${TMP}/evs.json" >"${TMP}/evs-stale-ver.json"
+jq --argjson h "[$(evs_h 1.0.11 deployed 4),$(evs_h 1.0.12 failed 3),$(evs_h 1.0.11 deployed 2)]" '(.items[] | select(.metadata.name == "bp-huawei-evs-csi")) |= (.metadata.generation = 3 | .status = {"observedGeneration":2,"lastAttemptedGeneration":2,"lastAttemptedRevision":"1.0.12","failures":3,"upgradeFailures":1,"history":$h,
+     "conditions":[{"type":"Ready","status":"False","reason":"RollbackSucceeded","message":"Helm rollback to previous release huawei-evs-csi/huawei-evs-csi.v3 with chart bp-huawei-evs-csi@1.0.11 succeeded"}]})' \
+  "${TMP}/evs.json" >"${TMP}/evs-stale-gen.json"
+jq -e 'all(.items[]; .status.conditions != null)' "${TMP}/evs-first.json" "${TMP}/evs-stale-ver.json" "${TMP}/evs-stale-gen.json" >/dev/null || { echo "FAIL: could not build the never-failed fixtures"; exit 1; }
 c8 c8c "${TMP}/evs-first.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "a release rolling for the first time that never failed" HelmRelease/flux-system/bp-huawei-evs-csi
 grep -qE '^  [RD] ' "$d/out" && fail "a release that never failed was counted as repaired" || pass "nothing is counted as repaired"
-c8 c8d "${TMP}/evs-stale.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "failures of 1.0.11 and of an earlier generation" HelmRelease/flux-system/bp-huawei-evs-csi
+c8 c8d-ver "${TMP}/evs-stale-ver.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "failures of 1.0.11 in this generation" HelmRelease/flux-system/bp-huawei-evs-csi
 grep -qE '^  [RD] ' "$d/out" && fail "failures of an earlier version counted as failures of the desired one" || pass "nothing is counted as repaired"
+c8 c8d-gen "${TMP}/evs-stale-gen.json" "${TMP}/wl-ready.json" "${TMP}/pins-repair.tsv" yes "failures of 1.0.12 in an earlier generation" HelmRelease/flux-system/bp-huawei-evs-csi
+grep -qE '^  [RD] ' "$d/out" && fail "failures of an earlier generation counted as failures of this one" || pass "nothing is counted as repaired"
 # An unready workload whose Helm release no kit release installs (an unlabelled
 # namespace is platform), and one without Helm ownership.
 printf '{"items":[%s]}' "$(wl StatefulSet keycloak delta-corp ',"annotations":{"meta.helm.sh/release-name":"keycloak","meta.helm.sh/release-namespace":"delta-corp"}' '')" >"${TMP}/wl-nokit.json"
