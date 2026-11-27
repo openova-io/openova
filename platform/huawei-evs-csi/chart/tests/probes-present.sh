@@ -12,6 +12,20 @@
 # the names of the containers without both probes with the empty list. A probe
 # counts when it is a non-empty object, as the policy counts it.
 #
+# A probe that is present can still never pass. csi-node-driver-registrar
+# v2.4.0 serves /healthz on no port (it registers the handler on a private
+# ServeMux and serves the default one), so its probe is the exec mode
+# kubelet-registration-probe, which passes while the file
+# <dir of --kubelet-registration-path>/registration exists; the registrar
+# writes that file, and under a read-only root file system it can only write it
+# into a mounted directory. The registrar case compares path values: the
+# registration path the registrar runs with (its argument, resolved through its
+# env), the path each exec probe names, and the mount at that directory, which
+# must be writable and the node's own directory (a hostPath of the same path).
+# It runs with the default kubelet directory and with another one. It cannot
+# prove that the kubelet calls GetInfo, that the file is written or that the
+# probe exits 0: that needs the container running on a node.
+#
 # Usage:
 #   bash probes-present.sh           the chart above this file
 #   bash probes-present.sh <chart>   that chart directory
@@ -50,6 +64,61 @@ check() {
   fi
 }
 
+# registrar <render> <expression>: the expression on the container
+# evs-driver-registrar of the DaemonSet csi-evs-node.
+registrar() {
+  yq ea -N "[select(.kind == \"DaemonSet\" and .metadata.name == \"csi-evs-node\")] | .[0] | .spec.template.spec.containers[] | select(.name == \"evs-driver-registrar\") | $2" "$1"
+}
+
+# registrar_probe_file <label> <render> <kubelet dir>
+registrar_probe_file() {
+  local r="$2" want="$3/plugins/evs.csi.huaweicloud.com/csi.sock" arg reg dir n bad=0 vol host ro kind f
+  arg="$(registrar "$r" '.args[] | select(test("^--kubelet-registration-path="))')"
+  reg="${arg#--kubelet-registration-path=}"
+  case "$reg" in
+    '$('*')') n=${reg#\$\(}; n=${n%\)}
+      reg="$(registrar "$r" ".env[] | select(.name == \"$n\") | .value")" ;;
+  esac
+  if [ "$reg" != "$want" ]; then
+    echo "$TAG FAIL $1: the registrar runs with the registration path '$reg', want '$want'"
+    rc=1
+    return
+  fi
+  dir="${reg%/*}"
+  for kind in livenessProbe readinessProbe; do
+    f="$TMP/$kind.cmd"
+    : > "$f"
+    if [ "$(registrar "$r" ".$kind.exec.command | tag")" = "!!seq" ]; then
+      registrar "$r" ".$kind.exec.command[]" > "$f"
+    fi
+    if [ "$(registrar "$r" ".$kind.exec.command[0]")" != "/csi-node-driver-registrar" ] ||
+       ! grep -Fxq -- "--mode=kubelet-registration-probe" "$f" ||
+       ! grep -Fxq -- "--kubelet-registration-path=$reg" "$f"; then
+      echo "$TAG FAIL $1: the registrar's $kind is not the exec probe kubelet-registration-probe with --kubelet-registration-path=$reg (it runs: $(tr '\n' ' ' < "$f"))"
+      bad=1
+    fi
+  done
+  vol="$(registrar "$r" ".volumeMounts[] | select(.mountPath == \"$dir\" or .mountPath == \"$dir/\") | .name")"
+  ro="$(registrar "$r" ".volumeMounts[] | select(.mountPath == \"$dir\" or .mountPath == \"$dir/\") | .readOnly")"
+  host="$(V="$vol" yq ea -N '[select(.kind == "DaemonSet" and .metadata.name == "csi-evs-node")] | .[0] | .spec.template.spec.volumes[] | select(.name == strenv(V)) | .hostPath.path' "$r")"
+  if [ -z "$vol" ]; then
+    echo "$TAG FAIL $1: no volume of the registrar is mounted at $dir, where it writes its registration probe file $dir/registration"
+    bad=1
+  elif [ "$ro" = "true" ] || [ "${host%/}" != "$dir" ]; then
+    echo "$TAG FAIL $1: the mount at $dir is '$vol' (readOnly '$ro', hostPath '$host'), want a writable mount of the hostPath $dir"
+    bad=1
+  fi
+  if [ "$(registrar "$r" '.securityContext.readOnlyRootFilesystem')" != "true" ]; then
+    echo "$TAG FAIL $1: the registrar's root file system is not read-only"
+    bad=1
+  fi
+  if [ "$bad" -eq 0 ]; then
+    echo "$TAG PASS $1: the registrar's exec probes read $dir/registration and $dir is the node's directory, mounted writable"
+  else
+    rc=1
+  fi
+}
+
 render() {
   if ! helm template t "$CHART" --set enabled=true "$@" > "$TMP/render.yaml" 2> "$TMP/err"; then
     cat "$TMP/err"
@@ -60,6 +129,9 @@ render() {
 
 render --set volumeSnapshotClass.enabled=false
 check "slot 55b" "$TMP/render.yaml" DaemonSet csi-evs-node "evs-driver-registrar liveness-probe evs-csi-plugin"
+registrar_probe_file "slot 55b" "$TMP/render.yaml" /var/lib/kubelet
+render --set volumeSnapshotClass.enabled=false --set kubeletDir=/var/lib/k0s/kubelet
+registrar_probe_file "kubeletDir /var/lib/k0s/kubelet" "$TMP/render.yaml" /var/lib/k0s/kubelet
 check "slot 55b" "$TMP/render.yaml" Deployment csi-evs-controller "csi-provisioner csi-attacher csi-resizer liveness-probe evs-csi-plugin"
 render --set volumeSnapshotClass.enabled=true
 check "snapshot class on" "$TMP/render.yaml" Deployment csi-evs-controller "csi-provisioner csi-attacher csi-resizer csi-snapshotter liveness-probe evs-csi-plugin"

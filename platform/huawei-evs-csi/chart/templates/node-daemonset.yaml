@@ -21,6 +21,7 @@ on .Values.enabled.
 {{- if .Values.enabled }}
 {{- $img := .Values.image -}}
 {{- $kubelet := .Values.kubeletDir | default "/var/lib/kubelet" -}}
+{{- $pluginDir := printf "%s/plugins/evs.csi.huaweicloud.com" $kubelet -}}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -66,35 +67,49 @@ spec:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
-            # /healthz answers 200 while the registration socket exists
-            # (node-driver-registrar v2.4.0; a port of the node, hostNetwork).
-            - "--http-endpoint=:9811"
           # Probes on every container (CMP-067): probes-present enforces after
-          # the bootstrap window.
+          # the bootstrap window. No --http-endpoint: in v2.4.0 it registers
+          # /healthz on a private ServeMux and serves the default one, so
+          # /healthz answers 404 for ever (cmd/csi-node-driver-registrar/
+          # node_register.go, httpServer). The probe upstream documents for
+          # this version is the exec mode below: it passes while the file
+          # <dir of --kubelet-registration-path>/registration exists, which the
+          # registrar writes when the kubelet calls GetInfo. The path is
+          # literal, an exec probe expands no $(VAR); it equals
+          # DRIVER_REG_SOCK_PATH, and that directory is mounted below.
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 9811
-            initialDelaySeconds: 15
+            exec:
+              command:
+                - /csi-node-driver-registrar
+                - --kubelet-registration-path={{ $pluginDir }}/csi.sock
+                - --mode=kubelet-registration-probe
+            initialDelaySeconds: 30
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 15
             failureThreshold: 5
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 9811
+            exec:
+              command:
+                - /csi-node-driver-registrar
+                - --kubelet-registration-path={{ $pluginDir }}/csi.sock
+                - --mode=kubelet-registration-probe
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 15
           env:
             - name: ADDRESS
               value: /csi/csi.sock
             - name: DRIVER_REG_SOCK_PATH
-              value: {{ $kubelet }}/plugins/evs.csi.huaweicloud.com/csi.sock
+              value: {{ $pluginDir }}/csi.sock
           volumeMounts:
             - name: plugin-dir
               mountPath: /csi
             - name: registration-dir
               mountPath: /registration
+            # The node's plugin directory at its own path, writable, so the
+            # registrar can write its registration probe file under a
+            # read-only root file system.
+            - name: plugin-dir
+              mountPath: {{ $pluginDir }}
           resources:
             requests: { cpu: 10m, memory: 16Mi }
             limits: { memory: 64Mi }
