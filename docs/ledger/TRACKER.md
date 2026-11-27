@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T18:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-27T18:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T18:12 | [#9054](https://github.com/openova-io/openova/pull/9054) | #7087 | docs(ledger): plan update |
+| 2026-11-27T18:09 | [#9051](https://github.com/openova-io/openova/pull/9051) | #9049 | fix(conformance): a conformance run builds and runs the cata |
 | 2026-11-27T17:45 | [#9050](https://github.com/openova-io/openova/pull/9050) | #9021 | test(gate): check CMP-G06 after the move of the access polic |
 | 2026-11-27T17:18 | [#9048](https://github.com/openova-io/openova/pull/9048) | #7087 | docs(ledger): plan update |
 | 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
@@ -334,9 +336,7 @@ flowchart LR
 | 2026-11-27T12:42 | [#9016](https://github.com/openova-io/openova/pull/9016) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:38 | [#9014](https://github.com/openova-io/openova/pull/9014) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
-| 2026-11-27T12:17 | [#9007](https://github.com/openova-io/openova/pull/9007) | #7087 | docs(ledger): plan update |
-| 2026-11-27T12:07 | [#9005](https://github.com/openova-io/openova/pull/9005) | #7087 | docs(ledger): plan update |
-| 2026-11-27T11:37 | [#9004](https://github.com/openova-io/openova/pull/9004) | #7087 | docs(ledger): plan update |
+| 2026-11-27T18:04 | [#9011](https://github.com/openova-io/openova/pull/9011) | #9010 | feat(auth): the auth service reads its refresh-token signing |
 
 ---
 
