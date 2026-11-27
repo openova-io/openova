@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T06:15:03Z` |
+| Last refreshed | `2026-11-27T06:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8560](https://github.com/openova-io/openova/issues/8560) | CLD-116 The wipe removes first what its own destroy cannot remove on the referen | Other |
 | [#8564](https://github.com/openova-io/openova/issues/8564) | SOV-155 A roll of the registry never removes both copies: harbor-registry rolls  | Other |
 | [#8569](https://github.com/openova-io/openova/issues/8569) | SOV-344 The sovereignty proof counts the cloud Workspaces, and the tether list n | Other |
 | [#8574](https://github.com/openova-io/openova/issues/8574) | SOV-139 A cloud-free harness drains the registry's node with the outside blocked | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8960](https://github.com/openova-io/openova/issues/8960) | NET-192 Gate check NET-G11: route admission by owner | Other |
 | [#8964](https://github.com/openova-io/openova/issues/8964) | SEC-217 secrets-lib writes a generated secret into a named namespace | Other |
 | [#8967](https://github.com/openova-io/openova/issues/8967) | SVC-260 provides, requires, the contract format, the registry and the install AP | Other |
+| [#8969](https://github.com/openova-io/openova/issues/8969) | SEC-216 The umbrella chart depends on secrets-lib and every renderer of it build | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:10 | [#8963](https://github.com/openova-io/openova/pull/8963) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:12 | [#8961](https://github.com/openova-io/openova/pull/8961) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:50 | [#8959](https://github.com/openova-io/openova/pull/8959) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T00:10 | [#8924](https://github.com/openova-io/openova/pull/8924) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:23 | [#8923](https://github.com/openova-io/openova/pull/8923) | #8922 | fix(sso-probe): the sign-in probe no longer expects the remo |
 | 2026-11-26T23:49 | [#8921](https://github.com/openova-io/openova/pull/8921) | #7087 | docs(ledger): plan update |
-| 2026-11-26T23:16 | [#8919](https://github.com/openova-io/openova/pull/8919) | #7087 | docs(ledger): plan update |
 
 ---
 
