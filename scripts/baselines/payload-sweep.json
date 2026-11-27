@@ -1,0 +1,16 @@
+{
+  "charts": [
+    {
+      "chart": "platform/knative/chart",
+      "value": "knativeOverlay.knativeServing.sovereignFqdn",
+      "reason": "The KnativeServing domain is the Sovereign FQDN of the per-cluster overlay and the chart ships no default (Principle #4), so it cannot render at its defaults; the release smoke render skips it too (catalyst.openova.io/smoke-render-mode: requires-overlay). Owed: a default or a render case for the size check.",
+      "since": "2026-11-27"
+    },
+    {
+      "chart": "platform/librechat/chart",
+      "value": "ingress.host",
+      "reason": "The ingress host is a hostname under the Sovereign FQDN of the per-cluster overlay and the chart ships no default (Principle #4), so it cannot render at its defaults; the release smoke render skips it too (catalyst.openova.io/smoke-render-mode: requires-overlay). Owed: a default or a render case for the size check.",
+      "since": "2026-11-27"
+    }
+  ]
+}
