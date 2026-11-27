@@ -287,7 +287,7 @@ epics:
 - id: CMP-040
   title: 'Epic: model and posture hub'
   wave: W2
-  packages: [CMP-036, CMP-041, CMP-042, CMP-045, CMP-052, CMP-053]
+  packages: [CMP-036, CMP-041, CMP-042, CMP-043, CMP-045, CMP-052, CMP-053]
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
@@ -4320,6 +4320,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: On pull_request and merge_group the local pack installs from the tree every kit chart the pull request changes and waits until each is installed from there, reading each HelmChart by the name of the Flux kind; a change of that path also installs bp-kyverno-policies from the tree, so the pull request that delivers this carries a green run that exercises the tree path on the local pack for at least one kit chart.
+- id: FND-134
+  title: A conformance run runs the pull request's own catalyst-api image
+  area: FND
+  epic: null
+  type: fix
+  wave: W1a
+  size: M
+  lane: GATE
+  depends_on: [FND-133]
+  after: [FND-130, FND-132, FND-155, CLD-087, CLD-089, CLD-091, CLD-093, SEC-154, CMP-079]
+  touches:
+  - .github/workflows/conformance-local.yaml
+  - scripts/local-pack.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: A conformance run builds and runs the pull request's own catalyst-api image when the pull request changes its source, as FND-133 does for kit charts. Until it merges, a story that changes the API and adds a required check on that behaviour has the check implemented, required on the gate and not required in the pack, with a named package that makes it required.
 - id: FND-141
   title: 'Flight workflow: one fresh installation with pre-flight and leftover sweep'
   area: FND
@@ -27937,6 +27964,32 @@ packages:
   ticket_rev: 2
   dropped: false
   delivers: catalyst-api loads the ComplianceModel object default of each cluster and scores that cluster with it; a cluster without one has no score (model not loaded), and check CMP-G03 is required.
+- id: CMP-043
+  title: CMP-G03 is required in the conformance pack
+  area: CMP
+  epic: CMP-040
+  type: test
+  wave: W2
+  size: XS
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-042]
+  touches:
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'CMP-G03 is required in the conformance pack. Its precondition: the pinned catalyst-api image holds CMP-042''s model loader.'
 - id: CMP-045
   title: Posture routes and the change stream
   area: CMP
