@@ -82,6 +82,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
+	"github.com/openova-io/openova/core/controllers/pkg/orglistener"
 )
 
 // certificateGVK identifies the cert-manager Certificate v1 resource the
@@ -471,6 +472,14 @@ func (r *Reconciler) reconcileOrgWildcardCert(ctx context.Context, org *orgapi.O
 // #5246 — the target cluster is a PARAMETER, not r.Client. The console ELB
 // pool spans every region's nodes, so the pair must be appended to every
 // region's console Gateway; the caller fans this over consoleRegionTargets.
+//
+// NET-191 — both listeners admit HTTPRoutes only from the Organization's
+// namespace and the console route namespace (orglistener.AllowedRoutes), so a
+// route of another Organization never attaches to this Organization's host
+// names. The Organization's namespace is names.Slug: every door that creates
+// an Organization leaves tenantPublic.subdomain unset or sets it to spec.slug,
+// and the catalyst-api twin derives the same value the same way. A live
+// listener that still admits every namespace is drift and pass 1 repairs it.
 func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Client, names orgConsoleTLSNames) (bool, error) {
 	gwNS := r.consoleGatewayNamespace()
 	gwName := r.consoleGatewayName()
@@ -502,13 +511,11 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Clie
 
 	desired := map[string]map[string]any{
 		httpsName: {
-			"name":     httpsName,
-			"hostname": hostname,
-			"port":     httpsPort,
-			"protocol": "HTTPS",
-			"allowedRoutes": map[string]any{
-				"namespaces": map[string]any{"from": "All"},
-			},
+			"name":          httpsName,
+			"hostname":      hostname,
+			"port":          httpsPort,
+			"protocol":      "HTTPS",
+			"allowedRoutes": orglistener.AllowedRoutes(names.Slug, r.consoleRouteNamespace()),
 			"tls": map[string]any{
 				"mode": "Terminate",
 				"certificateRefs": []any{
@@ -521,13 +528,11 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Clie
 			},
 		},
 		httpName: {
-			"name":     httpName,
-			"hostname": hostname,
-			"port":     httpPort,
-			"protocol": "HTTP",
-			"allowedRoutes": map[string]any{
-				"namespaces": map[string]any{"from": "All"},
-			},
+			"name":          httpName,
+			"hostname":      hostname,
+			"port":          httpPort,
+			"protocol":      "HTTP",
+			"allowedRoutes": orglistener.AllowedRoutes(names.Slug, r.consoleRouteNamespace()),
 		},
 	}
 

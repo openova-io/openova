@@ -68,8 +68,6 @@ G2	products/chargeback/docrender/chart/templates/networkpolicy.yaml	1
 G2	products/continuum/chart/templates/networkpolicy.yaml	1
 G2	products/openova-mcp/chart/templates/cilium-egress-networkpolicy.yaml	1
 G2	products/openova-mcp/chart/templates/cilium-ingress-networkpolicy.yaml	1
-G4	core/controllers/organization/internal/controller/tenant_console_tls.go	2
-G4	products/catalyst/bootstrap/api/internal/handler/org_console_tls.go	2
 G5	platform/cilium/chart/templates/clustermesh-proxy-daemonset.yaml	7
 G5	platform/cilium/chart/templates/gateway-api-controller-watchdog.yaml	1
 G5	platform/cilium/chart/templates/sovereign-vip-lb-ipam-pool.yaml	9
