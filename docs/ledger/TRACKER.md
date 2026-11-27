@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T12:15:04Z` |
+| Last refreshed | `2026-11-27T12:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8613](https://github.com/openova-io/openova/issues/8613) | PRD-201 bp-bge chart to the serving rules | Other |
-| [#8617](https://github.com/openova-io/openova/issues/8617) | NET-081 One producer of the Organization kubeconfig | Other |
 | [#8618](https://github.com/openova-io/openova/issues/8618) | SEC-060 Keycloak secrets no longer computable | Other |
 | [#8634](https://github.com/openova-io/openova/issues/8634) | SEC-190 Mounts, templated policies and generic roles | Other |
 | [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#9008](https://github.com/openova-io/openova/issues/9008) | CMP-042 ComplianceModel: the per-cluster loader of catalyst-api, and check CMP-G | Other |
 | [#9009](https://github.com/openova-io/openova/issues/9009) | FND-208 The size check of a pull request measures a chart that has dependencies | Other |
 | [#9010](https://github.com/openova-io/openova/issues/9010) | SEC-212 First-party proof: the auth service reads its refresh-token signing secr | Other |
+| [#9013](https://github.com/openova-io/openova/issues/9013) | CMP-095 An owner of a customer Organization cannot grant into another Organizati | Other |
+| [#9015](https://github.com/openova-io/openova/issues/9015) | NET-195 Organization listener: client-certificate validation or TLS passthrough, | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T12:30 | [#9012](https://github.com/openova-io/openova/pull/9012) | #7087 | docs(ledger): plan update |
+| 2026-11-27T12:17 | [#9007](https://github.com/openova-io/openova/pull/9007) | #7087 | docs(ledger): plan update |
 | 2026-11-27T12:07 | [#9005](https://github.com/openova-io/openova/pull/9005) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:37 | [#9004](https://github.com/openova-io/openova/pull/9004) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:46 | [#9001](https://github.com/openova-io/openova/pull/9001) | #8858 | The access controller's image is not served by the Sovereign |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
-| 2026-11-27T06:10 | [#8963](https://github.com/openova-io/openova/pull/8963) | #7087 | docs(ledger): plan update |
-| 2026-11-27T08:04 | [#8962](https://github.com/openova-io/openova/pull/8962) | #4993 | test(gate): check NET-G11 proves a route of one Organization |
 
 ---
 
