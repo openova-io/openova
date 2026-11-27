@@ -4281,6 +4281,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The conformance run of a pull request installs every kit chart that the pull request changes from the tree of the commit under test, waits until each is installed from there, and names those charts and their verdicts in its summary; the local pack states from the source which chart each kit release takes and from where.
+- id: FND-133
+  title: The conformance run of a pull request installs the kit charts of that pull request, proven by a run of its own
+  area: FND
+  epic: null
+  type: fix
+  wave: W1a
+  size: M
+  lane: GATE
+  depends_on: []
+  after: [FND-130, FND-132, FND-155, CLD-087, CLD-089, CLD-091, CLD-093, SEC-154, CMP-079]
+  touches:
+  - .github/workflows/conformance-local.yaml
+  - scripts/local-pack.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: On pull_request and merge_group the local pack installs from the tree every kit chart the pull request changes and waits until each is installed from there; the pull request that delivers this carries a green run that exercises the tree path on the local pack for at least one kit chart.
 - id: FND-141
   title: 'Flight workflow: one fresh installation with pre-flight and leftover sweep'
   area: FND
@@ -16638,7 +16665,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-216, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-042, FND-045, FND-046, FND-055, FND-057, FND-074, FND-076, FND-101, FND-103, FND-105, FND-107, FND-110, FND-132, FND-151, FND-153, FND-155, FND-161, FND-183, FND-184, FND-191, FND-192, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-139, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-242, SOV-322, SOV-323, SOV-335, SOV-344, SOV-721, SEC-040, SEC-060, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, SEC-216, SEC-261, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-121, NET-133, NET-185, NET-190, NET-191, NET-212, NET-221, NET-222, NET-223, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-164, SVC-166, SVC-170, SVC-190, SVC-200, SVC-205, SVC-220, SVC-230, SVC-260, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-232, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CTL-815, CMP-012, CMP-014, CMP-020, CMP-032, CMP-036, CMP-041, CMP-058, CMP-061, CMP-062, CMP-063, CMP-064, CMP-065, CMP-066, CMP-067, CMP-073, CMP-077, CMP-078, CMP-079, CMP-084, BSS-040, BSS-050, BSS-141, AIP-070, AIP-101, AIP-102, AIP-105, AIP-108, AIP-109, AIP-111, AIP-113, AIP-120, AIP-155, AIP-156, AIP-157, AIP-158, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-054, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, ACC-102, ACC-103, ACC-113, PRD-030, PRD-101, PRD-102, PRD-106, PRD-201, PRD-202, PRD-203, PRD-304, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -19854,21 +19881,45 @@ packages:
   touches:
   - core/controllers/application/cmd/main.go
   - core/controllers/application/internal/controller/application_controller.go
+  - core/controllers/application/internal/controller/application_controller_5513_test.go
+  - core/controllers/application/internal/controller/application_controller_5955_test.go
+  - core/controllers/application/internal/controller/application_controller_cnpg_hostside_4282_test.go
+  - core/controllers/application/internal/controller/application_controller_fanout_delete_4902_test.go
+  - core/controllers/application/internal/controller/application_controller_fanout_persist_test.go
+  - core/controllers/application/internal/controller/application_controller_hr_timeout_3988_test.go
+  - core/controllers/application/internal/controller/application_controller_placement_fanout_test.go
+  - core/controllers/application/internal/controller/application_controller_placement_test.go
+  - core/controllers/application/internal/controller/application_controller_serving_d7_test.go
+  - core/controllers/application/internal/controller/application_controller_test.go
+  - core/controllers/application/internal/controller/application_controller_vcluster_rollup_test.go
+  - core/controllers/application/internal/controller/organization_applications_namespace_test.go
+  - core/controllers/application/internal/controller/placement_canonical_cluster.go
+  - core/controllers/application/internal/controller/placement_canonical_cluster_7067_test.go
   - core/controllers/internal/clusterregistry/registry.go
+  - core/controllers/internal/clusterregistry/registry_test.go
+  - scripts/service-model-baseline.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'VClusterPlacements' core/controllers/application/cmd/main.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test \"$(git grep -n -E 'VClusterPlacement|VCLUSTER_PLACEMENT_|vc-(mgmt|dmz|rtz)|KubeConfigSecretFor|KubeConfigSecretKey|TierVCluster|clusterResolver|blueprintRequiresHostCNPGOperator|PlacementVClusterSet|KnownTiers' -- core/controllers/application/cmd core/controllers/application/internal/controller core/controllers/internal/clusterregistry ':(exclude)*_test.go' | wc -l)\" = 0"
+  - id: A2
+    run: "cd core/controllers && out=\"$(NO_COLOR=1 go test -count=1 -v ./internal/clusterregistry/)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^--- PASS: Test(Parse|ClusterIDString|IsCanonical|Position) ')\" = 4"
+  - id: A3
+    run: "cd core/controllers && go vet ./... && out=\"$(NO_COLOR=1 go test -count=1 -v ./application/...)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E '^--- PASS: Test(IgnoredTierFields|ParseSpec_PlacementUnknownVClusterIgnored|Reconcile_(IgnoredTierLoggedOncePerObject|TierIgnored_RendersHostSide|GitEditOfTierChangesNothing|PlacementSchemaVClusterIgnored|CNPGBlueprint_TierTarget_RendersHostSide|CNPGBlueprint_DependsEdgeOnly_RendersHostSide|NonCNPGBlueprint_TierTarget_RendersHostSide)) ')\" = 9"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: VClusterPlacements map, tier resolution and pivot branch deleted; registry keeps the region half (before CTL-410)
+  delivers: 'The application controller writes every release into the Application''s own namespace on its region''s host cluster with no kubeconfig pivot: the map of tier namespaces and its six environment variables, the tier resolution and both pivot branches are deleted, a tier that an older Application or Blueprint still names is ignored and logged once per object, and the cluster registry reads only the region half of a cluster identifier (it writes the prefix rtz- until NET-227).'
 - id: NET-224
   title: API without the tier gate
   area: NET
@@ -23310,7 +23361,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-091, FND-120, SVC-010, SVC-260]
-  after: [FND-011, SVC-166, SVC-220]
+  after: [FND-011, NET-223, SVC-166, SVC-220]
   touches:
   - core/controllers/pkg/backingservice/
   - core/controllers/application/internal/controller/placement_recon.go
@@ -26973,7 +27024,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-120, CTL-800]
-  after: [FND-011, SVC-040]
+  after: [FND-011, NET-223, SVC-040]
   touches:
   - core/controllers/pkg/serving/serving.go
   - core/controllers/pkg/serving/serving_test.go
