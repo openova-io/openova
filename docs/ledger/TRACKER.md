@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T20:45:03Z` |
+| Last refreshed | `2026-11-27T21:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8690](https://github.com/openova-io/openova/issues/8690) | FND-201 Spike: what the telemetry pipeline delivers today, and which collector s | Other |
-| [#8694](https://github.com/openova-io/openova/issues/8694) | FND-184 Scheduled Git bundles of the Sovereign's repositories | Other |
 | [#8699](https://github.com/openova-io/openova/issues/8699) | CMP-022 The console stops claiming what does not exist | Other |
 | [#8700](https://github.com/openova-io/openova/issues/8700) | CTL-170 Inspection: where chart-seeded Applications live and who reads them | Other |
 | [#8701](https://github.com/openova-io/openova/issues/8701) | CTL-800 Decision record 0027: the region-loss contract | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#9058](https://github.com/openova-io/openova/issues/9058) | SEC-163 The secrets store's Jobs | Other |
 | [#9064](https://github.com/openova-io/openova/issues/9064) | AIP-106 bp-axon: chart, Blueprint file and kit slot 82 | Other |
 | [#9072](https://github.com/openova-io/openova/issues/9072) | SEC-219 A synced value of the secrets library takes a template and copies | Other |
+| [#9075](https://github.com/openova-io/openova/issues/9075) | NET-196 Organization passthrough listeners: the platform API writes them for int | Other |
+| [#9076](https://github.com/openova-io/openova/issues/9076) | SVC-270 In-cluster object storage and the capability probe | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T20:47 | [#9073](https://github.com/openova-io/openova/pull/9073) | #9072 | fix(secrets-lib): a synced value takes a template, copies in |
 | 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T14:56 | [#9033](https://github.com/openova-io/openova/pull/9033) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:58 | [#9030](https://github.com/openova-io/openova/pull/9030) | #8998 | The repaired disk-driver chart cannot be applied over the fa |
 | 2026-11-27T14:18 | [#9028](https://github.com/openova-io/openova/pull/9028) | #7087 | docs(ledger): plan update |
-| 2026-11-27T14:18 | [#9027](https://github.com/openova-io/openova/pull/9027) | #7087 | docs(ledger): plan update |
 
 ---
 
