@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-079, CMP-084, CMP-065, CMP-077, CMP-078, CMP-066, CMP-068, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-079, CMP-084, CMP-065, CMP-077, CMP-078, CMP-066, CMP-095, CMP-086, CMP-068, CMP-087, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -7281,7 +7281,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-088, FND-032, SOV-070, CLD-109]
-  after: [FND-033, FND-034, FND-075, FND-154, FND-157, CLD-030, CLD-067, CLD-105, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-125, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-112, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-033, FND-034, FND-075, FND-154, FND-157, CLD-030, CLD-067, CLD-105, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-125, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-112, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
   - products/catalyst/bootstrap/api/cmd/provider-identity/**
@@ -8167,7 +8167,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-121, CLD-125, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-155, SOV-161, SOV-163, SOV-170, SOV-171, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SOV-343, SEC-010, SEC-030, SEC-040, SEC-060, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-153, NET-172, NET-185, NET-190, NET-212, NET-255, NET-322, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CTL-820, CMP-010, CMP-023, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-121, CLD-125, CLD-133, CLD-185, SOV-020, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-155, SOV-161, SOV-163, SOV-170, SOV-171, SOV-175, SOV-322, SOV-336, SOV-337, SOV-342, SOV-343, SEC-010, SEC-030, SEC-040, SEC-060, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, SEC-152, SEC-153, SEC-154, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-153, NET-172, NET-185, NET-190, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-060, SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139, SVC-160, SVC-220, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CTL-820, CMP-010, CMP-023, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -8311,7 +8311,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-111, CLD-151, FND-032]
-  after: [FND-011, FND-033, FND-034, FND-075, FND-154, FND-157, CLD-030, CLD-067, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-125, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-110, INF-112, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, FND-033, FND-034, FND-075, FND-154, FND-157, CLD-030, CLD-067, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-125, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-110, INF-112, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - products/catalyst/bootstrap/api/cmd/cloud-controller/**
   - products/catalyst/bootstrap/api/Containerfile
@@ -8525,7 +8525,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
-  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-030, CLD-089, CLD-090, CLD-092, CLD-121, CLD-125, CLD-131, CLD-132, CLD-133, CLD-134, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-170, SOV-171, SOV-175, SOV-335, SOV-342, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-153, SEC-154, SEC-181, NET-010, NET-011, NET-012, NET-013, NET-020, NET-060, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-172, NET-185, NET-210, NET-212, NET-255, NET-322, SVC-125, SVC-136, SVC-138, SVC-159, SVC-160, SVC-170, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-051, INF-052, INF-054, INF-055, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-033, FND-034, FND-075, FND-154, FND-157, FND-182, CLD-030, CLD-089, CLD-090, CLD-092, CLD-121, CLD-125, CLD-131, CLD-132, CLD-133, CLD-134, SOV-132, SOV-136, SOV-146, SOV-149, SOV-154, SOV-170, SOV-171, SOV-175, SOV-335, SOV-342, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-153, SEC-154, SEC-181, NET-010, NET-011, NET-012, NET-013, NET-020, NET-060, NET-097, NET-100, NET-102, NET-103, NET-110, NET-150, NET-172, NET-185, NET-192, NET-210, NET-212, NET-255, NET-322, SVC-125, SVC-136, SVC-138, SVC-159, SVC-160, SVC-170, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, AIP-201, INF-051, INF-052, INF-054, INF-055, INF-056, INF-057, INF-060, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - clusters/_template/infrastructure/base/**
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
@@ -8612,7 +8612,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-088, CLD-172, CLD-173, FND-032, SOV-230]
-  after: [FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -8638,7 +8638,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-174, CTL-045, CTL-150]
-  after: [FND-011, FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/nodepool.yaml
   - platform/crossplane-claims/chart/values.yaml
@@ -9084,7 +9084,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-175, FND-032, SVC-270]
-  after: [FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-136, SVC-138, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-154, FND-157, CLD-030, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-138, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -9110,7 +9110,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-221, SVC-320]
-  after: [CLD-075, FND-154, FND-157, CLD-030, CLD-092, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-136, SVC-138, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [CLD-075, FND-154, FND-157, CLD-030, CLD-092, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-080, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-138, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - infra/providers/huawei/day2/postgresinstance/**
   - clusters/_template/providers/huawei/compositions/postgresinstance-native.yaml
@@ -11530,7 +11530,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240, SOV-131, SOV-132, SOV-134]
-  after: [SOV-161, SOV-137, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-020, SOV-171, SOV-175, SOV-231, SOV-242, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-130, SVC-136, SVC-137, SVC-138, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [SOV-161, SOV-137, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-020, SOV-171, SOV-175, SOV-231, SOV-242, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-130, SVC-136, SVC-137, SVC-138, SVC-160, SVC-220, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11618,7 +11618,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330, SOV-322]
-  after: [SOV-344, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-020, SOV-171, SOV-175, SOV-231, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [SOV-344, FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-020, SOV-171, SOV-175, SOV-231, SEC-010, SEC-060, SEC-080, SEC-095, SEC-162, SEC-181, SEC-211, NET-040, NET-060, NET-080, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -12150,7 +12150,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, NET-131, SOV-030, SOV-140, SOV-141]
-  after: [FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-181, SEC-211, NET-013, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SEC-010, SEC-060, SEC-080, SEC-095, SEC-181, SEC-211, NET-013, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/phase1_watch.go
   - products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go
@@ -12404,7 +12404,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-171, CTL-110, CTL-112, FND-032, SEC-196, SOV-240, SOV-410]
-  after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-121, CLD-125, SOV-171, SOV-175, SOV-344, SEC-010, SEC-060, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-121, CLD-125, SOV-171, SOV-175, SOV-344, SEC-010, SEC-060, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03x-ownership-pivot-job.yaml
   - platform/self-sovereign-cutover/chart/templates/rbac.yaml
@@ -12462,7 +12462,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-107, FND-032, SOV-320, SOV-330, SOV-405, SOV-420, SOV-430, SOV-322, SOV-141, SOV-143, SOV-311]
-  after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-121, CLD-125, SOV-171, SOV-175, SOV-344, SEC-010, SEC-060, SEC-181, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-011, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-121, CLD-125, SOV-171, SOV-175, SOV-344, SEC-010, SEC-060, SEC-181, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-041, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - core/cmd/sovereign-ops/internal/release/**
   - core/cmd/sovereign-ops/internal/rotation/**
@@ -12558,7 +12558,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, SEC-190, SOV-080, SOV-420]
-  after: [FND-027, FND-029, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-076, CLD-121, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-126, SEC-180, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-027, FND-029, FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-076, CLD-121, CLD-125, SOV-171, SOV-175, SEC-010, SEC-060, SEC-126, SEC-180, SEC-181, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - core/cmd/sovereign-ops/internal/restore/**
   - tests/hermetic/handover/assert/
@@ -12653,7 +12653,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, FND-032, SOV-230, SOV-240, SOV-510]
-  after: [FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-171, SOV-175, SOV-322, SOV-521, SEC-010, SEC-060, SEC-080, SEC-095, SEC-104, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-040, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-151, FND-154, FND-155, FND-157, CLD-030, CLD-067, CLD-121, CLD-125, SOV-171, SOV-175, SOV-322, SOV-521, SEC-010, SEC-060, SEC-080, SEC-095, SEC-104, SEC-162, SEC-181, SEC-211, NET-020, NET-040, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-040, SVC-136, SVC-138, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-131, INF-050, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - core/cmd/sovereign-ops/internal/releasesync/**
   - clusters/_template/bootstrap-kit/06c-release-sync.yaml
@@ -19381,16 +19381,24 @@ packages:
   flips: [NET-G11]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls tests/acceptance/sovereign/internal/suite | grep -c '^check_route_admission'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && go vet ./... && go test -count=1 ./... > /dev/null && out=\"$(NO_COLOR=1 go test -count=1 -v -run '^TestRouteAdmissionCheck' ./internal/suite/)\" && test \"$(printf '%s\\n' \"$out\" | grep -c -E -e '^--- PASS: TestRouteAdmissionCheck(_Registered)? ' -e '^    --- PASS: TestRouteAdmissionCheck/')\" = 11"
+  - id: A2
+    run: "test \"$(awk '/^- id: NET-G11$/{f=1} f&&/^  delivered_by: /{print; f=0} f' docs/ledger/gates.yaml | grep -c -x -F -e '  state: expected-fail' -e '  implementation: tests/acceptance/sovereign/internal/suite/check_route_admission.go')\" = 2 && python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(printf 'Work-Package: NET-192\\n')"
+  - id: A3
+    run: "s=tests/acceptance/sovereign/internal/suite; out=\"$(gofmt -l $s/check_route_admission.go $s/check_route_admission_test.go 2>&1)\" && test -z \"$out\" && grep -q -F 'RegisterCheck(routeAdmissionCheck{kubectl: kube.Region.Run, forward: portForward,' $s/check_route_admission.go && grep -q -F 'routeAdmissionID = \"NET-G11\"' $s/check_route_admission.go"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The acceptance suite holds check NET-G11: a route of one Organization is admitted by that Organization''s listener and refused by another''s, read on a Sovereign; the check is registered and moves from not-built to expected-fail.'
+  delivers: Gate check NET-G11, implemented in tests/acceptance/sovereign/internal/suite/check_route_admission.go and set to expected-fail, reads the listener pairs of the console Gateway in the first region of a Sovereign, creates one HTTPRoute inside the vCluster of the first Organization A in a namespace of its own, and passes only when the host copy of that route is accepted by both listeners of A and refused by both listeners of the second Organization B because of its namespace; it deletes its namespace and waits until the host copy is gone, also after a failure.
 - id: NET-195
   title: 'Organization listener: client-certificate validation or TLS passthrough, by the outcome of PRD-050 (conditional, dropped until PRD-050 closes)'
   area: NET
@@ -20596,7 +20604,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-080, SEC-095, SEC-120, SEC-162, SEC-181, SEC-211, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, SVC-125, SVC-136, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-820, CMP-010, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -26454,7 +26462,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-126, SEC-180, SEC-181, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, CLD-121, CLD-125, SOV-170, SOV-171, SOV-175, SOV-343, SOV-721, SEC-010, SEC-060, SEC-126, SEC-180, SEC-181, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-103, NET-150, NET-172, NET-185, NET-192, NET-212, NET-255, NET-322, SVC-136, SVC-137, SVC-138, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CTL-815, CTL-820, CMP-023, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, AIP-131, INF-051, INF-052, INF-054, INF-056, INF-057, INF-133, INF-140, ACC-010, ACC-102, ACC-103]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - tests/acceptance/sovereign/**
@@ -27839,7 +27847,7 @@ packages:
   dropped: false
   delivers: The mutate policy inject-gitea-source-secretref is a MutatingPolicy of group policies.kyverno.io with the same name, labels and values keys, judged by its suite with byte-identical patched outputs; the chart's function test and its render test know the kind MutatingPolicy.
 - id: CMP-066
-  title: 'Delete what is left: stub and test-only set; move the access policy home'
+  title: 'Delete what is left: the stub and the test-only set; the access policy gets its suite'
   area: CMP
   epic: CMP-060
   type: delete
@@ -27859,7 +27867,7 @@ packages:
   - scripts/baselines/policy-suites.json
   - docs/ledger/deleted-paths.txt
   resources: []
-  flips: [CMP-G06]
+  flips: []
   implements: []
   proven_by: null
   precondition:
@@ -28500,6 +28508,72 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Decision type remediate with dueAt and the states open, overdue, resolved
+- id: CMP-086
+  title: The access policy moves into the policy chart
+  area: CMP
+  epic: CMP-060
+  type: refactor
+  wave: W2
+  size: M
+  lane: CHARTS
+  depends_on: [CMP-066]
+  after: [CMP-095, FND-011, FND-042, FND-043, FND-044, CLD-023, SEC-153, SEC-154, NET-030, SVC-040, SVC-041, SVC-100, SVC-230, CMP-041, CMP-067]
+  touches:
+  - platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+  - platform/crossplane-claims/chart/values.yaml
+  - platform/crossplane-claims/chart/tests/**
+  - platform/kyverno-policies/chart/model/checks.yaml
+  - platform/kyverno-policies/chart/templates/baseline/25-useraccess-boundary.yaml
+  - platform/kyverno-policies/chart/templates/compliance-model.yaml
+  - platform/kyverno-policies/chart/templates/tests/function-test.yaml
+  - platform/kyverno-policies/chart/values.yaml
+  - platform/kyverno-policies/chart/tests/**
+  - scripts/baselines/kyverno-legacy.json
+  - tools/guards/README.md
+  - tools/guards/cmd/check-compliance-model/main.go
+  - tools/guards/cmd/check-compliance-model/main_test.go
+  - docs/ledger/deleted-paths.txt
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The access policy is a ValidatingPolicy 25-useraccess-boundary.yaml in platform/kyverno-policies/chart, the claims chart's legacy copy is deleted, and the legacy guard and the suites read only the policy chart; the change is the saved patch of CMP-066's developer, brought onto the corrected rule of CMP-095.
+- id: CMP-087
+  title: Gate check CMP-G06 after the move of the access policy
+  area: CMP
+  epic: CMP-060
+  type: test
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-086]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_policy_engine.go
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [CMP-G06]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Gate check CMP-G06 holds after the access policy has moved into the policy chart: no legacy policy object but the image verifier, and every policy ready with results; the check flips.'
 - id: CMP-088
   title: Scanner to the current line
   area: CMP
@@ -28691,6 +28765,36 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The trivy chart gives scan Jobs no time-to-live, so the operator deletes each finished scan Job and a finished Job no longer holds a scan slot, and the operator's namespace scope sits at the keys the upstream chart reads, for the chart alone and with the values the kit passes, proved by the chart test tests/scan-job-lifecycle.sh.
+- id: CMP-095
+  title: An owner of a customer Organization cannot grant into another Organization
+  area: CMP
+  epic: CMP-060
+  type: fix
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-066, FND-011, CLD-023, SVC-040, SVC-041, SVC-100, CMP-041]
+  touches:
+  - platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+  - platform/crossplane-claims/chart/values.yaml
+  - platform/crossplane-claims/chart/tests/**
+  - platform/kyverno-policies/chart/tests/useraccess-boundary/**
+  - platform/kyverno-policies/chart/model/checks.yaml
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The access policy useraccess-boundary refuses a grant into another Organization unless the requester belongs to the management Organization. The package first confirms from the policy and its suite that the deny conditions test the requester's tier and never the requester's Organization; the suite gains a requester of the management Organization, and the cross-Organization verdict of a customer owner becomes fail.
 - id: CMP-098
   title: Sensor to the current line
   area: CMP
