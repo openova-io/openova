@@ -219,7 +219,7 @@ epics:
 - id: SEC-210
   title: 'EPIC: injection'
   wave: W1a
-  packages: [SEC-211, SEC-212, SEC-213, SEC-214, SEC-215]
+  packages: [SEC-211, SEC-213, SEC-216, SEC-212, SEC-214, SEC-215]
 - id: SEC-220
   title: 'EPIC: roll-out, identity charts'
   wave: W1a
@@ -15653,14 +15653,15 @@ packages:
   wave: W1a
   size: M
   lane: CONTROL
-  depends_on: [SEC-200, SEC-211]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SVC-040, CTL-330, CTL-333, BSS-040, ACC-102, PRD-201]
+  depends_on: [SEC-200, SEC-211, SEC-216, SEC-217]
+  after: [FND-011, FND-183, FND-184, CLD-030, CLD-106, CLD-113, SOV-035, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, NET-011, NET-080, SVC-040, SVC-190, SVC-205, CTL-150, CTL-330, CTL-333, BSS-040, AIP-120, AIP-153, INF-135, ACC-102, PRD-201]
   touches:
   - core/services/auth/internal/secretfile/
   - core/services/auth/main.go
   - products/catalyst/chart/templates/org-services/auth.yaml
   - products/catalyst/chart/templates/org-services/org-services-secrets.yaml
   - scripts/secret-guard-baselines/*.txt
+  - products/catalyst/chart/values.yaml
   resources: []
   flips: []
   implements: []
@@ -15764,6 +15765,69 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Pair HelmReleases reference a Secret by name; no password value in any rendered file.
+- id: SEC-216
+  title: The umbrella chart depends on secrets-lib and every renderer of it builds its dependencies
+  area: SEC
+  epic: SEC-210
+  type: refactor
+  wave: W1a
+  size: M
+  lane: CHARTS
+  depends_on: [SEC-200, SEC-211]
+  after: [FND-011, FND-017, FND-018, FND-019, FND-024, FND-027, FND-029, FND-046, FND-059, FND-062, FND-063, FND-156, CLD-106, SOV-035, SEC-060, SVC-040, SVC-060, SVC-138, SVC-150, SVC-159, SVC-160, SVC-161, SVC-170, SVC-205, SVC-230, CTL-150, CTL-333, CMP-079, BSS-040, INF-135]
+  touches:
+  - products/catalyst/chart/Chart.yaml
+  - products/catalyst/chart/tests/**
+  - .github/workflows/blueprint-release.yaml
+  - .github/workflows/build-projector.yaml
+  - .github/workflows/check-catalog-generated-drift.yaml
+  - .github/workflows/preflight-blueprint-crd-cel.yaml
+  - .github/workflows/preflight-cilium-httproute.yaml
+  - .github/workflows/test-strategy-flip.yaml
+  - scripts/check-lock-stages.py
+  - scripts/check-region-selector-fail-closed.sh
+  - scripts/lib/parse-catalog-seed-pins.awk
+  - scripts/tests/test_generate_catalog.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The umbrella chart depends on platform/secrets-lib through the dependency block of products/catalyst/chart/Chart.yaml (its version line untouched), and every chart test and renderer of the umbrella runs helm dependency build before it renders, with a guard that fails a renderer that does not. No secret moves in this package.
+- id: SEC-217
+  title: secrets-lib writes a generated secret into a named namespace
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SEC-200, SEC-201, SVC-040, SVC-041]
+  touches:
+  - platform/secrets-lib/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The library secrets-lib takes an input for the namespace of a generated value and of its birth objects, the release's namespace by default, so a generated secret can be written into a named namespace; a chart test holds both cases.
 - id: SEC-221
   title: 'Roll-out: platform/keycloak'
   area: SEC
