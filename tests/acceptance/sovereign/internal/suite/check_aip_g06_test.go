@@ -15,14 +15,14 @@ import (
 
 // aipG06Fake answers kubectl for check AIP-G06: the reads of the Deployment,
 // the Secrets and the Service of the namespace axon, by region. Every other
-// call (the dial Pod) goes to the fake of check_policy_dials_test.go, which runs
-// the real dial script with a fake nc. The port-forward is an httptest server
+// call (the dial Pod and the EndpointSlices of a deny dial) goes to the fake of
+// check_policy_dials_test.go, which runs the real dial script with a fake nc. The port-forward is an httptest server
 // that answers GET /stats with code and stats.
 type aipG06Fake struct {
 	dial       *dialFake
 	deployment map[string]string // region -> the JSON of deployment axon/axon; absent: the read fails
 	secrets    string            // the JSON list of the Secrets of axon in the primary region
-	services   map[string]bool   // region -> the Service axon/axon exists
+	services   map[string]string // region -> the JSON of service axon/axon; absent: the read fails
 	code       int
 	stats      string
 	forwardErr error
@@ -40,8 +40,8 @@ func (f *aipG06Fake) kubectl(r kube.Region, ctx context.Context, stdin io.Reader
 	case "-n axon get secret -o json":
 		return []byte(f.secrets), nil
 	case "-n axon get service axon -o json":
-		if f.services[r.ID] {
-			return []byte(`{"kind": "Service", "metadata": {"name": "axon", "namespace": "axon"}, "spec": {"type": "ClusterIP"}}`), nil
+		if s, ok := f.services[r.ID]; ok {
+			return []byte(s), nil
 		}
 		return nil, fmt.Errorf("[%s] kubectl get service axon: NotFound", r.ID)
 	}
@@ -69,6 +69,8 @@ const (
 	// The API leaves status.replicas and status.readyReplicas out when they are 0.
 	aipG06Zero  = `{"metadata": {"name": "axon", "generation": 2}, "spec": {"replicas": 0}, "status": {"observedGeneration": 2}}`
 	aipG06Stats = `{"credential": {"state": "absent"}, "turns": {"active": 0, "parked": 0, "queued": 0, "maxActive": 4, "maxParked": 8}, "counters": {}}`
+	// aipG06Svc is the Service the chart renders: ClusterIP, published to the mesh.
+	aipG06Svc = `{"kind": "Service", "metadata": {"name": "axon", "namespace": "axon", "annotations": {"service.cilium.io/global": "true"}}, "spec": {"type": "ClusterIP"}}`
 )
 
 // aipG06Good is a Sovereign of two regions where every clause holds.
@@ -82,7 +84,7 @@ func aipG06Good(t *testing.T) *aipG06Fake {
 		}},
 		deployment: map[string]string{"region-a": aipG06ReadyOne, "region-b": aipG06Zero},
 		secrets:    `{"items": [{"metadata": {"name": "secrets-birth-ca"}, "data": {"ca.crt": "eA=="}}]}`,
-		services:   map[string]bool{"region-a": true, "region-b": true},
+		services:   map[string]string{"region-a": aipG06Svc, "region-b": aipG06Svc},
 		code:       http.StatusOK,
 		stats:      aipG06Stats,
 	}
@@ -121,8 +123,11 @@ func TestAipG06Check(t *testing.T) {
 	if len(f.dial.created) != 1 || !strings.HasPrefix(f.dial.created[0], "default/") {
 		t.Errorf("dial Pods %v, want one in the namespace default", f.dial.created)
 	}
-	if n := len(r.run.Steps); n != 10 {
-		t.Errorf("%d steps, want 10 (3 reads and 5 steps of the fence in region-a, 2 reads in region-b)", n)
+	if n := len(r.run.Steps); n != 11 {
+		t.Errorf("%d steps, want 11 (4 reads and 5 steps of the fence in region-a, 2 reads in region-b)", n)
+	}
+	if got := strings.Join(f.dial.asked, " "); got != "axon/axon axon/axon" {
+		t.Errorf("EndpointSlices read for %q, want axon/axon before each of the two deny dials", got)
 	}
 	one := aipG06Good(t)
 	aipG06Run(t, one, []kube.Region{{ID: "region-a"}}, "")
@@ -192,7 +197,25 @@ func TestAipG06Check_Faults(t *testing.T) {
 		"another region keeps a Pod": {func(f *aipG06Fake) {
 			f.deployment["region-b"] = `{"metadata": {"generation": 2}, "spec": {"replicas": 0}, "status": {"observedGeneration": 2, "replicas": 1}}`
 		}, "has 1 replicas, 0 ready, want 0"},
-		"no Service in another region": {func(f *aipG06Fake) { f.services["region-b"] = false }, "get service axon: NotFound"},
+		"no Service in another region": {func(f *aipG06Fake) { delete(f.services, "region-b") }, "get service axon: NotFound"},
+		"NodePort Service in another region": {func(f *aipG06Fake) {
+			f.services["region-b"] = strings.Replace(aipG06Svc, `"ClusterIP"`, `"NodePort"`, 1)
+		}, `is of type "NodePort", want ClusterIP`},
+		"LoadBalancer Service in the primary region": {func(f *aipG06Fake) {
+			f.services["region-a"] = strings.Replace(aipG06Svc, `"ClusterIP"`, `"LoadBalancer"`, 1)
+		}, `is of type "LoadBalancer", want ClusterIP`},
+		"Service not global in another region": {func(f *aipG06Fake) {
+			f.services["region-b"] = `{"kind": "Service", "metadata": {"name": "axon", "namespace": "axon"}, "spec": {"type": "ClusterIP"}}`
+		}, `has service.cilium.io/global "", want "true"`},
+		"global annotation false in the primary region": {func(f *aipG06Fake) {
+			f.services["region-a"] = strings.Replace(aipG06Svc, `/global": "true"`, `/global": "false"`, 1)
+		}, `has service.cilium.io/global "false", want "true"`},
+		"Service without a ready endpoint": {func(f *aipG06Fake) {
+			f.dial.ready = map[string]int{"axon/axon": 0}
+		}, "the Service axon/axon has no ready endpoint"},
+		"EndpointSlices unreadable": {func(f *aipG06Fake) {
+			f.dial.readyErr = errors.New("endpointslices.discovery.k8s.io is forbidden")
+		}, "read the EndpointSlices of the Service axon/axon"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := aipG06Good(t)

@@ -8,7 +8,8 @@ Port 3000 serves the model contract (/v1/*), port 3001 the admin routes:
 are up, whatever the credential state) and /stats.
 
 The root filesystem is read-only. HOME and TMPDIR are one memory-backed
-emptyDir: each child process gets an empty HOME below TMPDIR. The credential
+emptyDir: below TMPDIR the child processes share one empty HOME, made at the
+first run. The credential
 document is the CSI file /var/run/secrets/openova/model-credential, read once at
 start; the write-back logs in to OpenBao with the projected token of audience
 openbao at /var/run/secrets/openova-token/token.
@@ -35,10 +36,8 @@ spec:
       serviceAccountName: axon
       automountServiceAccountToken: false
       enableServiceLinks: false
-      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001

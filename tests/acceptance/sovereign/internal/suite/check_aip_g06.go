@@ -21,22 +21,29 @@ import (
 // In the primary region, the first region of the run:
 //  1. Deployment axon/axon asks for one replica, its controller has observed
 //     that spec, and one replica is ready.
-//  2. Through kubectl port-forward to port 3001 of Service axon/axon, GET
+//  2. Service axon/axon is of type ClusterIP and carries the annotation
+//     service.cilium.io/global "true": the global Service is what sends the
+//     callers of a region without a Pod to the one of the primary region, and
+//     a ClusterIP Service has no node port.
+//  3. Through kubectl port-forward to port 3001 of Service axon/axon, GET
 //     /stats answers 200 with a credential.state that is one of the five
 //     states of the credential owner (products/axon/src/credential.ts).
-//  3. No Secret of namespace axon has a data key document or .credentials.json:
+//  4. No Secret of namespace axon has a data key document or .credentials.json:
 //     the credential reaches the Pod as a CSI file only.
-//  4. A dial Pod of namespace default (the Dialer of check_policy_dials.go)
+//  5. A dial Pod of namespace default (the Dialer of check_policy_dials.go)
 //     reaches the cluster DNS service and kubernetes.default.svc:443, and its
 //     dials of axon.axon.svc:3000 and axon.axon.svc:3001 time out (nc -w 3):
 //     the chart's CiliumNetworkPolicy admits the meter alone to the model port
 //     and catalyst-api alone to the admin port. The dial of the API server
-//     proves that the Pod's own egress works, so the timeout is the
-//     fence. A refused dial fails: it reached the port. The Pod is deleted in a
-//     step of its own, also when a step failed.
+//     proves that the Pod's own egress works, and each deny dial first needs a
+//     ready endpoint of Service axon/axon (its EndpointSlices, read with
+//     ReadyEndpoints), so the timeout is the fence. A refused dial fails: it
+//     reached the port. The Pod is deleted in a step of its own, also when a
+//     step failed.
 //
 // In every other region: Deployment axon/axon asks for zero replicas, its
-// controller has observed that spec, and it has none; Service axon/axon exists.
+// controller has observed that spec, and it has none; Service axon/axon is
+// judged as in item 2.
 //
 // The check records names, data keys, counts and the state; never a value of a
 // Secret or of the credential.
@@ -48,6 +55,8 @@ const (
 	aipG06AdminPort = 3001
 	aipG06DialNS    = "default"
 	aipG06GetWait   = 15 * time.Second
+	// aipG06Global is the annotation that publishes the Service to the mesh.
+	aipG06Global = "service.cilium.io/global"
 )
 
 // aipG06States are the states that GET /stats reports for the credential.
@@ -79,6 +88,16 @@ func (c aipG06Check) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 		n++
 		return checkStep(rec, aipG06ID, n, name, fn)
 	}
+	service := func(region kube.Region) {
+		step("the Service axon/axon of region "+region.ID+" is of type ClusterIP and published to the mesh ("+aipG06Global+" \"true\")", func(ev Evidence) error {
+			ev["region"] = region.ID
+			s, err := c.object(ctx, region, "service")
+			if err != nil {
+				return err
+			}
+			return aipG06Service(s, ev)
+		})
+	}
 	primary := cc.Regions[0]
 	step("the Deployment axon/axon of the primary region "+primary.ID+" asks for one replica and has one ready", func(ev Evidence) error {
 		ev["region"] = primary.ID
@@ -88,6 +107,7 @@ func (c aipG06Check) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 		}
 		return aipG06Replicas(d, 1, ev)
 	})
+	service(primary)
 	step("GET /stats on port 3001 of the Service axon/axon of region "+primary.ID+" reports one of the five credential states", func(ev Evidence) error {
 		ev["region"] = primary.ID
 		addr, stop, err := c.forward(ctx, primary, aipG06NS, aipG06Name, aipG06AdminPort)
@@ -135,25 +155,14 @@ func (c aipG06Check) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 			}
 			return aipG06Replicas(d, 0, ev)
 		})
-		step("the Service axon/axon exists in region "+region.ID, func(ev Evidence) error {
-			ev["region"] = region.ID
-			s, err := c.object(ctx, region, "service")
-			if err != nil {
-				return err
-			}
-			ev["type"] = s.Str("spec", "type")
-			if s.Name() != aipG06Name || s.Namespace() != aipG06NS {
-				return fmt.Errorf("[%s] the answer names the Service %s/%s", region.ID, s.Namespace(), s.Name())
-			}
-			return nil
-		})
+		service(region)
 	}
 	return nil
 }
 
-// fence records the steps of item 4 in region: start the dial Pod, dial the API
-// server (allow), dial the model port and the admin port of Axon (deny each),
-// delete the Pod.
+// fence records the steps of item 5 in region: start the dial Pod, dial the API
+// server (allow), dial the model port and the admin port of Axon (deny each,
+// once the Service has a ready endpoint), delete the Pod.
 func (c aipG06Check) fence(ctx context.Context, region kube.Region, step func(string, func(Evidence) error) bool) {
 	d := &Dialer{Kubectl: c.kubectl, Region: region, Run: strings.ToLower(NewRunID(time.Now()))}
 	from := DialSource{Namespace: aipG06DialNS}
@@ -178,6 +187,16 @@ func (c aipG06Check) fence(ctx context.Context, region kube.Region, step func(st
 			}
 			step(what+" (region "+region.ID+")", func(ev Evidence) error {
 				ev["region"], ev["to"], ev["expect"] = region.ID, row.To.String(), row.Expect
+				if row.Expect == "deny" {
+					ready, err := d.ReadyEndpoints(ctx, row.To)
+					if err != nil {
+						return err
+					}
+					ev["ready_endpoints"] = ready
+					if ready == 0 {
+						return fmt.Errorf("the Service %s/%s has no ready endpoint: nothing listens, so a timeout would prove nothing", row.To.Namespace, row.To.Service)
+					}
+				}
 				res, err := d.Dial(ctx, from, row.To)
 				if err != nil {
 					return err
@@ -233,6 +252,20 @@ func aipG06Replicas(d kube.Object, want int, ev Evidence) error {
 		return fmt.Errorf("the Deployment axon/axon asks for %v replicas, want %d", spec, want)
 	case running != float64(want) || ready != float64(want):
 		return fmt.Errorf("the Deployment axon/axon has %v replicas, %v ready, want %d", running, ready, want)
+	}
+	return nil
+}
+
+// aipG06Service judges the Service axon/axon: spec.type is ClusterIP (no node
+// port, no load balancer) and the annotation aipG06Global is "true".
+func aipG06Service(s kube.Object, ev Evidence) error {
+	typ, global := s.Str("spec", "type"), s.Str("metadata", "annotations", aipG06Global)
+	ev["type"], ev["global"] = typ, global
+	switch {
+	case typ != "ClusterIP":
+		return fmt.Errorf("the Service axon/axon is of type %q, want ClusterIP", typ)
+	case global != "true":
+		return fmt.Errorf("the Service axon/axon has %s %q, want \"true\": a region without a Pod would not reach the primary Axon", aipG06Global, global)
 	}
 	return nil
 }

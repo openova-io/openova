@@ -50,6 +50,14 @@ the name of the value.
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString .Values.image.digest)) }}
 {{- fail (printf "image.digest must be sha256:<64 hex digits>, not %q" (toString .Values.image.digest)) }}
 {{- end }}
+{{- if or (not (kindIs "slice" .Values.imagePullSecrets)) (not .Values.imagePullSecrets) }}
+{{- fail "imagePullSecrets must name at least one pull secret: the image is on a registry the node has no login for" }}
+{{- end }}
+{{- range .Values.imagePullSecrets }}
+{{- if or (not (kindIs "map" .)) (not .name) }}
+{{- fail "imagePullSecrets: every entry must be {name: <pull secret>}" }}
+{{- end }}
+{{- end }}
 {{- range $k := list "maxActive" "maxParked" }}
 {{- if not (regexMatch "^[1-9][0-9]*$" (toString (index $.Values.axon $k))) }}
 {{- fail (printf "axon.%s must be a positive whole number, not %q" $k (toString (index $.Values.axon $k))) }}
