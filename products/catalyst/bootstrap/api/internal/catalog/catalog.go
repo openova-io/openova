@@ -42,6 +42,17 @@ import (
 //go:embed blueprints.json
 var blueprintsJSON []byte
 
+// capabilitiesJSON is the capability index: every contract file of
+// platform/_capabilities/ and the Blueprints that provide each capability,
+// written by sh products/catalyst/bootstrap/api/internal/capability/write.sh.
+//
+//go:embed capabilities.json
+var capabilitiesJSON []byte
+
+// CapabilitiesJSON returns the embedded capability index, the input of
+// capability.LoadIndex.
+func CapabilitiesJSON() []byte { return capabilitiesJSON }
+
 // Visibility mirrors the TS BlueprintVisibility union — listed
 // blueprints appear in the marketplace card grid; unlisted are
 // mandatory infra (bootstrap-kit) that the Sovereign Console renders

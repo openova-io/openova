@@ -56,6 +56,8 @@ import (
 	"github.com/openova-io/openova/core/controllers/application/admission"
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/capability"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/capability/binding"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
@@ -256,6 +258,9 @@ type EndpointPrecheckDeps struct {
 	// via the `groups` claim. Production main.go SHOULD wire a real
 	// implementation that walks claims.Groups.
 	OrgMembership func(ctx context.Context, claims *auth.Claims, org string) bool
+
+	// CapabilityIndex — nil = the index the binary embeds; tests inject one.
+	CapabilityIndex capability.Index
 }
 
 // SetEndpointPrecheckDeps wires the dependency bundle. Tests override
@@ -711,13 +716,16 @@ func (h *Handler) createApplicationInstance(ctx context.Context, client dynamic.
 	// for each selection, either auto-create the backing service as its
 	// OWN instance-application or append a Context to the named existing
 	// instance's IaC. Both return the spec.dependsOn entries the consumer
-	// CR is created with.
-	dependsOnEntries, backingErr := h.wireBackingServices(ctx, client, body, refs)
+	// CR is created with, and the bindings of the capabilities it requires.
+	dependsOnEntries, bindings, backingErr := h.wireBackingServices(ctx, client, body, refs, bpDoc.Requires)
 	if backingErr != nil {
 		return nil, "", &refError{Status: backingErr.status, Code: backingErr.code, Message: backingErr.message}
 	}
 
 	obj := newApplicationCRFromSeed(seed)
+	if err := binding.Write(obj.Object, bindings); err != nil {
+		return nil, "", &refError{Status: http.StatusInternalServerError, Code: "create-failed", Message: err.Error()}
+	}
 	// The CRD requires an exact semver on blueprintRef.version: the
 	// Blueprint CR's own spec.version (validateInstallRefs), falling back
 	// to the catalog projection.
@@ -784,54 +792,43 @@ type backingError struct {
 // Bootstrap-owned reuse targets are rejected with a structured 409:
 // their Context declarations live in the bootstrap-kit slot values in
 // Git, not in the Application CR — appending here would render a row
-// whose materialization never happens.
-func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest, refs resolvedRefs) ([]interface{}, *backingError) {
+// whose materialization never happens. An element that names a capability
+// of the consumer's requires is resolved first (package binding).
+func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest, refs resolvedRefs, requires []capability.Requirement) ([]interface{}, map[string]interface{}, *backingError) {
+	resolved, refusal := binding.Resolve(ctx, client, h.endpointDeps.CapabilityIndex, body.Blueprint, requires, body.Backing)
+	if refusal != nil {
+		return nil, nil, &backingError{status: refusal.Status, code: refusal.Code, message: refusal.Message}
+	}
 	if len(body.Backing) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	// #3830 — slugged namespace for this Org (body.Org is the FQDN Org
 	// identity). The reflected-credential target namespace, the backing CR
 	// create, and the consumer's dependsOn pointer all use this so they
 	// agree with where the consumer + backing CRs actually live.
 	orgNS := refs.Namespace
-	dependsOn := make([]interface{}, 0, len(body.Backing))
-	for _, sel := range body.Backing {
+	dependsOn, bindings := make([]interface{}, 0, len(body.Backing)), map[string]interface{}{}
+	for i, sel := range body.Backing {
 		// ADR-0015 D4 — the backing Blueprint is named exactly.
-		bpFull := sel.Blueprint
+		bpFull := binding.Provider(resolved[i], sel.Blueprint)
 		slug := strings.TrimPrefix(bpFull, "bp-")
 
 		ctxSchema := h.contextSchemaFor(ctx, bpFull)
 		if ctxSchema == nil {
-			return nil, &backingError{
+			return nil, nil, &backingError{
 				status:  http.StatusUnprocessableEntity,
 				code:    "backing-not-shareable",
 				message: fmt.Sprintf("Blueprint %s declares no shareable contextSchema — it cannot serve as a backing service", bpFull),
 			}
 		}
 
-		// The Context entry — the canonical context shape every
-		// shareable chart materializes from (the bp-postgres
-		// databases[] machinery, generalized by declaration only).
 		contextName := body.Name
-		credential := fmt.Sprintf("%s-%s-credential", body.Name, ctxSchema.Kind)
-		entry := map[string]interface{}{
-			"name":  contextName,
-			"owner": body.Name,
-			"consumer": map[string]interface{}{
-				"blueprint": "bp-" + strings.TrimPrefix(body.Blueprint, "bp-"),
-				"mode":      "shared",
-			},
-			"reflect": map[string]interface{}{
-				"secretName": credential,
-				// #3830 — reflect the credential into the slugged consumer
-				// namespace (where the consumer CR + its pods live).
-				"namespaces": []interface{}{orgNS},
-			},
-		}
+		entry := binding.ContextEntry(resolved[i], body.Blueprint, body.Name, orgNS, ctxSchema.Kind)
+		binding.Add(bindings, resolved[i], orgNS)
 
 		switch sel.Mode {
 		case "", "create":
-			backingName := fmt.Sprintf("%s-%s", body.Name, slug)
+			backingName := binding.ProviderName(resolved[i], body.Name, slug)
 			backing := instances.CreateInstanceRequest{
 				Blueprint:   bpFull,
 				Org:         body.Org,
@@ -843,7 +840,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			}
 			bpDoc, bpErr := h.resolveBlueprintMeta(ctx, bpFull, "")
 			if bpErr != nil {
-				return nil, &backingError{status: http.StatusServiceUnavailable, code: "blueprint-unavailable", message: bpErr.Error()}
+				return nil, nil, &backingError{status: http.StatusServiceUnavailable, code: "blueprint-unavailable", message: bpErr.Error()}
 			}
 			// The backing instance is placed like its consumer: the regions
 			// THIS install asked for decide multi- vs single-region. The
@@ -874,11 +871,11 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 				Mode: backingTopology, Regions: backingRegions,
 			})
 			if rerr != nil {
-				return nil, &backingError{status: rerr.Status, code: rerr.Code, message: "backing " + rerr.Message}
+				return nil, nil, &backingError{status: rerr.Status, code: rerr.Code, message: "backing " + rerr.Message}
 			}
 			backingSeed, serr := backing.Build(backingTopology)
 			if serr != nil {
-				return nil, &backingError{status: http.StatusBadRequest, code: "backing-invalid", message: serr.Error()}
+				return nil, nil, &backingError{status: http.StatusBadRequest, code: "backing-invalid", message: serr.Error()}
 			}
 			backingSeed.Regions = backingRefs.Regions
 			backingObj := newApplicationCRFromSeed(backingSeed)
@@ -894,7 +891,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			}
 			if _, cerr := client.Resource(ApplicationGVR()).Namespace(orgNS).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
 				if !apierrors.IsAlreadyExists(cerr) {
-					return nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
+					return nil, nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
 				}
 			}
 			// #3687 (fold #3694) — the auto-created backing instance is its
@@ -913,14 +910,14 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 		case "reuse":
 			target, terr := h.findInstanceByName(ctx, client, bpFull, sel.Instance)
 			if terr != nil {
-				return nil, &backingError{
+				return nil, nil, &backingError{
 					status:  http.StatusNotFound,
 					code:    "backing-instance-not-found",
 					message: fmt.Sprintf("no %s instance named %q", bpFull, sel.Instance),
 				}
 			}
 			if b, _, _ := unstructured.NestedBool(target.Object, "spec", "bootstrap"); b {
-				return nil, &backingError{
+				return nil, nil, &backingError{
 					status:  http.StatusConflict,
 					code:    "backing-bootstrap-owned",
 					message: fmt.Sprintf("instance %q is bootstrap-owned — its Contexts are declared in the bootstrap-kit slot values in Git; add the Context there", sel.Instance),
@@ -935,7 +932,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			for _, e := range entries {
 				if em, ok := e.(map[string]interface{}); ok {
 					if n, _ := em["name"].(string); n == contextName {
-						return nil, &backingError{
+						return nil, nil, &backingError{
 							status:  http.StatusConflict,
 							code:    "context-exists",
 							message: fmt.Sprintf("instance %q already declares Context %s/%s", sel.Instance, ctxSchema.Kind, contextName),
@@ -945,10 +942,10 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			}
 			params[ctxSchema.ValuesKey] = append(entries, entry)
 			if err := unstructured.SetNestedMap(target.Object, params, "spec", "parameters"); err != nil {
-				return nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: err.Error()}
+				return nil, nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: err.Error()}
 			}
 			if _, uerr := client.Resource(ApplicationGVR()).Namespace(target.GetNamespace()).Update(ctx, target, metav1.UpdateOptions{}); uerr != nil {
-				return nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: uerr.Error()}
+				return nil, nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: uerr.Error()}
 			}
 			// #3687 (fold #3694) — the appended Context is "the declared
 			// IaC": commit the reused instance's updated CR (now carrying
@@ -965,7 +962,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 			})
 		}
 	}
-	return dependsOn, nil
+	return dependsOn, bindings, nil
 }
 
 // findInstanceByName resolves an Application CR by instance name +
@@ -1334,6 +1331,8 @@ type blueprintMeta struct {
 	// reuse selector) renders from.
 	Shareable     bool               `yaml:"shareable,omitempty" json:"shareable,omitempty"`
 	ContextSchema *contextSchemaDecl `yaml:"contextSchema,omitempty" json:"contextSchema,omitempty"`
+	// Requires — spec.requires: the capabilities an Application needs.
+	Requires []capability.Requirement `yaml:"requires,omitempty" json:"requires,omitempty"`
 }
 
 type endpointDecl struct {
