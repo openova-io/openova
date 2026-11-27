@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-openbao
 spec:
-  version: 1.2.91
+  version: 1.2.92
   card:
     title: OpenBao
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
