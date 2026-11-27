@@ -30,8 +30,9 @@ generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
                              # default password; [A-Za-z0-9][-._A-Za-z0-9]*
     placeholder: false       # mounted only (SEC-201): true = the document holds
                              # the key with an empty string (no length, no symbols)
-    seedFrom: {}             # mounted only (SEC-226): {name, key}, a Secret of
-                             # the value's namespace that holds the value today;
+    seedFrom: {name: a, key: b}  # mounted only (SEC-226); no default (absent:
+                             # no seed; {} is refused): name and key of a Secret
+                             # of the value's namespace that holds the value today;
                              # the birth writes its key when the path is absent,
                              # a new random value only when the Secret does not
                              # exist, and nothing when the path holds a value

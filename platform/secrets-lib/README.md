@@ -222,5 +222,8 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
   writer replaces and the Job never writes again, and a named namespace: a
   Job of the release's namespace is refused its path, the Job there writes it;
   L10 seedFrom against a Kubernetes API stand-in (a KV mount at the API's
-  path, its token's policy the rendered Role): seeded, fresh (43), already
-  present, a Secret without the key, a 403.
+  path, its token's policy the rendered Role less the Secret of the path
+  that holds a value): seeded, fresh (43), already present and unread, a
+  second run with the token revoked, and refused with nothing written (not
+  even an absent path before the seed): a Secret without the key, an empty
+  value, a value with a trailing newline, a 403.

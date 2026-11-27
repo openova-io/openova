@@ -43,10 +43,13 @@
 #       values: a path that is absent gets the key of the Secret that exists
 #       (a shared one in A and B), a new random value of the stated length
 #       (43) when the Secret does not exist; a path that holds a value keeps
-#       it and its Secret, which differs, is not read; no value reaches the
-#       log; a second run writes and reads nothing; a Secret without the key,
-#       and a Secret the token may not read (403), fail the run (exit 1)
-#       with nothing written, never a random value.
+#       it and its Secret, which differs, is not read (the stand-in token may
+#       not read it, so a read fails the run); no value reaches the log; a
+#       second run, its token revoked, writes and reads nothing; a Secret
+#       without the key, an empty value, a value with a trailing newline (not
+#       printable ASCII) and a Secret the token may not read (403) fail the
+#       run (exit 1) with nothing written, not even the absent path before
+#       the seed in the plan, never a random value.
 #
 # The stand-ins: the Job and the reconciler log in through a `jwt` mount
 # (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
@@ -323,12 +326,14 @@ v9="$(rd "$AURL" $NS9)"
 # API's path of a Secret. Where the script looks it answers as the API does:
 # 200 with the Secret's top-level data map, 404 for a Secret that does not
 # exist, 403 for a name the token may not read, the token read from
-# "Authorization: Bearer". The token's policy is the rendered Role: read on
-# the Secrets it names, nothing else. Each stand-in Secret also carries a
-# last-applied annotation with another value under the same key.
+# "Authorization: Bearer". The token's policy is the rendered Role less
+# Secret changed: read on the other Secrets it names, nothing else. changed
+# is the Secret of the path that holds a value, which the script must never
+# read: a read of it is a 403 and fails the run. Each stand-in Secret also
+# carries a last-applied annotation with another value under the same key.
 KS=kapi/api/v1/namespaces/acme/secrets
 M10=acme/sa/app/master-key/e1; S10=acme/shared/shared-seed/e1; F10=acme/sa/app/fresh-key/e1
-K10=acme/sa/app/kept-key/e1; N10=acme/sa/app/no-key/e1
+K10=acme/sa/app/kept-key/e1; N10=acme/sa/app/no-key/e1; P10=acme/sa/app/before-seed/e1
 for l in "$M10 43 0 seed:old-master/master-key self key" "$S10 32 0 seed:old-master/master-key all" \
          "$F10 43 0 seed:never-made/master-key self" "$K10 32 0 seed:changed/master-key self" "$N10 32 0 seed:no-key/master-key self"; do
   grep -qxF "$l" "$TMP/plan10all" || die "the rendered plan lacks the seed line '$l': $(tr '\n' ';' < "$TMP/plan10all")"
@@ -338,12 +343,16 @@ done
 names="$(sed -n 's/^    resourceNames: //p' "$TMP/fx10.yaml" | jq -r '.[]' | tr '\n' ' ')"
 [ "$names" = "changed never-made no-key old-master " ] || die "the rendered Role names: $names"
 curl -sf "${RT[@]}" -X POST -o /dev/null -d '{"type":"kv","options":{"version":"1"}}' "$AURL/v1/sys/mounts/kapi" || die "mounting the API stand-in failed"
-pol=""; for n in $names; do pol="$pol path \"$KS/$n\" { capabilities = [\"read\"] }"; done
+pol=""; for n in $names; do [ "$n" = changed ] || pol="$pol path \"$KS/$n\" { capabilities = [\"read\"] }"; done
 jq -n --arg p "$pol" '{policy: $p}' | curl -sf "${RT[@]}" -X PUT -o /dev/null -d @- "$AURL/v1/sys/policies/acl/kube-standin" || die "the stand-in policy was refused"
 mkdir -p "$TMP/kube"; : > "$TMP/kube/ca.crt"
-curl -sf "${RT[@]}" -X POST -d '{"policies":["kube-standin"],"no_default_policy":true,"ttl":"1h"}' "$AURL/v1/auth/token/create" \
-  | jq -r '.auth.client_token // empty' > "$TMP/kube/token"
-[ -s "$TMP/kube/token" ] || die "no stand-in API token"
+kube_token() {
+  curl -sf "${RT[@]}" -X POST -d '{"policies":["kube-standin"],"no_default_policy":true,"ttl":"1h"}' "$AURL/v1/auth/token/create" \
+    | jq -r '.auth.client_token // empty' > "$TMP/kube/token"
+  [ -s "$TMP/kube/token" ] || die "no stand-in API token"
+}
+kube_token
+kcode() { code -H "Authorization: Bearer $(cat "$TMP/kube/token")" "$AURL/v1/$KS/$1"; }
 b64s() { printf '%s' "$1" | openssl base64 -A; }
 secret() {  # $1 name $2 data map (JSON)
   jq -n --arg n "$1" --argjson d "$2" --arg o "$(b64s from-the-annotation)" \
@@ -357,6 +366,7 @@ secret no-key "{\"other\":\"$(b64s "$NEWV")\"}"
 secret not-granted "{\"master-key\":\"$(b64s "$NEWV")\"}"
 curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"data\":{\"password\":\"$OLDV\"}}" "$AURL/v1/mounted/data/$K10" || die "writing $K10 first failed"
 export KUBE_API="$AURL/v1/kapi" KUBE_NAMESPACE=acme KUBE_DIR="$TMP/kube"
+[ "$(kcode old-master)$(kcode changed)" = 200403 ] || die "the stand-in token does not read old-master and only that: $(kcode old-master) $(kcode changed)"
 grep -v "^$N10 " "$TMP/plan10all" > "$TMP/plan10"
 l10=""
 rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10" run acme "$TMP/run10.log" || rc=$?
@@ -370,16 +380,32 @@ grep -qx "secrets-birth: $M10: the value of key master-key of Secret old-master"
 [ "$(docof "$AURL" $K10)" = "{\"password\":\"$OLDV\"}" ] && [ "$(ver "$AURL" $K10)" = 1 ] || l10="$l10 kept($(ver "$AURL" $K10))"
 grep -qx "secrets-birth: $K10: present in $A" "$TMP/run10.log" && ! grep -q "of Secret changed" "$TMP/run10.log" || l10="$l10 kept-log"
 ! grep -qF -e "$SEEDV" -e "$NEWV" -e "$(b64s "$SEEDV")" "$TMP/run10.log" || l10="$l10 value-in-log"
+# The second run with the stand-in token revoked: any read of a Secret is a
+# 403 and fails the run, so exit 0 shows that it reads nothing.
+jq -n --arg t "$(cat "$TMP/kube/token")" '{token: $t}' | curl -sf "${RT[@]}" -X POST -o /dev/null -d @- "$AURL/v1/auth/token/revoke" \
+  || die "revoking the stand-in API token failed"
+[ "$(kcode old-master)" = 403 ] || die "the revoked stand-in token still reads old-master"
 rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10" run acme "$TMP/run10b.log" || rc=$?
-[ "$rc" = 0 ] && ! grep -q -e ': written in ' -e ' of Secret ' "$TMP/run10b.log" && [ "$(rd "$AURL" $F10)" = "$vf" ] || l10="$l10 second-run(rc=$rc)"
-grep "^$N10 " "$TMP/plan10all" > "$TMP/plan10n"
-rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10n" run acme "$TMP/run10n.log" || rc=$?
-[ "$rc" = 1 ] && [ "$(ver "$AURL" $N10)" = 0 ] && grep -qx "secrets-birth: Secret no-key holds no key master-key" "$TMP/run10n.log" \
-  || l10="$l10 no-key(rc=$rc v$(ver "$AURL" $N10): $(tr '\n' ' ' < "$TMP/run10n.log"))"
+[ "$rc" = 0 ] && ! grep -q -e ': written in ' -e ' of Secret ' "$TMP/run10b.log" && [ "$(rd "$AURL" $F10)" = "$vf" ] \
+  || l10="$l10 second-run(rc=$rc: $(tr '\n' ' ' < "$TMP/run10b.log"))"
+kube_token
+# refused10 <plan> <log> <line> <name>: exit 1, the log holds <line> and no
+# value, and neither the absent path before the seed (P10) nor N10 is written.
+refused10() {
+  local rc=0
+  BIRTH="$TMP/birth10.sh" PLAN="$1" run acme "$2" || rc=$?
+  [ "$rc" = 1 ] && [ "$(ver "$AURL" $P10)$(ver "$AURL" $N10)" = 00 ] && grep -qxF "$3" "$2" && ! grep -qF "$NEWV" "$2" \
+    || l10="$l10 $4(rc=$rc v$(ver "$AURL" $P10)$(ver "$AURL" $N10): $(tr '\n' ' ' < "$2"))"
+}
+printf '%s 32 0 - self\n' "$P10" > "$TMP/plan10n"
+grep "^$N10 " "$TMP/plan10all" >> "$TMP/plan10n"
+refused10 "$TMP/plan10n" "$TMP/run10n.log" "secrets-birth: Secret no-key holds no key master-key" no-key
 sed 's|seed:no-key/|seed:not-granted/|' "$TMP/plan10n" > "$TMP/plan10d"
-rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10d" run acme "$TMP/run10d.log" || rc=$?
-[ "$rc" = 1 ] && [ "$(ver "$AURL" $N10)" = 0 ] && grep -qx "secrets-birth: reading Secret not-granted failed (HTTP 403)" "$TMP/run10d.log" \
-  || l10="$l10 denied(rc=$rc v$(ver "$AURL" $N10): $(tr '\n' ' ' < "$TMP/run10d.log"))"
+refused10 "$TMP/plan10d" "$TMP/run10d.log" "secrets-birth: reading Secret not-granted failed (HTTP 403)" denied
+secret no-key '{"master-key":""}'
+refused10 "$TMP/plan10n" "$TMP/run10e.log" "secrets-birth: key master-key of Secret no-key is empty" empty
+secret no-key "{\"master-key\":\"$(printf '%s\n' "$NEWV" | openssl base64 -A)\"}"
+refused10 "$TMP/plan10n" "$TMP/run10u.log" "secrets-birth: key master-key of Secret no-key is not printable ASCII" newline
 [ -z "$l10" ] && pass "L10 seedFrom: $M10 holds the value of Secret old-master (43, not the annotation's), $S10 the same in A and B; $F10 is a new value of 43 (no Secret); $K10 keeps its value though Secret changed differs, unread; no value in the log; a second run writes and reads nothing; a Secret without the key and a 403 are refused (exit 1, nothing written)" || fail "L10:$l10"
 
 if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
