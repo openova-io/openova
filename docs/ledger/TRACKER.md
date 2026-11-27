@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T07:30:03Z` |
+| Last refreshed | `2026-11-27T07:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T00:49 | [#8929](https://github.com/openova-io/openova/pull/8929) | #8928 | fix(acceptance): CLD-G07 reads the provider packs in the reg |
 | 2026-11-27T00:20 | [#8927](https://github.com/openova-io/openova/pull/8927) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:38 | [#8926](https://github.com/openova-io/openova/pull/8926) | #8925 | fix(trivy): the trivy operator stays within its memory in ev |
-| 2026-11-27T00:10 | [#8924](https://github.com/openova-io/openova/pull/8924) | #7087 | docs(ledger): plan update |
 
 ---
 
