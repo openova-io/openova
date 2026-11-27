@@ -14152,7 +14152,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SEC-060, FND-011, FND-151, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, SEC-212, SEC-216, SEC-218, SEC-344, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
+  after: [SEC-060, SEC-227, FND-011, FND-151, FND-183, FND-184, FND-207, CLD-023, CLD-030, CLD-090, CLD-106, CLD-113, CLD-131, CLD-132, CLD-133, CLD-185, SOV-035, SOV-130, SOV-131, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-335, SOV-342, SEC-095, SEC-096, SEC-150, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, SEC-212, SEC-216, SEC-218, SEC-344, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, NET-110, NET-185, NET-212, SVC-040, SVC-041, SVC-130, SVC-138, SVC-190, SVC-205, SVC-220, CTL-041, CTL-150, CTL-172, CTL-333, BSS-040, AIP-120, AIP-153, AIP-201, INF-053, INF-060, INF-135]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -16012,7 +16012,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-140, SEC-200, SEC-211, SEC-219]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-212, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-212, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/wordpress-tenant/chart/**
   - scripts/secret-guard-baselines/*.txt
@@ -16460,6 +16460,38 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'A value of the library, mounted or synced, takes seedFrom (a Secret and a key in the value''s namespace): the birth writes that Secret''s value when the store''s path is absent and the Secret exists, and a random value of the stated length only when neither exists; it never overwrites a value the store holds. Tests: seeded, fresh, and already present.'
+- id: SEC-227
+  title: The library inputs of every open secret roll-out
+  area: SEC
+  epic: null
+  type: spike
+  wave: W0
+  size: S
+  lane: SPIKE
+  depends_on: []
+  after: []
+  touches:
+  - docs/ledger/plan/spikes/SEC-227.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-227.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-227.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-227.md"
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 5
+    lines: 800
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'For SEC-213, SEC-231, SEC-232, SEC-235, SEC-242, SEC-244, SEC-246, SEC-247 and SEC-062, a table in the tree of every Secret the chart needs after the change: namespace, type, labels, keys, where each value comes from (generated, carried over from a Secret that exists today, or given from outside: the cloud account, the provisioner), who reads it and in which namespace, and what a changed value would break on a running Sovereign; each row mapped to an input the library has on main or gets by SEC-219, SEC-225 and SEC-226, and every row no input covers named with the smallest library input or writer that would cover it; and a proposed set of plan edits. It changes no chart.'
 - id: SEC-231
   title: 'Roll-out: platform/postgres'
   area: SEC
@@ -16469,7 +16501,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-219]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, CTL-172, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/postgres/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16506,7 +16538,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-219]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, SVC-136, SVC-139, CTL-172, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, SVC-136, SVC-139, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/valkey/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16617,7 +16649,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-219, SEC-225]
-  after: [FND-011, FND-183, FND-184, CLD-023, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, CLD-023, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/powerdns/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16746,7 +16778,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-219]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/stalwart-tenant/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16810,7 +16842,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-155, SEC-200, SEC-212, SEC-219]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, BSS-040, AIP-157, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, BSS-040, AIP-157, ACC-102, PRD-201]
   touches:
   - products/agenity/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -16884,7 +16916,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-226]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
   - products/chargeback/chart/**
@@ -16922,7 +16954,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-098, SVC-040, SVC-041, CMP-067, BSS-040, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, NET-098, SVC-040, SVC-041, CMP-067, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/mimir/chart/**
   - platform/velero/chart/**
