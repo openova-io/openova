@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T09:45:03Z` |
+| Last refreshed | `2026-11-27T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -317,6 +317,7 @@ flowchart LR
 | 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:46 | [#8973](https://github.com/openova-io/openova/pull/8973) | #8954 | revert: the conformance run installs changed kit charts from |
 | 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
 | 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T03:46 | [#8945](https://github.com/openova-io/openova/pull/8945) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:35 | [#8943](https://github.com/openova-io/openova/pull/8943) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:26 | [#8942](https://github.com/openova-io/openova/pull/8942) | #8940 | refactor(kyverno): forbid-nodeport-service rewritten in plac |
-| 2026-11-27T03:23 | [#8941](https://github.com/openova-io/openova/pull/8941) | #7087 | docs(ledger): plan update |
 
 ---
 
