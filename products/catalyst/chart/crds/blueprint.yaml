@@ -163,6 +163,62 @@ spec:
                       description: Named outputs of a Context.
                       items:
                         type: string
+                provides:
+                  type: array
+                  description: Capabilities an Application of this Blueprint offers to consumers.
+                  maxItems: 8
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [capability]
+                  items:
+                    type: object
+                    required: [capability, contract, implementation]
+                    properties:
+                      capability:
+                        type: string
+                        description: Capability name. Must equal metadata.name of a file in platform/_capabilities/.
+                        pattern: '^[a-z][a-z0-9-]{1,40}$'
+                      contract:
+                        type: string
+                        description: Contract version of that capability that this Blueprint satisfies.
+                        pattern: '^v[1-9][0-9]*$'
+                      implementation:
+                        type: string
+                        description: |
+                          in-cluster = the chart runs the service in the
+                          Sovereign's clusters. cloud-native = the chart renders
+                          compose.openova.io composite resources.
+                        enum: [in-cluster, cloud-native]
+                requires:
+                  type: array
+                  description: |
+                    Capabilities an Application of this Blueprint needs. Each
+                    entry becomes one binding (a Context on a provider
+                    Application).
+                  maxItems: 8
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [alias]
+                  items:
+                    type: object
+                    required: [capability, contract, alias]
+                    properties:
+                      capability:
+                        type: string
+                        pattern: '^[a-z][a-z0-9-]{1,40}$'
+                      contract:
+                        type: string
+                        pattern: '^v[1-9][0-9]*$'
+                      alias:
+                        type: string
+                        description: |
+                          Name of this binding inside the consumer. The chart
+                          reads .Values.bindings.<alias> and the files under
+                          /bindings/<alias>/. Use the capability name unless the
+                          Blueprint needs two bindings of one capability.
+                        pattern: '^[a-z][a-z0-9-]{0,30}$'
+                      optional:
+                        type: boolean
+                        description: true = the dialog may be submitted with no selection for this entry.
+                        default: false
                 owner:
                   type: object
                   properties:

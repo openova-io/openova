@@ -1,0 +1,60 @@
+name: check — the capability index is in sync (SVC-260)
+
+# The committed products/catalyst/bootstrap/api/internal/catalog/capabilities.json
+# is GENERATED: `sh products/catalyst/bootstrap/api/internal/capability/write.sh`
+# writes it from the contract files platform/_capabilities/<name>.yaml (checked
+# against platform/_schemas/capability.schema.json) and the spec.provides and
+# spec.requires of every platform/<name>/blueprint.yaml and
+# products/<name>/blueprint.yaml. The pull request that changes one of those
+# inputs runs it and commits the index; nothing edits it by hand.
+#
+# --check writes nothing. It exits 1 when the committed index differs, and 2
+# when an input is wrong: a contract file outside its schema, a provides or
+# requires entry that names no contract file or version, a contract whose
+# defaultImplementation does not provide it.
+#
+# The job is its own, not a step of check-catalog-generated-drift.yaml:
+# scripts/generator_registry.py gives each generated file the path filters of
+# its own workflow as its sources, and the catalogue outputs keep theirs.
+
+on:
+  pull_request:
+    paths:
+      - 'platform/*/blueprint.yaml'
+      - 'products/*/blueprint.yaml'
+      - 'platform/_capabilities/**'
+      - 'platform/_schemas/capability.schema.json'
+      - 'products/catalyst/bootstrap/api/internal/capability/**'
+      - 'products/catalyst/bootstrap/api/internal/catalog/capabilities.json'
+      - '.github/workflows/check-capability-index.yaml'
+  merge_group:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/*/blueprint.yaml'
+      - 'products/*/blueprint.yaml'
+      - 'platform/_capabilities/**'
+      - 'platform/_schemas/capability.schema.json'
+      - 'products/catalyst/bootstrap/api/internal/capability/**'
+      - 'products/catalyst/bootstrap/api/internal/catalog/capabilities.json'
+      - '.github/workflows/check-capability-index.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: regenerate and prove no diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up the Go of the catalyst-api
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+
+      - name: Fail if the capability index drifted or a capability input is wrong
+        run: sh products/catalyst/bootstrap/api/internal/capability/write.sh --check

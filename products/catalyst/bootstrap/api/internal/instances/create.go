@@ -202,15 +202,27 @@ type InstancePlacementRequest struct {
 	Clusters []string `json:"clusters,omitempty"`
 }
 
-// BackingSelection is one backing-service choice (#3370).
+// BackingSelection is one backing-service choice (#3370). An element names
+// either a capability the consumer Blueprint requires (spec.requires,
+// docs/adr/0020 S4) or, as before, a shareable Blueprint exactly.
 type BackingSelection struct {
-	// Blueprint — the backing Blueprint id (bp- prefix optional).
-	Blueprint string `json:"blueprint"`
+	// Capability — the consumer's requires[].capability. Required unless Blueprint is set.
+	Capability string `json:"capability,omitempty"`
+	// Alias — the consumer's requires[].alias. Required when Capability is set.
+	Alias string `json:"alias,omitempty"`
+	// Implementation — optional. Blueprint name. Empty = the effective default.
+	Implementation string `json:"implementation,omitempty"`
 	// Mode — "create" (default when empty) | "reuse".
 	Mode string `json:"mode,omitempty"`
 	// Instance — required when Mode=reuse: the existing instance
 	// (Application name) to occupy a Context on.
 	Instance string `json:"instance,omitempty"`
+	// Context — optional. Values for the capability's contextFields.
+	Context map[string]interface{} `json:"context,omitempty"`
+	// Blueprint — a depends[] entry on a shareable Blueprint, named exactly
+	// (bp- prefix optional). An element with Blueprint set and Capability
+	// empty takes the path it took before capabilities existed.
+	Blueprint string `json:"blueprint,omitempty"`
 }
 
 // NameRE is the OpenAPI-declared name pattern.
@@ -229,6 +241,9 @@ func (r *CreateInstanceRequest) Sanitise() {
 		r.Backing[i].Blueprint = strings.TrimSpace(r.Backing[i].Blueprint)
 		r.Backing[i].Mode = strings.ToLower(strings.TrimSpace(r.Backing[i].Mode))
 		r.Backing[i].Instance = strings.TrimSpace(r.Backing[i].Instance)
+		r.Backing[i].Capability = strings.TrimSpace(r.Backing[i].Capability)
+		r.Backing[i].Alias = strings.TrimSpace(r.Backing[i].Alias)
+		r.Backing[i].Implementation = strings.TrimSpace(r.Backing[i].Implementation)
 	}
 }
 
@@ -276,10 +291,20 @@ func (r CreateInstanceRequest) ValidateShape() *ShapeError {
 			}
 		}
 	}
+	aliases := map[string]bool{}
 	for i := range r.Backing {
 		b := &r.Backing[i]
-		if b.Blueprint == "" {
-			return &ShapeError{Code: "backing-blueprint-required", Message: "backing[].blueprint is required"}
+		switch {
+		case b.Capability != "" && b.Blueprint != "":
+			return &ShapeError{Code: "backing-ambiguous", Message: fmt.Sprintf("backing[%d] sets both capability and blueprint; name one", i)}
+		case b.Capability != "" && b.Alias == "":
+			return &ShapeError{Code: "backing-alias-required", Message: fmt.Sprintf("backing[%d].alias is required when capability is set", i)}
+		case b.Capability != "" && aliases[b.Alias]:
+			return &ShapeError{Code: "backing-ambiguous", Message: fmt.Sprintf("backing[%d] names alias %q again", i, b.Alias)}
+		case b.Capability != "":
+			aliases[b.Alias] = true
+		case b.Blueprint == "":
+			return &ShapeError{Code: "backing-blueprint-required", Message: "backing[].capability or backing[].blueprint is required"}
 		}
 		switch b.Mode {
 		case "", "create":

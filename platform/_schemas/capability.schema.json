@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/openova-io/openova/platform/_schemas/capability.schema.json",
+  "title": "Capability contract (platform/_capabilities/<name>.yaml)",
+  "description": "One file per capability: what a consumer may rely on, version by version (docs/adr/0020, S6 and S7). A file format, not a cluster resource. sh products/catalyst/bootstrap/api/internal/capability/write.sh checks every contract file against this schema and writes the capability index from them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "catalyst.openova.io/v1"},
+    "kind": {"const": "Capability"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,40}$", "description": "Equals the file name without .yaml."}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "defaultImplementation", "contracts"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "description": "Screen label, sentence case."},
+        "defaultImplementation": {"type": "string", "pattern": "^bp-[a-z][a-z0-9-]{1,62}$", "description": "Blueprint used when the Sovereign's catalogue choices have no entry for this capability. It must provide the capability."},
+        "compositeKind": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]{0,62}$", "description": "compose.openova.io kind rendered by cloud-native implementations."},
+        "contracts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/contract"}}
+      }
+    }
+  },
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "status", "keys", "contextFields", "probe"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^v[1-9][0-9]*$"},
+        "status": {"enum": ["current", "deprecated"]},
+        "keys": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/key"}, "description": "The binding key set; each key is one file in the consumer pod."},
+        "contextFields": {"type": "array", "items": {"$ref": "#/$defs/contextField"}, "description": "Fields of one Context entry beyond the canonical ones; may be empty."},
+        "probe": {"type": "string", "minLength": 1, "description": "Name of the probe in the capability probe image."}
+      }
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "required", "secret", "description"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$", "description": "File name."},
+        "required": {"type": "boolean"},
+        "secret": {"type": "boolean", "description": "true = a credential."},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "contextField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "required", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]{0,40}$",
+          "not": {"enum": ["name", "capability", "contract", "alias", "consumer", "binding"]},
+          "description": "A canonical field of the Context entry that the install API writes cannot be redeclared."
+        },
+        "type": {"enum": ["string", "integer", "boolean", "array"]},
+        "required": {"type": "boolean"},
+        "default": {},
+        "enum": {"type": "array", "minItems": 1},
+        "description": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
