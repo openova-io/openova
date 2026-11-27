@@ -18,10 +18,21 @@ no data, the client returns no secret and the command prints that line
 (internal/command/list.go, api/logical.go ListWithContext,
 sdk/logical/response_util.go). Any other answer ends the Job with an error
 before any write, so an outage or a refusal is never read as an empty mount
-and a second root is never made. The name carries a hash of the script,
-the image and the inputs: a change of any of them runs the Job again, and a
-run on a store that holds both issuers writes nothing. tests/pki-render.sh
-runs this script against a stand-in for the bao command.
+and a second root is never made. A run on a store that holds both issuers
+writes nothing.
+
+The Job is deleted as soon as it finishes, succeeded or failed
+(ttlSecondsAfterFinished 0, the time-to-live controller): gate check SEC-G03 admits no Job in namespace openbao
+but those of the CronJobs openbao-backup and openbao-restore-drill. It stays in
+the release, so each later upgrade creates it again (Helm creates an object of
+the release that is not live) and it runs once more. It is no Helm
+hook: Helm waits for a hook Job, so the install would wait for the role the
+configuration reconciler binds after it, and a start slower than the install
+timeout would be a failed install, which remediation answers with an uninstall.
+The name carries a hash of the script, the image and the inputs: a change of
+any of them makes a new Job, never a patch of a live Job's template, which the
+API server refuses. tests/pki-render.sh runs this script against a stand-in
+for the bao command.
 
 Rendered when pki.enabled and kubernetesAuth.enabled, in the primary region
 only. A secondary region renders no part of it: signing a secondary region's
@@ -131,6 +142,7 @@ metadata:
     app.kubernetes.io/name: openbao-pki-bootstrap
 spec:
   backoffLimit: 6
+  ttlSecondsAfterFinished: 0
   template:
     metadata:
       labels:

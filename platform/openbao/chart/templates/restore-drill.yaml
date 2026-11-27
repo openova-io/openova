@@ -8,7 +8,12 @@ minutes, not renewable, a child of the login). With it the drill writes a
 fresh canary, then takes this region's first snapshot from the bucket that is
 newer than the write, restores it into the scratch OpenBao of its own pod (the
 store's seal stanza, storage in the pod, listening on 127.0.0.1 only) and
-reads the canary back. It revokes its login, which revokes the drill token,
+reads the canary back. The scratch store's root file system is read-only; it
+writes its raft storage to /scratch and, while it restores, the snapshot to a
+temporary file of the default temporary directory (os.CreateTemp("",
+"snapshot") in internal/physical/raft/snapshot/snapshot.go of OpenBao 2.7.2:
+$TMPDIR, unset here, else /tmp), so /tmp is an emptyDir of its own. It
+revokes its login, which revokes the drill token,
 and records the snapshot, its time, both digests and the token's lifetime in
 ConfigMap openbao-restore-drill; no Helm or Flux object, only this Job writes
 it. No token is put in a file, an argument or a log. tests/restore-drill-render.sh
@@ -221,6 +226,7 @@ spec:
                 - {name: seal-config, mountPath: /etc/openbao-restore-drill/seal, readOnly: true}
                 - {name: seal, mountPath: /openbao/seal, readOnly: true}
                 - {name: scratch, mountPath: /scratch}
+                - {name: scratch-tmp, mountPath: /tmp}
           containers:
             - name: drill
               image: {{ $b.image | default "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1" | quote }}
@@ -257,6 +263,7 @@ spec:
             - {name: seal-config, configMap: {name: openbao-seal-config, items: [{key: seal.hcl, path: seal.hcl}]}}
             - {name: seal, hostPath: {path: /var/lib/catalyst/seal, type: Directory}}
             - {name: scratch, emptyDir: {sizeLimit: 2Gi}}
+            - {name: scratch-tmp, emptyDir: {sizeLimit: 2Gi}}
             - name: bucket
               secret:
                 secretName: {{ $b.bucketSecretName | default "object-storage" | quote }}
