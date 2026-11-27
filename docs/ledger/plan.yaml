@@ -16266,7 +16266,17 @@ packages:
   touches:
   - platform/keycloak/chart/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16293,7 +16303,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/sso-bridge/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16320,7 +16340,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-010, ACC-102, PRD-201]
   touches:
   - platform/oidc-gate/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16349,7 +16379,17 @@ packages:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
   - products/catalyst/bootstrap/api/cmd/api/main.go
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16406,7 +16446,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/postgres/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16433,7 +16483,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-060, SVC-136, SVC-139, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/valkey/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16460,7 +16520,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-163, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-080, SVC-136, CTL-172, CMP-067, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/gitea/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16487,7 +16557,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-138, SOV-143, SOV-155, SOV-161, SOV-162, SOV-322, SOV-323, SOV-336, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-080, SVC-136, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/harbor/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16514,7 +16594,17 @@ packages:
   after: [FND-011, FND-183, FND-184, CLD-023, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/powerdns/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16541,7 +16631,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/powerdns-admin/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16623,7 +16723,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/stalwart-tenant/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16677,7 +16787,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, BSS-040, AIP-157, ACC-102, PRD-201]
   touches:
   - products/agenity/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16704,7 +16824,17 @@ packages:
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-103, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, SVC-041, CTL-172, BSS-040, ACC-010, ACC-050, ACC-102, ACC-103, ACC-106, PRD-201]
   touches:
   - platform/guacamole/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16732,7 +16862,17 @@ packages:
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
   - products/chargeback/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
@@ -16765,7 +16905,17 @@ packages:
   - platform/hcloud-csi/chart/**
   - platform/hcloud-ccm/chart/**
   - platform/huawei-evs-csi/chart/**
-  - scripts/secret-guard-baselines/*
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-no-shell-trace.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-secret-object-register.txt
+  - scripts/secret-guard-baselines/secret-object-register.yaml
+  - scripts/secret-guard-baselines/threat-model.md
   resources: []
   flips: []
   implements: []
