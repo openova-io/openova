@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T06:00:04Z` |
+| Last refreshed | `2026-11-27T09:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,13 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8557](https://github.com/openova-io/openova/issues/8557) | SVC-138 Every foundation release has a function test that check SVC-G06 can read | Other |
-| [#8560](https://github.com/openova-io/openova/issues/8560) | CLD-116 The wipe removes first what its own destroy cannot remove on the referen | Other |
-| [#8564](https://github.com/openova-io/openova/issues/8564) | SOV-155 A roll of the registry never removes both copies: harbor-registry rolls  | Other |
-| [#8569](https://github.com/openova-io/openova/issues/8569) | SOV-344 The sovereignty proof counts the cloud Workspaces, and the tether list n | Other |
-| [#8574](https://github.com/openova-io/openova/issues/8574) | SOV-139 A cloud-free harness drains the registry's node with the outside blocked | Other |
-| [#8577](https://github.com/openova-io/openova/issues/8577) | NET-103 Gate check NET-G18: full-size transfers between two workers over the nod | Other |
-| [#8578](https://github.com/openova-io/openova/issues/8578) | NET-121 A cloud-free test moves full-size packets between two workers through th | Other |
 | [#8586](https://github.com/openova-io/openova/issues/8586) | INF-057 Check INF-G01 requires every moved workload back within 180 seconds of l | Other |
 | [#8594](https://github.com/openova-io/openova/issues/8594) | NET-185 The Sovereign's name servers answer on public port 53, over UDP and TCP, | Other |
 | [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
@@ -300,6 +293,13 @@ flowchart LR
 | [#8956](https://github.com/openova-io/openova/issues/8956) | CMP-094 Vulnerability scanning produces reports in every region | Other |
 | [#8960](https://github.com/openova-io/openova/issues/8960) | NET-192 Gate check NET-G11: route admission by owner | Other |
 | [#8964](https://github.com/openova-io/openova/issues/8964) | SEC-217 secrets-lib writes a generated secret into a named namespace | Other |
+| [#8967](https://github.com/openova-io/openova/issues/8967) | SVC-260 provides, requires, the contract format, the registry and the install AP | Other |
+| [#8969](https://github.com/openova-io/openova/issues/8969) | SEC-216 The umbrella chart depends on secrets-lib and every renderer of it build | Other |
+| [#8975](https://github.com/openova-io/openova/issues/8975) | PRD-050 Spike: client certificates on the Organization listener | Other |
+| [#8977](https://github.com/openova-io/openova/issues/8977) | NET-223 Application controller without the tier pivot | Other |
+| [#8980](https://github.com/openova-io/openova/issues/8980) | SEC-250 PKI engine, internal issuer and mesh issuer in the primary region and on | Other |
+| [#8981](https://github.com/openova-io/openova/issues/8981) | SEC-251 Spike: how a secondary region's OpenBao has its intermediate signed by t | Other |
+| [#8983](https://github.com/openova-io/openova/issues/8983) | SEC-344 Upstream pods to injection: Grafana | Other |
 
 ---
 
@@ -307,6 +307,23 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:23 | [#8990](https://github.com/openova-io/openova/pull/8990) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:08 | [#8987](https://github.com/openova-io/openova/pull/8987) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:06 | [#8986](https://github.com/openova-io/openova/pull/8986) | #8981 | docs(ledger): result of the spike SEC-251, the path by which |
+| 2026-11-27T09:02 | [#8985](https://github.com/openova-io/openova/pull/8985) | #7087 | docs(ledger): plan update |
+| 2026-11-27T09:36 | [#8984](https://github.com/openova-io/openova/pull/8984) | #8975 | docs(ledger): result of the lab test PRD-050, client certifi |
+| 2026-11-27T08:57 | [#8982](https://github.com/openova-io/openova/pull/8982) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:23 | [#8974](https://github.com/openova-io/openova/pull/8974) | #7087 | docs(ledger): plan update |
+| 2026-11-27T07:30 | [#8972](https://github.com/openova-io/openova/pull/8972) | #7087 | docs(ledger): plan update |
+| 2026-11-27T06:37 | [#8968](https://github.com/openova-io/openova/pull/8968) | #7087 | docs(ledger): plan update |
+| 2026-11-27T06:23 | [#8966](https://github.com/openova-io/openova/pull/8966) | #7087 | docs(ledger): plan update |
+| 2026-11-27T06:46 | [#8965](https://github.com/openova-io/openova/pull/8965) | #8964 | fix(secrets-lib): a generated secret is written into a named |
+| 2026-11-27T06:10 | [#8963](https://github.com/openova-io/openova/pull/8963) | #7087 | docs(ledger): plan update |
+| 2026-11-27T08:04 | [#8962](https://github.com/openova-io/openova/pull/8962) | #4993 | test(gate): check NET-G11 proves a route of one Organization |
+| 2026-11-27T06:12 | [#8961](https://github.com/openova-io/openova/pull/8961) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:50 | [#8959](https://github.com/openova-io/openova/pull/8959) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:46 | [#8958](https://github.com/openova-io/openova/pull/8958) | #8956 | fix(trivy): vulnerability scanning produces reports in every |
 | 2026-11-27T05:13 | [#8955](https://github.com/openova-io/openova/pull/8955) | #7087 | docs(ledger): plan update |
@@ -320,23 +337,6 @@ flowchart LR
 | 2026-11-27T03:35 | [#8943](https://github.com/openova-io/openova/pull/8943) | #7087 | docs(ledger): plan update |
 | 2026-11-27T03:26 | [#8942](https://github.com/openova-io/openova/pull/8942) | #8940 | refactor(kyverno): forbid-nodeport-service rewritten in plac |
 | 2026-11-27T03:23 | [#8941](https://github.com/openova-io/openova/pull/8941) | #7087 | docs(ledger): plan update |
-| 2026-11-27T03:03 | [#8939](https://github.com/openova-io/openova/pull/8939) | #7087 | docs(ledger): plan update |
-| 2026-11-27T02:46 | [#8938](https://github.com/openova-io/openova/pull/8938) | #7087 | docs(ledger): plan update |
-| 2026-11-27T02:16 | [#8937](https://github.com/openova-io/openova/pull/8937) | #8936 | fix(compliance): the policies route reads the mode from the  |
-| 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
-| 2026-11-27T03:45 | [#8934](https://github.com/openova-io/openova/pull/8934) | #8770 | fix(k3s): the kit runs k3s v1.33.13+k3s2, whose node mirror  |
-| 2026-11-27T01:22 | [#8933](https://github.com/openova-io/openova/pull/8933) | #7087 | docs(ledger): plan update |
-| 2026-11-27T01:36 | [#8932](https://github.com/openova-io/openova/pull/8932) | #8931 | chore: Blueprint data without tiers (NET-222) |
-| 2026-11-27T00:40 | [#8930](https://github.com/openova-io/openova/pull/8930) | #7087 | docs(ledger): plan update |
-| 2026-11-27T00:49 | [#8929](https://github.com/openova-io/openova/pull/8929) | #8928 | fix(acceptance): CLD-G07 reads the provider packs in the reg |
-| 2026-11-27T00:20 | [#8927](https://github.com/openova-io/openova/pull/8927) | #7087 | docs(ledger): plan update |
-| 2026-11-27T00:38 | [#8926](https://github.com/openova-io/openova/pull/8926) | #8925 | fix(trivy): the trivy operator stays within its memory in ev |
-| 2026-11-27T00:10 | [#8924](https://github.com/openova-io/openova/pull/8924) | #7087 | docs(ledger): plan update |
-| 2026-11-27T00:23 | [#8923](https://github.com/openova-io/openova/pull/8923) | #8922 | fix(sso-probe): the sign-in probe no longer expects the remo |
-| 2026-11-26T23:49 | [#8921](https://github.com/openova-io/openova/pull/8921) | #7087 | docs(ledger): plan update |
-| 2026-11-26T23:16 | [#8919](https://github.com/openova-io/openova/pull/8919) | #7087 | docs(ledger): plan update |
-| 2026-11-26T22:57 | [#8918](https://github.com/openova-io/openova/pull/8918) | #7087 | docs(ledger): plan update |
-| 2026-11-27T00:13 | [#8917](https://github.com/openova-io/openova/pull/8917) | #8916 | feat(guards): a tested command of an acceptance command is n |
 
 ---
 
