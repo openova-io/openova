@@ -29,7 +29,15 @@
 #       key as a sixth field and a placeholder as source "empty", length and
 #       symbols 0; key password renders the line of a value without the new
 #       fields; a shared placeholder in the primary still reaches the peers;
-#   F1-F21 every refused input fails the render with its message.
+#   R10 the namespace input (SEC-217), both cases of one chart (stores, a
+#       mounted value, a synced value with a copy, a shared value of the
+#       primary): without it (or null) every object is in namespace acme and every
+#       path of the birth Job's plan is below acme/; with namespace
+#       org-services every object, path, remote key and peer role names
+#       org-services and nothing names acme. In both the Job's namespace is
+#       the first part of every path it writes: a birth Job in one namespace
+#       is never given a path of another unless the input names it;
+#   F1-F24 every refused input fails the render with its message.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -52,9 +60,13 @@ dependencies:
     version: 0.1.0
     repository: "file://$LIB"
 EOF
+# The input namespace is given only when the values hold the key: every other
+# case calls the library as a chart that does not know it (the default).
 cat > "$FX/templates/all.yaml" <<'EOF'
-{{- if .Values.stores }}{{ include "openova.secretStores" . }}{{ end }}
-{{- include "openova.generatedSecrets" (dict "ctx" . "secrets" .Values.generatedSecrets "peers" .Values.peers "primary" .Values.primary "self" .Values.self) }}
+{{- $in := dict "ctx" . "secrets" .Values.generatedSecrets "peers" .Values.peers "primary" .Values.primary "self" .Values.self }}
+{{- if hasKey .Values "namespace" }}{{ $_ := set $in "namespace" .Values.namespace }}{{ end }}
+{{- if .Values.stores }}{{ include "openova.secretStores" (ternary (dict "ctx" . "namespace" .Values.namespace) . (hasKey .Values "namespace")) }}{{ end }}
+{{- include "openova.generatedSecrets" $in }}
 EOF
 cat > "$FX/templates/shim.yaml" <<'EOF'
 {{- if .Values.shim }}
@@ -364,6 +376,79 @@ J9="$(jobname "$TMP/r9b.yaml")"
 has "$TMP/r9b.yaml" Job "$J9" '            - {name: PEERS, value: "hw-b=http://openbao-hw-b.openbao.svc.cluster.local:8200"}' || r9="$r9 shared-peers-env"
 [ -z "$r9" ] && pass "R9 named key and placeholder: key as sixth field, placeholder as 'empty' 0 0, key password as before, a shared placeholder reaches the peers" || fail "R9:$r9"
 
+# ── R10 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r10a.v" <<'EOF'
+stores: true
+self: hw-a
+peers: [hw-b]
+primary: true
+generatedSecrets:
+  auth-signing:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: auth
+  api-key:
+    delivery: synced
+    registerId: reg-api-key
+    epoch: 1
+    mountedCopies:
+      - serviceAccount: auth
+  token:
+    delivery: mounted
+    epoch: 1
+    scope: shared
+EOF
+{ cat "$TMP/r10a.v"; printf 'namespace: org-services\n'; } > "$TMP/r10b.v"
+r10=""
+r "$TMP/r10a.v" "$TMP/r10a.yaml" || r10="$r10 a-render($(tr '\n' ' ' < "$TMP/r10a.yaml.err"))"
+r "$TMP/r10b.v" "$TMP/r10b.yaml" || r10="$r10 b-render($(tr '\n' ' ' < "$TMP/r10b.yaml.err"))"
+# nslines <file>: per distinct namespace line, the count of documents and the namespace.
+nslines() { grep -E '^  namespace: ' "$1" | LC_ALL=C sort | uniq -c | awk '{print $1 " " $3 ";"}' | tr -d '\n'; }
+# heads <file>: the first part of every path of the plan, each once.
+heads() { plan "$1" | awk -F/ '{print $1}' | LC_ALL=C sort -u | tr '\n' ' '; }
+# jobns <file> <job>: the namespace of the birth Job.
+jobns() { doc "$1" Job "$2" | awk '/^  namespace: / && !n { print $2; n = 1 }'; }
+# Each measure is taken once; on a failed (empty) render it is empty and fails below.
+KA="$(kinds "$TMP/r10a.yaml" || true)"; KB="$(kinds "$TMP/r10b.yaml" || true)"
+NA="$(nslines "$TMP/r10a.yaml" || true)"; NB="$(nslines "$TMP/r10b.yaml" || true)"
+JA="$(jobname "$TMP/r10a.yaml" || true)"; JB="$(jobname "$TMP/r10b.yaml" || true)"
+JNA="$(jobns "$TMP/r10a.yaml" "$JA" || true)"; JNB="$(jobns "$TMP/r10b.yaml" "$JB" || true)"
+HA="$(heads "$TMP/r10a.yaml" || true)"; HB="$(heads "$TMP/r10b.yaml" || true)"
+[ "$KA" = "ConfigMap=1 ExternalSecret=1 Job=1 Password=1 PushSecret=1 SecretStore=1 ServiceAccount=2 " ] || r10="$r10 a-kinds($KA)"
+[ "$NA" = '8 "acme";' ] || r10="$r10 a-namespaces($NA)"
+cat > "$TMP/r10a.want" <<'EOF'
+acme/sa/auth/api-key/e1 0 0 /etc/secrets-birth/copy-0/password self
+acme/sa/auth/auth-signing/e1 32 0 - all
+acme/shared/token/e1 32 0 - all
+EOF
+plan "$TMP/r10a.yaml" > "$TMP/r10a.got"
+diff -u "$TMP/r10a.want" "$TMP/r10a.got" || r10="$r10 a-plan"
+[ "$JNA" = '"acme"' ] && [ "$HA" = 'acme ' ] || r10="$r10 a-job-writes-another($JNA / $HA)"
+has "$TMP/r10a.yaml" Job "$JA" '            - {name: PEER_ROLE, value: "secrets-birth-acme"}' || r10="$r10 a-peer-role"
+[ "$KB" = "ConfigMap=1 ExternalSecret=1 Job=1 Password=1 PushSecret=1 SecretStore=1 ServiceAccount=2 " ] || r10="$r10 b-kinds($KB)"
+[ "$NB" = '8 "org-services";' ] || r10="$r10 b-namespaces($NB)"
+cat > "$TMP/r10b.want" <<'EOF'
+org-services/sa/auth/api-key/e1 0 0 /etc/secrets-birth/copy-0/password self
+org-services/sa/auth/auth-signing/e1 32 0 - all
+org-services/shared/token/e1 32 0 - all
+EOF
+plan "$TMP/r10b.yaml" > "$TMP/r10b.got"
+diff -u "$TMP/r10b.want" "$TMP/r10b.got" || r10="$r10 b-plan"
+[ "$JNB" = '"org-services"' ] && [ "$HB" = 'org-services ' ] || r10="$r10 b-job-writes-another($JNB / $HB)"
+has "$TMP/r10b.yaml" Job "$JB" '            - {name: PEER_ROLE, value: "secrets-birth-org-services"}' || r10="$r10 b-peer-role"
+has "$TMP/r10b.yaml" Job "$JB" '            - {name: PEER_TOKEN_ROLE, value: "openbao-peer-birth-org-services"}' || r10="$r10 b-peer-token-role"
+has "$TMP/r10b.yaml" PushSecret api-key-e1 '          remoteKey: openova/apps/org-services/api-key/e1' || r10="$r10 b-remote-key"
+has "$TMP/r10b.yaml" ExternalSecret api-key '        key: openova/apps/org-services/api-key/e1' || r10="$r10 b-external-key"
+[ -s "$TMP/r10b.yaml" ] && ! grep -q acme "$TMP/r10b.yaml" || r10="$r10 b-names-acme"
+[ -n "$JB" ] && [ "$JB" != "$JA" ] || r10="$r10 same-job-name"
+# The input given as null (a values key that is not set) is the default.
+{ cat "$TMP/r10a.v"; printf 'namespace: null\n'; } > "$TMP/r10c.v"
+r "$TMP/r10c.v" "$TMP/r10c.yaml" || r10="$r10 c-render($(tr '\n' ' ' < "$TMP/r10c.yaml.err"))"
+plan "$TMP/r10c.yaml" > "$TMP/r10c.got"
+NC="$(nslines "$TMP/r10c.yaml" || true)"
+diff -u "$TMP/r10a.want" "$TMP/r10c.got" && [ "$NC" = '8 "acme";' ] || r10="$r10 c-null-not-default($NC)"
+[ -z "$r10" ] && pass "R10 namespace input: absent or null, all 8 objects and every plan path in acme; org-services, all 8 objects, paths, keys and peer roles in org-services, nothing names acme; the Job writes only below its own namespace" || fail "R10:$r10"
+
 # ── F1-F21 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
@@ -393,6 +478,9 @@ refused F18 'key "a b" must match'                 'generatedSecrets: {x: {deliv
 refused F19 'key "" must match'                    'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, key: ""}}'
 refused F20 "placeholder must be true or false"    'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, placeholder: "yes"}}'
 refused F21 "a placeholder is empty: it takes no length or symbols" 'generatedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared, placeholder: true, length: 8}}'
+refused F22 'namespace "" is not a namespace name'  "$(printf 'namespace: ""\ngeneratedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared}}')"
+refused F23 'namespace "Org_Services" is not a namespace name' "$(printf 'namespace: Org_Services\ngeneratedSecrets: {x: {delivery: mounted, epoch: 1, scope: shared}}')"
+refused F24 'namespace "-org" is not a namespace name' "$(printf 'stores: true\nnamespace: "-org"\n')"
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"

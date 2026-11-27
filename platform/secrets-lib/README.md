@@ -27,9 +27,20 @@ dependencies:
 
 | Template | Input | Renders |
 |---|---|---|
-| `openova.secretStores` | the root context | ServiceAccount `eso-reader`, SecretStore `openbao` (mount `secret`, role `eso-ns`) |
-| `openova.generatedSecrets` | `dict "ctx" . "secrets" .Values.generatedSecrets "peers" <list> "primary" <bool> "self" <region>` | per value, below |
+| `openova.secretStores` | the root context, or `dict "ctx" . "namespace" <name>` | ServiceAccount `eso-reader`, SecretStore `openbao` (mount `secret`, role `eso-ns`) |
+| `openova.generatedSecrets` | `dict "ctx" . "secrets" .Values.generatedSecrets "peers" <list> "primary" <bool> "self" <region>` and optional `"namespace" <name>` | per value, below |
 | `openova.envFromFiles` | `dict "map" <var: file> "exec" <list>` | `command` and `args` of the shim |
+
+**`namespace`** (SEC-217) — the namespace of every value and of every object
+the template renders for it: the Password, PushSecret and ExternalSecret,
+the birth Job, its ServiceAccount `secrets-birth` and plan ConfigMap, the
+paths `mounted/<ns>/...` and `openova/apps/<ns>/...`, and the peer roles
+`secrets-birth-<ns>` and `openbao-peer-birth-<ns>`. Absent or null: the
+release's namespace. A chart whose reader runs in another namespace names
+it here; the birth Job then runs there, because OpenBao lets a birth Job
+create only below its own namespace (`mounted/data/<ns>/*`). Give the same
+`namespace` to `openova.secretStores` for a synced value. The namespace must
+exist, and the release must be allowed to write there.
 
 ```yaml
 generatedSecrets:
@@ -88,7 +99,8 @@ The render fails on a missing or unknown `delivery`, a synced value without
 `serviceAccount`, `mountedCopies` on a mounted value, an epoch below 1, a
 name outside `[a-z0-9-]+`, a shared value for peers without `self`, `key` or
 `placeholder` on a synced value, an empty or malformed `key`, a `placeholder`
-that is not a boolean, and a placeholder with `length` or `symbols`.
+that is not a boolean, a placeholder with `length` or `symbols`, and a
+`namespace` that is not a namespace name (a DNS label; an empty string too).
 
 ## Configuration
 
@@ -120,5 +132,6 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
 - `chart/tests/birth-live.sh` — the birth script against two real OpenBao
   servers configured by bp-openbao's own reconciler: present in every region
   after one run, a second run changes nothing, the create-only rights, the
-  failures that name a region, a named key, and a placeholder that a later
-  writer replaces and the Job never writes again.
+  failures that name a region, a named key, a placeholder that a later
+  writer replaces and the Job never writes again, and a named namespace: a
+  Job of the release's namespace is refused its path, the Job there writes it.

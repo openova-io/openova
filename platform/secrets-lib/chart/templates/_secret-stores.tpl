@@ -1,6 +1,8 @@
 {{- /*
-openova.secretStores (SEC-200) — the External Secrets reader of the release
-namespace. Input: the chart's root context.
+openova.secretStores (SEC-200) — the External Secrets reader of a namespace.
+Input: the chart's root context (the release's namespace), or (SEC-217)
+dict "ctx" <the root context> "namespace" <name>: the stores of the namespace
+that openova.generatedSecrets is given, where its synced values read.
 
   ServiceAccount eso-reader    the identity of the namespace's stores; OpenBao
                                role eso-ns binds it in every namespace
@@ -16,14 +18,18 @@ Settings, under .Values.openova.secrets (all optional):
   openbaoAddress   default http://openbao.openbao.svc.cluster.local:8200
 */ -}}
 {{- define "openova.secretStores" -}}
-{{- $s := (.Values.openova | default dict).secrets | default dict -}}
+{{- $ctx := . -}}
+{{- $in := dict -}}
+{{- if hasKey . "ctx" }}{{ $ctx = .ctx }}{{ $in = . }}{{ end -}}
+{{- $ns := include "openova.secretsNamespace" (dict "in" $in "ctx" $ctx) -}}
+{{- $s := ($ctx.Values.openova | default dict).secrets | default dict -}}
 {{- $addr := $s.openbaoAddress | default "http://openbao.openbao.svc.cluster.local:8200" }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: eso-reader
-  namespace: {{ .Release.Namespace | quote }}
+  namespace: {{ $ns | quote }}
   labels:
     app.kubernetes.io/component: eso-reader
     secrets.openova.io/library: secrets-lib
@@ -33,7 +39,7 @@ apiVersion: external-secrets.io/v1beta1
 kind: SecretStore
 metadata:
   name: openbao
-  namespace: {{ .Release.Namespace | quote }}
+  namespace: {{ $ns | quote }}
   labels:
     secrets.openova.io/library: secrets-lib
 spec:
