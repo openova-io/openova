@@ -37,7 +37,12 @@
 #            rancher/local-path-provisioner. With --changed <file> (one changed path per line,
 #            relative to the tree) a release whose chart is published from a folder of this tree
 #            (platform/<name>/chart, products/<name>/chart) is marked TREE when a changed path lies
-#            in that folder or in the folder of one of its file:// dependencies (kit_plan).
+#            in that folder or in the folder of one of its file:// dependencies (kit_plan). Its
+#            last line says which catalyst-api image the console runs (api_plan): TREE when a
+#            changed path is a path the image is built from (api_sources: the Containerfile
+#            API_CONTAINERFILE and every source it copies from the build context, the root of the
+#            tree, as catalyst-build.yaml builds it); otherwise the image that the chart of the
+#            console release names (images.catalystApi.tag), the one main published.
 # up         Writes the module inputs from the contract fixture of 1 or 2 regions (one
 #            control-plane machine per region; one worker machine in the primary region, none
 #            elsewhere) and the machine image of image above (built there when it is not yet
@@ -86,6 +91,18 @@
 #            installed from the tree (Ready where the region's core needs it; one installed
 #            before the change of source gets one forced upgrade). The verdict of each, per
 #            region, is appended to kit-charts.txt. A file named that does not exist stops up.
+#            The catalyst-api image of the change: when api_plan says TREE, up builds the image
+#            from this tree with API_CONTAINERFILE before the apply (api_build), named
+#            API_REPO:tree-<the first 12 hex digits of the commit of the tree> and never pushed;
+#            once the boot template is complete it loads it into the containerd of k3s on every
+#            machine of the pack, each of which must hold it under one digest (api_load_pack); and
+#            tree_redirect gives the console release the value images.catalystApi.tag of that name.
+#            After the console's API is available, up waits until every pod of the Deployment
+#            catalyst-system/catalyst-api of the primary region reports that digest as its
+#            imageID (api_judge); without TREE it waits until they run and names the image and
+#            imageID they run. A secondary region holds no catalyst-api (slot 13 suspends the
+#            console release there): that is said, not judged. Each line goes to the log and to
+#            LOCAL_PACK_DIR/api-image.txt.
 # discovery  Runs the suite tests/acceptance/sovereign against the pack, with the env file, as a
 #            run that requests no journey and no gate check (run --run-in local --journeys ''),
 #            so that its discovery leaves out the steps that only the journeys need. It passes
@@ -106,7 +123,9 @@
 #            restarts-previous-logs.txt (the last lines of the log of its previous run), so that
 #            a restart names its container and its cause. It never fails. It copies the kit
 #            chart plan of up and, for the charts of the tree, the last verdicts and the
-#            HelmRelease and HelmChart they were read from (with the error of a failed read).
+#            HelmRelease and HelmChart they were read from (with the error of a failed read), and
+#            the catalyst-api image of up: api-image.txt, the build log and, per region, its last
+#            verdict and the Deployment and pods it was read from.
 #            The kubeconfigs, the session and the module inputs are not copied there.
 # down       Stops the port forward, then removes what up started: tofu destroy of the machines,
 #            docker volume rm of each volume of the pack (each within VOLUME_LIMIT seconds; the
@@ -140,6 +159,18 @@ CONSOLE_RELEASE="bp-catalyst-platform"
 # The kit of the pack (charts in the header) and the registry its own charts are published to.
 KIT_PATH="clusters/_template/providers/local/kit"
 PUBLISHED_URL="oci://ghcr.io/openova-io"
+# The image of catalyst-api, the console's API (the Deployment catalyst-system/catalyst-api of the
+# console release): catalyst-build.yaml builds it with this Containerfile, the root of the tree as
+# its build context, and pushes it to API_REPO; the chart of the console release names its tag
+# (images.catalystApi.tag; the pack sets no global.imageRegistry). A build from the tree (up) has
+# at most API_IMAGE_ATTEMPTS attempts of at most API_IMAGE_ATTEMPT_LIMIT seconds: the same build
+# took 159 seconds in the job build-api of catalyst-build.yaml on 27 November (a download in it may
+# stall, as in image). A machine's k3s has API_LOAD_LIMIT seconds to answer ctr before the load.
+API_CONTAINERFILE="products/catalyst/bootstrap/api/Containerfile"
+API_REPO="ghcr.io/openova-io/openova/catalyst-api"
+API_IMAGE_ATTEMPTS=2
+API_IMAGE_ATTEMPT_LIMIT=600
+API_LOAD_LIMIT=300
 CONSOLE_PORT=18080
 SIGNER_DEFAULT="/var/lib/catalyst/handover-jwt-private.pem"
 # The machine image (image): the build took 34 to 108 seconds on the CI runner until 19 November
@@ -250,6 +281,20 @@ machine() {
   local p
   p=$(pack_prefix "$1") || return 1
   echo "$p-$2-cp1"
+}
+
+# machines <module inputs>: the container of every machine of the pack, one per line, region by
+# region: its control-plane machine, then its workers (the keys of local.control_planes and
+# local.workers in infra/providers/local/main.tf). Exit 1 when the inputs cannot be read.
+machines() {
+  local p rows code n i
+  p=$(pack_prefix "$1") || return 1
+  rows=$(yq -p json -o tsv '.regions[] | [.code, .worker_count]' "$1") && [ -n "$rows" ] || return 1
+  while IFS=$'\t' read -r code n; do
+    [[ "$code" =~ ^[a-z0-9-]+$ ]] && [[ "$n" =~ ^[0-9]+$ ]] || return 1
+    echo "$p-$code-cp1"
+    for (( i = 1; i <= n; i++ )); do echo "$p-$code-w$i"; done
+  done <<< "$rows"
 }
 
 # pack_prefix <file>: the start of the name of every container, volume and network of the pack,
@@ -680,13 +725,22 @@ plan_report() {
 # stays ChartVersion: Revision would add +<commit> to the chart version, which a label value and
 # the version pattern of the Blueprint and Application kinds refuse. Exit 1 when no line is tree,
 # or a name or folder holds a character outside [a-z0-9./_-] (the flow mappings do not quote it).
+# tree_patch <tag> <namespace>: the same, and one more patch gives the console release
+# CONSOLE_RELEASE in <namespace> the value images.catalystApi.tag: <tag>, so that its Deployment
+# catalyst-api runs API_REPO:<tag>, the image of the tree that up loads into every machine. Exit 1
+# when the tag is not tree-<12 hex digits> (the only tag up makes; YAML reads it as a string) or
+# the namespace is not a name; with a tag, a plan with no line of the tree is not refused.
 tree_patch() {
-  local rel ns chart ver kind name url origin folder because v entries=""
+  local tag=${1:-} tns=${2:-} rel ns chart ver kind name url origin folder because v entries=""
   while IFS=$'\t' read -r rel ns chart ver kind name url origin folder because; do
     [ "$origin" = tree ] || continue
     for v in "$rel" "$ns" "$folder"; do [[ "$v" =~ ^[a-z0-9][a-z0-9./_-]*$ ]] || return 1; done
     entries+="${entries:+, }{patch: '{apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, metadata: {name: $rel, namespace: $ns}, spec: {chart: {spec: {chart: ./$folder, version: ''*'', sourceRef: {kind: GitRepository, name: openova, namespace: flux-system}}}}}'}"
   done
+  if [ -n "$tag" ]; then
+    [[ "$tag" =~ ^tree-[0-9a-f]{12}$ ]] && [[ "$tns" =~ ^[a-z0-9][a-z0-9-]*$ ]] || return 1
+    entries+="${entries:+, }{patch: '{apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, metadata: {name: $CONSOLE_RELEASE, namespace: $tns}, spec: {values: {images: {catalystApi: {tag: $tag}}}}}'}"
+  fi
   [ -n "$entries" ] || return 1
   printf '[{"op":"add","path":"/spec/patches/-","value":{"patch":"{apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: bootstrap-kit, namespace: flux-system}, spec: {patches: [%s]}}"}}]\n' "$entries"
 }
@@ -753,6 +807,121 @@ tree_judge() {
   echo "installed from the tree: $hname $hver of ./$folder at $commit, $hstatus, Ready=${ready:-?} ${reason:-}"
 }
 
+# --- the catalyst-api image of a run (see charts and up in the header) ----------------------------
+
+# api_sources <tree>: the paths the image of catalyst-api is built from, one per line, sorted:
+# API_CONTAINERFILE and the source of every COPY of it from the build context (not --from another
+# stage), relative to the root of the tree, the build context of catalyst-build.yaml; a folder
+# without its trailing slash. Exit 1 when the Containerfile does not exist, copies nothing from
+# the build context, or holds a COPY or ADD that this rule does not read (an ADD, the JSON form, a
+# continued line, a pattern, the whole context, a path outside the tree): then which paths build
+# the image is not known.
+api_sources() {
+  local f="$1/$API_CONTAINERFILE" line s i from out=$API_CONTAINERFILE n=0
+  local -a w
+  [ -f "$f" ] || { echo "api_sources: $API_CONTAINERFILE does not exist" >&2; return 1; }
+  while IFS= read -r line; do
+    read -r -a w <<< "$line"
+    if [ "${w[0]^^}" != COPY ] || [[ "$line" == *\\ ]]; then
+      echo "api_sources: $API_CONTAINERFILE: a line this rule does not read: $line" >&2; return 1
+    fi
+    i=1 from=no
+    while [ "$i" -lt "${#w[@]}" ] && [[ "${w[$i]}" == --* ]]; do
+      [[ "${w[$i]}" != --from=* ]] || from=yes
+      i=$((i + 1))
+    done
+    [ "$from" = no ] || continue
+    [ $(( ${#w[@]} - i )) -ge 2 ] || { echo "api_sources: $API_CONTAINERFILE: a COPY without a source: $line" >&2; return 1; }
+    for (( ; i < ${#w[@]} - 1; i++ )); do
+      s=${w[$i]#./}
+      s=${s%/}
+      if ! [[ "$s" =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || [[ "/$s/" == */../* ]]; then
+        echo "api_sources: $API_CONTAINERFILE: a source this rule does not read: ${w[$i]} in: $line" >&2; return 1
+      fi
+      out+=$'\n'"$s" n=$((n + 1))
+    done
+  done < <(grep -i -E '^[[:space:]]*(COPY|ADD)[[:space:]]' "$f")
+  [ "$n" -gt 0 ] || { echo "api_sources: $API_CONTAINERFILE copies nothing from the build context" >&2; return 1; }
+  printf '%s\n' "$out" | LC_ALL=C sort -u
+}
+
+# api_plan <tree> [<file of changed paths>]: where the console's catalyst-api image comes from, one
+# line "<origin><tab><because>":
+#   tree    and the first changed path (in the order of the file) that is a path of api_sources or
+#           lies in one of its folders: up builds the image from the tree and the console runs it
+#   pinned  and -: no changed path is one, or no file is given: the console runs the image that
+#           the chart of the console release names
+# The file holds one path per line, relative to the tree. Exit 1 when the file is named and does
+# not exist, or api_sources fails.
+api_plan() {
+  local root=$1 list=${2:-} srcs p s
+  srcs=$(api_sources "$root") || return 1
+  if [ -n "$list" ]; then
+    [ -f "$list" ] || { echo "api_plan: the file of changed paths $list does not exist" >&2; return 1; }
+    while IFS= read -r p || [ -n "$p" ]; do
+      while IFS= read -r s; do
+        case "$p" in "$s" | "$s"/*) printf 'tree\t%s\n' "$p"; return 0 ;; esac
+      done <<< "$srcs"
+    done < "$list"
+  fi
+  printf 'pinned\t-\n'
+}
+
+# api_report <line of api_plan> <file of changed paths or ''>: one line, where the console's
+# catalyst-api image comes from.
+api_report() {
+  local origin because
+  IFS=$'\t' read -r origin because <<< "$1"
+  if [ "$origin" = tree ]; then
+    echo "catalyst-api: TREE, the image built with $API_CONTAINERFILE from the tree of this change (changed: $because)"
+  elif [ -n "$2" ]; then
+    echo "catalyst-api: pinned, the image the chart of $CONSOLE_RELEASE names (no changed path is a path the image is built from)"
+  else
+    echo "catalyst-api: pinned, the image the chart of $CONSOLE_RELEASE names (no list of changed paths)"
+  fi
+}
+
+# api_judge <Deployment json> <pods json> <ref or -> <digest or -> <required: yes|no>: whether the
+# Deployment catalyst-system/catalyst-api of a region runs the image it must. The pods are those of
+# its ReplicaSets (owner catalyst-api-<hash>) that are not being deleted. Prints one line; exit
+#   0  there is no Deployment ({}) and it is not required: a secondary region, where slot 13
+#      suspends the console release; or it runs: it names <ref> (with -, any image: the pinned
+#      one), has handled its generation, every replica is updated and available, it has exactly
+#      that many pods, and the container catalyst-api of each is Ready with the imageID
+#      <repository of ref>@<digest> (with -, any imageID, which is named)
+#   1  waiting: anything else
+api_judge() {
+  local ref=$3 digest=$4 required=$5 name gen ogen rep upd avail image rows pod ready id n=0 names="" ids=""
+  IFS='|' read -r name gen ogen rep upd avail image < <(jfields "$1" .metadata.name .metadata.generation \
+    .status.observedGeneration .spec.replicas .status.updatedReplicas .status.availableReplicas \
+    '([.spec.template.spec.containers[] | select(.name == "catalyst-api")][0].image)')
+  if [ -z "$name" ]; then
+    if [ "$required" = yes ]; then echo "waiting: no Deployment catalyst-system/catalyst-api"; return 1; fi
+    echo "no Deployment catalyst-system/catalyst-api in this region (the console release runs in the primary region), not judged"; return 0
+  fi
+  if [ "$ref" != - ] && [ "$image" != "$ref" ]; then
+    echo "waiting: the Deployment names ${image:-no container catalyst-api}, not $ref"; return 1
+  fi
+  if ! [[ "$rep" =~ ^[1-9][0-9]*$ ]] || [ "$ogen" != "$gen" ] || [ "$upd" != "$rep" ] || [ "$avail" != "$rep" ]; then
+    echo "waiting: the Deployment of $image has handled generation ${ogen:-?} of ${gen:-?}; ${upd:-0} updated and ${avail:-0} available of ${rep:-?}"; return 1
+  fi
+  rows=$(yq -p json -o tsv '.items[] | select(.metadata.deletionTimestamp == null and (.metadata.ownerReferences[0].name // "" | test("^catalyst-api-[a-z0-9]+$")))
+      | [[.metadata.name, ([.status.containerStatuses[] | select(.name == "catalyst-api")][0].ready | tostring),
+          ([.status.containerStatuses[] | select(.name == "catalyst-api")][0].imageID // "")] | join("|")]' "$2") \
+    || { echo "waiting: the pods of the Deployment cannot be read"; return 1; }
+  while IFS='|' read -r pod ready id; do
+    [ -n "$pod" ] || continue
+    n=$((n + 1)) names+="${names:+ }$pod"
+    if [ "$ready" != true ] || [ -z "$id" ] || { [ "$digest" != - ] && [ "$id" != "${ref%:*}@$digest" ]; }; then
+      echo "waiting: the pod $pod runs ${id:-no image yet} (Ready=$ready)$([ "$digest" = - ] || echo ", not ${ref%:*}@$digest")"; return 1
+    fi
+    case " $ids " in *" $id "*) ;; *) ids+="${ids:+ }$id" ;; esac
+  done <<< "$rows"
+  if [ "$n" != "$rep" ]; then echo "waiting: the Deployment has $n pod(s) of $rep replica(s): ${names:-none}"; return 1; fi
+  if [ "$ref" = - ]; then echo "runs the pinned image $image as $ids: $n pod(s) ($names), Ready"; return 0; fi
+  echo "runs $ref of the tree as ${ref%:*}@$digest: $n pod(s) ($names), Ready"
+}
+
 # --- commands -------------------------------------------------------------------------------
 
 kin() { local m=$1; shift; docker exec -i "$m" kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml --request-timeout=20s "$@"; }
@@ -799,14 +968,20 @@ pin_flux() {
 # sovereign-root exists, before Flux has the source to build bootstrap-kit from, so a release is
 # normally created with the tree as its source; one that was created and installed before is
 # found by tree_judge and upgraded. A patch that fails stops the run naming sovereign-root.
+# When LOCAL_PACK_DIR/api-tag holds "<tag> <namespace>" (up: the catalyst-api image of the tree),
+# the same entry also gives the console release that image (tree_patch <tag> <namespace>).
 tree_redirect() {
-  local code=$1 m=$2 before=no
+  local code=$1 m=$2 before=no tag="" tns="" what
   kin "$m" -n flux-system get kustomization sovereign-root > /dev/null 2>&1 || return 1
   if kin "$m" -n flux-system get kustomization bootstrap-kit > /dev/null 2>&1; then before=yes; fi
-  tree_patch < "$DIR/tree-charts.tsv" \
+  if [ -s "$DIR/api-tag" ]; then read -r tag tns < "$DIR/api-tag"; fi
+  tree_patch ${tag:+"$tag" "$tns"} < "$DIR/tree-charts.tsv" \
     | kin "$m" -n flux-system patch kustomization sovereign-root --type json --patch-file /dev/stdin > /dev/null \
     || die "$code: the patch of the Kustomization flux-system/sovereign-root failed"
-  log "$code: bootstrap-kit takes $(cut -f1 "$DIR/tree-charts.tsv" | tr '\n' ' ')from the tree (sovereign-root patched; bootstrap-kit existed before: $before)"
+  what="$(cut -f1 "$DIR/tree-charts.tsv" | tr '\n' ' ')from the tree"
+  [ -n "$tag" ] || { log "$code: bootstrap-kit takes $what (sovereign-root patched; bootstrap-kit existed before: $before)"; return 0; }
+  [ -s "$DIR/tree-charts.tsv" ] || what="no chart from the tree"
+  log "$code: bootstrap-kit takes $what, and $CONSOLE_RELEASE runs the catalyst-api image $API_REPO:$tag (sovereign-root patched; bootstrap-kit existed before: $before)"
 }
 
 # tree_states <region> <machine> <releases required Ready> <commit>: judges each release of
@@ -859,6 +1034,95 @@ tree_summary() {
   done
 }
 
+# api_build <ref> <commit>: builds the image of catalyst-api from the tree ROOT as catalyst-build.yaml
+# builds it (the root as the build context, API_CONTAINERFILE, BUILD_SHA the short commit of the
+# tree, BUILD_TIME now), tagged <ref>, never pushed; without provenance and SBOM attestations, as
+# the suite image of the run in self of conformance-local.yaml is built for ctr import. An image of
+# that name already on this host is used as it is. Every build step and its time go to the log and
+# LOCAL_PACK_DIR/api-build.log.
+# Exit 1 when none of the API_IMAGE_ATTEMPTS attempts (each stopped after API_IMAGE_ATTEMPT_LIMIT
+# seconds) built it.
+api_build() {
+  local ref=$1 commit=$2 a t0 rc=1
+  if docker image inspect "$ref" > /dev/null 2>&1; then log "api image: $ref is on this host already, not built again"; return 0; fi
+  for a in $(seq 1 "$API_IMAGE_ATTEMPTS"); do
+    log "api image: build $ref with $API_CONTAINERFILE from the tree at $commit, attempt $a of $API_IMAGE_ATTEMPTS, stopped after ${API_IMAGE_ATTEMPT_LIMIT}s"
+    t0=$(date +%s)
+    rc=0
+    DOCKER_BUILDKIT=1 timeout --kill-after=20 "$API_IMAGE_ATTEMPT_LIMIT" docker build --progress=plain --provenance=false --sbom=false --file "$ROOT/$API_CONTAINERFILE" \
+      --build-arg "BUILD_SHA=${commit:0:7}" --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --tag "$ref" "$ROOT" \
+      2>&1 | tee "$DIR/api-build.log" || rc=$?
+    if [ "$rc" = 0 ]; then log "api image: $ref built in $(($(date +%s) - t0))s, attempt $a"; return 0; fi
+    log "api image: attempt $a ended with exit code $rc after $(($(date +%s) - t0))s (124: stopped at the limit);" \
+      "the last step it reached: $(grep -E '^#[0-9]+ \[' "$DIR/api-build.log" | tail -1 || true)"
+  done
+  return 1
+}
+
+# api_load <machine> <ref> <archive>: imports the image <ref> (the docker save of it in <archive>)
+# into the containerd of k3s on the machine and makes its reference by digest <repository>@<digest>
+# with ctr images tag, as the run in self of conformance-local.yaml does (the import's own
+# --digests makes none for a named image in the containerd of k3s v1.31.8), so that a pod that runs
+# it reports that reference as its imageID. Prints the digest. Exit 1, naming the step, when the
+# import fails or the machine then holds no digest or no reference by digest for it.
+api_load() {
+  local m=$1 ref=$2 repo=${2%:*} got refs
+  docker exec -i "$m" /usr/local/bin/k3s ctr -n k8s.io images import --all-platforms --base-name "$repo" - < "$3" > /dev/null \
+    || { echo "api_load: $m did not import $ref" >&2; return 1; }
+  got=$(docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images ls "name==$ref" < /dev/null | awk -v ref="$ref" '$1 == ref {print $3}')
+  [[ "$got" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "api_load: $m holds no digest for $ref: '$got'" >&2; return 1; }
+  docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images tag --force "$ref" "$repo@$got" < /dev/null > /dev/null \
+    || { echo "api_load: $m could not tag $ref as $repo@$got" >&2; return 1; }
+  refs=$(docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images ls -q < /dev/null | grep -c -x -F -- "$repo@$got" || true)
+  [ "$refs" = 1 ] || { echo "api_load: $m has no reference $repo@$got" >&2; return 1; }
+  echo "$got"
+}
+
+# api_load_pack <module inputs> <ref>: loads the image <ref> into every machine of the pack
+# (machines): waits until the machine's k3s answers ctr (within API_LOAD_LIMIT seconds), then
+# api_load. Every machine must hold it under one digest, which goes to LOCAL_PACK_DIR/api-digest;
+# one line per machine goes to the log and to api-image.txt. A machine that does not answer, does
+# not load it or holds another digest stops the run, naming it.
+api_load_pack() {
+  local ref=$2 all m t got digest="" tar="$DIR/api-image.tar"
+  all=$(machines "$1") || die "api image: the machines of the pack cannot be named from $1"
+  docker save "$ref" > "$tar" || die "api image: docker save of $ref failed"
+  while IFS= read -r m; do
+    t=$(date +%s)
+    until docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images ls -q < /dev/null > /dev/null 2>&1; do
+      [ $(( $(date +%s) - t )) -lt "$API_LOAD_LIMIT" ] || die "api image: the k3s of $m does not answer ctr within ${API_LOAD_LIMIT}s"
+      sleep 5
+    done
+    got=$(api_load "$m" "$ref" "$tar") || die "api image: $m did not load $ref"
+    [ -z "$digest" ] || [ "$got" = "$digest" ] || die "api image: $m holds $ref as $got, another machine as $digest"
+    digest=$got
+    log "api image: $m holds $ref as ${ref%:*}@$digest"
+    echo "  $m holds it as ${ref%:*}@$digest" >> "$DIR/api-image.txt"
+  done <<< "$all"
+  rm -f "$tar"
+  echo "$digest" > "$DIR/api-digest"
+}
+
+# api_states <region> <machine> <ref or -> <digest or -> <required: yes|no>: reads the Deployment
+# catalyst-system/catalyst-api and its pods in the region, judges them with api_judge, writes the
+# verdict to LOCAL_PACK_DIR/api/<region>-api.txt and prints it; exit as api_judge. A Deployment the
+# API server says is NotFound is {}; any other failed read waits, its error kept in the .err file
+# beside the JSON.
+api_states() {
+  local code=$1 m=$2 d="$DIR/api/$1-api-deployment.json" p="$DIR/api/$1-api-pods.json" v st=0
+  if ! kin "$m" -n catalyst-system get deployment catalyst-api -o json < /dev/null > "$d" 2> "${d%.json}.err"; then
+    if grep -q -F '(NotFound)' "${d%.json}.err"; then echo '{}' > "$d"; else
+      v="waiting: the Deployment catalyst-system/catalyst-api cannot be read: $(tr '\n' ' ' < "${d%.json}.err")"
+      echo "$v" | tee "$DIR/api/$code-api.txt"; return 1
+    fi
+  fi
+  kin "$m" -n catalyst-system get pods -l app.kubernetes.io/name=catalyst-api -o json < /dev/null > "$p" 2> "${p%.json}.err" \
+    || echo '{"items": []}' > "$p"
+  v=$(api_judge "$d" "$p" "$3" "$4" "$5") || st=$?
+  echo "$v" | tee "$DIR/api/$code-api.txt"
+  return "$st"
+}
+
 # cmd_charts [--changed <file>]: see charts in the header.
 cmd_charts() {
   local changed=""
@@ -868,9 +1132,11 @@ cmd_charts() {
       *) usage ;;
     esac
   done
-  local plan
+  local plan api
   plan=$(kit_plan "$ROOT" "$changed") || die "charts: the kit chart plan could not be made"
+  api=$(api_plan "$ROOT" "$changed") || die "charts: the catalyst-api image plan could not be made"
   plan_report "$changed" <<< "$plan"
+  api_report "$api" "$changed"
 }
 
 # report_state <module inputs> <region code>...: prints the state of every named region for
@@ -1055,8 +1321,30 @@ cmd_up() {
   awk -F'\t' '$8 == "tree"' "$DIR/kit-plan.tsv" > "$DIR/tree-charts.tsv"
   plan_report "$changed" < "$DIR/kit-plan.tsv" > "$DIR/kit-charts.txt"
   cat "$DIR/kit-charts.txt"
+  # The catalyst-api image of this run: from the tree when the change touches a path it is built
+  # from (charts above), otherwise the pinned one.
+  local api api_origin api_commit="" api_ref=- api_digest=- api_ns
+  mkdir -p "$DIR/api"
+  : > "$DIR/api-tag"
+  api=$(api_plan "$ROOT" "$changed") || die "the catalyst-api image plan could not be made"
+  IFS=$'\t' read -r api_origin _ <<< "$api"
+  api_report "$api" "$changed" > "$DIR/api-image.txt"
+  if [ "$api_origin" = tree ]; then
+    api_commit=$(git -C "$ROOT" rev-parse HEAD) || die "the commit of the tree $ROOT cannot be read: the catalyst-api image of the tree has no name"
+    api_ref="$API_REPO:tree-${api_commit:0:12}"
+    api_ns=$(awk -F'\t' -v r="$CONSOLE_RELEASE" '$1 == r {print $2}' "$DIR/kit-plan.tsv")
+    [ -n "$api_ns" ] || die "the kit holds no release $CONSOLE_RELEASE: nothing would run the catalyst-api image of the tree"
+    echo "tree-${api_commit:0:12} $api_ns" > "$DIR/api-tag"
+  fi
+  cat "$DIR/api-image.txt"
   local vars="$DIR/pack.tfvars.json" dep="${commit:0:16}" t0 code m pcode pm image
   image=$(cmd_image)
+  if [ "$api_origin" = tree ]; then
+    t0=$(date +%s)
+    api_build "$api_ref" "$api_commit" \
+      || die "api image: $api_ref did not build in $API_IMAGE_ATTEMPTS attempts of at most ${API_IMAGE_ATTEMPT_LIMIT}s"
+    echo "  image $api_ref of the tree at $api_commit, docker image id $(docker image inspect --format '{{.Id}}' "$api_ref"), ready after $(( $(date +%s) - t0 ))s, never pushed" >> "$DIR/api-image.txt"
+  fi
   write_tfvars "$fixture" "$vars" "$dep" "$branch" "$image"
   local codes
   mapfile -t codes < <(region_codes "$vars")
@@ -1093,7 +1381,7 @@ cmd_up() {
         docker exec "$m" sh -c 'ls /var/lib/catalyst/*-FAILED; tail -60 /var/log/cloud-init-output.log' || true
         die "$code: the boot template failed"
       fi
-      if [ -s "$DIR/tree-charts.tsv" ] && [ -z "${redirected[$code]:-}" ]; then
+      if { [ -s "$DIR/tree-charts.tsv" ] || [ -s "$DIR/api-tag" ]; } && [ -z "${redirected[$code]:-}" ]; then
         if tree_redirect "$code" "$m"; then redirected[$code]=1; else all=no; fi
       fi
       if [ -z "${pinned[$code]:-}" ]; then
@@ -1109,6 +1397,11 @@ cmd_up() {
     [ $(( $(date +%s) - t0 )) -lt "$MARKER_LIMIT" ] || die "the boot template did not complete within ${MARKER_LIMIT}s"
     sleep 5
   done
+  # The catalyst-api image of the tree goes into every machine before the console release installs.
+  if [ "$api_origin" = tree ]; then
+    api_load_pack "$vars" "$api_ref"
+    api_digest=$(cat "$DIR/api-digest")
+  fi
 
   # The regions for the state report: the primary region last.
   local others=()
@@ -1164,6 +1457,31 @@ cmd_up() {
     avail=$(kin "$pm" -n catalyst-system get deployment catalyst-api -o jsonpath='{.status.availableReplicas}' 2> /dev/null || true)
   done
   log "$pcode: the console's API is available after $(( $(date +%s) - t0 ))s"
+  # The image the console's API runs, in every region (api_judge; required in the primary region).
+  local req aok alast=0
+  while :; do
+    aok=yes
+    for code in "${codes[@]}"; do
+      req=no
+      [ "$code" != "$pcode" ] || req=yes
+      api_states "$code" "$(machine "$vars" "$code")" "$api_ref" "$api_digest" "$req" > /dev/null || aok=no
+    done
+    [ "$aok" = yes ] && break
+    if [ $(( $(date +%s) - t0 )) -ge "$CORE_LIMIT" ]; then
+      for code in "${codes[@]}"; do log "$code: catalyst-api: $(cat "$DIR/api/$code-api.txt")"; done
+      report_state "$vars" "$pcode"
+      die "$pcode: catalyst-system/catalyst-api did not run $([ "$api_ref" = - ] && echo "its pinned image" || echo "$api_ref of the tree") within ${CORE_LIMIT}s"
+    fi
+    if [ $(( $(date +%s) - alast )) -ge 120 ]; then
+      for code in "${codes[@]}"; do log "$code: catalyst-api: $(cat "$DIR/api/$code-api.txt")"; done
+      alast=$(date +%s)
+    fi
+    sleep 10
+  done
+  for code in "${codes[@]}"; do
+    log "$code: catalyst-api: $(cat "$DIR/api/$code-api.txt")"
+    echo "$code: $(cat "$DIR/api/$code-api.txt")" >> "$DIR/api-image.txt"
+  done
 
   local ip
   for code in "${codes[@]}"; do
@@ -1311,6 +1629,7 @@ cmd_collect() {
     mesh_status "$m" > "$d/mesh.txt" 2>&1 || true
   done
   for f in "$DIR"/tofu-*.log "$DIR"/minter-build.log "$DIR"/mint.log "$DIR"/console-forward.log "$DIR"/discovery.txt "$DIR"/discovery-verdict.txt "$DIR"/mesh-*.txt \
+           "$DIR"/api-image.txt "$DIR"/api-build.log "$DIR"/api/* \
            "$DIR"/kit-charts.txt "$DIR"/kit-plan.tsv "$DIR"/tree/*; do
     if [ -f "$f" ]; then cp "$f" "$DIR/evidence/" 2> /dev/null || true; fi
   done
@@ -2036,6 +2355,289 @@ SH
     : > "$t/ts/host/fail-patch"
     ! rr_run && grep -q -F 'region-a: the patch of the Kustomization flux-system/sovereign-root failed' "$t/ts/err"; }
   expect 0 "tree_redirect: waits for sovereign-root, then appends the entry of tree_patch to it; a failed patch stops the run" rr_cases
+
+  # The catalyst-api image of a run. The real Containerfile names the paths it is built from.
+  api_real() { [ "$(api_sources "$ROOT")" = "$(printf '%s\n' core/controllers core/services/shared infra/providers \
+      products/catalyst/bootstrap/api "$API_CONTAINERFILE" products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum)" ]; }
+  expect 0 "api_sources, the real Containerfile: itself, core/controllers, core/services/shared, the API's folder (its go.mod and go.sum) and infra/providers" api_real
+  local at="$t/api" af="$t/api/$API_CONTAINERFILE" bad
+  mkdir -p "${af%/*}"
+  # af_case <line>...: the Containerfile of the throw-away tree $t/api holds these lines.
+  af_case() { printf '%s\n' 'FROM scratch AS build' "$@" > "$af"; }
+  af_case 'COPY --from=build /out/x /usr/local/bin/x' 'copy --chown=65534:65534 ./lib/a/ b.txt /dst/' '# COPY not/this /x' '  COPY --link d /d'
+  expect 0 "api_sources: each source of a COPY from the build context, after its flags, and no COPY --from another stage" \
+    test "$(api_sources "$at" | tr '\n' ' ')" = "b.txt d lib/a $API_CONTAINERFILE "
+  for bad in 'COPY ["a", "/b"]' 'COPY a/*.go /x/' 'COPY ../x /x' 'COPY a/../../x /x' 'COPY . /app' 'COPY /etc/x /x' \
+             'ADD https://example.test/x /x' "COPY a \\" 'COPY a' 'COPY <<EOF /x'; do
+    af_case 'COPY d /d' "$bad"
+    expect 1 "api_sources: a line it does not read is refused: $bad" api_sources "$at"
+  done
+  af_case 'COPY --from=build /out/x /x' 'RUN true'
+  expect 1 "api_sources: a Containerfile that copies nothing from the build context is refused" api_sources "$at"
+  rm -f "$af"
+  expect 1 "api_sources: no Containerfile is refused" api_sources "$at"
+  # ap_case <want> <changed path>...: api_plan of the real tree for those changed paths.
+  ap_case() { local want=$1; shift; printf '%s\n' "$@" > "$t/ap-changed"; [ "$(api_plan "$ROOT" "$t/ap-changed")" = "$want" ]; }
+  expect 0 "api_plan: a changed file of the API's folder takes the image from the tree" \
+    ap_case "tree${tab}products/catalyst/bootstrap/api/internal/handler/version.go" docs/ledger/plan.yaml products/catalyst/bootstrap/api/internal/handler/version.go
+  expect 0 "api_plan: ... naming the first such path of the file (here a library the image copies)" \
+    ap_case "tree${tab}core/services/shared/auth/token.go" core/services/shared/auth/token.go products/catalyst/bootstrap/api/go.mod
+  expect 0 "api_plan: a changed file of infra/providers, which the image bundles, takes it from the tree" \
+    ap_case "tree${tab}infra/providers/local/main.tf" infra/providers/local/main.tf
+  expect 0 "api_plan: the probe path of the workflow, the Containerfile, takes it from the tree" ap_case "tree${tab}$API_CONTAINERFILE" "$API_CONTAINERFILE"
+  expect 0 "api_plan: a path beside those paths, or of a folder whose name starts like one, keeps the pinned image" \
+    ap_case "pinned${tab}-" products/catalyst/bootstrap/ui/src/x.ts products/catalyst/bootstrap/api-old/x.go core/controllers-old/x.go \
+      infra/providers.md products/catalyst/chart/values.yaml ""
+  expect 0 "api_plan: without a file of changed paths the image is the pinned one" test "$(api_plan "$ROOT")" = "pinned${tab}-"
+  expect 1 "api_plan: a file of changed paths that does not exist is refused" api_plan "$ROOT" "$t/no-such-file"
+  printf '%s\n' docs/ledger/plan.yaml products/catalyst/bootstrap/api/internal/handler/version.go > "$t/charts-api"
+  expect 0 "charts: the last line says that the console runs the catalyst-api image of the tree, and why" \
+    test "$(bash "${BASH_SOURCE[0]}" charts --changed "$t/charts-api" | tail -n 1)" \
+    = "catalyst-api: TREE, the image built with $API_CONTAINERFILE from the tree of this change (changed: products/catalyst/bootstrap/api/internal/handler/version.go)"
+  printf '%s\n' docs/ledger/plan.yaml > "$t/charts-docs"
+  expect 0 "charts: ... and otherwise that it runs the pinned image" test "$(bash "${BASH_SOURCE[0]}" charts --changed "$t/charts-docs" | tail -n 1)" \
+    = "catalyst-api: pinned, the image the chart of $CONSOLE_RELEASE names (no changed path is a path the image is built from)"
+
+  # tree_patch with the tag of the image of the tree, rendered as Flux applies it (real_chain).
+  local atag=tree-0123456789ab
+  tp_none() { tree_patch "$@" < /dev/null; }
+  expect 1 "tree_patch: a tag up does not make is refused" tp_none tree-0123456789AB flux-system
+  expect 1 "tree_patch: a namespace that is not a name is refused" tp_none "$atag" 'flux system'
+  # tp_alone: with no chart from the tree, the one entry patches bootstrap-kit with one patch, the
+  # HelmRelease of the console release in flux-system with the tag and nothing else.
+  tp_alone() { tree_patch "$atag" flux-system < "$t/kt-plan-none" > "$t/apatch1.json" || return 1
+    [ "$(yq -p json -o tsv '[length]' "$t/apatch1.json")" = 1 ] || return 1
+    yq -p json -o tsv '[.[0].value.patch]' "$t/apatch1.json" > "$t/apatch1.yaml"
+    [ "$(yq -o tsv '[[.kind, .metadata.name, .metadata.namespace, (.spec.patches | length)] | join("|")]' "$t/apatch1.yaml")" = "Kustomization|bootstrap-kit|flux-system|1" ] || return 1
+    yq '.spec.patches[0].patch' "$t/apatch1.yaml" > "$t/apatch1-hr.yaml"
+    [ "$(yq -o tsv '[[.kind, .metadata.name, .metadata.namespace, .spec.values.images.catalystApi.tag, (.spec | keys | join(",")), (.spec.values | keys | join(","))] | join("|")]' "$t/apatch1-hr.yaml")" \
+      = "HelmRelease|bp-catalyst-platform|flux-system|$atag|values|images" ]; }
+  expect 0 "tree_patch: a tag alone, with no chart from the tree, is one patch: the console release's images.catalystApi.tag" tp_alone
+  # ajson <selection> <file>: the selected objects of a render as JSON, keys sorted.
+  ajson() { yq -N -o json -I0 "$1 | sort_keys(..)" "$2"; }
+  api_chain() {
+    tree_patch "$atag" flux-system < "$t/real-plan" > "$t/apatch.json" || return 1
+    R=$(realpath --relative-to="$t/root" "$ROOT/clusters/_template/root/base-primary") M=$(yq -p json -o tsv '[.[0].value.patch]' "$t/apatch.json") \
+      yq -n '.apiVersion = "kustomize.config.k8s.io/v1beta1" | .kind = "Kustomization" | .resources = [strenv(R)] | .patches = [{"patch": strenv(M)}]' > "$t/root/kustomization.yaml"
+    kubectl kustomize --load-restrictor LoadRestrictionsNone "$t/root" > "$t/aroot.out" || return 1
+    R=$(realpath --relative-to="$t/kitp" "$ROOT/$KIT_PATH") yq -n '.apiVersion = "kustomize.config.k8s.io/v1beta1" | .kind = "Kustomization" | .resources = [strenv(R)]' > "$t/kitp/kustomization.yaml"
+    { echo "patches:"; yq -N 'select(.kind == "Kustomization" and .metadata.name == "bootstrap-kit") | .spec.patches' "$t/aroot.out" | sed '/^$/d'; } >> "$t/kitp/kustomization.yaml"
+    kubectl kustomize --load-restrictor LoadRestrictionsNone "$t/kitp" > "$t/akit.out" || return 1
+    kubectl kustomize --load-restrictor LoadRestrictionsNone "$ROOT/$KIT_PATH" > "$t/kit-plain.out" || return 1
+    local con='select(.kind == "HelmRelease" and .metadata.name == "bp-catalyst-platform")'
+    local rest='select((.kind == "HelmRelease" and (.metadata.name == "bp-catalyst-platform" or .metadata.name == "bp-kyverno-policies")) | not)'
+    # The console release gains the tag and keeps every other value; bp-kyverno-policies takes its
+    # chart from the tree as before; every other object of the kit is as it was.
+    [ "$(yq -N "$con | .spec.values.images.catalystApi.tag" "$t/akit.out" | sed '/^$/d')" = "$atag" ] \
+      && [ "$(yq -N "$con | .spec.values.images.catalystApi.tag" "$t/kit-plain.out" | sed '/^$/d')" = null ] \
+      && [ "$(ajson "$con | del(.spec.values.images)" "$t/akit.out" | sed '/^$/d')" = "$(ajson "$con" "$t/kit-plain.out" | sed '/^$/d')" ] \
+      && [ "$(yq -N 'select(.kind == "HelmRelease" and .metadata.name == "bp-kyverno-policies") | .spec.chart.spec.chart' "$t/akit.out" | sed '/^$/d')" = ./platform/kyverno-policies/chart ] \
+      && [ "$(ajson "$rest" "$t/akit.out" | sed '/^$/d')" = "$(ajson "$rest" "$t/kit-plain.out" | sed '/^$/d')" ] \
+      && [ "$(grep -c '^kind: ' "$t/akit.out")" = "$(grep -c '^kind: ' "$t/kit-plain.out")" ]; }
+  expect 0 "tree_patch with a tag, rendered as Flux applies it: the console release gets images.catalystApi.tag and keeps every other value; the chart of the tree and every other object are as before" api_chain
+
+  expect 0 "machines: per region its control-plane machine, then its workers" test "$(machines "$t/v2.json" | tr '\n' ' ')" \
+    = "catalyst-sov-example-test-01234567-region-a-cp1 catalyst-sov-example-test-01234567-region-a-w1 catalyst-sov-example-test-01234567-region-b-cp1 "
+  expect 1 "machines: inputs that cannot be read are refused" machines /dev/null
+
+  # api_judge on a Deployment and its pods.
+  local aref="$API_REPO:$atag" arepo="$API_REPO" pref="$API_REPO:3f899a9" adig pdig aj="$t/aj"
+  adig="sha256:$(printf 'a%.0s' $(seq 64))" pdig="sha256:$(printf 'b%.0s' $(seq 64))"
+  mkdir -p "$aj"
+  # aj_dep <generation> <observed> <replicas> <updated> <available> <image>: the Deployment.
+  aj_dep() { printf '{"metadata":{"name":"catalyst-api","generation":%s},"spec":{"replicas":%s,"template":{"spec":{"containers":[{"name":"catalyst-api","image":"%s"}]}}},"status":{"observedGeneration":%s,"replicas":%s,"updatedReplicas":%s,"availableReplicas":%s}}\n' \
+      "$1" "$3" "$6" "$2" "$3" "$4" "$5" > "$aj/dep.json"; }
+  # aj_pod <name> <owner> <ready> <imageID> [deleting]: one pod (a ReplicaSet's when the owner is
+  # catalyst-api-<hash>, else a Job's) with a sidecar beside catalyst-api.
+  aj_pod() { local del="" kind=Job
+    [ -z "${5:-}" ] || del='"deletionTimestamp":"2026-11-27T10:00:00Z",'
+    [ "${2#catalyst-api-}" = "$2" ] || kind=ReplicaSet
+    printf '{"metadata":{"name":"%s",%s"ownerReferences":[{"kind":"%s","name":"%s"}]},"status":{"containerStatuses":[{"name":"sidecar","ready":true,"imageID":"x@sha256:c"},{"name":"catalyst-api","ready":%s,"imageID":"%s"}]}}' \
+      "$1" "$del" "$kind" "$2" "$3" "$4"; }
+  aj_pods() { local IFS=,; printf '{"items":[%s]}\n' "$*" > "$aj/pods.json"; }
+  # aj_case <exit code> <start of the line> <ref> <digest> <required>: api_judge exits so and prints that.
+  aj_case() { local out st=0; out=$(api_judge "$aj/dep.json" "$aj/pods.json" "$3" "$4" "$5") || st=$?; [ "$st" = "$1" ] && [ "${out#"$2"}" != "$out" ]; }
+  aj_dep 2 2 1 1 1 "$aref"
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$adig")"
+  expect 0 "api_judge: every pod of the Deployment runs the digest of the image of the tree: runs, naming the image, the digest and the pods" \
+    aj_case 0 "runs $aref of the tree as $arepo@$adig: 1 pod(s) (catalyst-api-abc-x1), Ready" "$aref" "$adig" yes
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$pdig")"
+  expect 0 "api_judge: a pod that runs another digest waits, naming both" \
+    aj_case 1 "waiting: the pod catalyst-api-abc-x1 runs $arepo@$pdig (Ready=true), not $arepo@$adig" "$aref" "$adig" yes
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc false "$arepo@$adig")"
+  expect 0 "api_judge: a pod that is not Ready waits" aj_case 1 "waiting: the pod catalyst-api-abc-x1 runs $arepo@$adig (Ready=false)" "$aref" "$adig" yes
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$adig")" "$(aj_pod catalyst-api-old-x2 catalyst-api-old true "$arepo@$pdig")"
+  expect 0 "api_judge: a pod of another ReplicaSet that still runs the pinned image waits" \
+    aj_case 1 "waiting: the pod catalyst-api-old-x2 runs $arepo@$pdig (Ready=true), not $arepo@$adig" "$aref" "$adig" yes
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$adig")" "$(aj_pod catalyst-api-old-x2 catalyst-api-old true "$arepo@$pdig" deleting)" \
+    "$(aj_pod check-x3 check true "$arepo@$pdig")"
+  expect 0 "api_judge: a pod being deleted and the pod of a Job are not pods of the Deployment" aj_case 0 "runs $aref of the tree" "$aref" "$adig" yes
+  aj_pods
+  expect 0 "api_judge: a Deployment without a pod waits" aj_case 1 "waiting: the Deployment has 0 pod(s) of 1 replica(s): none" "$aref" "$adig" yes
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$adig")"
+  aj_dep 2 2 1 1 1 "$pref"
+  expect 0 "api_judge: a Deployment that names the pinned image waits" aj_case 1 "waiting: the Deployment names $pref, not $aref" "$aref" "$adig" yes
+  expect 0 "api_judge: ... in a secondary region too, when it has one" aj_case 1 "waiting: the Deployment names $pref, not $aref" "$aref" "$adig" no
+  aj_dep 3 2 1 1 1 "$aref"
+  expect 0 "api_judge: a generation the Deployment has not handled waits" aj_case 1 "waiting: the Deployment of $aref has handled generation 2 of 3" "$aref" "$adig" yes
+  aj_dep 2 2 1 1 0 "$aref"
+  expect 0 "api_judge: a replica that is not available waits" \
+    aj_case 1 "waiting: the Deployment of $aref has handled generation 2 of 2; 1 updated and 0 available of 1" "$aref" "$adig" yes
+  echo '{}' > "$aj/dep.json"
+  expect 0 "api_judge: no Deployment in the primary region waits" aj_case 1 "waiting: no Deployment catalyst-system/catalyst-api" "$aref" "$adig" yes
+  expect 0 "api_judge: no Deployment in a secondary region is said and not judged" aj_case 0 "no Deployment catalyst-system/catalyst-api in this region" "$aref" "$adig" no
+  aj_dep 2 2 1 1 1 "$pref"
+  aj_pods "$(aj_pod catalyst-api-def-y1 catalyst-api-def true "$arepo@$pdig")"
+  expect 0 "api_judge: the pinned image is named with the imageID its pod runs" \
+    aj_case 0 "runs the pinned image $pref as $arepo@$pdig: 1 pod(s) (catalyst-api-def-y1), Ready" - - yes
+  aj_pods "$(aj_pod catalyst-api-def-y1 catalyst-api-def true "")"
+  expect 0 "api_judge: the pinned image, a pod that reports no imageID yet waits" aj_case 1 "waiting: the pod catalyst-api-def-y1 runs no image yet (Ready=true)" - - yes
+
+  # api_build against a stand-in docker: image inspect answers whether $t/ab/host/present exists;
+  # each build logs its arguments and takes the next word of $t/ab/host/plan: ok, or it fails.
+  mkdir -p "$t/ab/bin" "$t/ab/host" "$t/ab/dir"
+  cat > "$t/ab/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+case "$1 ${2:-}" in
+  "image inspect") [ -f "$h/present" ] ;;
+  build\ *)
+    shift
+    echo "build $*" >> "$h/calls"
+    read -r step rest < "$h/plan" || true
+    printf '%s\n' "$rest" > "$h/plan"
+    echo "#7 [build 9/12] RUN CGO_ENABLED=0 GOOS=linux go build"
+    [ "$step" = ok ] && : > "$h/present" ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/ab/bin/docker"
+  ab_case() { rm -f "$t/ab/host/present"; : > "$t/ab/host/calls"; printf '%s\n' "$1" > "$t/ab/host/plan"; [ -z "${2:-}" ] || : > "$t/ab/host/present"; }
+  ab_run() { (PATH="$t/ab/bin:$PATH" DIR="$t/ab/dir" api_build "$aref" "$c") > "$t/ab/out" 2>&1; }
+  # ab_built <builds>: the run passed after that many builds, each with the Containerfile and the
+  # context of catalyst-build.yaml, the short commit, a build time and the name.
+  ab_built() { ab_run && [ "$(grep -c . "$t/ab/host/calls")" = "$1" ] \
+    && [ "$(sed -E 's/BUILD_TIME=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z /BUILD_TIME=T /' "$t/ab/host/calls" | sort -u)" \
+      = "build --progress=plain --provenance=false --sbom=false --file $ROOT/$API_CONTAINERFILE --build-arg BUILD_SHA=${c:0:7} --build-arg BUILD_TIME=T --tag $aref $ROOT" ]; }
+  ab_none() { ab_run && [ ! -s "$t/ab/host/calls" ]; }
+  ab_named() { [ "$(grep -c . "$t/ab/host/calls")" = "$API_IMAGE_ATTEMPTS" ] && grep -q -F 'the last step it reached: #7 [build 9/12] RUN' "$t/ab/out"; }
+  ab_case "" present
+  expect 0 "api_build: an image of the name on this host is used and nothing is built" ab_none
+  ab_case ok
+  expect 0 "api_build: an image not on this host is built once, as catalyst-build.yaml builds it" ab_built 1
+  ab_case "fail ok"
+  expect 0 "api_build: a failed attempt is followed by the next" ab_built 2
+  ab_case "fail fail ok"
+  expect 1 "api_build: when every attempt fails, api_build fails" ab_run
+  expect 0 "api_build: ... after exactly the allowed attempts, naming the last build step it reached" ab_named
+
+  # api_load and api_load_pack against a stand-in docker: each machine is a folder of $t/al/host
+  # with its digest; import keeps the archive it reads and logs the base name, images ls name==
+  # answers with the digest, tag adds a reference and images ls -q lists them. A machine with the
+  # file noctr does not answer ctr, noimport fails the import, notag fails the tag.
+  mkdir -p "$t/al/bin" "$t/al/dir"
+  cat > "$t/al/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+case "$*" in
+  "save "*) echo "archive of $2" ;;
+  "exec -i "*" ctr -n k8s.io images import --all-platforms --base-name "*" -")
+    [ ! -f "$h/$3/noimport" ] || exit 1
+    cat > "$h/$3/image"; echo "import $3 ${12}" >> "$h/calls" ;;
+  "exec "*" ctr -n k8s.io images ls name=="*)
+    [ ! -f "$h/$2/noctr" ] || exit 1
+    echo "REF TYPE DIGEST SIZE PLATFORMS LABELS"
+    if [ -f "$h/$2/image" ]; then echo "${9#name==} application/vnd.oci.image.index.v1+json $(cat "$h/$2/digest") 90.1 MiB linux/amd64 -"; fi ;;
+  "exec "*" ctr -n k8s.io images tag --force "*)
+    [ ! -f "$h/$2/notag" ] || exit 1
+    echo "${11}" >> "$h/$2/refs"; echo "tag $2 ${10} ${11}" >> "$h/calls" ;;
+  "exec "*" ctr -n k8s.io images ls -q")
+    [ ! -f "$h/$2/noctr" ] || exit 1
+    cat "$h/$2/refs" 2> /dev/null || true ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/al/bin/docker"
+  local al_m
+  mapfile -t al_m < <(machines "$t/v2.json")
+  # al_case [<machine index> <file> [<content>]]: every machine holds the digest adig; then the
+  # file of the machine is written (empty without a content).
+  al_case() { local m; rm -rf "$t/al/host" "$t/al/dir"; mkdir -p "$t/al/host" "$t/al/dir"; : > "$t/al/host/calls"
+    for m in "${al_m[@]}"; do mkdir -p "$t/al/host/$m"; echo "$adig" > "$t/al/host/$m/digest"; done
+    [ $# = 0 ] || echo "${3:-}" > "$t/al/host/${al_m[$1]}/$2"; }
+  al_one() { echo "archive of $aref" > "$t/al/dir/a.tar"; (PATH="$t/al/bin:$PATH" api_load "${al_m[0]}" "$aref" "$t/al/dir/a.tar") > "$t/al/out" 2> "$t/al/err"; }
+  al_one_ok() { al_case; al_one && [ "$(cat "$t/al/out")" = "$adig" ] && [ "$(cat "$t/al/host/${al_m[0]}/image")" = "archive of $aref" ] \
+    && [ "$(cat "$t/al/host/calls")" = "$(printf 'import %s %s\ntag %s %s %s' "${al_m[0]}" "$arepo" "${al_m[0]}" "$aref" "$arepo@$adig")" ]; }
+  expect 0 "api_load: imports the archive under the repository's base name, tags it by digest and prints the digest" al_one_ok
+  al_case 0 noimport
+  expect 1 "api_load: a failed import fails" al_one
+  expect 0 "api_load: ... naming the machine" grep -q -F "api_load: ${al_m[0]} did not import $aref" "$t/al/err"
+  al_case 0 digest
+  expect 1 "api_load: a machine that holds no digest for the image fails" al_one
+  al_case 0 notag
+  expect 1 "api_load: a machine that cannot tag it by digest fails" al_one
+  al_pack() { (PATH="$t/al/bin:$PATH" DIR="$t/al/dir" API_LOAD_LIMIT=0 api_load_pack "$t/v2.json" "$aref") > "$t/al/out" 2> "$t/al/err"; }
+  al_pack_ok() { al_case; : > "$t/al/dir/api-image.txt"; al_pack || return 1
+    local m want=""
+    for m in "${al_m[@]}"; do
+      [ "$(cat "$t/al/host/$m/image")" = "archive of $aref" ] || return 1
+      want+="  $m holds it as $arepo@$adig"$'\n'
+    done
+    [ "$(cat "$t/al/dir/api-digest")" = "$adig" ] && [ "$(cat "$t/al/dir/api-image.txt")" = "${want%$'\n'}" ] && [ ! -e "$t/al/dir/api-image.tar" ]; }
+  expect 0 "api_load_pack: every machine of both regions holds the image under one digest, each named in api-image.txt" al_pack_ok
+  al_case 2 digest "$pdig"
+  expect 1 "api_load_pack: a machine that holds the image under another digest stops the run" al_pack
+  expect 0 "api_load_pack: ... naming it and both digests" grep -q -F "api image: ${al_m[2]} holds $aref as $pdig, another machine as $adig" "$t/al/err"
+  al_case 1 noctr
+  expect 1 "api_load_pack: a machine whose k3s does not answer ctr stops the run" al_pack
+  expect 0 "api_load_pack: ... naming it" grep -q -F "api image: the k3s of ${al_m[1]} does not answer ctr within 0s" "$t/al/err"
+
+  # api_states against a stand-in docker: the Deployment and its pods come from $t/as/host; a
+  # Deployment that is not there answers with the error in $t/as/host/dep.err.
+  mkdir -p "$t/as/bin" "$t/as/host" "$t/as/dir/api"
+  cat > "$t/as/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+case "$*" in
+  *" -n catalyst-system get deployment catalyst-api -o json")
+    if [ -f "$h/dep.json" ]; then cat "$h/dep.json"; else cat "$h/dep.err" >&2; exit 1; fi ;;
+  *" -n catalyst-system get pods -l app.kubernetes.io/name=catalyst-api -o json") cat "$h/pods.json" ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/as/bin/docker"
+  as_run() { (PATH="$t/as/bin:$PATH" DIR="$t/as/dir" api_states region-b m1 "$aref" "$adig" "$1") > "$t/as/out" 2> "$t/as/err"; }
+  as_absent() { rm -f "$t/as/host/dep.json"; echo "$1" > "$t/as/host/dep.err"; }
+  # as_said <required> <start of the line>: api_states passes and its verdict file starts so.
+  as_said() { local v; as_run "$1" && v=$(cat "$t/as/dir/api/region-b-api.txt") && [ "${v#"$2"}" != "$v" ]; }
+  as_absent 'Error from server (NotFound): deployments.apps "catalyst-api" not found'
+  expect 0 "api_states: a Deployment the API server says is NotFound, in a secondary region, is said and not judged" \
+    as_said no 'no Deployment catalyst-system/catalyst-api in this region'
+  expect 1 "api_states: ... in the primary region it waits" as_run yes
+  as_absent 'Unable to connect to the server: dial tcp 172.30.2.10:6443: i/o timeout'
+  expect 1 "api_states: a Deployment that cannot be read waits, also in a secondary region" as_run no
+  expect 0 "api_states: ... with the error of the read in its verdict" grep -q -F 'waiting: the Deployment catalyst-system/catalyst-api cannot be read: Unable to connect' "$t/as/dir/api/region-b-api.txt"
+  aj_dep 2 2 1 1 1 "$aref"
+  aj_pods "$(aj_pod catalyst-api-abc-x1 catalyst-api-abc true "$arepo@$adig")"
+  cp "$aj/dep.json" "$aj/pods.json" "$t/as/host/"
+  as_runs() { as_said yes "runs $aref of the tree as $arepo@$adig" && cmp -s "$t/as/host/pods.json" "$t/as/dir/api/region-b-api-pods.json" \
+    && cmp -s "$t/as/host/dep.json" "$t/as/dir/api/region-b-api-deployment.json"; }
+  expect 0 "api_states: a Deployment that runs the image of the tree passes, its verdict and the objects it was read from kept" as_runs
+
+  # tree_redirect with the tag of the image of the tree (the stand-in of tree_states above).
+  rr_api() { : > "$t/ts/host/journal"; : > "$t/ts/host/root"; rm -f "$t/ts/host/kit" "$t/ts/host/fail-patch"
+    echo "$atag flux-system" > "$t/ts/dir/api-tag"
+    rr_run && [ "$(cat "$t/ts/host/journal")" = "patch $(tree_patch "$atag" flux-system < "$t/ts/dir/tree-charts.tsv")" ] \
+      && grep -q -F "region-a: bootstrap-kit takes bp-x from the tree, and bp-catalyst-platform runs the catalyst-api image $API_REPO:$atag (sovereign-root patched" "$t/ts/out" || return 1
+    local st=0
+    : > "$t/ts/host/journal"; mv "$t/ts/dir/tree-charts.tsv" "$t/ts/dir/tree-charts.aside"; : > "$t/ts/dir/tree-charts.tsv"
+    if ! rr_run || [ "$(cat "$t/ts/host/journal")" != "patch $(tree_patch "$atag" flux-system < /dev/null)" ] \
+      || ! grep -q -F "region-a: bootstrap-kit takes no chart from the tree, and bp-catalyst-platform runs the catalyst-api image $API_REPO:$atag" "$t/ts/out"; then
+      st=1
+    fi
+    mv "$t/ts/dir/tree-charts.aside" "$t/ts/dir/tree-charts.tsv"; rm -f "$t/ts/dir/api-tag"
+    return "$st"; }
+  expect 0 "tree_redirect: with the tag of the image of the tree the entry also gives the console release that image, with or without a chart of the tree" rr_api
 
   echo "self-test: $n cases, $fail failed"
   [ "$fail" = 0 ]
