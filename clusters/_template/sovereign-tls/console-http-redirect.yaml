@@ -1,0 +1,54 @@
+# NET-331 — port 80 of a gateway node answers for the console host.
+# ─────────────────────────────────────────────────────────────────────────────
+# Where the Gateways bind host ports (cilium-config gateway hostNetwork on), a
+# node serves port 80 and port 443 directly, and one host port can be bound by
+# one Gateway only. The shared `cilium-gateway` holds node:80 and node:443
+# (PARENT_DOMAINS_LISTENERS_YAML: `http` / `https`, or `http-<zone>` /
+# `http-<fqdn-dashed>` on a multi-zone Sovereign). The console Gateway therefore
+# binds its listeners on the pack's console ports instead
+# (CONSOLE_GATEWAY_HTTP_PORT / CONSOLE_GATEWAY_HTTPS_PORT: 8080 / 8443 in every
+# pack that binds host ports today), where the console's own load balancer
+# forwards public :80 / :443.
+#
+# So a request on node:80 for console.<fqdn> reaches the shared Gateway's port-80
+# listener, where no route held the console host: it answered 404 (gate check
+# NET-G17, capability gateway.cilium, in both regions). This route gives the
+# console host an answer there: a 301 to https://console.<fqdn>/, the address the
+# console is served on.
+#
+# Attached by `port: 80`, not by sectionName: the name of the shared Gateway's
+# port-80 listener depends on the zone layout, the port does not. It attaches to
+# NO port-443 listener, where a redirect to https://console.<fqdn>/ would loop.
+# Cilium's Gateway API matches a parentRef port against the listener port, and
+# the HTTPRoute CRD of bp-gateway-api carries the field.
+#
+# Redirect only, no backendRefs: it names no Service, so it cannot poison the
+# shared Gateway's CiliumEnvoyConfig (the #4053 class the console Gateway exists
+# to avoid). Where the console rides the shared Gateway itself (console
+# isolation off), the console routes hold this host too; either answer is the
+# console's own (a 301 to https, or the page).
+#
+# No NodePort anywhere: node:80 is the hostNetwork cilium-envoy listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: console-http-redirect
+  namespace: kube-system
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+    catalyst.openova.io/component: cilium-gateway
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: cilium-gateway
+      namespace: kube-system
+      port: 80
+  hostnames:
+    - console.${SOVEREIGN_FQDN}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
