@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T01:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T01:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
 | 2026-11-27T01:22 | [#8933](https://github.com/openova-io/openova/pull/8933) | #7087 | docs(ledger): plan update |
+| 2026-11-27T01:36 | [#8932](https://github.com/openova-io/openova/pull/8932) | #8931 | chore: Blueprint data without tiers (NET-222) |
 | 2026-11-27T00:40 | [#8930](https://github.com/openova-io/openova/pull/8930) | #7087 | docs(ledger): plan update |
 | 2026-11-27T00:49 | [#8929](https://github.com/openova-io/openova/pull/8929) | #8928 | fix(acceptance): CLD-G07 reads the provider packs in the reg |
 | 2026-11-27T00:20 | [#8927](https://github.com/openova-io/openova/pull/8927) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
 | 2026-11-26T15:42 | [#8891](https://github.com/openova-io/openova/pull/8891) | #8885 | fix(ci): the pin-sync audit names the release writer for a d |
 | 2026-11-26T16:16 | [#8890](https://github.com/openova-io/openova/pull/8890) | #8887 | fix(release): a chart version the release writer publishes i |
-| 2026-11-26T14:52 | [#8889](https://github.com/openova-io/openova/pull/8889) | #8862 | fix(gate): check CMP-G02 reads the MutatingPolicy kind too |
-| 2026-11-26T14:30 | [#8888](https://github.com/openova-io/openova/pull/8888) | #7087 | docs(ledger): plan update |
 
 ---
 
