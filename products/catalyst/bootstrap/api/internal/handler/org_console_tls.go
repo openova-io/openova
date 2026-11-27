@@ -116,6 +116,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/openova-io/openova/core/controllers/pkg/orglistener"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -930,6 +931,9 @@ func consoleApexListenerPorts(ctx context.Context, dyn dynamic.Interface) (https
 // we declare (e.g. a prior live hand-fix attributed to kustomize-controller);
 // force claims ownership for our manager so the codified path heals the
 // hand-fix in place rather than erroring forever.
+//
+// NET-191 — both listeners admit routes only from the Organization's namespace
+// (names.Slug) and from catalyst-system, where its console route lives.
 func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames, rec store.OrganizationProvisionRecord) error {
 	// #4732(2): ride the SAME ports as the apex pair — SNI separates the
 	// per-Org wildcard from the apex host. Any other port pair is dead
@@ -959,18 +963,14 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 								map[string]any{"kind": "Secret", "name": names.CertName},
 							},
 						},
-						"allowedRoutes": map[string]any{
-							"namespaces": map[string]any{"from": "All"},
-						},
+						"allowedRoutes": orglistener.AllowedRoutes(names.Slug, catalystConsoleNamespace),
 					},
 					map[string]any{
-						"name":     names.HTTPName,
-						"port":     httpPort,
-						"protocol": "HTTP",
-						"hostname": names.WildcardHost,
-						"allowedRoutes": map[string]any{
-							"namespaces": map[string]any{"from": "All"},
-						},
+						"name":          names.HTTPName,
+						"port":          httpPort,
+						"protocol":      "HTTP",
+						"hostname":      names.WildcardHost,
+						"allowedRoutes": orglistener.AllowedRoutes(names.Slug, catalystConsoleNamespace),
 					},
 				},
 			},
