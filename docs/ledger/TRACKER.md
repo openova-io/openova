@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T19:15:04Z` |
+| Last refreshed | `2026-11-27T19:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
+| 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:06 | [#9062](https://github.com/openova-io/openova/pull/9062) | #9057 | fix(crossplane): a cloud adoption Workspace recovers after a |
 | 2026-11-27T19:14 | [#9061](https://github.com/openova-io/openova/pull/9061) | #9030 | fix(openbao): the PKI bootstrap Job leaves nothing behind an |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:50 | [#9025](https://github.com/openova-io/openova/pull/9025) | #7087 | docs(ledger): plan update |
 | 2026-11-27T16:51 | [#9024](https://github.com/openova-io/openova/pull/9024) | #6004 | A delivery cannot repair a release that keeps failing, nor a |
-| 2026-11-27T13:31 | [#9023](https://github.com/openova-io/openova/pull/9023) | #7087 | docs(ledger): plan update |
-| 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
 
 ---
 
