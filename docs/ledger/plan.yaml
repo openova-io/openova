@@ -291,7 +291,7 @@ epics:
 - id: CMP-060
   title: 'Epic: policy migration'
   wave: W2
-  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-079, CMP-084, CMP-065, CMP-077, CMP-078, CMP-066, CMP-068, CMP-069]
+  packages: [CMP-058, CMP-061, CMP-062, CMP-067, CMP-063, CMP-064, CMP-079, CMP-084, CMP-065, CMP-077, CMP-078, CMP-066, CMP-095, CMP-086, CMP-068, CMP-087, CMP-069]
 - id: CMP-070
   title: 'Epic: enforcement mode owned in Git'
   wave: W2
@@ -27839,7 +27839,7 @@ packages:
   dropped: false
   delivers: The mutate policy inject-gitea-source-secretref is a MutatingPolicy of group policies.kyverno.io with the same name, labels and values keys, judged by its suite with byte-identical patched outputs; the chart's function test and its render test know the kind MutatingPolicy.
 - id: CMP-066
-  title: 'Delete what is left: stub and test-only set; move the access policy home'
+  title: 'Delete what is left: the stub and the test-only set; the access policy gets its suite'
   area: CMP
   epic: CMP-060
   type: delete
@@ -27859,7 +27859,7 @@ packages:
   - scripts/baselines/policy-suites.json
   - docs/ledger/deleted-paths.txt
   resources: []
-  flips: [CMP-G06]
+  flips: []
   implements: []
   proven_by: null
   precondition:
@@ -28500,6 +28500,72 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Decision type remediate with dueAt and the states open, overdue, resolved
+- id: CMP-086
+  title: The access policy moves into the policy chart
+  area: CMP
+  epic: CMP-060
+  type: refactor
+  wave: W2
+  size: M
+  lane: CHARTS
+  depends_on: [CMP-066]
+  after: [CMP-095, FND-011, FND-042, FND-043, FND-044, CLD-023, SEC-153, SEC-154, NET-030, SVC-040, SVC-041, SVC-100, SVC-230, CMP-041, CMP-067]
+  touches:
+  - platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+  - platform/crossplane-claims/chart/values.yaml
+  - platform/crossplane-claims/chart/tests/**
+  - platform/kyverno-policies/chart/model/checks.yaml
+  - platform/kyverno-policies/chart/templates/baseline/25-useraccess-boundary.yaml
+  - platform/kyverno-policies/chart/templates/compliance-model.yaml
+  - platform/kyverno-policies/chart/templates/tests/function-test.yaml
+  - platform/kyverno-policies/chart/values.yaml
+  - platform/kyverno-policies/chart/tests/**
+  - scripts/baselines/kyverno-legacy.json
+  - tools/guards/README.md
+  - tools/guards/cmd/check-compliance-model/main.go
+  - tools/guards/cmd/check-compliance-model/main_test.go
+  - docs/ledger/deleted-paths.txt
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The access policy is a ValidatingPolicy 25-useraccess-boundary.yaml in platform/kyverno-policies/chart, the claims chart's legacy copy is deleted, and the legacy guard and the suites read only the policy chart; the change is the saved patch of CMP-066's developer, brought onto the corrected rule of CMP-095.
+- id: CMP-087
+  title: Gate check CMP-G06 after the move of the access policy
+  area: CMP
+  epic: CMP-060
+  type: test
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-086]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_policy_engine.go
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [CMP-G06]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Gate check CMP-G06 holds after the access policy has moved into the policy chart: no legacy policy object but the image verifier, and every policy ready with results; the check flips.'
 - id: CMP-088
   title: Scanner to the current line
   area: CMP
@@ -28509,7 +28575,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-091]
-  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089, CMP-094]
   touches:
   - platform/trivy/chart/Chart.yaml
   - platform/trivy/chart/values.yaml
@@ -28667,10 +28733,46 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [CMP-089, FND-011, SOV-151, SOV-337, SVC-040, SVC-041, SVC-220, CTL-041]
+  after: [CMP-089, FND-011]
   touches:
-  - platform/trivy/chart/**
-  - clusters/_template/bootstrap-kit/30-trivy.yaml
+  - platform/trivy/chart/values.yaml
+  - platform/trivy/chart/tests/scan-job-lifecycle.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition:
+    run: "grep -c -x '    scanJobTTL: 5m' platform/trivy/chart/values.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && mkdir \"$d/c\" && cp -R platform/trivy/chart/Chart.yaml platform/trivy/chart/values.yaml platform/trivy/chart/.helmignore \"$d/c/\" && (cd \"$d/c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$d/c/charts\")\" = \"trivy-operator-0.32.1.tgz\" && awk '/^  values:$/{f=1;next} f && /^    /{print substr($0,5); next} f{exit}' clusters/_template/bootstrap-kit/30-trivy.yaml > \"$d/slot30.yaml\" && test \"$(grep -c -x 'trivy-operator:' \"$d/slot30.yaml\")\" = 1 && helm template \"trivy\" \"$d/c\" --namespace=trivy-system --show-only charts/trivy-operator/templates/configmaps/trivy-operator-config.yaml > \"$d/alone.cm.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/alone.deploy.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system -f \"$d/slot30.yaml\" --show-only charts/trivy-operator/templates/configmaps/trivy-operator-config.yaml > \"$d/slot.cm.yaml\" && helm template \"trivy\" \"$d/c\" --namespace=trivy-system -f \"$d/slot30.yaml\" --show-only charts/trivy-operator/templates/deployment.yaml > \"$d/slot.deploy.yaml\" && for v in alone slot; do test \"$(grep -c -x '  OPERATOR_SCAN_JOB_TTL: \"\"' \"$d/$v.cm.yaml\")\" = 1 && test \"$(grep -c -x '  OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT: \"2\"' \"$d/$v.cm.yaml\")\" = 1 && test \"$(grep -c -E '^ +- name: OPERATOR_EXCLUDE_NAMESPACES$' \"$d/$v.deploy.yaml\")\" = 1 && test \"$(awk '/^ +- name: OPERATOR_EXCLUDE_NAMESPACES$/{getline; sub(/^ +/, \"\"); print}' \"$d/$v.deploy.yaml\")\" = 'value: \"kube-system,kube-public,kube-node-lease\"' && test \"$(grep -c -E '^ +- name: OPERATOR_TARGET_NAMESPACES$' \"$d/$v.deploy.yaml\")\" = 1 && test \"$(awk '/^ +- name: OPERATOR_TARGET_NAMESPACES$/{getline; sub(/^ +/, \"\"); print}' \"$d/$v.deploy.yaml\")\" = 'value: \"\"' || exit 1; done"
+  - id: A2
+    run: "bash -n platform/trivy/chart/tests/scan-job-lifecycle.sh && test \"$(sha256sum platform/trivy/chart/tests/scan-job-lifecycle.sh | cut -d\" \" -f1)\" = 12fca22203f888744ddbdfb094b1c7731b6c8e99c363f244d925ee4e1ec93888"
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 1
+  dropped: false
+  delivers: The trivy chart gives scan Jobs no time-to-live, so the operator deletes each finished scan Job and a finished Job no longer holds a scan slot, and the operator's namespace scope sits at the keys the upstream chart reads, for the chart alone and with the values the kit passes, proved by the chart test tests/scan-job-lifecycle.sh.
+- id: CMP-095
+  title: An owner of a customer Organization cannot grant into another Organization
+  area: CMP
+  epic: CMP-060
+  type: fix
+  wave: W2
+  size: S
+  lane: CHARTS
+  depends_on: []
+  after: [CMP-066, FND-011, CLD-023, SVC-040, SVC-041, SVC-100, CMP-041]
+  touches:
+  - platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml
+  - platform/crossplane-claims/chart/values.yaml
+  - platform/crossplane-claims/chart/tests/**
+  - platform/kyverno-policies/chart/tests/useraccess-boundary/**
+  - platform/kyverno-policies/chart/model/checks.yaml
   resources: []
   flips: []
   implements: []
@@ -28684,7 +28786,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'Vulnerability scanning produces VulnerabilityReports, SbomReports and ExposedSecretReports in every region, not in one region only: the package first finds the cause from the source (region a held none of the three with 307 Pods while region b held 132, 167 and 166) and repairs it in the chart or its kit slot.'
+  delivers: The access policy useraccess-boundary refuses a grant into another Organization unless the requester belongs to the management Organization. The package first confirms from the policy and its suite that the deny conditions test the requester's tier and never the requester's Organization; the suite gains a requester of the management Organization, and the cross-Organization verdict of a customer owner becomes fail.
 - id: CMP-098
   title: Sensor to the current line
   area: CMP
@@ -28861,7 +28963,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089]
+  after: [FND-011, SOV-337, SVC-040, SVC-041, CMP-089, CMP-094]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
