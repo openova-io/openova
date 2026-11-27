@@ -45,7 +45,9 @@
 # One region (SOV-521). A request may name one region, RELEASE_REGION: primary
 # or a follower's name (the basename of its kubeconfig). The stage and the
 # prewarm run as above, in every region, so a conflict anywhere moves nothing;
-# promote checks and pushes that region only. Without it every region is
+# promote checks and pushes that region only; the prewarm gets the region too,
+# so step 03 counts no release of the primary as repaired by a delivery that
+# does not promote the primary. Without it every region is
 # promoted, as above. The bootstrap's stage refuses a region request when the
 # candidate's release-run.sh has no phase rollback (read as verify is read), and
 # nothing moves: that mechanism promotes every region.
@@ -514,7 +516,8 @@ compose_delivery() {
           | setenv({name: "GHCR_DOCKERCONFIG", valueFrom: {secretKeyRef: {name: $pull, key: ".dockerconfigjson", optional: true}}})
           | setenv(plain("GHCR_DOCKERCONFIG_NAMESPACE"; $ns))
           | if any(.[]; .name == "SECONDARY_GHCR_SOURCE_SECRET") then setenv(plain("SECONDARY_GHCR_SOURCE_NAMESPACE"; $ns)) | setenv(plain("SECONDARY_GHCR_SOURCE_SECRET"; $pull)) else . end
-          | setall($common + [plain("SECONDARY_KUBECONFIGS"; "/release-secondary-kubeconfigs")]))
+          | setall($common + [plain("SECONDARY_KUBECONFIGS"; "/release-secondary-kubeconfigs")]
+              + (if $region == "" then [] else [plain("RELEASE_REGION"; $region)] end)))
       | .volumeMounts = ((.volumeMounts // []) + [{name: "release-scripts", mountPath: "/release", readOnly: true},
           {name: "release-state", mountPath: "/release-state"}, {name: "release-recorded", mountPath: "/release-recorded", readOnly: true},
           {name: "release-secondary-kubeconfigs", mountPath: "/release-secondary-kubeconfigs", readOnly: true}])) as $prewarm |

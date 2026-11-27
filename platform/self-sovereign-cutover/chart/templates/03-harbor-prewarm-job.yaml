@@ -197,17 +197,7 @@ data:
     }
     # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
     SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
-    {{- /*
-     #6273 — the OWNERSHIP partition: an Organization's application release must
-     not fail-close the Sovereign's cutover; a PLATFORM namespace offender still
-     does. The label is a FIXED contract with the org-controller, like the
-     override key above: core/controllers/organization/internal/gitops/
-     manifests.go stamps openova.io/organization=<slug> on every Organization's
-     host Namespace at every tier (pinned by org_namespace_invariant_4292_test.go),
-     and kubeconfig_reconciler.go already lists namespaces by it. The predicate
-     is POSITIVE, so fail-closed: an unlabelled namespace is platform and stays
-     FATAL (hw296, 2026-08-13: 4 of 55 namespaces labelled; all 7 offenders in one).
-    */}}
+    {{- /* #6273 — the OWNERSHIP partition and its label: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
     ORG_NAMESPACE_LABEL="openova.io/organization"
     {{- /* #6253 — the TERMINAL classifier, defined once: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
     SRP_TERMINAL_JQ='
@@ -233,15 +223,7 @@ data:
       def _is_own_release($own):
         ((.spec.chart.spec.chart // "") == $own) or ((.metadata.name // "") == $own);
     '
-    {{- /*
-     #6273 — defined ONCE and consumed by ALL THREE jq sites (the override
-     validation, the HelmRelease offender pass, and the workload
-     `wl_pending` pass). Re-hand-rolling `index` at each site is how the
-     two terminal classifiers drifted apart before #6253; and a partition
-     applied to only one of the two passes fixes nothing, because the
-     #5391 override annotation is HelmRelease-only — a workload offender's
-     ONLY escape today is the whole-gate kill switch.
-    */}}
+    {{- /* #6273 — SRP_ORG_NS_JQ, defined ONCE for ALL THREE jq sites: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
     SRP_ORG_NS_JQ='
       def _in_org_ns($orgns):
         {{- /*
@@ -256,36 +238,63 @@ data:
         (.metadata.namespace // "") as $ns
         | (($orgns | index($ns)) != null);
     '
-    srp_delivery() { [ -n "${CANDIDATE:-}" ] && [ "${UPSTREAM_BRANCH:-}" = "release/${CANDIDATE}" ]; }
-    {{- /*
-     A delivery's repaired set (see the head of Phase A0), over the gated releases: "R\t<ns>/<name>\t<chart>\t<from>\t<deployed>\t<to>"
-     per terminal release the candidate's pin ($pins: chart -> its versions) moves, "D\t<ns>/<name>\t<deps>" per dependent that waits
-     on those alone, and "N\t<ns>/<name>\t<why>" per terminal release the candidate does not change. No field is empty.
-     The pins name charts, not releases: only a release the kit applies (flux-system, Kustomization bootstrap-kit) can be R.
-    */}}
-    SRP_REPAIR_JQ='
+    {{- /* SRP_DELIVERY_JQ, a delivery's FAILING release, an unready workload and its kit release: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
+    SRP_DELIVERY_JQ='
       def _key: "\(.metadata.namespace // "")/\(.metadata.name // "")";
+      def _or($v): if . == "" then $v else . end;
       def _kit_applied: ((.metadata.namespace // "") == "flux-system") and ((((.metadata.labels // {})["kustomize.toolkit.fluxcd.io/name"]) // "") == "bootstrap-kit");
+      def _deployed: ((([(.status.history // [])[] | select(.status == "deployed") | .chartVersion] | .[0]) // .status.lastAppliedRevision) // "");
+      def _failing:
+        (_cond("Ready")) as $r
+        | (.metadata.generation // 0) as $gen
+        | (.spec.chart.spec.version // "") as $want
+        | (((.status.history // [])[0]) // {}) as $h
+        | ((.status.lastAttemptedRevision // "") | sub("[@+].*$"; "")) as $att
+        | (((($r.status) // "Unknown") != "True") or ((.status.observedGeneration // -1) < $gen))
+          and ($want != "")
+          and (
+            ((($att == "") or ($att == $want)) and ((.status.lastAttemptedGeneration // $gen) >= $gen)
+              and (((.status.failures // 0) > 0) or ((.status.installFailures // 0) > 0) or ((.status.upgradeFailures // 0) > 0)
+                   or ((["InstallFailed", "UpgradeFailed", "TestFailed", "RollbackFailed", "RollbackSucceeded", "UninstallFailed", "UninstallSucceeded"] | index(($r.reason) // "")) != null)))
+            or (((($h.status) // "") == "failed") and ((($h.chartVersion) // "") == $want))
+          );
+      def _wl_unready:
+        ((.spec.replicas // 1) > 0)
+        and (((.status.observedGeneration // -1) < (.metadata.generation // 0))
+             or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
+             or ((.status.readyReplicas // 0) < (.spec.replicas // 1)));
+      def _helm_ids:
+        (.spec.targetNamespace // "") as $tn
+        | (.spec.releaseName // "") as $rn
+        | ["\(if $tn == "" then (.metadata.namespace // "") else $tn end)/\(if $rn != "" then $rn elif $tn != "" then "\($tn)-\(.metadata.name // "")" else (.metadata.name // "") end)"]
+          + [(.status.history // [])[] | select(((.name // "") != "") and ((.namespace // "") != "")) | "\(.namespace)/\(.name)"];
+      def _pin_why($c; $want; $att; $dep; $pv):
+        if ($pv | length) == 0 then "the candidate kit pins no version of \($c)"
+        elif ($pv | length) > 1 then "the candidate kit pins \($c) at several versions (\($pv | join(", ")))"
+        elif ($pv[0] == $want) or ($pv[0] == $att) or ($pv[0] == $dep) then "the candidate pins \($c) \($pv[0]), not a new version for it (desired \($want | _or("-")), last attempted \($att | _or("-")), deployed \($dep | _or("-")))"
+        else "" end;
+    '
+    srp_delivery() { [ -n "${CANDIDATE:-}" ] && [ "${UPSTREAM_BRANCH:-}" = "release/${CANDIDATE}" ]; }
+    {{- /* srp_promotes_primary: the delivery's promote moves this region, the primary, whose releases Phase A0 reads: no region named (RELEASE_REGION), or primary. */}}
+    srp_promotes_primary() { [ -z "${RELEASE_REGION:-}" ] || [ "${RELEASE_REGION}" = primary ]; }
+    {{- /* SRP_REPAIR_JQ, a delivery's repaired releases as R, D and N rows: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
+    SRP_REPAIR_JQ='
       def _settled: (((_cond("Ready").status) // "Unknown") == "True") and ((.status.observedGeneration // -1) >= (.metadata.generation // 0));
       def _deps: (.metadata.namespace // "") as $dns | [(.spec.dependsOn // [])[] | "\(.namespace // $dns)/\(.name)"];
-      def _or($v): if . == "" then $v else . end;
       (.items | map({key: _key, value: .}) | from_entries) as $all
       | [.items[] | select((.spec.suspend // false) | not) | select(_is_own_release($own) | not)
           | select(_in_org_ns($orgns) | not) | select(((.metadata.annotations // {}) | has($okey)) | not)] as $hrs
-      | [$hrs[] | select(_terminal)
+      | [$hrs[] | select(_terminal or _failing)
           | (.spec.chart.spec.chart // "") as $c
           | (.spec.chart.spec.version // "") as $want
           | (.status.lastAttemptedRevision // "") as $att
-          | ((([(.status.history // [])[] | select(.status == "deployed") | .chartVersion] | .[0]) // .status.lastAppliedRevision) // "") as $dep
+          | _deployed as $dep
           | (($pins[$c]) // []) as $pv
           | _kit_applied as $kit
           | {key: _key, chart: ($c | _or("-")), from: ($att | _or($want) | _or("-")), deployed: ($dep | _or("-")), to: ($pv | join(" ") | _or("-")),
              why: (if $c == "" then "it names no chart (spec.chart.spec.chart)"
                    elif ($kit | not) then "the kit does not apply it (only flux-system HelmReleases of the Kustomization bootstrap-kit), so the candidate pinning \($c) does not change it"
-                   elif ($pv | length) == 0 then "the candidate kit pins no version of \($c)"
-                   elif ($pv | length) > 1 then "the candidate kit pins \($c) at several versions (\($pv | join(", ")))"
-                   elif ($pv[0] == $want) or ($pv[0] == $att) or ($pv[0] == $dep) then "the candidate pins \($c) \($pv[0]), not a new version for it (desired \($want | _or("-")), last attempted \($att | _or("-")), deployed \($dep | _or("-")))"
-                   else "" end)}] as $t
+                   else _pin_why($c; $want; $att; $dep; $pv) end)}] as $t
       | [$t[] | select(.why == "")] as $r0
       | [$hrs[] | select((_terminal | not) and (((_cond("Ready").reason) // "") == "DependencyNotReady"))] as $dnr
       | def _grow: . as $r
@@ -300,15 +309,35 @@ data:
           | "D\t\($k)\t\([$all[$k] | _deps | .[] | . as $d | select(any($rep[]; . == $d))] | join(", "))"),
         ($t[] | select(.why != "") | "N\t\(.key)\t\(.why)")
     '
+    {{- /* SRP_WL_REPAIR_JQ, a delivery's repaired workloads as W and X rows: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
+    SRP_WL_REPAIR_JQ='
+      [(.[0].items // [])[] | select(_kit_applied) | select((.spec.suspend // false) | not) | select(_is_own_release($own) | not)] as $kit
+      | (.[1].items // [])[]
+      | select(_wl_unready)
+      | select(((.metadata.labels // {})["app.kubernetes.io/name"] // "") != $own)
+      | select(_in_org_ns($orgns) | not)
+      | "\(.kind // "Workload")/\(_key)" as $wk
+      | (((.metadata.annotations // {})["meta.helm.sh/release-name"]) // "") as $rn
+      | (((.metadata.annotations // {})["meta.helm.sh/release-namespace"]) // "") as $rns
+      | if ($rn == "") or ($rns == "") then "X\t\($wk)\tit carries no Helm ownership (annotations meta.helm.sh/release-name and meta.helm.sh/release-namespace), so no release of the kit owns it"
+        else "\($rns)/\($rn)" as $rel
+          | [$kit[] | select(any(_helm_ids[]; . == $rel))] as $owners
+          | if ($owners | length) == 0 then "X\t\($wk)\tits Helm release \($rel) is no release of the kit (no flux-system HelmRelease of the Kustomization bootstrap-kit installs it)"
+            elif ($owners | length) > 1 then "X\t\($wk)\tits Helm release \($rel) is installed by several releases of the kit (\([$owners[] | _key] | join(", ")))"
+            else $owners[0]
+              | (.spec.chart.spec.chart // "") as $c
+              | (.spec.chart.spec.version // "") as $want
+              | (.status.lastAttemptedRevision // "") as $att
+              | _deployed as $dep
+              | (($pins[$c]) // []) as $pv
+              | (if $c == "" then "it names no chart (spec.chart.spec.chart)" else _pin_why($c; $want; $att; $dep; $pv) end) as $why
+              | if $why == "" then "W\t\($wk)\t\($c)\t\($att | _or($want) | _or("-"))\t\($dep | _or("-"))\t\($pv | join(" ") | _or("-"))\t\(_key)"
+                else "X\t\($wk)\tHelmRelease/\(_key) owns it, and \($why)" end
+            end
+        end
+    '
     srp_kubectl_json() {
-      {{- /*
-       kubectl get "$@" -o json with a bounded retry; JSON on stdout,
-       diagnostics on stderr. The gate must SEE the roll state to certify
-       anything — a read failure returns 1 and the caller FATALs
-       (fail-closed) instead of silently passing on an empty offender
-       list (the assert-on-the-VALUE-not-the-KEY trap: the pre-#5391 gate
-       PASSED whenever the kubectl read itself failed).
-      */}}
+      {{- /* #5391 — srp_kubectl_json, a bounded read that fails closed: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       _srp_i=1
       while [ "${_srp_i}" -le 5 ]; do
         if _srp_out=$(kubectl get "$@" -o json 2>/dev/null) && [ -n "${_srp_out}" ]; then
@@ -407,18 +436,24 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 override-enumeration jq failed — refusing to fail open (#5391)"
         return 1
       }
-      {{- /* A delivery: the releases its candidate repairs (head of Phase A0). Without a delivery, or without its pins, none. */}}
-      srp_rep_rows=""; srp_rep_keys='[]'
-      if srp_delivery && printf '%s' "${_srp_hr_json}" | jq -e "${SRP_TERMINAL_JQ}"'any(.items[]; _terminal)' >/dev/null 2>&1; then
+      {{- /* A delivery: the releases and workloads its candidate repairs (head of Phase A0). Without a delivery, one that does not promote the primary, or without its pins, none. */}}
+      srp_rep_rows=""; srp_rep_keys='[]'; srp_wrep_keys='[]'
+      if srp_delivery && ! srp_promotes_primary; then
+        echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} promotes region ${RELEASE_REGION} only, and this pass reads the primary, which it does not move, so no release or workload counts as repaired by it; a delivery with no region, or region primary, repairs them"
+      elif srp_delivery && { printf '%s' "${_srp_hr_json}" | jq -e "${SRP_TERMINAL_JQ}${SRP_DELIVERY_JQ}"'any(.items[]; _terminal or _failing)' >/dev/null 2>&1 \
+          || printf '%s' "${_srp_wl_json}" | jq -e "${SRP_TERMINAL_JQ}${SRP_DELIVERY_JQ}"'any(.items[]; _wl_unready)' >/dev/null 2>&1; }; then
         if _srp_pins=$(srp_candidate_pins) && [ -n "${_srp_pins}" ]; then
           _srp_pins_json=$(printf '%s\n' "${_srp_pins}" | jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t") | select(length == 2)) | group_by(.[0]) | map({key: .[0][0], value: (map(.[1]) | unique)}) | from_entries') \
-            && srp_rep_rows=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson pins "${_srp_pins_json}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}${SRP_REPAIR_JQ}") \
-            && srp_rep_keys=$(printf '%s\n' "${srp_rep_rows}" | jq -R -s -c 'split("\n") | map(select(test("^[RD]\t")) | split("\t")[1])') || {
+            && srp_rep_rows=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson pins "${_srp_pins_json}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}${SRP_DELIVERY_JQ}${SRP_REPAIR_JQ}") \
+            && srp_wl_rows=$({ printf '%s\n' "${_srp_hr_json}"; printf '%s\n' "${_srp_wl_json}"; } | jq -r -s --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson pins "${_srp_pins_json}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}${SRP_DELIVERY_JQ}${SRP_WL_REPAIR_JQ}") \
+            && srp_rep_keys=$(printf '%s\n' "${srp_rep_rows}" | jq -R -s -c 'split("\n") | map(select(test("^[RD]\t")) | split("\t")[1])') \
+            && srp_wrep_keys=$(printf '%s\n' "${srp_wl_rows}" | jq -R -s -c 'split("\n") | map(select(test("^W\t")) | split("\t")[1])') || {
             echo "[harbor-prewarm] FATAL: Phase A0 delivery-repair jq failed — refusing to fail open"
             return 1
           }
+          srp_rep_rows=$(printf '%s\n%s\n' "${srp_rep_rows}" "${srp_wl_rows}" | grep . || true)
         else
-          echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} could not read its candidate's kit pins at ${UPSTREAM_BRANCH} (or prewarm.bootstrapKitPins.enabled=false), so no stalled release counts as repaired by it"
+          echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} could not read its candidate's kit pins at ${UPSTREAM_BRANCH} (or prewarm.bootstrapKitPins.enabled=false), so no release or workload counts as repaired by it"
         fi
       fi
       {{- /* HelmReleases, and #5391/#5392/#6253 terminal vs mid-roll: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
@@ -490,17 +525,13 @@ data:
        #5391 named override is HelmRelease-only, so nothing short of the
        whole-gate kill switch could clear them.
       */}}
-      wl_all=$(printf '%s' "${_srp_wl_json}" | jq -r --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_ORG_NS_JQ}"'
+      wl_all=$(printf '%s' "${_srp_wl_json}" | jq -r --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" --argjson wrep "${srp_wrep_keys}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}${SRP_DELIVERY_JQ}"'
         .items[]
-        | select((.spec.replicas // 1) > 0)
+        | select(_wl_unready)
         | select(((.metadata.labels // {})["app.kubernetes.io/name"] // "") != $own)
-        | select(
-            ((.status.observedGeneration // -1) < (.metadata.generation // 0))
-            or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
-            or ((.status.readyReplicas // 0) < (.spec.replicas // 1))
-          )
-        | (if _in_org_ns($orgns) then "ORG " else "PLT " end)
-          + "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"') || {
+        | "\(.kind // "Workload")/\(_key)" as $wk
+        | (if _in_org_ns($orgns) then "ORG " elif any($wrep[]; . == $wk) then "REP " else "PLT " end)
+          + $wk') || {
         echo "[harbor-prewarm] FATAL: Phase A0 workload-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
@@ -509,13 +540,15 @@ data:
       {{- /* #6273 — the WARNING before the platform verdict, and what it costs: word for word above the key prewarm.settledRollPreflight of values.yaml (#6004). */}}
       srp_rep_rec=""
       if [ -n "${srp_rep_rows}" ]; then
-        echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} read its candidate's kit pins for the stalled release(s). R: the candidate pins another version, which the promote gives Flux to try and Phase A2-pins mirrors, NOT gated; D: DependencyNotReady only on R releases, NOT gated; N: the candidate does not change it, gated as before:"
+        echo "[harbor-prewarm] Phase A0: the delivery of ${CANDIDATE} read its candidate's kit pins for the stalled or failing release(s) and the unready workload(s). R: the candidate pins another version of the chart of the release (of the kit release that owns the workload), which the promote gives Flux to try and Phase A2-pins mirrors, NOT gated; D: DependencyNotReady only on R releases, NOT gated; N: the candidate does not change it, gated as before:"
         printf '%s\n' "${srp_rep_rows}" | awk -F '\t' -v b="${UPSTREAM_BRANCH}" '
           $1 == "R" {print "  R HelmRelease/" $2 ": " $3 " " $4 " (last attempted; deployed " $5 ") -> " $6 " (pinned by " b ")"}
+          $1 == "W" {print "  R " $2 ": " $3 " " $4 " (last attempted; deployed " $5 ") -> " $6 " (pinned by " b "; its release is HelmRelease/" $7 ")"}
           $1 == "D" {print "  D HelmRelease/" $2 ": DependencyNotReady only on " $3}
-          $1 == "N" {print "  N HelmRelease/" $2 ": " $3}'
+          $1 == "N" {print "  N HelmRelease/" $2 ": " $3}
+          $1 == "X" {print "  N " $2 ": " $3}'
         srp_rep_rec=$(printf '%s\n' "${srp_rep_rows}" | awk -F '\t' -v c="${CANDIDATE}" '
-          $1 == "R" {print $2 "=the delivery of " c " moves " $3 " " $4 " -> " $6 " (deployed " $5 ")"}
+          $1 == "R" || $1 == "W" {print $2 "=the delivery of " c " moves " $3 " " $4 " -> " $6 " (deployed " $5 ")"}
           $1 == "D" {print $2 "=DependencyNotReady only on " $3 ", which the delivery of " c " repairs"}')
       fi
       org_unsettled=$(printf '%s\n%s\n' "${hr_org}" "${wl_org}" | grep -c . || true)
@@ -568,7 +601,7 @@ data:
             echo "[harbor-prewarm] ${terminal_ks} of the terminal releases are applied by a Flux Kustomization (label kustomize.toolkit.fluxcd.io/name). It removes a hand-set annotation within minutes, so no per-release override holds on them and none is offered:"
             printf '%s\n' "${hr_ks_terminal}" | awk -F '\t' '{print "  applied by Kustomization " $2 ": " $1}'
             echo "[harbor-prewarm]   What works for them:"
-            echo "[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled release its candidate repairs"
+            echo "[harbor-prewarm]     - a release of the kit (flux-system, Kustomization bootstrap-kit): deliver a candidate whose kit pins another version of its chart; a delivery does not gate a stalled or failing release its candidate repairs"
             echo "[harbor-prewarm]     - repair the release (the fix named above for its shape), then: flux reconcile helmrelease <name> -n <namespace> --reset"
             echo "[harbor-prewarm]     - or, on an env confirmed settled by hand, the whole-gate switch prewarm.settledRollPreflight.enabled=false"
           fi
@@ -595,7 +628,7 @@ data:
         echo "[harbor-prewarm] override record written to ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides (surfaced on GET /sovereign/cutover/status)"
       fi
       if [ -n "${srp_rep_rec}" ]; then
-        echo "[harbor-prewarm] Phase A0: env settled for the delivery of ${CANDIDATE}: $(printf '%s\n' "${srp_rep_rec}" | grep -c .) release(s) it repairs (named above) are not gated; recorded in ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides:"
+        echo "[harbor-prewarm] Phase A0: env settled for the delivery of ${CANDIDATE}: $(printf '%s\n' "${srp_rep_rec}" | grep -c .) release(s)/workload(s) it repairs (named above) are not gated; recorded in ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides:"
         printf '%s\n' "${srp_rep_rec}" | sed 's/^/  repaired: /'
       fi
       if [ -z "${or_used}${srp_rep_rec}" ]; then

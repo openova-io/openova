@@ -1,6 +1,6 @@
-chart_lines=20863
-chart_mutations=194
-chart_git_push=34
+chart_lines=20315
+chart_mutations=191
+chart_git_push=32
 sequencer_lines=6207
 child_client_sites=12
 twin_helm_only=21

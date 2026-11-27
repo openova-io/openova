@@ -25,3 +25,6 @@ files/release/
 # README.md is the chart's authoring documentation, as in platform/gitea/chart: Helm never
 # renders it, and packaged it costs ~17 KB of every release Secret (SOV-344).
 /README.md
+
+# DESIGN.md: the long header notes of templates/, kept out of every release Secret.
+/DESIGN.md
