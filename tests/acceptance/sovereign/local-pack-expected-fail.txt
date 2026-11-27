@@ -16,6 +16,11 @@
 #
 # Why a check is held: the pack installs the kit charts of a change from the
 # tree, but runs the images that the kit pins from main (the image tags of
-# products/catalyst/chart/values.yaml). A check that proves a change to such
-# an image therefore passes in the pack only after the merge and the next pin.
-CMP-G03 the pack runs the catalyst-api image pinned from main, which holds the per-cluster model loader of CMP-042 only after its merge and the next pin: until then step CMP-G03.3 fails (the API scores with its built-in fallback and does not weigh the checks as the model does). A later package of area CMP makes the check required in the pack once the pinned image holds the loader.
+# products/catalyst/chart/values.yaml), except catalyst-api when the change
+# touches a path that image is built from: that run builds the image from its
+# own tree (.github/workflows/conformance-local.yaml). A check that proves a
+# change to a pinned image therefore passes in the runs of other changes only
+# after the merge and the next pin.
+#
+# CMP-G03 was held here until the pinned catalyst-api carried the model loader
+# of CMP-042; CMP-043 took its line out, and the check is required in the pack.
