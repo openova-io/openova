@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T21:15:03Z` |
+| Last refreshed | `2026-11-27T21:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:47 | [#9073](https://github.com/openova-io/openova/pull/9073) | #9072 | fix(secrets-lib): a synced value takes a template, copies in |
 | 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T15:11 | [#9035](https://github.com/openova-io/openova/pull/9035) | #7087 | docs(ledger): plan update |
 | 2026-11-27T15:28 | [#9034](https://github.com/openova-io/openova/pull/9034) | #9032 | refactor(kyverno): the access policy moves into the policy c |
 | 2026-11-27T14:56 | [#9033](https://github.com/openova-io/openova/pull/9033) | #7087 | docs(ledger): plan update |
-| 2026-11-27T15:58 | [#9030](https://github.com/openova-io/openova/pull/9030) | #8998 | The repaired disk-driver chart cannot be applied over the fa |
 
 ---
 
