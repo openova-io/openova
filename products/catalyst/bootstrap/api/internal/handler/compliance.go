@@ -47,6 +47,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"sort"
@@ -169,11 +170,11 @@ type PolicyView struct {
 	Category    string   `json:"category,omitempty"` // policies.kyverno.io/category
 }
 
-// policyMeta carries per-policy metadata captured from the SSE events of
-// the engine's policy kinds. Populated by ingestEnginePolicy on every
-// add/update of such an object; consumed by policiesFor when building the
-// PolicyView slice. Description / Severity / Rules / Title / Category
-// match the matrix-asserted PolicyDrilldownPage fields.
+// policyMeta carries per-policy metadata read by policyMetaFrom from a
+// policy object of the engine, in the informer store or in an event
+// (policyMetaOf); consumed by policiesFor when building the PolicyView
+// slice. Description / Severity / Rules / Title / Category match the
+// matrix-asserted PolicyDrilldownPage fields.
 type policyMeta struct {
 	severity    string
 	rules       []string
@@ -207,8 +208,8 @@ type Violation struct {
 // instead of being bounced to the sovereign-wide /sre/compliance view.
 //
 // Rows are the effective results of the subject that judges the resource
-// (its top controller) joined with the live ClusterPolicy metadata
-// (policyMetaByName) so each row carries Severity / Category / Title
+// (its top controller) joined with the live policy object's metadata
+// (policyMetaOf) so each row carries Severity / Category / Title
 // straight off the Kyverno CR. Result is one of pass | fail | na |
 // warn — same vocabulary as the rest of the compliance surface.
 type ResourceFinding struct {
@@ -328,8 +329,8 @@ func (c *ComplianceConfig) defaults() {
 			"clusterpolicyreport",
 			k8scache.KindComplianceEvaluator,
 		}
-		// The policy kinds: each live policy's metadata and mode for the
-		// per-policy drill-down (TC-026), without an apiserver round-trip.
+		// The policy kinds: their events give the policy metadata of a
+		// cluster the Factory does not hold (policyMetaOf).
 		c.SubscribeKinds = append(c.SubscribeKinds, enginePolicyKinds...)
 	}
 	if len(c.WorkloadEnrichKinds) == 0 {
@@ -385,8 +386,8 @@ type ComplianceHandler struct {
 	cfg ComplianceConfig
 	log slogish
 
-	// k8sCache — the SSE fanout the watch loop reads, and the cache the
-	// resolver reads an object from when no event showed it the object.
+	// k8sCache — the SSE fanout the watch loop reads, and the store the
+	// resolver (for an object no event showed) and policyMetaOf read.
 	k8sCache *k8scache.Factory
 
 	// publisher — NATS KV writer; nil disables publication.
@@ -401,13 +402,11 @@ type ComplianceHandler struct {
 	// mu guards policyMetaByName and policyObjects.
 	mu sync.RWMutex
 
-	// policyMetaByName carries the live policy object's metadata
-	// (severity / rules / title / category / description / mode) so the
-	// per-policy drill-down (TC-026, slice U4) can render Severity +
-	// Rule lists without round-tripping the apiserver per request.
-	// Keyed clusterID → policy name: each cluster's engine has its own
-	// objects. Derived from policyObjects by setPolicyObject; read by
-	// policiesFor.
+	// policyMetaByName carries the metadata of the policy objects the
+	// events showed, keyed clusterID → policy name: each cluster's engine
+	// has its own objects. Derived from policyObjects by setPolicyObject;
+	// read by policyMetaOf only for a cluster the Factory does not hold
+	// (one removed since its events, or events given to Factory.Publish).
 	policyMetaByName map[string]map[string]policyMeta
 
 	// policyObjects: the metadata of each policy object by {clusterID, name,
@@ -571,7 +570,9 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 		// The name leaves its cluster's list unless another kind holds it.
 		c.setPolicyObject(ev.Cluster, ev.Object.GetName(), ev.Kind, nil)
 	case slices.Contains(enginePolicyKinds, ev.Kind):
-		c.ingestEnginePolicy(ev)
+		if meta, ok := policyMetaFrom(ev.Object); ok {
+			c.setPolicyObject(ev.Cluster, ev.Object.GetName(), ev.Kind, &meta)
+		}
 	case c.model.Handles(ev.Kind):
 		current, gone := c.model.Apply(ev)
 		c.publishChanges(ctx, ev.Cluster, current, gone)
@@ -583,8 +584,8 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 	}
 }
 
-// ingestEnginePolicy captures the per-policy metadata from a policy object
-// of the engine (a ClusterPolicy, ValidatingPolicy or MutatingPolicy) so the
+// policyMetaFrom reads the per-policy metadata of a policy object of the
+// engine (a ClusterPolicy, ValidatingPolicy or MutatingPolicy) so the
 // per-policy drill-down (TC-026, slice U4) can render Severity + Rule list
 // off in-memory state without the apiserver round-trip. Reads:
 //
@@ -593,21 +594,16 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 //   - metadata.annotations[policies.kyverno.io/category]    → Category
 //   - metadata.annotations[policies.kyverno.io/description] → Description
 //   - spec.rules[].name (the legacy kind only)               → Rules
-//   - adapters.PolicyMode (no entry for an object it reads not) → Mode
-//
-// Updates the cluster's entry of the policy name: one process watches
-// several clusters (chroot secondaries, the mothership's
-// Sovereigns), and the same name may carry a different mode in each.
-func (c *ComplianceHandler) ingestEnginePolicy(ev k8scache.Event) {
-	if ev.Object == nil {
-		return
+//   - adapters.PolicyMode (false for an object it reads not) → Mode
+func policyMetaFrom(obj *unstructured.Unstructured) (policyMeta, bool) {
+	if obj == nil {
+		return policyMeta{}, false
 	}
-	name := ev.Object.GetName()
-	mode, ok := adapters.PolicyMode{}.Mode(ev.Object)
-	if name == "" || !ok {
-		return
+	mode, ok := adapters.PolicyMode{}.Mode(obj)
+	if obj.GetName() == "" || !ok {
+		return policyMeta{}, false
 	}
-	annotations := ev.Object.GetAnnotations()
+	annotations := obj.GetAnnotations()
 	meta := policyMeta{
 		severity:    strings.TrimSpace(annotations["policies.kyverno.io/severity"]),
 		title:       strings.TrimSpace(annotations["policies.kyverno.io/title"]),
@@ -615,7 +611,7 @@ func (c *ComplianceHandler) ingestEnginePolicy(ev k8scache.Event) {
 		description: strings.TrimSpace(annotations["policies.kyverno.io/description"]),
 		mode:        mode,
 	}
-	if rules, ok, _ := unstructured.NestedSlice(ev.Object.Object, "spec", "rules"); ok {
+	if rules, ok, _ := unstructured.NestedSlice(obj.Object, "spec", "rules"); ok {
 		for _, ri := range rules {
 			r, ok := ri.(map[string]any)
 			if !ok {
@@ -628,7 +624,21 @@ func (c *ComplianceHandler) ingestEnginePolicy(ev k8scache.Event) {
 			}
 		}
 	}
-	c.setPolicyObject(ev.Cluster, name, ev.Kind, &meta)
+	return meta, true
+}
+
+// policyMetaOf returns the metadata of the cluster's policy objects by name:
+// from the informer store of a cluster the Factory holds
+// (adapters.PolicyObjects, CMP-023), else from the events.
+func (c *ComplianceHandler) policyMetaOf(clusterID string) map[string]policyMeta {
+	if c.k8sCache != nil {
+		if byName, held := adapters.PolicyObjects(c.k8sCache, clusterID, policyMetaFrom); held {
+			return byName
+		}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return maps.Clone(c.policyMetaByName[clusterID])
 }
 
 // enginePolicyKinds are the informer kinds of the engine's policy objects,
@@ -999,10 +1009,10 @@ func scrubScorecardNulls(in ScorecardResponse) interface{} {
 
 // HandleCompliancePolicies — GET /api/v1/sovereigns/{id}/compliance/policies
 //
-// Returns one row per policy the aggregator has seen in the cache:
-// name, weight, mode, current violation count, source
-// (kyverno|evaluator). The mode is the one the engine's policy object
-// carries. Nothing is read from the cluster per request.
+// Returns one row per policy the aggregator knows: name, weight, mode,
+// current violation count, source (kyverno|evaluator). The mode is the
+// one the engine's policy object carries in the informer store
+// (policyMetaOf). Nothing is read from the cluster per request.
 func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Request) {
 	if h.compliance == nil {
 		http.Error(w, "compliance handler not wired", http.StatusServiceUnavailable)
@@ -1030,15 +1040,10 @@ func (h *Handler) HandleCompliancePolicies(w http.ResponseWriter, r *http.Reques
 // the cluster's engine. Weight is the check's weight in the model,
 // Violations the number of subjects the check fails on, Source the check's
 // producer. The mode is the one the engine's policy object carries
-// (policyMeta.mode). Nothing is read from a cluster here, and another
+// (policyMetaOf). Nothing is read from a cluster here, and another
 // cluster's objects and reports never list.
 func (c *ComplianceHandler) policiesFor(_ context.Context, clusterID string) []PolicyView {
-	c.mu.RLock()
-	objects := make(map[string]policyMeta, len(c.policyMetaByName[clusterID]))
-	for n, m := range c.policyMetaByName[clusterID] {
-		objects[n] = m
-	}
-	c.mu.RUnlock()
+	objects := c.policyMetaOf(clusterID)
 
 	checks := map[string]compliance.Check{}
 	for _, chk := range c.model.Checks(clusterID) {
@@ -1236,12 +1241,7 @@ func (c *ComplianceHandler) resourceComplianceFor(clusterID, kind, ns, name stri
 		// "no policies evaluated yet" state.
 		return resp
 	}
-	c.mu.RLock()
-	meta := make(map[string]policyMeta, len(c.policyMetaByName[clusterID]))
-	for n, m := range c.policyMetaByName[clusterID] {
-		meta[n] = m
-	}
-	c.mu.RUnlock()
+	meta := c.policyMetaOf(clusterID)
 
 	resp.Found = true
 	resp.Score = v.Posture.Overall

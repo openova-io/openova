@@ -16,17 +16,27 @@ import (
 // policy object of the engine carries in the first region: the region the API
 // runs in. The engine object is the legacy ClusterPolicy of that name, or the
 // ValidatingPolicy of that name when there is no ClusterPolicy, or the
-// MutatingPolicy of that name when there is neither.
+// MutatingPolicy of that name when there is neither. A policy the route names
+// <namespace>/<name> (the engine reports a namespaced policy so) is the
+// legacy Policy of that name in that namespace, or the
+// NamespacedValidatingPolicy, or the NamespacedMutatingPolicy, in that order.
 const (
 	complianceModeID   = "CMP-G02"
 	legacyPolicies     = "clusterpolicies.kyverno.io"
 	validatingPolicies = "validatingpolicies.policies.kyverno.io"
 	mutatingPolicies   = "mutatingpolicies.policies.kyverno.io"
+	legacyNsPolicies   = "policies.kyverno.io"
+	validatingNsPolicy = "namespacedvalidatingpolicies.policies.kyverno.io"
+	mutatingNsPolicy   = "namespacedmutatingpolicies.policies.kyverno.io"
 	notServed          = "the server doesn't have a resource type" // kubectl says this of a kind the cluster does not serve
 	modeEnforce        = "enforce"
 	modeAudit          = "audit"
 	sourceEvaluator    = "evaluator" // a policy that the API judges itself may have no engine object
 )
+
+// namespacedPolicyKinds are read in every namespace; their objects are keyed
+// <namespace>/<name>.
+var namespacedPolicyKinds = []string{legacyNsPolicies, validatingNsPolicy, mutatingNsPolicy}
 
 type complianceModeCheck struct{ kubectl kubectlFunc }
 
@@ -69,10 +79,15 @@ func shownMode(mode string) string {
 	return ""
 }
 
-// policyObjects reads the policy objects of one kind, by name. served is false
-// when the cluster does not serve the kind.
-func (c complianceModeCheck) policyObjects(ctx context.Context, r kube.Region, resource string) (byName map[string]kube.Object, served bool, err error) {
-	out, err := c.kubectl(r, ctx, nil, "get", resource, "-o", "json")
+// policyObjects reads the policy objects of one kind, by name; the objects of
+// a namespaced kind are read in every namespace and keyed <namespace>/<name>.
+// served is false when the cluster does not serve the kind.
+func (c complianceModeCheck) policyObjects(ctx context.Context, r kube.Region, resource string, namespaced bool) (byName map[string]kube.Object, served bool, err error) {
+	args := []string{"get", resource, "-o", "json"}
+	if namespaced {
+		args = append(args, "-A")
+	}
+	out, err := c.kubectl(r, ctx, nil, args...)
 	if err != nil && strings.Contains(err.Error(), notServed) {
 		return nil, false, nil
 	}
@@ -85,7 +100,11 @@ func (c complianceModeCheck) policyObjects(ctx context.Context, r kube.Region, r
 	}
 	byName = map[string]kube.Object{}
 	for _, o := range list.Items {
-		byName[o.Name()] = o
+		key := o.Name()
+		if namespaced {
+			key = o.Namespace() + "/" + key
+		}
+		byName[key] = o
 	}
 	return byName, true, nil
 }
@@ -100,6 +119,7 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 		Items []struct{ Name, Mode, Source string } `json:"items"`
 	}
 	var legacy, validating, mutating map[string]kube.Object
+	namespaced := make([]map[string]kube.Object, len(namespacedPolicyKinds))
 
 	if !checkStep(rec, complianceModeID, 1, "the API lists the policies (GET /api/v1/sovereigns/{id}/compliance/policies)", func(ev Evidence) error {
 		_, err := cc.API.Get(ctx, base+"/policies", &listed)
@@ -114,16 +134,22 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 	if !checkStep(rec, complianceModeID, 2, "the policy objects of the engine are read in region "+region.ID, func(ev Evidence) error {
 		var servedLegacy, servedValidating, servedMutating bool
 		var err error
-		if legacy, servedLegacy, err = c.policyObjects(ctx, region, legacyPolicies); err != nil {
+		if legacy, servedLegacy, err = c.policyObjects(ctx, region, legacyPolicies, false); err != nil {
 			return err
 		}
-		if validating, servedValidating, err = c.policyObjects(ctx, region, validatingPolicies); err != nil {
+		if validating, servedValidating, err = c.policyObjects(ctx, region, validatingPolicies, false); err != nil {
 			return err
 		}
-		if mutating, servedMutating, err = c.policyObjects(ctx, region, mutatingPolicies); err != nil {
+		if mutating, servedMutating, err = c.policyObjects(ctx, region, mutatingPolicies, false); err != nil {
 			return err
 		}
 		ev[legacyPolicies], ev[validatingPolicies], ev[mutatingPolicies] = len(legacy), len(validating), len(mutating)
+		for i, resource := range namespacedPolicyKinds { // a kind not served holds no object
+			if namespaced[i], _, err = c.policyObjects(ctx, region, resource, true); err != nil {
+				return err
+			}
+			ev[resource] = len(namespaced[i])
+		}
 		if !servedLegacy && !servedValidating && !servedMutating {
 			return errors.New("the cluster serves none of " + legacyPolicies + ", " + validatingPolicies + " and " + mutatingPolicies)
 		}
@@ -134,12 +160,16 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 	checkStep(rec, complianceModeID, 3, "every listed policy shows the mode of its engine object", func(ev Evidence) error {
 		compared, differ, noObject := 0, []string{}, []string{}
 		for _, p := range listed.Items {
-			o, found := legacy[p.Name]
-			if !found {
-				o, found = validating[p.Name]
+			kinds := []map[string]kube.Object{legacy, validating, mutating}
+			if strings.Contains(p.Name, "/") { // <namespace>/<name>: no cluster-scoped object has a slash in its name
+				kinds = namespaced
 			}
-			if !found {
-				o, found = mutating[p.Name]
+			var o kube.Object
+			found := false
+			for _, byName := range kinds {
+				if o, found = byName[p.Name]; found {
+					break
+				}
 			}
 			switch {
 			case !found && p.Source == sourceEvaluator:

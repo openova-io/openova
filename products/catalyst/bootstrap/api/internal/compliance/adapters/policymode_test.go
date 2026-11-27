@@ -1,9 +1,13 @@
 package adapters
 
 import (
+	"fmt"
+	"reflect"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
@@ -90,5 +94,53 @@ func TestPolicyModeKindsAreRegistered(t *testing.T) {
 		if k.GVR != w.gvr || k.Namespaced || k.Optional != w.optional {
 			t.Errorf("kind %q registered as %v namespaced=%v optional=%v, want %v namespaced=false optional=%v", name, k.GVR, k.Namespaced, k.Optional, w.gvr, w.optional)
 		}
+	}
+}
+
+// fakeStore holds the objects of each informer kind of the one cluster acme.
+// A kind without an entry fails as Factory.List fails for a kind the cluster
+// holds no informer of.
+type fakeStore map[string][]*unstructured.Unstructured
+
+func (fakeStore) Clusters() []string { return []string{"acme"} }
+
+func (s fakeStore) List(cluster, kind string, _ labels.Selector) ([]*unstructured.Unstructured, time.Duration, error) {
+	objs, ok := s[kind]
+	if cluster != "acme" || !ok {
+		return nil, 0, fmt.Errorf("k8scache: kind %q not registered", kind)
+	}
+	return objs, 0, nil
+}
+
+func named(name string, o *unstructured.Unstructured) *unstructured.Unstructured {
+	o.SetName(name)
+	return o
+}
+
+// TestPolicyObjectsReadTheStore: the entry of a name is what read makes of
+// the first kind's object that read accepts, the legacy kind first; a kind
+// the cluster holds no informer of gives nothing; a cluster the store does
+// not hold is not held.
+func TestPolicyObjectsReadTheStore(t *testing.T) {
+	deny := map[string]any{"validationActions": []any{"Deny"}}
+	store := fakeStore{
+		"clusterpolicy": {
+			named("moved", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Audit"})),
+			named("forbid-nodeport-service", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Enforce"})),
+			named("unread", policyObj("v1", "ConfigMap", nil)),
+		},
+		"validatingpolicy": {
+			named("moved", policyObj("policies.kyverno.io/v1", "ValidatingPolicy", deny)),
+			named("flux-managed", policyObj("policies.kyverno.io/v1", "ValidatingPolicy", deny)),
+			named("unread", policyObj("policies.kyverno.io/v1", "ValidatingPolicy", deny)),
+		},
+	}
+	got, held := PolicyObjects(store, "acme", PolicyMode{}.Mode)
+	want := map[string]string{"moved": "audit", "forbid-nodeport-service": "enforce", "flux-managed": "enforce", "unread": "enforce"}
+	if !held || !reflect.DeepEqual(got, want) {
+		t.Fatalf("PolicyObjects(acme) = %v, %v; want %v, true", got, held, want)
+	}
+	if got, held := PolicyObjects(store, "other", PolicyMode{}.Mode); held || got != nil {
+		t.Fatalf("PolicyObjects(other) = %v, %v; want nil, false", got, held)
 	}
 }
