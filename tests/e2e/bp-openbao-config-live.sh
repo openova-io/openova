@@ -47,6 +47,14 @@
 #       robot token it wrote only through its own workload identity;
 #       axon-credential reads the model credential catalyst-api seeded,
 #       writes it back with check-and-set and reaches nothing else.
+#   L10 SEC-196, on A: the hand-over identity sovereign-ops (a stand-in with
+#       the policies of the rendered role) creates, updates and reads back the
+#       hand-over inputs below secret/data/catalyst/tofu/ and a cloud
+#       credential below catalyst/cloud/; reads the hand-over archive and
+#       cannot rewrite it; is refused every other catalyst/ value, the
+#       mothership cloud path, sso/, the metadata listing, the inputs'
+#       metadata delete, mounted/ and the key backup; uses the state key; and
+#       deletes the archive, after which it is gone.
 #
 # The ONLY stand-ins: the reconciler and the B-side ESO log in through a
 # `jwt` mount (`login-jwt`) instead of Kubernetes TokenReview (there is no
@@ -445,5 +453,37 @@ AX="$(login_as axon axon axon)"; AXH=(-H "X-Vault-Token: $AX")
   && [ "$(code "${AXH[@]}" -X DELETE "$BAO_ADDR/v1/mounted/metadata/axon/sa/axon/model-credential/e1")" = 403 ] && [ "$(code "${AXH[@]}" "$UV")" = 403 ] \
   && pass "L9 axon-credential reaches nothing beside its model-credential path and cannot delete it" || fail "L9 axon-credential reached too far"
 
+# ── L10 SEC-196: the hand-over identity sovereign-ops (on A) ──
+# The stand-in carries the policies of the rendered role sovereign-ops; L1
+# checked that role's bindings on auth/kubernetes against the same payload.
+SOP=""
+[ -f "$TMP/desired-A/auth.kubernetes.role.sovereign-ops.json" ] && SOP="$(sed -n 's/.*"policies":\[\([^]]*\)\].*/\1/p' "$TMP/desired-A/auth.kubernetes.role.sovereign-ops.json")"
+[ -n "$SOP" ] || fail "L10 the render has no role sovereign-ops with policies; the stand-in below carries none"
+"${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":[$SOP],\"token_ttl\":\"15m\"}" \
+  "$BAO_ADDR/v1/auth/login-jwt/role/sim-sovops"
+OPS="$(login_as sovops catalyst sovereign-ops)"; O=(-H "X-Vault-Token: $OPS")
+IN="$BAO_ADDR/v1/secret/data/catalyst/tofu/sovereign-base-inputs"
+CL="$BAO_ADDR/v1/secret/data/catalyst/cloud/p1/sovereign"
+AR="$BAO_ADDR/v1/secret/data/catalyst/tofu-phase0-archive"
+[ -n "$OPS" ] && [ "$(code "${O[@]}" -X POST -d '{"data":{"v":"one"}}' "$IN")" = 200 ] && [ "$(code "${O[@]}" -X POST -d '{"data":{"v":"two"}}' "$IN")" = 200 ] \
+  && has "$("${CURL[@]}" "${O[@]}" "$IN")" '"data":{"v":"two"}' \
+  && pass "L10 sovereign-ops creates, updates and reads back the hand-over inputs at secret/data/catalyst/tofu/sovereign-base-inputs" || fail "L10 sovereign-ops could not write or read back the hand-over inputs"
+[ "$(code "${O[@]}" -X POST -d '{"data":{"k":"c1"}}' "$CL")" = 200 ] && has "$("${CURL[@]}" "${O[@]}" "$CL")" '"data":{"k":"c1"}' \
+  && pass "L10 sovereign-ops writes and reads back a cloud credential at secret/data/catalyst/cloud/p1/sovereign" || fail "L10 sovereign-ops could not write or read a cloud credential"
+for p in catalyst/tofu-phase0-archive catalyst/other/x sso/x; do "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d '{"data":{"bundle":"b"}}' "$BAO_ADDR/v1/secret/data/$p"; done
+has "$("${CURL[@]}" "${O[@]}" "$AR")" '"data":{"bundle":"b"}' && [ "$(code "${O[@]}" -X POST -d '{"data":{"bundle":"x"}}' "$AR")" = 403 ] \
+  && [ "$(code "${O[@]}" "$BAO_ADDR/v1/secret/metadata/catalyst/tofu-phase0-archive")" = 200 ] \
+  && pass "L10 sovereign-ops reads the hand-over archive and its metadata and cannot rewrite it" || fail "L10 sovereign-ops archive read, or it rewrote the archive"
+[ "$(code "${O[@]}" "$BAO_ADDR/v1/secret/data/catalyst/other/x")" = 403 ] && [ "$(code "${O[@]}" -X POST -d '{"data":{"k":"v"}}' "$BAO_ADDR/v1/secret/data/catalyst/other/x")" = 403 ] \
+  && [ "$(code "${O[@]}" -X POST -d '{"data":{"k":"v"}}' "$BAO_ADDR/v1/secret/data/catalyst/mothership/cloud/p1")" = 403 ] && [ "$(code "${O[@]}" "$BAO_ADDR/v1/secret/data/sso/x")" = 403 ] \
+  && [ "$(code "${O[@]}" -X LIST "$BAO_ADDR/v1/secret/metadata/catalyst")" = 403 ] && [ "$(code "${O[@]}" -X DELETE "$BAO_ADDR/v1/secret/metadata/catalyst/tofu/sovereign-base-inputs")" = 403 ] \
+  && [ "$(code "${O[@]}" "$BAO_ADDR/v1/mounted/data/a/shared/t")" = 403 ] && [ "$(code "${O[@]}" "$BAO_ADDR/v1/transit/backup/tofu-state")" = 403 ] \
+  && pass "L10 sovereign-ops is refused other catalyst/ values, the mothership cloud path, sso/, the listing, the inputs' metadata delete, mounted/ and the key backup" || fail "L10 sovereign-ops reached too far"
+CT2="$("${CURL[@]}" "${O[@]}" -X POST -d '{}' "$BAO_ADDR/v1/transit/datakey/plaintext/tofu-state" | sed -n 's/.*"ciphertext":"\([^"]*\)".*/\1/p')"
+[ -n "$CT2" ] && [ "$(code "${O[@]}" -X POST -d "{\"ciphertext\":\"$CT2\"}" "$BAO_ADDR/v1/transit/decrypt/tofu-state")" = 200 ] \
+  && pass "L10 sovereign-ops encrypts and decrypts with the state key" || fail "L10 sovereign-ops could not use the state key"
+[ "$(code "${O[@]}" -X DELETE "$BAO_ADDR/v1/secret/metadata/catalyst/tofu-phase0-archive")" = 204 ] && [ "$(code "${RT[@]}" "$AR")" = 404 ] \
+  && pass "L10 sovereign-ops deletes the hand-over archive, every version" || fail "L10 sovereign-ops could not delete the hand-over archive"
+
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao live config / peer trust"; exit 1; fi
-echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B, mounts, generic roles, the state key and the producer identities"
+echo "PASS: bp-openbao against real OpenBao $("$BAO_BIN" version | awk '{print $2}') — reconciler converges + no-op round 2, config-admin scoped, peer trust A<-B, mounts, generic roles, the state key, the producer identities and the hand-over identity"
