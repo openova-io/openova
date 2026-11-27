@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T03:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-27T03:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T03:03 | [#8939](https://github.com/openova-io/openova/pull/8939) | #7087 | docs(ledger): plan update |
 | 2026-11-27T02:46 | [#8938](https://github.com/openova-io/openova/pull/8938) | #7087 | docs(ledger): plan update |
 | 2026-11-27T02:16 | [#8937](https://github.com/openova-io/openova/pull/8937) | #8936 | fix(compliance): the policies route reads the mode from the  |
 | 2026-11-27T01:38 | [#8935](https://github.com/openova-io/openova/pull/8935) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-26T17:14 | [#8896](https://github.com/openova-io/openova/pull/8896) | #8894 | reloader and newapi set container security fields at the pod |
 | 2026-11-26T15:49 | [#8895](https://github.com/openova-io/openova/pull/8895) | #7087 | docs(ledger): plan update |
 | 2026-11-26T17:58 | [#8894](https://github.com/openova-io/openova/pull/8894) | #8788 | fix(kit): every workload of the kit passes the enforced poli |
-| 2026-11-26T14:48 | [#8892](https://github.com/openova-io/openova/pull/8892) | #7087 | docs(ledger): plan update |
 
 ---
 
