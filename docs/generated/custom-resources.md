@@ -21,7 +21,7 @@ This file says what the tree defines. It does not say what a cluster has install
 | Environment | catalyst.openova.io | v1 | Cluster | environments | products/catalyst/chart/crds/environment.yaml | yes |
 | EnvironmentPolicy | catalyst.openova.io | v1 | Cluster | environmentpolicies | products/catalyst/chart/crds/environmentpolicy.yaml | yes |
 | Sovereign | catalyst.openova.io | v1alpha1 | Cluster | sovereigns | products/catalyst/chart/crds/sovereign.yaml | yes |
-| ComplianceModel | compliance.openova.io | v1alpha1 | Cluster | compliancemodels | platform/kyverno-policies/chart/crds/compliancemodel.yaml | no |
+| ComplianceModel | compliance.openova.io | v1alpha1 | Cluster | compliancemodels | platform/kyverno-policies/chart/crds/compliancemodel.yaml | yes |
 | CNPGPair | dr.openova.io | v1 | Namespaced | cnpgpairs | products/catalyst/chart/crds/cnpgpair.yaml | yes |
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/continuum/chart/crds/continuum.yaml | yes |
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |

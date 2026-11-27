@@ -848,12 +848,13 @@ checks:
 - id: CMP-G06
   title: No legacy policy object; every policy ready with results
   owner: CMP
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: No legacy policy object; every policy ready with results
+  implementation: tests/acceptance/sovereign/internal/suite/check_policy_engine.go
   delivered_by: CMP-087
 - id: CMP-G07
   title: Privileged Pod refused; Pod with a CSI volume admitted
