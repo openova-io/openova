@@ -12993,7 +12993,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: Fresh installs run k3s v1.33.13+k3s2, whose node mirror advertises the images imported on a node to its peers and bounds every request to a peer, so the peers of a node receive its imported images and a pull through a peer that accepts a connection and never answers goes on to the registry within a minute; the registry-drain harness proves both, its silent-peer witness counting the data packets to the peer, with a control on v1.31.8+k3s1 that still hangs; the suite image's kubectl moves to the same minor.
 - id: SOV-722
