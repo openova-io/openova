@@ -3,7 +3,7 @@ Function test of bp-cert-manager-issuers (docs/RUNBOOKS.md section 4.5). `helm t
 
 cert-manager marks an ACME ClusterIssuer Ready only after it has registered
 the account with the ACME server. The test reads, through the Kubernetes API,
-the condition Ready of every ClusterIssuer this release renders:
+the condition Ready of every ACME ClusterIssuer this release renders:
 letsencrypt-dns01-prod when certManager.issuers.dns01.enabled is true, and
 letsencrypt-http01-prod when certManager.issuers.http01.enabled is true (the
 same choice as templates/clusterissuers.yaml). It passes when each one reports
@@ -14,7 +14,7 @@ A ClusterIssuer has no namespace, so a ClusterRole and a ClusterRoleBinding of
 this file (verb get on clusterissuers of cert-manager.io) give the test Pod
 that right. Their names carry the namespace, so two releases never share them.
 
-It renders nothing when the chart renders no ClusterIssuer. The image is the
+It renders nothing when the chart renders no ACME ClusterIssuer. The image is the
 kubectl image this chart already uses for its CRD gate (crdGate.image);
 functionTest.image overrides it.
 */ -}}
@@ -146,7 +146,7 @@ spec:
               sleep 10
             done
           done
-          echo "FUNCTION-TEST pass {{ .Chart.Name }} every ClusterIssuer of this release (${ISSUERS}) is Ready"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} every ACME ClusterIssuer of this release (${ISSUERS}) is Ready"
   volumes:
     - name: tmp
       emptyDir: {}

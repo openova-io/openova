@@ -1,0 +1,174 @@
+{{- /*
+openbao-pki-bootstrap — the Sovereign's root and this region's intermediate
+(SEC-250). The Job logs in as auth role pki-bootstrap (service account
+openbao-pki-bootstrap, audience openbao; policy pki-bootstrap of
+templates/_config.tpl), waiting at most WAIT_SECONDS for the configuration
+reconciler to bind that role, and then:
+  1. when pki-root/ lists no issuer: generates the root "<domain> root" in it
+     (EC P-384, 10 years; the key stays in OpenBao);
+  2. when pki/ lists no issuer: generates this region's key and signing
+     request in pki/ ("<domain> <region> intermediate", EC P-256), signs it
+     with the root (1 year) and sets the signed certificate alone
+     as pki/'s issuer, without the root, so that the ca.crt cert-manager writes
+     is this intermediate.
+A mount is empty only when `bao list <mount>/issuers` exits 2 with the line
+"No value found at <mount>/issuers", the answer of the OpenBao 2.7.2 command
+to an empty list: the PKI engine lists no key, the server answers 404 with
+no data, the client returns no secret and the command prints that line
+(internal/command/list.go, api/logical.go ListWithContext,
+sdk/logical/response_util.go). Any other answer ends the Job with an error
+before any write, so an outage or a refusal is never read as an empty mount
+and a second root is never made. The name carries a hash of the script,
+the image and the inputs: a change of any of them runs the Job again, and a
+run on a store that holds both issuers writes nothing. tests/pki-render.sh
+runs this script against a stand-in for the bao command.
+
+Rendered when pki.enabled and kubernetesAuth.enabled, in the primary region
+only. A secondary region renders no part of it: signing a secondary region's
+intermediate needs the primary region's OpenBao, over a path between the
+regions that a later package adds.
+*/ -}}
+{{- define "openbao.pkiBootstrapScript" -}}
+#!/bin/sh
+# openbao-pki-bootstrap (SEC-250): the root in pki-root/ and this region's
+# intermediate in pki/, each only while its mount holds no issuer.
+set -eu
+die() { echo "openbao-pki-bootstrap: FATAL: $*" >&2; exit 1; }
+say() { echo "openbao-pki-bootstrap: $*"; }
+[ -n "${DOMAIN}" ] || die "pki.domain is empty"
+[ -n "${REGION}" ] || die "peerTrust.selfRegion is empty"
+CN="${DOMAIN} ${REGION} intermediate"
+
+# 1. Log in; the configuration reconciler binds role ${BAO_ROLE} on its first ticks.
+waited=0
+until BAO_TOKEN="$(bao write -field=token "auth/${BAO_K8S_AUTH_PATH}/login" role="${BAO_ROLE}" jwt=@"${SA_DIR}/token" 2> "${WORK_DIR}/login.err")" && [ -n "${BAO_TOKEN}" ]; do
+  [ "${waited}" -lt "${WAIT_SECONDS}" ] || die "login as ${BAO_ROLE} on auth/${BAO_K8S_AUTH_PATH} refused for ${WAIT_SECONDS} seconds: $(cat "${WORK_DIR}/login.err")"
+  sleep 10
+  waited=$((waited + 10))
+done
+export BAO_TOKEN
+
+# has_issuers <mount>: 0 when the mount lists an issuer; 1 when the command
+# exits 2 with the exact line bao prints for an empty list; any other answer
+# ends the Job.
+has_issuers() {
+  rc=0
+  bao list "$1/issuers" > "${WORK_DIR}/list.out" 2>&1 || rc=$?
+  [ "${rc}" -ne 0 ] || return 0
+  if [ "${rc}" -eq 2 ] && grep -qxF "No value found at $1/issuers" "${WORK_DIR}/list.out"; then return 1; fi
+  die "listing $1/issuers failed (exit ${rc}): $(cat "${WORK_DIR}/list.out")"
+}
+
+# 2. The root, once.
+if has_issuers pki-root; then
+  say "pki-root/ holds its root"
+else
+  bao write pki-root/root/generate/internal common_name="${DOMAIN} root" ttl="${ROOT_TTL}" key_type=ec key_bits=384 > /dev/null
+  say "generated the root \"${DOMAIN} root\" in pki-root/"
+fi
+
+# 3. This region's intermediate, once: its key stays in pki/, the root signs it.
+if has_issuers pki; then
+  say "pki/ holds its intermediate"
+else
+  bao write -field=csr pki/intermediate/generate/internal common_name="${CN}" key_type=ec key_bits=256 > "${WORK_DIR}/csr.pem"
+  bao write -field=certificate pki-root/root/sign-intermediate csr=@"${WORK_DIR}/csr.pem" common_name="${CN}" ttl="${INTERMEDIATE_TTL}" > "${WORK_DIR}/cert.pem"
+  bao write pki/intermediate/set-signed certificate=@"${WORK_DIR}/cert.pem" > /dev/null
+  say "set the intermediate \"${CN}\" in pki/, signed by the root"
+fi
+bao token revoke -self > /dev/null 2>&1 || true
+{{- end -}}
+{{- $pki := include "openbao.pki" . | fromJson -}}
+{{- if and $pki.enabled $pki.primary }}
+{{- $img := .Values.openbao.server.image -}}
+{{- $ns := .Release.Namespace -}}
+{{- $script := include "openbao.pkiBootstrapScript" . -}}
+{{- $env := dict
+  "BAO_ADDR" (.Values.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name))
+  "BAO_K8S_AUTH_PATH" (include "openbao.configLoginMount" .)
+  "BAO_ROLE" "pki-bootstrap"
+  "SA_DIR" "/var/run/secrets/openbao-pki-bootstrap"
+  "DOMAIN" ((.Values.pki | default dict).domain | default "" | toString)
+  "REGION" ((.Values.peerTrust | default dict).selfRegion | default "" | toString)
+  "ROOT_TTL" $pki.rootTTL
+  "INTERMEDIATE_TTL" $pki.intermediateTTL
+  "WAIT_SECONDS" "600"
+  "BAO_CLI_NO_COLOR" "1"
+  "WORK_DIR" "/work"
+  "HOME" "/work" -}}
+{{- $image := printf "%s/%s:%s" $img.registry $img.repository $img.tag -}}
+{{- $hash := dict "script" $script "env" $env "image" $image | toJson | sha256sum | trunc 10 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao-pki-bootstrap
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-pki-bootstrap
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-pki-bootstrap-script
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-pki-bootstrap
+data:
+  bootstrap.sh: |
+{{ $script | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "openbao-pki-bootstrap-%s" $hash }}
+  namespace: {{ $ns | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    app.kubernetes.io/name: openbao-pki-bootstrap
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-openbao
+        app.kubernetes.io/name: openbao-pki-bootstrap
+    spec:
+      restartPolicy: Never
+      serviceAccountName: openbao-pki-bootstrap
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: {{ $image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args: ["/etc/openbao-pki-bootstrap/bootstrap.sh"]
+          env:
+{{- range $k, $v := $env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+{{- end }}
+          resources:
+            requests: {cpu: "10m", memory: "32Mi"}
+            limits: {cpu: "200m", memory: "128Mi"}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: script, mountPath: /etc/openbao-pki-bootstrap, readOnly: true}
+            - {name: identity, mountPath: /var/run/secrets/openbao-pki-bootstrap, readOnly: true}
+            - {name: work, mountPath: /work}
+      volumes:
+        - {name: script, configMap: {name: openbao-pki-bootstrap-script, defaultMode: 0555}}
+        - name: identity
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, audience: openbao, expirationSeconds: 900}
+        - {name: work, emptyDir: {sizeLimit: 16Mi}}
+{{- end }}
