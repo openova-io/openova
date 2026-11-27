@@ -1865,7 +1865,7 @@ checks:
   needs: []
   proof: running
   asserts: Route admission by owner
-  delivered_by: NET-191
+  delivered_by: NET-192
 - id: NET-G12
   title: Region separation stated
   owner: NET

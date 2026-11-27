@@ -19270,7 +19270,7 @@ packages:
   - products/catalyst/bootstrap/api/internal/handler/org_console_tls_net191_test.go
   - scripts/network-guards-baseline.tsv
   resources: []
-  flips: [NET-G11]
+  flips: []
   implements: []
   proven_by: null
   precondition:
@@ -19291,6 +19291,34 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: Both listeners of an Organization's pair on the console Gateway admit HTTPRoutes only from the Organization's own namespace and from the namespace of its console route, by a selector on the namespace name label that both writers of the pair take from one shared package, and the organization controller repairs a pair that still admits every namespace in place.
+- id: NET-192
+  title: 'Gate check NET-G11: route admission by owner'
+  area: NET
+  epic: null
+  type: test
+  wave: W1a
+  size: S
+  lane: GATE
+  depends_on: []
+  after: [NET-191]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_route_admission.go
+  - tests/acceptance/sovereign/internal/suite/check_route_admission_test.go
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [NET-G11]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The acceptance suite holds check NET-G11: a route of one Organization is admitted by that Organization''s listener and refused by another''s, read on a Sovereign; the check is registered and moves from not-built to expected-fail.'
 - id: NET-195
   title: 'Organization listener: client-certificate validation or TLS passthrough, by the outcome of PRD-050 (conditional, dropped until PRD-050 closes)'
   area: NET
@@ -23078,7 +23106,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-240, SVC-040, SVC-160, SVC-190]
-  after: [FND-011, FND-096, FND-099, FND-102, CLD-114, SOV-035, NET-032, NET-102, NET-212, SVC-170, CTL-160, CTL-815, CMP-041, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140, ACC-103]
+  after: [FND-120, FND-011, FND-102, CLD-114, NET-032, NET-102, NET-212, SVC-170, CTL-160, CTL-815, CMP-041, BSS-141, INF-110, INF-130, INF-133, INF-135, INF-140, ACC-103]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - .github/workflows/preflight-blueprint-crd-cel.yaml
