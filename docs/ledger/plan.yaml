@@ -39524,15 +39524,15 @@ packages:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/PRD-050.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-050.md"
   - id: A2
-    run: "printf '%s  %s\\n' daff4f2f47330a9330d8edf72196ec326fb31561be9d32e28ef49020595012e8 docs/ledger/plan/spikes/PRD-050.md | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 127cab6d47748d7929cb63d496e9388600cac9cf4b0accee44c722259085f05c docs/ledger/plan/spikes/PRD-050.md | sha256sum -c --quiet -"
   - id: A3
-    run: "printf '%s  %s\\n' 65a2e9c5795118c5f11a5514f464a221a6c9acf61e114674837be2af7c75fbd8 docs/ledger/plan/spikes/PRD-050-lab.md | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 5b529265c3a0967150ed3907866a91813c8b83f2c272ca2f989768ac29c86d5f docs/ledger/plan/spikes/PRD-050-lab.md | sha256sum -c --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The repository holds the result of the lab test that asked whether the Organization's gateway listener can verify a client certificate and hand it to the back end in a header only the gateway sets, with outcome B (TLS passthrough, the back end terminates mutual TLS itself), the probe, scripts and output it ran, and for each answer whether it was read, rendered or run.
 - id: PRD-060
