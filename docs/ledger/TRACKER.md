@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T11:15:04Z` |
+| Last refreshed | `2026-11-27T11:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8601](https://github.com/openova-io/openova/issues/8601) | INF-054 The node maintenance window is a setting of the sovereign-admin, at nigh | Other |
 | [#8604](https://github.com/openova-io/openova/issues/8604) | SEC-261 Conformance test for External Secrets against OpenBao | Other |
 | [#8607](https://github.com/openova-io/openova/issues/8607) | SVC-180 Screens group by class; the dead branch goes | Other |
 | [#8609](https://github.com/openova-io/openova/issues/8609) | BSS-070 BSS-G01 becomes required | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8983](https://github.com/openova-io/openova/issues/8983) | SEC-344 Upstream pods to injection: Grafana | Other |
 | [#8994](https://github.com/openova-io/openova/issues/8994) | FND-133 The conformance run of a pull request installs the kit charts of that pu | Other |
 | [#8997](https://github.com/openova-io/openova/issues/8997) | ACC-106 Session agent and session images | Other |
+| [#9003](https://github.com/openova-io/openova/issues/9003) | SOV-760 Kit keys are set by commit and at provisioning | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T11:22 | [#9000](https://github.com/openova-io/openova/pull/9000) | #7087 | docs(ledger): plan update |
 | 2026-11-27T11:06 | [#8996](https://github.com/openova-io/openova/pull/8996) | #7087 | docs(ledger): plan update |
+| 2026-11-27T11:16 | [#8995](https://github.com/openova-io/openova/pull/8995) | #8973 | fix(conformance): the conformance run of a pull request inst |
 | 2026-11-27T10:26 | [#8993](https://github.com/openova-io/openova/pull/8993) | #7087 | docs(ledger): plan update |
 | 2026-11-27T10:00 | [#8992](https://github.com/openova-io/openova/pull/8992) | #7087 | docs(ledger): plan update |
 | 2026-11-27T09:44 | [#8991](https://github.com/openova-io/openova/pull/8991) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T05:50 | [#8959](https://github.com/openova-io/openova/pull/8959) | #7087 | docs(ledger): plan update |
 | 2026-11-27T05:46 | [#8958](https://github.com/openova-io/openova/pull/8958) | #8956 | fix(trivy): vulnerability scanning produces reports in every |
 | 2026-11-27T05:13 | [#8955](https://github.com/openova-io/openova/pull/8955) | #7087 | docs(ledger): plan update |
-| 2026-11-27T05:50 | [#8954](https://github.com/openova-io/openova/pull/8954) | #8952 | fix(conformance): the conformance run of a pull request inst |
-| 2026-11-27T10:18 | [#8953](https://github.com/openova-io/openova/pull/8953) | #8950 | chore(kyverno): delete the comment-only stub and the test-on |
 
 ---
 
