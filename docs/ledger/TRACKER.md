@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T14:30:05Z` |
+| Last refreshed | `2026-11-27T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8618](https://github.com/openova-io/openova/issues/8618) | SEC-060 Keycloak secrets no longer computable | Other |
 | [#8634](https://github.com/openova-io/openova/issues/8634) | SEC-190 Mounts, templated policies and generic roles | Other |
 | [#8646](https://github.com/openova-io/openova/issues/8646) | SEC-211 Blueprint bp-secrets-store-csi and the injection negative check | Other |
 | [#8651](https://github.com/openova-io/openova/issues/8651) | SEC-180 OpenBao snapshot backup to object storage | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9010](https://github.com/openova-io/openova/issues/9010) | SEC-212 First-party proof: the auth service reads its refresh-token signing secr | Other |
 | [#9013](https://github.com/openova-io/openova/issues/9013) | CMP-095 An owner of a customer Organization cannot grant into another Organizati | Other |
 | [#9015](https://github.com/openova-io/openova/issues/9015) | NET-195 Organization listener: client-certificate validation or TLS passthrough, | Other |
+| [#9032](https://github.com/openova-io/openova/issues/9032) | CMP-086 The access policy moves into the policy chart | Other |
 
 ---
 
