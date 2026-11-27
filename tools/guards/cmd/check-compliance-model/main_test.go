@@ -52,6 +52,8 @@ axes:
       - cnpg
   mutator:
     excludeNamespaces: *d
+  omega:
+    enabled: true
 `
 	reasonsYAML = `namespaces:
   kube-system:
@@ -143,20 +145,20 @@ func realSchemas(t *testing.T) map[string]string {
 	return out
 }
 
-// fixture is a tree on which every rule holds: three checks, two policies in the chart,
-// one in the claims chart, one mutate-only policy, two exempt namespaces, one suite.
+// fixture is a tree on which every rule holds: three checks whose policies are in the
+// chart (one with no exclude block), one mutate-only policy, two exempt namespaces, one suite.
 func fixture(t *testing.T) map[string]string {
 	files := map[string]string{
 		ModelDir + "/model.yaml":                  modelYAML,
-		ModelDir + "/checks.yaml":                 checksYAML(checkEntry("alpha-check", "alpha"), checkEntry("beta-check", "beta"), checkEntry("outside-check", "outsideKey")),
+		ModelDir + "/checks.yaml":                 checksYAML(checkEntry("alpha-check", "alpha"), checkEntry("beta-check", "beta"), checkEntry("omega-check", "omega")),
 		ModelDir + "/exemptions.yaml":             reasonsYAML,
 		Values:                                    valuesYAML,
 		Templates + "/a.yaml":                     policy("alpha-check", "compliancePolicies.alpha", validateRule("compliancePolicies.alpha", true)),
 		Templates + "/sub/b.yaml":                 policy("beta-check", "compliancePolicies.beta", validateRule("compliancePolicies.beta", true)),
 		Templates + "/m.yaml":                     policy("mutator", "compliancePolicies.mutator", mutateRule),
-		ClaimsPolicies + "/u.yaml":                policy("outside-check", "outsideKey", validateRule("outsideKey", false)),
+		Templates + "/u.yaml":                     policy("omega-check", "compliancePolicies.omega", validateRule("compliancePolicies.omega", false)),
 		Suites + "/alpha-check/kyverno-test.yaml": "name: alpha\n",
-		SuitesBaseline:                            baselineJSON(SuitesMetric, "beta-check", "outside-check"),
+		SuitesBaseline:                            baselineJSON(SuitesMetric, "beta-check", "omega-check"),
 		ExemptBaseline:                            baselineJSON(ExemptMetric, "cnpg", "kube-system"),
 		ModuleCRDs + "/compliancemodel.yaml":      moduleCRD,
 		PlatformCRDs + "/blueprint.yaml":          otherCRD,
@@ -213,13 +215,13 @@ func TestEveryRuleCanFail(t *testing.T) {
 		want  string
 	}{
 		{"M1 a title over 80 characters breaks the schema",
-			map[string]string{ModelDir + "/checks.yaml": checksYAML(checkEntry(strings.Repeat("x", 81), "alpha"), checkEntry("beta-check", "beta"), checkEntry("outside-check", "outsideKey"))},
+			map[string]string{ModelDir + "/checks.yaml": checksYAML(checkEntry(strings.Repeat("x", 81), "alpha"), checkEntry("beta-check", "beta"), checkEntry("omega-check", "omega"))},
 			"M1 " + ModelDir + "/checks.yaml breaks its schema at $.checks[0].title: is 81 characters, want at most 80"},
 		{"M1 a key the schema does not name breaks it",
 			map[string]string{ModelDir + "/model.yaml": modelYAML + "weights: {}\n"},
 			"M1 " + ModelDir + "/model.yaml breaks its schema at $: weights is not an allowed key"},
 		{"M1 a kyverno check with no valuesKey breaks the schema",
-			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, "  - id: outside-check\n    title: t\n"+checkTail)},
+			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, "  - id: omega-check\n    title: t\n"+checkTail)},
 			"M1 " + ModelDir + "/checks.yaml breaks its schema at $.checks[2]: valuesKey is required"},
 		{"M1 a reason under 20 characters breaks the schema",
 			map[string]string{ModelDir + "/exemptions.yaml": strings.Replace(reasonsYAML, "Platform namespace installed before the engine.", "Too short.", 1)},
@@ -234,8 +236,8 @@ func TestEveryRuleCanFail(t *testing.T) {
 			map[string]string{SchemaDir + "/exemptions.schema.json": `{"type": "object", "minProperties": 1}`},
 			"FAIL, " + SchemaDir + "/exemptions.schema.json cannot be applied: schema keyword minProperties is not supported by this validator"},
 		{"M2 a check on an axis that does not exist",
-			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, strings.Replace(checkEntry("outside-check", "outsideKey"), "axis: all", "axis: nowhere", 1))},
-			`M2 the check outside-check names the axis "nowhere", which is not an axis of type checks`},
+			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, strings.Replace(checkEntry("omega-check", "omega"), "axis: all", "axis: nowhere", 1))},
+			`M2 the check omega-check names the axis "nowhere", which is not an axis of type checks`},
 		{"M2 levels out of order",
 			map[string]string{ModelDir + "/model.yaml": strings.Replace(modelYAML, "min: 50", "min: 0", 1)},
 			"M2 levels[1] (L1): levels are not sorted by min, highest first"},
@@ -246,7 +248,7 @@ func TestEveryRuleCanFail(t *testing.T) {
 			map[string]string{ModelDir + "/model.yaml": strings.Replace(modelYAML, "    group: run\n", "    group: ops\n", 1)},
 			`M2 the axis all names the group "ops", which is not a group`},
 		{"M2 two checks with one id",
-			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, checkEntry("outside-check", "outsideKey"), checkEntry("alpha-check", "alpha"))},
+			map[string]string{ModelDir + "/checks.yaml": checksYAML(ab, checkEntry("omega-check", "omega"), checkEntry("alpha-check", "alpha"))},
 			`M2 the check id "alpha-check" is not unique`},
 		{"M3 a validating ClusterPolicy with no check",
 			map[string]string{Templates + "/c.yaml": policy("gamma-check", "compliancePolicies.alpha", validateRule("compliancePolicies.alpha", false))},
@@ -267,25 +269,23 @@ func TestEveryRuleCanFail(t *testing.T) {
 			map[string]string{Templates + "/m.yaml": policy("mutator", "compliancePolicies.mutator", mutateRule+validateRule("compliancePolicies.mutator", false))},
 			"M3 the validating policy mutator (" + Templates + "/m.yaml) has no check"},
 		{"M4 a valuesKey that is no block of the values",
-			map[string]string{ModelDir + "/checks.yaml": checksYAML(checkEntry("alpha-check", "gamma"), checkEntry("beta-check", "beta"), checkEntry("outside-check", "outsideKey"))},
+			map[string]string{ModelDir + "/checks.yaml": checksYAML(checkEntry("alpha-check", "gamma"), checkEntry("beta-check", "beta"), checkEntry("omega-check", "omega"))},
 			"M4 the check alpha-check names valuesKey gamma, which is no block under compliancePolicies of " + Values},
 		{"M4 a template that reads another block than its valuesKey",
 			map[string]string{Templates + "/sub/b.yaml": policy("beta-check", "compliancePolicies.alpha", validateRule("compliancePolicies.alpha", true))},
 			"M4 the template " + Templates + "/sub/b.yaml of the check beta-check does not read .Values.compliancePolicies.beta"},
-		{"M4 a template outside the chart that excludes namespaces",
-			map[string]string{ClaimsPolicies + "/u.yaml": policy("outside-check", "outsideKey", validateRule("outsideKey", true))},
-			"M4 the template " + ClaimsPolicies + "/u.yaml of the check outside-check is outside " + Chart + " and has an exclude block"},
-		{"M4 a template outside the chart that reads another key",
-			map[string]string{ClaimsPolicies + "/u.yaml": policy("outside-check", "otherKey", validateRule("otherKey", false))},
-			"M4 the template " + ClaimsPolicies + "/u.yaml of the check outside-check does not read .Values.outsideKey"},
+		{"M3 a template outside the chart is not the check's template (the claims chart held one until CMP-086)",
+			map[string]string{Templates + "/u.yaml": "",
+				"platform/crossplane-claims/chart/templates/policies/u.yaml": policy("omega-check", "omega", validateRule("omega", false))},
+			"M3 the kyverno check omega-check names no validating policy template"},
 		{"M5 a check with no suite that the baseline does not list",
-			map[string]string{SuitesBaseline: baselineJSON(SuitesMetric, "outside-check")},
+			map[string]string{SuitesBaseline: baselineJSON(SuitesMetric, "omega-check")},
 			"M5 the kyverno check beta-check has no suite " + Suites + "/beta-check/kyverno-test.yaml and is not listed in " + SuitesBaseline},
 		{"M5 a listed check that has a suite now",
 			map[string]string{Suites + "/beta-check/kyverno-test.yaml": "name: beta\n"},
 			"M5 the kyverno check beta-check has a suite and is still listed in " + SuitesBaseline + ": remove the entry"},
 		{"M5 a listed name that is no check",
-			map[string]string{SuitesBaseline: baselineJSON(SuitesMetric, "beta-check", "outside-check", "gone-check")},
+			map[string]string{SuitesBaseline: baselineJSON(SuitesMetric, "beta-check", "omega-check", "gone-check")},
 			"M5 " + SuitesBaseline + " lists gone-check, which is no kyverno check: remove the entry"},
 		{"M6 a new exempt namespace",
 			map[string]string{Values: strings.Replace(valuesYAML, "      - cnpg\n", "      - cnpg\n      - newns\n", 1),
@@ -317,7 +317,7 @@ func TestEveryRuleCanFail(t *testing.T) {
 			map[string]string{ExemptBaseline: strings.Replace(baselineJSON(ExemptMetric, "cnpg", "kube-system"), `"cnpg": 1`, `"cnpg": 2`, 1)},
 			"FAIL, " + ExemptBaseline + ": the entry cnpg is 2, every entry is 1"},
 		{"a baseline of another metric cannot be read",
-			map[string]string{SuitesBaseline: baselineJSON(ExemptMetric, "beta-check", "outside-check")},
+			map[string]string{SuitesBaseline: baselineJSON(ExemptMetric, "beta-check", "omega-check")},
 			"FAIL, " + SuitesBaseline + " must be"},
 		{"a missing data file cannot be judged",
 			map[string]string{ModelDir + "/exemptions.yaml": "", SchemaDir + "/exemptions.schema.json": ""},

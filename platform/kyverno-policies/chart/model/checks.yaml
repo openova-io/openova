@@ -14,9 +14,6 @@
 # validate.message. valuesKey is the key of the policy's block under
 # compliancePolicies in values.yaml; its excludeNamespaces and
 # extraExcludeNamespaces become the exemptions of the check.
-# useraccess-boundary is the one policy outside this chart (template
-# platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml,
-# values key userAccessBoundary of that chart); CMP-066 moves it here.
 # No check states a weight: each weighs severityWeights[severity] of
 # model.yaml. tools/guards/cmd/check-compliance-model holds that every
 # validating policy template has a check and every check a template.
@@ -285,7 +282,7 @@ checks:
     axis: hardening
     severity: high
     ownerSide: sovereign
-    valuesKey: userAccessBoundary
+    valuesKey: useraccessBoundary
     description: >-
       Denies UserAccess CRs whose openova.io/org scope differs from the
       requesting user's org claim, unless the requester is a member of

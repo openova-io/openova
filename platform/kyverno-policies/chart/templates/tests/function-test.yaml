@@ -50,6 +50,7 @@ functionTest.image overrides it.
   "baseline/22-substrate-on-host.yaml"
   "baseline/23-forbid-local-path.yaml"
   "baseline/24-forbid-nodeport-service.yaml"
+  "baseline/25-useraccess-boundary.yaml"
   "mutate/00-stamp-cilium-enforced-label.yaml"
   "mutate/01-inject-gitea-source-secretref.yaml" }}
 {{- $names := list }}
