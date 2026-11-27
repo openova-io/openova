@@ -243,7 +243,7 @@ epics:
 - id: SEC-240
   title: 'EPIC: roll-out, remaining charts'
   wave: W1a
-  packages: [SEC-241, SEC-243, SEC-242, SEC-244, SEC-245, SEC-246, SEC-247, SEC-248]
+  packages: [SEC-241, SEC-243, SEC-242, SEC-244, SEC-245, SEC-247, SEC-246, SEC-248]
 - id: SEC-260
   title: 'EPIC: External Secrets upgrade'
   wave: W1a
@@ -16434,6 +16434,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: The birth Job of the producing namespace writes the value, create-only, under openova/apps/<reader namespace>/... for each reader the chart names, and each reader reads its own prefix (the precedent is S20 and SEC-192). No namespace reads another's prefix; no legacyKeyMap entry is added.
+- id: SEC-226
+  title: A library value is seeded from the Secret that holds it today
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-200]
+  after: [SEC-219, FND-011, SEC-201, SEC-217, SVC-040, SVC-041]
+  touches:
+  - platform/secrets-lib/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A value of the library, mounted or synced, takes seedFrom (a Secret and a key in the value''s namespace): the birth writes that Secret''s value when the store''s path is absent and the Secret exists, and a random value of the stated length only when neither exists; it never overwrites a value the store holds. Tests: seeded, fresh, and already present.'
 - id: SEC-231
   title: 'Roll-out: platform/postgres'
   area: SEC
@@ -16857,7 +16883,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212]
+  depends_on: [SEC-200, SEC-212, SEC-226]
   after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-344, SVC-040, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
@@ -16886,7 +16912,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Key-generating Job deleted; master key mounted in the billing pod.
+  delivers: Key-generating Job deleted; master key mounted in the billing pod. The fresh-install value has length 43.
 - id: SEC-247
   title: 'Roll-out: seven driver charts with one credential Secret each'
   area: SEC
