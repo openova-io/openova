@@ -7,7 +7,8 @@
 # workflow .github/workflows/conformance-local.yaml) and later suites use it:
 #
 #   bash scripts/local-pack.sh image
-#   bash scripts/local-pack.sh up --regions <1|2> --branch <name> --commit <sha>
+#   bash scripts/local-pack.sh charts [--changed <file>]
+#   bash scripts/local-pack.sh up --regions <1|2> --branch <name> --commit <sha> [--changed <file>]
 #   bash scripts/local-pack.sh discovery
 #   bash scripts/local-pack.sh claim
 #   bash scripts/local-pack.sh collect
@@ -25,6 +26,18 @@
 #            attempt prints the last build step it reached. Prints the name as its only line of
 #            standard output and writes it to LOCAL_PACK_DIR/machine-image. Every apply of the
 #            module passes the name as machine_image, so the module itself builds nothing.
+# charts     Prints, from the source, which charts the pack installs and from where. Flux
+#            applies the Kustomization bootstrap-kit, whose path the local module sets to the
+#            kit KIT_PATH (written by scripts/generators/local-kit.py: the slot files of
+#            clusters/_template/bootstrap-kit of the releases the pack runs and of their
+#            dependencies, and the pack's own files). Each slot's HelmRelease takes its chart from
+#            a HelmRepository at PUBLISHED_URL, at the version the slot pins: the chart that
+#            blueprint-release.yaml published from main, not the chart of the change under test.
+#            The release local-path takes the upstream chart from the GitRepository of
+#            rancher/local-path-provisioner. With --changed <file> (one changed path per line,
+#            relative to the tree) a release whose chart is published from a folder of this tree
+#            (platform/<name>/chart, products/<name>/chart) is marked TREE when a changed path lies
+#            in that folder or in the folder of one of its file:// dependencies (kit_plan).
 # up         Writes the module inputs from the contract fixture of 1 or 2 regions (one
 #            control-plane machine per region; one worker machine in the primary region, none
 #            elsewhere) and the machine image of image above (built there when it is not yet
@@ -63,6 +76,16 @@
 #            limit ends the wait, it first prints the state of every region: every HelmRelease
 #            and Flux Kustomization with its Ready status, reason and message, every pod
 #            that does not run with the reason, and the last log lines of such pods.
+#            The kit charts of the change: first, with the plan of charts for --changed <file>
+#            (without it, every chart is the published one), up writes LOCAL_PACK_DIR/kit-charts.txt
+#            and LOCAL_PACK_DIR/tree-charts.tsv (the TREE releases). For those, in each region and
+#            as soon as the template has applied the Kustomization sovereign-root, tree_redirect
+#            makes bootstrap-kit give each of them its chart from the GitRepository
+#            flux-system/openova, the commit under test, which source-controller packages from
+#            the folder; and the wait above also waits until tree_judge finds each of them
+#            installed from the tree (Ready where the region's core needs it; one installed
+#            before the change of source gets one forced upgrade). The verdict of each, per
+#            region, is appended to kit-charts.txt. A file named that does not exist stops up.
 # discovery  Runs the suite tests/acceptance/sovereign against the pack, with the env file, as a
 #            run that requests no journey and no gate check (run --run-in local --journeys ''),
 #            so that its discovery leaves out the steps that only the journeys need. It passes
@@ -81,7 +104,9 @@
 #            writes restarts.txt (the container, its restart count and its last termination:
 #            exit code, reason, signal, start, end and the end of the termination message) and
 #            restarts-previous-logs.txt (the last lines of the log of its previous run), so that
-#            a restart names its container and its cause. It never fails.
+#            a restart names its container and its cause. It never fails. It copies the kit
+#            chart plan of up and, for the charts of the tree, the last verdicts and the
+#            HelmRelease and HelmChart they were read from (with the error of a failed read).
 #            The kubeconfigs, the session and the module inputs are not copied there.
 # down       Stops the port forward, then removes what up started: tofu destroy of the machines,
 #            docker volume rm of each volume of the pack (each within VOLUME_LIMIT seconds; the
@@ -90,8 +115,9 @@
 #            otherwise exit 1 naming what is left.
 #
 # LOCAL_PACK_DIR defaults to $RUNNER_TEMP/local-pack (CI) or /tmp/local-pack. Requires bash,
-# python3 with PyYAML, docker with BuildKit (buildx), timeout, tofu, kubectl, curl and go;
-# --self-test needs bash, timeout and python3 only. The machines expose no node port: the gateway binds host ports on the machine
+# python3 with PyYAML, docker with BuildKit (buildx), timeout, tofu, kubectl, yq (v4), curl and go;
+# charts needs kubectl and yq; --self-test needs bash, timeout, python3, kubectl (its kustomize)
+# and yq. The machines expose no node port: the gateway binds host ports on the machine
 # addresses, and the console address is a port forward through the API server.
 # Exit codes: 0 pass; 1 fail; 2 wrong usage.
 set -euo pipefail
@@ -111,6 +137,9 @@ CORE="bp-gateway-api bp-cilium bp-cert-manager bp-flux storage-ready local-path 
 # The console release. The primary region must have it Ready too; a secondary region holds it
 # suspended (slot 13 of the kit), so it is not judged there.
 CONSOLE_RELEASE="bp-catalyst-platform"
+# The kit of the pack (charts in the header) and the registry its own charts are published to.
+KIT_PATH="clusters/_template/providers/local/kit"
+PUBLISHED_URL="oci://ghcr.io/openova-io"
 CONSOLE_PORT=18080
 SIGNER_DEFAULT="/var/lib/catalyst/handover-jwt-private.pem"
 # The machine image (image): the build took 34 to 108 seconds on the CI runner until 19 November
@@ -158,7 +187,7 @@ MIRROR='mirrors:
 
 log() { echo "[local-pack $(date -u +%H:%M:%S)] $*"; }
 die() { echo "local-pack: $*" >&2; exit 1; }
-usage() { sed -n '9,15p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
+usage() { sed -n '9,16p' "${BASH_SOURCE[0]}" | sed 's/^# //' >&2; exit 2; }
 
 # --- pure parts (covered by --self-test) -------------------------------------------------
 
@@ -522,6 +551,208 @@ for f in lines:
 sys.exit(0 if lines and peers and not bad else 1)' "$@"
 }
 
+# --- the kit charts of a run (see charts in the header) -------------------------------------
+
+# kit_releases <kit folder>: one line per HelmRelease of the folder as kustomize-controller builds
+# it (kubectl kustomize, no load restrictions), its fields separated by tabs:
+#   <release> <namespace> <chart> <version> <source kind> <source name> <source url>
+# The source is the object of the same build that spec.chart.spec.sourceRef names (in the
+# release's namespace when the reference names none). A field the build does not hold is "-".
+# Exit 1 when the build fails or holds no HelmRelease.
+kit_releases() {
+  local render src rel
+  render=$(kubectl kustomize --load-restrictor LoadRestrictionsNone "$1") || return 1
+  src=$(printf '%s\n' "$render" | yq -N 'select(.kind == "HelmRepository" or .kind == "GitRepository") | [[.kind, .metadata.namespace, .metadata.name, .spec.url] | join("|")] | @tsv') || return 1
+  rel=$(printf '%s\n' "$render" | yq -N 'select(.kind == "HelmRelease") | [[.metadata.name, .metadata.namespace, .spec.chart.spec.chart, .spec.chart.spec.version, .spec.chart.spec.sourceRef.kind, .spec.chart.spec.sourceRef.namespace, .spec.chart.spec.sourceRef.name] | join("|")] | @tsv') || return 1
+  awk -F'|' -v OFS='\t' '
+    NR == FNR { if (NF == 4) url[$1 "|" $2 "|" $3] = $4; next }
+    NF == 7 {
+      u = url[$5 "|" ($6 == "" ? $2 : $6) "|" $7]
+      for (i = 1; i <= 7; i++) if ($i == "") $i = "-"
+      print $1, $2, $3, $4, $5, $7, (u == "" ? "-" : u); n++
+    }
+    END { exit n ? 0 : 1 }' <(printf '%s\n' "$src") <(printf '%s\n' "$rel")
+}
+
+# chart_folders <tree>: one line per chart folder that blueprint-release.yaml publishes from,
+# platform/<name>/chart and products/<name>/chart: "<chart name><tab><folder>", the name by the
+# release's own rule (the first line name: of Chart.yaml). Exit 1 when two folders hold a chart
+# of one name.
+chart_folders() {
+  local out f
+  out=$(cd "$1" && for f in platform/*/chart/Chart.yaml products/*/chart/Chart.yaml; do
+    if [ -f "$f" ]; then printf '%s\t%s\n' "$(awk '/^name:/{print $2; exit}' "$f" | tr -d '"')" "${f%/Chart.yaml}"; fi
+  done) || return 1
+  f=$(printf '%s\n' "$out" | cut -f1 | sort | uniq -d)
+  [ -z "$f" ] || { echo "chart_folders: more than one folder holds the chart $f" >&2; return 1; }
+  printf '%s\n' "$out"
+}
+
+# chart_deps <tree> <folder>: the folders of the chart's file:// dependencies and of theirs, one
+# per line, relative to the tree. Such a dependency (a library chart) is packaged into the chart.
+chart_deps() {
+  local root=$1 f rel d seen=" $2 "
+  local -a queue=("$2")
+  while [ "${#queue[@]}" -gt 0 ]; do
+    f=${queue[0]}
+    queue=("${queue[@]:1}")
+    while IFS= read -r rel; do
+      d=$(realpath -m --relative-to="$root" "$root/$f/$rel")
+      case "$seen" in *" $d "*) continue ;; esac
+      seen+="$d "
+      queue+=("$d")
+      echo "$d"
+    done < <(sed -n "s|^ *repository: *[\"']\{0,1\}file://\([^\"' ]*\).*|\1|p" "$root/$f/Chart.yaml" 2> /dev/null)
+  done
+}
+
+# kit_plan <tree> [<file of changed paths>]: one line per HelmRelease of the kit KIT_PATH of the
+# tree, the seven fields of kit_releases and three more:
+#   <origin>   tree       its source is a HelmRepository at PUBLISHED_URL (blueprint-release.yaml
+#                         publishes there from main), a folder of the tree holds a chart of its
+#                         name, and a changed path lies in that folder or in the folder of a
+#                         file:// dependency of it: the run installs it from the tree
+#              published  the same source, and no changed path selects it (or no file is given)
+#              source     another source (the upstream GitRepository of local-path): never from
+#                         the tree
+#   <folder>   the folder of the chart in the tree, or -
+#   <because>  the first changed path (in the order of the file) that selected it, or -
+# The file holds one path per line, relative to the tree. Exit 1 when the file is named and does
+# not exist, or the kit or the chart folders cannot be read.
+kit_plan() {
+  local root=$1 list=${2:-} rels folders rel ns chart ver kind name url origin folder because
+  local -a paths=() deps=()
+  local -A folder_of=()
+  if [ -n "$list" ]; then
+    [ -f "$list" ] || { echo "kit_plan: the file of changed paths $list does not exist" >&2; return 1; }
+    mapfile -t paths < "$list"
+  fi
+  rels=$(kit_releases "$root/$KIT_PATH") || { echo "kit_plan: the kit $KIT_PATH cannot be built" >&2; return 1; }
+  folders=$(chart_folders "$root") || return 1
+  while IFS=$'\t' read -r chart folder; do folder_of[$chart]=$folder; done <<< "$folders"
+  # first_changed <folder>...: the first changed path that lies in one of the folders.
+  first_changed() {
+    local p f
+    for p in "${paths[@]}"; do
+      for f in "$@"; do case "$p" in "$f"/*) echo "$p"; return 0 ;; esac; done
+    done
+    return 1
+  }
+  while IFS=$'\t' read -r rel ns chart ver kind name url; do
+    origin=source folder=- because=-
+    if [ "$kind" = HelmRepository ] && [ "$url" = "$PUBLISHED_URL" ]; then
+      origin=published
+      folder=${folder_of[$chart]:--}
+      [ "$folder" = - ] || mapfile -t deps < <(chart_deps "$root" "$folder")
+      if [ "$folder" != - ] && because=$(first_changed "$folder" "${deps[@]}"); then
+        origin=tree
+      else
+        because=-
+      fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$rel" "$ns" "$chart" "$ver" "$kind" "$name" "$url" "$origin" "$folder" "$because"
+  done <<< "$rels"
+}
+
+# plan_report <file of changed paths or ''>: stdin has the lines of kit_plan; stdout says, one line
+# per release, where the run takes its chart from.
+plan_report() {
+  awk -F'\t' -v list="$1" -v kit="$KIT_PATH" '
+    { n++; if ($8 == "tree") t++
+      if ($8 == "tree") run = "TREE ./" $9 " at the commit under test (changed: " $10 ")"
+      else if ($8 == "published") run = "published " $7 "/" $3 ":" $4 (($9 == "-") ? " (no folder of the tree holds it)" : "")
+      else run = "source " $5 " " $6 " " $7
+      line[n] = sprintf("%-22s %-38s %s", $1, $3, run) }
+    END {
+      printf "The kit %s holds %d HelmReleases; %d take their chart from the tree of this change", kit, n, t
+      print (list == "" ? " (no list of changed paths: every chart is the published one)." : ".")
+      for (i = 1; i <= n; i++) print line[i] }'
+}
+
+# tree_patch: stdin has the lines of kit_plan; stdout the JSON patch of the Kustomization
+# flux-system/sovereign-root that appends one entry to its spec.patches, for the lines whose origin
+# is tree. The entry patches the Kustomization bootstrap-kit, which sovereign-root applies: its
+# spec.patches get one patch per release, so that the release takes its chart from the tree,
+#   spec.chart.spec: {chart: ./<folder>, version: '*', sourceRef: GitRepository flux-system/openova}
+# The GitRepository is the one pin_flux pins to the commit under test. Flux ignores the version
+# of a chart from a GitRepository, and '*' is what its API writes when none is named, so step
+# D0.12 of the run in self does not compare it with the deployed one. The reconcile strategy
+# stays ChartVersion: Revision would add +<commit> to the chart version, which a label value and
+# the version pattern of the Blueprint and Application kinds refuse. Exit 1 when no line is tree,
+# or a name or folder holds a character outside [a-z0-9./_-] (the flow mappings do not quote it).
+tree_patch() {
+  local rel ns chart ver kind name url origin folder because v entries=""
+  while IFS=$'\t' read -r rel ns chart ver kind name url origin folder because; do
+    [ "$origin" = tree ] || continue
+    for v in "$rel" "$ns" "$folder"; do [[ "$v" =~ ^[a-z0-9][a-z0-9./_-]*$ ]] || return 1; done
+    entries+="${entries:+, }{patch: '{apiVersion: helm.toolkit.fluxcd.io/v2, kind: HelmRelease, metadata: {name: $rel, namespace: $ns}, spec: {chart: {spec: {chart: ./$folder, version: ''*'', sourceRef: {kind: GitRepository, name: openova, namespace: flux-system}}}}}'}"
+  done
+  [ -n "$entries" ] || return 1
+  printf '[{"op":"add","path":"/spec/patches/-","value":{"patch":"{apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: bootstrap-kit, namespace: flux-system}, spec: {patches: [%s]}}"}}]\n' "$entries"
+}
+
+# jfields <json file> <expression>...: the values of the expressions in one JSON document,
+# joined by "|"; a value the document does not hold is empty.
+jfields() {
+  local f=$1 e expr=""
+  shift
+  for e in "$@"; do expr+="${expr:+, }$e"; done
+  yq -p json -o tsv "[[$expr] | join(\"|\")]" "$f"
+}
+
+# tree_judge <HelmRelease json> <HelmChart json> <chart> <folder> <commit> <required: yes|no>:
+# whether a release that the run installs from the tree did so. The HelmChart is the one
+# status.helmChart of the release names ({} when there is none). Prints one line; exit
+#   0  suspended (not judged); or installed from the tree; or, when not required, the release
+#      names the tree and was not installed yet, or its release of the tree is not Ready
+#   1  waiting: the release or its HelmChart does not name the tree yet, the HelmChart is not
+#      built from <folder> at <commit>, or (required) the release of the tree is not Ready
+#   3  stale: the newest release (history[0]) was deployed no later than the HelmChart's artifact
+#      of the tree was built (the same second counts as before), or is another chart or version,
+#      and helm-controller has handled the current generation and is not progressing: an install
+#      of the published chart before the change of source. A chart version that did not change
+#      gives helm-controller no reason to upgrade, so the caller forces the upgrade once.
+# Installed from the tree: the newest release is <chart> at the version of the HelmChart's
+# artifact, deployed after it was built, status deployed, and the release is Ready at its
+# current generation.
+tree_judge() {
+  local chart=$3 folder=$4 commit=$5 required=$6
+  local suspend gen ogen kind name path ready reason hname hver hstatus hdeployed
+  local ckind cname cpath csrc cver ctime cready deployed built
+  IFS='|' read -r suspend gen ogen kind name path ready reason hname hver hstatus hdeployed < <(jfields "$1" \
+    .spec.suspend .metadata.generation .status.observedGeneration .spec.chart.spec.sourceRef.kind \
+    .spec.chart.spec.sourceRef.name .spec.chart.spec.chart '([.status.conditions[] | select(.type == "Ready")][0].status)' \
+    '([.status.conditions[] | select(.type == "Ready")][0].reason)' .status.history[0].chartName \
+    .status.history[0].chartVersion .status.history[0].status .status.history[0].lastDeployed)
+  IFS='|' read -r ckind cname cpath csrc cver ctime cready < <(jfields "$2" .spec.sourceRef.kind .spec.sourceRef.name \
+    .spec.chart .status.observedSourceArtifactRevision .status.artifact.revision .status.artifact.lastUpdateTime \
+    '([.status.conditions[] | select(.type == "Ready")][0].status)')
+  if [ "$suspend" = true ]; then echo "suspended, not judged"; return 0; fi
+  if [ "$kind/$name" != GitRepository/openova ] || [ "$path" != "./$folder" ]; then
+    echo "waiting: the HelmRelease takes its chart from ${kind:-?}/${name:-?} ${path:-?}, not ./$folder of the tree"; return 1
+  fi
+  if [ "$ckind/$cname" != GitRepository/openova ] || [ "$cpath" != "./$folder" ] || [[ "$csrc" != *"@sha1:$commit" ]] \
+    || [ "$cready" != True ] || [ -z "$cver" ] || ! built=$(date -u -d "$ctime" +%s 2> /dev/null); then
+    echo "waiting: its HelmChart is not built from ./$folder at $commit (source ${ckind:-?}/${cname:-?} ${cpath:-?} at ${csrc:-?}, Ready=${cready:-?})"; return 1
+  fi
+  if [ -z "$hver" ]; then
+    if [ "$required" = yes ]; then echo "waiting: not installed yet (Ready=${ready:-?} ${reason:-})"; return 1; fi
+    echo "names the tree, not installed (Ready=${ready:-?} ${reason:-})"; return 0
+  fi
+  deployed=$(date -u -d "$hdeployed" +%s 2> /dev/null || echo 0)
+  if [ "$deployed" -le "$built" ] || [ "$hname" != "$chart" ] || [ "$hver" != "$cver" ]; then
+    if [ "$ogen" = "$gen" ] && [ -n "$ready" ] && [ "$ready" != Unknown ]; then
+      echo "stale: the newest release is $hname $hver deployed $hdeployed, not after the chart of the tree $cver was built ($ctime)"; return 3
+    fi
+    echo "waiting: the newest release is $hname $hver deployed $hdeployed, the chart of the tree $cver was built $ctime (Ready=${ready:-?} ${reason:-})"; return 1
+  fi
+  if [ "$hstatus" = deployed ] && [ "$ready" = True ] && [ "$ogen" = "$gen" ]; then
+    echo "installed from the tree: $hname $hver of ./$folder at $commit, deployed $hdeployed, Ready"; return 0
+  fi
+  if [ "$required" = yes ]; then echo "waiting: $hname $hver of the tree is $hstatus, Ready=${ready:-?} ${reason:-}"; return 1; fi
+  echo "installed from the tree: $hname $hver of ./$folder at $commit, $hstatus, Ready=${ready:-?} ${reason:-}"
+}
+
 # --- commands -------------------------------------------------------------------------------
 
 kin() { local m=$1; shift; docker exec -i "$m" kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml --request-timeout=20s "$@"; }
@@ -558,6 +789,88 @@ pin_flux() {
     | kin "$m" -n flux-system patch secret ghcr-pull --type merge --patch-file /dev/stdin > /dev/null \
     || die "$code: the patch of the Secret flux-system/ghcr-pull failed"
   log "$code: pull credential set, GitRepository at $commit"
+}
+
+# tree_redirect <region> <machine>: makes the region install the kit charts of the tree (the
+# lines of LOCAL_PACK_DIR/tree-charts.tsv) from the GitRepository flux-system/openova. Returns 1
+# while the template has not applied the Kustomization sovereign-root yet. Then it appends the
+# entry of tree_patch to sovereign-root's spec.patches; nothing applies sovereign-root after first
+# boot, so the entry stays, and every apply of bootstrap-kit carries it. It runs as soon as
+# sovereign-root exists, before Flux has the source to build bootstrap-kit from, so a release is
+# normally created with the tree as its source; one that was created and installed before is
+# found by tree_judge and upgraded. A patch that fails stops the run naming sovereign-root.
+tree_redirect() {
+  local code=$1 m=$2 before=no
+  kin "$m" -n flux-system get kustomization sovereign-root > /dev/null 2>&1 || return 1
+  if kin "$m" -n flux-system get kustomization bootstrap-kit > /dev/null 2>&1; then before=yes; fi
+  tree_patch < "$DIR/tree-charts.tsv" \
+    | kin "$m" -n flux-system patch kustomization sovereign-root --type json --patch-file /dev/stdin > /dev/null \
+    || die "$code: the patch of the Kustomization flux-system/sovereign-root failed"
+  log "$code: bootstrap-kit takes $(cut -f1 "$DIR/tree-charts.tsv" | tr '\n' ' ')from the tree (sovereign-root patched; bootstrap-kit existed before: $before)"
+}
+
+# tree_states <region> <machine> <releases required Ready> <commit>: judges each release of
+# LOCAL_PACK_DIR/tree-charts.tsv in the region with tree_judge (required: it is one of the named
+# releases), writes "<release>: <verdict>" per release to LOCAL_PACK_DIR/tree/<region>.txt and
+# prints the verdicts that are not done. A stale release gets one forced upgrade
+# (reconcile.fluxcd.io/requestedAt and forceAt, as flux reconcile --force sets them); a request
+# that fails stops the run. Exit 0 when every release is done.
+# The HelmChart is read as helmcharts.source.toolkit.fluxcd.io: on k3s the short name helmchart
+# is the kind HelmChart of helm.cattle.io (the Helm controller of k3s), which holds no HelmChart
+# of Flux. The error of a read that fails is kept beside it in <region>-<release>-helmchart.err.
+tree_states() {
+  local code=$1 m=$2 required=" $3 " commit=$4 rel ns chart ver kind name url origin folder because
+  local hr hc ref req v st rc=0 tok
+  : > "$DIR/tree/$code.txt"
+  while IFS=$'\t' read -r rel ns chart ver kind name url origin folder because; do
+    hr="$DIR/tree/$code-$rel-helmrelease.json" hc="$DIR/tree/$code-$rel-helmchart.json"
+    # kubectl reads no stdin here: docker exec -i would otherwise take the rest of the list.
+    kin "$m" -n "$ns" get helmrelease "$rel" -o json < /dev/null > "$hr" 2> /dev/null || echo '{}' > "$hr"
+    ref=$(jfields "$hr" .status.helmChart)
+    echo '{}' > "$hc"
+    if [ -n "$ref" ]; then
+      kin "$m" -n "${ref%%/*}" get helmcharts.source.toolkit.fluxcd.io "${ref#*/}" -o json < /dev/null > "$hc" 2> "${hc%.json}.err" \
+        || echo '{}' > "$hc"
+    fi
+    req=no
+    case "$required" in *" $rel "*) req=yes ;; esac
+    st=0
+    v=$(tree_judge "$hr" "$hc" "$chart" "$folder" "$commit" "$req") || st=$?
+    echo "$rel: $v" >> "$DIR/tree/$code.txt"
+    if [ "$st" = 3 ] && [ ! -f "$DIR/tree/$code-$rel-forced" ]; then
+      tok="local-pack-$(date -u +%s)"
+      kin "$m" -n "$ns" annotate helmrelease "$rel" --overwrite "reconcile.fluxcd.io/requestedAt=$tok" \
+        "reconcile.fluxcd.io/forceAt=$tok" < /dev/null > /dev/null \
+        || die "$code: the forced upgrade of the HelmRelease $ns/$rel could not be requested"
+      echo "$tok" > "$DIR/tree/$code-$rel-forced"
+      log "$code: $rel: $v; forced upgrade $tok requested" >&2
+    fi
+    if [ "$st" != 0 ]; then rc=1; echo "$rel: $v"; fi
+  done < "$DIR/tree-charts.tsv"
+  return "$rc"
+}
+
+# tree_summary <region code>...: appends the verdicts of each region to LOCAL_PACK_DIR/kit-charts.txt.
+tree_summary() {
+  local code
+  [ -s "$DIR/tree-charts.tsv" ] || return 0
+  for code in "$@"; do
+    { echo "$code:"; sed 's/^/  /' "$DIR/tree/$code.txt" 2> /dev/null || echo "  not judged"; } >> "$DIR/kit-charts.txt"
+  done
+}
+
+# cmd_charts [--changed <file>]: see charts in the header.
+cmd_charts() {
+  local changed=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --changed) changed="${2:-}"; [ -n "$changed" ] || usage; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  local plan
+  plan=$(kit_plan "$ROOT" "$changed") || die "charts: the kit chart plan could not be made"
+  plan_report "$changed" <<< "$plan"
 }
 
 # report_state <module inputs> <region code>...: prints the state of every named region for
@@ -714,15 +1027,17 @@ cmd_image() {
 }
 
 cmd_up() {
-  local regions="" branch="" commit=""
+  local regions="" branch="" commit="" changed="" changed_set=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --regions) regions="${2:-}"; shift 2 ;;
       --branch) branch="${2:-}"; shift 2 ;;
       --commit) commit="${2:-}"; shift 2 ;;
+      --changed) changed="${2:-}"; changed_set=yes; shift 2 ;;
       *) usage ;;
     esac
   done
+  [ "$changed_set" = no ] || [ -n "$changed" ] || usage
   case "$regions" in
     1) fixture="$FIXTURES/single-region.tfvars.json" ;;
     2) fixture="$FIXTURES/two-region.tfvars.json" ;;
@@ -734,7 +1049,12 @@ cmd_up() {
     die "GHCR_USER and GHCR_TOKEN must be set: the kit pulls private charts and images from ghcr.io"
   fi
   command -v go > /dev/null || die "go is not on PATH: up builds the session minter of $SUITE"
-  mkdir -p "$DIR"
+  mkdir -p "$DIR/tree"
+  # The kit charts of this run: the ones the change touches come from the tree (charts above).
+  kit_plan "$ROOT" "$changed" > "$DIR/kit-plan.tsv" || die "the kit chart plan could not be made"
+  awk -F'\t' '$8 == "tree"' "$DIR/kit-plan.tsv" > "$DIR/tree-charts.tsv"
+  plan_report "$changed" < "$DIR/kit-plan.tsv" > "$DIR/kit-charts.txt"
+  cat "$DIR/kit-charts.txt"
   local vars="$DIR/pack.tfvars.json" dep="${commit:0:16}" t0 code m pcode pm image
   image=$(cmd_image)
   write_tfvars "$fixture" "$vars" "$dep" "$branch" "$image"
@@ -764,7 +1084,7 @@ cmd_up() {
   fi
   t0=$(date +%s)
 
-  declare -A pinned=() done_=()
+  declare -A pinned=() done_=() redirected=()
   while :; do
     local all=yes
     for code in "${codes[@]}"; do
@@ -772,6 +1092,9 @@ cmd_up() {
       if docker exec "$m" sh -c 'ls /var/lib/catalyst/*-FAILED' > /dev/null 2>&1; then
         docker exec "$m" sh -c 'ls /var/lib/catalyst/*-FAILED; tail -60 /var/log/cloud-init-output.log' || true
         die "$code: the boot template failed"
+      fi
+      if [ -s "$DIR/tree-charts.tsv" ] && [ -z "${redirected[$code]:-}" ]; then
+        if tree_redirect "$code" "$m"; then redirected[$code]=1; else all=no; fi
       fi
       if [ -z "${pinned[$code]:-}" ]; then
         if pin_flux "$code" "$m" "$branch" "$commit"; then pinned[$code]=1; fi
@@ -806,16 +1129,28 @@ cmd_up() {
           log "$code: every HelmRelease that is not Ready: $(printf '%s' "$hrs" | state_lines not-ready)"
         fi
       fi
+      # The kit charts of the tree: installed from it, Ready where the core needs them.
+      if [ -s "$DIR/tree-charts.tsv" ] && ! tree_states "$code" "$m" "$(core_for "$code" "$pcode")" "$commit" > "$DIR/tree/$code-waiting.txt"; then
+        all=no
+        if [ $(( $(date +%s) - last )) -ge 120 ]; then log "$code: kit charts of the tree: $(tr '\n' ';' < "$DIR/tree/$code-waiting.txt")"; fi
+      fi
     done
     [ $(( $(date +%s) - last )) -ge 120 ] && last=$(date +%s)
     [ "$all" = yes ] && break
     if [ $(( $(date +%s) - t0 )) -ge "$CORE_LIMIT" ]; then
       report_state "$vars" "${others[@]}" "$pcode"
-      die "the kit core was not Ready within ${CORE_LIMIT}s"
+      [ -s "$DIR/tree-charts.tsv" ] || die "the kit core was not Ready within ${CORE_LIMIT}s"
+      tree_summary "${codes[@]}"
+      for code in "${codes[@]}"; do log "$code: kit charts of the tree: $(tr '\n' ';' < "$DIR/tree/$code.txt")"; done
+      die "the kit core, or a kit chart of the tree, was not Ready within ${CORE_LIMIT}s"
     fi
     sleep 15
   done
   log "kit core Ready in every region after $(( $(date +%s) - t0 ))s"
+  if [ -s "$DIR/tree-charts.tsv" ]; then
+    tree_summary "${codes[@]}"
+    for code in "${codes[@]}"; do log "$code: kit charts of the tree: $(tr '\n' ';' < "$DIR/tree/$code.txt")"; done
+  fi
   if [ "${#codes[@]}" -ge 2 ]; then mesh_connect "$vars" "${codes[@]}"; fi
 
   pm=$(machine "$vars" "$pcode")
@@ -967,7 +1302,7 @@ cmd_collect() {
     kin "$m" get jobs -A -o wide > "$d/jobs.txt" 2>&1 || true
     report_state "$vars" "$code" > "$d/state.txt" 2>&1 || true
     kin "$m" get helmrelease -A > "$d/helmreleases.txt" 2>&1 || true
-    kin "$m" get kustomization,gitrepository,helmrepository,helmchart -A > "$d/flux.txt" 2>&1 || true
+    kin "$m" get kustomization,gitrepository,helmrepository,helmcharts.source.toolkit.fluxcd.io -A > "$d/flux.txt" 2>&1 || true
     kin "$m" get storageclass,pvc -A > "$d/storage.txt" 2>&1 || true
     kin "$m" get events -A --field-selector type=Warning --sort-by=.lastTimestamp > "$d/warnings.txt" 2>&1 || true
     kin "$m" describe nodes > "$d/nodes-describe.txt" 2>&1 || true
@@ -975,7 +1310,8 @@ cmd_collect() {
     kin "$m" -n catalyst-system logs deployment/catalyst-api --tail=400 > "$d/catalyst-api.log" 2>&1 || true
     mesh_status "$m" > "$d/mesh.txt" 2>&1 || true
   done
-  for f in "$DIR"/tofu-*.log "$DIR"/minter-build.log "$DIR"/mint.log "$DIR"/console-forward.log "$DIR"/discovery.txt "$DIR"/discovery-verdict.txt "$DIR"/mesh-*.txt; do
+  for f in "$DIR"/tofu-*.log "$DIR"/minter-build.log "$DIR"/mint.log "$DIR"/console-forward.log "$DIR"/discovery.txt "$DIR"/discovery-verdict.txt "$DIR"/mesh-*.txt \
+           "$DIR"/kit-charts.txt "$DIR"/kit-plan.tsv "$DIR"/tree/*; do
     if [ -f "$f" ]; then cp "$f" "$DIR/evidence/" 2> /dev/null || true; fi
   done
   log "collect: evidence under $DIR/evidence"
@@ -1499,12 +1835,215 @@ SH
   expect 0 "pin_flux: the pull Secret never appears and the failure names flux-system/ghcr-pull" pin_never
   expect 0 "pin_flux: a failed patch fails and prints no pull credential set" pin_failed
 
+  # The kit charts of a run, on a throw-away tree: rel-a and rel-c are published charts of
+  # folders of the tree; rel-b's chart depends on the library lib, which depends on lib2;
+  # rel-gone's chart has no folder; rel-other is a chart of the name bp-a from another
+  # repository, rel-up an upstream chart from a GitRepository.
+  local kt="$t/kt" kk="$t/kt/$KIT_PATH"
+  mkdir -p "$kt/platform/a/chart" "$kt/platform/b/chart" "$kt/platform/lib/chart" "$kt/platform/lib2/chart" "$kt/products/c/chart" "$kk"
+  printf 'apiVersion: v2\nname: bp-a\nversion: 1.0.0\n' > "$kt/platform/a/chart/Chart.yaml"
+  printf 'apiVersion: v2\nname: "bp-b"\nversion: 3.0.0\ndependencies:\n  - name: lib\n    version: 0.1.0\n    repository: "file://../../lib/chart"\n' > "$kt/platform/b/chart/Chart.yaml"
+  printf 'apiVersion: v2\nname: lib\ntype: library\nversion: 0.1.0\ndependencies:\n  - name: lib2\n    version: 0.1.0\n    repository: file://../../lib2/chart\n' > "$kt/platform/lib/chart/Chart.yaml"
+  printf 'apiVersion: v2\nname: lib2\ntype: library\nversion: 0.1.0\n' > "$kt/platform/lib2/chart/Chart.yaml"
+  printf 'apiVersion: v2\nname: bp-c\nversion: 2.0.0\n' > "$kt/products/c/chart/Chart.yaml"
+  printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - a.yaml\n  - b.yaml\n  - up.yaml\n' > "$kk/kustomization.yaml"
+  kit_hr() { printf -- '---\napiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  interval: 15m\n  chart:\n    spec:\n      chart: %s\n%b      sourceRef:\n        kind: %s\n        name: %s\n' "$@"; }
+  kit_src() { printf -- '---\napiVersion: source.toolkit.fluxcd.io/v1\nkind: %s\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  interval: 1h\n  url: %s\n' "$@"; }
+  { kit_src HelmRepository repo oci://ghcr.io/openova-io
+    kit_hr rel-a bp-a '      version: 1.0.0\n' HelmRepository repo
+    kit_hr rel-c bp-c '      version: 2.0.0\n' HelmRepository repo
+    kit_hr rel-gone bp-gone '      version: 1.0.0\n' HelmRepository repo; } > "$kk/a.yaml"
+  kit_hr rel-b bp-b '      version: 3.0.0\n' HelmRepository repo > "$kk/b.yaml"
+  { kit_src HelmRepository other https://charts.example.test
+    kit_hr rel-other bp-a '      version: 9.9.9\n' HelmRepository other
+    kit_src GitRepository upstream https://github.com/example/upstream
+    kit_hr rel-up ./deploy/chart '' GitRepository upstream; } > "$kk/up.yaml"
+  local tab=$'\t' fl="$t/kt-changed"
+  kit_rel_want() { printf '%s\n' \
+    "rel-a${tab}flux-system${tab}bp-a${tab}1.0.0${tab}HelmRepository${tab}repo${tab}oci://ghcr.io/openova-io" \
+    "rel-b${tab}flux-system${tab}bp-b${tab}3.0.0${tab}HelmRepository${tab}repo${tab}oci://ghcr.io/openova-io" \
+    "rel-c${tab}flux-system${tab}bp-c${tab}2.0.0${tab}HelmRepository${tab}repo${tab}oci://ghcr.io/openova-io" \
+    "rel-gone${tab}flux-system${tab}bp-gone${tab}1.0.0${tab}HelmRepository${tab}repo${tab}oci://ghcr.io/openova-io" \
+    "rel-other${tab}flux-system${tab}bp-a${tab}9.9.9${tab}HelmRepository${tab}other${tab}https://charts.example.test" \
+    "rel-up${tab}flux-system${tab}./deploy/chart${tab}-${tab}GitRepository${tab}upstream${tab}https://github.com/example/upstream"; }
+  kit_rel_case() { local got; got=$(kit_releases "$kk") || return 1; [ "$(printf '%s\n' "$got" | LC_ALL=C sort)" = "$(kit_rel_want)" ]; }
+  expect 0 "kit_releases: each release of the kit with its chart, version and the URL of the source it names" kit_rel_case
+  # plan_of <release>: the origin, folder and changed path of the release in "$t/kt-plan".
+  plan_of() { awk -F'\t' -v r="$1" '$1 == r {print $8 "|" $9 "|" $10}' "$t/kt-plan"; }
+  # plan_case <want for rel-a> <want for rel-b> <changed path>...: the plan of the throw-away tree
+  # for those changed paths; rel-c is published, rel-gone has no folder, the other two are other
+  # sources, whatever changed.
+  plan_case() { local a=$1 b=$2; shift 2; printf '%s\n' "$@" > "$fl"; kit_plan "$kt" "$fl" > "$t/kt-plan" || return 1
+    [ "$(plan_of rel-a)" = "$a" ] && [ "$(plan_of rel-b)" = "$b" ] && [ "$(plan_of rel-c)" = "published|products/c/chart|-" ] \
+      && [ "$(plan_of rel-gone)" = "published|-|-" ] && [ "$(plan_of rel-other)" = "source|-|-" ] && [ "$(plan_of rel-up)" = "source|-|-" ] \
+      && [ "$(wc -l < "$t/kt-plan")" = 6 ]; }
+  expect 0 "kit_plan: a changed file of a chart's folder takes that chart from the tree, and only it" \
+    plan_case "tree|platform/a/chart|platform/a/chart/values.yaml" "published|platform/b/chart|-" docs/x.md platform/a/chart/values.yaml
+  expect 0 "kit_plan: a change of a file:// dependency of a dependency takes the chart that packages it from the tree" \
+    plan_case "published|platform/a/chart|-" "tree|platform/b/chart|platform/lib2/chart/templates/_h.tpl" platform/lib2/chart/templates/_h.tpl
+  expect 0 "kit_plan: a path beside a chart's folder, or of a folder whose name starts like it, takes nothing from the tree" \
+    plan_case "published|platform/a/chart|-" "published|platform/b/chart|-" platform/a/README.md platform/a/chart-old/values.yaml platform/lib2/Chart.yaml ""
+  plan_none() { kit_plan "$kt" > "$t/kt-plan" && [ "$(plan_of rel-a)" = "published|platform/a/chart|-" ] && [ "$(plan_of rel-b)" = "published|platform/b/chart|-" ]; }
+  expect 0 "kit_plan: without a file of changed paths every chart is the published one" plan_none
+  expect 1 "kit_plan: a file of changed paths that does not exist is refused" kit_plan "$kt" "$t/no-such-file"
+  mkdir -p "$t/kt2/platform/a/chart" "$t/kt2/products/a/chart"
+  cp "$kt/platform/a/chart/Chart.yaml" "$t/kt2/platform/a/chart/Chart.yaml"
+  cp "$kt/platform/a/chart/Chart.yaml" "$t/kt2/products/a/chart/Chart.yaml"
+  expect 1 "chart_folders: two folders that hold a chart of one name are refused" chart_folders "$t/kt2"
+  plan_case "tree|platform/a/chart|platform/a/chart/values.yaml" "published|platform/b/chart|-" platform/a/chart/values.yaml || true
+  awk -F'\t' -v OFS='\t' '$1 == "rel-a" {$9 = "platform/a b/chart"} {print}' "$t/kt-plan" > "$t/kt-plan-bad"
+  # patch_of <plan file>: tree_patch of that plan.
+  patch_of() { tree_patch < "$1"; }
+  expect 1 "tree_patch: a folder with a character the flow mapping does not quote is refused" patch_of "$t/kt-plan-bad"
+  kit_plan "$kt" > "$t/kt-plan-none"
+  expect 1 "tree_patch: a plan with no chart from the tree has no patch" patch_of "$t/kt-plan-none"
+
+  # The real kit and tree. The change of CMP-065 (pull request 8862) was in the chart folder of
+  # bp-kyverno-policies; its run installed the published chart and the defect reached main.
+  printf '%s\n' platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml docs/ledger/plan.yaml > "$t/cmp065"
+  real_tree() { kit_plan "$ROOT" "$t/cmp065" > "$t/real-plan" || return 1
+    [ "$(awk -F'\t' '$8 == "tree" {print $1 "|" $3 "|" $9 "|" $10}' "$t/real-plan")" \
+      = "bp-kyverno-policies|bp-kyverno-policies|platform/kyverno-policies/chart|platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml" ] \
+      && [ "$(awk -F'\t' '$1 == "local-path" {print $8}' "$t/real-plan")" = source ] \
+      && [ "$(awk -F'\t' '$8 != "tree" && $1 != "local-path" && $8 != "published"' "$t/real-plan")" = "" ]; }
+  expect 0 "kit_plan, the real kit: the change of CMP-065 takes bp-kyverno-policies, and only it, from the tree" real_tree
+  printf '%s\n' platform/topology-lib/chart/templates/_placement.tpl > "$t/toplib"
+  real_lib() { kit_plan "$ROOT" "$t/toplib" > "$t/real-plan-lib" || return 1
+    [ "$(awk -F'\t' '$8 == "tree" {print $1 "|" $9}' "$t/real-plan-lib" | tr '\n' ' ')" = "bp-postgres-shared|platform/postgres/chart bp-postgres-shared-c|platform/postgres/chart " ]; }
+  expect 0 "kit_plan, the real kit: a change of the library topology-lib takes both releases of bp-postgres from the tree" real_lib
+  # The patch, the way Flux applies it: sovereign-root's new entry patches the Kustomization
+  # bootstrap-kit of the root folder; bootstrap-kit's patches then patch the kit. Both renders are
+  # kubectl kustomize, the kustomize of kustomize-controller.
+  mkdir -p "$t/root" "$t/kitp"
+  real_chain() {
+    tree_patch < "$t/real-plan" > "$t/patch.json" || return 1
+    [ "$(yq -p json -o tsv '[[length, .[0].op, .[0].path] | join("|")]' "$t/patch.json")" = "1|add|/spec/patches/-" ] || return 1
+    R=$(realpath --relative-to="$t/root" "$ROOT/clusters/_template/root/base-primary") M=$(yq -p json -o tsv '[.[0].value.patch]' "$t/patch.json") \
+      yq -n '.apiVersion = "kustomize.config.k8s.io/v1beta1" | .kind = "Kustomization" | .resources = [strenv(R)] | .patches = [{"patch": strenv(M)}]' > "$t/root/kustomization.yaml"
+    kubectl kustomize --load-restrictor LoadRestrictionsNone "$t/root" > "$t/root.out" || return 1
+    kubectl kustomize --load-restrictor LoadRestrictionsNone "$ROOT/clusters/_template/root/base-primary" > "$t/root-plain.out" || return 1
+    local sel='select(.kind == "Kustomization" and .metadata.name == "bootstrap-kit")'
+    # ysel <expression> <file>: yq of every document, without the empty line of each document
+    # the selection leaves out.
+    ysel() { yq -N "$1" "$2" | sed '/^$/d'; }
+    # bootstrap-kit gains its patches and keeps everything else.
+    [ "$(ysel "$sel | del(.spec.patches)" "$t/root.out")" = "$(ysel "$sel" "$t/root-plain.out")" ] || return 1
+    [ "$(ysel "$sel | .spec.patches | length" "$t/root.out")" = 1 ] || return 1
+    R=$(realpath --relative-to="$t/kitp" "$ROOT/$KIT_PATH") yq -n '.apiVersion = "kustomize.config.k8s.io/v1beta1" | .kind = "Kustomization" | .resources = [strenv(R)]' > "$t/kitp/kustomization.yaml"
+    { echo "patches:"; ysel "$sel | .spec.patches" "$t/root.out"; } >> "$t/kitp/kustomization.yaml"
+    kit_releases "$t/kitp" > "$t/kitp.rel" && kit_releases "$ROOT/$KIT_PATH" > "$t/kit.rel" || return 1
+    # bp-kyverno-policies takes its chart from the tree; every other release is as before.
+    [ "$(grep "^bp-kyverno-policies$tab" "$t/kitp.rel")" = "bp-kyverno-policies${tab}flux-system${tab}./platform/kyverno-policies/chart${tab}*${tab}GitRepository${tab}openova${tab}-" ] \
+      && [ "$(grep -v "^bp-kyverno-policies$tab" "$t/kitp.rel")" = "$(grep -v "^bp-kyverno-policies$tab" "$t/kit.rel")" ] \
+      && [ "$(grep -c . "$t/kit.rel")" = "$(grep -c . "$t/kitp.rel")" ]; }
+  expect 0 "tree_patch, rendered as Flux applies it: bootstrap-kit gives bp-kyverno-policies its chart from the tree of the commit, every other release keeps its own" real_chain
+
+  # tree_judge on a HelmRelease and its HelmChart. The artifact of the tree was built at
+  # 03:10:00 from ./platform/x/chart at the commit c.
+  local c=0123456789abcdef0123456789abcdef01234567 tj="$t/tj"
+  mkdir -p "$tj"
+  # tj_hc <commit> <source kind>: the HelmChart.
+  tj_hc() { printf '{"spec":{"sourceRef":{"kind":"%s","name":"openova"},"chart":"./platform/x/chart"},"status":{"observedSourceArtifactRevision":"wp/X@sha1:%s","artifact":{"revision":"1.0.72","lastUpdateTime":"2026-11-27T03:10:00Z"},"conditions":[{"type":"Ready","status":"True"}]}}\n' "$2" "$1" > "$tj/hc.json"; }
+  # tj_hr <source kind> <generation> <observed> <Ready> <history snapshot JSON or ""> [suspend]
+  tj_hr() { printf '{"metadata":{"name":"bp-x","generation":%s},"spec":{"suspend":%s,"chart":{"spec":{"chart":"%s","sourceRef":{"kind":"%s","name":"%s"}}}},"status":{"observedGeneration":%s,"helmChart":"flux-system/flux-system-bp-x","conditions":[{"type":"Released","status":"True"},{"type":"Ready","status":"%s","reason":"R"}],"history":[%s]}}\n' \
+      "$2" "${6:-false}" "$([ "$1" = GitRepository ] && echo ./platform/x/chart || echo bp-x)" "$1" "$([ "$1" = GitRepository ] && echo openova || echo bp-x)" "$3" "$4" "$5" > "$tj/hr.json"; }
+  snap() { printf '{"chartName":"%s","chartVersion":"%s","status":"%s","lastDeployed":"%s"}' "$@"; }
+  local fresh stale_at same_at
+  fresh=$(snap bp-x 1.0.72 deployed 2026-11-27T03:10:07Z) stale_at=$(snap bp-x 1.0.72 deployed 2026-11-27T03:09:00Z) same_at=$(snap bp-x 1.0.72 deployed 2026-11-27T03:10:00Z)
+  tj() { tree_judge "$tj/hr.json" "$tj/hc.json" bp-x platform/x/chart "$c" "$1"; }
+  # tj_case <exit code> <start of the line> <required>: tree_judge exits so and prints that.
+  tj_case() { local out st=0; out=$(tj "$3") || st=$?; [ "$st" = "$1" ] && [ "${out#"$2"}" != "$out" ]; }
+  tj_hc "$c" GitRepository
+  tj_hr GitRepository 2 2 True "$fresh"
+  expect 0 "tree_judge: the newest release is the chart of the tree, deployed after its artifact, Ready: installed" tj_case 0 "installed from the tree: bp-x 1.0.72 of ./platform/x/chart at $c" yes
+  tj_hr HelmRepository 2 2 True "$fresh"
+  expect 0 "tree_judge: a release that still names its HelmRepository waits" tj_case 1 "waiting: the HelmRelease takes its chart from HelmRepository/bp-x" no
+  tj_hr GitRepository 2 2 True "$fresh"
+  tj_hc fedcba9876543210fedcba9876543210fedcba98 GitRepository
+  expect 0 "tree_judge: a HelmChart built from another commit waits" tj_case 1 "waiting: its HelmChart is not built" yes
+  echo '{}' > "$tj/hc.json"
+  expect 0 "tree_judge: no HelmChart waits" tj_case 1 "waiting: its HelmChart is not built" no
+  tj_hc "$c" GitRepository
+  tj_hr GitRepository 2 2 True "$stale_at"
+  expect 0 "tree_judge: a release deployed before the artifact of the tree, handled and Ready: stale" tj_case 3 "stale:" no
+  tj_hr GitRepository 2 2 True "$same_at"
+  expect 0 "tree_judge: a release deployed in the same second as the artifact counts as before it: stale" tj_case 3 "stale:" yes
+  tj_hr GitRepository 2 2 True "$(snap bp-x 1.0.71 deployed 2026-11-27T03:12:00Z)"
+  expect 0 "tree_judge: a newest release of another version than the artifact of the tree: stale" tj_case 3 "stale:" yes
+  tj_hr GitRepository 2 1 True "$stale_at"
+  expect 0 "tree_judge: a release deployed before the artifact whose new generation is not handled yet waits" tj_case 1 "waiting: the newest release" yes
+  tj_hr GitRepository 2 2 Unknown "$stale_at"
+  expect 0 "tree_judge: a release deployed before the artifact that is progressing waits" tj_case 1 "waiting: the newest release" yes
+  tj_hr GitRepository 2 2 False ""
+  expect 0 "tree_judge: not installed, required, waits" tj_case 1 "waiting: not installed yet" yes
+  expect 0 "tree_judge: not installed, not required, is done and says so" tj_case 0 "names the tree, not installed" no
+  tj_hr GitRepository 2 2 False "$(snap bp-x 1.0.72 failed 2026-11-27T03:10:30Z)"
+  expect 0 "tree_judge: a failed release of the tree, required, waits" tj_case 1 "waiting: bp-x 1.0.72 of the tree is failed" yes
+  expect 0 "tree_judge: a failed release of the tree, not required, is done and says so" tj_case 0 "installed from the tree: bp-x 1.0.72 of ./platform/x/chart at $c, failed, Ready=False" no
+  tj_hr GitRepository 3 2 True "$fresh"
+  expect 0 "tree_judge: Ready at an older generation, required, waits" tj_case 1 "waiting: bp-x 1.0.72 of the tree is deployed" yes
+  tj_hr HelmRepository 2 2 True "$stale_at" true
+  expect 0 "tree_judge: a suspended release is not judged" tj_case 0 "suspended, not judged" yes
+
+  # tree_states and tree_redirect against a stand-in docker: the HelmRelease and HelmChart of
+  # bp-x come from $t/ts/host; every annotate and patch goes to the journal with its body. As on
+  # k3s, the short name helmchart is the kind of helm.cattle.io, which does not hold the HelmChart.
+  mkdir -p "$t/ts/bin" "$t/ts/host" "$t/ts/dir/tree"
+  cat > "$t/ts/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+case "$*" in
+  *" get helmrelease bp-x -o json") cat "$h/hr.json" ;;
+  *" get helmcharts.source.toolkit.fluxcd.io flux-system-bp-x -o json") [ -f "$h/hc.json" ] && cat "$h/hc.json" \
+    || { echo 'Error from server (NotFound): helmcharts.source.toolkit.fluxcd.io "flux-system-bp-x" not found' >&2; exit 1; } ;;
+  *" get helmchart flux-system-bp-x -o json") echo 'Error from server (NotFound): helmcharts.helm.cattle.io "flux-system-bp-x" not found' >&2; exit 1 ;;
+  *" annotate helmrelease bp-x --overwrite "*) shift 13; echo "annotate $*" >> "$h/journal" ;;
+  *" get kustomization sovereign-root") [ -f "$h/root" ] ;;
+  *" get kustomization bootstrap-kit") [ -f "$h/kit" ] ;;
+  *" patch kustomization sovereign-root --type json --patch-file /dev/stdin") echo "patch $(cat)" >> "$h/journal"; [ ! -f "$h/fail-patch" ] ;;
+  *) exit 3 ;;
+esac
+SH
+  chmod +x "$t/ts/bin/docker"
+  printf 'bp-x\tflux-system\tbp-x\t1.0.72\tHelmRepository\tbp-x\toci://ghcr.io/openova-io\ttree\tplatform/x/chart\tplatform/x/chart/values.yaml\n' > "$t/ts/dir/tree-charts.tsv"
+  cp "$tj/hc.json" "$t/ts/host/hc.json"
+  ts_run() { (PATH="$t/ts/bin:$PATH" DIR="$t/ts/dir" tree_states region-a m1 "bp-x" "$c") > "$t/ts/out" 2> "$t/ts/err"; }
+  ts_stale() { : > "$t/ts/host/journal"; rm -f "$t/ts/dir/tree/"*; tj_hr GitRepository 2 2 True "$stale_at"; cp "$tj/hr.json" "$t/ts/host/hr.json"
+    ! ts_run || return 1
+    grep -q '^bp-x: stale:' "$t/ts/out" && grep -q '^bp-x: stale:' "$t/ts/dir/tree/region-a.txt" || return 1
+    ! ts_run || return 1
+    [ "$(grep -c '^annotate ' "$t/ts/host/journal")" = 1 ] \
+      && grep -q -x 'annotate reconcile.fluxcd.io/requestedAt=\(local-pack-[0-9]*\) reconcile.fluxcd.io/forceAt=\1' "$t/ts/host/journal"; }
+  ts_done() { : > "$t/ts/host/journal"; rm -f "$t/ts/dir/tree/"*; tj_hr GitRepository 2 2 True "$fresh"; cp "$tj/hr.json" "$t/ts/host/hr.json"
+    ts_run && [ ! -s "$t/ts/out" ] && [ ! -s "$t/ts/host/journal" ] && grep -q '^bp-x: installed from the tree: bp-x 1.0.72' "$t/ts/dir/tree/region-a.txt" \
+      && cmp -s "$t/ts/host/hc.json" "$t/ts/dir/tree/region-a-bp-x-helmchart.json"; }
+  ts_unread() { local st=0; : > "$t/ts/host/journal"; rm -f "$t/ts/dir/tree/"*; tj_hr GitRepository 2 2 True "$fresh"; cp "$tj/hr.json" "$t/ts/host/hr.json"
+    mv "$t/ts/host/hc.json" "$t/ts/host/hc.json.aside"; ts_run || st=$?; mv "$t/ts/host/hc.json.aside" "$t/ts/host/hc.json"; [ "$st" = 1 ] \
+      && grep -q '^bp-x: waiting: its HelmChart is not built' "$t/ts/out" && [ "$(cat "$t/ts/dir/tree/region-a-bp-x-helmchart.json")" = '{}' ] \
+      && [ "$(cat "$t/ts/dir/tree/region-a-bp-x-helmchart.err")" = 'Error from server (NotFound): helmcharts.source.toolkit.fluxcd.io "flux-system-bp-x" not found' ]; }
+  ts_absent() { : > "$t/ts/host/journal"; rm -f "$t/ts/dir/tree/"* "$t/ts/host/hr.json"
+    ! ts_run && grep -q '^bp-x: waiting: the HelmRelease takes its chart from ?/?' "$t/ts/out"; }
+  expect 0 "tree_states: a stale release gets exactly one forced upgrade (requestedAt and forceAt one token) and is not done" ts_stale
+  expect 0 "tree_states: a release installed from the tree is done and is not touched; its HelmChart is read by the full name of the Flux kind (on k3s helmchart is helm.cattle.io's)" ts_done
+  expect 0 "tree_states: a HelmChart that cannot be read waits, and its error is kept beside it" ts_unread
+  expect 0 "tree_states: a release that cannot be read waits" ts_absent
+  rr_run() { (PATH="$t/ts/bin:$PATH" DIR="$t/ts/dir" tree_redirect region-a m1) > "$t/ts/out" 2> "$t/ts/err"; }
+  rr_cases() { : > "$t/ts/host/journal"; rm -f "$t/ts/host/root" "$t/ts/host/kit" "$t/ts/host/fail-patch"
+    ! rr_run && [ ! -s "$t/ts/host/journal" ] || return 1
+    : > "$t/ts/host/root"
+    rr_run && [ "$(cat "$t/ts/host/journal")" = "patch $(tree_patch < "$t/ts/dir/tree-charts.tsv")" ] \
+      && grep -q 'region-a: bootstrap-kit takes bp-x from the tree (sovereign-root patched; bootstrap-kit existed before: no)' "$t/ts/out" || return 1
+    : > "$t/ts/host/fail-patch"
+    ! rr_run && grep -q -F 'region-a: the patch of the Kustomization flux-system/sovereign-root failed' "$t/ts/err"; }
+  expect 0 "tree_redirect: waits for sovereign-root, then appends the entry of tree_patch to it; a failed patch stops the run" rr_cases
+
   echo "self-test: $n cases, $fail failed"
   [ "$fail" = 0 ]
 }
 
 case "${1:-}" in
   image) cmd_image ;;
+  charts) shift; cmd_charts "$@" ;;
   up) shift; cmd_up "$@" ;;
   discovery) cmd_discovery ;;
   claim) cmd_claim ;;
