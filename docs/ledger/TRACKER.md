@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T14:00:04Z` |
+| Last refreshed | `2026-11-27T14:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T14:05 | [#9026](https://github.com/openova-io/openova/pull/9026) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:50 | [#9025](https://github.com/openova-io/openova/pull/9025) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:31 | [#9023](https://github.com/openova-io/openova/pull/9023) | #7087 | docs(ledger): plan update |
 | 2026-11-27T13:17 | [#9022](https://github.com/openova-io/openova/pull/9022) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T09:36 | [#8984](https://github.com/openova-io/openova/pull/8984) | #8975 | docs(ledger): result of the lab test PRD-050, client certifi |
 | 2026-11-27T08:57 | [#8982](https://github.com/openova-io/openova/pull/8982) | #7087 | docs(ledger): plan update |
 | 2026-11-27T08:45 | [#8979](https://github.com/openova-io/openova/pull/8979) | #7087 | docs(ledger): plan update |
-| 2026-11-27T08:30 | [#8976](https://github.com/openova-io/openova/pull/8976) | #7087 | docs(ledger): plan update |
 
 ---
 
