@@ -55,16 +55,7 @@
 # spike records), the step "Decide whether the pack runs" says so in one line and every later
 # step is skipped, so the job ends green under the same name in about a minute. Any other path,
 # an empty list, or a list that cannot be made runs the job in full.
-# Images come from ghcr.io at the versions the kit pins; the job token pulls them. So do the
-# kit's charts (bash scripts/local-pack.sh charts lists each release, its chart and its source),
-# except the charts of this change: on a pull request or a merge group the same list of changed
-# paths goes to up as --changed, and every kit release whose chart folder (platform/<name>/chart,
-# products/<name>/chart) or a file:// dependency of it holds a changed path takes its chart from
-# the tree of the commit under test instead (the GitRepository flux-system/openova, which
-# source-controller packages from that folder); up passes only when each of those is installed
-# from the tree (Ready where the region's kit core needs it). The summary of the job names the
-# charts that came from the tree and the verdict of each in each region. A pull request or merge
-# group whose changed paths could not be listed stops at Up: which charts it changes is unknown.
+# Charts and images come from ghcr.io at the versions the kit pins; the job token pulls them.
 name: conformance-local
 
 on:
@@ -118,8 +109,6 @@ jobs:
           else
             echo "${reason:-full run: the decision script failed}: the job runs in full."
             echo "run=true" >> "$GITHUB_OUTPUT"
-            # The kit charts of this change (Up, --changed).
-            printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-paths.txt"
           fi
 
       - name: Free disk (toolchains this job does not use)
@@ -151,16 +140,6 @@ jobs:
       - name: Install PyYAML (the manifest export)
         if: steps.decide.outputs.run == 'true'
         run: python3 -m pip install --quiet pyyaml
-
-      # The kit chart plan of the script reads the kit with yq: the version blueprint-release.yaml
-      # installs, so that it reads the files as the release's own steps do.
-      - name: Install yq (the release's version)
-        if: steps.decide.outputs.run == 'true'
-        run: |
-          set -euo pipefail
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-          yq --version | grep -F v4.44.3
 
       - name: Self-test of the script
         if: steps.decide.outputs.run == 'true'
@@ -253,28 +232,7 @@ jobs:
           GHCR_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref || github.ref_name }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          # The changed paths of a pull request or merge group (step decide): the kit charts they
-          # touch come from the tree. A start by hand has none: every chart is the published one.
-          changed=()
-          if [ "$EVENT_NAME" = pull_request ] || [ "$EVENT_NAME" = merge_group ]; then
-            changed=(--changed "$RUNNER_TEMP/changed-paths.txt")
-          fi
-          bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT" "${changed[@]}"
-
-      - name: Kit charts of this run (summary)
-        if: always() && steps.decide.outputs.run == 'true'
-        run: |
-          f="$RUNNER_TEMP/local-pack/kit-charts.txt"
-          {
-            echo '### Kit charts of the local pack'
-            echo
-            echo '```'
-            if [ -f "$f" ]; then cat "$f"; else echo "Up wrote no chart plan: see the log of the step Up."; fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
 
       - name: Discovery steps D0.1 and D0.2 of the suite
         if: steps.decide.outputs.run == 'true'
