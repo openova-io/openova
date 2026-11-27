@@ -1,6 +1,6 @@
 name: test-k3s-bootstrap-flags
 
-# SEC-125. Proves on a runner that k3s v1.31.8+k3s1 starts with the bootstrap
+# SEC-125. Proves on a runner that k3s v1.33.13+k3s2 starts with the bootstrap
 # flags the shared boot template is to carry: etcd encryption with the
 # secretbox provider, a server token, and a separate agent token.
 #

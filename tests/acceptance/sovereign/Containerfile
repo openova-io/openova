@@ -18,20 +18,20 @@
 #   /opt/conformance                             the working folder, and the value of --repo-root
 #   /opt/conformance/gates.json                  the value of --manifest
 #   /opt/conformance/scripts/check-live-nodeports.sh
-#   /usr/local/bin/kubectl                       v1.31.8, the Kubernetes minor of the kit
+#   /usr/local/bin/kubectl                       v1.33.13, the Kubernetes minor of the kit
 #   bash and python3                             the NodePort script needs both
 # The default user is 65534 (nobody), not root.
 #
 # Both stages use the base of alpine 3.20.10, the last release of 3.20, pinned by its digest.
 # bash, python3 and curl come from the Alpine archive of that release. kubectl is the release
 # binary of dl.k8s.io; the fetch stage stops when its SHA-256 is not the published one,
-# https://dl.k8s.io/release/v1.31.8/bin/linux/amd64/kubectl.sha256.
+# https://dl.k8s.io/release/v1.33.13/bin/linux/amd64/kubectl.sha256.
 
 # ---------- Stage 1: kubectl, checked against its published SHA-256 ----------
 FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS fetch
 RUN apk add --no-cache curl \
-    && curl -fsSL --retry 3 -o /kubectl https://dl.k8s.io/release/v1.31.8/bin/linux/amd64/kubectl \
-    && echo "be0aa44a50a9aada4e9402e361ffb0d5bb1fd4f6950751399fcaf3b8b936a746  /kubectl" | sha256sum -c - \
+    && curl -fsSL --retry 3 -o /kubectl https://dl.k8s.io/release/v1.33.13/bin/linux/amd64/kubectl \
+    && echo "316d712726d857c20744c57cb36aa47cfc79bc0af7e82cebf3780244b654c073  /kubectl" | sha256sum -c - \
     && chmod 0755 /kubectl
 
 # ---------- Stage 2: the runtime ----------

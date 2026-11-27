@@ -54,17 +54,38 @@
 #                 registry.test every 2 s: no gap between two answered pulls, from the patch to the
 #                 end of the rollout, exceeds 10 s.
 #   roll-control  the same with strategy Recreate: a gap above 10 s must show ("gap as expected").
+#   silent-peer   the kit's flags and k3s (SOV-721). The registry runs on rd-agent-2; rd-agent-1
+#                 takes the probe image from it, so the two hold the same manifest and blobs. The
+#                 witness: with no copy of the registry, rd-agent-2 takes the probe from rd-agent-1
+#                 through the nodes' mirror, then removes it. The registry returns and rd-agent-1's
+#                 registry port then sends its SYN-ACK and nothing after it, on every connection:
+#                 the peer of 21 November that accepts a connection and never answers (there, a
+#                 1420-byte path; here, the agent's whole TLS answer fits in packets under 1421
+#                 bytes, so a size limit would not silence it). A TCP connect from the runner to
+#                 that port is accepted within 5 s, and a TLS connection to it completes no
+#                 handshake within 10 s. rd-agent-2's pull
+#                 of the probe must then finish within 60 s, rd-agent-2 must have sent a data
+#                 packet (100 bytes or more) to the silent port during it, counted in rd-agent-1's
+#                 firewall (not a SYN: the mirror may send its request on a connection it kept
+#                 from the witness pull), and the registry must have served the probe's manifest.
+#   silent-peer-control  the same on k3s v1.31.8+k3s1, whose mirror does not bound a request to a
+#                 peer (no dial, TLS-handshake or response-header limit): the pull must not have
+#                 finished at 120 s ("hang as expected"), with a data packet of rd-agent-2 to the
+#                 silent port counted; a pull that finishes fails the run, because then the harness
+#                 could not see the defect.
 #
 # What it cannot see: one region only, its nodes on one Docker bridge (MTU 1500) with k3s's
 # default flannel; no Cilium, no encryption between nodes, no second region, no packet-size limit
-# on the path between two nodes, no peer that accepts a connection and never answers.
+# on the path between two nodes, no peer that answers the first request and then stalls a blob's
+# body.
 #
 # Every wait is bounded. A command that does not return within its bound is a named failure
 # ("HANG: <what> did not return within <n> s"), never the time limit of the job.
 #
 # Usage:
-#   check-registry-drain.sh --self-test     seven cases; no Docker, no cluster, no firewall
-#   check-registry-drain.sh <case>          shared | control | restart | roll | roll-control
+#   check-registry-drain.sh --self-test     ten cases; no Docker, no cluster, no firewall
+#   check-registry-drain.sh <case>          shared | control | restart | roll | roll-control |
+#                                           silent-peer | silent-peer-control
 # Environment:
 #   WORK                       folder for the cases (default: $RUNNER_TEMP/registry-drain)
 #   REGISTRY_DRAIN_DRY=1       read and judge the kit's facts for <case>, then stop
@@ -72,7 +93,8 @@
 #                              containers and changes the host's firewall (sudo iptables)
 #   TEMPLATE, PIVOT, EFFECTIVE_FILE   read another server template, pivot template or
 #                              --effective line (the self-test uses them)
-# Tools: bash, awk, jq, yq, helm, go; the cases also docker, sudo iptables, openssl and curl.
+# Tools: bash, awk, jq, yq, helm, go; the cases also docker, sudo iptables, openssl and curl, and
+# the silent-peer cases sudo nsenter.
 set -euo pipefail
 # Nothing here uses a kubeconfig of the host: every kubectl call runs inside the server container.
 export KUBECONFIG=/dev/null
@@ -99,7 +121,11 @@ PIVOT_FNS="pivot_owns put_hosts_toml k3s_mirror_block write_offline_mirror_hosts
 EVICTION='--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%'
 RULE=(-s "$SUBNET" ! -d "$SUBNET" -j REJECT)
 SINGLE='{"replicas": 1, "strategy": {"type": "Recreate"}, "topologySpreadConstraints": []}'
-CASE="" MODE="" CASE_DIR="" PROBE_PID="" PROBE_STOP="" BLOCKED="" T=""
+# The silent-peer cases: the k3s of the control, the last kit release whose node mirror (k3s-io/
+# spegel v0.0.30) bounds the peer lookup but no request to a peer; the limits of the pull and of
+# the TLS answer.
+SILENT_CONTROL_K3S=v1.31.8+k3s1 SILENT_MAX=60 SILENT_HOLD=120 TLS_WAIT=10 TCP_WAIT=5
+CASE="" MODE="" CASE_DIR="" PROBE_PID="" PROBE_STOP="" BLOCKED="" T="" SYSTEM_TAR=""
 
 say() { echo "[registry-drain] $*"; }
 fail() { echo "FAIL ${CASE:-registry-drain}: $*" >&2; exit 1; }
@@ -238,6 +264,41 @@ judge_gaps() {
     }' <<< "$(sort -n -k1,1 "$1")"
 }
 
+# judge_silent <connect exit> <curl exit> <time_appconnect>: what two connections to a peer's
+# registry port saw: a bare TCP connect, bounded at TCP_WAIT s (exit 0 when the port accepted it),
+# and a TLS connection by curl with a limit of TLS_WAIT s. The acceptance is the bare connect's,
+# not curl's time_connect: curl 8 reports time_connect only once TLS is up too, so on a port that
+# accepts and never answers it reports 0, as on a port that accepts nothing (measured 27 November
+# against a listener that accepts and sends nothing: curl 8.5.0 and 8.11.1 print 0.000000, 7.81.0
+# the connect's 0.00009 s). Prints it; exit 0 when the port accepted the connection and completed
+# no handshake within the limit (curl exit 28, the defect), 1 when it completed a handshake, 2 when
+# it accepted no connection or ended otherwise.
+judge_silent() {
+  awk -v tcp="$1" -v rc="$2" -v a="${3:-0}" -v w="$TLS_WAIT" -v tw="$TCP_WAIT" 'BEGIN {
+    if (a + 0 > 0) { printf "completes a TLS handshake in %s s (curl exit %s)\n", a, rc; exit 1 }
+    if (tcp != 0) { printf "accepts no connection within %s s (connect exit %s, curl exit %s)\n", tw, tcp, rc; exit 2 }
+    if (rc == 28) { printf "accepts a connection and completes no TLS handshake within %s s\n", w; exit 0 }
+    printf "accepts a connection and ends without a TLS handshake (curl exit %s)\n", rc; exit 2 }'
+}
+
+# judge_pull <case> <exit code, or hang> <seconds>: the pull of the probe through the silent peer,
+# where "hang" is a pull still running when the runner stopped waiting. silent-peer passes a pull
+# that finished within SILENT_MAX s; silent-peer-control passes a pull still running after
+# SILENT_HOLD s or more. Prints the verdict; exit 1 on a failure.
+judge_pull() {
+  case "$1:$2" in
+    silent-peer:0) [ "$3" -le "$SILENT_MAX" ] && { echo "the pull finished in $3 s, within $SILENT_MAX s"; return 0; }
+      echo "the pull finished in $3 s, later than $SILENT_MAX s" ;;
+    silent-peer:hang) echo "the pull did not finish within $3 s (the limit is $SILENT_MAX s)" ;;
+    silent-peer:*) echo "the pull failed after $3 s (exit $2)" ;;
+    silent-peer-control:hang) [ "$3" -ge "$SILENT_HOLD" ] && { echo "the pull has not finished at $3 s"; return 0; }
+      echo "the wait for the pull ended after $3 s, before $SILENT_HOLD s" ;;
+    silent-peer-control:0) echo "the pull finished in $3 s on k3s $SILENT_CONTROL_K3S: the harness cannot see the defect" ;;
+    *) echo "the pull ended after $3 s with exit $2: it neither finished nor hung" ;;
+  esac
+  return 1
+}
+
 # effective: the kit's harbor-registry copies, strategy and spread as one JSON line.
 effective() {
   if [ -n "${EFFECTIVE_FILE:-}" ]; then cat "$EFFECTIVE_FILE"; else bash "$ROLL_TEST" --effective harbor-registry; fi
@@ -261,8 +322,11 @@ check_effective() {
 
 # facts <case>: every fact the case reads from the repository, judged before anything runs.
 facts() {
-  K3S_VERSION="$(k3s_version)"
-  [ -n "$K3S_VERSION" ] || fail "no default of k3s_version in $VARS"
+  local kit
+  kit="$(k3s_version)"
+  [ -n "$kit" ] || fail "no default of k3s_version in $VARS"
+  K3S_VERSION="$kit"
+  [ "$1" != silent-peer-control ] || K3S_VERSION="$SILENT_CONTROL_K3S"
   [ -f "$LISTS/$K3S_VERSION.txt" ] || fail "no image list $LISTS/$K3S_VERSION.txt for the kit's k3s $K3S_VERSION"
   K3S_IMAGE="docker.io/rancher/k3s:${K3S_VERSION/+/-}"
   SYSTEM_IMAGES="$(grep -E -e '/mirrored-(pause|coredns-coredns):' "$LISTS/$K3S_VERSION.txt" || true)"
@@ -288,7 +352,7 @@ facts() {
       sh -n "$WORK/step08-roll.sh" || fail "step 08's sliced roll_and_check_workload does not parse"
       ;;
   esac
-  say "k3s $K3S_VERSION; server pull flags: $(words "$FLAGS"); agent pull flags: $(words "$AGENT_FLAGS")"
+  say "k3s $K3S_VERSION (the kit's: $kit); server pull flags: $(words "$FLAGS"); agent pull flags: $(words "$AGENT_FLAGS")"
   [ -z "$EFF" ] || say "the stand-in registry rolls as: $EFF; step 08's budget ${ROLL_TIMEOUT} s"
 }
 
@@ -316,6 +380,13 @@ diagnose() {
     timeout 20 docker logs "$n" 2>&1 | grep -i -E 'spegel|mirror|pull|image' | tail -n 15 | cut -c1-300
   done
   if [ -n "$CASE_DIR" ] && [ -s "$CASE_DIR/attempts" ]; then echo "── probe attempts"; sort -n "$CASE_DIR/attempts"; fi
+  case "$CASE" in
+    silent-peer*)
+      echo "── the registry's last requests of the probe"
+      timeout 30 docker exec rd-server kubectl -n "$NS" logs deployment/registry | grep -F -e /v2/probe/ | tail -n 20 | cut -c1-300
+      [ -z "$CASE_DIR" ] || [ ! -s "$CASE_DIR/silent-pull.out" ] || { echo "── the pull through the silent peer"; cut -c1-300 "$CASE_DIR/silent-pull.out"; }
+      ;;
+  esac
 }
 on_exit() {
   local rc=$?
@@ -324,14 +395,16 @@ on_exit() {
   exit "$rc"
 }
 
-# images: the kit's k3s images and the test images as files, pulled once per job.
+# images: the k3s images of the case's release and the test images as files, pulled once per job
+# (the k3s images once per release: silent-peer-control runs another one).
 images() {
   local i
   mkdir -p "$WORK/cache"
-  if [ ! -s "$WORK/cache/k3s-images.tar" ]; then
+  SYSTEM_TAR="$WORK/cache/k3s-images-$K3S_VERSION.tar"
+  if [ ! -s "$SYSTEM_TAR" ]; then
     for i in $SYSTEM_IMAGES; do bounded 300 "docker pull $i" docker pull -q "$i" > /dev/null; done
     # shellcheck disable=SC2086
-    bounded 300 "docker save of the k3s images" docker save -o "$WORK/cache/k3s-images.tar" $SYSTEM_IMAGES
+    bounded 300 "docker save of the k3s images" docker save -o "$SYSTEM_TAR" $SYSTEM_IMAGES
   fi
   if [ ! -s "$WORK/cache/test-images.tar" ]; then
     for i in "$REG_IMAGE" "$TEST_IMAGE"; do bounded 300 "docker pull $i" docker pull -q "$i" > /dev/null; done
@@ -427,7 +500,7 @@ up() {
   CASE_DIR="$(mktemp -d "$WORK/$CASE.XXXXXX")"
   for n in $NODES; do
     mkdir -p "$CASE_DIR/images/$n"
-    ln "$WORK/cache/k3s-images.tar" "$CASE_DIR/images/$n/" 2>/dev/null || cp "$WORK/cache/k3s-images.tar" "$CASE_DIR/images/$n/"
+    ln "$SYSTEM_TAR" "$CASE_DIR/images/$n/" 2>/dev/null || cp "$SYSTEM_TAR" "$CASE_DIR/images/$n/"
   done
   for n in $1; do
     ln "$WORK/cache/test-images.tar" "$CASE_DIR/images/$n/" 2>/dev/null || cp "$WORK/cache/test-images.tar" "$CASE_DIR/images/$n/"
@@ -646,11 +719,121 @@ case_roll() {
   fi
 }
 
+pull_on() { t20 docker exec "$1" crictl pull "$2"; }
+no_registry() {
+  [ "$(t20 docker exec rd-server kubectl -n "$NS" get pods -l registry-drain.test/copy=registry -o json | jq '.items | length')" = 0 ]
+}
+# lacks <node> <digest>: the node's content store, listed, holds no blob <digest>.
+lacks() {
+  local o
+  o="$(t20 docker exec "$1" ctr -n k8s.io content ls)" || return 1
+  grep -q '^DIGEST' <<< "$o" && ! grep -q -F -e "$2" <<< "$o"
+}
+node_ip() { docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"; }
+# mirror_port <node>: the port of the nodes' mirror, the first host of docker.io on <node>; the
+# other nodes' mirrors ask the node on the same port.
+mirror_port() {
+  on "$1" grep -m 1 '^\[host' "$CERTS_D/docker.io/hosts.toml" | sed -n 's#^\[host\."https://127\.0\.0\.1:\([0-9][0-9]*\)/v2"\]$#\1#p'
+}
+# tls_answer <ip> <port>: a bare TCP connect and a TLS connection from the runner to <ip>:<port>,
+# judged by judge_silent.
+tls_answer() {
+  local out tcp=0 rc=0
+  # shellcheck disable=SC2016 # $0 and $1 are the inner shell's arguments
+  timeout -k 2 "$TCP_WAIT" bash -c 'exec 3<> "/dev/tcp/$0/$1"' "$1" "$2" 2> /dev/null || tcp=$?
+  out="$(timeout -k 2 $((TLS_WAIT + 5)) curl -k -s -o /dev/null --max-time "$TLS_WAIT" \
+    -w '%{time_appconnect}' "https://$1:$2/v2/")" || rc=$?
+  # shellcheck disable=SC2086 # one number, or none when curl did not run
+  judge_silent "$tcp" "$rc" $out
+}
+
+# in_net <pid> <command...>: the command in the network namespace of the node container <pid>.
+in_net() { local p="$1"; shift; bounded 30 "$* in the network of pid $p" sudo -n nsenter -t "$p" -n "$@"; }
+# counted <pid> <table> <chain> <comment>: the packets the rule marked <comment> has counted.
+counted() {
+  in_net "$1" iptables -w 10 -t "$2" -L "$3" -v -n -x \
+    | awk -v c="/* $4 */" 'index($0, c) { print $1; f = 1; exit } END { if (!f) exit 1 }'
+}
+
+case_silent() {
+  local d ip ip2 port pid v rc limit t s served asked0 asked dropped0 dropped
+  up rd-agent-2
+  kc cordon rd-agent-1 > /dev/null
+  deploy "$SINGLE"
+  [ "$(registry_nodes)" = rd-agent-2 ] || fail "the registry runs on '$(registry_nodes)', expected rd-agent-2"
+  bounded 90 "the pull of $PROBE_IMAGE on rd-agent-1" docker exec rd-agent-1 crictl pull "$PROBE_IMAGE" > /dev/null \
+    || fail "rd-agent-1 could not pull $PROBE_IMAGE from the registry"
+  d="$(on rd-agent-1 crictl inspecti -o json "$PROBE_IMAGE" | jq -r '.status.repoDigests[0] // ""')"
+  case "$d" in "$REG_HOST/probe/drain@sha256:"*) ;; *) fail "rd-agent-1 names no digest of $PROBE_IMAGE: '$d'" ;; esac
+  say "rd-agent-1 holds $d, taken from the registry"
+  kc -n "$NS" scale deployment/registry --replicas=0 > /dev/null
+  wait_for 60 "no copy of the registry runs" no_registry
+  wait_for 90 "rd-agent-2 takes $d from rd-agent-1 while no copy of the registry runs" pull_on rd-agent-2 "$d"
+  say "witness: with no copy of the registry, rd-agent-2 took the probe from rd-agent-1 through the nodes' mirror"
+  on rd-agent-2 crictl rmi "$d" > /dev/null
+  wait_for 30 "rd-agent-2 no longer holds the probe's manifest" lacks rd-agent-2 "${d#*@}"
+  kc -n "$NS" scale deployment/registry --replicas=1 > /dev/null
+  bounded 300 "the rollout of the registry" docker exec rd-server kubectl -n "$NS" rollout status deployment/registry --timeout=240s > /dev/null \
+    || fail "the registry did not become Ready again"
+  [ "$(registry_nodes)" = rd-agent-2 ] || fail "the registry runs on '$(registry_nodes)' again, expected rd-agent-2"
+  ip="$(node_ip rd-agent-1)"
+  ip2="$(node_ip rd-agent-2)"
+  port="$(mirror_port rd-agent-1)"
+  if [ -z "$ip" ] || [ -z "$ip2" ] || [ -z "$port" ]; then
+    fail "no address of rd-agent-1 ('$ip') or rd-agent-2 ('$ip2'), or no mirror port ('$port')"
+  fi
+  rc=0
+  v="$(tls_answer "$ip" "$port")" || rc=$?
+  [ "$rc" = 1 ] || fail "before the drop, rd-agent-1's registry port $ip:$port $v; it must complete a TLS handshake"
+  say "before the drop, rd-agent-1's registry port $ip:$port $v"
+  # The defect: the peer accepts a connection and never answers. Its registry port sends its
+  # SYN-ACK and nothing after it, on every connection, open or new, in the raw table ahead of every
+  # rule k3s writes. A packet-size limit would not do: the agent's whole TLS answer fits in packets
+  # under 1421 bytes (measured in CI, 24 November: a handshake in 0.002 s behind such a drop).
+  pid="$(docker inspect -f '{{.State.Pid}}' rd-agent-1)"
+  in_net "$pid" iptables -w 10 -t raw -I OUTPUT 1 ! -o lo -p tcp --sport "$port" --tcp-flags SYN NONE \
+    -m comment --comment registry-drain-silent -j DROP || fail "cannot silence port $port of rd-agent-1"
+  # The witness of the pull below: the data packets rd-agent-2 sends to that port, counted. A packet
+  # of 100 bytes or more carries a TLS record (a ClientHello or a request); a bare ACK or a
+  # keep-alive is 52 or 53 bytes. Not SYNs: spegel v0.7.2 keeps the witness pull's connection to the
+  # peer for 90 s, so the request below sends none (lab test SOV-722).
+  in_net "$pid" iptables -w 10 -t raw -I PREROUTING 1 -p tcp -s "$ip2" --dport "$port" -m length --length 100:65535 \
+    -m comment --comment registry-drain-asked || fail "cannot count the data packets of rd-agent-2 to port $port of rd-agent-1"
+  rc=0
+  v="$(tls_answer "$ip" "$port")" || rc=$?
+  [ "$rc" = 0 ] || fail "with the drop, rd-agent-1's registry port $v: the defect is not reproduced"
+  say "rd-agent-1's registry port sends nothing after its SYN-ACK: it $v"
+  wait_for 30 "rd-agent-2 holds no part of the probe before its pull" lacks rd-agent-2 "${d#*@}"
+  asked0="$(counted "$pid" raw PREROUTING registry-drain-asked)" || fail "no count of rd-agent-2's data packets"
+  dropped0="$(counted "$pid" raw OUTPUT registry-drain-silent)" || fail "no count of the withheld packets"
+  limit="$SILENT_MAX"
+  [ "$CASE" = silent-peer ] || limit="$SILENT_HOLD"
+  # Bounded by itself: at the limit the pull's client is stopped, and killed 5 s later.
+  t=$(now)
+  rc=0
+  timeout -k 5 "$limit" docker exec rd-agent-2 crictl pull "$d" > "$CASE_DIR/silent-pull.out" 2>&1 || rc=$?
+  s=$(($(now) - t))
+  case "$rc" in 124|137) rc=hang ;; esac
+  asked="$(counted "$pid" raw PREROUTING registry-drain-asked)" || fail "no count of rd-agent-2's data packets"
+  dropped="$(counted "$pid" raw OUTPUT registry-drain-silent)" || fail "no count of the withheld packets"
+  asked=$((asked - asked0)) dropped=$((dropped - dropped0))
+  served="$(kc -n "$NS" logs deployment/registry | grep -c -F -e "/v2/probe/drain/manifests/${d#*@}" || true)"
+  v="$(judge_pull "$CASE" "$rc" "$s")" \
+    || fail "$v (rd-agent-2 through the silent rd-agent-1: $asked data packets to it, $dropped packets withheld; the registry answered $served requests of the probe's manifest)"
+  [ "$asked" -ge 1 ] || fail "$v, but rd-agent-2 sent no data packet to rd-agent-1's registry port: its mirror never asked the silent peer"
+  say "$v; rd-agent-2 sent $asked data packets to the silent peer, which withheld $dropped packets; the registry answered $served requests of the probe's manifest"
+  if [ "$CASE" = silent-peer ]; then
+    [ "$served" -ge 1 ] || fail "the pull finished, but the registry never served the probe's manifest"
+  else
+    say "hang as expected"
+  fi
+}
+
 # ── Self-test ────────────────────────────────────────────────────────────────────────────────
 
 st() { n=$((n + 1)); if [ "$1" = 0 ]; then pass=$((pass + 1)); echo "ok - $2"; else echo "not ok - $2: $(words "$3")"; fi; }
 self_test() {
-  local F out rc out11 rc11 refused name
+  local F out rc out11 rc11 refused name silent v
   n=0 pass=0
   T="$(mktemp -d)"
   trap 'rm -rf "$T"' EXIT
@@ -726,6 +909,45 @@ self_test() {
     st 0 "$name"
   else st 1 "$name" "--effective exit $rc: $out $(tail -n 2 "$T/effective.err"); roll: exit $refused $(cat "$T/roll.out")"; fi
 
+  name="the TLS judge passes an accepted connect with no handshake within $TLS_WAIT s, and fails a handshake, a refusal and a connect that never happened"
+  rc=0 rc11=0 refused=0 silent=0
+  # The connect accepted and curl 28 with no time of its own: what curl 8 reports on a silent port.
+  out="$(judge_silent 0 28 0.000000)" || rc=$?
+  judge_silent 0 0 0.004871 > "$T/tls-hs" || rc11=$?
+  judge_silent 1 7 0.000000 > "$T/tls-refused" || refused=$?
+  judge_silent 124 28 0.000000 >> "$T/tls-refused" || silent=$?
+  if [ "$rc" = 0 ] && [ "$out" = "accepts a connection and completes no TLS handshake within $TLS_WAIT s" ] \
+    && [ "$rc11" = 1 ] && grep -q -F -e 'completes a TLS handshake in 0.004871 s' "$T/tls-hs" \
+    && [ "$refused" = 2 ] && [ "$silent" = 2 ] && [ "$(grep -c -F -e 'accepts no connection' "$T/tls-refused")" = 2 ]; then
+    st 0 "$name"
+  else st 1 "$name" "silent: exit $rc $out; handshake: exit $rc11 $(cat "$T/tls-hs"); refused: $refused $silent $(cat "$T/tls-refused")"; fi
+
+  name="the pull judge passes silent-peer within $SILENT_MAX s and silent-peer-control still pulling at $SILENT_HOLD s, and fails the others"
+  rc=0
+  out="$(judge_pull silent-peer 0 23)" || rc=1
+  judge_pull silent-peer-control hang "$SILENT_HOLD" > /dev/null || rc=1
+  for v in "silent-peer hang $SILENT_MAX" "silent-peer 0 $((SILENT_MAX + 1))" "silent-peer 1 4" \
+    "silent-peer-control 0 23" "silent-peer-control hang $((SILENT_HOLD - 1))" "silent-peer-control 1 4"; do
+    # shellcheck disable=SC2086 # three words
+    if judge_pull $v > /dev/null; then rc=1; fi
+  done
+  if [ "$rc" = 0 ] && [ "$out" = "the pull finished in 23 s, within $SILENT_MAX s" ] \
+    && [ "$(judge_pull silent-peer-control 0 23 || true)" = "the pull finished in 23 s on k3s $SILENT_CONTROL_K3S: the harness cannot see the defect" ]; then
+    st 0 "$name"
+  else st 1 "$name" "exit $rc: $out"; fi
+
+  name="case silent-peer runs the kit's k3s and silent-peer-control runs $SILENT_CONTROL_K3S, each with its image list"
+  rc=0
+  REGISTRY_DRAIN_DRY=1 WORK="$T" bash "$0" silent-peer > "$T/silent.out" 2>&1 || rc=$?
+  REGISTRY_DRAIN_DRY=1 WORK="$T" bash "$0" silent-peer-control > "$T/silent-control.out" 2>&1 || rc=$?
+  out="$(k3s_version)"
+  if [ "$rc" = 0 ] && [ -n "$out" ] && [ "$out" != "$SILENT_CONTROL_K3S" ] \
+    && grep -q -F -e "k3s $out (the kit's: $out); server pull flags: " "$T/silent.out" \
+    && grep -q -F -e "k3s $SILENT_CONTROL_K3S (the kit's: $out); server pull flags: " "$T/silent-control.out" \
+    && grep -q -F -e ' --embedded-registry ' <<< " $(grep -F -e 'server pull flags' "$T/silent-control.out") "; then
+    st 0 "$name"
+  else st 1 "$name" "exit $rc; kit $out; silent-peer: $(cat "$T/silent.out"); control: $(cat "$T/silent-control.out")"; fi
+
   echo "$pass of $n self-test cases passed"
   [ "$pass" = "$n" ]
 }
@@ -734,9 +956,9 @@ self_test() {
 
 case "${1:-}" in
   --self-test) self_test; exit ;;
-  shared|restart|roll|roll-control) CASE="$1" MODE=kit ;;
+  shared|restart|roll|roll-control|silent-peer|silent-peer-control) CASE="$1" MODE=kit ;;
   control) CASE="$1" MODE=control ;;
-  *) echo "usage: $0 --self-test | shared | control | restart | roll | roll-control" >&2; exit 2 ;;
+  *) echo "usage: $0 --self-test | shared | control | restart | roll | roll-control | silent-peer | silent-peer-control" >&2; exit 2 ;;
 esac
 WORK="${WORK:-${RUNNER_TEMP:-}/registry-drain}"
 [ "$WORK" != /registry-drain ] || fail "set WORK or RUNNER_TEMP"
@@ -751,5 +973,6 @@ case "$CASE" in
   shared|control) case_drain ;;
   restart) case_restart ;;
   roll|roll-control) case_roll ;;
+  silent-peer|silent-peer-control) case_silent ;;
 esac
 echo "PASS $CASE in $(($(now) - begun)) s"

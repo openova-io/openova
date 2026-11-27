@@ -3,7 +3,7 @@
 # A render test cannot see whether the API server accepts the policy: lab
 # test CTL-050 (docs/ledger/plan/spikes/CTL-050.md) found an expression that
 # the Kubernetes API server refuses and a render passes. So this workflow
-# starts one k3s v1.31.8+k3s1 server as a container, the release the
+# starts one k3s v1.33.13+k3s2 server as a container, the release the
 # Sovereigns run, and runs the chart test of the lock in its --apiserver
 # mode: the policy and the nine bindings are accepted; audit admits a create
 # with a warning and counts it in the audit series; deny refuses a create and
@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           docker run -d --name lock-k3s --hostname lock-k3s --privileged \
             --tmpfs /run --tmpfs /var/run --ulimit nofile=65535:65535 \
-            docker.io/rancher/k3s:v1.31.8-k3s1 server \
+            docker.io/rancher/k3s:v1.33.13-k3s2 server \
             --disable=traefik --disable=servicelb --disable=local-storage --disable=metrics-server \
             --kube-proxy-arg=conntrack-max-per-core=0
           for _ in $(seq 1 100); do

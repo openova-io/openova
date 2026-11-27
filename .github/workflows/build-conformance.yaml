@@ -9,7 +9,7 @@ name: Build conformance
 # program, built here with CGO_ENABLED=0; scripts/check-live-nodeports.sh, which check FND-G05
 # runs; and gates.json, the gate manifest docs/ledger/gates.yaml as the JSON that
 # scripts/acceptance-gate.py export prints. The Containerfile adds bash, python3 and kubectl
-# v1.31.8, checked against its published SHA-256, and sets SUITE_GIT_SHA to the commit.
+# v1.33.13, checked against its published SHA-256, and sets SUITE_GIT_SHA to the commit.
 #
 # Every run builds the image and starts it: the image must hold the files this job built, every
 # tool must start, and the program must refuse a run in self that names no image digest. Only a
@@ -96,7 +96,7 @@ jobs:
           sbom: false
 
       # The image runs as 65534 in /opt/conformance with no network. It holds the three files of the
-      # build context unchanged and the commit in SUITE_GIT_SHA; bash, python3 and kubectl v1.31.8
+      # build context unchanged and the commit in SUITE_GIT_SHA; bash, python3 and kubectl v1.33.13
       # start; the self-test of the NodePort script passes; and the program refuses a run in self
       # without an image digest with exit code 3, before it reads a cluster.
       - name: Start the image
@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --network none --entrypoint /bin/bash "$REF" -c \
-            'set -euo pipefail; test "$(id -u):$(id -g)" = 65534:65534; test "$PWD" = /opt/conformance; bash --version | head -n 1; python3 --version; kubectl version --client | grep -x -F "Client Version: v1.31.8"; bash scripts/check-live-nodeports.sh --self-test'
+            'set -euo pipefail; test "$(id -u):$(id -g)" = 65534:65534; test "$PWD" = /opt/conformance; bash --version | head -n 1; python3 --version; kubectl version --client | grep -x -F "Client Version: v1.33.13"; bash scripts/check-live-nodeports.sh --self-test'
           want="$(cd "$RUNNER_TEMP/conformance" && sha256sum gates.json scripts/check-live-nodeports.sh sovereign-acceptance)"
           got="$(docker run --rm --network none --entrypoint /bin/sh "$REF" -c \
             'sha256sum gates.json scripts/check-live-nodeports.sh && cd /usr/local/bin && sha256sum sovereign-acceptance')"
