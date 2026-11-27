@@ -322,7 +322,7 @@ fi
 
 # ─── Phase 2 — enforcement POSTURE, per region (§854, #5591) ─────────────
 # Counting zero NodePorts proves nothing about PREVENTION. A cluster whose
-# forbid-nodeport-service ClusterPolicy sits at Audit would RECORD the next
+# forbid-nodeport-service policy sits at Audit would RECORD the next
 # NodePort rather than block it — and Phase 1 above would still print a
 # clean "OK: zero live node ports". Scan-clean and ban-enforcing are two
 # different properties, and only one of them was ever being checked.
@@ -340,38 +340,49 @@ fi
 # per-region property must be asserted per region or not asserted at all.
 
 posture_verdict() {
-  # $1 = spec.validationFailureAction as read from the cluster ("" if absent)
-  case "$1" in
-    Enforce) echo PASS   ;;
-    Audit)   echo AUDIT  ;;
-    "")      echo ABSENT ;;
-    *)       echo AUDIT  ;;  # unknown action is never treated as enforcing
+  # $1 = spec.validationActions of the ValidatingPolicy as read from the
+  #      cluster, its items separated by spaces ("" if the policy is absent)
+  case " $1 " in
+    "  ")       echo ABSENT ;;
+    *" Deny "*) echo PASS   ;;
+    *)          echo AUDIT  ;;  # Audit, Warn or an unknown action never blocks
   esac
 }
 
 # Vacuity guard: the classifier must be capable of every verdict, so a
 # degenerate always-PASS cannot pass this file's own self-test.
 pv_fail() { echo "POSTURE SELF-TEST FAIL: $1" >&2; exit 2; }
-[ "$(posture_verdict Enforce)" = PASS ]   || pv_fail "Enforce must be PASS"
+[ "$(posture_verdict Deny)"    = PASS ]   || pv_fail "Deny must be PASS"
+[ "$(posture_verdict 'Audit Deny')" = PASS ] || pv_fail "Audit with Deny must be PASS"
 [ "$(posture_verdict Audit)"   = AUDIT ]  || pv_fail "Audit must NOT be PASS"
 [ "$(posture_verdict '')"      = ABSENT ] || pv_fail "absent policy must be ABSENT"
 [ "$(posture_verdict weird)"   = AUDIT ]  || pv_fail "unknown action must not be PASS"
+[ "$(posture_verdict Enforce)" = AUDIT ]  || pv_fail "a legacy action must not be PASS"
 
 echo ""
 echo "== §854 enforcement posture (${CONTEXT:-current context}) =="
-if ! "${KCTL[@]}" get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
-  echo "WARN: Kyverno CRDs absent — cannot assess enforcement posture here." >&2
-  echo "      Reporting NOTHING rather than a false clean." >&2
+# Since CMP-079 the ban is a ValidatingPolicy (policies.kyverno.io) with a
+# fixed Deny. A cluster without that kind cannot hold the ban: it fails. Until
+# the chart reaches a region (its pin follows the published chart), the legacy
+# ClusterPolicy of the same name at Enforce holds it, and passes.
+if ! "${KCTL[@]}" get crd validatingpolicies.policies.kyverno.io >/dev/null 2>&1; then
+  echo "FAIL: the kind ValidatingPolicy (validatingpolicies.policies.kyverno.io) is not" >&2
+  echo "      readable here, so the NodePort ban cannot be present (§854, #5591)." >&2
+  FATAL=1
 else
-  ACTION="$("${KCTL[@]}" get clusterpolicy forbid-nodeport-service \
-              -o jsonpath='{.spec.validationFailureAction}' 2>/dev/null || true)"
+  ACTION="$("${KCTL[@]}" get validatingpolicies.policies.kyverno.io forbid-nodeport-service \
+              -o jsonpath='{.spec.validationActions[*]}' 2>/dev/null || true)"
+  if [ -z "${ACTION}" ]; then  # the chart of the new kind has not reached this region: the legacy object holds the ban
+    LEGACY="$("${KCTL[@]}" get clusterpolicies.kyverno.io forbid-nodeport-service -o jsonpath='{.spec.validationFailureAction}' 2>/dev/null || true)"
+    case "${LEGACY}" in Enforce) ACTION="Deny (legacy ClusterPolicy at Enforce)" ;; ?*) ACTION="${LEGACY} (legacy ClusterPolicy)" ;; esac
+  fi
   case "$(posture_verdict "${ACTION}")" in
     PASS)
-      echo "OK: forbid-nodeport-service = Enforce (the ban BLOCKS, not just records)."
+      echo "OK: forbid-nodeport-service denies (validationActions: ${ACTION}): the ban BLOCKS, not just records."
       ;;
     ABSENT)
       echo "───────────────────────────────────────────────────────────────" >&2
-      echo "FAIL: forbid-nodeport-service ClusterPolicy is ABSENT (§854, #5591)." >&2
+      echo "FAIL: forbid-nodeport-service ValidatingPolicy is ABSENT (§854, #5591)." >&2
       echo "Kyverno is installed but the NodePort ban is not present at all, so" >&2
       echo "nothing in this cluster would stop a NodePort Service being admitted." >&2
       echo "Check that bp-kyverno-policies is installed and Ready in this region." >&2
@@ -380,20 +391,14 @@ else
       ;;
     *)
       echo "───────────────────────────────────────────────────────────────" >&2
-      echo "FAIL: forbid-nodeport-service = '${ACTION}', not Enforce (§854, #5591)." >&2
+      echo "FAIL: forbid-nodeport-service validationActions = '${ACTION}', no Deny (§854, #5591)." >&2
       echo "This cluster would RECORD a NodePort, not block it. A zero-NodePort" >&2
       echo "scan here proves only that nobody has tried yet — not that the ban" >&2
       echo "holds. Phase 1 passing above does NOT make this cluster compliant." >&2
       echo "" >&2
-      echo "Root cause is almost always the Wave 5.90 phase-2b flip not reaching" >&2
-      echo "this region: bp-kyverno-policies renders Audit whenever" >&2
-      echo "compliancePolicies.bootstrapMode is true (the chart default), and the" >&2
-      echo "helper hard-forces Audit in that mode regardless of the per-policy" >&2
-      echo "canonical action. Confirm with:" >&2
-      echo "  kubectl -n flux-system get hr bp-kyverno-policies -o jsonpath='{.spec.values}'" >&2
-      echo "An empty value means this region was never flipped. The durable fix is" >&2
-      echo "the every-region phase-2b flip (#5592/#5619) — re-trigger it rather" >&2
-      echo "than hand-patching, so the next fresh prov is correct too." >&2
+      echo "The chart renders a fixed [Deny] whatever its values (CMP-079), so the" >&2
+      echo "object was changed outside the chart. Let Flux re-apply bp-kyverno-policies" >&2
+      echo "in this region (flux-system/bp-kyverno-policies) rather than hand-patching it." >&2
       echo "───────────────────────────────────────────────────────────────" >&2
       FATAL=1
       ;;
@@ -404,5 +409,5 @@ fi
 
 echo ""
 echo "OK: zero live node ports in owned namespaces across ${TOTAL} Service(s) (#4765),"
-echo "    and forbid-nodeport-service is Enforce in this region (#5591)."
+echo "    and forbid-nodeport-service denies in this region (#5591)."
 exit 0

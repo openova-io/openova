@@ -1,30 +1,17 @@
-# #5088 — Kyverno conformance test for the §854 forbid-nodeport-service policy.
+# Suite of the policy forbid-nodeport-service
+# (templates/baseline/24-forbid-nodeport-service.yaml), #5088, CMP-079.
 #
-# Run with the Kyverno CLI:
-#   cd platform/kyverno-policies/chart
-#   # re-render the policy if the template/values changed:
-#   helm template . --set compliancePolicies.bootstrapMode=false \
-#     --set compliancePolicies.forbidNodePortService.action=Enforce \
-#     --show-only templates/baseline/24-forbid-nodeport-service.yaml \
-#     | grep -v '^# Source:' | sed '/^---$/d' \
-#     > tests/forbid-nodeport-service/policy.yaml
-#   kyverno test tests/forbid-nodeport-service/
+# Written on the legacy ClusterPolicy render first (window closed: Enforce),
+# where every case passed with the kyverno CLI v1.19.2 and each result named
+# one of its two rules. The ValidatingPolicy has no rule names and gives one
+# result per Service: fail where a legacy rule failed, skip for the labelled
+# NodePort solver the legacy NodePort rule excluded, pass for the rest. The
+# resources (resource-services.yaml, 1 to 10) are the same; every refused form
+# is still refused.
 #
-# `policy.yaml` is the rendered ClusterPolicy at action=Enforce (committed so the
-# test is self-contained + CI-runnable without a Helm pass in the test step —
-# Enforce so the deny rules produce fail/pass verdicts the CLI can assert).
-#
-# SIX fixtures prove both rules + the cert-manager carve-out:
-#   Rule 1 (service-type-not-nodeport):
-#     - powerdns-api-ext (type=NodePort)                → DENIED  (the #5088 shape)
-#     - powerdns-api (type=ClusterIP)                   → admitted
-#     - gateway-lb-leaky / gateway-lb-clean (LB)        → admitted (not NodePort)
-#     - cm-acme-http-solver-by-label (NodePort+label)   → SKIPPED (carve-out)
-#     - cm-acme-http-solver-9xk2p (NodePort, NAME only, no label) → DENIED (#5564)
-#   Rule 2 (loadbalancer-must-disable-nodeport-allocation):
-#     - gateway-lb-leaky (LB, no allocateLoadBalancerNodePorts) → DENIED (§854 subtlety)
-#     - gateway-lb-clean (LB, allocateLoadBalancerNodePorts:false) → admitted
-#     - every non-LoadBalancer Service                          → admitted
+# policy.yaml is the render of the template with the chart defaults;
+# tests/suites-current.sh fails when it is not the current render.
+# Run: kyverno test platform/kyverno-policies/chart/tests/forbid-nodeport-service
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
@@ -34,54 +21,37 @@ policies:
 resources:
   - resource-services.yaml
 results:
-  # ── Rule 1: service-type-not-nodeport ──────────────────────────────────
-  # NodePort Service → DENIED (§854).
+  # A NodePort Service → DENIED (§854).
   - policy: forbid-nodeport-service
-    rule: service-type-not-nodeport
+    isValidatingPolicy: true
+    kind: Service
     resources:
       - openova-system/powerdns-api-ext
-    kind: Service
+      - iogrid/cm-acme-http-solver-9xk2p
+      - kube-system/system-nodeport
+      - iogrid/solver-label-false
     result: fail
-  # ClusterIP / LoadBalancer Services → not NodePort → admitted by rule 1.
+  # A LoadBalancer Service that allocates node ports → DENIED (§854).
   - policy: forbid-nodeport-service
-    rule: service-type-not-nodeport
+    isValidatingPolicy: true
+    kind: Service
+    resources:
+      - cilium-gateway/gateway-lb-leaky
+      - cilium-gateway/gateway-lb-allocating
+      - iogrid/solver-labelled-lb
+    result: fail
+  # No node port → admitted.
+  - policy: forbid-nodeport-service
+    isValidatingPolicy: true
+    kind: Service
     resources:
       - openova-system/powerdns-api
-      - cilium-gateway/gateway-lb-leaky
       - cilium-gateway/gateway-lb-clean
-    kind: Service
     result: pass
-  # cert-manager HTTP-01 solver Services (type=NodePort) → EXCLUDED → skipped.
+  # The cert-manager HTTP-01 solver (NodePort with the label) → not judged.
   - policy: forbid-nodeport-service
-    rule: service-type-not-nodeport
+    isValidatingPolicy: true
+    kind: Service
     resources:
       - iogrid/cm-acme-http-solver-by-label
-    kind: Service
     result: skip
-  # #5564 NEGATIVE CONTROL: solver-shaped NAME without the solver LABEL is a
-  # plain NodePort and must be DENIED. Was `skip` here, which pinned the bypass.
-  - policy: forbid-nodeport-service
-    rule: service-type-not-nodeport
-    resources:
-      - iogrid/cm-acme-http-solver-9xk2p
-    kind: Service
-    result: fail
-  # ── Rule 2: loadbalancer-must-disable-nodeport-allocation ──────────────
-  # LoadBalancer WITHOUT allocateLoadBalancerNodePorts:false → DENIED (§854 subtlety).
-  - policy: forbid-nodeport-service
-    rule: loadbalancer-must-disable-nodeport-allocation
-    resources:
-      - cilium-gateway/gateway-lb-leaky
-    kind: Service
-    result: fail
-  # Non-LoadBalancer Services + the explicitly-disabled LoadBalancer → admitted.
-  - policy: forbid-nodeport-service
-    rule: loadbalancer-must-disable-nodeport-allocation
-    resources:
-      - openova-system/powerdns-api-ext
-      - openova-system/powerdns-api
-      - cilium-gateway/gateway-lb-clean
-      - iogrid/cm-acme-http-solver-by-label
-      - iogrid/cm-acme-http-solver-9xk2p
-    kind: Service
-    result: pass

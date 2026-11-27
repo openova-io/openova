@@ -29,8 +29,8 @@ WANT = sorted([
     (("helm.toolkit.fluxcd.io",), ("helmreleases",), (), ("get", "list", "watch")),
     (("",), ("nodes", "pods", "services"), (), ("get", "list", "watch")),
     (("",), ("namespaces",), (), ("get", "list")),
-    (("apiextensions.k8s.io",), ("customresourcedefinitions",), ("clusterpolicies.kyverno.io",), ("get",)),
-    (("kyverno.io",), ("clusterpolicies",), ("forbid-nodeport-service",), ("get",)),
+    (("apiextensions.k8s.io",), ("customresourcedefinitions",), ("clusterpolicies.kyverno.io", "validatingpolicies.policies.kyverno.io"), ("get",)),
+    (("kyverno.io", "policies.kyverno.io"), ("clusterpolicies", "validatingpolicies"), ("forbid-nodeport-service",), ("get",)),
     (("wgpolicyk8s.io",), ("clusterpolicyreports",), (), ("create", "get", "patch", "update"))])
 docs = [d for d in yaml.safe_load_all(open(render)) if isinstance(d, dict)]
 named = lambda kind: [d for d in docs if d.get("kind") == kind and d["metadata"]["name"] == NAME]
@@ -82,7 +82,7 @@ mutant "the ServiceAccount is in another namespace" "['default']" 'one("ServiceA
 mutant "the ClusterRole is gone" "0 ClusterRoles" 'docs.remove(one("ClusterRole"))'
 mutant "the ClusterRole reads Secrets" "not exactly the six rules" 'one("ClusterRole")["rules"].append({"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"]})'
 mutant "a rule has a wildcard verb" "not exactly the six rules" 'one("ClusterRole")["rules"][0]["verbs"] = ["*"]'
-mutant "the policy read loses its name" "not exactly the six rules" '[r.pop("resourceNames") for r in one("ClusterRole")["rules"] if r["resources"] == ["clusterpolicies"]]'
+mutant "the policy read loses its name" "not exactly the six rules" '[r.pop("resourceNames") for r in one("ClusterRole")["rules"] if r["resources"] == ["clusterpolicies", "validatingpolicies"]]'
 mutant "the ClusterRole aggregates" "aggregates" 'one("ClusterRole")["aggregationRule"] = {"clusterRoleSelectors": []}'
 mutant "the binding is gone" "is bound by []" 'docs.remove(one("ClusterRoleBinding"))'
 mutant "the binding has a second subject" "want only ClusterRoleBinding" 'one("ClusterRoleBinding")["subjects"].append({"kind": "Group", "name": "system:serviceaccounts"})'

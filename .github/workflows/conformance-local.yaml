@@ -32,12 +32,13 @@
 # The Job names the image by that digest and never pulls it. It runs under the ServiceAccount
 # catalyst-system/catalyst-conformance, whose ClusterRole holds get, list and watch on
 # helmreleases, pods, services and nodes, get and list on namespaces, get on the
-# CustomResourceDefinition clusterpolicies.kyverno.io and the ClusterPolicy
-# forbid-nodeport-service (what scripts/check-live-nodeports.sh of check FND-G05 reads besides
-# the Services), and get, create, update and patch on clusterpolicyreports: no pods/exec and no
+# CustomResourceDefinitions of the two policy kinds and the policy forbid-nodeport-service of
+# either kind (what scripts/check-live-nodeports.sh of check FND-G05 reads besides the Services;
+# the legacy ClusterPolicy until the published chart of the ValidatingPolicy reaches the pack),
+# and get, create, update and patch on clusterpolicyreports: no pods/exec and no
 # Secrets. After the Job the step asks the API server with kubectl auth can-i: the account has
-# the two Kyverno reads, the namespace read and the report write, and no other
-# CustomResourceDefinition or ClusterPolicy, no Secret and no pods/exec. The suite writes the
+# the Kyverno reads, the namespace read and the report write, and no other
+# CustomResourceDefinition or policy, no Secret and no pods/exec. The suite writes the
 # ClusterPolicyReport conformance and prints its record into the log of the Job. The step
 # passes when the Job completed; the record is valid, ran in self and names this Job as its
 # producer, the digest its pod ran and the commit under test; the report carries the record's
@@ -369,8 +370,8 @@ jobs:
               {"apiGroups": [""], "resources": ["pods", "services", "nodes"], "verbs": ["get", "list", "watch"]},
               {"apiGroups": [""], "resources": ["namespaces"], "verbs": ["get", "list"]},
               {"apiGroups": ["apiextensions.k8s.io"], "resources": ["customresourcedefinitions"],
-               "resourceNames": ["clusterpolicies.kyverno.io"], "verbs": ["get"]},
-              {"apiGroups": ["kyverno.io"], "resources": ["clusterpolicies"], "resourceNames": ["forbid-nodeport-service"], "verbs": ["get"]},
+               "resourceNames": ["clusterpolicies.kyverno.io", "validatingpolicies.policies.kyverno.io"], "verbs": ["get"]},
+              {"apiGroups": ["kyverno.io", "policies.kyverno.io"], "resources": ["clusterpolicies", "validatingpolicies"], "resourceNames": ["forbid-nodeport-service"], "verbs": ["get"]},
               {"apiGroups": ["wgpolicyk8s.io"], "resources": ["clusterpolicyreports"], "verbs": ["get", "create", "update", "patch"]},
           ]
           container = {
@@ -436,10 +437,13 @@ jobs:
           }
           can yes get customresourcedefinitions.apiextensions.k8s.io/clusterpolicies.kyverno.io
           can yes get clusterpolicies.kyverno.io/forbid-nodeport-service
+          can yes get customresourcedefinitions.apiextensions.k8s.io/validatingpolicies.policies.kyverno.io
+          can yes get validatingpolicies.policies.kyverno.io/forbid-nodeport-service
           can yes list namespaces
           can yes patch clusterpolicyreports.wgpolicyk8s.io
           can no get customresourcedefinitions.apiextensions.k8s.io/clusterpolicyreports.wgpolicyk8s.io
           can no list clusterpolicies.kyverno.io
+          can no list validatingpolicies.policies.kyverno.io
           can no get secrets --all-namespaces
           can no create pods --subresource=exec --all-namespaces
           python3 - "$out" "$digest" "$(git rev-parse HEAD)" <<'PY'

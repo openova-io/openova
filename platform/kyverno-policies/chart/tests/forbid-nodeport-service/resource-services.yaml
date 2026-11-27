@@ -1,5 +1,5 @@
 # #5088 — INPUT fixtures for the §854 forbid-nodeport-service (Enforce) policy.
-# Six Services exercise both rules + the cert-manager solver carve-out.
+# Ten Services exercise both validations + the cert-manager solver carve-out.
 
 # 1. VIOLATION: a plain type=NodePort Service → DENIED by rule 1 (§854).
 apiVersion: v1
@@ -86,3 +86,53 @@ spec:
   ports:
     - port: 8089
       nodePort: 30634
+---
+# 7. VIOLATION: a NodePort in kube-system → DENIED (no namespace is excluded).
+apiVersion: v1
+kind: Service
+metadata:
+  name: system-nodeport
+  namespace: kube-system
+spec:
+  type: NodePort
+  ports:
+    - port: 9100
+---
+# 8. VIOLATION: the solver label with the value "false" is no carve-out → DENIED.
+apiVersion: v1
+kind: Service
+metadata:
+  name: solver-label-false
+  namespace: iogrid
+  labels:
+    acme.cert-manager.io/http01-solver: "false"
+spec:
+  type: NodePort
+  ports:
+    - port: 8089
+---
+# 9. VIOLATION: a LoadBalancer with the solver label that allocates node ports
+#    → DENIED: the carve-out excuses only a solver's NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: solver-labelled-lb
+  namespace: iogrid
+  labels:
+    acme.cert-manager.io/http01-solver: "true"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8089
+---
+# 10. VIOLATION: a LoadBalancer with allocateLoadBalancerNodePorts:true → DENIED.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-lb-allocating
+  namespace: cilium-gateway
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: true
+  ports:
+    - port: 443
