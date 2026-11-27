@@ -70,6 +70,16 @@
 # release of the kit core, from the tree in both regions: a change of the path is proven by a run
 # of it. The HelmChart of a release is read by its full name helmcharts.source.toolkit.fluxcd.io:
 # on k3s the short name helmchart names the HelmChart kind of helm.cattle.io instead.
+# The console's API, catalyst-api, runs the image the chart of the console release names, the
+# one main published, except when the change touches a path that image is built from (the
+# Containerfile products/catalyst/bootstrap/api/Containerfile and every source it copies, as
+# catalyst-build.yaml builds it; bash scripts/local-pack.sh charts names the source of the image
+# on its last line): then Up builds the image from this tree (about three minutes on the runner),
+# never pushes it, loads it into the containerd of k3s on every machine of the pack, gives the
+# console release its tag, and passes only when every pod of catalyst-api in the primary region
+# runs it, by digest. The summary of the job names the image the API ran and its digest. A change
+# of that path itself (scripts/local-pack.sh or this file) also lists the Containerfile, so its
+# own run builds and runs the catalyst-api image of the tree.
 name: conformance-local
 
 on:
@@ -108,6 +118,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           TREE_PROBE: platform/kyverno-policies/chart/Chart.yaml
+          API_PROBE: products/catalyst/bootstrap/api/Containerfile
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
@@ -130,6 +141,11 @@ jobs:
             if grep -q -x -F -e scripts/local-pack.sh -e .github/workflows/conformance-local.yaml <<< "$changed"; then
               echo "$TREE_PROBE" >> "$RUNNER_TEMP/changed-paths.txt"
               echo "::notice title=conformance-local::This change touches the tree path of the local pack: the list of changed paths also names $TREE_PROBE, so bp-kyverno-policies is installed from the tree."
+            fi
+            # A change of the API image path itself is proven by its own run on the catalyst-api image of the tree.
+            if grep -q -x -F -e scripts/local-pack.sh -e .github/workflows/conformance-local.yaml <<< "$changed"; then
+              echo "$API_PROBE" >> "$RUNNER_TEMP/changed-paths.txt"
+              echo "::notice title=conformance-local::This change touches the API image path of the local pack: the list of changed paths also names $API_PROBE, so catalyst-api runs the image built from the tree."
             fi
           fi
 
@@ -286,6 +302,12 @@ jobs:
             if [ -f "$f" ]; then cat "$f"; else echo "Up wrote no chart plan: see the log of the step Up."; fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: catalyst-api image of this run (summary)
+        if: always() && steps.decide.outputs.run == 'true'
+        run: |
+          f="$RUNNER_TEMP/local-pack/api-image.txt"
+          { echo '### catalyst-api image of the local pack'; echo; echo '```'; if [ -f "$f" ]; then cat "$f"; else echo "Up wrote no catalyst-api image plan: see the log of the step Up."; fi; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Discovery steps D0.1 and D0.2 of the suite
         if: steps.decide.outputs.run == 'true'
