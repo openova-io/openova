@@ -144,9 +144,9 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// #4896 / #5018 — leg 2: mirror the committed document into the Flux-
-	// reconciled aggregator tree so the edit actually reaches the LIVE
-	// in-cluster Blueprint CR. metadata.name is stamped to the canonical CR
+	// #4896 / #5018 — leg 2: commit the document (its partial object where the
+	// trunk can, CTL-242) into the Flux-reconciled aggregator tree so the edit
+	// reaches the LIVE in-cluster Blueprint CR. metadata.name is stamped to the canonical CR
 	// identity (bp-<slug> — the same bridge reconcileBlueprintBareName applies
 	// on the dry-run path, #4898) so Flux SSA-patches the existing CR instead
 	// of minting a bare-named duplicate. blueprintedit.Check above has already
