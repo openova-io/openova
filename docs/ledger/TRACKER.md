@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T09:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-28T09:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-28T08:47 | [#9106](https://github.com/openova-io/openova/pull/9106) | #7087 | docs(ledger): plan update |
+| 2026-11-28T09:07 | [#9105](https://github.com/openova-io/openova/pull/9105) | #9102 | feat(acceptance): gate check ACC-G15, session images start h |
 | 2026-11-28T08:57 | [#9104](https://github.com/openova-io/openova/pull/9104) | #9097 | fix(mimir): the metrics chart object-store password is gener |
 | 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
 | 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:06 | [#9062](https://github.com/openova-io/openova/pull/9062) | #9057 | fix(crossplane): a cloud adoption Workspace recovers after a |
 | 2026-11-27T19:14 | [#9061](https://github.com/openova-io/openova/pull/9061) | #9030 | fix(openbao): the PKI bootstrap Job leaves nothing behind an |
-| 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
 
 ---
 
