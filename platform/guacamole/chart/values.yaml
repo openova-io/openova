@@ -68,7 +68,7 @@ access:
     images:
       guacd:
         repository: ghcr.io/openova-io/openova/guacd
-        digest: ""
+        digest: "sha256:f39258e35244b6bf79bc6ac4e60eee176aea6f6a5adb13e8c3090e48df8ae515"
       agent:
         repository: ghcr.io/openova-io/openova/access-session-agent
         digest: ""
