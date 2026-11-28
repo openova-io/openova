@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T11:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-28T11:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
 | [#8734](https://github.com/openova-io/openova/issues/8734) | SVC-230 The wizard shows the generated kit list | Other |
 | [#8736](https://github.com/openova-io/openova/issues/8736) | INF-350 Spike: change events from the reference cloud | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9102](https://github.com/openova-io/openova/issues/9102) | ACC-114 Gate check ACC-G15: session images start hardened | Other |
 | [#9107](https://github.com/openova-io/openova/issues/9107) | CMP-024 The API's cache holds the namespaced policy kinds, and its fan-out never | Other |
 | [#9111](https://github.com/openova-io/openova/issues/9111) | BSS-071 Deleting an Organization from the storefront removes it and its namespac | Other |
+| [#9114](https://github.com/openova-io/openova/issues/9114) | SEC-228 A library value given from outside: source external, no generator, no Pu | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T11:14 | [#9113](https://github.com/openova-io/openova/pull/9113) | #7087 | docs(ledger): plan update |
+| 2026-11-28T11:01 | [#9110](https://github.com/openova-io/openova/pull/9110) | #7087 | docs(ledger): plan update |
 | 2026-11-28T09:28 | [#9109](https://github.com/openova-io/openova/pull/9109) | #7087 | docs(ledger): plan update |
 | 2026-11-28T09:21 | [#9108](https://github.com/openova-io/openova/pull/9108) | #9107 | fix(compliance): the API cache holds the namespaced policy k |
 | 2026-11-28T08:47 | [#9106](https://github.com/openova-io/openova/pull/9106) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:31 | [#9068](https://github.com/openova-io/openova/pull/9068) | #9064 | feat(axon): chart bp-axon with its credential a file mounted |
-| 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
-| 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
 
 ---
 
