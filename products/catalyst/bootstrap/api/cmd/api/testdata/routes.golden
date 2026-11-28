@@ -237,6 +237,7 @@ PUT /api/v1/deployments/{id}/cloudinit-log handler.(*Handler).PutCloudInitLog-fm
 PUT /api/v1/deployments/{id}/kubeconfig handler.(*Handler).PutKubeconfig-fm 1
 PUT /api/v1/org/applications/{name} Confine.(closure) 2
 PUT /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceUpdate-fm 2
+PUT /api/v1/sovereign/kit-keys/{key} lifecycle.(*KitKeysRoute).Put-fm 2
 PUT /api/v1/sovereign/release lifecycle.(*ReleaseRoute).Request-fm 2
 PUT /api/v1/sovereigns/{id}/applications/{name} handler.(*Handler).HandleApplicationUpdate-fm 2
 PUT /api/v1/sovereigns/{id}/console-ui/sidebar-overrides handler.(*Handler).HandleConsoleUISidebarOverridesPut-fm 2

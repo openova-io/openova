@@ -102,6 +102,7 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/registrar/{registrar}/validate", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: PATCH, path: "/api/v1/sovereign/apps/{slug}/publish", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/cutover/start", today: K, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
+  - {component: catalyst-api, method: PUT, path: "/api/v1/sovereign/kit-keys/{key}", today: G, writeClass: git, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/parent-domains", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/sovereign/parent-domains/{name}", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/rbac/assign", today: C, writeClass: git, operation: "", disposition: migrate, batch: C, package: CTL-210, done: false}
