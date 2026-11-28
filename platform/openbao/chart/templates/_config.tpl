@@ -154,7 +154,12 @@ path "mounted/data/{{ .ns }}/shared/*" {
 
 {{- /* The namespace's External Secrets identity: creates values below its own
 namespace of mounted/ (never reads one back) and keeps its own namespace of
-the apps prefix. */ -}}
+the apps prefix. A PushSecret to a kv v2 store writes custom_metadata
+(managed-by: external-secrets) on the key's metadata path before the value
+(External Secrets 0.10.7, pkg/provider/vault/client_push.go): create on a new
+key, update on one whose metadata exists. Beyond the push, update lets it set
+max_versions, cas_required and delete_version_after of its own keys, which
+it can already delete. */ -}}
 {{- define "openbao.policy.eso-ns" -}}
 path "mounted/data/{{ .ns }}/*" {
   capabilities = ["create"]
@@ -166,7 +171,7 @@ path "{{ .kv }}/data/{{ .apps }}/{{ .ns }}/*" {
   capabilities = ["create", "update", "read"]
 }
 path "{{ .kv }}/metadata/{{ .apps }}/{{ .ns }}/*" {
-  capabilities = ["read", "list", "delete"]
+  capabilities = ["create", "update", "read", "list", "delete"]
 }
 {{ end -}}
 

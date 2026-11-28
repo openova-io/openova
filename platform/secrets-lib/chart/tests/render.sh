@@ -17,7 +17,8 @@
 #   R4  the same chart in the region that is not the primary: no Job for the
 #       shared value; a value with sharedAcrossRegions false is written there
 #       for that region only;
-#   R5  a synced value: Password, PushSecret (IfNotExists) into openbao and,
+#   R5  a synced value: Password, PushSecret (IfNotExists, deletionPolicy
+#       None: no finalizer, the value stays) into openbao and,
 #       in the primary, ClusterSecretStore vault-<peer>; ExternalSecret with
 #       the register id; in the other region only the ExternalSecret;
 #   R6  mountedCopies: the Job copies Secret <name> into
@@ -260,7 +261,7 @@ metadata:
 spec:
   refreshInterval: 1h
   updatePolicy: IfNotExists
-  deletionPolicy: Delete
+  deletionPolicy: None
   secretStoreRefs:
     - kind: SecretStore
       name: openbao
