@@ -24213,13 +24213,13 @@ packages:
   - id: A2
     run: "cd products/catalyst/bootstrap/api && go test -count=1 ./cmd/api/ > /dev/null && g=cmd/api/testdata/routes.golden && test \"$(grep -c -x -F 'GET /api/v1/catalog/capabilities capabilityapi.(*Routes).List-fm 2' \"$g\")\" = 1 && test \"$(grep -c -x -F 'GET /api/v1/catalog/capabilities/{name} capabilityapi.(*Routes).Get-fm 2' \"$g\")\" = 1"
   - id: A3
-    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/pages/sovereign/AppDetail/InstancesSection --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/pages/sovereign/AppDetail/InstancesSection\\.requires\\.test\\.tsx > ' \"$out\")\" = 7 && test \"$(grep -c -E '^ *✓ src/pages/sovereign/AppDetail/InstancesSection\\.requires\\.test\\.tsx > NewInstanceDialog — one block per requires\\[\\] entry \\(SVC-280\\) > renders the two offered implementations and posts the chosen one with the Application to reuse' \"$out\")\" = 1"
+    run: "cd products/catalyst/bootstrap/ui && npm ci > /dev/null && npm run typecheck > /dev/null && out=\"$(mktemp)\" && NO_COLOR=1 npx vitest run src/pages/sovereign/AppDetail/InstancesSection --reporter=verbose > \"$out\" && test \"$(grep -c -E '^ *✓ src/pages/sovereign/AppDetail/InstancesSection\\.requires\\.test\\.tsx > ' \"$out\")\" = 8 && test \"$(grep -c -E '^ *✓ src/pages/sovereign/AppDetail/InstancesSection\\.requires\\.test\\.tsx > NewInstanceDialog — one block per requires\\[\\] entry \\(SVC-280\\) > renders the two offered implementations and posts the chosen one with the Application to reuse' \"$out\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: catalyst-api answers GET /api/v1/catalog/capabilities and GET /api/v1/catalog/capabilities/{name} with each capability's current contract, effective default, organization choice and the Blueprints that provide it, and the create dialog of the sovereign-admin console renders one block per requires entry of the Blueprint, with an implementation picker and create or reuse, and posts the chosen implementation.
 - id: SVC-290
