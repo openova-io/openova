@@ -51,6 +51,11 @@ generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
                              # values whose value this value's Secrets also
                              # carry, each under its name; a joined value
                              # renders no Secret of its own
+    source: generated        # synced only (SEC-228): generated (default) |
+                             # external, a value given from outside: never
+                             # generated or pushed here, only read
+    writer: ""               # source external, not joined: required, who
+                             # writes the store's path (printable text)
 
 delivery mounted, scope sa:     mounted/<ns>/sa/<serviceAccount>/<name>/e<epoch>
 delivery mounted, scope shared: mounted/<ns>/shared/<name>/e<epoch>
@@ -81,6 +86,14 @@ delivery synced:   Password generator <name>-e<epoch>, PushSecret
   through, SEC-225); join adds each joined value to the data of every
   ExternalSecret of this value, and the joined value renders only its
   Password and PushSecret.
+delivery synced, source external (SEC-228): no Password and no PushSecret in
+  any region; the ExternalSecret <name> (and each copy) reads
+  openova/apps/<ns>/<name>/e<epoch>, which its writer writes, with the
+  template and join above, and carries annotation secrets.openova.io/writer.
+  It takes no length, symbols, sharedAcrossRegions or mountedCopies, and joins
+  only external values (one writer writes every path of its Secret). While
+  the path is absent the ExternalSecret is not ready and nothing is written:
+  a value given from outside is never generated.
 
 The Job, its ServiceAccount secrets-birth and its plan ConfigMap render only
 when this region has a value to write, in the namespace of the values. Their
@@ -135,7 +148,7 @@ Settings, under .Values.openova.secrets (all optional):
 {{- if eq $delivery "mounted" -}}
 {{- if ne $reg "" }}{{ fail (printf "%s: registerId is only for delivery synced" $where) }}{{ end -}}
 {{- if $mc }}{{ fail (printf "%s: mountedCopies is only for delivery synced" $where) }}{{ end -}}
-{{- range list "template" "copies" "join" }}{{ if hasKey $spec . }}{{ fail (printf "%s: %s is only for delivery synced" $where .) }}{{ end }}{{ end -}}
+{{- range list "template" "copies" "join" "source" "writer" }}{{ if hasKey $spec . }}{{ fail (printf "%s: %s is only for delivery synced" $where .) }}{{ end }}{{ end -}}
 {{- $key := "password" -}}
 {{- if hasKey $spec "key" -}}
 {{- if not (regexMatch "^[A-Za-z0-9][-._A-Za-z0-9]*$" (toString $spec.key)) }}{{ fail (printf "%s: key %q must match [A-Za-z0-9][-._A-Za-z0-9]*" $where (toString $spec.key)) }}{{ end -}}
@@ -175,10 +188,24 @@ Settings, under .Values.openova.secrets (all optional):
 {{- else -}}
 {{- if or (hasKey $spec "key") (hasKey $spec "placeholder") }}{{ fail (printf "%s: key and placeholder are only for delivery mounted" $where) }}{{ end -}}
 {{- if hasKey $spec "seedFrom" }}{{ fail (printf "%s: seedFrom is only for delivery mounted: a synced value is born by its PushSecret, which reads one source and has no fallback" $where) }}{{ end -}}
+{{- /* SEC-228: a value given from outside is only read, never generated. */ -}}
+{{- $ext := false -}}
+{{- if hasKey $spec "source" -}}
+{{- if not (has (toString $spec.source) (list "generated" "external")) }}{{ fail (printf "%s: source %q is neither generated nor external" $where (toString $spec.source)) }}{{ end -}}
+{{- $ext = eq (toString $spec.source) "external" -}}
+{{- end -}}
+{{- if $ext -}}
+{{- range list "length" "symbols" "sharedAcrossRegions" "mountedCopies" }}{{ if hasKey $spec . }}{{ fail (printf "%s: a value given from outside (source external) is never generated or pushed here, so it takes no %s" $where .) }}{{ end }}{{ end -}}
+{{- else if hasKey $spec "writer" }}{{ fail (printf "%s: writer is only for source external: a generated value is written by its PushSecret" $where) }}{{ end -}}
 {{- $isJoined := hasKey $joined $name -}}
 {{- if $isJoined -}}
-{{- range list "registerId" "template" "copies" "join" "mountedCopies" }}{{ if hasKey $spec . }}{{ fail (printf "%s: generatedSecrets.%s joins this value, so it renders no Secret of its own and takes no %s" $where (index $joined $name) .) }}{{ end }}{{ end -}}
+{{- range list "registerId" "template" "copies" "join" "mountedCopies" "writer" }}{{ if hasKey $spec . }}{{ fail (printf "%s: generatedSecrets.%s joins this value, so it renders no Secret of its own and takes no %s" $where (index $joined $name) .) }}{{ end }}{{ end -}}
 {{- else if eq $reg "" }}{{ fail (printf "%s: registerId is required for delivery synced" $where) }}{{ end -}}
+{{- $writer := "" -}}
+{{- if and $ext (not $isJoined) -}}
+{{- if or (not (kindIs "string" $spec.writer)) (not (regexMatch "^[ -~]+$" (toString $spec.writer))) (eq (trim (toString $spec.writer)) "") }}{{ fail (printf "%s: writer is required for source external: who writes openova/apps/%s/%s/e%d (printable text)" $where $ns $name $epoch) }}{{ end -}}
+{{- $writer = $spec.writer -}}
+{{- end -}}
 {{- $tpl := index $spec "template" -}}
 {{- if hasKey $spec "template" }}{{ include "openova.secretsCheckTemplate" (dict "t" $tpl "where" $where) }}{{ end -}}
 {{- if and $mc (kindIs "map" $tpl) -}}
@@ -214,10 +241,11 @@ Settings, under .Values.openova.secrets (all optional):
 {{- $jd := "" -}}
 {{- if kindIs "map" $js }}{{ $jd = toString (index $js "delivery") }}{{ end -}}
 {{- if ne $jd "synced" }}{{ fail (printf "%s: join names %q, which is not a synced value of this chart" $where $j) }}{{ end -}}
+{{- if ne (eq (toString (index $js "source")) "external") $ext }}{{ fail (printf "%s: join names %q, whose source is not this value's: the values of one Secret have one source and one writer" $where $j) }}{{ end -}}
 {{- $entries = append $entries (dict "secretKey" $j "key" (printf "openova/apps/%s/%s/e%d" $ns $j (int (index $js "epoch")))) -}}
 {{- end -}}
 {{- end -}}
-{{- if not $waits }}
+{{- if and (not $waits) (not $ext) }}
 ---
 apiVersion: generators.external-secrets.io/v1alpha1
 kind: Password
@@ -266,9 +294,9 @@ spec:
           property: password
 {{- end }}
 {{- if not $isJoined }}
-{{- include "openova.secretsExternalSecret" (dict "name" $name "ns" $ns "reg" $reg "tpl" $tpl "entries" $entries) }}
+{{- include "openova.secretsExternalSecret" (dict "name" $name "ns" $ns "reg" $reg "writer" $writer "tpl" $tpl "entries" $entries) }}
 {{- range $cps }}
-{{- include "openova.secretsExternalSecret" (dict "name" (quote .name) "ns" $ns "reg" $reg "tpl" (index . "template") "entries" $entries) }}
+{{- include "openova.secretsExternalSecret" (dict "name" (quote .name) "ns" $ns "reg" $reg "writer" $writer "tpl" (index . "template") "entries" $entries) }}
 {{- end }}
 {{- end }}
 {{- range $mc -}}
@@ -493,10 +521,12 @@ label: [a-z0-9-], at most 63 characters, a letter or digit at each end).
 {{- /*
 openova.secretsExternalSecret (SEC-219) — one ExternalSecret of a synced
 value: the value's own target <name>, or a copy. Input: dict "name" (as it
-is written), "ns", "reg" (the register id), "tpl" (the template, or absent)
-and "entries" (secretKey and remote key per value the Secret carries: the
-value itself as password, then each joined value under its name). Without a
-template the object is the one of SEC-200, byte for byte.
+is written), "ns", "reg" (the register id), "writer" (SEC-228: the writer of
+a value given from outside; empty for a generated one), "tpl" (the template,
+or absent) and "entries" (secretKey and remote key per value the Secret
+carries: the value itself as password, then each joined value under its
+name). Without a template and a writer the object is the one of SEC-200,
+byte for byte.
 */ -}}
 {{- define "openova.secretsExternalSecret" }}
 ---
@@ -509,6 +539,9 @@ metadata:
     secrets.openova.io/library: secrets-lib
   annotations:
     secrets.openova.io/register-id: {{ .reg | quote }}
+{{- with .writer }}
+    secrets.openova.io/writer: {{ . | quote }}
+{{- end }}
 spec:
   refreshInterval: 1h
   secretStoreRef:

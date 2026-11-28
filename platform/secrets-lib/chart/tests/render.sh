@@ -51,8 +51,15 @@
 #       Secrets of this region's plan, bound to secrets-birth; the Job gets an
 #       API token (no audience) and the cluster CA; a plan without a seed
 #       renders none of it;
-#   F1-F51 every refused input fails the render with its message; F33 is a
-#       copy in another namespace, F45 to F51 the seedFrom of SEC-226.
+#   R15 source external (SEC-228), primary of two regions and the other
+#       region: only ExternalSecrets (no Password, PushSecret or Job), each
+#       reading openova/apps/<ns>/<name>/e<epoch> with its template and the
+#       joined external value, annotated with the writer, exactly; a
+#       generated value of the same chart renders as alone;
+#   R16 source generated renders the value without source, byte for byte;
+#   F1-F66 every refused input fails the render with its message; F33 is a
+#       copy in another namespace, F45 to F51 the seedFrom of SEC-226, F52
+#       to F66 the source external of SEC-228.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -779,7 +786,129 @@ r "$TMP/r14b.v" "$TMP/r14b.yaml" || r14="$r14 b-render"
 has "$TMP/r14b.yaml" Role secrets-birth-seed '    resourceNames: ["chargeback-master-key"]' || r14="$r14 b-role"
 [ -z "$r14" ] && pass "R14 seedFrom (SEC-226): plan sources seed:<Secret>/<key>; Role secrets-birth-seed (get on chargeback-master-key and old.signing only) bound to secrets-birth; the Job's API token and CA; the other region's Role names only its own seed; no seed, none of it" || fail "R14:$r14"
 
-# ── F1-F51 ──────────────────────────────────────────────────────────────
+# ── R15 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r15.v" <<'EOF'
+self: hw-a
+peers: [hw-b]
+primary: true
+namespace: velero
+generatedSecrets:
+  velero-objectstorage-credentials:
+    delivery: synced
+    source: external
+    registerId: velero-objectstorage-credentials
+    writer: "the hand-over Job (SEC-229), as sovereign-ops"
+    epoch: 1
+    join: [s3-secret-key]
+    template:
+      data:
+        cloud: 'aws_access_key_id={{ .password }} aws_secret_access_key={{ index . "s3-secret-key" }}'
+    copies:
+      - name: velero-cloud
+  s3-secret-key:
+    delivery: synced
+    source: external
+    epoch: 2
+  api-key:
+    delivery: synced
+    registerId: reg-api-key
+    epoch: 3
+EOF
+cat > "$TMP/r15.want" <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: velero-objectstorage-credentials
+  namespace: "velero"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "velero-objectstorage-credentials"
+    secrets.openova.io/writer: "the hand-over Job (SEC-229), as sovereign-ops"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: velero-objectstorage-credentials
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        "cloud": "aws_access_key_id={{ .password }} aws_secret_access_key={{ index . \"s3-secret-key\" }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/velero/velero-objectstorage-credentials/e1
+        property: password
+    - secretKey: s3-secret-key
+      remoteRef:
+        key: openova/apps/velero/s3-secret-key/e2
+        property: password
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: "velero-cloud"
+  namespace: "velero"
+  labels:
+    secrets.openova.io/library: secrets-lib
+  annotations:
+    secrets.openova.io/register-id: "velero-objectstorage-credentials"
+    secrets.openova.io/writer: "the hand-over Job (SEC-229), as sovereign-ops"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: openbao
+  target:
+    name: "velero-cloud"
+    creationPolicy: Owner
+  data:
+    - secretKey: password
+      remoteRef:
+        key: openova/apps/velero/velero-objectstorage-credentials/e1
+        property: password
+    - secretKey: s3-secret-key
+      remoteRef:
+        key: openova/apps/velero/s3-secret-key/e2
+        property: password
+EOF
+r15=""
+r "$TMP/r15.v" "$TMP/r15.yaml" || r15="$r15 render($(tr '\n' ' ' < "$TMP/r15.yaml.err"))"
+{ doc "$TMP/r15.yaml" ExternalSecret velero-objectstorage-credentials; doc "$TMP/r15.yaml" ExternalSecret '"velero-cloud"'; } > "$TMP/r15.got"
+diff -u "$TMP/r15.want" "$TMP/r15.got" || r15="$r15 external-secrets"
+# Exactly the two ExternalSecrets of the external values beside the generated
+# value's three objects: no Password, PushSecret or birth Job for them.
+K15="$(kinds "$TMP/r15.yaml" || true)"
+[ "$K15" = "ExternalSecret=3 Password=1 PushSecret=1 " ] || r15="$r15 kinds($K15)"
+[ "$(grep -c -E '^  name: (velero-objectstorage-credentials|s3-secret-key)-e[0-9]+$' "$TMP/r15.yaml")" = 0 ] || r15="$r15 external-value-born"
+# The generated value beside them renders as it does alone (R5, in velero).
+printf 'self: hw-a\npeers: [hw-b]\nprimary: true\nnamespace: velero\n' > "$TMP/r15a.v"
+awk '/^  api-key:/ { on = 1 } /^generatedSecrets:/ || on' "$TMP/r15.v" >> "$TMP/r15a.v"
+r "$TMP/r15a.v" "$TMP/r15a.yaml" || r15="$r15 alone-render"
+for k in "Password api-key-e3" "PushSecret api-key-e3" "ExternalSecret api-key"; do
+  # shellcheck disable=SC2086
+  [ "$(doc "$TMP/r15.yaml" $k)" = "$(doc "$TMP/r15a.yaml" $k)" ] && [ -n "$(doc "$TMP/r15a.yaml" $k)" ] || r15="$r15 generated-differs[$k]"
+done
+# The other region renders the same two ExternalSecrets, and nothing more for them.
+sed 's/^self: hw-a/self: hw-b/; s/^peers: \[hw-b\]/peers: [hw-a]/; s/^primary: true/primary: false/' "$TMP/r15.v" > "$TMP/r15b.v"
+r "$TMP/r15b.v" "$TMP/r15b.yaml" || r15="$r15 b-render"
+K15B="$(kinds "$TMP/r15b.yaml" || true)"
+[ "$K15B" = "ExternalSecret=3 " ] || r15="$r15 b-kinds($K15B)"
+{ doc "$TMP/r15b.yaml" ExternalSecret velero-objectstorage-credentials; doc "$TMP/r15b.yaml" ExternalSecret '"velero-cloud"'; } > "$TMP/r15b.got"
+diff -u "$TMP/r15.want" "$TMP/r15b.got" || r15="$r15 b-external-secrets"
+[ -z "$r15" ] && pass "R15 source external: ExternalSecrets velero-objectstorage-credentials and its copy read e1 and the joined s3-secret-key e2, annotated with the writer; no Password, PushSecret or Job in either region; the generated api-key renders as alone" || fail "R15:$r15"
+
+# ── R16 ─────────────────────────────────────────────────────────────────
+awk '{ print } /^    delivery: synced$/ { print "    source: generated" }' "$TMP/r5.v" > "$TMP/r16.v"
+r16=""
+r "$TMP/r16.v" "$TMP/r16.yaml" || r16="$r16 render($(tr '\n' ' ' < "$TMP/r16.yaml.err"))"
+grep -qxF '    source: generated' "$TMP/r16.v" || r16="$r16 no-source-in-input"
+[ -s "$TMP/r16.yaml" ] && cmp -s "$TMP/r5.yaml" "$TMP/r16.yaml" || r16="$r16 differs"
+[ -z "$r16" ] && pass "R16 source generated renders R5's value byte for byte" || fail "R16:$r16"
+
+# ── F1-F66 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
   printf '%s\n' "$3" > "$TMP/$1.v"
@@ -842,6 +971,24 @@ refused F48 "seedFrom.name must be the name of a Secret of namespace acme" "gene
 refused F49 "seedFrom.key must be a Secret key"      "generatedSecrets: {x: {$M, seedFrom: {name: a}}}"
 refused F50 "seedFrom.key must be a Secret key"      "generatedSecrets: {x: {$M, seedFrom: {name: a, key: \"a/b\"}}}"
 refused F51 "a placeholder is empty: it takes no seedFrom" "generatedSecrets: {x: {$M, placeholder: true, seedFrom: {name: a, key: b}}}"
+# SEC-228: source external. E is an external value that renders its Secret.
+E='delivery: synced, source: external, registerId: r, writer: w, epoch: 1'
+X='takes no'
+refused F52 'source "file" is neither generated nor external' "generatedSecrets: {x: {$S, source: file}}"
+refused F53 "source is only for delivery synced"    "generatedSecrets: {x: {$M, source: external}}"
+refused F54 "writer is only for delivery synced"    "generatedSecrets: {x: {$M, writer: w}}"
+refused F55 "writer is required for source external: who writes openova/apps/acme/x/e1 (printable text)" "generatedSecrets: {x: {delivery: synced, source: external, registerId: r, epoch: 1}}"
+refused F56 "writer is required for source external" "generatedSecrets: {x: {$E, writer: \" \"}}"
+refused F57 "writer is required for source external" "generatedSecrets: {x: {$E, writer: 3}}"
+refused F58 "writer is required for source external" "generatedSecrets: {x: {$E, writer: \"a\\nb\"}}"
+refused F59 "(source external) is never generated or pushed here, so it $X length" "generatedSecrets: {x: {$E, length: 40}}"
+refused F60 "(source external) is never generated or pushed here, so it $X symbols" "generatedSecrets: {x: {$E, symbols: 0}}"
+refused F61 "(source external) is never generated or pushed here, so it $X sharedAcrossRegions" "generatedSecrets: {x: {$E, sharedAcrossRegions: false}}"
+refused F62 "(source external) is never generated or pushed here, so it $X mountedCopies" "generatedSecrets: {x: {$E, mountedCopies: [{serviceAccount: a}]}}"
+refused F63 "writer is only for source external: a generated value is written by its PushSecret" "generatedSecrets: {x: {$S, writer: w}}"
+refused F64 "generatedSecrets.x joins this value, so it renders no Secret of its own and $X writer" "generatedSecrets: {x: {$E, join: [w]}, w: {delivery: synced, source: external, writer: w, epoch: 1}}"
+refused F65 'join names "w", whose source is not this value'"'"'s: the values of one Secret have one source and one writer' "generatedSecrets: {x: {$E, join: [w]}, w: {delivery: synced, epoch: 1}}"
+refused F66 'join names "w", whose source is not this value'"'"'s' "generatedSecrets: {x: {$S, join: [w]}, w: {delivery: synced, source: external, epoch: 1}}"
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"
