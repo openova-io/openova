@@ -138,11 +138,55 @@ entries:
     class: thrashing
     change_policy: open
     paths:
-      - clusters/_template/bootstrap-kit/**
+      - clusters/_template/bootstrap-kit/01-cilium.yaml
+      - clusters/_template/bootstrap-kit/02a-bp-cert-manager-issuers.yaml
+      - clusters/_template/bootstrap-kit/02-cert-manager.yaml
+      - clusters/_template/bootstrap-kit/03-flux.yaml
+      - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
+      - clusters/_template/bootstrap-kit/05a-reflector.yaml
+      - clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
+      - clusters/_template/bootstrap-kit/06-bp-dragonfly.yaml
+      - clusters/_template/bootstrap-kit/07-nats-jetstream.yaml
+      - clusters/_template/bootstrap-kit/08-openbao.yaml
+      - clusters/_template/bootstrap-kit/09-keycloak.yaml
+      - clusters/_template/bootstrap-kit/10-gitea.yaml
+      - clusters/_template/bootstrap-kit/11-powerdns.yaml
+      - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+      - clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml
+      - clusters/_template/bootstrap-kit/13e-bp-catalyst-secondary-edge-routes.yaml
+      - clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml
+      - clusters/_template/bootstrap-kit/14-crossplane-claims.yaml
+      - clusters/_template/bootstrap-kit/15a-external-secrets-stores.yaml
+      - clusters/_template/bootstrap-kit/15-external-secrets.yaml
+      - clusters/_template/bootstrap-kit/16a-bp-postgres-shared.yaml
+      - clusters/_template/bootstrap-kit/16b-bp-cnpg-pair.yaml
+      - clusters/_template/bootstrap-kit/16c-bp-postgres-shared-b.yaml
+      - clusters/_template/bootstrap-kit/16-cnpg.yaml
+      - clusters/_template/bootstrap-kit/16d-bp-postgres-shared-c.yaml
+      - clusters/_template/bootstrap-kit/17-valkey.yaml
+      - clusters/_template/bootstrap-kit/18-seaweedfs.yaml
+      - clusters/_template/bootstrap-kit/19-harbor.yaml
+      - clusters/_template/bootstrap-kit/22-loki.yaml
+      - clusters/_template/bootstrap-kit/23-mimir.yaml
+      - clusters/_template/bootstrap-kit/24-tempo.yaml
+      - clusters/_template/bootstrap-kit/25-grafana.yaml
+      - clusters/_template/bootstrap-kit/26b-bp-plane-isolation.yaml
+      - clusters/_template/bootstrap-kit/26-network-policies.yaml
+      - clusters/_template/bootstrap-kit/27-kyverno.yaml
+      - clusters/_template/bootstrap-kit/28-reloader.yaml
+      - clusters/_template/bootstrap-kit/29-vpa.yaml
+      - clusters/_template/bootstrap-kit/30-trivy.yaml
+      - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
+      - clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
+      - clusters/_template/bootstrap-kit/52-bp-guacamole.yaml
+      - clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml
+      - clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
+      - clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+      - clusters/_template/bootstrap-kit/80-newapi.yaml
     evidence:
-      date: 2026-11-13
+      date: 2026-11-28
       kind: churn
-      ref: "commit 8599f27c1, 90 days: 355 human commits, 70 fixes"
+      ref: "90 days: 75 files changed by a person, 47 five times or more; narrowed to the slot files among those (ruling 231)"
   - id: umbrella-chart
     title: Catalyst platform umbrella chart
     class: thrashing
