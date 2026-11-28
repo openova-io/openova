@@ -28,12 +28,10 @@ release "t" -> "t-mimir"):
   - rollout-operator Service `<release>-rollout-operator` (the webhook-gate
     hook in templates/webhook-gate-hook.yaml polls its Endpoints) — `mimir`
     release -> `mimir-rollout-operator`.
-  - MinIO Service `<release>-minio` (port 9000) (the Mimir blocks/ruler/
-    alertmanager S3 config in values.yaml's
+  - MinIO Service `<release>-minio` (port 9000) + Secret `<release>-minio`
+    (the Mimir blocks/ruler/alertmanager S3 config in values.yaml's
     `mimir-distributed.mimir.structuredConfig` points here) — `mimir` release
-    -> `mimir-minio`. Its root password is the generated Secret
-    `mimir-minio-password` (SEC-253, values.yaml `generatedSecrets`), not an
-    object of this file.
+    -> `mimir-minio`.
 
 Image + resource knobs are READ FROM the same `mimir-distributed.*` values
 keys the disabled subcharts would have consumed, so a per-Sovereign overlay
@@ -522,12 +520,7 @@ spec:
 {{- $mcRepo := $mcImg.repository | default "harbor.openova.io/proxy-dockerhub/bitnamilegacy/minio-client" -}}
 {{- $mcTag := $mcImg.tag | default "2025.7.21" -}}
 {{- $minioUser := $minio.rootUser | default "grafana-mimir" -}}
-{{- /* SEC-253: the root password is the generated value of this Secret
-       (values.yaml generatedSecrets, key password; minio.rootPassword is not
-       read); the user is no secret: it is the access_key_id of Mimir's
-       configuration. */ -}}
-{{- $minioSecret := "mimir-minio-password" -}}
-{{- if not (hasKey (.Values.generatedSecrets | default dict) $minioSecret) }}{{ fail (printf "generatedSecrets.%s is required: MinIO and Mimir read the MinIO root password from its Secret" $minioSecret) }}{{ end -}}
+{{- $minioPass := $minio.rootPassword | default "supersecret" -}}
 {{- $minioSize := ($minio.persistence).size | default "5Gi" -}}
 apiVersion: v1
 kind: ServiceAccount
@@ -537,6 +530,19 @@ metadata:
   labels:
     {{- include "bp-mimir.labels" . | nindent 4 }}
     app.kubernetes.io/component: minio
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $minioName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-mimir.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+type: Opaque
+data:
+  rootUser: {{ $minioUser | b64enc | quote }}
+  rootPassword: {{ $minioPass | b64enc | quote }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -562,7 +568,7 @@ data:
       # answered → Job Failed → mimir-ingester CrashLoop (no tsdb bucket).
       # 150×2s = 5min/attempt ×6 = ~30min tolerance for slow first-boot.
       ATTEMPTS=0 ; LIMIT=150
-      ACCESS="${MINIO_ROOT_USER}" ; SECRET=$(cat /config/rootPassword)
+      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword)
       set +e
       MC_COMMAND="${MC} alias set myminio http://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET"
       $MC_COMMAND ; STATUS=$?
@@ -669,10 +675,6 @@ spec:
       labels:
         {{- include "bp-mimir.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: minio
-      annotations:
-        # SEC-253: bp-reloader rolls MinIO when its root password changes, as
-        # it rolls each Mimir component (values.yaml global.podAnnotations).
-        secret.reloader.stakater.com/reload: {{ $minioSecret | quote }}
     spec:
       securityContext:
         fsGroup: 1000
@@ -698,12 +700,15 @@ spec:
               containerPort: 9001
           env:
             - name: MINIO_ROOT_USER
-              value: {{ $minioUser | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $minioName }}
+                  key: rootUser
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $minioSecret }}
-                  key: password
+                  name: {{ $minioName }}
+                  key: rootPassword
             - name: MINIO_PROMETHEUS_AUTH_TYPE
               value: "public"
           # #4347 — BOTH probes on MinIO's native health endpoints.
@@ -745,12 +750,9 @@ metadata:
   # `hook-succeeded` reaps it once the buckets exist. This mirrors the bundled
   # minio subchart's own makeBucketJob, which ships as a post-install,post-upgrade
   # hook — post-* (not pre-*) is required because the Job depends on the
-  # Catalyst-owned MinIO Deployment + Service + ConfigMap (all regular,
+  # Catalyst-owned MinIO Deployment + Service + Secret + ConfigMap (all regular,
   # non-hook resources) already being applied; a pre-install hook would deadlock a
   # fresh install. hook-weight orders it after the webhook-gate/minio renders.
-  # SEC-253: its password volume is the Secret External Secrets writes from the
-  # ExternalSecret of this release; the Pod starts once that Secret exists, so
-  # Helm's wait for this hook also waits for the generated value.
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "5"
@@ -771,10 +773,7 @@ spec:
               - configMap:
                   name: {{ $minioName }}
               - secret:
-                  name: {{ $minioSecret }}
-                  items:
-                    - key: password
-                      path: rootPassword
+                  name: {{ $minioName }}
       containers:
         - name: minio-mc
           image: {{ printf "%s:%s" $mcRepo $mcTag }}
@@ -785,8 +784,6 @@ spec:
               value: {{ $minioName }}
             - name: MINIO_PORT
               value: "9000"
-            - name: MINIO_ROOT_USER
-              value: {{ $minioUser | quote }}
           volumeMounts:
             - name: minio-configuration
               mountPath: /config

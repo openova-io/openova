@@ -15,24 +15,6 @@ catalystBlueprint:
 
 # ─── Upstream chart values (subchart key: mimir-distributed) ─────────────
 mimir-distributed:
-  # SEC-253 — every Mimir component reads the MinIO root password from
-  # MINIO_ROOT_PASSWORD, which Mimir expands into its configuration (the chart
-  # passes -config.expand-env=true to each component; the three S3 stanzas
-  # below read "${MINIO_ROOT_PASSWORD}"). Its Secret is the generated value
-  # `generatedSecrets.mimir-minio-password` at the end of this file. When the
-  # Secret changes (its epoch is raised), bp-reloader (kit slot 28,
-  # annotations strategy) rolls each component, and MinIO with it
-  # (templates/devcluster-workloads.yaml), so all of them read the new value.
-  global:
-    extraEnv:
-      - name: MINIO_ROOT_PASSWORD
-        valueFrom:
-          secretKeyRef:
-            name: mimir-minio-password
-            key: password
-    podAnnotations:
-      secret.reloader.stakater.com/reload: "mimir-minio-password"
-
   # Pin the global image tag — DO NOT use floating tags.
   #
   # #4347 — pull the Mimir image through the Sovereign's Harbor pull-through
@@ -275,16 +257,12 @@ mimir-distributed:
     # probes AT ALL (no livenessProbe knob, no readinessProbe knob), so it can
     # never satisfy the host-ns `probes-present` Enforce policy through values
     # alone. The bundled MinIO is therefore DISABLED here and a Catalyst-owned
-    # equivalent — ConfigMap (bucket-init) + PVC + Service + SA +
+    # equivalent — Secret + ConfigMap (bucket-init) + PVC + Service + SA +
     # Deployment (with BOTH probes on the minio `/minio/health/{live,ready}`
     # endpoints) + bucket-creation Job — is rendered by this umbrella in
     # `templates/devcluster-workloads.yaml` with the proxied images. The
-    # replacement keeps the exact `<release>-minio` Service contract the
+    # replacement keeps the exact `<release>-minio` Service + Secret contract the
     # Mimir blocks-storage S3 config (`<release>-minio.<ns>.svc:9000`) expects.
-    # The root user is `rootUser` (default grafana-mimir, the access_key_id of
-    # the S3 stanzas below). The root password is not a value of this chart:
-    # it is generated (SEC-253, `generatedSecrets.mimir-minio-password`);
-    # `rootPassword` (the upstream chart's public default) is not read.
     enabled: false
     # #4347 — route the MinIO server + `mc` client images through the Harbor
     # pull-through proxy so they satisfy the host-ns `harbor-proxy-pull` Enforce
@@ -374,19 +352,18 @@ mimir-distributed:
       # policy) and re-renders a probe-compliant MinIO in
       # templates/devcluster-workloads.yaml, the auto-wiring is gone and
       # MUST be restated here so Mimir still points at the Catalyst-owned
-      # MinIO Service. Endpoint/user/buckets are those the upstream
-      # `minio.enabled` path produced (`<release>-minio`, grafana-mimir,
-      # mimir-tsdb / mimir-ruler). The secret key is the generated MinIO root
-      # password, read from the environment (SEC-253, `global.extraEnv`
-      # above), never written here. A per-Sovereign overlay that swaps in
-      # SeaweedFS/cloud S3 overrides these three stanzas.
+      # MinIO Service. Endpoint/creds/buckets are byte-identical to what
+      # the upstream `minio.enabled` path produced (`<release>-minio`,
+      # grafana-mimir / supersecret, mimir-tsdb / mimir-ruler) — a
+      # per-Sovereign overlay that swaps in SeaweedFS/cloud S3 overrides
+      # these three stanzas.
       blocks_storage:
         backend: s3
         s3:
           endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
           bucket_name: mimir-tsdb
           access_key_id: grafana-mimir
-          secret_access_key: "${MINIO_ROOT_PASSWORD}"
+          secret_access_key: supersecret
           insecure: true
       ruler_storage:
         backend: s3
@@ -394,7 +371,7 @@ mimir-distributed:
           endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
           bucket_name: mimir-ruler
           access_key_id: grafana-mimir
-          secret_access_key: "${MINIO_ROOT_PASSWORD}"
+          secret_access_key: supersecret
           insecure: true
       alertmanager_storage:
         backend: s3
@@ -402,7 +379,7 @@ mimir-distributed:
           endpoint: "{{ .Release.Name }}-minio.{{ .Release.Namespace }}.svc:9000"
           bucket_name: mimir-ruler
           access_key_id: grafana-mimir
-          secret_access_key: "${MINIO_ROOT_PASSWORD}"
+          secret_access_key: supersecret
           insecure: true
 
   # MetaMonitoring (ServiceMonitor + Grafana dashboards) — DEFAULT FALSE
@@ -519,22 +496,3 @@ webhookGate:
   # repo (cert-manager / cnpg / external-secrets-stores).
   image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
   imagePullPolicy: IfNotPresent
-
-# ─── Generated values (platform/secrets-lib, templates/generated-secrets.yaml)
-#
-# SEC-253 — the root password of the Catalyst-owned MinIO. It was the fixed
-# literal of this chart, which is public, so it is rotated, never seeded from
-# it. External Secrets generates it in this region's OpenBao, at
-# openova/apps/<namespace>/mimir-minio-password/e<epoch>, and writes Secret
-# mimir-minio-password (key password, register entry mimir-minio-password).
-# Each region generates its own: each region runs its own MinIO. Readers: the
-# MinIO Deployment (MINIO_ROOT_PASSWORD), the bucket Job (a file), every Mimir
-# component (MINIO_ROOT_PASSWORD, `mimir-distributed.global.extraEnv`). Each
-# reads it when it starts. Raising the epoch writes a new value: the Secret
-# changes and bp-reloader rolls MinIO and every Mimir component together.
-generatedSecrets:
-  mimir-minio-password:
-    delivery: synced
-    registerId: mimir-minio-password
-    epoch: 1
-    sharedAcrossRegions: false
