@@ -24,8 +24,9 @@
 //     least five times as many pushes as case 1 has charts before it gave up.
 //
 // It needs bash, git and python3 (the step compares versions with
-// scripts/lib/version_order.py, copied from the repository into the scratch
-// origin). The step's env keys are those the workflow declares: a key this
+// scripts/lib/version_order.py and reads what a package holds with
+// scripts/lib/chart-file-deps.sh, both copied from the repository into the
+// scratch origin, stepFiles). The step's env keys are those the workflow declares: a key this
 // command has no value for stops it (exit 2), and a key the workflow does not
 // declare is not set, so a step that loses an input is run without it.
 //
@@ -63,6 +64,9 @@ const (
 	caseTimeout   = 10 * time.Minute
 )
 
+// Files of the repository the step runs, copied into the scratch origin.
+var stepFiles = []string{"scripts/lib/version_order.py", "scripts/lib/chart-file-deps.sh"}
+
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, out, errw io.Writer) int {
@@ -93,10 +97,14 @@ func run(args []string, out, errw io.Writer) int {
 		say(errw, "release-push: %s: %v\n", *workflow, err)
 		return 2
 	}
-	versionOrder, err := os.ReadFile(filepath.Clean(filepath.Join(root, "scripts", "lib", "version_order.py")))
-	if err != nil {
-		say(errw, "release-push: %v\n", err)
-		return 2
+	repoFiles := map[string]string{}
+	for _, rel := range stepFiles {
+		b, err := os.ReadFile(filepath.Clean(filepath.Join(root, rel)))
+		if err != nil {
+			say(errw, "release-push: %v\n", err)
+			return 2
+		}
+		repoFiles[rel] = string(b)
 	}
 	base := *scratch
 	if base == "" {
@@ -113,7 +121,7 @@ func run(args []string, out, errw io.Writer) int {
 		defer func() { _ = os.RemoveAll(base) }()
 	}
 
-	findings, err := runCases(st, versionOrder, base, out)
+	findings, err := runCases(st, repoFiles, base, out)
 	if err != nil {
 		say(errw, "release-push: %v\n", err)
 		return 2
@@ -130,7 +138,7 @@ func run(args []string, out, errw io.Writer) int {
 }
 
 // runCases runs the three cases in folders under base and returns the findings.
-func runCases(st step, versionOrder []byte, base string, out io.Writer) ([]string, error) {
+func runCases(st step, repoFiles map[string]string, base string, out io.Writer) ([]string, error) {
 	var findings []string
 
 	twice := make([]int, chartsInRun)
@@ -147,7 +155,7 @@ func runCases(st step, versionOrder []byte, base string, out io.Writer) ([]strin
 		{"case 2 (six charts, the k-th refused k-1 times)", growing},
 	} {
 		dir := uniqueDir(filepath.Join(base, fmt.Sprintf("case%d", n+1)))
-		res, err := runJobs(st, versionOrder, dir, c.refusals)
+		res, err := runJobs(st, repoFiles, dir, c.refusals)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +193,7 @@ func runCases(st step, versionOrder []byte, base string, out io.Writer) ([]strin
 
 	name := "case 3 (one chart, every push refused)"
 	dir := uniqueDir(filepath.Join(base, "case3"))
-	res, err := runJobs(st, versionOrder, dir, []int{alwaysRefused})
+	res, err := runJobs(st, repoFiles, dir, []int{alwaysRefused})
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +316,7 @@ type result struct {
 // runJobs prepares one origin with len(refusals) charts at oldVersion and runs
 // the step for every chart at once, each in its own clone, as the jobs of one
 // release run do.
-func runJobs(st step, versionOrder []byte, dir string, refusals []int) ([]result, error) {
+func runJobs(st step, repoFiles map[string]string, dir string, refusals []int) ([]result, error) {
 	origin := filepath.Join(dir, "origin.git")
 	seed := filepath.Join(dir, "seed")
 	plan := filepath.Join(dir, "plan")
@@ -318,7 +326,10 @@ func runJobs(st step, versionOrder []byte, dir string, refusals []int) ([]result
 		}
 	}
 	env := baseEnv(dir)
-	files := map[string]string{"scripts/lib/version_order.py": string(versionOrder)}
+	files := map[string]string{}
+	for rel, text := range repoFiles {
+		files[rel] = text
+	}
 	for k := range refusals {
 		for i, s := range sites(k) {
 			files[s.file] = siteText(k, i, oldVersion)

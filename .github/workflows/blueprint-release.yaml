@@ -50,6 +50,11 @@ on:
     paths:
       - 'platform/*/chart/**'
       - 'products/*/chart/**'
+      # A chart in a deeper folder that another chart names as a file://
+      # dependency (products/chargeback/docrender/chart): the step "Detect
+      # changed Blueprints" releases the charts that build it in.
+      - 'platform/*/*/chart/**'
+      - 'products/*/*/chart/**'
       - 'platform/*/blueprint.yaml'
       - 'products/*/blueprint.yaml'
     branches: [main]
@@ -102,20 +107,32 @@ jobs:
           # in earlier commits in the same push gets skipped.
           fetch-depth: 0
 
+      # A chart's package holds the folder of each file:// dependency, so a push that
+      # changes a library chart (platform/secrets-lib, ...) releases every chart that
+      # builds it in, directly or through another library, each with its own version
+      # bump and lockstep. On 27 and 28 Nov 2026 SEC-219 (#9073) and SEC-226 (#9090)
+      # changed platform/secrets-lib/chart, the matrix held the library alone, and the
+      # cut of a candidate refused main for products/catalyst and products/axon.
+      # release_set (scripts/lib/chart-file-deps.sh) reads a dependency as the cut's
+      # check does; tools/guards/cmd/release-set runs this step.
       - name: Detect changed Blueprints
         id: changed
+        env:
+          BLUEPRINT: ${{ inputs.blueprint }}
+          TREE: ${{ inputs.tree }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
           set -e
-          if [ -n "${{ inputs.blueprint }}" ]; then
-            tree="${{ inputs.tree }}"
-            tree="${tree:-platform}"
-            echo "matrix={\"include\":[{\"path\":\"${tree}/${{ inputs.blueprint }}\"}]}" >> "$GITHUB_OUTPUT"
+          if [ -n "${BLUEPRINT}" ]; then
+            tree="${TREE:-platform}"
+            echo "matrix={\"include\":[{\"path\":\"${tree}/${BLUEPRINT}\"}]}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # G47 #2599: diff against the base of the push (covers stacked
           # commits), not against HEAD~1 (which only inspects the tip).
-          BEFORE='${{ github.event.before }}'
-          AFTER='${{ github.sha }}'
+          BEFORE="${PUSH_BEFORE}"
+          AFTER="${PUSH_AFTER}"
           ZERO=0000000000000000000000000000000000000000
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "$ZERO" ]; then
             # workflow_dispatch / initial push / branch-create — no
@@ -125,7 +142,10 @@ jobs:
             BASE="$BEFORE"
           fi
           echo "Diffing $BASE..$AFTER"
-          changed=$(git diff --name-only "$BASE" "$AFTER" | grep -E '^(platform|products)/[^/]+/(chart/|blueprint\.yaml)' | awk -F/ '{print $1"/"$2}' | sort -u)
+          # shellcheck source=scripts/lib/chart-file-deps.sh
+          . scripts/lib/chart-file-deps.sh
+          paths="$(git diff --name-only "$BASE" "$AFTER")"
+          changed="$(printf '%s\n' "$paths" | release_set)"
           echo "Changed blueprints:"
           echo "$changed"
           if [ -z "$changed" ]; then
@@ -212,9 +232,10 @@ jobs:
       # this step writes the next patch version BEFORE the chart is packaged;
       # the commit step pushes it with every other site in ONE commit.
       # Not bumped on a push: a new chart, a version that moved in the push, a
-      # library chart. Four charts are versioned by their own build workflow,
-      # which runs on the same push and dispatches this one: their push run
-      # publishes nothing (defer=true).
+      # library chart. A change of a file:// dependency the chart packages (a
+      # library) is a change of the chart. Four charts are versioned by their own
+      # build workflow, which runs on the same push when it changed their chart
+      # folder and dispatches this one: that push run publishes nothing (defer=true).
       # FND-029: a dispatched run has no push range. Nine image builds commit a
       # new image tag into chart values and dispatch this workflow without a
       # version bump, so the run packages the chart and compares its files with
@@ -299,8 +320,15 @@ jobs:
               echo "bumped=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ -z "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- "${CHART_PATH}/chart")" ]; then
-              echo "No file of ${CHART_PATH}/chart changed in this push: the version is published as it stands."
+            # The package holds the chart folder and the folder of each file://
+            # dependency (a library chart): a change of either is a change of the chart.
+            # shellcheck source=scripts/lib/chart-file-deps.sh
+            . scripts/lib/chart-file-deps.sh
+            packaged="$(chart_packaged_dirs "${PUSH_AFTER}" "${CHART_PATH}/chart")"
+            packaged_before="$(chart_packaged_dirs "${PUSH_BEFORE}" "${CHART_PATH}/chart")"
+            # shellcheck disable=SC2086
+            if [ -z "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- ${packaged} ${packaged_before})" ]; then
+              echo "No file of ${CHART_PATH}/chart or of a file:// dependency it packages changed in this push: the version is published as it stands."
               echo "bumped=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -312,12 +340,17 @@ jobs:
               echo "bumped=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            # Their build workflow runs on a change of the chart folder; a push that
+            # changed only a file:// dependency starts none, so the version is written here.
             case "${CHART_PATH}" in
               products/catalyst|platform/guacamole|platform/newapi|platform/k8s-ws-proxy)
-                echo "${CHART_PATH} is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push."
-                echo "bumped=false" >> "$GITHUB_OUTPUT"
-                echo "defer=true" >> "$GITHUB_OUTPUT"
-                exit 0
+                if [ -n "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- "${CHART_PATH}/chart")" ]; then
+                  echo "${CHART_PATH} is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push."
+                  echo "bumped=false" >> "$GITHUB_OUTPUT"
+                  echo "defer=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+                echo "Only a file:// dependency of ${CHART_PATH}/chart changed in this push, which starts no build workflow of its own: the next version is written here."
                 ;;
             esac
           fi
@@ -1495,13 +1528,13 @@ jobs:
           }
           # FND-046: a retry writes CHART_VERSION onto a main this job did not check
           # out. packaged_paths <rev> names what a package of the chart holds at <rev>:
-          # its chart folder and the folder of each file:// dependency.
+          # its chart folder and the folder of each file:// dependency, directly or
+          # through a dependency's own (scripts/lib/chart-file-deps.sh, sourced once
+          # here, before a retry resets the tree to origin/main).
+          # shellcheck source=scripts/lib/chart-file-deps.sh
+          . scripts/lib/chart-file-deps.sh
           packaged_paths() {
-            local rel
-            echo "${CHART_PATH}/chart"
-            for rel in $(git show "$1:${CHART_PATH}/chart/Chart.yaml" 2>/dev/null | sed -n -E 's|^[ -]*repository: *"?file://([^" ]*)"?.*$|\1|p'); do
-              echo "${CHART_PATH}/chart/${rel}"
-            done
+            chart_packaged_dirs "$1" "${CHART_PATH}/chart"
           }
           # owned_out <rev> <file>: the file without the release-owned lines R1 to R3 of
           # scripts/check-release-owned-lines.py (this chart's version, the umbrella's

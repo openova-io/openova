@@ -522,6 +522,12 @@ jobs:
       - name: 'release-push | A release run that publishes six charts lands every one on main, or fails naming the one it lost'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/release-push
+      - name: 'release-set | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/release-set
+      - name: 'release-set | A push that changes a library chart releases every chart that builds it in, each with its own next version'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/release-set
       # release-own-tree runs the dependency build of the release, whose two paths are Helm's,
       # so it sets up the Helm of blueprint-release.yaml (the guard stops on another version;
       # in `go test ./...` above, its two tests that need it skip, here they must run).

@@ -97,7 +97,7 @@ const (
 )
 
 // Files of the repository the release writer runs, copied into the fixture tree.
-var writerFiles = []string{libRel, "scripts/chart-package-diff.py", "scripts/lib/version_order.py"}
+var writerFiles = []string{libRel, "scripts/chart-package-diff.py", "scripts/lib/version_order.py", "scripts/lib/chart-file-deps.sh"}
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
