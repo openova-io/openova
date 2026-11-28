@@ -2954,7 +2954,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.2.33
+  version: 1.2.34
   card:
     title: PowerDNS
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
@@ -2972,7 +2972,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: 1.2.33
+    version: 1.2.34
   topology:
     supported: [singleton]
     defaults:
