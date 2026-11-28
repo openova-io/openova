@@ -94,6 +94,7 @@ record_files:
 - scripts/baselines/api-structure.json
 - clusters/_template/bootstrap-kit/kustomization.yaml
 - scripts/expected-bootstrap-deps.yaml
+- clusters/_template/bootstrap-kit/placement.yaml
 epics:
 - id: FND-010
   title: Release train rails
