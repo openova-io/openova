@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T12:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-28T12:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T12:10 | [#9117](https://github.com/openova-io/openova/pull/9117) | #7087 | docs(ledger): plan update |
 | 2026-11-28T11:49 | [#9116](https://github.com/openova-io/openova/pull/9116) | #7087 | docs(ledger): plan update |
 | 2026-11-28T11:49 | [#9115](https://github.com/openova-io/openova/pull/9115) | #9114 | fix(secrets-lib): a library value given from outside: source |
 | 2026-11-28T11:14 | [#9113](https://github.com/openova-io/openova/pull/9113) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:25 | [#9077](https://github.com/openova-io/openova/pull/9077) | #9075 | feat(network): the platform API writes the passthrough liste |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
-| 2026-11-27T20:47 | [#9073](https://github.com/openova-io/openova/pull/9073) | #9072 | fix(secrets-lib): a synced value takes a template, copies in |
 
 ---
 
