@@ -62,7 +62,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgdelete"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -1135,9 +1137,11 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, orgTenantRecordToResponse(final))
 }
 
-// HandleDeleteOrganization — DELETE /api/v1/org/tenants/{id}.
+// HandleDeleteOrganization — DELETE /api/v1/organizations/{id}.
 //
-// Inverse pipeline: removes the per-tenant overlay from the GitOps
+// An id with no record names a storefront Organization, which has only its
+// CR: orgdelete.Unrecorded deletes that CR (BSS-071). For a recorded one,
+// inverse pipeline: removes the per-tenant overlay from the GitOps
 // repo (Flux reconciles → tenant resources GC), deletes the canonical
 // Organization CR — which fires the org-controller finalizer cascade
 // (publishTenantDeleted → teardownPerOrgFlux → teardownTenantNetworking
@@ -1166,9 +1170,13 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 	id := chi.URLParam(r, "id")
 	rec, ok := deps.Store.Get(id)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "org-tenant-not-found",
-		})
+		orgdelete.Unrecorded(r.Context(), w, id, func() (dynamic.Interface, error) {
+			sd, err := h.sovereignDepsFor()
+			if err != nil || sd == nil {
+				return nil, err
+			}
+			return sd.dyn, nil
+		}, h.deleteOrgOrganizationCR, writeJSON)
 		return
 	}
 
@@ -1207,16 +1215,8 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 		if perr := deps.Store.Put(rec); perr != nil {
 			h.log.Warn("org-tenant: persist delete failure failed", "err", perr)
 		}
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error": "organization-cr-delete-failed",
-			// Verbatim apiserver text — on an RBAC denial this names the
-			// ServiceAccount, the verb and the resource, which is the whole
-			// diagnosis.
-			"detail": truncate(err.Error(), 512),
-			"hint": "the Organization CR survives, so the org-controller finalizer cascade never ran " +
-				"and the namespace / vCluster / Keycloak realm / per-Org Flux sources are still live; " +
-				"this DELETE is idempotent — re-issue it once the apiserver permits the call",
-		})
+		// The same answer as a refused delete of an unrecorded Organization.
+		writeJSON(w, http.StatusBadGateway, orgdelete.Refused(err))
 		return
 	}
 	if deps.TenantRegistry != nil {

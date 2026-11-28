@@ -14,6 +14,9 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgtenantrepos"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
@@ -2005,5 +2008,79 @@ func TestResolveSovereignConsoleIPv4(t *testing.T) {
 	}
 	if got := resolveSovereignConsoleIPv4(context.Background(), "  "); got != "" {
 		t.Errorf("resolve on blank fqdn = %q, want empty", got)
+	}
+}
+
+// storefrontOrganizationCR is the Organization CR the provisioning service
+// writes for an Organization the storefront created (createOrganizationCR,
+// core/services/provisioning/handlers/organization_create.go): named after the
+// slug, labelled with the storefront's tenant id. No provision record exists.
+func storefrontOrganizationCR(slug, tenantID string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "orgs.openova.io/v1",
+		"kind":       "Organization",
+		"metadata": map[string]any{
+			"name":   slug,
+			"labels": map[string]any{"openova.io/tenant-id": tenantID, "openova.io/source": "tenant-created-event"},
+		},
+		"spec": map[string]any{"slug": slug, "kind": "customer", "tier": "org",
+			"tenantPublic": map[string]any{"parentDomain": "omani.rest", "subdomain": slug}},
+	}}
+}
+
+// TestDeleteOrganization_StorefrontOrganizationDeletesItsCR is BSS-071. An
+// Organization the storefront created has no provision record, only its CR,
+// and the console lists it under its tenant id. DELETE of that id answered
+// 404 and left the CR, so the finalizer cascade that removes its namespaces
+// never ran (gate check BSS-G01: "DELETE /api/v1/organizations/<id> answered
+// 404", the Organization and its namespaces left in both regions). The DELETE
+// must delete exactly that CR, by tenant id or by slug, and nothing else.
+func TestDeleteOrganization_StorefrontOrganizationDeletesItsCR(t *testing.T) {
+	const slug, tenantID = "g01-y2x9bk2y", "c90e9dc4-3393-4638-baf4-cca8203b8764"
+	for _, id := range []string{tenantID, slug} {
+		t.Run(id, func(t *testing.T) {
+			h, dyn, mu, steps := newOrgDeleteCascadeHarness(t)
+			orgs := dyn.Resource(organizationGVR())
+			for _, cr := range []*unstructured.Unstructured{storefrontOrganizationCR(slug, tenantID),
+				storefrontOrganizationCR("other-org", "0b6a2c1e-5d4f-4e3a-9b8c-7d6e5f4a3b2c")} {
+				if _, err := orgs.Create(context.Background(), cr, metav1.CreateOptions{}); err != nil {
+					t.Fatalf("seed %s: %v", cr.GetName(), err)
+				}
+			}
+
+			w := deleteOrgViaHandler(t, h, id)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("DELETE %s: want 204, got %d %s", id, w.Code, w.Body.String())
+			}
+			if _, err := orgs.Get(context.Background(), slug, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+				t.Fatalf("the Organization CR %s survived the DELETE (err=%v): its finalizer cascade never runs", slug, err)
+			}
+			if _, err := orgs.Get(context.Background(), "other-org", metav1.GetOptions{}); err != nil {
+				t.Fatalf("the CR of another Organization was deleted: %v", err)
+			}
+			mu.Lock()
+			got := strings.Join(*steps, ",")
+			mu.Unlock()
+			if got != "cr-delete" {
+				t.Fatalf("teardown steps: want cr-delete (one CR delete, no overlay reap of a record that does not exist), got %q", got)
+			}
+			if _, ok := h.orgTenantDeps.Store.Get(id); ok {
+				t.Fatalf("the DELETE wrote a provision record for %s", id)
+			}
+		})
+	}
+
+	// An id that names no CR is still 404 and deletes nothing.
+	h, dyn, mu, steps := newOrgDeleteCascadeHarness(t)
+	if _, err := dyn.Resource(organizationGVR()).Create(context.Background(), storefrontOrganizationCR(slug, tenantID), metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if w := deleteOrgViaHandler(t, h, "f4605972-1340-4308-91f7-8f9af1cec03c"); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "org-tenant-not-found") {
+		t.Fatalf("DELETE of an id no CR carries: want 404 org-tenant-not-found, got %d %s", w.Code, w.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*steps) != 0 {
+		t.Fatalf("DELETE of an id no CR carries ran %v", *steps)
 	}
 }
