@@ -17,13 +17,17 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   getApplicationInstances,
   createApplicationInstance,
+  getCapability,
   getCatalogItemVersion,
   type ApplicationInstanceSummary,
   type BackingSelection,
+  type CapabilityImplementation,
+  type CapabilityItem,
+  type CapabilityRequirement,
   type CreateApplicationInstanceRequest,
 } from '@/lib/catalog.api'
 import {
@@ -528,6 +532,9 @@ export function NewInstanceDialog({
   // #3370 — per-backing-service selection: "" = Create new (default),
   // any other value = the existing instance name to reuse.
   const [backingChoice, setBackingChoice] = useState<Record<string, string>>({})
+  // SVC-280 — per requires[] alias: the chosen implementation ("" = the
+  // capability's default) and the existing Application to reuse ("" = Create new).
+  const [capabilityChoice, setCapabilityChoice] = useState<Record<string, CapabilityChoice>>({})
 
   const { deploymentId } = useResolvedDeploymentId()
 
@@ -727,6 +734,32 @@ export function NewInstanceDialog({
     return depends.filter((d) => BLUEPRINT_BY_ID[d]?.shareable === true)
   }, [bpName])
 
+  // SVC-280 — one block per requires[] entry of the Blueprint. The offered
+  // implementations and the default come from the capability route; the
+  // browser only shows them and sends the one chosen.
+  const requires = useMemo<CapabilityRequirement[]>(() => {
+    const raw = bpQuery.data?.raw as { spec?: { requires?: CapabilityRequirement[] } } | undefined
+    return (raw?.spec?.requires ?? []).filter(
+      (r) => typeof r?.capability === 'string' && typeof r?.alias === 'string',
+    )
+  }, [bpQuery.data])
+  const capabilityQueries = useQueries({
+    queries: requires.map((req) => ({
+      queryKey: ['catalog-capability', req.capability],
+      queryFn: () => getCapability(req.capability),
+      staleTime: 60_000,
+      retry: 1,
+    })),
+  })
+  const capabilityBlocks: CapabilityBlock[] = requires.map((req, i) =>
+    capabilityBlockOf(req, capabilityQueries[i], capabilityChoice[req.alias]),
+  )
+  // The requires[] list is known only once the Blueprint is read: a failed
+  // read is not a Blueprint without requires, so Create stays disabled and
+  // the dialog says why. Every block needs a chosen implementation, or none
+  // offered for an optional one.
+  const capabilitiesReady = bpQuery.isSuccess && capabilityBlocks.every((b) => b.ready)
+
   const toggleRegion = (region: string) =>
     setRegions((prev) =>
       prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region],
@@ -738,7 +771,13 @@ export function NewInstanceDialog({
   // server would 422, so the dialog says so instead of submitting.
   const registryEmpty = !regionsQuery.isPending && availableRegions.length === 0
   const canSubmit =
-    !submitting && !!name && !!org && !!environment && placementValid && !registryEmpty
+    !submitting &&
+    !!name &&
+    !!org &&
+    !!environment &&
+    placementValid &&
+    !registryEmpty &&
+    capabilitiesReady
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -765,13 +804,24 @@ export function NewInstanceDialog({
         if (vcluster) body.placement.vcluster = vcluster
         if (regions.length > 0) body.placement.regions = regions
       }
-      if (backingBlueprints.length > 0) {
+      // SVC-280 — one element per requires[] entry with a chosen
+      // implementation; an optional entry with none offered sends none.
+      const capabilityBacking = capabilityBlocks
+        .filter((b) => b.implementation !== '')
+        .map((b): BackingSelection => {
+          const sel = { capability: b.req.capability, alias: b.req.alias, implementation: b.implementation }
+          return b.instance
+            ? { ...sel, mode: 'reuse', instance: b.instance }
+            : { ...sel, mode: 'create' }
+        })
+      if (backingBlueprints.length > 0 || capabilityBacking.length > 0) {
         body.backing = backingBlueprints.map((bp): BackingSelection => {
           const chosen = backingChoice[bp] ?? ''
           return chosen
             ? { blueprint: bp, mode: 'reuse', instance: chosen }
             : { blueprint: bp, mode: 'create' }
         })
+        body.backing.push(...capabilityBacking)
       }
       await createApplicationInstance(body)
       onCreated()
@@ -1031,9 +1081,18 @@ export function NewInstanceDialog({
           #3370 — backing services. EVERY required backing service of
           this blueprint (declared depends[] whose target is shareable)
           renders ONE generic selector: Create new (default) / Reuse
-          existing.
+          existing. SVC-280 — every requires[] entry renders one capability
+          block below them.
         */}
-        {backingBlueprints.length > 0 ? (
+        {bpQuery.isError ? (
+          <p
+            data-testid="blueprint-read-error"
+            style={{ color: 'var(--color-danger)', fontSize: '0.8rem', margin: '0 0 0.6rem' }}
+          >
+            The Blueprint {blueprint} could not be read, so the capabilities it requires are not known: {bpQuery.error.message}
+          </p>
+        ) : null}
+        {backingBlueprints.length > 0 || requires.length > 0 ? (
           <fieldset
             data-testid="backing-services"
             style={{
@@ -1052,6 +1111,13 @@ export function NewInstanceDialog({
                 blueprint={bp}
                 value={backingChoice[bp] ?? ''}
                 onChange={(v) => setBackingChoice((prev) => ({ ...prev, [bp]: v }))}
+              />
+            ))}
+            {capabilityBlocks.map((b) => (
+              <CapabilitySelector
+                key={b.req.alias}
+                block={b}
+                onChange={(next) => setCapabilityChoice((prev) => ({ ...prev, [b.req.alias]: next }))}
               />
             ))}
           </fieldset>
@@ -1154,15 +1220,22 @@ function BackingServiceSelector({
   blueprint,
   value,
   onChange,
+  testKey,
+  title: titleFromApi,
 }: {
   /** Full backing Blueprint id (bp-<name>). */
   blueprint: string
   /** "" = Create new; otherwise the existing instance name to reuse. */
   value: string
   onChange: (v: string) => void
+  /** SVC-280 — the key of the test ids and the radio group; the slug when unset. */
+  testKey?: string
+  /** SVC-280 — the Blueprint's title as the capability route answered it. */
+  title?: string
 }) {
-  const slug = blueprint.replace(/^bp-/, '')
-  const title = BLUEPRINT_BY_ID[blueprint]?.title ?? slug
+  const bare = blueprint.replace(/^bp-/, '')
+  const slug = testKey ?? bare
+  const title = titleFromApi || (BLUEPRINT_BY_ID[blueprint]?.title ?? bare)
   const kind = BLUEPRINT_BY_ID[blueprint]?.contextSchema?.kind ?? ''
   const instancesQuery = useQuery({
     queryKey: ['blueprint-instances', blueprint],
@@ -1239,6 +1312,144 @@ function BackingServiceSelector({
           ))}
         </select>
       ) : null}
+    </div>
+  )
+}
+
+/** SVC-280 — what the dialog holds for one requires[] alias. */
+type CapabilityChoice = { implementation: string; instance: string }
+
+/** SVC-280 — one requires[] entry with its capability as the API answered it. */
+type CapabilityBlock = {
+  req: CapabilityRequirement
+  query: UseQueryResult<CapabilityItem> | undefined
+  offered: CapabilityImplementation[]
+  item: CapabilityItem | undefined
+  /** The implementation the element sends: the choice, else the default; "" when neither is offered. */
+  implementation: string
+  /** The existing Application of that implementation to reuse; "" = Create new. */
+  instance: string
+  /** The entry has an implementation, or it is optional and none is offered. */
+  ready: boolean
+}
+
+function capabilityBlockOf(
+  req: CapabilityRequirement,
+  query: UseQueryResult<CapabilityItem> | undefined,
+  choice: CapabilityChoice | undefined,
+): CapabilityBlock {
+  const item = query?.data
+  const offered = (item?.implementations ?? []).filter((im) => im.offered)
+  const isOffered = (bp: string) => bp !== '' && offered.some((im) => im.blueprint === bp)
+  const def = item?.default ?? ''
+  const picked = item?.organizationChoice === 'fixed' ? '' : (choice?.implementation ?? '')
+  const implementation = isOffered(picked) ? picked : isOffered(def) ? def : ''
+  const instance = choice && choice.implementation === implementation ? choice.instance : ''
+  const ready = !!query?.isSuccess && (implementation !== '' || (!!req.optional && offered.length === 0))
+  return { req, query, offered, item, implementation, instance, ready }
+}
+
+/**
+ * CapabilitySelector — SVC-280. One block per requires[] entry: the
+ * implementations this Sovereign offers for the capability (a selector,
+ * hidden when one is offered or the Sovereign fixes the choice), then the
+ * Create new / Reuse existing selector of the chosen implementation, whose
+ * reuse list holds only Applications of that implementation. Test ids are
+ * keyed by the requirement's alias.
+ */
+function CapabilitySelector({
+  block,
+  onChange,
+}: {
+  block: CapabilityBlock
+  onChange: (next: CapabilityChoice) => void
+}) {
+  const { req, query, offered, item, implementation, instance } = block
+  const title = item?.title || req.capability
+  const showPicker = offered.length > 1 && item?.organizationChoice !== 'fixed'
+  const dim: React.CSSProperties = { color: 'var(--color-text-dim)' }
+  const danger: React.CSSProperties = { color: 'var(--color-danger)' }
+  let body: React.ReactNode
+  if (!query || query.isPending) {
+    body = (
+      <span data-testid={`backing-capability-loading-${req.alias}`} style={dim}>
+        Reading the implementations…
+      </span>
+    )
+  } else if (query.isError) {
+    body = (
+      <span data-testid={`backing-capability-error-${req.alias}`} style={danger}>
+        The implementations of {title} could not be read: {query.error.message}
+      </span>
+    )
+  } else if (offered.length === 0) {
+    body = (
+      <span data-testid={`backing-capability-none-${req.alias}`} style={req.optional ? dim : danger}>
+        No implementation of {title} is offered on this Sovereign.
+        {req.optional ? ' The Application is installed without it.' : ''}
+      </span>
+    )
+  } else {
+    body = (
+      <>
+        {showPicker ? (
+          <label style={{ display: 'block', padding: '0.1rem 0' }}>
+            Implementation
+            <select
+              value={implementation}
+              onChange={(e) => onChange({ implementation: e.target.value, instance: '' })}
+              data-testid={`backing-implementation-${req.alias}`}
+              style={{
+                width: '100%',
+                marginTop: '0.2rem',
+                padding: '0.3rem 0.5rem',
+                background: 'var(--color-bg)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '4px',
+                fontSize: '0.82rem',
+              }}
+            >
+              {implementation === '' ? <option value="">Choose an implementation</option> : null}
+              {offered.map((im) => (
+                <option key={im.blueprint} value={im.blueprint}>
+                  {im.title}
+                  {im.blueprint === item?.default ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {implementation !== '' ? (
+          <BackingServiceSelector
+            key={implementation}
+            blueprint={implementation}
+            testKey={req.alias}
+            title={offered.find((im) => im.blueprint === implementation)?.title}
+            value={instance}
+            onChange={(v) => onChange({ implementation, instance: v })}
+          />
+        ) : showPicker ? null : (
+          <span data-testid={`backing-capability-none-${req.alias}`} style={danger}>
+            No default implementation of {title} is set on this Sovereign.
+          </span>
+        )}
+      </>
+    )
+  }
+  return (
+    <div
+      data-testid={`backing-capability-${req.alias}`}
+      style={{ padding: '0.25rem 0', fontSize: '0.82rem' }}
+    >
+      <span style={{ display: 'block', marginBottom: '0.2rem', fontWeight: 600 }}>
+        {title}
+        <span style={{ marginLeft: '0.4rem', fontWeight: 400, ...dim }}>
+          ({req.alias}
+          {req.optional ? ', optional' : ''})
+        </span>
+      </span>
+      {body}
     </div>
   )
 }

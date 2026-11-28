@@ -1,6 +1,10 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/capabilityapi"
+)
 
 func registerSessionCatalog(rg chi.Router, d routeDeps) {
 	h := d.h
@@ -21,6 +25,10 @@ func registerSessionCatalog(rg chi.Router, d routeDeps) {
 	rg.Get("/api/v1/catalog", h.HandleCatalogList)
 	rg.Get("/api/v1/catalog/{name}", h.HandleCatalogGet)
 	rg.Get("/api/v1/catalog/{name}/versions/{version}", h.HandleCatalogGetVersion)
+	// SVC-280 — the capability registry over the cached Blueprint objects.
+	capabilities := capabilityapi.New(h.K8sCache)
+	rg.Get("/api/v1/catalog/capabilities", capabilities.List)
+	rg.Get("/api/v1/catalog/capabilities/{name}", capabilities.Get)
 	// #3668 §5D — the full-CR catalog IaC editor. Commits the WHOLE
 	// blueprint.yaml the admin edited (spec.source / manifests / sso /
 	// placementSchema / endpoints / shareable / contextSchema — fields
