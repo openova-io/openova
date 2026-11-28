@@ -579,6 +579,12 @@ jobs:
       - name: 'acceptance-exit | The acceptance commands of the tickets not merged lose no part of their exit status'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/acceptance-exit
+      - name: 'kit-birth-namespaces | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/kit-birth-namespaces
+      - name: 'kit-birth-namespaces | Kit slot 08 lists in peerTrust.birthNamespaces exactly the namespaces of the kit charts shared mounted values'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/kit-birth-namespaces
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

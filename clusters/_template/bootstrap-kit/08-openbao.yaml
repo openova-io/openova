@@ -334,6 +334,11 @@ spec:
     peerTrust:
       selfRegion: '${SOVEREIGN_REGION_CANONICAL_LABEL:-}'
       regions: '${SOVEREIGN_REGIONS_JSON:-}'
+      # SEC-237: the namespaces of the kit's shared mounted values (secrets-lib,
+      # delivery mounted, sharedAcrossRegions true), whose primary birth Job
+      # logs in at each peer as secrets-birth-<ns>. None today: the kit's one
+      # mounted value (org-services jwt-refresh-secret) is not shared.
+      birthNamespaces: []
     functionTest:
       timeoutSeconds: 900  # T = install.timeout (15m)
     # SEC-181 — the six-hourly snapshot to the bucket (SEC-180) and its
