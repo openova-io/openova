@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T09:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T09:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T09:28 | [#9109](https://github.com/openova-io/openova/pull/9109) | #7087 | docs(ledger): plan update |
+| 2026-11-28T09:21 | [#9108](https://github.com/openova-io/openova/pull/9108) | #9107 | fix(compliance): the API cache holds the namespaced policy k |
 | 2026-11-28T08:47 | [#9106](https://github.com/openova-io/openova/pull/9106) | #7087 | docs(ledger): plan update |
 | 2026-11-28T09:07 | [#9105](https://github.com/openova-io/openova/pull/9105) | #9102 | feat(acceptance): gate check ACC-G15, session images start h |
 | 2026-11-28T08:57 | [#9104](https://github.com/openova-io/openova/pull/9104) | #9097 | fix(mimir): the metrics chart object-store password is gener |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
-| 2026-11-27T19:06 | [#9062](https://github.com/openova-io/openova/pull/9062) | #9057 | fix(crossplane): a cloud adoption Workspace recovers after a |
-| 2026-11-27T19:14 | [#9061](https://github.com/openova-io/openova/pull/9061) | #9030 | fix(openbao): the PKI bootstrap Job leaves nothing behind an |
 
 ---
 
