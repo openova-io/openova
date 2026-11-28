@@ -57,6 +57,12 @@ dependencies:
   - name: mimir-distributed
     version: "6.0.6"
     repository: "https://grafana.github.io/helm-charts"
+  # SEC-253: the LIBRARY platform/secrets-lib renders the generated MinIO root
+  # password (templates/generated-secrets.yaml). `helm dependency build`
+  # vendors it into charts/ (gitignored) and into the packaged artifact.
+  - name: secrets-lib
+    version: "0.1.0"
+    repository: "file://../../secrets-lib/chart"
 
 annotations:
   # #2935 (2026-06-03): Blueprint-Release hollow-chart guard exemption.
