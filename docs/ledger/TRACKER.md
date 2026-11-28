@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T08:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T09:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8728](https://github.com/openova-io/openova/issues/8728) | CMP-021 CMP-G02 becomes required once the pinned catalyst-api carries CMP-020 | Other |
 | [#8729](https://github.com/openova-io/openova/issues/8729) | CTL-815 One Continuum definition file | Other |
 | [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9097](https://github.com/openova-io/openova/issues/9097) | SEC-253 The metrics chart's object-store password is generated and read from an  | Other |
 | [#9100](https://github.com/openova-io/openova/issues/9100) | NET-187 The Sovereign's DNS addresses answer on port 53 (NET-G19) | Other |
 | [#9102](https://github.com/openova-io/openova/issues/9102) | ACC-114 Gate check ACC-G15: session images start hardened | Other |
+| [#9107](https://github.com/openova-io/openova/issues/9107) | CMP-024 The API's cache holds the namespaced policy kinds, and its fan-out never | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T08:47 | [#9106](https://github.com/openova-io/openova/pull/9106) | #7087 | docs(ledger): plan update |
+| 2026-11-28T08:57 | [#9104](https://github.com/openova-io/openova/pull/9104) | #9097 | fix(mimir): the metrics chart object-store password is gener |
 | 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
 | 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
 | 2026-11-28T01:13 | [#9099](https://github.com/openova-io/openova/pull/9099) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T19:06 | [#9062](https://github.com/openova-io/openova/pull/9062) | #9057 | fix(crossplane): a cloud adoption Workspace recovers after a |
 | 2026-11-27T19:14 | [#9061](https://github.com/openova-io/openova/pull/9061) | #9030 | fix(openbao): the PKI bootstrap Job leaves nothing behind an |
 | 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
-| 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
-| 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
 
 ---
 
