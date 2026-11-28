@@ -86,8 +86,8 @@ that moves a catalogue pin by hand rewrites its line, so blame names the
 change's own commit and the failure is new. A change that rewrites a pin's
 line and keeps its value (the seed is generated, SVC-160: a change of the
 generator or of the order of the objects rewrites lines) does not move the
-pin: a failure whose entry and field hold the same version on the base is
-printed as UNMOVED and does not count either.
+pin, nor does a new entry: a failure whose pin the base holds at the same
+version, or not at all, is printed as UNMOVED and does not count either.
 
 Exit codes:
   0 — every non-templated catalog-seed pin's last-touching commit sits behind
@@ -371,8 +371,8 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
     failures, checked, entries, umbrella_version_at_ref = result[:4]
 
     # FND-020: with a base, a failure the base has too is inherited, not added.
-    # SVC-160: a failure of a pin whose value the base holds too is not moved by
-    # this change, only its line rewritten; it is not added either.
+    # SVC-160: a pin the base holds at the same version (its line only rewritten), or
+    # not at all (a new entry, released with the umbrella after the merge), is not added.
     inherited, unmoved = [], []
     if base is not None:
         at_base = _evaluate(base, err, repo_root, seed_path, umbrella_path)
@@ -382,7 +382,7 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
         base_values = at_base[4]
         inherited = [f for f in failures if _failure_key(f) in seen]
         unmoved = [f for f in failures if _failure_key(f) not in seen
-                   and base_values.get((f["name"], f["kind"])) == f["version"]]
+                   and base_values.get((f["name"], f["kind"]), f["version"]) == f["version"]]
         failures = [f for f in failures if _failure_key(f) not in seen and f not in unmoved]
         for f in inherited:
             print("  INHERITED %s %s = %r (blueprints.yaml:%d, last touched by commit %s): %s "
@@ -390,8 +390,8 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
                   (f["name"], f["kind"], f["version"], f["line"], f["seed_commit"][:12], base),
                   file=out)
         for f in unmoved:
-            print("  UNMOVED %s %s = %r (blueprints.yaml:%d, line rewritten by commit %s): %s "
-                  "holds the same version; the change does not move this pin (SVC-160)" %
+            print("  UNMOVED %s %s = %r (blueprints.yaml:%d, line written by commit %s): %s "
+                  "holds the same version or none (a new entry); no pin moved (SVC-160)" %
                   (f["name"], f["kind"], f["version"], f["line"], f["seed_commit"][:12], base),
                   file=out)
 
@@ -415,7 +415,7 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
 
     if inherited or unmoved:
         print("PASS: umbrella-republish gate (#5734) — this change adds no failure; %d "
-              "inherited from %s (FND-020), %d pin line(s) rewritten with the same version "
+              "inherited from %s (FND-020), %d pin line(s) rewritten with the same version or new "
               "(SVC-160)." % (len(inherited), base, len(unmoved)), file=out)
         return 0
     print("PASS: umbrella-republish gate (#5734) — checked %d catalog-seed pin(s) across "
@@ -453,22 +453,22 @@ def _self_test():
         os.makedirs(seed_dir, exist_ok=True)
         os.makedirs(chart_dir, exist_ok=True)
 
-        def write_seed(fake_version, quote='"'):
+        def write_seed(fake_version, quote='"', names=("bp-selftest-fixture",)):
             with open(os.path.join(seed_dir, "blueprints.yaml"), "w") as fh:
-                fh.write(
+                fh.write("".join(
                     "---\n"
                     "apiVersion: catalyst.openova.io/v1\n"
                     "kind: Blueprint\n"
                     "metadata:\n"
-                    "  name: bp-selftest-fixture\n"
+                    "  name: %s\n"
                     "spec:\n"
                     "  version: %s%s%s\n"
                     "  manifests:\n"
                     "    chart: bp-selftest-fixture\n"
                     "  source:\n"
                     "    chart: bp-selftest-fixture\n"
-                    "    version: %s%s%s\n" % (quote, fake_version, quote, quote, fake_version, quote)
-                )
+                    "    version: %s%s%s\n" % (n, quote, fake_version, quote, quote, fake_version, quote)
+                    for n in names))
 
         def write_chart(fake_version, quoted=False):
             token = ('"%s"' % fake_version) if quoted else fake_version
@@ -561,21 +561,21 @@ def _self_test():
             return 2
 
         # SVC-160, --base: on a main that passes (the umbrella caught up), a change
-        # that rewrites the pin lines and keeps their version moves no pin: exit 0
-        # with --base; without --base the rewritten lines still fail, until the
-        # umbrella is released after the change.
+        # that rewrites the pin lines and keeps their version, and adds an entry the
+        # base does not hold, moves no pin: exit 0 with --base; without --base both
+        # still fail, until the umbrella is released after the change.
         write_chart("1.0.4")
         run_git("add", "-A")
         run_git("commit", "-q", "-m", "c8: umbrella catch-up")
-        write_seed("1.0.3", quote="")
+        write_seed("1.0.3", quote="", names=("bp-selftest-fixture", "bp-selftest-new"))
         run_git("add", "-A")
-        run_git("commit", "-q", "-m", "c9: the pin lines rewritten, the version kept")
+        run_git("commit", "-q", "-m", "c9: the pin lines rewritten, the version kept; a new entry")
         rc_unmoved = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
                          umbrella_path=fixture_umbrella_path, base="HEAD^1")
         rc_unmoved_full = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
                               umbrella_path=fixture_umbrella_path)
         if rc_unmoved != 0 or rc_unmoved_full != 1:
-            print("SELF-TEST FAIL: a change that rewrites a pin line with the same version should "
+            print("SELF-TEST FAIL: a change that rewrites a pin line with the same version and adds an entry should "
                   "return exit 0 with --base (got %d) and exit 1 without it (got %d)"
                   % (rc_unmoved, rc_unmoved_full), file=sys.stderr)
             return 2
@@ -584,7 +584,7 @@ def _self_test():
               "synthetic GREEN (umbrella catch-up) -> exit 0; "
               "synthetic RED (revert-shape umbrella touch) -> exit 1; "
               "--base: inherited failure -> exit 0, added failure -> exit 1, "
-              "rewritten line with the same version -> exit 0.")
+              "rewritten line with the same version -> exit 0, also with a new entry.")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -157,6 +157,13 @@ components:
                                    # in at openbao.openbao.svc:8200 as auth role producer-binding
                                    # to write the binding of each object-storage Context. Without
                                    # this carve-out the dial is dropped and no consumer gets keys.
+      - axon                       # AIP-116: the birth Job of kit slot 82 (bp-axon) writes the
+                                   # empty placeholder of the simulation credential at
+                                   # openbao.openbao.svc:8200 (auth role secrets-birth), and
+                                   # Axon writes each refreshed credential back there (role
+                                   # axon-credential). Without this carve-out the placeholder
+                                   # is never written, the CSI mount fails and the Pod never
+                                   # starts, on one region too.
   - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
     gatewayIngress: true           # guacamole.<fqdn> public route
     allowIngressFrom:

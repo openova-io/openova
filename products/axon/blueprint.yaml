@@ -1,0 +1,38 @@
+# bp-axon — Axon, the simulation back end of the model plane (chart AIP-106, slot AIP-116).
+# Installed by kit slot 82 in every region (one replica in the primary region,
+# zero elsewhere), never from the catalogue: visibility unlisted.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-axon
+spec:
+  version: 0.1.13
+  card:
+    title: Axon
+    summary: The simulation back end of the model plane — serves the model contract through the agent kit of a subscription login until the Sovereign's own models run.
+    description: "One Axon per Sovereign, in its primary region, serves the model contract on port 3000 to the model gateway's meter only, and its admin routes on port 3001 to catalyst-api only. Its credential is a file mounted from OpenBao and refreshed by Axon alone; the chart renders no Secret object."
+    license: MIT
+    tags: [ai, model-plane, simulation]
+    docs: https://github.com/openova-io/openova/tree/main/products/axon
+  visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
+  owner:
+    team: ai-platform
+    contact: ai-platform@openova.io
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-axon
+  observability:
+    metrics: none
+    logs: stdout
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+  multiInstance:
+    enabled: false

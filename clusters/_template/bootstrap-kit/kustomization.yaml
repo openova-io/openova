@@ -383,6 +383,11 @@ resources:
   # CNPG Cluster + DSN-sync + admin-sso-seed + AppRegistration + both
   # ExternalSecrets). Slot 80a (bp-newapi-host-seams) is RETIRED.
   - 80-newapi.yaml
+  # bp-axon (slot 82) — Axon, the simulation back end of the model plane: one
+  # replica in the primary region, zero elsewhere. The release does not wait
+  # for its Pod, which waits for the credential placeholder of the birth Job;
+  # no slot depends on it.
+  - 82-bp-axon.yaml
   # bp-stalwart-sovereign (slot 95) — the Sovereign's own mail server, which
   # sends the console's sign-in codes. Its setup Job is an ordinary bounded
   # Job and the release does not wait for it (install/upgrade disableWait),

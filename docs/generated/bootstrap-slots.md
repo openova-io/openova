@@ -85,6 +85,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 60 | 60-bp-vcluster-helmrepo.yaml | bp-vcluster-helmrepo | vcluster-helmrepo | flux-system | bp-vcluster-helmrepo | bp-flux | - | same |
 | 62 | 62-bp-continuum.yaml | bp-continuum | continuum | catalyst-system | bp-continuum | - | `values.continuum.enabled=${CONTINUUM_ENABLED:-false}` | same |
 | 80 | 80-newapi.yaml | bp-newapi | newapi | newapi | bp-newapi | bp-openbao, bp-keycloak, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |
+| 82 | 82-bp-axon.yaml | bp-axon | axon | axon | bp-axon | bp-openbao, bp-secrets-store-csi, bp-cilium | - | same |
 | 95 | 95-bp-stalwart-sovereign.yaml | bp-stalwart-sovereign | bp-stalwart-sovereign | platform | bp-stalwart-sovereign | bp-cert-manager, storage-ready | `suspend=${SECONDARY_HR_SUSPEND:=false}` | same |
 
 ## Slot files that the kustomization does not list
