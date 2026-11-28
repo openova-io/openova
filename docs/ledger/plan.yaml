@@ -243,7 +243,7 @@ epics:
 - id: SEC-210
   title: 'EPIC: injection'
   wave: W1a
-  packages: [SEC-218, SEC-211, SEC-216, SEC-212, SEC-213, SEC-214, SEC-215]
+  packages: [SEC-218, SEC-211, SEC-216, SEC-255, SEC-212, SEC-213, SEC-214, SEC-215]
 - id: SEC-220
   title: 'EPIC: roll-out, identity charts'
   wave: W1a
@@ -1789,7 +1789,7 @@ packages:
   - id: A1
     run: "test -f tests/acceptance/sovereign/internal/suite/fixture_org_test.go && cd tests/acceptance/sovereign && go vet ./internal/suite/ && go test ./internal/suite/ -run FixtureOrg -count=1"
   - id: A2
-    run: "printf '%s  %s\\n' 381ded516302c4f2b02f39425f3dcf8a992fafda96ba1150d07b97fc1e0ea68b tests/acceptance/sovereign/internal/suite/fixture_org.go e2bdd3eda0d10aee109ecff4a3fc6a0749ea9770a6a1ec098f2eec26547c725b tests/acceptance/sovereign/internal/suite/fixture_org_test.go | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 381ded516302c4f2b02f39425f3dcf8a992fafda96ba1150d07b97fc1e0ea68b tests/acceptance/sovereign/internal/suite/fixture_org.go 044977cc46dfc94238a303ce420c0fe641392191cbd34ec6fbdecd00f7965d93 tests/acceptance/sovereign/internal/suite/fixture_org_test.go | sha256sum -c --quiet -"
   - id: A3
     run: "set -o pipefail; test -f tests/acceptance/sovereign/internal/suite/fixture_org.go && cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1"
   rollback: revert
@@ -1797,7 +1797,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Any check of the acceptance suite can create a test Organization, install a named Blueprint in it and remove both through the console API, with three calls of one helper that each wait until the API reports the object ready or gone.
 - id: FND-039
@@ -4393,7 +4393,7 @@ packages:
   epic: FND-140
   type: test
   wave: W0
-  size: S
+  size: M
   lane: GATE
   depends_on: [FND-120, FND-078]
   after: [FND-064]
@@ -4401,6 +4401,7 @@ packages:
   - .github/workflows/release-train.yaml
   - docs/RUNBOOKS.md
   - scripts/check-gate-parent-access.py
+  - scripts/prov-preflight.sh
   - scripts/sovereign-lifecycle.sh
   resources: [env]
   flips: []
@@ -4417,15 +4418,17 @@ packages:
   - id: A3
     run: "w=.github/workflows/release-train.yaml && test \"$(awk '/^jobs:$/{f=1;next} /^[^ ]/{f=0} f && /^  [a-z][a-z0-9_-]*:$/{printf \"%s \", $1}' \"$w\")\" = \"cut: flight: ready: gate: verdict: \" && test \"$(awk '/^env:$/{f=1;next} /^[^ ]/{f=0} f && /^  [A-Za-z_]+:/{n++} END{print n+0}' \"$w\")\" = 2 && test \"$(grep -c -x -F '  TRAIN_CAPABILITIES: multi-region' \"$w\")\" = 1 && awk '/^  TRAIN_PROVISION_REQUEST: [|]$/{f=1;next} f && /^    /{print;next} f{exit}' \"$w\" | jq -e 'type == \"object\"' > /dev/null && test \"$(grep -c -x -F '  group: release-train' \"$w\")\" = 1 && test \"$(grep -c -x -F '  cancel-in-progress: false' \"$w\")\" = 1 && test \"$(grep -c -E \"^    - cron: '[0-9]+ [0-9]+ [*] [*] [0-6]'\" \"$w\")\" = 1"
   - id: A4
-    run: "w=.github/workflows/release-train.yaml && test \"$(grep -o -E 'sovereign-lifecycle[.]sh [a-z-]+' \"$w\" | awk '{printf \"%s \", $2}')\" = \"--self-test standing wipe wipe-result sweep fire wait-ready kubeconfig-match \" && test \"$(grep -c -x -F \"    if: github.event_name == 'workflow_dispatch' && needs.cut.outputs.fly == 'true'\" \"$w\")\" = 1 && test \"$(grep -c -x -F '    uses: ./.github/workflows/foundation-gate.yaml' \"$w\")\" = 1 && test \"$(grep -c -x -F '      execution: parent' \"$w\")\" = 1 && test \"$(grep -c -F 'reset-uat' \"$w\")\" = 0 && test \"$(grep -c -E '^### 0[.]8 The flight workflow ' docs/RUNBOOKS.md)\" = 1"
+    run: "w=.github/workflows/release-train.yaml && test \"$(grep -o -E 'sovereign-lifecycle[.]sh [a-z-]+' \"$w\" | awk '{printf \"%s \", $2}')\" = \"--self-test rules standing rules rules rules request-body preflight wipe wipe-result sweep fire wait-ready kubeconfig-match \" && test \"$(grep -c -x -F \"    if: github.event_name == 'workflow_dispatch' && needs.cut.outputs.fly == 'true'\" \"$w\")\" = 1 && test \"$(grep -c -x -F '    uses: ./.github/workflows/foundation-gate.yaml' \"$w\")\" = 1 && test \"$(grep -c -x -F '      execution: parent' \"$w\")\" = 1 && test \"$(grep -c -F 'reset-uat' \"$w\")\" = 0 && test \"$(grep -c -E '^### 0[.]8 The flight workflow ' docs/RUNBOOKS.md)\" = 1"
+  - id: A5
+    run: "s=\"$(NO_COLOR=1 bash scripts/sovereign-lifecycle.sh --self-test)\" && test \"$(grep -c -E '^ok   rules week: .+ passes$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -E '^ok   rules week: .+ fails$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -E '^ok   rules same: .+ passes$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -E '^ok   rules same: .+ fails$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -E '^ok   rules due: .+ passes$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -E '^ok   rules due: .+ fails$' <<< \"$s\")\" -ge 1 && test \"$(grep -c -x -F 'ok   request-body: an empty sshPublicKey fails' <<< \"$s\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The workflow release-train.yaml makes one fresh installation of a candidate in a fixed order (the rules of a flight, the candidate and its cloud-init size gate, the wipe of the standing environment and its end, the leftover sweep, the fire with its pre-flight gate, ready, one gate run, the verdict), started by hand at most once a week and twice in a row for one candidate only at the exit of a stage, while its weekly run fires nothing and fails when a change to first-boot files makes a flight due.
+  delivers: The workflow release-train.yaml makes one fresh installation of a candidate in a fixed order (the rules of a flight, the candidate and its cloud-init size gate, the complete fire body and the pre-flight checks that need no wiped state, the wipe of the standing environment and its end, the leftover sweep, the fire with its whole pre-flight gate, ready, one gate run, the verdict), started by hand at most once a week and twice in a row for one candidate only at the exit of a stage, while its weekly run fires nothing and fails when a change to first-boot files makes a flight due; no condition that can refuse the fire and needs no wiped state is first found after the wipe.
 - id: FND-142
   title: The upgrade leg
   area: FND
@@ -17446,6 +17449,35 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'A synced value of the library takes seedFrom (a Secret and a key in the value''s namespace), as a mounted value does by SEC-226: the Secret''s value is written into the store where the path is absent, and the store''s chart (bp-openbao) grants what that needs; a value the store holds is never overwritten.'
+- id: SEC-255
+  title: 'The secrets-store driver''s Blueprint proves its function: a mounted value reaches a Pod'
+  area: SEC
+  epic: SEC-210
+  type: test
+  wave: W0
+  size: S
+  lane: SUBSTRATE
+  depends_on: [SEC-211, SEC-218]
+  after: [FND-011, SOV-151, SVC-040, SVC-041, CTL-041]
+  touches:
+  - platform/secrets-store-csi/chart/templates/tests/**
+  - platform/secrets-store-csi/chart/values.yaml
+  - clusters/_template/bootstrap-kit/15b-bp-secrets-store-csi.yaml
+  - platform/secrets-store-csi/chart/tests/
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A Helm test in platform/secrets-store-csi/chart/templates/tests/ mounts a value of the store through a SecretProviderClass into a test Pod and reads it (the driver and the store''s provider both answer; no value of a product is read: the test births its own), and the HelmRelease of slot 15b sets test: enable: true. It repairs SVC-G06 (1 of 37 foundation HelmReleases had no passing function test: flux-system/bp-secrets-store-csi, spec.test.enable is not true).'
 - id: SEC-261
   title: Conformance test for External Secrets against OpenBao
   area: SEC
@@ -22576,7 +22608,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [SVC-125, SVC-130, SVC-136, SVC-137, SVC-138, SVC-139]
-  after: []
+  after: [SEC-255]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -24417,7 +24449,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [SVC-130, SVC-135, SVC-170]
-  after: [FND-011, FND-096, CLD-142, SOV-322, SEC-103, SEC-104, SEC-105, SEC-211, NET-040, NET-221, NET-222, SVC-162, SVC-164, SVC-166, SVC-220, SVC-270, CTL-346, CTL-347, AIP-070, AIP-116, INF-110, ACC-050, PRD-201, PRD-304]
+  after: [FND-011, FND-096, SOV-322, SEC-103, SEC-104, SEC-105, NET-040, NET-221, NET-222, SVC-162, SVC-164, SVC-166, SVC-220, SVC-270, CTL-346, CTL-347, AIP-070, AIP-116, INF-110, ACC-050, PRD-201, PRD-304]
   touches:
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
@@ -33466,6 +33498,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+  - scripts/check-umbrella-republish-gate.py
   - scripts/expected-bootstrap-deps.yaml
   resources: []
   flips: []
@@ -33485,12 +33518,14 @@ packages:
     run: "d=\"$(mktemp -d)\"; awk '/^  values:$/{f=1;next} f{sub(/^    /,\"\");print}' clusters/_template/bootstrap-kit/82-bp-axon.yaml > \"$d/slot.yaml\" && test -s \"$d/slot.yaml\" && sed 's/\\${SECONDARY_HR_SUSPEND:=false}/false/' \"$d/slot.yaml\" > \"$d/primary.yaml\" && sed 's/\\${SECONDARY_HR_SUSPEND:=false}/true/' \"$d/slot.yaml\" > \"$d/secondary.yaml\" && helm dependency build products/axon/chart > /dev/null && helm template axon products/axon/chart --namespace axon -f \"$d/primary.yaml\" > \"$d/p.yaml\" && helm template axon products/axon/chart --namespace axon -f \"$d/secondary.yaml\" > \"$d/s.yaml\" && test \"$(grep -c -x -F 'kind: Job' \"$d/p.yaml\")\" = 1 && test \"$(grep -c -x -F '    axon/sa/axon/model-credential/e1 0 0 empty self document' \"$d/p.yaml\")\" = 1 && test \"$(grep -c -x -F 'kind: SecretProviderClass' \"$d/p.yaml\")\" = 1 && test \"$(grep -c -x -F '  replicas: 1' \"$d/p.yaml\")\" = 1 && test \"$(grep -c -x -F '  replicas: 0' \"$d/s.yaml\")\" = 1 && test \"$(grep -c -x -F 'kind: Secret' \"$d/p.yaml\")\" = 0 && test \"$(grep -c -E '^ *nodePort:' \"$d/p.yaml\")\" = 0"
   - id: A5
     run: "d=\"$(mktemp -d)\"; helm dependency build platform/plane-isolation/chart > /dev/null && helm template plane-isolation platform/plane-isolation/chart --api-versions cilium.io/v2 --skip-tests > \"$d/pi.yaml\" && test \"$(grep -c -F 'kubernetes.io/metadata.name: \"axon\"' \"$d/pi.yaml\")\" = 1 && test \"$(grep -c -E '^      - axon +# AIP-116: ' platform/plane-isolation/chart/values.yaml)\" = 1"
+  - id: A6
+    run: "st=\"$(python3 scripts/check-umbrella-republish-gate.py --self-test 2>/dev/null)\" && test \"$(printf '%s\\n' \"$st\" | grep -c -F -- 'rewritten line with the same version -> exit 0, also with a new entry.')\" = 1 && b=\"$(git merge-base HEAD origin/main)\" && python3 scripts/check-umbrella-republish-gate.py --ref HEAD --base \"$b\" > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Kit slot 82 installs bp-axon at the version its first release published, one replica in the primary region and none elsewhere, with the empty credential placeholder its birth Job writes; the Blueprint file and the catalogue seed object pin the same version, bp-plane-isolation lets namespace axon reach OpenBao, and the generated lists name the slot.
 - id: AIP-120
