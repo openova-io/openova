@@ -1,0 +1,86 @@
+# Fixture of check ACC-G15 (internal/suite/check_acc_g15.go): a session pod of
+# the fixed shape of ADR-0033 with no credential volume and an agent
+# configuration for protocol ssh with chunkBytes 0. The check fills in ${NAME},
+# ${UID}, ${GUACD_IMAGE} and ${AGENT_IMAGE} (the images the access controller
+# names) and deletes the pod at its end. The requests are what the policy
+# resource-requests asks of every container.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${NAME}
+  namespace: guacamole
+  labels:
+    access.openova.io/session: "true"
+    access.openova.io/session-uid: ${UID}
+    access.openova.io/kind: ssh
+    app.kubernetes.io/managed-by: access-controller
+    acc-check: acc-g15
+  annotations:
+    access.openova.io/config: |
+      {"schema": "openova.io/access-session-config/v1", "sessionUID": "${UID}", "kind": "ssh",
+       "subject": "acc-g15@example.org", "protocol": "ssh", "params": {"hostname": "127.0.0.1", "port": "22"},
+       "paramFiles": {}, "controls": {"keystrokes": false, "clipboardCopy": false, "clipboardPaste": false},
+       "terminal": true, "ingest": "http://access-controller.guacamole.svc.cluster.local:8081",
+       "chunkBytes": 0, "chunkSeconds": 0}
+spec:
+  serviceAccountName: access-session
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  activeDeadlineSeconds: 600
+  terminationGracePeriodSeconds: 20
+  enableServiceLinks: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: guacd
+      image: ${GUACD_IMAGE}
+      command: ["/opt/guacamole/sbin/guacd", "-b", "127.0.0.1", "-l", "4822", "-f"]
+      env:
+        - name: HOME
+          value: /tmp
+      resources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {memory: 512Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - {name: rec, mountPath: /rec}
+        - {name: tmp, mountPath: /tmp}
+    - name: agent
+      image: ${AGENT_IMAGE}
+      ports:
+        - {name: tunnel, containerPort: 8443, protocol: TCP}
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - {name: rec, mountPath: /rec, readOnly: true}
+        - {name: config, mountPath: /etc/access, readOnly: true}
+  volumes:
+    - name: rec
+      emptyDir:
+        sizeLimit: 2Gi
+    - name: tmp
+      emptyDir:
+        medium: Memory
+    - name: config
+      projected:
+        sources:
+          - downwardAPI:
+              items:
+                - path: config.json
+                  fieldRef:
+                    fieldPath: metadata.annotations['access.openova.io/config']

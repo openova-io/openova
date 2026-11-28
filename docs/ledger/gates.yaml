@@ -150,12 +150,13 @@ checks:
 - id: ACC-G15
   title: Session images start hardened
   owner: ACC
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Session images start hardened
+  implementation: tests/acceptance/sovereign/internal/suite/check_acc_g15.go
   implemented_by: ACC-114
   delivered_by: ACC-106
 - id: ACC-G16
