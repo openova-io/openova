@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T11:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T12:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
 | [#8734](https://github.com/openova-io/openova/issues/8734) | SVC-230 The wizard shows the generated kit list | Other |
 | [#8736](https://github.com/openova-io/openova/issues/8736) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8737](https://github.com/openova-io/openova/issues/8737) | NET-253 Lab test: the reference cloud's native firewall in front of a load balan | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9107](https://github.com/openova-io/openova/issues/9107) | CMP-024 The API's cache holds the namespaced policy kinds, and its fan-out never | Other |
 | [#9111](https://github.com/openova-io/openova/issues/9111) | BSS-071 Deleting an Organization from the storefront removes it and its namespac | Other |
 | [#9114](https://github.com/openova-io/openova/issues/9114) | SEC-228 A library value given from outside: source external, no generator, no Pu | Other |
+| [#9118](https://github.com/openova-io/openova/issues/9118) | SEC-237 Slot 08 names the namespaces of shared mounted values in peerTrust.birth | Other |
 
 ---
 
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T11:49 | [#9116](https://github.com/openova-io/openova/pull/9116) | #7087 | docs(ledger): plan update |
+| 2026-11-28T11:49 | [#9115](https://github.com/openova-io/openova/pull/9115) | #9114 | fix(secrets-lib): a library value given from outside: source |
 | 2026-11-28T11:14 | [#9113](https://github.com/openova-io/openova/pull/9113) | #7087 | docs(ledger): plan update |
+| 2026-11-28T11:48 | [#9112](https://github.com/openova-io/openova/pull/9112) | #9111 | fix: repair the platform delete of a storefront Organization |
 | 2026-11-28T11:01 | [#9110](https://github.com/openova-io/openova/pull/9110) | #7087 | docs(ledger): plan update |
 | 2026-11-28T09:28 | [#9109](https://github.com/openova-io/openova/pull/9109) | #7087 | docs(ledger): plan update |
 | 2026-11-28T09:21 | [#9108](https://github.com/openova-io/openova/pull/9108) | #9107 | fix(compliance): the API cache holds the namespaced policy k |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-28T00:25 | [#9077](https://github.com/openova-io/openova/pull/9077) | #9075 | feat(network): the platform API writes the passthrough liste |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:47 | [#9073](https://github.com/openova-io/openova/pull/9073) | #9072 | fix(secrets-lib): a synced value takes a template, copies in |
-| 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
-| 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
-| 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
 
 ---
 
