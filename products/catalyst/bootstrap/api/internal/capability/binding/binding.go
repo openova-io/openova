@@ -4,8 +4,9 @@
 //
 // A backing element that names a capability is checked against the consumer Blueprint's spec.requires and
 // resolved by the capability registry before anything is written (Resolve). The install route then takes its
-// create or reuse branch with the resolved implementation Blueprint. A backing element that names a Blueprint
-// (a depends[] entry on a shareable Blueprint) keeps the Context entry it had before capabilities existed.
+// create or reuse branch with the resolved implementation Blueprint and plans each element's write (Plan); the
+// route writes only when the whole backing list is judged. A backing element that names a Blueprint (a depends[]
+// entry on a shareable Blueprint) keeps the Context entry it had before capabilities existed.
 package binding
 
 import (
@@ -199,6 +200,68 @@ func Add(bindings map[string]interface{}, r *Resolved, consumerNS string) {
 		"path":       Path(consumerNS, r.Alias),
 		"mountPath":  MountPath(r.Alias),
 	}
+}
+
+// Plan holds the writes of one request's backing list. The install route judges every element first and plans
+// its write here; it makes the writes (Writes) only after the whole list is judged, so a refused element
+// leaves no provider Application and no Context behind. Plan itself writes nothing to the cluster.
+type Plan struct {
+	writes []PlannedWrite
+	// reused maps the namespace/name of each instance the request reuses to the element that reuses it.
+	reused map[string]int
+}
+
+// PlannedWrite is one write of a backing list: the create of a provider Application (Create true) or the
+// update of a reused instance that carries the consumer's new Context. Org is the Organization whose IaC repo
+// receives the object.
+type PlannedWrite struct {
+	Obj            *unstructured.Unstructured
+	Namespace, Org string
+	Create         bool
+}
+
+// Create plans the create of a provider Application in namespace.
+func (p *Plan) Create(namespace, org string, obj *unstructured.Unstructured) {
+	p.writes = append(p.writes, PlannedWrite{Obj: obj, Namespace: namespace, Org: org, Create: true})
+}
+
+// Writes are the planned writes in the order of the backing list.
+func (p *Plan) Writes() []PlannedWrite { return p.writes }
+
+// Reuse plans element i's Context entry on target, an existing instance, appended to
+// spec.parameters[valuesKey]; kind names the Context in a refusal. The entry is named after the consumer, so
+// it refuses, HTTP 409 context-exists, an instance that already declares a Context of that name and an
+// instance an earlier element of the request already reuses: their two entries would carry one name.
+func (p *Plan) Reuse(i int, target *unstructured.Unstructured, valuesKey, kind string, entry map[string]interface{}) *Refusal {
+	name, _ := entry["name"].(string)
+	key := target.GetNamespace() + "/" + target.GetName()
+	if j, ok := p.reused[key]; ok {
+		return &Refusal{Status: http.StatusConflict, Code: "context-exists", Message: fmt.Sprintf(
+			"backing[%d] and backing[%d] both reuse instance %q, and the consumer has one Context %s/%s on an instance", j, i, target.GetName(), kind, name)}
+	}
+	params, _, _ := unstructured.NestedMap(target.Object, "spec", "parameters")
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	entries, _ := params[valuesKey].([]interface{})
+	for _, e := range entries {
+		if em, ok := e.(map[string]interface{}); ok {
+			if n, _ := em["name"].(string); n == name {
+				return &Refusal{Status: http.StatusConflict, Code: "context-exists",
+					Message: fmt.Sprintf("instance %q already declares Context %s/%s", target.GetName(), kind, name)}
+			}
+		}
+	}
+	params[valuesKey] = append(entries, entry)
+	if err := unstructured.SetNestedMap(target.Object, params, "spec", "parameters"); err != nil {
+		return &Refusal{Status: http.StatusInternalServerError, Code: "context-write-failed", Message: err.Error()}
+	}
+	if p.reused == nil {
+		p.reused = map[string]int{}
+	}
+	p.reused[key] = i
+	p.writes = append(p.writes, PlannedWrite{Obj: target, Namespace: target.GetNamespace(), Org: target.GetNamespace()})
+	return nil
 }
 
 // Write sets spec.parameters.bindings of a consumer Application object, the reserved key the consumer chart

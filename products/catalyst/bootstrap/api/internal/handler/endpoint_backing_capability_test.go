@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/capability"
 )
@@ -174,6 +175,88 @@ func TestCreateInstance_CapabilityBackingReuse(t *testing.T) {
 	if got := apps(); !reflect.DeepEqual(got, []string{"shared-objects", "wiki"}) {
 		t.Fatalf("Applications = %v, want [shared-objects wiki]", got)
 	}
+}
+
+// clusterWrites lists every create, update, patch and delete the fake cluster of h received, as
+// "<verb> <resource> <namespace>".
+func clusterWrites(t *testing.T, h *Handler) []string {
+	t.Helper()
+	client, err := h.dynamicClientOrFallback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, a := range client.(*dynamicfake.FakeDynamicClient).Actions() {
+		switch a.GetVerb() {
+		case "create", "update", "patch", "delete":
+			out = append(out, a.GetVerb()+" "+a.GetResource().Resource+" "+a.GetNamespace())
+		}
+	}
+	return out
+}
+
+// TestCreateInstance_BackingJudgedBeforeAnyWrite — the whole backing list is judged before its first write. Two
+// reuse bindings of one capability on one instance answer 409 context-exists, and an element refused after a
+// valid create or reuse answers its own refusal; each time the cluster receives no write, so no provider
+// Application, no consumer and no Context is left behind. Two reuse bindings on two instances are accepted.
+func TestCreateInstance_BackingJudgedBeforeAnyWrite(t *testing.T) {
+	reuse := func(alias, instance string) string {
+		return `{"capability":"object-storage","alias":"` + alias + `","mode":"reuse","instance":"` + instance + `"}`
+	}
+	cases := []struct {
+		name, backing, code string
+		status              int
+	}{
+		{"two reuse bindings on one instance", `[` + reuse("objects", "shared-objects") + `,` + reuse("archive", "shared-objects") + `]`, "context-exists", http.StatusConflict},
+		{"a reuse, then an instance that does not exist", `[` + reuse("objects", "shared-objects") + `,` + reuse("archive", "missing") + `]`, "backing-instance-not-found", http.StatusNotFound},
+		{"a create, then an instance that does not exist", `[{"capability":"object-storage","alias":"objects"},` + reuse("archive", "missing") + `]`, "backing-instance-not-found", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := seedApp("uid-ob", "shared-objects", "acme", "object-bucket")
+			_ = unstructured.SetNestedMap(target.Object, map[string]interface{}{"replicas": int64(1)}, "spec", "parameters")
+			h, post, apps := newCapabilityTestHandler(t, target)
+			rec := post(tc.backing)
+			var resp struct {
+				Code string `json:"code"`
+			}
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			if rec.Code != tc.status || resp.Code != tc.code {
+				t.Fatalf("got %d %q (body=%s), want %d %q", rec.Code, resp.Code, rec.Body.String(), tc.status, tc.code)
+			}
+			if w := clusterWrites(t, h); len(w) != 0 {
+				t.Fatalf("a refused request wrote %v", w)
+			}
+			if got := apps(); !reflect.DeepEqual(got, []string{"shared-objects"}) {
+				t.Fatalf("Applications = %v, want [shared-objects]", got)
+			}
+			params, _, _ := unstructured.NestedMap(getApp(t, h, "shared-objects").Object, "spec", "parameters")
+			if want := map[string]interface{}{"replicas": int64(1)}; !reflect.DeepEqual(params, want) {
+				t.Fatalf("shared-objects parameters = %#v, want %#v", params, want)
+			}
+		})
+	}
+	t.Run("two reuse bindings on two instances", func(t *testing.T) {
+		h, post, apps := newCapabilityTestHandler(t, seedApp("uid-ob", "shared-objects", "acme", "object-bucket"),
+			seedApp("uid-ar", "shared-archive", "acme", "object-bucket"))
+		rec := post(`[` + reuse("objects", "shared-objects") + `,` + reuse("archive", "shared-archive") + `]`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		want := []string{"update applications acme", "update applications acme", "create applications acme"}
+		if w := clusterWrites(t, h); !reflect.DeepEqual(w, want) {
+			t.Fatalf("cluster writes = %v, want %v", w, want)
+		}
+		if got := apps(); !reflect.DeepEqual(got, []string{"shared-archive", "shared-objects", "wiki"}) {
+			t.Fatalf("Applications = %v, want [shared-archive shared-objects wiki]", got)
+		}
+		for instance, alias := range map[string]string{"shared-objects": "objects", "shared-archive": "archive"} {
+			buckets, _, _ := unstructured.NestedSlice(getApp(t, h, instance).Object, "spec", "parameters", "buckets")
+			if len(buckets) != 1 || buckets[0].(map[string]interface{})["alias"] != alias {
+				t.Fatalf("%s buckets = %#v, want one Context with alias %s", instance, buckets, alias)
+			}
+		}
+	})
 }
 
 // TestCreateInstance_CapabilityBackingRefusals — one case per error code the capability path adds; a refused
