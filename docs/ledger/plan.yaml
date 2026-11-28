@@ -255,7 +255,7 @@ epics:
 - id: SEC-240
   title: 'EPIC: roll-out, remaining charts'
   wave: W1a
-  packages: [SEC-241, SEC-243, SEC-242, SEC-245, SEC-246, SEC-244, SEC-247, SEC-248]
+  packages: [SEC-241, SEC-243, SEC-245, SEC-246, SEC-242, SEC-244, SEC-247, SEC-248]
 - id: SEC-260
   title: 'EPIC: External Secrets upgrade'
   wave: W1a
@@ -11876,7 +11876,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150, NET-185]
-  after: [SOV-155, FND-011, FND-014, FND-076, FND-078, FND-182, FND-183, FND-184, CLD-023, CLD-103, CLD-104, CLD-105, CLD-106, CLD-115, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-338, SOV-342, SOV-721, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, SEC-344, NET-020, NET-110, SVC-040, SVC-041, SVC-130, SVC-137, SVC-220, CTL-041, AIP-201, INF-054, INF-060]
+  after: [SOV-155, FND-011, FND-014, FND-076, FND-078, FND-182, FND-183, FND-184, CLD-023, CLD-103, CLD-104, CLD-105, CLD-106, CLD-115, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-322, SOV-323, SOV-338, SOV-342, SOV-721, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-211, SEC-239, SEC-344, NET-020, NET-110, SVC-040, SVC-041, SVC-130, SVC-137, SVC-220, CTL-041, AIP-201, INF-054, INF-060]
   touches:
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
   - clusters/_template/bootstrap-kit/11-powerdns.yaml
@@ -11917,7 +11917,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-310, SOV-330]
-  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-114, CLD-115, CLD-121, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SOV-721, SOV-760, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-205, SEC-211, SEC-212, SEC-216, SEC-344, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, NET-331, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, CMP-075, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
+  after: [FND-011, FND-014, FND-093, FND-171, FND-182, FND-183, FND-184, CLD-021, CLD-023, CLD-030, CLD-092, CLD-094, CLD-101, CLD-103, CLD-104, CLD-105, CLD-106, CLD-113, CLD-114, CLD-115, CLD-121, CLD-131, CLD-132, CLD-133, CLD-185, SOV-030, SOV-035, SOV-120, SOV-121, SOV-132, SOV-133, SOV-134, SOV-136, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-149, SOV-151, SOV-154, SOV-180, SOV-181, SOV-322, SOV-323, SOV-335, SOV-338, SOV-342, SOV-721, SOV-760, SEC-030, SEC-040, SEC-060, SEC-095, SEC-096, SEC-152, SEC-153, SEC-154, SEC-181, SEC-205, SEC-211, SEC-212, SEC-216, SEC-239, SEC-344, NET-012, NET-020, NET-080, NET-100, NET-110, NET-170, NET-210, NET-331, SVC-040, SVC-041, SVC-060, SVC-130, SVC-137, SVC-190, SVC-205, SVC-220, CTL-030, CTL-035, CTL-041, CTL-150, CTL-320, CTL-333, CTL-340, CTL-345, CTL-347, CTL-420, CMP-020, CMP-032, CMP-075, BSS-040, AIP-120, AIP-153, AIP-201, INF-054, INF-060, INF-135]
   touches:
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
   - clusters/_template/bootstrap-secrets/kustomization.yaml
@@ -16050,7 +16050,7 @@ packages:
   wave: W1a
   size: M
   lane: CHARTS
-  depends_on: [FND-120, SEC-140, SEC-200, SEC-211, SEC-219, SEC-226]
+  depends_on: [FND-120, SEC-140, SEC-200, SEC-211, SEC-219, SEC-226, SEC-254]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-212, SEC-232, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/wordpress-tenant/chart/**
@@ -16615,7 +16615,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, CLD-168]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, CLD-168, SEC-254]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-344, SVC-040, SVC-041, SVC-060, CTL-172, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/postgres/chart/**
@@ -16762,7 +16762,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, SEC-239]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-225, SEC-226, SEC-239, SEC-254]
   after: [SEC-227, FND-011, FND-183, FND-184, CLD-023, CLD-106, CLD-113, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-344, NET-011, SVC-040, SVC-041, SVC-090, SVC-136, SVC-190, CTL-172, CTL-347, CMP-020, BSS-040, AIP-120, AIP-153, ACC-102, PRD-201]
   touches:
   - platform/powerdns/chart/**
@@ -16894,24 +16894,29 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SVC-040, SVC-041, SVC-090, SVC-136, CTL-172]
+  after: [FND-011]
   touches:
   - platform/powerdns/chart/templates/api-credentials-secret.yaml
-  - platform/powerdns/chart/tests/**
+  - platform/powerdns/chart/tests/api-credentials-kept.sh
+  - tools/chart-upgrade/powerdns_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'helm.sh/resource-policy' platform/powerdns/chart/templates/api-credentials-secret.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "bash platform/powerdns/chart/tests/api-credentials-kept.sh"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The Secret powerdns/powerdns-api-credentials carries helm.sh/resource-policy: keep one release before SEC-235, so it survives the upgrade that stops rendering it and SEC-226 can seed the two keys from it.'
+  delivers: 'The Secret powerdns/powerdns-api-credentials of bp-powerdns carries helm.sh/resource-policy: keep, so the release of SEC-235 that stops rendering it leaves it and its two values in place for SEC-226 to seed from; the upgrade from bp-powerdns 1.2.33 adds only that annotation and keeps both values.'
 - id: SEC-241
   title: 'Roll-out: platform/newapi'
   area: SEC
@@ -16947,7 +16952,7 @@ packages:
   wave: W1a
   size: S
   lane: CHARTS
-  depends_on: [SEC-200, SEC-212, SEC-219, SEC-226]
+  depends_on: [SEC-200, SEC-212, SEC-219, SEC-226, SEC-254]
   after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-344, SVC-040, SVC-041, BSS-040, ACC-102, PRD-201]
   touches:
   - platform/stalwart-tenant/chart/**
@@ -17343,6 +17348,36 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: 'The MinIO password of the metrics chart (mimir/mimir-minio, rootPassword) is a generated value instead of the chart''s fixed literal, and Mimir reads it from an environment variable in its configuration instead of the configuration file. It is rotated on purpose, never seeded (the old value is public): MinIO and Mimir restart.'
+- id: SEC-254
+  title: A synced value of the library is seeded from the Secret that holds it today
+  area: SEC
+  epic: null
+  type: fix
+  wave: W1a
+  size: S
+  lane: CHARTS
+  depends_on: [SEC-226]
+  after: [SEC-228, FND-011, SEC-010, SEC-163, SEC-180, SEC-181, SEC-192, SEC-196, SEC-201, SEC-217, SEC-250, SEC-344, SVC-040, SVC-041, SVC-070, SVC-136, SVC-139, SVC-270, CTL-172]
+  touches:
+  - platform/secrets-lib/chart/templates/**
+  - platform/secrets-lib/chart/tests/**
+  - platform/secrets-lib/chart/values.yaml
+  - platform/openbao/chart/templates/_config.tpl
+  - platform/openbao/chart/tests/**
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'A synced value of the library takes seedFrom (a Secret and a key in the value''s namespace), as a mounted value does by SEC-226: the Secret''s value is written into the store where the path is absent, and the store''s chart (bp-openbao) grants what that needs; a value the store holds is never overwritten.'
 - id: SEC-261
   title: Conformance test for External Secrets against OpenBao
   area: SEC
