@@ -5,23 +5,19 @@ image:
   repository: ghcr.io/openova-io/openova/capability-probe
   # Pinned by the promote job of .github/workflows/build-capability-probe.yaml to the short SHA of
   # the image it built and signed; the chart refuses to render a bound alias without it.
-  tag: ""
+  tag: "20ef3d0"
   pullPolicy: IfNotPresent
-
 imagePullSecrets:
   - name: ghcr-pull
-
 # Written by the install API only, one entry per bound alias of the Blueprint's spec.requires:
 #   <alias>: {capability: <name>, contract: <version>, path: <OpenBao path>, mountPath: /bindings/<alias>}
 # An alias with no entry is not bound (requires[].optional): nothing of it is rendered.
 bindings: {}
-
 # The mounted tier of the secrets area (SEC-211): the Secrets Store CSI driver reads each binding
 # object from OpenBao as role workload, which may read mounted/data/<this namespace>/shared/*.
 openbao:
   addr: http://openbao.openbao.svc.cluster.local:8200
   role: workload
-
 resources:
   requests:
     cpu: 5m

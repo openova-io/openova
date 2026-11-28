@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-capability-probe
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 description: |
   A consumer of capabilities that exists to prove them: an idle Deployment of
