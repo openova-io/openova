@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T08:30:03Z` |
+| Last refreshed | `2026-11-28T08:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8728](https://github.com/openova-io/openova/issues/8728) | CMP-021 CMP-G02 becomes required once the pinned catalyst-api carries CMP-020 | Other |
 | [#8729](https://github.com/openova-io/openova/issues/8729) | CTL-815 One Continuum definition file | Other |
 | [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9097](https://github.com/openova-io/openova/issues/9097) | SEC-253 The metrics chart's object-store password is generated and read from an  | Other |
 | [#9100](https://github.com/openova-io/openova/issues/9100) | NET-187 The Sovereign's DNS addresses answer on port 53 (NET-G19) | Other |
 | [#9102](https://github.com/openova-io/openova/issues/9102) | ACC-114 Gate check ACC-G15: session images start hardened | Other |
+| [#9107](https://github.com/openova-io/openova/issues/9107) | CMP-024 The API's cache holds the namespaced policy kinds, and its fan-out never | Other |
 
 ---
 
