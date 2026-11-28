@@ -23,6 +23,20 @@ package chartupgrade
 // defaults the API server adds to the live objects, or dnsdist reaching the
 // server (the gate check NET-G19 on the Sovereign shows that).
 
+// The case of bp-powerdns, run by platform/powerdns/chart/tests/
+// api-credentials-kept.sh (SEC-239). Before Helm deletes an object that left
+// the manifest it reads helm.sh/resource-policy on the LIVE object (Helm
+// v3.18.4 pkg/kube/client.go 436-454), so the upgrade one release before
+// SEC-235 must put keep on the live Secret powerdns-api-credentials. Deployed:
+// 1.2.33, the release the Sovereign ran on 27 Nov 2026, and 1.2.34, the
+// release of NET-187 and the newest of main (pdnsKeptFrom); every release
+// since 1.2.10 renders the same Secret (its template is unchanged since
+// ef26f52255). helm template has no cluster: the values set here
+// (pdnsLiveValues) stand in for those its lookup reads back from the live
+// Secret. Known answer: from each of them live, a release without the Secret
+// deletes it (gap G4 of the spike SEC-227). Not seen: the Helm that Flux's
+// helm-controller embeds, and the reflector's copies of the Secret.
+
 import (
 	"bufio"
 	"bytes"
@@ -38,6 +52,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/yaml"
 )
@@ -249,4 +264,112 @@ func secretData(t *testing.T, o Object) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// The case of SEC-239 (see the head of this file).
+const (
+	pdnsSecret                 = "Secret/powerdns-api-credentials"
+	pdnsKeyValue, pdnsWebValue = "live-api-key", "live-webserver-password"
+)
+
+// The values that stand in for those the lookup reads back from the live Secret.
+var pdnsLiveValues = []string{"--set", "powerdns.apiKey=" + pdnsKeyValue, "--set", "powerdns.webserverPassword=" + pdnsWebValue}
+
+// pdnsWithout drops the Secret from the manifest, as the release of SEC-235 will.
+var pdnsWithout = []string{"--set", "powerdns.useExistingApiSecret=true"}
+
+// The releases a Sovereign may run when this one lands: 1.2.33 (27 Nov 2026)
+// and 1.2.34 (NET-187, the newest of main).
+var pdnsKeptFrom = []string{"1.2.33", "1.2.34"}
+
+func TestPowerDNSCredentialsKeptOverDeployed(t *testing.T) {
+	root := needTools(t)
+	chart := filepath.Join(t.TempDir(), "chart")
+	if err := os.CopyFS(chart, os.DirFS(chartUnderTest(root, pdnsChart))); err != nil {
+		t.Fatal(err)
+	}
+	chart = withDependencies(t, chart)
+	next := render(t, chart, pdnsRelease, pdnsLiveValues)
+	if _, ok := next[pdnsSecret]; !ok {
+		t.Fatalf("the chart under test does not render %s", pdnsSecret)
+	}
+	for _, v := range pdnsKeptFrom {
+		old := withDependencies(t, extract(t, root, pdnsChart, releaseCommit(t, root, pdnsChart, v)))
+		deployed := render(t, old, pdnsRelease, pdnsLiveValues)
+		live := stored(t, deployed[pdnsSecret])
+		live.Annotations = merged(live.Annotations, map[string]string{"meta.helm.sh/release-name": pdnsRelease, "meta.helm.sh/release-namespace": pdnsRelease})
+		b, err := json.Marshal(live)
+		if err != nil {
+			t.Fatal(err)
+		}
+		liveObj := Object{GVK: deployed[pdnsSecret].GVK, Name: deployed[pdnsSecret].Name, JSON: b}
+
+		t.Run("known answer: "+v+" live, a release without the Secret deletes it", func(t *testing.T) {
+			if !helmDeletes(t, deployed, render(t, old, pdnsRelease, pdnsWithout), live) {
+				t.Fatalf("%s is kept; the Secret of %s has no keep annotation", pdnsSecret, v)
+			}
+		})
+		t.Run(v+" deployed and live", func(t *testing.T) {
+			meta := strategicpatch.PatchMetaFromStruct{T: reflect.TypeOf(corev1.Secret{})}
+			patch, err := strategicpatch.CreateThreeWayMergePatch(deployed[pdnsSecret].JSON, next[pdnsSecret].JSON, liveObj.JSON, meta, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("the patch Helm sends for %s: %s", pdnsSecret, patch)
+			o, err := Upgrade(objPtr(deployed[pdnsSecret]), &liveObj, next[pdnsSecret])
+			if err != nil || o.Refusal != "" {
+				t.Fatalf("%s: error %v, refusal %q", pdnsSecret, err, o.Refusal)
+			}
+			after := stored(t, o.Object)
+			if got := after.Annotations["helm.sh/resource-policy"]; got != "keep" {
+				t.Errorf("annotation helm.sh/resource-policy of the live Secret: %q, want keep", got)
+			}
+			want := map[string][]byte{"api-key": []byte(pdnsKeyValue), "webserver-password": []byte(pdnsWebValue)}
+			if !reflect.DeepEqual(live.Data, want) || !reflect.DeepEqual(after.Data, want) {
+				t.Errorf("data of the live Secret: %q before the upgrade, %q after, want %q", live.Data, after.Data, want)
+			}
+			for k, v := range live.Annotations {
+				if after.Annotations[k] != v {
+					t.Errorf("annotation %s of the live Secret: %q after the upgrade, was %q", k, after.Annotations[k], v)
+				}
+			}
+			if helmDeletes(t, next, render(t, chart, pdnsRelease, pdnsWithout), after) {
+				t.Errorf("a release without the Secret deletes %s after the upgrade", pdnsSecret)
+			}
+		})
+	}
+}
+
+// stored is the Secret as the API server keeps it: stringData written into data
+// and never stored (k8s.io/kubernetes v1.33.2 pkg/apis/core/v1/conversion.go
+// 407-423).
+func stored(t *testing.T, o Object) corev1.Secret {
+	t.Helper()
+	var s corev1.Secret
+	if err := json.Unmarshal(o.JSON, &s); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range s.StringData {
+		if s.Data == nil {
+			s.Data = map[string][]byte{}
+		}
+		s.Data[k] = []byte(v)
+	}
+	s.StringData = nil
+	return s
+}
+
+// helmDeletes is Helm's step for an object of the deployed release that the
+// new release does not hold (pkg/kube/client.go 436-454): it reads the live
+// object and deletes it unless its annotation helm.sh/resource-policy is keep.
+func helmDeletes(t *testing.T, deployed, next map[string]Object, live corev1.Secret) bool {
+	t.Helper()
+	k := "Secret/" + live.Name
+	if _, ok := deployed[k]; !ok {
+		t.Fatalf("%s is not in the deployed release", k)
+	}
+	if _, ok := next[k]; ok {
+		t.Fatalf("%s is in the new release: Helm patches it", k)
+	}
+	return live.Annotations["helm.sh/resource-policy"] != "keep"
 }
