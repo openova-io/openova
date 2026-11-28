@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -216,36 +217,59 @@ func TestComplianceMode(t *testing.T) {
 		return out
 	}
 	old := []string{"audits", "permissive", "enforces", "enforcing", "rule-enforces", "enforce", "lower-case", "enforcing", "mutates", "audit"}
-	all := append(append([]string{}, old...), "denies", "enforcing", "warns", "permissive", "mutates-new", "audit")
-	withNs := append(append([]string{}, old...), "org-a/org-platform-scope", "enforcing", "org-b/org-platform-scope", "permissive", "org-a/ns-denies", "enforcing", "org-b/ns-mutates", "audit")
+	newKinds := []string{"denies", "enforcing", "warns", "permissive", "mutates-new", "audit"}
+	nsKinds := []string{"org-a/org-platform-scope", "enforcing", "org-b/org-platform-scope", "permissive", "org-a/ns-denies", "enforcing", "org-b/ns-mutates", "audit"}
+	join := func(parts ...[]string) []string { return slices.Concat(parts...) }
+	every := join(old, newKinds, nsKinds) // every engine object, each in its mode: 12 policies, 13 with "judged"
+	// with is every, the mode of each name of pairs (name, mode, ...) set
+	// to the given one; an empty mode leaves the name out.
+	with := func(pairs ...string) []string {
+		out := []string{}
+		for i := 0; i+1 < len(every); i += 2 {
+			name, mode := every[i], every[i+1]
+			if j := slices.Index(pairs, name); j >= 0 && j%2 == 0 {
+				mode = pairs[j+1]
+			}
+			if mode != "" {
+				out = append(out, name, mode)
+			}
+		}
+		return out
+	}
+	noObject := " the engine has no policy object of that name"
 	for name, tc := range map[string]struct {
 		policies                    []map[string]string
 		legacyErr, validErr, mutErr error
 		nsErr                       error // of the three namespaced kinds
 		want                        string
 	}{
-		"every mode is the engine's":                 {policies: shown(all...)},
-		"validating policies are not served":         {policies: shown(old...), validErr: absent},
-		"mutating policies are not served":           {policies: shown(old...), mutErr: absent},
-		"only the mutating kind holds the policy":    {policies: shown("mutates-new", "audit")},
-		"the API shows enforce, the mutation audits": {policies: shown("mutates-new", "enforcing"), want: `mutates-new: the API shows "enforcing" and the engine object carries audit`},
-		"a mutating policy and its kind not served":  {policies: shown("mutates-new", "audit"), mutErr: absent, want: "mutates-new: the engine has no policy object of that name"},
-		"the API shows audit, the engine enforces":   {policies: shown("enforces", "permissive"), want: `enforces: the API shows "permissive" and the engine object carries enforce`},
-		"the API shows enforce, the engine audits":   {policies: shown("warns", "enforcing"), want: `warns: the API shows "enforcing" and the engine object carries audit`},
-		"a mode word that is neither":                {policies: shown("audits", "relaxed"), want: `audits: the API shows "relaxed"`},
-		"a policy without an engine object":          {policies: shown("ghost", "permissive"), want: "ghost: the engine has no policy object of that name"},
+		"every mode is the engine's":                 {policies: shown(every...)},
+		"validating policies are not served":         {policies: shown(with("denies", "", "warns", "")...), validErr: absent},
+		"mutating policies are not served":           {policies: shown(with("mutates-new", "")...), mutErr: absent},
+		"only the mutating kind holds the policy":    {policies: shown(with("mutates-new", "audit")...)},
+		"the API shows enforce, the mutation audits": {policies: shown(with("mutates-new", "enforcing")...), want: `1 of 13 policies differ: mutates-new: the API shows "enforcing" and the engine object carries audit`},
+		"a mutating policy and its kind not served":  {policies: shown(every...), mutErr: absent, want: "1 of 13 policies differ: mutates-new:" + noObject},
+		"the API shows audit, the engine enforces":   {policies: shown(with("enforces", "permissive")...), want: `1 of 13 policies differ: enforces: the API shows "permissive" and the engine object carries enforce`},
+		"the API shows enforce, the engine audits":   {policies: shown(with("warns", "enforcing")...), want: `1 of 13 policies differ: warns: the API shows "enforcing" and the engine object carries audit`},
+		"a mode word that is neither":                {policies: shown(with("audits", "relaxed")...), want: `1 of 13 policies differ: audits: the API shows "relaxed"`},
+		"a policy without an engine object":          {policies: shown(append(with(), "ghost", "permissive")...), want: "1 of 14 policies differ: ghost:" + noObject},
 		"the API lists no policy":                    {want: "nothing was measured: the API lists no policy"},
 		"only a policy the API judges itself":        {policies: shown(), want: "nothing was measured: no listed policy has an engine object"},
 		"no kind is served":                          {policies: shown(old...), legacyErr: absent, validErr: absent, mutErr: absent, want: "the cluster serves none of"},
 		"the region cannot be read":                  {policies: shown(old...), legacyErr: refused, want: "connection refused"},
-		"namespaced policies in their namespace":     {policies: shown(withNs...)},
-		"the API shows audit, the Policy enforces":   {policies: shown("org-a/org-platform-scope", "permissive"), want: `org-a/org-platform-scope: the API shows "permissive" and the engine object carries enforce`},
-		"the API shows enforce, the Policy audits":   {policies: shown("org-b/org-platform-scope", "enforcing"), want: `org-b/org-platform-scope: the API shows "enforcing" and the engine object carries audit`},
-		"a Policy in a namespace without it":         {policies: shown("org-c/org-platform-scope", "permissive"), want: "org-c/org-platform-scope: the engine has no policy object of that name"},
-		"a bare name is no namespaced object":        {policies: shown("org-platform-scope", "enforcing"), want: "org-platform-scope: the engine has no policy object of that name"},
-		"a namespaced name is no cluster object":     {policies: shown("org-a/enforces", "enforcing"), want: "org-a/enforces: the engine has no policy object of that name"},
-		"the namespaced kinds are not served":        {policies: shown("audits", "permissive", "org-a/org-platform-scope", "enforcing"), nsErr: absent, want: "org-a/org-platform-scope: the engine has no policy object of that name"},
+		"the API shows audit, the Policy enforces":   {policies: shown(with("org-a/org-platform-scope", "permissive")...), want: `1 of 13 policies differ: org-a/org-platform-scope: the API shows "permissive" and the engine object carries enforce`},
+		"the API shows enforce, the Policy audits":   {policies: shown(with("org-b/org-platform-scope", "enforcing")...), want: `1 of 13 policies differ: org-b/org-platform-scope: the API shows "enforcing" and the engine object carries audit`},
+		"a Policy in a namespace without it":         {policies: shown(append(with(), "org-c/org-platform-scope", "permissive")...), want: "1 of 14 policies differ: org-c/org-platform-scope:" + noObject},
+		"a bare name is no namespaced object":        {policies: shown(append(with(), "org-platform-scope", "enforcing")...), want: "1 of 14 policies differ: org-platform-scope:" + noObject},
+		"a namespaced name is no cluster object":     {policies: shown(append(with(), "org-a/enforces", "enforcing")...), want: "1 of 14 policies differ: org-a/enforces:" + noObject},
+		"the namespaced kinds are not served":        {policies: shown(join(old, newKinds, []string{"org-a/org-platform-scope", "enforcing"})...), nsErr: absent, want: "1 of 10 policies differ: org-a/org-platform-scope:" + noObject},
 		"the namespaced kinds cannot be read":        {policies: shown(old...), nsErr: refused, want: "connection refused"},
+		// CMP-024: the route leaves engine objects out. Before, the check
+		// compared only what the route listed and passed on the missing data.
+		"the API does not list a Policy":             {policies: shown(with("org-a/org-platform-scope", "")...), want: "the API leaves out 1 of the engine's policy objects: org-a/org-platform-scope"},
+		"the API lists no namespaced policy":         {policies: shown(join(old, newKinds)...), want: "the API leaves out 4 of the engine's policy objects: org-a/ns-denies, org-a/org-platform-scope, org-b/ns-mutates, org-b/org-platform-scope"},
+		"the API does not list a ClusterPolicy":      {policies: shown(with("enforces", "")...), want: "the API leaves out 1 of the engine's policy objects: enforces"},
+		"a Policy differs and another is not listed": {policies: shown(with("org-a/org-platform-scope", "permissive", "org-b/org-platform-scope", "")...), want: `1 of 12 policies differ: org-a/org-platform-scope: the API shows "permissive" and the engine object carries enforce; the API leaves out 1 of the engine's policy objects: org-b/org-platform-scope`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			kubectl := func(_ kube.Region, _ context.Context, _ io.Reader, args ...string) ([]byte, error) {

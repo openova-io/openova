@@ -33,7 +33,7 @@
 // per cluster. Each informer runs its own goroutine that pumps events
 // to the registered EventHandler — which delivers a typed Event onto
 // the Factory's events channel, fan-out to N SSE subscribers happens
-// in subscribers.go.
+// in fanout (below Publish).
 package k8scache
 
 import (
@@ -1731,9 +1731,8 @@ func (f *Factory) dispatch(cs *clusterState, k Kind, t EventType, obj any) {
 // payloads (the producer owns them).
 //
 // Concurrency: safe for concurrent callers; the underlying fanout
-// holds subMu briefly to snapshot the subscriber set, then sends
-// non-blocking with the same drop-oldest backpressure as informer
-// events.
+// holds subMu while it sends, non-blocking, with the same drop-oldest
+// backpressure as informer events.
 func (f *Factory) Publish(ev Event) {
 	f.fanout(ev)
 }
@@ -1741,22 +1740,21 @@ func (f *Factory) Publish(ev Event) {
 // fanout — non-blocking send to each subscriber. On full channel we
 // drop the OLDEST event (drain one then push) so the consumer
 // catches up automatically without the producer waiting.
+//
+// CMP-024: subMu is held over the sends. An unsubscribe deletes its
+// subscriber and closes the channel under the same lock, so a fanout
+// never sends on a closed channel (before, the fanout sent after it had
+// released the lock, and an unsubscribe in between closed the channel:
+// a "send on closed channel" panic of the whole process). Every send is
+// non-blocking, so the lock is never held while waiting on a consumer.
 func (f *Factory) fanout(ev Event) {
 	f.subMu.Lock()
-	subs := make([]*subscriber, 0, len(f.subscribers))
+	defer f.subMu.Unlock()
 	for _, s := range f.subscribers {
 		// Filter on subscribed kinds. Empty kinds map == all kinds.
-		if len(s.kinds) == 0 {
-			subs = append(subs, s)
+		if _, ok := s.kinds[ev.Kind]; len(s.kinds) != 0 && !ok {
 			continue
 		}
-		if _, ok := s.kinds[ev.Kind]; ok {
-			subs = append(subs, s)
-		}
-	}
-	f.subMu.Unlock()
-
-	for _, s := range subs {
 		select {
 		case s.ch <- ev:
 		default:
@@ -1797,12 +1795,14 @@ func (f *Factory) Subscribe(user string, kinds map[string]struct{}) (<-chan Even
 	f.log.Info("k8scache: SSE subscriber connected",
 		"id", id, "user", user, "kinds", len(kinds), "total", count)
 	return ch, func() {
+		// Delete and close under subMu, which fanout holds over its sends
+		// (CMP-024): no fanout sends on the channel once it is closed.
 		f.subMu.Lock()
 		delete(f.subscribers, id)
+		close(ch)
 		count := len(f.subscribers)
 		f.subMu.Unlock()
 		metricSubscribers.Set(float64(count))
-		close(ch)
 		f.log.Info("k8scache: SSE subscriber disconnected",
 			"id", id, "total", count)
 	}

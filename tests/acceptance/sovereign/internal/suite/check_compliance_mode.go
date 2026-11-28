@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,6 +21,9 @@ import (
 // <namespace>/<name> (the engine reports a namespaced policy so) is the
 // legacy Policy of that name in that namespace, or the
 // NamespacedValidatingPolicy, or the NamespacedMutatingPolicy, in that order.
+// The other way round, every policy object of the engine in that region must
+// be listed (CMP-024): a route that leaves a policy out shows no mode for it,
+// and comparing only what the route lists would pass on that missing data.
 const (
 	complianceModeID   = "CMP-G02"
 	legacyPolicies     = "clusterpolicies.kyverno.io"
@@ -157,8 +161,19 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 	}) {
 		return nil
 	}
-	checkStep(rec, complianceModeID, 3, "every listed policy shows the mode of its engine object", func(ev Evidence) error {
-		compared, differ, noObject := 0, []string{}, []string{}
+	checkStep(rec, complianceModeID, 3, "every listed policy shows the mode of its engine object, and every engine object is listed", func(ev Evidence) error {
+		compared, differ, noObject, unlisted := 0, []string{}, []string{}, []string{}
+		listedNames := map[string]bool{}
+		for _, p := range listed.Items {
+			listedNames[p.Name] = true
+		}
+		for _, byName := range append([]map[string]kube.Object{legacy, validating, mutating}, namespaced...) {
+			for name := range byName { // two kinds hold one name during an in-place rewrite: listed once
+				if !listedNames[name] && !slices.Contains(unlisted, name) {
+					unlisted = append(unlisted, name)
+				}
+			}
+		}
 		for _, p := range listed.Items {
 			kinds := []map[string]kube.Object{legacy, validating, mutating}
 			if strings.Contains(p.Name, "/") { // <namespace>/<name>: no cluster-scoped object has a slash in its name
@@ -185,12 +200,20 @@ func (c complianceModeCheck) Run(ctx context.Context, cc *CheckContext, rec Step
 		}
 		sort.Strings(differ)
 		sort.Strings(noObject)
-		ev["compared"], ev["differ"], ev["evaluator_policies_without_object"] = compared, len(differ), noObject
+		sort.Strings(unlisted)
+		ev["compared"], ev["differ"], ev["evaluator_policies_without_object"], ev["engine_objects_not_listed"] = compared, len(differ), noObject, unlisted
+		var problems []string
 		if len(differ) > 0 {
-			return fmt.Errorf("%d of %d policies differ: %s", len(differ), len(listed.Items), strings.Join(differ, "; "))
+			problems = append(problems, fmt.Sprintf("%d of %d policies differ: %s", len(differ), len(listed.Items), strings.Join(differ, "; ")))
+		}
+		if len(unlisted) > 0 {
+			problems = append(problems, fmt.Sprintf("the API leaves out %d of the engine's policy objects: %s", len(unlisted), strings.Join(unlisted, ", ")))
 		}
 		if compared == 0 {
-			return errors.New("nothing was measured: no listed policy has an engine object")
+			problems = append(problems, "nothing was measured: no listed policy has an engine object")
+		}
+		if len(problems) > 0 {
+			return errors.New(strings.Join(problems, "; "))
 		}
 		return nil
 	})

@@ -46,7 +46,10 @@ func TestPolicyModeReadsBothKinds(t *testing.T) {
 		{"legacy kind, second rule Enforce", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Audit", "rules": []any{rule("Audit"), rule("Enforce")}}), "enforce", true},
 		{"legacy kind, all Audit", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Audit", "rules": []any{rule("Audit")}}), "audit", true},
 		{"legacy kind read by its own fields only", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationActions": []any{"Deny"}}), "audit", true},
-		{"legacy namespaced kind", policyObj("kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Enforce"}), "", false},
+		{"legacy namespaced kind, spec Enforce", policyObj("kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Enforce"}), "enforce", true},
+		{"legacy namespaced kind, a mutate rule and an Enforce validate rule", policyObj("kyverno.io/v1", "Policy", map[string]any{"rules": []any{map[string]any{"name": "stamp", "mutate": map[string]any{}}, rule("Enforce")}}), "enforce", true},
+		{"legacy namespaced kind, all Audit", policyObj("kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Audit", "rules": []any{rule("Audit")}}), "audit", true},
+		{"legacy namespaced kind name in the new group", policyObj("policies.kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Enforce"}), "", false},
 		{"new kind name in the legacy group", policyObj("kyverno.io/v1", "ValidatingPolicy", map[string]any{"validationActions": []any{"Deny"}}), "", false},
 		{"legacy kind name in the new group", policyObj("policies.kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Enforce"}), "", false},
 		{"a report", policyObj("wgpolicyk8s.io/v1alpha2", "ClusterPolicyReport", nil), "", false},
@@ -61,16 +64,18 @@ func TestPolicyModeReadsBothKinds(t *testing.T) {
 }
 
 // TestPolicyModeKindsAreRegistered: every informer kind the adapter reads is
-// in the default registry with the GVR of its group, cluster-scoped; the two
-// new kinds at version v1 (spike CMP-S1) and Optional, the legacy kind not.
+// in the default registry with the GVR of its group and its scope; the two
+// new kinds at version v1 (spike CMP-S1) and Optional, ClusterPolicy not, the
+// namespaced legacy kind Policy namespaced and Optional (CMP-024).
 func TestPolicyModeKindsAreRegistered(t *testing.T) {
 	want := map[string]struct {
-		gvr      schema.GroupVersionResource
-		optional bool
+		gvr                  schema.GroupVersionResource
+		namespaced, optional bool
 	}{
-		"clusterpolicy":    {schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, false},
-		"validatingpolicy": {schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}, true},
-		"mutatingpolicy":   {schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "mutatingpolicies"}, true},
+		"clusterpolicy":    {schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, false, false},
+		"policy":           {schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}, true, true},
+		"validatingpolicy": {schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}, false, true},
+		"mutatingpolicy":   {schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "mutatingpolicies"}, false, true},
 	}
 	kinds := PolicyMode{}.Kinds()
 	if len(kinds) != len(want) {
@@ -91,8 +96,8 @@ func TestPolicyModeKindsAreRegistered(t *testing.T) {
 			t.Errorf("kind %q is not in k8scache.DefaultKinds", name)
 			continue
 		}
-		if k.GVR != w.gvr || k.Namespaced || k.Optional != w.optional {
-			t.Errorf("kind %q registered as %v namespaced=%v optional=%v, want %v namespaced=false optional=%v", name, k.GVR, k.Namespaced, k.Optional, w.gvr, w.optional)
+		if k.GVR != w.gvr || k.Namespaced != w.namespaced || k.Optional != w.optional {
+			t.Errorf("kind %q registered as %v namespaced=%v optional=%v, want %v namespaced=%v optional=%v", name, k.GVR, k.Namespaced, k.Optional, w.gvr, w.namespaced, w.optional)
 		}
 	}
 }
@@ -117,8 +122,16 @@ func named(name string, o *unstructured.Unstructured) *unstructured.Unstructured
 	return o
 }
 
+func inNamespace(ns string, o *unstructured.Unstructured) *unstructured.Unstructured {
+	o.SetNamespace(ns)
+	return o
+}
+
 // TestPolicyObjectsReadTheStore: the entry of a name is what read makes of
-// the first kind's object that read accepts, the legacy kind first; a kind
+// the first kind's object that read accepts, the legacy kinds first; an
+// object of the namespaced kind Policy is listed <namespace>/<name>, the name
+// the engine's reports give it, in the mode its own object carries, and never
+// takes the entry of a cluster-scoped object of the same bare name; a kind
 // the cluster holds no informer of gives nothing; a cluster the store does
 // not hold is not held.
 func TestPolicyObjectsReadTheStore(t *testing.T) {
@@ -129,6 +142,11 @@ func TestPolicyObjectsReadTheStore(t *testing.T) {
 			named("forbid-nodeport-service", policyObj("kyverno.io/v1", "ClusterPolicy", map[string]any{"validationFailureAction": "Enforce"})),
 			named("unread", policyObj("v1", "ConfigMap", nil)),
 		},
+		"policy": {
+			inNamespace("org-a", named("org-platform-scope", policyObj("kyverno.io/v1", "Policy", map[string]any{"rules": []any{rule("Enforce")}}))),
+			inNamespace("org-b", named("org-platform-scope", policyObj("kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Audit"}))),
+			inNamespace("org-a", named("moved", policyObj("kyverno.io/v1", "Policy", map[string]any{"validationFailureAction": "Enforce"}))),
+		},
 		"validatingpolicy": {
 			named("moved", policyObj("policies.kyverno.io/v1", "ValidatingPolicy", deny)),
 			named("flux-managed", policyObj("policies.kyverno.io/v1", "ValidatingPolicy", deny)),
@@ -136,7 +154,8 @@ func TestPolicyObjectsReadTheStore(t *testing.T) {
 		},
 	}
 	got, held := PolicyObjects(store, "acme", PolicyMode{}.Mode)
-	want := map[string]string{"moved": "audit", "forbid-nodeport-service": "enforce", "flux-managed": "enforce", "unread": "enforce"}
+	want := map[string]string{"moved": "audit", "forbid-nodeport-service": "enforce", "flux-managed": "enforce", "unread": "enforce",
+		"org-a/org-platform-scope": "enforce", "org-b/org-platform-scope": "audit", "org-a/moved": "enforce"}
 	if !held || !reflect.DeepEqual(got, want) {
 		t.Fatalf("PolicyObjects(acme) = %v, %v; want %v, true", got, held, want)
 	}
