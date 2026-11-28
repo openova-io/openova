@@ -1,0 +1,186 @@
+name: Build capability-probe
+
+# capability-probe (core/cmd/capability-probe): checks one capability binding the way a consumer
+# uses it; bp-capability-probe (platform/capability-probe) runs it as its function test (ADR-0020,
+# S7 and S11). Every image that runs on OpenOva infra is built here from a committed SHA
+# (docs/PRINCIPLES.md #4a), with the flow of build-k8s-ws-proxy.yaml: Buildx, the shared signing
+# action, then the promote job pins the new tag in the chart and dispatches blueprint-release.
+#
+# On every event the tests run against a real S3 server (SeaweedFS 4.22, the kit's version, with
+# TLS from a private CA: testdata/s3-server.sh), and the built image itself must pass the probe
+# against it before anything is pushed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/cmd/capability-probe/**'
+      - '.github/workflows/build-capability-probe.yaml'
+  pull_request:
+    paths:
+      - 'core/cmd/capability-probe/**'
+      - '.github/workflows/build-capability-probe.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/capability-probe
+  CHART_VALUES: platform/capability-probe/chart/values.yaml
+  CHART_YAML: platform/capability-probe/chart/Chart.yaml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo "$GITHUB_SHA" | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: core/cmd/capability-probe/go.mod
+          cache-dependency-path: core/cmd/capability-probe/go.sum
+
+      - name: Start the S3 server the tests run against
+        run: |
+          sh core/cmd/capability-probe/testdata/s3-server.sh start "$RUNNER_TEMP/s3" 8333 > "$RUNNER_TEMP/s3.env"
+          cat "$RUNNER_TEMP/s3.env" >> "$GITHUB_ENV"
+
+      - name: Unit tests and the S3 tests
+        working-directory: core/cmd/capability-probe
+        run: go test -count=1 -race ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build the image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: core/cmd/capability-probe/Containerfile
+          load: true
+          push: false
+          tags: capability-probe:ci
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=capability-probe
+            org.opencontainers.image.description=Checks one capability binding the way a consumer uses it
+          # provenance=false: containerd 1.7.x on k3s cannot pull images that carry an attestation
+          # manifest. The bill of materials is attested by the signing action below.
+          provenance: false
+          sbom: false
+
+      - name: The built image passes the probe against the S3 server
+        run: |
+          docker run --rm --network host -v "$PROBE_TEST_S3_DIR/binding:/bindings/objects:ro" capability-probe:ci \
+            --probe object-storage-v1 --binding-dir /bindings/objects > "$RUNNER_TEMP/probe.out"
+          cat "$RUNNER_TEMP/probe.out"
+          grep -q '^PROBE pass object-storage-v1 ' "$RUNNER_TEMP/probe.out"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The image the probe ran is pushed as it is, not built a second time, so the digest signed
+      # below is the digest of the image that passed the probe.
+      - name: Push the image
+        id: push
+        if: github.event_name != 'pull_request'
+        env:
+          REF: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          docker tag capability-probe:ci "$REF"
+          docker push "$REF"
+          digest=$(docker buildx imagetools inspect "$REF" --format '{{.Manifest.Digest}}')
+          case "$digest" in
+          sha256:*) echo "digest=$digest" >> "$GITHUB_OUTPUT" ;;
+          *) echo "::error::no digest for $REF: $digest"; exit 1 ;;
+          esac
+
+      - name: Sign and attest the image
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+  promote:
+    # Pin the new tag in the chart and bump the chart's patch version, so blueprint-release
+    # publishes a bp-capability-probe that runs this image (the flow of build-k8s-ws-proxy.yaml).
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Pin the image tag in values.yaml
+        env:
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".image.tag = \"${SHA_SHORT}\"" "${CHART_VALUES}"
+          yq eval '.image' "${CHART_VALUES}"
+
+      - name: Bump Chart.yaml patch version
+        run: |
+          set -euo pipefail
+          current=$(yq eval '.version' "${CHART_YAML}")
+          IFS='.' read -r major minor patch <<<"${current}"
+          next="${major}.${minor}.$((patch + 1))"
+          yq eval -i ".version = \"${next}\"" "${CHART_YAML}"
+          echo "Chart.yaml version: ${current} -> ${next}"
+          echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
+
+      - name: Commit and push chart bump
+        id: deploy_commit
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: |
+            ${{ env.CHART_VALUES }}
+            ${{ env.CHART_YAML }}
+          commit-message: "deploy: bump bp-capability-probe to image ${{ needs.build.outputs.sha_short }} chart ${{ env.CHART_NEW_VERSION }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
+
+      # A commit pushed with GITHUB_TOKEN starts no workflow, so blueprint-release is dispatched.
+      - name: Trigger blueprint-release for the chart bump
+        if: steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f blueprint=capability-probe \
+            -f tree=platform

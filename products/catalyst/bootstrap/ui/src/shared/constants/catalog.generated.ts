@@ -296,6 +296,32 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-capability-probe",
+    "slug": "capability-probe",
+    "title": "Capability probe",
+    "summary": "A consumer that proves a capability binding by using it; its function test runs the contract's probe on each bound alias.",
+    "icon": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "class": "application",
+    "lifecycle": "experimental",
+    "version": "0.1.0",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {}
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-catalyst-edge-routes",
     "slug": "catalyst-edge-routes",
     "title": "Catalyst control-plane edge (region-b)",
@@ -2925,6 +2951,43 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
+    "id": "bp-object-bucket",
+    "slug": "object-bucket",
+    "title": "Object storage (in-cluster)",
+    "summary": "Buckets on the Sovereign's own SeaweedFS, one per consumer, each with its own access key.",
+    "icon": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "class": "data-service",
+    "lifecycle": "experimental",
+    "version": "0.1.0",
+    "depends": [
+      "bp-seaweedfs"
+    ],
+    "shareable": true,
+    "contextSchema": {
+      "kind": "bucket",
+      "valuesKey": "buckets",
+      "needs": [
+        "name"
+      ],
+      "produces": [
+        "binding"
+      ]
+    },
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {}
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-oidc-gate",
     "slug": "oidc-gate",
     "title": "oidc-gate",
@@ -4857,6 +4920,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/agenity/blueprint.yaml",
   "platform/alloy/blueprint.yaml",
   "platform/bge/blueprint.yaml",
+  "platform/capability-probe/blueprint.yaml",
   "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
   "platform/cert-manager-issuers/blueprint.yaml",
@@ -4904,6 +4968,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/netbird/blueprint.yaml",
   "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
+  "platform/object-bucket/blueprint.yaml",
   "platform/oidc-gate/blueprint.yaml",
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",

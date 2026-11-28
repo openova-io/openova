@@ -1,0 +1,20 @@
+apiVersion: v2
+name: bp-capability-probe
+version: 0.1.0
+appVersion: "0.1.0"
+description: |
+  A consumer of capabilities that exists to prove them: an idle Deployment of
+  the capability-probe image (core/cmd/capability-probe) that mounts each
+  bound binding as files, and a function test that runs the contract's probe
+  on each (docs/adr/0020, S11).
+type: application
+keywords: [catalyst, blueprint, capability, probe, function-test]
+annotations:
+  # Every template is Catalyst-authored: no upstream subchart.
+  catalyst.openova.io/no-upstream: "true"
+  # With no bound alias (bindings: {}) the chart renders its ServiceAccount
+  # alone: there is nothing to probe. chart/tests/render.sh renders a bound alias.
+  catalyst.openova.io/smoke-render-mode: default-off
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io

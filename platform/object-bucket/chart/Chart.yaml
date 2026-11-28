@@ -1,0 +1,21 @@
+apiVersion: v2
+name: bp-object-bucket
+version: 0.1.0
+appVersion: "4.22"
+description: |
+  The in-cluster implementation of capability object-storage, contract v1
+  (platform/_capabilities/object-storage.yaml): one bucket on the Sovereign's
+  own SeaweedFS for each Context, each with its own key that may act on that
+  bucket only. The keys are written to the Context's binding path in OpenBao
+  as the producer "binding"; they never become a Secret object.
+type: application
+keywords: [catalyst, blueprint, object-storage, s3, seaweedfs, capability]
+annotations:
+  # Every template is Catalyst-authored: no upstream subchart.
+  catalyst.openova.io/no-upstream: "true"
+  # With no Context (buckets: []) the chart renders its service account and the
+  # list of its Contexts only; chart/tests/render.sh renders the Jobs.
+  catalyst.openova.io/smoke-render-mode: default-off
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io

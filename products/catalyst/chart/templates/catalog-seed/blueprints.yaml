@@ -248,6 +248,43 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
+  name: bp-capability-probe
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 0.1.0
+  class: application
+  lifecycle: experimental
+  visibility: unlisted
+  card:
+    title: Capability probe
+    summary: A consumer that proves a capability binding by using it; its function test runs the contract's probe on each bound alias.
+  requires:
+  - capability: object-storage
+    contract: v1
+    alias: objects
+    optional: true
+  manifests:
+    chart: bp-capability-probe
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-capability-probe
+    version: 0.1.0
+  topology:
+    supported: [singleton]
+    defaults:
+      single-region: singleton
+      multi-region: singleton
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
   name: bp-catalyst-platform
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -2543,6 +2580,55 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
+---
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-object-bucket
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  version: 0.1.0
+  class: data-service
+  lifecycle: experimental
+  visibility: unlisted
+  card:
+    title: Object storage (in-cluster)
+    summary: Buckets on the Sovereign's own SeaweedFS, one per consumer, each with its own access key.
+  provides:
+  - capability: object-storage
+    contract: v1
+    implementation: in-cluster
+  shareable: true
+  contextSchema:
+    kind: bucket
+    valuesKey: buckets
+    needs: [name]
+    produces: [binding]
+  multiInstance:
+    enabled: true
+    maxPerOrg: 0
+    namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
+    isolationLevel: namespace
+  depends:
+  - blueprint: bp-seaweedfs
+  manifests:
+    chart: bp-object-bucket
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-object-bucket
+    version: 0.1.0
+  topology:
+    supported: [singleton]
+    defaults:
+      single-region: singleton
+      multi-region: singleton
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint

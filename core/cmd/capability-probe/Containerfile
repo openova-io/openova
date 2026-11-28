@@ -1,0 +1,17 @@
+# capability-probe: checks one capability binding the way a consumer uses it (ADR-0020,
+# S7 and S11). Built by .github/workflows/build-capability-probe.yaml with the repository ROOT as
+# the build context. A static binary on a minimal runtime that runs as a non-root numeric user.
+
+FROM docker.io/library/golang:1.26.11-alpine3.24@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS build
+WORKDIR /workspace/core/cmd/capability-probe
+COPY core/cmd/capability-probe/go.mod core/cmd/capability-probe/go.sum ./
+RUN go mod download
+COPY core/cmd/capability-probe/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /capability-probe .
+
+FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+# ca-certificates: an endpoint with a publicly trusted certificate needs no ca.crt key.
+RUN apk add --no-cache ca-certificates
+COPY --from=build /capability-probe /capability-probe
+USER 65534:65534
+ENTRYPOINT ["/capability-probe"]

@@ -1,0 +1,57 @@
+{{- /*
+Function test of bp-capability-probe (docs/adr/0020, S11). `helm test` runs it.
+
+It mounts every bound binding as the consumer does and runs the contract's probe on each: for
+object-storage v1 the probe checks the nine keys, then puts an object into the bucket with the
+binding's own key, gets it back, compares it and deletes it. The last line is
+FUNCTION-TEST pass bp-capability-probe ..., or FUNCTION-TEST fail bp-capability-probe binding
+<alias> <reason of the probe> at the first alias that fails. With no bound alias the chart renders
+its ServiceAccount alone, no workload and not this test: there is nothing to probe.
+*/ -}}
+{{- $bindings := include "capabilityProbe.bindings" . | fromJsonArray }}
+{{- if $bindings }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capabilityProbe.labels" . | nindent 4 }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}
+  automountServiceAccountToken: false
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: function-test
+      image: {{ include "capabilityProbe.image" . | quote }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail bp-capability-probe $1"; exit 1; }
+          probed=""
+          {{- range $b := $bindings }}
+          out=$(/capability-probe --probe {{ $b.probe }} --binding-dir {{ $b.mountPath }}) || fail "binding {{ $b.alias }} $(printf '%s' "$out" | sed 's/^PROBE fail [^ ]* //')"
+          echo "$out"
+          probed="$probed {{ $b.alias }}"
+          {{- end }}
+          echo "FUNCTION-TEST pass bp-capability-probe the probe of each bound alias passed:$probed"
+      securityContext:
+        {{- include "capabilityProbe.securityContext" . | nindent 8 }}
+      resources:
+        {{- toYaml .Values.resources | nindent 8 }}
+      volumeMounts:
+        {{- include "capabilityProbe.volumeMounts" (dict "bindings" $bindings) | nindent 8 }}
+  volumes:
+    {{- include "capabilityProbe.volumes" (dict "root" . "bindings" $bindings) | nindent 4 }}
+{{- end }}

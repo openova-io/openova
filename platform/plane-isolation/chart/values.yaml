@@ -152,6 +152,11 @@ components:
                                    # only with peers, so without this carve-out the value is
                                    # never born on a Sovereign of one region and the auth Pod
                                    # never mounts it (tests/openbao-birth-ingress.sh).
+      - seaweedfs                  # SVC-270: the Jobs of bp-object-bucket run in the SeaweedFS
+                                   # namespace, where they reach its master and filer, and log
+                                   # in at openbao.openbao.svc:8200 as auth role producer-binding
+                                   # to write the binding of each object-storage Context. Without
+                                   # this carve-out the dial is dropped and no consumer gets keys.
   - namespace: guacamole           # remote-desktop gateway (was catalyst-system in vc-mgmt)
     gatewayIngress: true           # guacamole.<fqdn> public route
     allowIngressFrom:

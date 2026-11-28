@@ -1,0 +1,51 @@
+# bp-object-bucket: buckets on the Sovereign's own SeaweedFS, one per Context, each with its own
+# key (docs/adr/0020, S4, S7 and S9). Spike SVC-250 recorded outcome 2: a key scoped
+# to one bucket can be made only from the SeaweedFS namespace, so this release runs there and one
+# instance serves every consumer (SVC-275 installs it).
+
+# The Contexts of this Application, in the canonical shape the install API writes into
+# spec.parameters.buckets. Nothing else writes this list.
+#   - name: <consumer Application>              the bucket name begins with it
+#     capability: object-storage                must be object-storage
+#     contract: v1                              must be v1
+#     alias: <requires[].alias of the consumer>
+#     consumer: {blueprint: <name>, application: <name>, namespace: <ns>, mode: shared}
+#     binding:
+#       path: mounted/data/<consumer.namespace>/shared/binding-<alias>/e<N>
+#     versioning: false                         context field of object-storage v1
+#     retentionDays: 0                          context field; 0 = objects never expire
+buckets: []
+
+seaweedfs:
+  # The release must run in this namespace when it has a Context: its Jobs reach the master and
+  # the filer of the kit's SeaweedFS (slot 18) there, and the producer identity binds it.
+  namespace: seaweedfs
+  master: seaweedfs-master.seaweedfs.svc.cluster.local:9333
+  filer: seaweedfs-filer-client.seaweedfs.svc.cluster.local:8888
+  # Written as the binding's endpoint. The kit's S3 gateway serves HTTP inside the cluster only
+  # (slot 18, s3.httpsPort 0); the contract allows http for a service name of the cluster.
+  s3Endpoint: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+  region: us-east-1
+  # PEM bundle written as ca.crt; empty while the endpoint is HTTP.
+  caBundle: ""
+  # The kit's SeaweedFS image: weed shell and curl.
+  image: harbor.openova.io/proxy-dockerhub/chrislusf/seaweedfs:4.22
+
+openbao:
+  addr: http://openbao.openbao.svc.cluster.local:8200
+  kubernetesAuthPath: kubernetes
+  # Producer "binding" of bp-openbao (platform/openbao/chart/values.yaml, producers): it binds
+  # serviceAccount below in seaweedfs.namespace, may create and update +/shared/binding-* and read
+  # and delete their metadata, and never reads a value.
+  role: producer-binding
+
+# The service account the Jobs run as; the producer identity binds exactly this name.
+serviceAccount: object-bucket
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

@@ -1,0 +1,49 @@
+{{- /*
+One Job per Context (files/context.sh, MODE=create). Its name is a digest of the Context, of the
+settings and of the script, so a changed Context or chart runs a new Job (a Job's pod template
+cannot change); the script keeps a key whose binding exists, so the new run changes no key.
+The same values render the same name, so a Job that used up its retries stays Failed and does not
+run again by itself: after the cause is fixed, delete the Job and run the upgrade once more, which
+creates it again (README, "A failed Job").
+
+ConfigMap <release>-contexts lists the Contexts of the revision, one key per bucket. On an upgrade
+the chart reads that list as the cluster holds it (lookup): a Context in it that is gone from
+.Values.buckets gets a pre-upgrade Job with MODE=remove, which deletes its key and its binding and
+keeps the bucket. A failed removal fails the upgrade before the list changes, so the next attempt
+renders it again. helm template has no cluster: it renders no removal.
+*/ -}}
+{{- $contexts := include "objectBucket.contexts" . | fromJsonArray }}
+{{- $script := .Files.Get "files/context.sh" }}
+{{- $settings := toJson (dict "seaweedfs" .Values.seaweedfs "openbao" .Values.openbao "serviceAccount" .Values.serviceAccount "resources" .Values.resources) }}
+{{- $release := trunc 30 .Release.Name | trimSuffix "-" }}
+{{- $current := dict }}
+{{- range $ctx := $contexts }}
+{{- $_ := set $current $ctx.bucket (toJson $ctx) }}
+---
+{{ include "objectBucket.job" (dict "root" $ "ctx" $ctx "mode" "create" "hook" ""
+  "name" (printf "%s-%s" $release (sha256sum (printf "%s|%s|%s" (toJson $ctx) $settings $script) | trunc 16))) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-contexts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "objectBucket.labels" . | nindent 4 }}
+data:
+  {{- range $bucket, $raw := $current }}
+  {{ $bucket }}: {{ $raw | quote }}
+  {{- end }}
+{{- $previous := lookup "v1" "ConfigMap" .Release.Namespace (printf "%s-contexts" .Release.Name) }}
+{{- range $bucket, $raw := ($previous.data | default dict) }}
+{{- if not (hasKey $current $bucket) }}
+{{- $old := fromJson $raw }}
+{{- if or (ne (toString $old.bucket) $bucket) (not $old.path) (not $old.key) }}
+{{- fail (printf "bp-object-bucket: ConfigMap %s-contexts holds a Context %s that is not a Context of this chart" $.Release.Name $bucket) }}
+{{- end }}
+---
+{{ include "objectBucket.job" (dict "root" $ "ctx" $old "mode" "remove" "hook" "pre-upgrade"
+  "name" (printf "%s-rm-%s" (trunc 27 $.Release.Name | trimSuffix "-") (sha256sum (printf "%s|%s|%s" $raw $settings $script) | trunc 16))) }}
+{{- end }}
+{{- end }}

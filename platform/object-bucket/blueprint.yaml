@@ -1,0 +1,36 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-object-bucket
+spec:
+  version: 0.1.0
+  class: data-service
+  lifecycle: experimental
+  visibility: unlisted
+  card:
+    title: Object storage (in-cluster)
+    summary: Buckets on the Sovereign's own SeaweedFS, one per consumer, each with its own access key.
+  provides:
+    - capability: object-storage
+      contract: v1
+      implementation: in-cluster
+  shareable: true
+  contextSchema:
+    kind: bucket
+    valuesKey: buckets
+    needs: [name]
+    produces: [binding]
+  # Spike SVC-250, outcome 2: a key scoped to one bucket is made from the SeaweedFS namespace only,
+  # so one instance runs there (chart value seaweedfs.namespace) and every consumer reuses it.
+  multiInstance:
+    enabled: true
+    maxPerOrg: 0
+    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
+    isolationLevel: namespace
+  depends:
+    - blueprint: bp-seaweedfs
+  manifests:
+    chart: bp-object-bucket
+  topology:
+    supported: [singleton]
+    defaults: {single-region: singleton, multi-region: singleton}
