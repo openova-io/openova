@@ -91,7 +91,8 @@ func TestTheSetAsOnMainFails(t *testing.T) {
 		"FAIL set: a change of the library a, which b, c, products/f and through b d build in: the release set is [platform/a], want [platform/a platform/b platform/c platform/d products/f]",
 		"FAIL set: a change of products/q/docs/chart, which products/q builds in: the release set is [], want [products/q]",
 		"FAIL tree: a push that changes platform/secrets-lib/chart/templates/zz-release-set-probe.tpl: the cut's check then refuses [",
-		"lacks [platform/mimir products/axon products/catalyst]",
+		// The consumers of secrets-lib on the tree, whatever other chart builds it in as well.
+		"products/axon products/catalyst], and the release set [platform/secrets-lib] lacks [",
 		"ok   set: a change of the chart e, which nobody builds in: the release set is [platform/e]",
 	)
 }
