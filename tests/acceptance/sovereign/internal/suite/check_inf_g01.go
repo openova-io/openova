@@ -2,17 +2,25 @@ package suite
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
+	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/api"
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
 
@@ -24,7 +32,9 @@ import (
 // runner was stopped between the change and the restore. The step writes
 // the values before that run back, by the rule of the restore in step 4,
 // removes the note and fails, naming that run; the check then touches no
-// node. It fails, and touches no node, unless journey J1 of this run passed.
+// node. It fails, and touches no node, unless journey J1 of this run passed,
+// and unless the run holds the owner's console session and the name of the
+// Sovereign (step D0.1), with which it signs in (rebootSigner).
 // Then it takes the regions one after the other; a region is started only
 // when every region before it passed. In a region it:
 //  1. reads the settings of kured from the arguments of DaemonSet
@@ -50,6 +60,10 @@ import (
 //     that runs a Ready endpoint of the front; when no worker runs one, the
 //     first by name that runs a workload Pod (a Running Pod that is not of a
 //     DaemonSet and not a static Pod). The evidence says which rule chose.
+//     When another worker runs the Keycloak Pod of the region (rebootKCPod in
+//     rebootKCNamespace, Running), that worker is chosen as well, as a second
+//     node of the region; when the first worker runs it, its restart covers
+//     both. A Keycloak Pod on a control-plane node is not drained by kured.
 //     kured never restarts a control-plane node: the chart bp-kured keeps its
 //     DaemonSet off them (platform/kured/chart/values.yaml, affinity), and a
 //     DaemonSet that could run there fails the step. So do a node that is
@@ -59,7 +73,7 @@ import (
 //     workload Pod (a restart would move nothing off), and a container of
 //     the region that waits on an image already (reason ErrImagePull or
 //     ImagePullBackOff: the drain could not be judged). For each workload
-//     Pod on the worker the step records its controller, the owner reference
+//     Pod on a chosen worker the step records its controller, the owner reference
 //     marked controller (a ReplicaSet of a Deployment counts as the
 //     Deployment), and how many Ready Pods that controller has in the region.
 //     A Pod of a Job, which ends by design, and a Pod without a controller,
@@ -91,13 +105,14 @@ import (
 //     of the run is removed) and fails the step, which names both values;
 //  5. reads the HelmReleases of every namespace once and keeps those that are
 //     Ready. None fails the step;
-//  6. creates a namespace of its own and one Pod on the chosen worker that
-//     creates the file kured looks for, and deletes the namespace;
+//  6. creates a namespace of its own and one Pod on each chosen worker that
+//     creates the file kured looks for, and deletes the namespace; kured
+//     restarts the workers one after the other (its concurrency is one);
 //  7. reads the nodes and every Pod of the region every rebootEvery until
-//     the chosen worker has a new boot identifier, no node is
+//     each chosen worker has a new boot identifier, no node is
 //     unschedulable, every node is Ready, none
-//     of the workload Pods that ran on the worker in step 3 is still on it
-//     (they moved off during the drain), the DaemonSet of kured has every
+//     of the workload Pods that ran on a chosen worker in step 3 is still on
+//     one (they moved off during the drain), the DaemonSet of kured has every
 //     Pod ready (its Pod on the worker among them: the node is back), every
 //     HelmRelease of step 5 is Ready again, every controller of step 3 has
 //     as many Ready Pods as it had then (the moved workloads run again), and
@@ -105,22 +120,50 @@ import (
 //     a container that waits fails the step even when every HelmRelease is
 //     Ready. At the time limit each such controller and container is named
 //     with its image. The time limit is one round of kured (period + lock
-//     release delay) plus rebootSettle. The step fails at once when a
+//     release delay) per chosen worker plus rebootSettle. The step fails at once when a
 //     control-plane node shows a new boot identifier, when two nodes are
 //     unschedulable in one reading,
 //     when a node is unschedulable for longer than drain timeout + lock
-//     release delay, when the worker shows a new boot identifier and was
+//     release delay, when a chosen worker shows a new boot identifier and was
 //     never read unschedulable, when a workload Pod of step 3 is still on
-//     the worker after its restart, or when a controller of step 3 does not
+//     a chosen worker after the restarts, or when a controller of step 3 does not
 //     have as many Ready Pods as it had then within rebootBack of the first
-//     reading in which none of its Pods of step 3 is on the worker (gone,
+//     reading in which none of its Pods of step 3 is on a chosen worker (gone,
 //     being deleted or ended); the reason names the controller, its images
 //     and the seconds, and the evidence holds for each controller the
 //     seconds from that reading to the first in which it has them back. A
-//     reading that fails is no observation.
+//     reading that fails is no observation. When a chosen worker runs the
+//     Keycloak Pod, the step signs the owner in (rebootSigner, through the
+//     public auth.<fqdn>) at every reading from the first in which that Pod
+//     is no longer a workload Pod on its worker (gone or being deleted) up to
+//     the first in which a new Keycloak Pod of that name is Ready, and fails
+//     at once on a sign-in answered other than 200, naming the code and the
+//     step of the sign-in that answered it, and when no sign-in was made in
+//     that time (the new Pod was Ready by the next reading). The new Pod is
+//     followed in the same way: when it was placed on a chosen worker that
+//     kured restarts later, it is away once more, and the last time a new
+//     Keycloak Pod is read Ready is the one step 8 counts from.
+//
+// After the last region, when every region passed, the check:
+//  8. reads the log of the Keycloak Pod of every region every rebootEvery
+//     until each one's last cluster view (rebootViewRE: an ISPN000094 line,
+//     or ISPN000093 for a view the merge of two partitions made) lists one
+//     member per region, the current Keycloak of every region (the local
+//     address its own log names last, rebootSelfRE), and fails at
+//     rebootKCJoin after the last Keycloak Pod a reboot moved was first read
+//     Ready again (the step's start when no reboot moved one), naming each
+//     region's view: a view of one member, a view that names a Pod no longer
+//     running, a view that reaches every member only after the bound;
+//  9. forwards a local port to Service keycloak of every region and signs the
+//     owner in once for every pair of regions with the authorization and the
+//     broker answered by one region's Keycloak and the code redeemed at the
+//     other's, and fails on a sign-in answered other than 200, naming the
+//     pair, the code and the error (invalid_grant: the regions' Keycloaks
+//     do not share their codes).
 //
 // The check never restarts a node itself. It changes kured only through the
-// variables document, for the length of its run (step 4).
+// variables document, for the length of its run (step 4). Each sign-in ends
+// the Keycloak session it opened (logout with its refresh token).
 const (
 	rebootID        = "INF-G01"
 	rebootNamespace = "kube-system"                 // of the DaemonSet of kured
@@ -129,7 +172,6 @@ const (
 	rebootLock      = "weave.works/kured-node-lock" // where kured locks when it has no --lock-annotation
 	rebootHold      = "catalyst-install-hold"       // who holds the lock while the install hold of bp-kured is in place
 	rebootPlans     = "plans.upgrade.cattle.io"
-	rebootNodes     = 1 // worker nodes restarted per region
 	rebootMirror    = "kubernetes.io/config.mirror"
 	rebootEvery     = 5 * time.Second
 	rebootSettle    = 15 * time.Minute
@@ -161,6 +203,35 @@ const (
 	// the slowest. A Pod whose image copy stalls for minutes fails here; the
 	// time limit of the node's restart alone would let it come back late.
 	rebootBack = 180 * time.Second
+
+	// The Keycloak of a region: StatefulSet keycloak of bp-keycloak, one Pod
+	// per region, and the Service the gateway sends auth.<fqdn> to.
+	rebootKCNamespace = "keycloak"
+	rebootKCPod       = "keycloak-0"
+	rebootKCContainer = "keycloak"
+	rebootKCService   = "keycloak"
+	rebootKCPort      = 80
+	rebootKCRealm     = "sovereign"
+	rebootKCClient    = "catalyst-ui"  // the console's public PKCE client
+	rebootKCBroker    = "catalyst-pin" // the identity provider that signs a holder of a console session in
+	rebootKCCallback  = "/auth/inf-g01"
+	rebootKCHops      = 12 // the redirects a sign-in may follow before its code
+	rebootKCTimeout   = 30 * time.Second
+
+	// rebootKCJoin is how long after the last Keycloak Pod a reboot moved is
+	// Ready the regions' Keycloaks may take to form one cluster again. A
+	// healthy join measured 33 seconds on 20 November 2026 (region b at
+	// 00:46:42, the view of two members at 00:47:15); a failed one gave up
+	// after about 3 minutes and never merged.
+	rebootKCJoin = 10 * time.Minute
+)
+
+// rebootSelfRE is the line of Infinispan that names the local address of a
+// Keycloak Pod's member of the cluster; rebootViewRE a line of a new cluster
+// view: its member count and its members.
+var (
+	rebootSelfRE = regexp.MustCompile("ISPN000079: Channel `[^`]*` local address is `([^`]+)`")
+	rebootViewRE = regexp.MustCompile(`(ISPN00009[34]): Received new(?:, MERGED)? cluster view for channel [^:]*: (?:MergeView::)?\[[^|\]]*\|[0-9]+\] \(([0-9]+)\) \[([^\]]*)\]`)
 )
 
 // rebootPod creates the sentinel file of its node and ends. Its values are
@@ -177,12 +248,16 @@ const rebootPod = `{"apiVersion": "v1", "kind": "Pod",
     "volumes": [{"name": "sentinel", "hostPath": {"path": %q, "type": "Directory"}}]}}`
 
 type rebootCheck struct {
-	kubectl kubectlFunc
-	now     func() time.Time
-	wait    func(ctx context.Context, d time.Duration) error // waits d, or until ctx ends
+	kubectl   kubectlFunc
+	now       func() time.Time
+	wait      func(ctx context.Context, d time.Duration) error // waits d, or until ctx ends
+	forward   forwardFunc                                      // a local port to a Service of a region
+	transport http.RoundTripper                                // of the sign-ins; nil: http.DefaultTransport
 }
 
-func init() { RegisterCheck(rebootCheck{kubectl: kube.Region.Run, now: time.Now, wait: rebootWait}) }
+func init() {
+	RegisterCheck(rebootCheck{kubectl: kube.Region.Run, now: time.Now, wait: rebootWait, forward: portForward})
+}
 
 func (rebootCheck) ID() string { return rebootID }
 
@@ -205,9 +280,12 @@ type rebootSettings struct {
 	held                   string // the annotation kured locks in, when it holds the install hold
 	dir, file              string // the folder of the node that holds the sentinel file, and its name
 	rolled                 bool   // every Pod of the DaemonSet runs its current template and is ready
+	nodes                  int    // the workers the check restarts in the region; 0 before they are chosen counts as 1
 }
 
-func (k rebootSettings) limit() time.Duration { return rebootNodes*(k.period+k.release) + rebootSettle }
+func (k rebootSettings) limit() time.Duration {
+	return time.Duration(max(k.nodes, 1))*(k.period+k.release) + rebootSettle
+}
 
 // window returns how long the reboot span stays open from now, 0 when it is
 // closed, and how long it is until the span opens the next time.
@@ -503,6 +581,7 @@ func (c rebootCheck) openWindow(ctx context.Context, region kube.Region, k reboo
 		got, err := c.settings(ctx, region)
 		if err == nil && got.span == want && got.rolled {
 			ev["applied_after"] = c.now().Sub(changed).String()
+			got.nodes = k.nodes
 			return got, nil
 		}
 		if err == nil {
@@ -717,11 +796,11 @@ func (r rebootPods) running() map[string][]string {
 	return out
 }
 
-// stayed returns those of the workload Pods moving that are still on node.
-func (r rebootPods) stayed(node string, moving []string) []string {
+// stayed returns those of the workload Pods moving that are still on one of nodes.
+func (r rebootPods) stayed(nodes []string, moving []string) []string {
 	on, out := map[string]bool{}, []string{}
 	for _, p := range r.pods {
-		on[p.key] = p.workload && p.node == node
+		on[p.key] = p.workload && slices.Contains(nodes, p.node)
 	}
 	for _, key := range moving {
 		if on[key] {
@@ -754,20 +833,45 @@ func (r rebootPods) moved(moving []string) map[string]rebootMoved {
 	return out
 }
 
+// rebootKCKey is the start of the key of the region's Keycloak Pod.
+const rebootKCKey = rebootKCNamespace + "/" + rebootKCPod + " "
+
+// keycloak returns the node and the key of the region's Keycloak Pod when it
+// is a workload Pod in phase Running; "" when there is none.
+func (r rebootPods) keycloak() (node, key string) {
+	for _, p := range r.pods {
+		if p.workload && p.phase == "Running" && strings.HasPrefix(p.key, rebootKCKey) {
+			return p.node, p.key
+		}
+	}
+	return "", ""
+}
+
+// keycloakBack returns the node and the key of a Keycloak Pod other than old
+// that is Ready; "" when there is none.
+func (r rebootPods) keycloakBack(old string) (node, key string) {
+	for _, p := range r.pods {
+		if p.ready && p.key != old && strings.HasPrefix(p.key, rebootKCKey) {
+			return p.node, p.key
+		}
+	}
+	return "", ""
+}
+
 // returned judges one reading of the Pods, made at at, against rebootBack.
 // It notes in left when each controller of moved first had none of its
-// Pods of step 3 on node, and in back the seconds from then to the first
+// Pods of step 3 on one of nodes, and in back the seconds from then to the first
 // reading in which it has its Ready Pods of step 3 again, counted up to a
 // whole second. It returns, sorted, each controller that is not back within
 // rebootBack of leaving, or was first read back later.
-func (r rebootPods) returned(node string, moved map[string]rebootMoved, left map[string]time.Time, back map[string]int, at time.Time) []string {
+func (r rebootPods) returned(nodes []string, moved map[string]rebootMoved, left map[string]time.Time, back map[string]int, at time.Time) []string {
 	ready, late := r.readyBy(), []string{}
 	for _, name := range slices.Sorted(maps.Keys(moved)) {
 		m := moved[name]
 		if _, done := back[name]; done {
 			continue
 		}
-		if _, gone := left[name]; !gone && len(r.stayed(node, m.pods)) == 0 {
+		if _, gone := left[name]; !gone && len(r.stayed(nodes, m.pods)) == 0 {
 			left[name] = at
 		}
 		since, gone := left[name]
@@ -921,17 +1025,47 @@ func (c rebootCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder
 	}) {
 		return nil
 	}
+	var signer rebootSigner
+	n++
+	if !checkStep(rec, rebootID, n, "the run holds the owner's console session and the name of the Sovereign, with which the check signs in", func(ev Evidence) error {
+		fqdn := sovereignFQDN(cc.Prior)
+		ev["fqdn"], ev["session"] = fqdn, cc.API != nil && cc.API.SessionValue() != ""
+		switch {
+		case fqdn == "":
+			return errors.New("step D0.1 recorded no sovereignFQDN: no node was touched")
+		case cc.API == nil || cc.API.SessionValue() == "":
+			return errors.New("the run has no console session of the owner: no node was touched")
+		}
+		signer = rebootSigner{fqdn: fqdn, console: cc.API, client: &http.Client{Transport: c.transport, Timeout: rebootKCTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		return nil
+	}) {
+		return nil
+	}
+	var kcReady time.Time // when the last Keycloak Pod a reboot moved was first read Ready again
 	for _, region := range cc.Regions {
-		if !c.region(ctx, region, rec, &n, run) {
-			break
+		if !c.region(ctx, region, rec, &n, run, signer, &kcReady) {
+			return nil
 		}
 	}
+	n++
+	if !checkStep(rec, rebootID, n, "the Keycloaks of the regions form one cluster, each one's last view listing the current Keycloak of every region, within "+rebootKCJoin.String()+" of the last Keycloak Pod a reboot moved being Ready", func(ev Evidence) error {
+		return c.cluster(ctx, cc.Regions, kcReady, ev)
+	}) || len(cc.Regions) < 2 {
+		return nil
+	}
+	n++
+	checkStep(rec, rebootID, n, "a sign-in whose code one region's Keycloak issues is redeemed at another region's Keycloak, for every pair of regions", func(ev Evidence) error {
+		return c.across(ctx, cc.Regions, signer, ev)
+	})
 	return nil
 }
 
 // region runs the steps of one region and reports whether every one passed.
-// run names the run in the note of a span the check writes and in its namespace.
-func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRecorder, n *int, run string) bool {
+// run names the run in the note of a span the check writes and in its
+// namespace; signer signs the owner in during the drain of the Keycloak Pod,
+// and kcReady is moved to the time that Pod was Ready again.
+func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRecorder, n *int, run string, signer rebootSigner, kcReady *time.Time) bool {
 	step := func(name string, fn func(ev Evidence) error) bool {
 		*n++
 		return checkStep(rec, rebootID, *n, name+" in region "+region.ID, fn)
@@ -942,15 +1076,16 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 	var moved map[string]rebootMoved
 	var plans []kube.Object
 	var note *rebootMarker // the note of the span the check wrote into the variables document; nil: nothing written
+	var drain rebootDrain  // the Keycloak Pod of a chosen worker; node "": none
 	ns, created := "inf-reboot-"+strings.ToLower(run), false
 	ok := step("kured is installed and its arguments give the settings", func(ev Evidence) (err error) {
 		k, err = c.settings(ctx, region)
-		ev["reboot_span"], ev["time_limit"], ev["sentinel"] = k.span, k.limit().String(), path.Join(k.dir, k.file)
+		ev["reboot_span"], ev["sentinel"] = k.span, path.Join(k.dir, k.file)
 		return err
 	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) (err error) {
 		plans, err = c.plans(ctx, region, k, ev)
 		return err
-	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, no container waits on an image, and the worker that runs the registry front, else the first that runs workloads, is chosen", func(ev Evidence) (err error) {
+	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, no container waits on an image, and the worker that runs the registry front, else the first that runs workloads, is chosen, and the worker that runs Keycloak", func(ev Evidence) (err error) {
 		if !k.workersOnly {
 			return fmt.Errorf("DaemonSet %s/%s can run on a node with the label %s, so kured could restart a region's control-plane node, which it must never do: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
 		}
@@ -972,7 +1107,25 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		if err != nil {
 			return err
 		}
-		moving, moved = running[chosen[0]], all.moved(running[chosen[0]])
+		node, key := all.keycloak()
+		switch {
+		case node == "":
+			ev["keycloak"] = "no Running Pod " + rebootKCNamespace + "/" + rebootKCPod
+		case before[node].controlPlane:
+			ev["keycloak"] = "on control-plane node " + node + ", which kured never restarts"
+		case node == chosen[0]:
+			drain, ev["keycloak"] = rebootDrain{node: node, key: key}, "on the chosen worker "+node
+		default:
+			drain, ev["keycloak"] = rebootDrain{node: node, key: key}, "on worker "+node+", chosen as well"
+			chosen = append(chosen, node)
+		}
+		k.nodes, ev["chosen"] = len(chosen), chosen
+		ev["time_limit"] = k.limit().String()
+		for _, node := range chosen {
+			moving = append(moving, running[node]...)
+		}
+		sort.Strings(moving)
+		moved = all.moved(moving)
 		counts := map[string]int{}
 		for name, m := range moved {
 			counts[name] = m.ready
@@ -1013,7 +1166,7 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 			return fmt.Errorf("none of %d HelmReleases is Ready, so their recovery cannot be judged: no node was touched", len(all))
 		}
 		return nil
-	}) && step("a pending reboot is put on the chosen worker node", func(ev Evidence) error {
+	}) && step("a pending reboot is put on each chosen worker node", func(ev Evidence) error {
 		ev["namespace"] = ns
 		if _, err := c.kubectl(region, ctx, nil, "create", "namespace", ns); err != nil {
 			return err
@@ -1038,8 +1191,16 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	ok = ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back within "+rebootBack.String()+" of its Pods leaving the worker, and no container waits on an image within "+k.limit().String(), func(ev Evidence) error {
-		return c.watch(ctx, region, k, chosen, moving, moved, before, ready, placed, ev)
+	signs := ""
+	if drain.node != "" {
+		signs = ", and the owner signs in while the Keycloak Pod is away from " + drain.node
+	}
+	ok = ok && step("each chosen worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, every node, kured and every HelmRelease that was Ready is ready again, every controller of a moved Pod has its Ready Pods back within "+rebootBack.String()+" of its Pods leaving the worker, and no container waits on an image within "+k.limit().String()+signs, func(ev Evidence) error {
+		err := c.watch(ctx, region, k, chosen, moving, moved, before, ready, placed, &drain, signer, ev)
+		if drain.back.After(*kcReady) {
+			*kcReady = drain.back
+		}
+		return err
 	})
 	if note != nil {
 		restored := step("the reboot span of the variables document is restored", func(ev Evidence) error {
@@ -1052,16 +1213,21 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 	return ok
 }
 
-// watch reads the nodes and the Pods until the chosen worker has restarted
+// watch reads the nodes and the Pods until each chosen worker has restarted
 // with its workload Pods moved off, every node is schedulable and Ready,
 // kured has every Pod ready, every HelmRelease of ready is Ready again, every
 // controller of moved has its Ready Pods back, each within rebootBack of its
-// Pods leaving the worker, and no container waits on an image, a rule is
-// broken or the time limit ends.
-func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, moved map[string]rebootMoved, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
+// Pods leaving the workers, and no container waits on an image, a rule is
+// broken or the time limit ends. While the Keycloak Pod of drain is away it
+// signs the owner in with signer at every reading.
+func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, moved map[string]rebootMoved, before map[string]rebootNode, ready []string, placed time.Time, drain *rebootDrain, signer rebootSigner, ev Evidence) error {
 	since, drained, oldIDs, newIDs := map[string]time.Time{}, map[string]bool{}, map[string]string{}, map[string]string{}
 	left, back := map[string]time.Time{}, map[string]int{}
 	ev["controllers_seconds_back"] = back
+	if drain.node != "" {
+		ev["keycloak_node"], ev["keycloak_sign_ins"] = drain.node, []Evidence{}
+	}
+	workers := strings.Join(chosen, " and ")
 	for _, name := range chosen {
 		oldIDs[name] = before[name].boot
 	}
@@ -1126,24 +1292,32 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 			all, err := c.pods(ctx, region)
 			late := []string{}
 			if err == nil {
-				late = all.returned(chosen[0], moved, left, back, c.now())
+				at := c.now()
+				signedIn := drain.observe(ctx, all, at, placed, signer)
+				if drain.node != "" {
+					ev["keycloak_sign_ins"] = drain.signIns
+				}
+				if signedIn != nil {
+					return signedIn
+				}
+				late = all.returned(chosen, moved, left, back, at)
 			}
 			if len(late) > 0 {
 				pulls := ""
 				if len(all.pulls) > 0 {
 					pulls = fmt.Sprintf("; %d containers of the region wait on an image: %s", len(all.pulls), strings.Join(all.pulls, ", "))
 				}
-				return fmt.Errorf("%d of %d controllers whose Pods the drain moved are not back within %d seconds of their Pods leaving %s: %s%s", len(late), len(moved), int(rebootBack.Seconds()), chosen[0], strings.Join(late, ", "), pulls)
+				return fmt.Errorf("%d of %d controllers whose Pods the drain moved are not back within %d seconds of their Pods leaving %s: %s%s", len(late), len(moved), int(rebootBack.Seconds()), workers, strings.Join(late, ", "), pulls)
 			}
 			if err == nil && len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
-				if stayed := all.stayed(chosen[0], moving); len(stayed) > 0 {
-					return fmt.Errorf("%d of the %d workload Pods that ran on %s are still on it after its restart, so its drain did not move them off: %s", len(stayed), len(moving), chosen[0], strings.Join(stayed, ", "))
+				if stayed := all.stayed(chosen, moving); len(stayed) > 0 {
+					return fmt.Errorf("%d of the %d workload Pods that ran on %s are still on it after its restart, so its drain did not move them off: %s", len(stayed), len(moving), workers, strings.Join(stayed, ", "))
 				}
 				var waiting string
 				ev["workloads_moved_off"] = len(moving)
 				waiting, err = c.recovery(ctx, region, ready, moved, all, ev)
 				if err == nil && waiting == "" {
-					return nil
+					return drain.done()
 				}
 				if err == nil {
 					last += "; " + waiting
@@ -1161,4 +1335,385 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 			return err
 		}
 	}
+}
+
+// rebootDrain follows the Keycloak Pod of a chosen worker through the drain
+// of that worker and signs the owner in while it is away. Each new Keycloak
+// Pod is followed in turn: kured may restart the worker it was placed on
+// later in the step, which moves it once more.
+type rebootDrain struct {
+	node, key  string     // the worker and the key of the Pod followed, first the Pod of step 3; node "": no chosen worker runs it
+	left, back time.Time  // the first reading in which the Pod followed is no longer a workload Pod on node (zero while it is), and the last reading in which a new Keycloak Pod was first read Ready
+	from       int        // the sign-ins made before the Pod followed left
+	signIns    []Evidence // each sign-in made while a Keycloak Pod was away
+}
+
+// observe judges all, one reading of the Pods made at at: it notes when the
+// Pod followed left its worker and when a new Keycloak Pod is Ready, and
+// signs the owner in when the Pod has left and no new one is Ready yet. The
+// new Pod is then the one followed. It fails on a sign-in answered other
+// than 200, and when a new Pod is Ready before any sign-in was made since the
+// Pod followed left.
+func (d *rebootDrain) observe(ctx context.Context, all rebootPods, at, placed time.Time, signer rebootSigner) error {
+	if d.node == "" {
+		return nil
+	}
+	if d.left.IsZero() {
+		if len(all.stayed([]string{d.node}, []string{d.key})) > 0 {
+			return nil
+		}
+		d.left, d.from = at, len(d.signIns)
+	}
+	if node, key := all.keycloakBack(d.key); key != "" {
+		if len(d.signIns) == d.from {
+			return fmt.Errorf("no sign-in was made while the Keycloak Pod %s was away from %s: a new one was Ready in the first reading after it left", rebootKCNamespace+"/"+rebootKCPod, d.node)
+		}
+		d.node, d.key, d.left, d.back = node, key, time.Time{}, at
+		return nil
+	}
+	away, a := int(at.Sub(d.left).Seconds()), signer.signIn(ctx, "", "")
+	d.signIns = append(d.signIns, Evidence{"seconds_after_placing": int(at.Sub(placed).Seconds()), "seconds_away": away,
+		"code": a.code, "answered_at": a.leg, "session_ended": a.ended})
+	if !a.ok() {
+		return fmt.Errorf("the owner's sign-in %d seconds after the Keycloak Pod %s left %s, before a new one was Ready, was answered HTTP %d at %s: %s",
+			away, rebootKCNamespace+"/"+rebootKCPod, d.node, a.code, a.leg, a.why)
+	}
+	return nil
+}
+
+// done fails when a chosen worker ran the Keycloak Pod and it never left,
+// so that no sign-in was made while it was away. Each time it was away
+// observe judged its sign-ins when the new Pod was Ready.
+func (d *rebootDrain) done() error {
+	if d.node == "" || !d.left.IsZero() || !d.back.IsZero() {
+		return nil
+	}
+	return fmt.Errorf("the Keycloak Pod %s never left %s, so no sign-in was made while it was away", rebootKCNamespace+"/"+rebootKCPod, d.node)
+}
+
+// rebootSigner signs the owner in to the realm rebootKCRealm the way the
+// console's SPA does: an authorization request of the public PKCE client
+// rebootKCClient with the hint for the identity provider rebootKCBroker, whose
+// authorization endpoint (catalyst-api at api.<fqdn>) signs in the holder of
+// the owner's console session; then the code is redeemed at the token
+// endpoint, and the session the sign-in opened is ended with its refresh
+// token. It follows every redirect itself, sends each cookie only to the host
+// that set it and the console session only to api.<fqdn>.
+type rebootSigner struct {
+	fqdn    string
+	console *api.Client // holds the owner's session; asked once per sign-in, so that a session it refuses is renewed
+	client  *http.Client
+}
+
+// rebootAnswer is how a sign-in ended: the HTTP code of the answer that ended
+// it (200: the code was redeemed), the host and path that gave it, and what
+// was wrong with it ("" when nothing).
+type rebootAnswer struct {
+	code     int
+	leg, why string
+	ended    bool // the logout ended the Keycloak session the sign-in opened
+}
+
+func (a rebootAnswer) ok() bool { return a.code == http.StatusOK && a.why == "" }
+
+// signIn signs the owner in once. issue is where the requests to auth.<fqdn>
+// before the code are sent and redeem where the code is redeemed: a base URL
+// such as http://127.0.0.1:<port> of a forward to one region's Keycloak, or
+// "" for the public https://auth.<fqdn>, which the gateway of any region
+// answers.
+func (s rebootSigner) signIn(ctx context.Context, issue, redeem string) rebootAnswer {
+	if _, err := s.console.Get(ctx, "/api/v1/whoami", nil); err != nil {
+		return rebootAnswer{leg: "console." + s.fqdn + "/api/v1/whoami", why: "the console does not take the owner's session: " + err.Error()}
+	}
+	realm := "https://auth." + s.fqdn + "/realms/" + rebootKCRealm + "/protocol/openid-connect/"
+	callback, verifier, state := "https://console."+s.fqdn+rebootKCCallback, rebootNonce(), rebootNonce()
+	sum := sha256.Sum256([]byte(verifier))
+	next := realm + "auth?" + url.Values{"client_id": {rebootKCClient}, "redirect_uri": {callback}, "response_type": {"code"},
+		"scope": {"openid"}, "state": {state}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"}, "kc_idp_hint": {rebootKCBroker}}.Encode()
+	jar, code := map[string]map[string]string{}, ""
+	for hop := 0; code == ""; hop++ {
+		u, err := url.Parse(next)
+		if err != nil {
+			return rebootAnswer{why: "a redirect to " + strconv.Quote(next) + ", which is not a URL"}
+		}
+		if u.Scheme+"://"+u.Host+u.Path == callback {
+			got := u.Query()
+			switch {
+			case got.Get("error") != "":
+				return rebootAnswer{leg: u.Host + u.Path, why: "Keycloak sent the console the error " + got.Get("error") + ": " + got.Get("error_description")}
+			case got.Get("code") == "" || got.Get("state") != state:
+				return rebootAnswer{leg: u.Host + u.Path, why: "Keycloak sent the console no code, or another state than the request's"}
+			}
+			code = got.Get("code")
+			break
+		}
+		if hop == rebootKCHops {
+			return rebootAnswer{leg: u.Host + u.Path, why: fmt.Sprintf("no code after %d redirects", rebootKCHops)}
+		}
+		res, body, err := s.send(ctx, http.MethodGet, u, issue, nil, jar)
+		if err != nil {
+			return rebootAnswer{leg: u.Host + u.Path, why: err.Error()}
+		}
+		if res.StatusCode < 300 || res.StatusCode > 399 || res.Header.Get("Location") == "" {
+			return rebootAnswer{code: res.StatusCode, leg: u.Host + u.Path, why: "the answer is not a redirect: " + api.Snippet(body)}
+		}
+		to, err := u.Parse(res.Header.Get("Location"))
+		if err != nil {
+			return rebootAnswer{code: res.StatusCode, leg: u.Host + u.Path, why: "the answer redirects to an address that is not a URL"}
+		}
+		next = to.String()
+	}
+	token, _ := url.Parse(realm + "token")
+	res, body, err := s.send(ctx, http.MethodPost, token, redeem, url.Values{"grant_type": {"authorization_code"}, "code": {code},
+		"redirect_uri": {callback}, "client_id": {rebootKCClient}, "code_verifier": {verifier}}, nil)
+	if err != nil {
+		return rebootAnswer{leg: token.Host + token.Path, why: err.Error()}
+	}
+	var t struct {
+		Access      string `json:"access_token"`
+		Refresh     string `json:"refresh_token"`
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	_ = json.Unmarshal(body, &t)
+	a := rebootAnswer{code: res.StatusCode, leg: token.Host + token.Path}
+	switch {
+	case res.StatusCode != http.StatusOK && t.Error != "":
+		a.why = t.Error + ": " + t.Description
+	case res.StatusCode != http.StatusOK:
+		a.why = api.Snippet(body)
+	case t.Access == "":
+		a.why = "the answer holds no access_token"
+	}
+	if t.Refresh != "" {
+		logout, _ := url.Parse(realm + "logout")
+		res, _, err := s.send(ctx, http.MethodPost, logout, redeem, url.Values{"client_id": {rebootKCClient}, "refresh_token": {t.Refresh}}, nil)
+		a.ended = err == nil && res.StatusCode == http.StatusNoContent
+	}
+	return a
+}
+
+// send makes one request to u, a URL of auth.<fqdn> or api.<fqdn>. A request
+// to auth.<fqdn> goes to base when base is not "", with the Host and the
+// forwarded headers of the public name. jar holds the cookies by host; nil:
+// none are kept.
+func (s rebootSigner) send(ctx context.Context, method string, u *url.URL, base string, form url.Values, jar map[string]map[string]string) (*http.Response, []byte, error) {
+	host, target := u.Host, *u
+	switch {
+	case host == "auth."+s.fqdn && base != "":
+		b, err := url.Parse(base)
+		if err != nil {
+			return nil, nil, err
+		}
+		target.Scheme, target.Host = b.Scheme, b.Host
+	case host != "auth."+s.fqdn && host != "api."+s.fqdn:
+		return nil, nil, fmt.Errorf("a redirect to %s, which is neither auth.%s nor api.%s", host, s.fqdn, s.fqdn)
+	}
+	var payload io.Reader
+	if form != nil {
+		payload = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Host = host
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if target.Host != host {
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Forwarded-Host", host)
+		req.Header.Set("X-Forwarded-Port", "443")
+	}
+	cookies := []string{}
+	for name, value := range jar[host] {
+		cookies = append(cookies, name+"="+value)
+	}
+	if host == "api."+s.fqdn {
+		cookies = append(cookies, "catalyst_session="+s.console.SessionValue())
+	}
+	if sort.Strings(cookies); len(cookies) > 0 {
+		req.Header.Set("Cookie", strings.Join(cookies, "; "))
+	}
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<16))
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, c := range res.Cookies() {
+		if jar == nil {
+			break
+		}
+		if jar[host] == nil {
+			jar[host] = map[string]string{}
+		}
+		if delete(jar[host], c.Name); c.MaxAge >= 0 && c.Value != "" {
+			jar[host][c.Name] = c.Value
+		}
+	}
+	return res, body, nil
+}
+
+// rebootNonce is 32 random bytes, base64url: a PKCE verifier or a state.
+func rebootNonce() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// rebootView is what the log of a region's Keycloak Pod says of its member
+// of the cluster.
+type rebootView struct {
+	self    string    // the local address its log names last; "" none
+	members []string  // of its last cluster view; nil: no view
+	line    string    // the code of that view's line
+	at      time.Time // when that line was written, by the time stamp kubectl gives it; zero: it has none
+}
+
+// view reads the log of the current container of the Keycloak Pod of region,
+// each line with its time stamp.
+func (c rebootCheck) view(ctx context.Context, region kube.Region) (rebootView, error) {
+	out, err := c.kubectl(region, ctx, nil, "logs", "-n", rebootKCNamespace, rebootKCPod, "-c", rebootKCContainer, "--timestamps")
+	if err != nil {
+		return rebootView{}, err
+	}
+	v := rebootView{}
+	for _, line := range strings.Split(string(out), "\n") {
+		stamp, text, _ := strings.Cut(line, " ")
+		if m := rebootSelfRE.FindStringSubmatch(text); m != nil {
+			v.self = m[1]
+		}
+		if m := rebootViewRE.FindStringSubmatch(text); m != nil {
+			v.line, v.members = m[1], strings.Split(m[3], ", ")
+			v.at, _ = time.Parse(time.RFC3339Nano, stamp)
+		}
+	}
+	return v, nil
+}
+
+// rebootJudgeViews says what is wrong with the views of the regions: each
+// must list exactly the current Keycloak of every region.
+func rebootJudgeViews(regions []kube.Region, views map[string]rebootView) []string {
+	want, bad := []string{}, []string{}
+	for _, r := range regions {
+		if self := views[r.ID].self; self != "" {
+			want = append(want, self)
+			continue
+		}
+		bad = append(bad, fmt.Sprintf("region %s: the log of %s/%s names no local address of its member (ISPN000079)", r.ID, rebootKCNamespace, rebootKCPod))
+	}
+	if len(bad) > 0 {
+		return bad
+	}
+	sort.Strings(want)
+	for _, r := range regions {
+		v := views[r.ID]
+		if v.members == nil {
+			bad = append(bad, fmt.Sprintf("region %s: the log of %s/%s names no cluster view", r.ID, rebootKCNamespace, rebootKCPod))
+			continue
+		}
+		if got := slices.Sorted(slices.Values(v.members)); !slices.Equal(got, want) {
+			gone := slices.DeleteFunc(slices.Clone(got), func(m string) bool { return slices.Contains(want, m) })
+			why := ""
+			if len(gone) > 0 {
+				why = "; no Keycloak of a region is " + strings.Join(gone, ", ") + " now"
+			}
+			bad = append(bad, fmt.Sprintf("region %s: the last cluster view (%s) lists [%s], not the current Keycloak of every region [%s]%s",
+				r.ID, v.line, strings.Join(v.members, ", "), strings.Join(want, ", "), why))
+			continue
+		}
+		if v.at.IsZero() {
+			bad = append(bad, fmt.Sprintf("region %s: the line of the last cluster view (%s) has no time stamp", r.ID, v.line))
+		}
+	}
+	return bad
+}
+
+// cluster reads the Keycloak log of every region until every view lists the
+// current Keycloak of every region, or until rebootKCJoin after moved, the
+// time the last Keycloak Pod a reboot moved was first read Ready again (the
+// time of the first reading when none was moved). Views that list every
+// member but were written after that bound fail as well: the step may start
+// after the bound, and the time stamps of the lines say when they joined.
+func (c rebootCheck) cluster(ctx context.Context, regions []kube.Region, moved time.Time, ev Evidence) error {
+	from, whence := moved, "the last Keycloak Pod a reboot moved was Ready"
+	if from.IsZero() {
+		from, whence = c.now(), "the first reading (no reboot moved a Keycloak Pod)"
+	}
+	until := from.Add(rebootKCJoin)
+	ev["keycloak_moved"], ev["bound_from"] = !moved.IsZero(), from.UTC().Format(time.RFC3339)
+	for readings := 1; ; readings++ {
+		views, problems, shown, latest := map[string]rebootView{}, []string{}, map[string]any{}, time.Time{}
+		for _, r := range regions {
+			v, err := c.view(ctx, r)
+			if err != nil {
+				problems = append(problems, err.Error())
+			}
+			views[r.ID], shown[r.ID] = v, map[string]any{"self": v.self, "members": v.members, "line": v.line, "at": v.at.UTC().Format(time.RFC3339)}
+			if v.at.After(latest) {
+				latest = v.at
+			}
+		}
+		if len(problems) == 0 {
+			problems = rebootJudgeViews(regions, views)
+		}
+		ev["readings"], ev["views"] = readings, shown
+		if len(problems) == 0 {
+			ev["joined_seconds_after_bound_start"] = int(latest.Sub(from).Seconds())
+			if latest.After(until) {
+				return fmt.Errorf("the Keycloaks of the regions form one cluster only since %s, %s after %s, more than %s",
+					latest.UTC().Format(time.RFC3339), latest.Sub(from).Round(time.Second), whence, rebootKCJoin)
+			}
+			return nil
+		}
+		if !c.now().Before(until) {
+			return fmt.Errorf("%s after %s, the Keycloaks of the regions do not form one cluster: %s", rebootKCJoin, whence, strings.Join(problems, "; "))
+		}
+		if err := c.wait(ctx, rebootEvery); err != nil {
+			return err
+		}
+	}
+}
+
+// across forwards a local port to Service keycloak of every region and signs
+// the owner in once for every pair of regions: the code issued by the
+// Keycloak of one, redeemed at the Keycloak of the other.
+func (c rebootCheck) across(ctx context.Context, regions []kube.Region, s rebootSigner, ev Evidence) error {
+	bases, stops := map[string]string{}, []func(){}
+	defer func() {
+		for _, stop := range stops {
+			stop()
+		}
+	}()
+	for _, r := range regions {
+		addr, stop, err := c.forward(ctx, r, rebootKCNamespace, rebootKCService, rebootKCPort)
+		if err != nil {
+			return err
+		}
+		bases[r.ID], stops = "http://"+addr, append(stops, stop)
+	}
+	done, bad := []any{}, []string{}
+	for _, issue := range regions {
+		for _, redeem := range regions {
+			if issue.ID == redeem.ID {
+				continue
+			}
+			a := s.signIn(ctx, bases[issue.ID], bases[redeem.ID])
+			done = append(done, map[string]any{"issued_by": issue.ID, "redeemed_at": redeem.ID, "code": a.code, "answered_at": a.leg, "session_ended": a.ended})
+			if !a.ok() {
+				bad = append(bad, fmt.Sprintf("the sign-in whose code the Keycloak of region %s issued and the Keycloak of region %s redeemed was answered HTTP %d at %s: %s",
+					issue.ID, redeem.ID, a.code, a.leg, a.why))
+			}
+		}
+	}
+	if ev["sign_ins"] = done; len(bad) > 0 {
+		return errors.New(strings.Join(bad, "; "))
+	}
+	return nil
 }
