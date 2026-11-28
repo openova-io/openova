@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T01:45:04Z` |
+| Last refreshed | `2026-11-28T02:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
 | 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
 | 2026-11-28T01:13 | [#9099](https://github.com/openova-io/openova/pull/9099) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
 | 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
-| 2026-11-27T18:48 | [#9055](https://github.com/openova-io/openova/pull/9055) | #9053 | fix(network): port 80 of a node answers for the console host |
 
 ---
 
