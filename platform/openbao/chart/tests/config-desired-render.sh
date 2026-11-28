@@ -27,12 +27,14 @@
 #   C7  the first op writes sys/policies/acl/openbao-config-admin with the
 #       policy text the self-initialisation writes; the second is
 #       `secrets-mount sys/mounts/secret` with a kv version 2 payload;
-#   C8  SEC-192 (shell, yq and jq): the default renders exactly two producer
+#   C8  SEC-192 (shell, yq and jq): the default renders exactly three producer
 #       identities: catalyst-api, whose policy has create + update on its five
 #       patterns and read + delete on their metadata and no read of a value,
 #       and whose role binds the catalyst-api service account with audience
-#       openbao, and sso-bridge (SEC-344), the same on +/shared/sso-oidc/e1 for
-#       the bp-sso-bridge reconciler; the simulation back end's own policy and
+#       openbao, sso-bridge (SEC-344), the same on +/shared/sso-oidc/e1 for
+#       the bp-sso-bridge reconciler, and binding (SVC-270), the same on
+#       +/shared/binding-* for the Jobs of bp-object-bucket (object-bucket of
+#       seaweedfs); the simulation back end's own policy and
 #       role axon-credential;
 #       an entry of `producers` renders its own pair and replaces the default,
 #       an empty list renders none; the render refuses a pattern outside the
@@ -259,6 +261,7 @@ producer_text 'catalyst-system/sa/catalyst-api-cutover-driver/gitea-robot-*' 'ax
   '+/shared/enrol-*' 'vm-migration-system/sa/vm-migration-worker/source-*' '+/shared/user-*' > "$TMP/want-capi.hcl"
 producer_text '+/shared/binding-*' 'pack-x/sa/probe/binding-x/e1' > "$TMP/want-binding.hcl"
 producer_text '+/shared/sso-oidc/e1' > "$TMP/want-sso.hcl"
+producer_text '+/shared/binding-*' > "$TMP/want-object-bucket.hcl"
 cat > "$TMP/want-axon.hcl" <<'EOF'
 path "mounted/data/axon/sa/axon/model-credential/*" {
   capabilities = ["create", "update", "read"]
@@ -277,10 +280,14 @@ check "C8 axon-credential: create, update and read on its own model-credential p
   same_policy "$TMP/default.yaml" axon-credential "$TMP/want-axon.hcl"
 check "C8 role axon-credential binds axon of axon, audience openbao, 15m / 15m" \
   same_role "$TMP/default.yaml" axon-credential '{"audience":"openbao","bound_service_account_names":["axon"],"bound_service_account_namespaces":["axon"],"max_ttl":"15m","policies":["axon-credential"],"ttl":"15m"}'
-check "C8 the default renders two producer identities, catalyst-api and sso-bridge (create + update on +/shared/sso-oidc/e1; role binds sso-bridge-reconciler of sso-bridge, audience openbao, 15m / 1h)" \
-  test "$(ops_named "$TMP/default.yaml" /producer-)" = "$(printf 'write sys/policies/acl/producer-catalyst-api\nwrite sys/policies/acl/producer-sso-bridge\nwrite auth/kubernetes/role/producer-catalyst-api\nwrite auth/kubernetes/role/producer-sso-bridge')" \
+check "C8 the default renders three producer identities, catalyst-api, sso-bridge and binding (sso-bridge: create + update on +/shared/sso-oidc/e1; role binds sso-bridge-reconciler of sso-bridge, audience openbao, 15m / 1h)" \
+  test "$(ops_named "$TMP/default.yaml" /producer-)" = "$(printf 'write sys/policies/acl/producer-catalyst-api\nwrite sys/policies/acl/producer-sso-bridge\nwrite sys/policies/acl/producer-binding\nwrite auth/kubernetes/role/producer-catalyst-api\nwrite auth/kubernetes/role/producer-sso-bridge\nwrite auth/kubernetes/role/producer-binding')" \
   -a "$(same_policy "$TMP/default.yaml" producer-sso-bridge "$TMP/want-sso.hcl" && echo y)" = y \
   -a "$(same_role "$TMP/default.yaml" producer-sso-bridge '{"audience":"openbao","bound_service_account_names":["sso-bridge-reconciler"],"bound_service_account_namespaces":["sso-bridge"],"max_ttl":"1h","policies":["producer-sso-bridge"],"ttl":"15m"}' && echo y)" = y
+check "C8 default producer-binding (SVC-270): create + update on +/shared/binding-*, read + delete on its metadata, no read" \
+  same_policy "$TMP/default.yaml" producer-binding "$TMP/want-object-bucket.hcl"
+check "C8 default role producer-binding binds object-bucket of seaweedfs, the Jobs of bp-object-bucket, audience openbao, 15m / 1h" \
+  same_role "$TMP/default.yaml" producer-binding '{"audience":"openbao","bound_service_account_names":["object-bucket"],"bound_service_account_namespaces":["seaweedfs"],"max_ttl":"1h","policies":["producer-binding"],"ttl":"15m"}'
 check "C8 an entry of producers renders its own policy producer-binding" \
   same_policy "$TMP/binding.yaml" producer-binding "$TMP/want-binding.hcl"
 check "C8 role producer-binding binds the entry's service account and namespace" \

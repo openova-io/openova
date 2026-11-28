@@ -1,0 +1,24 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-capability-probe
+spec:
+  version: 0.1.0
+  class: application
+  lifecycle: experimental
+  visibility: unlisted
+  card:
+    title: Capability probe
+    summary: A consumer that proves a capability binding by using it; its function test runs the contract's probe on each bound alias.
+  # Each capability with a probe in core/cmd/capability-probe, optional: an Application binds the
+  # ones under test and its function test probes exactly those.
+  requires:
+    - capability: object-storage
+      contract: v1
+      alias: objects
+      optional: true
+  manifests:
+    chart: bp-capability-probe
+  topology:
+    supported: [singleton]
+    defaults: {single-region: singleton, multi-region: singleton}

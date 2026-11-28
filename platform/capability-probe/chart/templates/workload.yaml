@@ -1,0 +1,100 @@
+{{- /*
+For each bound alias one SecretProviderClass with one object per key of its contract (object name
+= key name, source = the binding's path), mounted read-only at /bindings/<alias>: the directory of
+one file per key that a consumer reads (docs/adr/0020, S7). spec.secretObjects is
+never set, so no key becomes a Secret object. The idle Deployment is the consumer; it is ready
+when every bound binding holds its keys, well formed (capability-probe --keys-only).
+
+The ServiceAccount renders at every value. A binding has no default (the install API writes it),
+so at the chart's defaults the ServiceAccount is the whole render: no workload, no failure.
+
+The Deployment is one replica that serves no traffic, so it rolls with strategy Recreate: the old
+Pod stops before the new one starts, which never needs room for a second Pod on a full node
+(scripts/check-single-replica-rollout.py), and the gap loses nothing a consumer reads.
+*/ -}}
+{{- $bindings := include "capabilityProbe.bindings" . | fromJsonArray }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capabilityProbe.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+{{- if $bindings }}
+{{- range $b := $bindings }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $.Release.Name }}-{{ $b.alias }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "capabilityProbe.labels" $ | nindent 4 }}
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: {{ $.Values.openbao.addr | quote }}
+    roleName: {{ $.Values.openbao.role | quote }}
+    audience: openbao
+    objects: |
+      {{- range $k := $b.keys }}
+      - objectName: {{ $k | quote }}
+        secretPath: {{ $b.path | quote }}
+        secretKey: {{ $k | quote }}
+      {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capabilityProbe.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-capability-probe
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "capabilityProbe.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: probe
+          image: {{ include "capabilityProbe.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--idle"]
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - {{ range $i, $b := $bindings }}{{ if $i }} && {{ end }}/capability-probe --probe {{ $b.probe }} --binding-dir {{ $b.mountPath }} --keys-only{{ end }}
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/bin/true"]
+            periodSeconds: 60
+          securityContext:
+            {{- include "capabilityProbe.securityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "capabilityProbe.volumeMounts" (dict "bindings" $bindings) | nindent 12 }}
+      volumes:
+        {{- include "capabilityProbe.volumes" (dict "root" . "bindings" $bindings) | nindent 8 }}
+{{- end }}

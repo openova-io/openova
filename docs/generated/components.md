@@ -14,11 +14,13 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 
 | Folder | Charts | Blueprint | Visibility | Kit slots |
 |---|---|---|---|---|
+| platform/_capabilities | - | - | - | - |
 | platform/_catalog | - | - | - | - |
 | platform/_schemas | - | - | - | - |
 | platform/alloy | bp-alloy | bp-alloy | unlisted | 21 |
 | platform/bge | bp-bge | bp-bge | listed | - |
 | platform/bp-vcluster-helmrepo | bp-vcluster-helmrepo | bp-vcluster-helmrepo | unlisted | 60 |
+| platform/capability-probe | bp-capability-probe | bp-capability-probe | unlisted | - |
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
 | platform/cert-manager | bp-cert-manager | bp-cert-manager | unlisted | 02 |
 | platform/cert-manager-issuers | bp-cert-manager-issuers | bp-cert-manager-issuers | unlisted | 02a |
@@ -67,6 +69,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/netbird | bp-netbird | bp-netbird | unlisted | - |
 | platform/network-policies | bp-network-policies | bp-network-policies | unlisted | 26 |
 | platform/newapi | bp-newapi | bp-newapi | listed | 80 |
+| platform/object-bucket | bp-object-bucket | bp-object-bucket | unlisted | - |
 | platform/oidc-gate | bp-oidc-gate | bp-oidc-gate | unlisted | 13c |
 | platform/openbao | bp-openbao | bp-openbao | unlisted | 08 |
 | platform/openclaw | bp-openclaw | bp-openclaw | listed | - |

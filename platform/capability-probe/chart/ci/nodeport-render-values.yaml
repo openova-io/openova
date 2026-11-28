@@ -1,0 +1,13 @@
+# Read by scripts/check-no-nodeports.sh and chart/tests/render.sh only. At its defaults this chart
+# renders its ServiceAccount alone (no bound alias), so the guard renders it a second time with these
+# values, in namespace default, and scans that render for a NodePort. They bind one alias of every
+# contract the chart can probe, which switches on every template: the SecretProviderClass, the
+# Deployment and the function test. A contract added to capabilityProbe.contracts adds its alias here.
+image:
+  tag: "0000000"
+bindings:
+  objects:
+    capability: object-storage
+    contract: v1
+    path: mounted/data/default/shared/binding-objects/e1
+    mountPath: /bindings/objects

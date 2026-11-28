@@ -1,0 +1,67 @@
+# Capability contract: object storage (docs/adr/0020, S6 and S7; format
+# platform/_schemas/capability.schema.json). One Context is one bucket on an S3-protocol endpoint.
+# A consumer reads the keys as files under /bindings/<alias>/ (ADR-0020, S7). The probe
+# object-storage-v1 of core/cmd/capability-probe checks a binding against this contract.
+apiVersion: catalyst.openova.io/v1
+kind: Capability
+metadata:
+  name: object-storage
+spec:
+  title: Object storage
+  defaultImplementation: bp-object-bucket
+  compositeKind: ObjectBucket
+  contracts:
+    - version: v1
+      status: current
+      keys:
+        - name: type
+          required: true
+          secret: false
+          description: Constant s3.
+        - name: provider
+          required: true
+          secret: false
+          description: Name of the implementation Blueprint, for example bp-object-bucket.
+        - name: endpoint
+          required: true
+          secret: false
+          description: >-
+            URL of the S3 endpoint, https://host[:port], reachable from every region the consumer
+            runs in. http://host[:port] only for a service name of the cluster (*.svc,
+            *.svc.cluster.local), whose traffic never leaves the cluster network.
+        - name: region
+          required: true
+          secret: false
+          description: Region string the client must send; us-east-1 when the implementation has none.
+        - name: bucket
+          required: true
+          secret: false
+          description: Bucket name.
+        - name: path-style
+          required: true
+          secret: false
+          description: true or false.
+        - name: access-key-id
+          required: true
+          secret: true
+          description: Access key scoped to this bucket only.
+        - name: secret-access-key
+          required: true
+          secret: true
+          description: Secret key of that access key.
+        - name: ca.crt
+          required: false
+          secret: false
+          description: PEM bundle; present and not empty when the endpoint certificate is not publicly trusted.
+      contextFields:
+        - name: versioning
+          type: boolean
+          required: false
+          default: false
+          description: true = the bucket keeps every version of an object.
+        - name: retentionDays
+          type: integer
+          required: false
+          default: 0
+          description: Days after which objects expire; 0 = objects never expire.
+      probe: object-storage-v1

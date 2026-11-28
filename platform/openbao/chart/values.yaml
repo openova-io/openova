@@ -303,6 +303,9 @@ stateKey:
 #   sso-bridge    the reconciler of bp-sso-bridge: a copy of an application's
 #                 sign-on client bundle in that application's namespace, for a
 #                 pod that mounts its client secret as a file (SEC-344).
+#   binding       the Jobs of bp-object-bucket (platform/object-bucket), which
+#                 run in the SeaweedFS namespace: the binding of each
+#                 object-storage Context, in the consumer's namespace (SVC-270).
 producers:
   - name: catalyst-api
     serviceAccount: catalyst-api-cutover-driver
@@ -318,6 +321,11 @@ producers:
     namespace: sso-bridge
     paths:
       - "+/shared/sso-oidc/e1"
+  - name: binding
+    serviceAccount: object-bucket
+    namespace: seaweedfs
+    paths:
+      - "+/shared/binding-*"
 
 # ── Snapshot backup to object storage (SEC-180) ──────────────────────────
 # CronJob openbao-backup (templates/backup-snapshot.yaml) puts one raft snapshot
