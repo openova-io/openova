@@ -64,7 +64,7 @@ generatedSecrets:
     epoch: 1
     serviceAccount: chargeback
     length: 43
-    seedFrom: {name: chargeback-master-key, key: master-key}   # mounted only
+    seedFrom: {name: chargeback-master-key, key: master-key}   # mounted, or synced (SEC-254)
   api-key:
     delivery: synced
     registerId: <register entry>
@@ -148,11 +148,31 @@ generatedSecrets:
   required `writer`: who writes that path (printable text). The register
   entry of `registerId` names the same writer. While the path is absent the
   ExternalSecret is not ready and writes nothing (below), so the value is
-  never generated. It takes no `length`, `symbols`, `sharedAcrossRegions`
-  or `mountedCopies`, and joins only external values (a joined one takes no
-  `writer`: one writer writes every path of the Secret). Raising the epoch
+  never generated. It takes no `length`, `symbols`, `sharedAcrossRegions`,
+  `mountedCopies` or `seedFrom`, and joins only external values (a joined
+  one takes no `writer`: one writer writes every path of the Secret). Raising the epoch
   reads a new path: its writer writes it first. `source: generated` is the
   default, byte for byte.
+- **synced, `seedFrom`** (SEC-254) — as for a mounted value: `name` and
+  `key` of a Secret of the value's namespace that holds the value today, the
+  same checks and the same rules (the Secret's key where the path is absent,
+  a new random value of `length` and `symbols` only when the Secret does not
+  exist, a value the store holds never read against it or replaced). No
+  Password and no PushSecret: a PushSecret beside it could write a random
+  value first. The seed Job `secrets-seed-<hash of its plan>` (the birth
+  script, mount `secret/`, the same ServiceAccount, Role `secrets-birth-seed`
+  and API token) is the value's one writer, create-only, at
+  `openova/apps/<ns>/<name>/e<epoch>` (key `password`): here, and for a
+  shared value of the primary in every peer through the peer trust (role
+  `secrets-birth-<ns>`), so its namespace is then in bp-openbao
+  `peerTrust.birthNamespaces`. bp-openbao grants role `secrets-birth`
+  `create` on `secret/data/openova/apps/<its namespace>/*` and `read` on its
+  metadata, and a peer's `secrets-birth-<ns>` `create` there. The
+  ExternalSecrets, `template`, `copies` and `join` are as without it; a
+  joined value takes it too. A `mountedCopies` entry stays in the birth Job,
+  which mounts Secret `<name>`: it starts once that Secret exists, and
+  copies its key `password` as it is then (on a Sovereign that runs the
+  chart today, the Secret that existed before the store held the seed).
 
 ```yaml
 generatedSecrets:
@@ -214,15 +234,14 @@ or an earlier copy's, or in another namespace; a join of an unknown or
 mounted value, of the value itself, of `password` or of one value twice; a
 joined value with its own `registerId`, `template`, `copies`, `join` or
 `mountedCopies`; `mountedCopies` with template data whose `password` is
-not `{{ .password }}`; and (SEC-226) `seedFrom` on a synced value (its
-PushSecret reads one source and has no fallback), a `seedFrom` that is not a
+not `{{ .password }}`; and (SEC-226, SEC-254) a `seedFrom` that is not a
 map of `name` and `key`, a name that is not a Secret name, a key that is not
 a Secret key, and `seedFrom` on a placeholder; and (SEC-228) a `source`
 other than `generated` and `external`, `source` or `writer` on a mounted
 value, `writer` on a generated value or on a joined one, an external value
 without `writer` (or with one that is blank, not a string or not printable),
-with `length`, `symbols`, `sharedAcrossRegions` or `mountedCopies`, and a
-join of a value of the other source.
+with `length`, `symbols`, `sharedAcrossRegions`, `mountedCopies` or
+`seedFrom` (SEC-254), and a join of a value of the other source.
 
 ## Configuration
 
@@ -280,8 +299,9 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
 
 - `chart/tests/render.sh` — every template, every refused input (helm, awk);
   R11 to R13 and F25 to F44 the template, copies and join of SEC-219; R14 and
-  F45 to F51 the seedFrom of SEC-226; R15, R16 and F52 to F66 the source
-  external of SEC-228.
+  F46 to F51 the seedFrom of SEC-226; R15, R16 and F52 to F66 the source
+  external of SEC-228; R17, F45, F67 and F68 the seedFrom of a synced value
+  (SEC-254).
 - `chart/tests/eso-takeover/run.sh <work directory>` — fact X3 (above):
   `x3_test.go` (T1 to T6) in the envtest suite of the pinned External
   Secrets. It builds External Secrets, so no workflow runs it: run it again
@@ -297,4 +317,6 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
   that holds a value): seeded, fresh (43), already present and unread, a
   second run with the token revoked, and refused with nothing written (not
   even an absent path before the seed): a Secret without the key, an empty
-  value, a value with a trailing newline, a 403.
+  value, a value with a trailing newline, a 403; L11 seedFrom on a synced
+  value (SEC-254): its seed Job writes below `secret/` with the rights
+  bp-openbao renders, here and in the peer, and role `eso-ns` reads the seed.

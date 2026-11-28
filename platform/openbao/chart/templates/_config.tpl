@@ -177,14 +177,22 @@ path "{{ .kv }}/metadata/{{ .apps }}/{{ .ns }}/*" {
 
 {{- /* SEC-200 — the birth Job of a namespace (platform/secrets-lib): it
 creates values below its own namespace of mounted/ and reads their metadata
-(never a value). With peers it also mints the identity token of role
-openbao-peer-birth-<its namespace>, which a peer region accepts for that
-namespace only. */ -}}
+(never a value). SEC-254: its seed Job does the same below its own namespace
+of the apps prefix, where a seeded synced value lives; create only, so a
+value the store holds is never overwritten. With peers it also mints the
+identity token of role openbao-peer-birth-<its namespace>, which a peer
+region accepts for that namespace only. */ -}}
 {{- define "openbao.policy.secrets-birth" -}}
 path "mounted/data/{{ .ns }}/*" {
   capabilities = ["create"]
 }
 path "mounted/metadata/{{ .ns }}/*" {
+  capabilities = ["read"]
+}
+path "{{ .kv }}/data/{{ .apps }}/{{ .ns }}/*" {
+  capabilities = ["create"]
+}
+path "{{ .kv }}/metadata/{{ .apps }}/{{ .ns }}/*" {
   capabilities = ["read"]
 }
 {{- if .peers }}
@@ -196,9 +204,13 @@ path "identity/oidc/token/openbao-peer-birth-{{ .ns }}" {
 
 {{- /* SEC-200 — what the birth Job of a PEER region may do here, one policy
 per namespace of peerTrust.birthNamespaces: create below that namespace of
-mounted/, nothing else (no read, no update, no list). */ -}}
+mounted/ and (SEC-254, a seeded synced value) of the apps prefix, nothing
+else (no read, no update, no list). */ -}}
 {{- define "openbao.policy.secrets-birth-peer" -}}
 path "mounted/data/{{ .birthNs }}/*" {
+  capabilities = ["create"]
+}
+path "{{ .kv }}/data/{{ .apps }}/{{ .birthNs }}/*" {
   capabilities = ["create"]
 }
 {{ end -}}
@@ -544,7 +556,7 @@ the PKI bootstrap Job. */ -}}
 {{- end -}}
 {{- if $pt.peers -}}
 {{- range $birthNs -}}
-{{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/secrets-birth-peer-%s" .) "payload" (dict "policy" (include "openbao.policy.secrets-birth-peer" (dict "birthNs" .)))) -}}
+{{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/secrets-birth-peer-%s" .) "payload" (dict "policy" (include "openbao.policy.secrets-birth-peer" (dict "birthNs" . "kv" $kv "apps" $apps)))) -}}
 {{- end -}}
 {{- end -}}
 {{- range $producers -}}

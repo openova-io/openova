@@ -49,7 +49,16 @@
 #       without the key, an empty value, a value with a trailing newline (not
 #       printable ASCII) and a Secret the token may not read (403) fail the
 #       run (exit 1) with nothing written, not even the absent path before
-#       the seed in the plan, never a random value.
+#       the seed in the plan, never a random value;
+#   L11 seedFrom on a synced value (SEC-254), the seed Job of a chart of
+#       three seeded synced values (mount secret, the same API stand-in): a
+#       shared value gets the Secret's key at openova/apps/acme/<name>/e1 in
+#       A and B, an unshared one a new random value of 43 in A only (no
+#       Secret), one whose path holds a value keeps it, its Secret unread;
+#       role eso-ns of acme (the ExternalSecret's reader) reads the seed in A
+#       and B; the Job's token in A and in B reads no value there, overwrites
+#       none and is refused another namespace's path; a second run, its API
+#       token revoked, writes and reads nothing.
 #
 # The stand-ins: the Job and the reconciler log in through a `jwt` mount
 # (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
@@ -167,6 +176,20 @@ EOF
 helm template fx "$FX10" --namespace acme > "$TMP/fx10.yaml"
 block birth.sh "$TMP/fx10.yaml" > "$TMP/birth10.sh"
 block plan "$TMP/fx10.yaml" | grep . > "$TMP/plan10all"
+# The same chart with synced values seeded from Secrets (L11): its one Job is the seed Job.
+FX11="$TMP/fx11"; cp -R "$FX" "$FX11"
+cat > "$FX11/values.yaml" <<EOF
+self: $A
+peers: [$B]
+primary: true
+generatedSecrets:
+  db-owner: {delivery: synced, registerId: r-db, epoch: 1, seedFrom: {name: app-db, key: password}}
+  api-key: {delivery: synced, registerId: r-api, epoch: 1, sharedAcrossRegions: false, length: 43, seedFrom: {name: never-made, key: api-key}}
+  kept: {delivery: synced, registerId: r-kept, epoch: 1, sharedAcrossRegions: false, seedFrom: {name: changed, key: password}}
+EOF
+helm template fx "$FX11" --namespace acme > "$TMP/fx11.yaml" 2> "$TMP/fx11.err" || die "the chart of seeded synced values does not render: $(cat "$TMP/fx11.err")"
+block birth.sh "$TMP/fx11.yaml" > "$TMP/birth11.sh"
+block plan "$TMP/fx11.yaml" | grep . > "$TMP/plan11"
 
 # ── the login stand-in ────────────────────────────────────────────────────
 openssl genrsa -out "$TMP/jwt.key" 2048 2>/dev/null
@@ -214,13 +237,14 @@ pols="$(jq -c .policies "$TMP/desired-A/auth.kubernetes.role.secrets-birth.json"
 curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"bound_claims\":{\"/kubernetes.io/sa\":\"secrets-birth\"},\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":$pols,\"token_ttl\":\"15m\"}" \
   "$AURL/v1/auth/login-jwt/role/secrets-birth" || die "the stand-in role secrets-birth was refused"
 
-# run <namespace> <log> [PEERS] -> the exit code of one birth run in region A
+# run <namespace> <log> [PEERS] -> the exit code of one birth run in region A;
+# its role, region and mount are those of the Job of FXY (default fx.yaml)
 run() {
-  local rc=0 peers="${3:-$B=$BURL}"
+  local rc=0 peers="${3:-$B=$BURL}" fxy="${FXY:-$TMP/fx.yaml}"
   mkdir -p "$TMP/work"; mint "$1" secrets-birth > "$TMP/job.jwt"
-  BAO_ADDR="$AURL" BAO_K8S_AUTH_PATH=login-jwt BAO_ROLE="$(envof BAO_ROLE)" JWT_FILE="$TMP/job.jwt" \
-    SELF_REGION="$(envof SELF_REGION)" PEERS="$peers" PEER_ROLE="secrets-birth-$1" PEER_TOKEN_ROLE="openbao-peer-birth-$1" \
-    PLAN_FILE="${PLAN:-$TMP/plan}" WORK_DIR="$TMP/work" MOUNT="$(envof MOUNT)" timeout 120 sh "${BIRTH:-$TMP/birth.sh}" > "$2" 2>&1 || rc=$?
+  BAO_ADDR="$AURL" BAO_K8S_AUTH_PATH=login-jwt BAO_ROLE="$(envof BAO_ROLE "$fxy")" JWT_FILE="$TMP/job.jwt" \
+    SELF_REGION="$(envof SELF_REGION "$fxy")" PEERS="$peers" PEER_ROLE="secrets-birth-$1" PEER_TOKEN_ROLE="openbao-peer-birth-$1" \
+    PLAN_FILE="${PLAN:-$TMP/plan}" WORK_DIR="$TMP/work" MOUNT="$(envof MOUNT "$fxy")" timeout 120 sh "${BIRTH:-$TMP/birth.sh}" > "$2" 2>&1 || rc=$?
   return "$rc"
 }
 rd() { curl -s "${RT[@]}" "$1/v1/mounted/data/$2" | jq -r '.data.data.password // empty'; }
@@ -407,6 +431,68 @@ refused10 "$TMP/plan10n" "$TMP/run10e.log" "secrets-birth: key master-key of Sec
 secret no-key "{\"master-key\":\"$(printf '%s\n' "$NEWV" | openssl base64 -A)\"}"
 refused10 "$TMP/plan10n" "$TMP/run10u.log" "secrets-birth: key master-key of Secret no-key is not printable ASCII" newline
 [ -z "$l10" ] && pass "L10 seedFrom: $M10 holds the value of Secret old-master (43, not the annotation's), $S10 the same in A and B; $F10 is a new value of 43 (no Secret); $K10 keeps its value though Secret changed differs, unread; no value in the log; a second run writes and reads nothing; a Secret without the key and a 403 are refused (exit 1, nothing written)" || fail "L10:$l10"
+
+# ── L11 ───────────────────────────────────────────────────────────────────
+# seedFrom on a synced value (SEC-254): the seed Job of fx11 writes below
+# secret/ with the rights bp-openbao renders, through the API stand-in of
+# L10. Its token's policy is the rendered Role less Secret changed, the
+# Secret of the path that holds a value, which must never be read.
+D11=openova/apps/acme/db-owner/e1; F11=openova/apps/acme/api-key/e1; K11=openova/apps/acme/kept/e1
+for l in "$D11 32 0 seed:app-db/password all" "$F11 43 0 seed:never-made/api-key self" "$K11 32 0 seed:changed/password self"; do
+  grep -qxF "$l" "$TMP/plan11" || die "the rendered seed plan lacks the line '$l': $(tr '\n' ';' < "$TMP/plan11")"
+done
+[ "$(wc -l < "$TMP/plan11" | tr -d ' ')" = 3 ] && grep -qE '^  name: secrets-seed-[0-9a-f]{10}$' "$TMP/fx11.yaml" && [ "$(envof MOUNT "$TMP/fx11.yaml")" = secret ] \
+  && [ "$(envof PEERS "$TMP/fx11.yaml")" = "$B=$(host "$B")" ] || die "the rendered seed Job is not secrets-seed-<hash> on mount secret with peer $B and three lines"
+names11="$(sed -n 's/^    resourceNames: //p' "$TMP/fx11.yaml" | jq -r '.[]' | tr '\n' ' ')"
+[ "$names11" = "app-db changed never-made " ] || die "the rendered Role of L11 names: $names11"
+pol=""; for n in $names11; do [ "$n" = changed ] || pol="$pol path \"$KS/$n\" { capabilities = [\"read\"] }"; done
+jq -n --arg p "$pol" '{policy: $p}' | curl -sf "${RT[@]}" -X PUT -o /dev/null -d @- "$AURL/v1/sys/policies/acl/kube-standin" || die "the stand-in policy of L11 was refused"
+kube_token
+SEED11="$(openssl rand -hex 20)"; OLD11="$(openssl rand -hex 16)"
+secret app-db "{\"password\":\"$(b64s "$SEED11")\"}"
+curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"data\":{\"password\":\"$OLD11\"}}" "$AURL/v1/secret/data/$K11" || die "writing $K11 first failed"
+[ "$(kcode app-db)$(kcode changed)" = 200403 ] || die "the stand-in token of L11 does not read app-db and only that: $(kcode app-db) $(kcode changed)"
+srd() { curl -s "${RT[@]}" "$1/v1/secret/data/$2" | jq -r '.data.data.password // empty'; }
+sver() { curl -s "${RT[@]}" "$1/v1/secret/metadata/$2" | jq -r '.data.current_version // 0'; }
+l11=""
+rc=0; FXY="$TMP/fx11.yaml" BIRTH="$TMP/birth11.sh" PLAN="$TMP/plan11" run acme "$TMP/run11.log" || rc=$?
+[ "$rc" = 0 ] || l11="$l11 rc=$rc($(tr '\n' ' ' < "$TMP/run11.log"))"
+[ "$(srd "$AURL" $D11)" = "$SEED11" ] && [ "$(srd "$BURL" $D11)" = "$SEED11" ] && [ "$(sver "$AURL" $D11)$(sver "$BURL" $D11)" = 11 ] || l11="$l11 seeded"
+grep -qx "secrets-birth: $D11: the value of key password of Secret app-db" "$TMP/run11.log" && grep -qx "secrets-birth: $D11: written in $B" "$TMP/run11.log" || l11="$l11 seed-log"
+v11="$(srd "$AURL" $F11)"
+[ "${#v11}" = 43 ] && [ -z "$(printf '%s' "$v11" | tr -d 'A-Za-z0-9')" ] && [ "$(sver "$BURL" $F11)" = 0 ] || l11="$l11 fresh(${#v11})"
+[ "$(srd "$AURL" $K11)" = "$OLD11" ] && [ "$(sver "$AURL" $K11)" = 1 ] && grep -qx "secrets-birth: $K11: present in $A" "$TMP/run11.log" \
+  && ! grep -q "of Secret changed" "$TMP/run11.log" || l11="$l11 kept"
+! grep -qF -e "$SEED11" -e "$(b64s "$SEED11")" "$TMP/run11.log" || l11="$l11 value-in-log"
+# The value's reader: role eso-ns (its rendered policies) of namespace acme, as the ExternalSecret reads it.
+for r in A B; do
+  u="$AURL"; [ "$r" = B ] && u="$BURL"
+  ep="$(jq -c .policies "$TMP/desired-$r/auth.kubernetes.role.eso-ns.json")"
+  curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"role_type\":\"jwt\",\"user_claim\":\"sub\",\"bound_audiences\":[\"openbao-live\"],\"bound_claims\":{\"/kubernetes.io/sa\":\"eso-reader\"},\"claim_mappings\":{\"/kubernetes.io/namespace\":\"service_account_namespace\",\"/kubernetes.io/sa\":\"service_account_name\"},\"token_policies\":$ep,\"token_ttl\":\"15m\"}" \
+    "$u/v1/auth/login-jwt/role/eso-ns" || die "the stand-in role eso-ns was refused in $r"
+  te="$(login "$u/v1/auth/login-jwt/login" eso-ns "$(mint acme eso-reader)")"
+  [ -n "$te" ] && [ "$(curl -s -H "X-Vault-Token: $te" "$u/v1/secret/data/$D11" | jq -r '.data.data.password // empty')" = "$SEED11" ] || l11="$l11 eso-read-$r"
+done
+# The Job's rights below secret/: in A its own token, in B the peer trust's.
+ta="$(login "$AURL/v1/auth/login-jwt/login" secrets-birth "$(mint acme secrets-birth)")"
+idt="$(curl -s -H "X-Vault-Token: $ta" "$AURL/v1/identity/oidc/token/openbao-peer-birth-acme" | jq -r '.data.token // empty')"
+tb="$(login "$BURL/v1/auth/jwt-peer-$A/login" secrets-birth-acme "$idt")"
+[ -n "$ta" ] && [ -n "$tb" ] || l11="$l11 login(A=${ta:+ok} B=${tb:+ok})"
+rights11() {  # $1 region $2 address $3 token
+  [ "$(code -H "X-Vault-Token: $3" "$2/v1/secret/data/$D11")" = 403 ] || l11="$l11 $1-reads"
+  [ "$(code -H "X-Vault-Token: $3" -X POST -d '{"data":{"password":"x"}}' "$2/v1/secret/data/$D11")" = 403 ] || l11="$l11 $1-overwrites"
+  [ "$(code -H "X-Vault-Token: $3" -X POST -d '{"data":{"password":"x"}}' "$2/v1/secret/data/openova/apps/other/x/e1")" = 403 ] || l11="$l11 $1-other-namespace"
+}
+rights11 A "$AURL" "$ta"; rights11 B "$BURL" "$tb"
+[ "$(srd "$AURL" $D11)$(srd "$BURL" $D11)" = "$SEED11$SEED11" ] || l11="$l11 value-changed"
+# The second run with the stand-in token revoked: any read of a Secret fails the run.
+jq -n --arg t "$(cat "$TMP/kube/token")" '{token: $t}' | curl -sf "${RT[@]}" -X POST -o /dev/null -d @- "$AURL/v1/auth/token/revoke" \
+  || die "revoking the stand-in API token of L11 failed"
+rc=0; FXY="$TMP/fx11.yaml" BIRTH="$TMP/birth11.sh" PLAN="$TMP/plan11" run acme "$TMP/run11b.log" || rc=$?
+[ "$rc" = 0 ] && ! grep -q -e ': written in ' -e ' of Secret ' "$TMP/run11b.log" && [ "$(srd "$AURL" $F11)" = "$v11" ] \
+  && [ "$(sver "$AURL" $D11)$(sver "$BURL" $D11)" = 11 ] && grep -qx "secrets-birth: $D11: present in $B" "$TMP/run11b.log" \
+  || l11="$l11 second-run(rc=$rc: $(tr '\n' ' ' < "$TMP/run11b.log"))"
+[ -z "$l11" ] && pass "L11 seedFrom on a synced value: the seed Job (mount secret) writes $D11 with the value of Secret app-db in A and B, $F11 a new value of 43 in A only (no Secret), $K11 keeps its value unread; eso-ns reads the seed in A and B; the Job's token reads no value, overwrites none and writes no other namespace, in A and B; a second run writes and reads nothing" || fail "L11:$l11"
 
 if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
 echo "PASS: secrets-lib birth Job — a shared tier B value in every region, a second run changes nothing"

@@ -31,14 +31,16 @@
 #       bp-plane-isolation lands (#7901).
 #   P10 SEC-200 — per namespace of peerTrust.birthNamespaces and
 #       per peer: policy secrets-birth-peer-<ns> (create below mounted/data/
-#       <ns>/, nothing else), written before role secrets-birth-<ns> on
+#       <ns>/ and secret/data/openova/apps/<ns>/, nothing else; SEC-254),
+#       written before role secrets-birth-<ns> on
 #       jwt-peer-<peer> (claims openova_region=<peer> + openova_namespace=
 #       <ns>, audience openbao-peer-birth-<ns>); the identity role
 #       openbao-peer-birth-<ns> names <ns> and this region; the local policy
 #       secrets-birth lets a Job mint only its own namespace's token;
 #   P11 the ingress admits the birth Job (secrets-birth) of any namespace
 #       from any ClusterMesh cluster;
-#   P12 one region: role secrets-birth (create + metadata read, audience
+#   P12 one region: role secrets-birth (create + metadata read below its
+#       namespace of mounted/ and, SEC-254, of the apps prefix; audience
 #       openbao) and no peer op;
 #   P13 a namespace name that is not a DNS label fails the render.
 #
@@ -209,7 +211,7 @@ man() { awk '/^  manifest: \|/ { on = 1; next } on && /^  [^ ]/ { exit } on { su
 rbn "$TMP/ba.yaml" "$A" "$REG2" '["acme","kube-x","acme"]'
 rbn "$TMP/bs.yaml" "$A" "$REG1" '["acme"]'
 p10=""
-[ "$(pl "$TMP/ba.yaml" sys/policies/acl/secrets-birth-peer-acme | jq -r .policy)" = "$(printf 'path "mounted/data/acme/*" {\n  capabilities = ["create"]\n}')" ] || p10="$p10 policy-acme"
+[ "$(pl "$TMP/ba.yaml" sys/policies/acl/secrets-birth-peer-acme | jq -r .policy)" = "$(printf 'path "mounted/data/acme/*" {\n  capabilities = ["create"]\n}\npath "secret/data/openova/apps/acme/*" {\n  capabilities = ["create"]\n}')" ] || p10="$p10 policy-acme"
 want='{"bound_audiences":["openbao-peer-birth-acme"],"bound_claims":{"openova_namespace":"acme","openova_region":"'"$B"'"},"role_type":"jwt","token_max_ttl":"1h","token_policies":["secrets-birth-peer-acme"],"token_ttl":"15m","user_claim":"sub"}'
 [ "$(pl "$TMP/ba.yaml" "auth/jwt-peer-$B/role/secrets-birth-acme" | jq -cS .)" = "$want" ] || p10="$p10 role-acme($(pl "$TMP/ba.yaml" "auth/jwt-peer-$B/role/secrets-birth-acme"))"
 [ "$(man "$TMP/ba.yaml" | grep -c '/role/secrets-birth-')" = 2 ] || p10="$p10 roles-per-namespace"
@@ -228,9 +230,9 @@ if grep -q -x "            - key: k8s:io.kubernetes.pod.namespace" "$TMP/ing-bir
 else echo "  FAIL  P11 the ingress does not admit the birth Job"; FAIL=1; fi
 p12=""
 man "$TMP/bs.yaml" | grep -q 'secrets-birth-peer\|openbao-peer-birth' && p12="$p12 peer-ops"
-[ "$(pl "$TMP/bs.yaml" sys/policies/acl/secrets-birth | jq -r .policy)" = "$(printf 'path "mounted/data/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["create"]\n}\npath "mounted/metadata/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["read"]\n}')" ] || p12="$p12 local-policy"
+[ "$(pl "$TMP/bs.yaml" sys/policies/acl/secrets-birth | jq -r .policy)" = "$(printf 'path "mounted/data/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["create"]\n}\npath "mounted/metadata/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["read"]\n}\npath "secret/data/openova/apps/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["create"]\n}\npath "secret/metadata/openova/apps/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*" {\n  capabilities = ["read"]\n}')" ] || p12="$p12 local-policy"
 [ "$(pl "$TMP/bs.yaml" auth/kubernetes/role/secrets-birth | jq -cS .)" = '{"audience":"openbao","bound_service_account_names":["secrets-birth"],"bound_service_account_namespaces":["*"],"max_ttl":"1h","policies":["secrets-birth"],"ttl":"15m"}' ] || p12="$p12 local-role"
-[ -z "$p12" ] && pass "P12 one region: role secrets-birth (create + metadata read, audience openbao), no peer role and no identity token" || { echo "  FAIL  P12:$p12"; FAIL=1; }
+[ -z "$p12" ] && pass "P12 one region: role secrets-birth (create + metadata read below mounted/<ns>/ and openova/apps/<ns>/, audience openbao), no peer role and no identity token" || { echo "  FAIL  P12:$p12"; FAIL=1; }
 if rbn "$TMP/bad.yaml" "$A" "$REG2" '["Acme_1"]'; then echo "  FAIL  P13 a bad namespace name rendered"; FAIL=1
 elif grep -q 'peerTrust.birthNamespaces: "Acme_1" is not a namespace name' "$TMP/bad.yaml.err"; then pass "P13 a bad namespace name fails the render"
 else echo "  FAIL  P13 $(cat "$TMP/bad.yaml.err")"; FAIL=1; fi

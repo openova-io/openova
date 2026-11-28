@@ -58,9 +58,17 @@
 #       joined external value, annotated with the writer, exactly; a
 #       generated value of the same chart renders as alone;
 #   R16 source generated renders the value without source, byte for byte;
-#   F1-F66 every refused input fails the render with its message; F33 is a
-#       copy in another namespace, F45 to F51 the seedFrom of SEC-226, F52
-#       to F66 the source external of SEC-228.
+#   R17 seedFrom on a synced value (SEC-254), primary of two regions, the
+#       other region and alone: no Password or PushSecret for it; Job
+#       secrets-seed-<hash> (mount secret, the API token, no Secret volume,
+#       R14's script) holds exactly its lines openova/apps/<ns>/<name>/e<epoch>
+#       with source seed:<Secret>/<key>; the birth Job keeps the mounted seed
+#       and copies; the Role names every seed; its ExternalSecrets are those
+#       of the value without seedFrom, byte for byte;
+#   F1-F68 every refused input fails the render with its message; F33 is a
+#       copy in another namespace, F45 the seedFrom of an external value
+#       (SEC-254), F46 to F51 the seedFrom of SEC-226, F52 to F66 the source
+#       external of SEC-228, F67 and F68 the seedFrom of a synced value.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -909,7 +917,108 @@ grep -qxF '    source: generated' "$TMP/r16.v" || r16="$r16 no-source-in-input"
 [ -s "$TMP/r16.yaml" ] && cmp -s "$TMP/r5.yaml" "$TMP/r16.yaml" || r16="$r16 differs"
 [ -z "$r16" ] && pass "R16 source generated renders R5's value byte for byte" || fail "R16:$r16"
 
-# ── F1-F66 ──────────────────────────────────────────────────────────────
+# ── R17 ─────────────────────────────────────────────────────────────────
+# seedFrom on a synced value (SEC-254), the primary of two regions: a shared
+# value with a mounted copy, an unshared value that joins a shared one, a
+# generated value and a seeded mounted value beside them.
+cat > "$TMP/r17.v" <<'EOF'
+self: hw-a
+peers: [hw-b]
+primary: true
+generatedSecrets:
+  db-owner:
+    delivery: synced
+    registerId: r-db
+    epoch: 1
+    length: 24
+    seedFrom: {name: app-db, key: password}
+    mountedCopies: [{serviceAccount: wordpress}]
+  api-key:
+    delivery: synced
+    registerId: r-api
+    epoch: 2
+    sharedAcrossRegions: false
+    seedFrom: {name: pdns-old, key: api-key}
+    join: [web-pw]
+  web-pw:
+    delivery: synced
+    epoch: 1
+    seedFrom: {name: pdns-old, key: webserver-password}
+  fresh:
+    delivery: synced
+    registerId: r-fresh
+    epoch: 1
+  master:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: app
+    sharedAcrossRegions: false
+    seedFrom: {name: old-master, key: master-key}
+EOF
+seedname() { { grep -E '^  name: secrets-seed-[0-9a-f]{10}$' "$1" || true; } | head -n 1 | awk '{print $2}'; }
+# planof <file> <ConfigMap>: the plan lines of that ConfigMap alone.
+planof() { doc "$1" ConfigMap "$2" > "$TMP/planof.doc"; plan "$TMP/planof.doc"; }
+# scriptof <file> <ConfigMap>: its birth.sh.
+scriptof() { doc "$1" ConfigMap "$2" | awk '/^  birth\.sh: \|/ { on = 1; next } on && /^  [a-z]/ { on = 0 } on'; }
+r17=""
+# A refused render (the library before SEC-254) is one FAIL, never an abort.
+if ! r "$TMP/r17.v" "$TMP/r17.yaml"; then r17=" render($(tr '\n' ' ' < "$TMP/r17.yaml.err"))"
+else
+  S17="$(seedname "$TMP/r17.yaml")"; J17="$(jobname "$TMP/r17.yaml" || true)"
+  [ -n "$S17" ] && [ -n "$J17" ] || r17="$r17 jobs(seed=$S17 birth=$J17)"
+  [ "$(kinds "$TMP/r17.yaml")" = "ConfigMap=2 ExternalSecret=3 Job=2 Password=1 PushSecret=1 Role=1 RoleBinding=1 ServiceAccount=1 " ] || r17="$r17 kinds($(kinds "$TMP/r17.yaml"))"
+  has "$TMP/r17.yaml" Password fresh-e1 '  name: fresh-e1' && has "$TMP/r17.yaml" PushSecret fresh-e1 '  name: fresh-e1' || r17="$r17 generated-push"
+  [ "$(planof "$TMP/r17.yaml" "$S17")" = "$(printf '%s\n' 'openova/apps/acme/api-key/e2 32 0 seed:pdns-old/api-key self' \
+    'openova/apps/acme/db-owner/e1 24 0 seed:app-db/password all' 'openova/apps/acme/web-pw/e1 32 0 seed:pdns-old/webserver-password all')" ] \
+    || r17="$r17 seed-plan($(planof "$TMP/r17.yaml" "$S17" | tr '\n' ';'))"
+  [ "$(planof "$TMP/r17.yaml" "$J17")" = "$(printf '%s\n' 'acme/sa/wordpress/db-owner/e1 0 0 /etc/secrets-birth/copy-0/password self' \
+    'acme/sa/app/master/e1 32 0 seed:old-master/master-key self')" ] || r17="$r17 birth-plan($(planof "$TMP/r17.yaml" "$J17" | tr '\n' ';'))"
+  doc "$TMP/r17.yaml" Job "$S17" > "$TMP/r17.seed"
+  for l in '            - {name: MOUNT, value: secret}' '            - {name: BAO_ROLE, value: secrets-birth}' \
+           '            - {name: PEERS, value: "hw-b=http://openbao-hw-b.openbao.svc.cluster.local:8200"}' \
+           '            - {name: KUBE_API, value: "https://kubernetes.default.svc"}' '            - {name: KUBE_NAMESPACE, value: "acme"}' \
+           '            - {name: kube, mountPath: /var/run/secrets/openova-birth-kube, readOnly: true}' '      serviceAccountName: secrets-birth' \
+           '        app.kubernetes.io/name: secrets-birth' "            name: $S17"; do
+    grep -qxF -- "$l" "$TMP/r17.seed" || r17="$r17 seed-job-line[$l]"
+  done
+  # The seed Job mounts no Secret: it starts before any Secret of its values exists.
+  grep -q 'secretName:' "$TMP/r17.seed" && r17="$r17 seed-job-mounts-a-secret"
+  doc "$TMP/r17.yaml" Job "$J17" > "$TMP/r17.birth"
+  for l in '            - {name: MOUNT, value: mounted}' '            secretName: db-owner' '            - {name: KUBE_API, value: "https://kubernetes.default.svc"}'; do
+    grep -qxF -- "$l" "$TMP/r17.birth" || r17="$r17 birth-job-line[$l]"
+  done
+  has "$TMP/r17.yaml" ConfigMap "$S17" '  # <path under secret/> <length> <symbols> <source: - = new random value | empty = placeholder | seed:<Secret>/<key> = that key of that Secret, a new random value only when the Secret does not exist | file> <reach: all | self> [<key>, default password]' \
+    || r17="$r17 seed-plan-comment"
+  has "$TMP/r17.yaml" Role secrets-birth-seed '    resourceNames: ["app-db","old-master","pdns-old"]' || r17="$r17 role"
+  # The seed Job runs the birth script of a plan with a seed (R14), the same text.
+  scriptof "$TMP/r17.yaml" "$S17" > "$TMP/r17.sh"; scriptof "$TMP/r14.yaml" "$J14" > "$TMP/r14.sh"
+  [ -s "$TMP/r17.sh" ] && grep -q 'seed_read() {' "$TMP/r17.sh" && cmp -s "$TMP/r17.sh" "$TMP/r14.sh" || r17="$r17 script"
+  # The ExternalSecrets are those of the same values without seedFrom.
+  grep -v 'seedFrom:' "$TMP/r17.v" > "$TMP/r17g.v"
+  r "$TMP/r17g.v" "$TMP/r17g.yaml" || r17="$r17 unseeded-render"
+  for n in db-owner api-key fresh; do
+    doc "$TMP/r17.yaml" ExternalSecret "$n" > "$TMP/r17.es"; doc "$TMP/r17g.yaml" ExternalSecret "$n" > "$TMP/r17g.es"
+    [ -s "$TMP/r17.es" ] && cmp -s "$TMP/r17.es" "$TMP/r17g.es" || r17="$r17 external-secret-$n"
+  done
+  has "$TMP/r17g.yaml" PushSecret db-owner-e1 '  name: db-owner-e1' || r17="$r17 unseeded-has-no-push"
+  # The other region: the shared values are the primary's to write; it seeds
+  # only its own value, for itself.
+  sed 's/^self: hw-a/self: hw-b/; s/^peers: \[hw-b\]/peers: [hw-a]/; s/^primary: true/primary: false/' "$TMP/r17.v" > "$TMP/r17b.v"
+  r "$TMP/r17b.v" "$TMP/r17b.yaml" || r17="$r17 b-render"
+  S17B="$(seedname "$TMP/r17b.yaml")"
+  [ "$(kinds "$TMP/r17b.yaml")" = "ConfigMap=2 ExternalSecret=3 Job=2 Role=1 RoleBinding=1 ServiceAccount=1 " ] || r17="$r17 b-kinds($(kinds "$TMP/r17b.yaml"))"
+  [ "$(planof "$TMP/r17b.yaml" "$S17B")" = 'openova/apps/acme/api-key/e2 32 0 seed:pdns-old/api-key self' ] || r17="$r17 b-seed-plan($(planof "$TMP/r17b.yaml" "$S17B" | tr '\n' ';'))"
+  has "$TMP/r17b.yaml" Job "$S17B" '            - {name: PEERS, value: ""}' || r17="$r17 b-peers"
+  has "$TMP/r17b.yaml" Role secrets-birth-seed '    resourceNames: ["old-master","pdns-old"]' || r17="$r17 b-role"
+  # Alone: a single seeded synced value renders the seed Job and no birth Job.
+  printf 'generatedSecrets: {x: {delivery: synced, registerId: r, epoch: 1, seedFrom: {name: s, key: k}}}\n' > "$TMP/r17s.v"
+  r "$TMP/r17s.v" "$TMP/r17s.yaml" || r17="$r17 s-render"
+  [ "$(kinds "$TMP/r17s.yaml")" = "ConfigMap=1 ExternalSecret=1 Job=1 Role=1 RoleBinding=1 ServiceAccount=1 " ] && [ -z "$(jobname "$TMP/r17s.yaml")" ] \
+    && [ "$(planof "$TMP/r17s.yaml" "$(seedname "$TMP/r17s.yaml")")" = 'openova/apps/acme/x/e1 32 0 seed:s/k self' ] || r17="$r17 alone($(kinds "$TMP/r17s.yaml"))"
+fi
+[ -z "$r17" ] && pass "R17 seedFrom on a synced value (SEC-254): no Password or PushSecret for it; Job secrets-seed-<hash> (mount secret, the API token, no Secret volume, the birth script of R14) writes openova/apps/acme/<name>/e<epoch> from seed:<Secret>/<key>, a shared value also to the peer; the birth Job keeps the mounted seed and the mounted copy; Role secrets-birth-seed names every seed; the ExternalSecrets are those of the unseeded values; the other region seeds only its own value; alone, only the seed Job" || fail "R17:$r17"
+
+# ── F1-F68 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
   printf '%s\n' "$3" > "$TMP/$1.v"
@@ -965,7 +1074,8 @@ refused F43 "generatedSecrets.x joins this value, so it renders no Secret of its
 refused F44 "mountedCopies reads key password of Secret x, so template data must hold password" "generatedSecrets: {x: {$S, mountedCopies: [{serviceAccount: a}], template: {data: {token: '{{ .password }}'}}}}"
 # SEC-226: seedFrom. M is a mounted value that takes it.
 M='delivery: mounted, epoch: 1, scope: shared'
-refused F45 "seedFrom is only for delivery mounted"  "generatedSecrets: {x: {$S, seedFrom: {name: a, key: b}}}"
+refused F45 "a value given from outside (source external) is never generated or pushed here, so it takes no seedFrom" \
+  "generatedSecrets: {x: {delivery: synced, source: external, registerId: r, writer: w, epoch: 1, seedFrom: {name: a, key: b}}}"
 refused F46 "seedFrom must be a map of name and key" "generatedSecrets: {x: {$M, seedFrom: a}}"
 refused F47 'seedFrom field "namespace" is none of name and key' "generatedSecrets: {x: {$M, seedFrom: {name: a, key: b, namespace: c}}}"
 refused F48 "seedFrom.name must be the name of a Secret of namespace acme" "generatedSecrets: {x: {$M, seedFrom: {name: Bad_Name, key: b}}}"
@@ -990,6 +1100,9 @@ refused F63 "writer is only for source external: a generated value is written by
 refused F64 "generatedSecrets.x joins this value, so it renders no Secret of its own and $X writer" "generatedSecrets: {x: {$E, join: [w]}, w: {delivery: synced, source: external, writer: w, epoch: 1}}"
 refused F65 'join names "w", whose source is not this value'"'"'s: the values of one Secret have one source and one writer' "generatedSecrets: {x: {$E, join: [w]}, w: {delivery: synced, epoch: 1}}"
 refused F66 'join names "w", whose source is not this value'"'"'s' "generatedSecrets: {x: {$S, join: [w]}, w: {delivery: synced, source: external, epoch: 1}}"
+# SEC-254: the seedFrom of a synced value is checked as a mounted one's.
+refused F67 "seedFrom.name must be the name of a Secret of namespace acme" "generatedSecrets: {x: {$S, seedFrom: {name: Bad_Name, key: b}}}"
+refused F68 "seedFrom must be a map of name and key" "generatedSecrets: {x: {$S, seedFrom: a}}"
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"
