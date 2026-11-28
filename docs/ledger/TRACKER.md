@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T14:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T14:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8736](https://github.com/openova-io/openova/issues/8736) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8737](https://github.com/openova-io/openova/issues/8737) | NET-253 Lab test: the reference cloud's native firewall in front of a load balan | Other |
 | [#8746](https://github.com/openova-io/openova/issues/8746) | SEC-205 Stores in Organization namespaces | Other |
 | [#8749](https://github.com/openova-io/openova/issues/8749) | CMP-058 Engine to the 1.19 line | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9114](https://github.com/openova-io/openova/issues/9114) | SEC-228 A library value given from outside: source external, no generator, no Pu | Other |
 | [#9118](https://github.com/openova-io/openova/issues/9118) | SEC-237 Slot 08 names the namespaces of shared mounted values in peerTrust.birth | Other |
 | [#9127](https://github.com/openova-io/openova/issues/9127) | SVC-280 The dialog offers the implementation; capabilities routes | Other |
+| [#9130](https://github.com/openova-io/openova/issues/9130) | AIP-116 Kit slot 82 and the catalog seed pin bp-axon | Other |
 
 ---
 
