@@ -31,7 +31,10 @@
 #   L8  SEC-190, on A: the state key is exportable, backup-able and not
 #       deletable, token role tofu-state is an orphan, not renewable, 1h;
 #       eso-ns of namespace a creates mounted/data/a/sa/x/t once, cannot
-#       rewrite or read it, cannot write below b; workload of a/x reads it
+#       rewrite or read it, cannot write below b; refused the metadata write
+#       of a push under the old eso-ns text, it makes every request of an
+#       External Secrets PushSecret after one reconciler tick and none below
+#       namespace b; workload of a/x reads it
 #       and a/shared, not a/sa/y nor b/shared; a token minted at
 #       auth/token/create/tofu-state by tofu-state-mint of crossplane-system
 #       uses the key and reaches nothing under secret/ nor the backup; a job
@@ -380,6 +383,26 @@ ESO="$(login_as eso-ns a eso-reader)"; E=(-H "X-Vault-Token: $ESO")
 [ "$(code "${E[@]}" -X POST -d '{"data":{"v":"again"}}' "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 403 ] && pass "L8 eso-ns cannot rewrite a value (create only)" || fail "L8 eso-ns rewrote a value"
 [ "$(code "${E[@]}" "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 403 ] && pass "L8 eso-ns cannot read the value it created" || fail "L8 eso-ns read a value below mounted/"
 [ "$(code "${E[@]}" -X POST -d '{"data":{"v":"x"}}' "$BAO_ADDR/v1/mounted/data/b/shared/t")" = 403 ] && pass "L8 eso-ns of a cannot write below namespace b" || fail "L8 eso-ns of a wrote below b"
+# A PushSecret through SecretStore openbao (External Secrets 0.10.7,
+# pkg/provider/vault client_get.go SecretExists, client_push.go PushSecret):
+# GET data (absent), PUT metadata custom_metadata, PUT data. The store first
+# carries the eso-ns text without the metadata write, as a running Sovereign
+# did; one tick of the chart's desired state replaces it, for the same token.
+PM="$BAO_ADDR/v1/secret/metadata/openova/apps/a/minio-password/e1"; PD="$BAO_ADDR/v1/secret/data/openova/apps/a/minio-password/e1"
+LBL='{"custom_metadata":{"managed-by":"external-secrets"}}'
+cp -r "$TMP/desired-A" "$TMP/desired-old"
+sed -i 's/\\"create\\", \\"update\\", \\"read\\", \\"list\\", \\"delete\\"/\\"read\\", \\"list\\", \\"delete\\"/' "$TMP/desired-old/sys.policies.acl.eso-ns.json"
+run_reconciler "$PA" "$TMP/desired-old" && [ "$(code "${E[@]}" "$PD")" = 404 ] && [ "$(code "${E[@]}" -X PUT -d "$LBL" "$PM")" = 403 ] \
+  && pass "L8 under the old eso-ns text the push's metadata write is refused (the 403 of the Sovereign)" || fail "L8 the old eso-ns text did not refuse the metadata write"
+run_reconciler "$PA" "$TMP/desired-A" || fail "L8 the tick of the chart's desired state did not converge"
+[ "$(code "${E[@]}" "$PD")" = 404 ] && [ "$(code "${E[@]}" -X PUT -d "$LBL" "$PM")" = 204 ] && [ "$(code "${E[@]}" -X PUT -d "$LBL" "$PM")" = 204 ] \
+  && [ "$(code "${E[@]}" -X PUT -d '{"data":{"password":"p1"}}' "$PD")" = 200 ] && has "$("${CURL[@]}" "${E[@]}" "$PD")" '"data":{"password":"p1"}' \
+  && has "$("${CURL[@]}" "${E[@]}" "$PM")" '"custom_metadata":{"managed-by":"external-secrets"}' \
+  && pass "L8 after one tick eso-ns of a pushes: metadata PUT on a new and an existing key, data PUT, value and managed-by read back" || fail "L8 eso-ns of a could not make the requests of a push"
+[ "$(code "${E[@]}" -X PUT -d "$LBL" "$BAO_ADDR/v1/secret/metadata/openova/apps/b/minio-password/e1")" = 403 ] \
+  && [ "$(code "${E[@]}" -X PUT -d '{"data":{"password":"x"}}' "$BAO_ADDR/v1/secret/data/openova/apps/b/minio-password/e1")" = 403 ] \
+  && [ "$(code "${E[@]}" -X PUT -d "$LBL" "$BAO_ADDR/v1/secret/metadata/openova/apps/ab/minio-password/e1")" = 403 ] \
+  && pass "L8 eso-ns of a is refused the metadata and the data of namespace b (and of ab)" || fail "L8 eso-ns of a wrote the push of another namespace"
 for p in b/shared/t a/sa/y/t a/shared/t; do "${CURL[@]}" "${RT[@]}" -X POST -o /dev/null -d '{"data":{"v":"root"}}' "$BAO_ADDR/v1/mounted/data/$p"; done
 WL="$(login_as workload a x)"; W=(-H "X-Vault-Token: $WL")
 [ -n "$WL" ] && [ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/a/sa/x/t")" = 200 ] && [ "$(code "${W[@]}" "$BAO_ADDR/v1/mounted/data/a/shared/t")" = 200 ] \

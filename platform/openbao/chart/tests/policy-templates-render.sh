@@ -16,8 +16,9 @@
 #       the literal template {{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES
 #       .metadata.service_account_namespace}} (and _name), which Helm leaves
 #       alone and the reconciler completes with the accessor of its mount;
-#       eso-ns may create below mounted/ but never read a value there; no
-#       policy of these has sudo except sovereign-admin on lease lookup;
+#       eso-ns may create below mounted/ but never read a value there, and
+#       writes the metadata of a push to its own namespace of the apps prefix;
+#       no policy of these has sudo except sovereign-admin on lease lookup;
 #   T3  auth roles workload (any service account, audience openbao), eso-ns,
 #       tofu-state-mint and tofu-state (stateKey.jobIdentities, audience
 #       openbao), 15m / 1h; tofu-state-backup only when
@@ -72,7 +73,7 @@ SA='{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_
 want_policy() {  # $1 name $2 key name -> the exact text the chart must render
   case "$1" in
     workload) printf 'path "mounted/data/%s/sa/%s/*" {\n  capabilities = ["read"]\n}\npath "mounted/data/%s/shared/*" {\n  capabilities = ["read"]\n}\n' "$NS" "$SA" "$NS" ;;
-    eso-ns) printf 'path "mounted/data/%s/*" {\n  capabilities = ["create"]\n}\npath "mounted/metadata/%s/*" {\n  capabilities = ["read", "delete"]\n}\npath "secret/data/openova/apps/%s/*" {\n  capabilities = ["create", "update", "read"]\n}\npath "secret/metadata/openova/apps/%s/*" {\n  capabilities = ["read", "list", "delete"]\n}\n' "$NS" "$NS" "$NS" "$NS" ;;
+    eso-ns) printf 'path "mounted/data/%s/*" {\n  capabilities = ["create"]\n}\npath "mounted/metadata/%s/*" {\n  capabilities = ["read", "delete"]\n}\npath "secret/data/openova/apps/%s/*" {\n  capabilities = ["create", "update", "read"]\n}\npath "secret/metadata/openova/apps/%s/*" {\n  capabilities = ["create", "update", "read", "list", "delete"]\n}\n' "$NS" "$NS" "$NS" "$NS" ;;
     tofu-state) printf 'path "transit/datakey/plaintext/%s" {\n  capabilities = ["update"]\n}\npath "transit/decrypt/%s" {\n  capabilities = ["update"]\n}\n' "$2" "$2" ;;
     tofu-state-backup) printf 'path "transit/backup/%s" {\n  capabilities = ["read"]\n}\n' "$2" ;;
     tofu-state-mint) printf 'path "auth/token/create/tofu-state" {\n  capabilities = ["update"]\n}\n' ;;
