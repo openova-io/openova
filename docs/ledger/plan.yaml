@@ -16562,23 +16562,35 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-219]
-  after: [SEC-226, FND-011, SEC-201, SEC-217, SVC-040, SVC-041]
+  after: [SEC-226, FND-011]
   touches:
-  - platform/secrets-lib/**
+  - platform/secrets-lib/README.md
+  - platform/secrets-lib/chart/templates/_generated-secrets.tpl
+  - platform/secrets-lib/chart/tests/eso-takeover/run.sh
+  - platform/secrets-lib/chart/tests/eso-takeover/x3_test.go
+  - platform/secrets-lib/chart/tests/render.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'secrets.openova.io/writer' platform/secrets-lib/chart/templates/_generated-secrets.tpl"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && NO_COLOR=1 bash platform/secrets-lib/chart/tests/render.sh platform/secrets-lib/chart > \"$d/render.txt\" && test \"$(grep -c -E '^  PASS  (R1[56] |F(5[2-9]|6[0-6]) refused: )' \"$d/render.txt\")\" = 17 && test \"$(grep -c -E '^  FAIL  ' \"$d/render.txt\")\" = 0 && test \"$(grep -c -x -F '  PASS  R15 source external: ExternalSecrets velero-objectstorage-credentials and its copy read e1 and the joined s3-secret-key e2, annotated with the writer; no Password, PushSecret or Job in either region; the generated api-key renders as alone' \"$d/render.txt\")\" = 1 && test \"$(grep -c -x -F '  PASS  F55 refused: writer is required for source external: who writes openova/apps/acme/x/e1 (printable text)' \"$d/render.txt\")\" = 1"
+  - id: A2
+    run: "f=platform/secrets-lib/README.md && test \"$(grep -c -F -e '- **synced, `source: external`** (SEC-228)' \"$f\")\" = 1 && test \"$(grep -c -F -e 'R15, R16 and F52 to F66 the source' \"$f\")\" = 1 && test \"$(grep -c -F -e '- **A Secret that Helm kept** (SEC-228, fact X3 of the spike SEC-227).' \"$f\")\" = 1 && test \"$(grep -c -F -e '- it **takes the object over**: the same object (uid), its controller owner' \"$f\")\" = 1"
+  - id: A3
+    run: "t=platform/secrets-lib/chart/tests/eso-takeover && test -f \"$t/x3_test.go\" && sh -n \"$t/run.sh\" && test \"$(gofmt -l \"$t/x3_test.go\")\" = \"\" && test \"$(grep -c -E '^[[:space:]]+It\\(\"T[1-6] ' \"$t/x3_test.go\")\" = 6 && test \"$(grep -c -F 'Label(\"sec228\")' \"$t/x3_test.go\")\" = 1 && test \"$(grep -c -F -e '-ginkgo.label-filter=sec228 -ginkgo.fail-on-empty' \"$t/run.sh\")\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'A synced value of the library takes source: external: no Password and no PushSecret; the ExternalSecret reads openova/apps/<ns>/<name>/e<epoch> with SEC-219''s template and join over the external values and names its writer in the register entry; a missing path keeps the ExternalSecret not ready and never generates a value, so a cloud value is never generated.'
+  delivers: 'A synced value of the library secrets-lib takes source: external: it renders no Password and no PushSecret in any region, its ExternalSecret and each copy read openova/apps/<ns>/<name>/e<epoch> with the template and join of SEC-219 over external values only and carry the annotation secrets.openova.io/writer from the required input writer; while that path is absent the ExternalSecret is not ready and nothing is written, so such a value is never generated; the chart test eso-takeover shows on External Secrets 0.10.7, the pinned release, that an ExternalSecret with creationPolicy Owner takes over a Secret that Helm created and kept; render.sh R15, R16 and the refusal checks 52 to 66 hold each case, and the charts that use the library today render byte for byte as before.'
 - id: SEC-229
   title: The hand-over Job writes the cloud values into each reader's prefix
   area: SEC
@@ -17437,7 +17449,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-261, SOV-720, SOV-721]
-  after: [FND-011, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SVC-040, SVC-041]
+  after: [FND-011, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SEC-228, SVC-040, SVC-041]
   touches:
   - platform/external-secrets/chart/Chart.yaml
   - platform/external-secrets/chart/values.yaml
@@ -17772,7 +17784,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-162, SEC-211, SEC-252]
-  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, SVC-270, CTL-041, CTL-172]
+  after: [FND-011, SOV-151, SEC-080, SEC-180, SEC-181, SEC-192, SEC-200, SEC-201, SEC-217, SEC-219, SEC-226, SEC-228, SEC-344, SVC-040, SVC-041, SVC-130, SVC-137, SVC-139, SVC-220, SVC-270, CTL-041, CTL-172]
   touches:
   - platform/openbao/chart/templates/listener-certificate.yaml
   - platform/openbao/chart/values.yaml
