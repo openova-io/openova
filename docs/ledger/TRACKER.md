@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T11:30:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
+| Last refreshed | `2026-11-28T11:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -317,6 +317,7 @@ flowchart LR
 | 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
 | 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
 | 2026-11-28T01:13 | [#9099](https://github.com/openova-io/openova/pull/9099) | #7087 | docs(ledger): plan update |
+| 2026-11-28T11:36 | [#9098](https://github.com/openova-io/openova/pull/9098) | #9103 | fix(powerdns): powerdns-api-credentials carries helm.sh/reso |
 | 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:41 | [#9093](https://github.com/openova-io/openova/pull/9093) | #9092 | refactor(valkey): the keyspace Context Secret mints no passw |
 | 2026-11-27T23:57 | [#9091](https://github.com/openova-io/openova/pull/9091) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:10 | [#9070](https://github.com/openova-io/openova/pull/9070) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:55 | [#9069](https://github.com/openova-io/openova/pull/9069) | #7087 | docs(ledger): plan update |
-| 2026-11-27T22:31 | [#9068](https://github.com/openova-io/openova/pull/9068) | #9064 | feat(axon): chart bp-axon with its credential a file mounted |
 
 ---
 
