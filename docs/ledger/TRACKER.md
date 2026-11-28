@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T00:15:03Z` |
+| Last refreshed | `2026-11-28T00:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8713](https://github.com/openova-io/openova/issues/8713) | CTL-820 Region-loss gate check | Other |
 | [#8716](https://github.com/openova-io/openova/issues/8716) | FND-163 Console regression: jobs, resource views, cloud and infrastructure read  | Other |
 | [#8723](https://github.com/openova-io/openova/issues/8723) | FND-G21 rows 241 and 242: the live gate job passes GATE_PARENT_URL and GATE_PARE | Other |
 | [#8728](https://github.com/openova-io/openova/issues/8728) | CMP-021 CMP-G02 becomes required once the pinned catalyst-api carries CMP-020 | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9089](https://github.com/openova-io/openova/issues/9089) | SEC-226 A library value is seeded from the Secret that holds it today | Other |
 | [#9092](https://github.com/openova-io/openova/issues/9092) | SEC-232 Roll-out: platform/valkey | Other |
 | [#9095](https://github.com/openova-io/openova/issues/9095) | SEC-239 powerdns-api-credentials carries helm.sh/resource-policy keep one releas | Other |
+| [#9097](https://github.com/openova-io/openova/issues/9097) | SEC-253 The metrics chart's object-store password is generated and read from an  | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
 | 2026-11-27T23:57 | [#9091](https://github.com/openova-io/openova/pull/9091) | #7087 | docs(ledger): plan update |
 | 2026-11-27T23:21 | [#9088](https://github.com/openova-io/openova/pull/9088) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
@@ -316,6 +317,7 @@ flowchart LR
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
 | 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
+| 2026-11-28T00:25 | [#9077](https://github.com/openova-io/openova/pull/9077) | #9075 | feat(network): the platform API writes the passthrough liste |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
 | 2026-11-27T20:47 | [#9073](https://github.com/openova-io/openova/pull/9073) | #9072 | fix(secrets-lib): a synced value takes a template, copies in |
 | 2026-11-27T20:18 | [#9071](https://github.com/openova-io/openova/pull/9071) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T18:17 | [#9052](https://github.com/openova-io/openova/pull/9052) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:09 | [#9051](https://github.com/openova-io/openova/pull/9051) | #9049 | fix(conformance): a conformance run builds and runs the cata |
 | 2026-11-27T17:45 | [#9050](https://github.com/openova-io/openova/pull/9050) | #9021 | test(gate): check CMP-G06 after the move of the access polic |
-| 2026-11-27T17:18 | [#9048](https://github.com/openova-io/openova/pull/9048) | #7087 | docs(ledger): plan update |
-| 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
 
 ---
 
