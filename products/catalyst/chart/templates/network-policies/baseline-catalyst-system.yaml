@@ -257,6 +257,26 @@ spec:
         - ports:
             - port: "8082"
               protocol: TCP
+    # 3c. SEC-061: the Keycloak Pods of EVERY region, on their HTTP port
+    #     8080. Service keycloak/keycloak is a ClusterMesh global Service
+    #     with local affinity (bp-keycloak values, keycloak.service):
+    #     while this region's Keycloak Pod has no ready endpoint (kured
+    #     drains its node), the Service sends catalyst-api's PIN sign-in
+    #     (pin/verify, EnsureUser at keycloak.keycloak.svc) to the other
+    #     region's Keycloak. Rule 4 names the keycloak namespace of the
+    #     LOCAL cluster only, the trap of rule 3b, so without this rule
+    #     that call is dropped and the sign-in still answers 502.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: keycloak
+            k8s:app.kubernetes.io/name: keycloak
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
     # 4. Platform namespaces — operator-tunable list. Defaults cover
     #    every namespace catalyst-system legitimately reaches in a
     #    canonical Sovereign install.

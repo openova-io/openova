@@ -2,11 +2,16 @@ package suite
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"slices"
 	"strconv"
@@ -14,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/api"
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
 
@@ -70,7 +76,33 @@ type rebootWorld struct {
 	roll       int                  // the seconds from then until every Pod of kured's DaemonSet is updated
 	changed    map[string]time.Time // by region, the last change of the document
 	patches    []string             // "<region> <merge patch>" of every change of the document
+
+	// The Keycloak of each region is the workload Pod keycloak/keycloak-0 of
+	// the node that lists it (cp-1 unless a case moves it); its replacement
+	// is Ready late["keycloak/keycloak-0"] seconds after its node is cordoned.
+	// Its log names its member keycloak-0-<a|b><1 before its move, 2 after, 3
+	// after a second move>.
+	kcHop     string   // the worker its first replacement runs on, moved once more when kured restarts that worker later; "" the other node, as for every Pod
+	kcDown    int      // the code the public Keycloak answers while a region's Keycloak Pod is away; 0 none
+	kcJoin    int      // the seconds after the last moved Keycloak Pod is Ready from which every view lists both members; -1 never
+	kcStale   bool     // the view of region-b names region-a's Keycloak before its move
+	kcMerge   bool     // the last view of each region is one that a merge made (ISPN000093)
+	kcNoLog   bool     // the log of keycloak-0 cannot be read
+	split     bool     // the Keycloaks of the regions do not share their codes
+	noSession bool     // the run has no console session
+	signIns   int      // the sign-ins started at the public Keycloak
+	tokens    int      // the codes redeemed
+	logouts   int      // the sessions ended
+	forwards  []string // the regions a local port was forwarded to
+	stopped   int      // the forwards that were ended
 }
+
+// rebootTestFQDN is the Sovereign of the fake, rebootTestSession the owner's session.
+const (
+	rebootTestFQDN    = "x.test"
+	rebootTestSession = "owner-session"
+	rebootTestKC      = "keycloak/keycloak-0"
+)
 
 // later moves the clock of w by d, to an hour at which the configured span
 // 00:30 to 22:00 UTC is closed or closes before the limit, and moves the
@@ -110,7 +142,7 @@ func newRebootWorld() *rebootWorld {
 		args: []string{"--period=15m", "--lock-release-delay=5m", "--drain-timeout=15m", "--reboot-days=su", "--reboot-days=mo",
 			"--start-time=00:30", "--end-time=22:00", "--time-zone=UTC", "--reboot-sentinel=/sentinel/reboot-required", "--concurrency=1"},
 		restarts:  map[string][3]int{"cp-1": {-1, -1, -1}, "w-1": {600, 640, 700}, "w-2": {-1, -1, -1}, "w-3": {-1, -1, -1}},
-		workloads: map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}, "w-1": {"shop/web-1", "shop/db-0"}, "w-2": {"shop/web-2"}},
+		workloads: map[string][]string{"cp-1": {"kube-system/etcd-cp-1", rebootTestKC}, "w-1": {"shop/web-1", "shop/db-0"}, "w-2": {"shop/web-2"}},
 		plans:     []obj{rebootPlan("k3s-server", "22:00", "00:00", "UTC", rebootAllDays...), rebootPlan("k3s-agent", "22:00", "00:00", "UTC", rebootAllDays...)},
 		kuredBack: 750, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
 		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}, back: map[string]string{}, waits: map[string]string{},
@@ -309,7 +341,14 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 				if slow {
 					wait = "ContainerCreating"
 				}
-				list = append(list, rebootTestPod(ns, n, "uid-"+n+"-2", other, hash, (state == "" || state == "rolled") && !slow, wait))
+				uid, on := "uid-"+n+"-2", other
+				if hop := w.restarts[w.kcHop][0]; name == rebootTestKC && w.kcHop != "" {
+					if on = w.kcHop; hop > cordon && in(hop, -1) { // the worker it was placed on restarts too: it moves once more
+						uid, on, slow = "uid-"+n+"-3", map[bool]string{true: "w-2", false: "w-3"}[w.kcHop == "w-3"], in(hop, hop+w.late[name])
+						wait = map[bool]string{true: "ContainerCreating", false: ""}[slow]
+					}
+				}
+				list = append(list, rebootTestPod(ns, n, uid, on, hash, (state == "" || state == "rolled") && !slow, wait))
 			}
 		}
 		return []byte(kubeList(list...)), nil
@@ -364,21 +403,255 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 		}
 	case len(args) > 2 && args[2] == "wait":
 		return nil, w.waitErr
+	case joined == "logs -n keycloak keycloak-0 -c keycloak --timestamps":
+		if w.kcNoLog {
+			return nil, errors.New(`[` + r.ID + `] kubectl logs: exit status 1: Error from server (NotFound): pods "keycloak-0" not found`)
+		}
+		return []byte(w.kcLog(r.ID)), nil
 	}
 	return nil, nil
+}
+
+// kcNode is the node that runs the Keycloak Pod before any move.
+func (w *rebootWorld) kcNode() string {
+	for node, names := range w.workloads {
+		if slices.Contains(names, rebootTestKC) {
+			return node
+		}
+	}
+	return ""
+}
+
+// kcMoved reports how often the Keycloak Pod of region has moved (twice once
+// kured restarted kcHop after the Pod's first move), and from when on
+// (counted from the placing of the region's sentinel Pods) its last
+// replacement is Ready.
+func (w *rebootWorld) kcMoved(region string) (int, int) {
+	at, placed := w.placed[region]
+	cordon := w.restarts[w.kcNode()][0]
+	if !placed || w.stuck || cordon < 0 {
+		return 0, 0
+	}
+	second := int(w.clock.Sub(at).Seconds())
+	if hop := w.restarts[w.kcHop][0]; w.kcHop != "" && hop > cordon && second >= hop {
+		return 2, hop + w.late[rebootTestKC]
+	}
+	return map[bool]int{true: 1, false: 0}[second >= cordon], cordon + w.late[rebootTestKC]
+}
+
+// kcAway reports whether the Keycloak Pod of a region has left its node and
+// its replacement is not Ready yet.
+func (w *rebootWorld) kcAway() bool {
+	for region, at := range w.placed {
+		if moved, ready := w.kcMoved(region); moved > 0 && int(w.clock.Sub(at).Seconds()) < ready {
+			return true
+		}
+	}
+	return false
+}
+
+// kcSelf is the member of the Keycloak of region: keycloak-0-a1 for region-a before its move, keycloak-0-a2 after, keycloak-0-a3 after a second move.
+func (w *rebootWorld) kcSelf(region string) string {
+	moved, _ := w.kcMoved(region)
+	return "keycloak-0-" + region[len(region)-1:] + strconv.Itoa(moved+1)
+}
+
+// kcLog is the log of the Keycloak Pod of region as `kubectl logs
+// --timestamps` gives it: it starts as a cluster of one, and lists both
+// regions' members from kcJoin seconds after the last moved Keycloak is Ready
+// (from before the run when none moved; never when kcJoin is -1).
+func (w *rebootWorld) kcLog(region string) string {
+	self, join := w.kcSelf(region), time.Date(2026, 11, 20, 5, 0, 9, 0, time.UTC)
+	for r, at := range w.placed {
+		if moved, ready := w.kcMoved(r); moved > 0 && at.Add(time.Duration(ready+w.kcJoin)*time.Second).After(join) {
+			join = at.Add(time.Duration(ready+w.kcJoin) * time.Second)
+		}
+	}
+	line := func(at time.Time) string {
+		return at.Format(time.RFC3339Nano) + " " + at.Format("2006-01-02 15:04:05") + ",000 INFO  [org.infinispan.CLUSTER] (main) "
+	}
+	start := time.Date(2026, 11, 20, 5, 0, 1, 0, time.UTC)
+	log := line(start) + "ISPN000078: Starting JGroups channel `ISPN` with stack `jdbc-ping-rejoin`\n" +
+		line(start.Add(time.Second)) + "ISPN000094: Received new cluster view for channel ISPN: [" + self + "|0] (1) [" + self + "]\n" +
+		line(start.Add(2*time.Second)) + "ISPN000079: Channel `ISPN` local address is `" + self + "`, physical addresses are `[10.42.1.7:7800]`\n"
+	if w.kcJoin < 0 || w.clock.Before(join) {
+		return log
+	}
+	log += line(join)
+	members := w.kcSelf("region-a") + ", " + w.kcSelf("region-b")
+	if w.kcStale && region == "region-b" {
+		members = "keycloak-0-a1, " + self
+	}
+	if w.kcMerge {
+		return log + "ISPN000093: Received new, MERGED cluster view for channel ISPN: MergeView::[keycloak-0-a1|3] (2) [" + members +
+			"], 2 subgroups: [keycloak-0-a1|1] (1) [keycloak-0-a1], [keycloak-0-b1|2] (1) [keycloak-0-b1]\n"
+	}
+	return log + "ISPN000094: Received new cluster view for channel ISPN: [keycloak-0-a1|1] (2) [" + members + "]\n"
+}
+
+// forward is the forward of a local port to Service keycloak/keycloak of region.
+func (w *rebootWorld) forward(_ context.Context, region kube.Region, namespace, service string, port int) (string, func(), error) {
+	if namespace != "keycloak" || service != "keycloak" || port != 80 {
+		w.t.Errorf("a forward to %s/%s:%d, want keycloak/keycloak:80", namespace, service, port)
+	}
+	w.forwards = append(w.forwards, region.ID)
+	return map[string]string{"region-a": "127.0.0.1:41001", "region-b": "127.0.0.1:41002"}[region.ID], func() { w.stopped++ }, nil
+}
+
+// rebootWeb answers the HTTP requests of the check in process, by host: the
+// console (whoami), catalyst-api (the authorization endpoint of identity
+// provider catalyst-pin), the public Keycloak at auth.<fqdn> and the forwards
+// to the Keycloak of each region.
+type rebootWeb struct {
+	w   *rebootWorld
+	kcs map[string]*rebootIdP
+}
+
+func newRebootWeb(w *rebootWorld) *rebootWeb {
+	shared, other := map[string]string{}, map[string]string{}
+	if !w.split {
+		other = shared
+	}
+	return &rebootWeb{w: w, kcs: map[string]*rebootIdP{
+		"auth." + rebootTestFQDN: {w: w, public: true, codes: map[string]string{}, sessions: map[string][3]string{}},
+		"127.0.0.1:41001":        {w: w, codes: shared, sessions: map[string][3]string{}},
+		"127.0.0.1:41002":        {w: w, codes: other, sessions: map[string][3]string{}},
+	}}
+}
+
+func (x *rebootWeb) RoundTrip(req *http.Request) (*http.Response, error) {
+	rec, q := httptest.NewRecorder(), req.URL.Query()
+	session, _ := req.Cookie("catalyst_session")
+	switch host := req.URL.Host; {
+	case host == "console."+rebootTestFQDN && req.URL.Path == "/api/v1/whoami" && session != nil && session.Value == rebootTestSession:
+		rec.WriteHeader(http.StatusOK)
+		_, _ = rec.WriteString(`{"tier":"owner"}`)
+	case host == "api."+rebootTestFQDN && req.URL.Path == "/oidc/auth":
+		broker := "https://auth." + rebootTestFQDN + "/realms/sovereign/broker/catalyst-pin/endpoint"
+		if session == nil || session.Value != rebootTestSession || q.Get("redirect_uri") != broker || q.Get("client_id") != "catalyst-pin" {
+			http.Error(rec, `{"error":"cookie_not_found"}`, http.StatusBadRequest)
+			break
+		}
+		http.Redirect(rec, req, broker+"?"+url.Values{"code": {"pin-code"}, "state": {q.Get("state")}}.Encode(), http.StatusFound)
+	case x.kcs[host] != nil:
+		x.kcs[host].serve(rec, req)
+	default:
+		return nil, fmt.Errorf("dial tcp: lookup %s: no such host", host)
+	}
+	return rec.Result(), nil
+}
+
+// rebootIdP is the fake of one Keycloak: the realm sovereign with the public
+// client catalyst-ui and the identity provider catalyst-pin. codes are the
+// codes it issued, by code, with their PKCE challenge: the Keycloaks of one
+// cluster share them. sessions are its authentication sessions: the
+// redirect_uri, the state and the challenge of the client.
+type rebootIdP struct {
+	w        *rebootWorld
+	public   bool
+	codes    map[string]string
+	sessions map[string][3]string
+	n        int
+}
+
+func (k *rebootIdP) serve(rec http.ResponseWriter, req *http.Request) {
+	if k.public && k.w.kcDown != 0 && k.w.kcAway() {
+		http.Error(rec, "no healthy upstream", k.w.kcDown)
+		return
+	}
+	if req.Host != "auth."+rebootTestFQDN || (!k.public && req.Header.Get("X-Forwarded-Proto") != "https") {
+		http.Error(rec, "the request does not name the public host", http.StatusBadRequest)
+		return
+	}
+	q, cookie := req.URL.Query(), func(name string) string {
+		c, err := req.Cookie(name)
+		if err != nil {
+			return ""
+		}
+		return c.Value
+	}
+	switch req.URL.Path {
+	case "/realms/sovereign/protocol/openid-connect/auth":
+		if q.Get("client_id") != "catalyst-ui" || q.Get("kc_idp_hint") != "catalyst-pin" || q.Get("code_challenge_method") != "S256" ||
+			!strings.HasPrefix(q.Get("redirect_uri"), "https://console."+rebootTestFQDN+"/") || q.Get("response_type") != "code" {
+			http.Error(rec, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if k.n++; k.public {
+			k.w.signIns++
+		}
+		id := "as-" + strconv.Itoa(k.n)
+		k.sessions[id] = [3]string{q.Get("redirect_uri"), q.Get("state"), q.Get("code_challenge")}
+		http.SetCookie(rec, &http.Cookie{Name: "AUTH_SESSION_ID", Value: id, Path: "/realms/sovereign/", Secure: true, HttpOnly: true})
+		http.Redirect(rec, req, "https://api."+rebootTestFQDN+"/oidc/auth?"+url.Values{"client_id": {"catalyst-pin"}, "response_type": {"code"},
+			"redirect_uri": {"https://auth." + rebootTestFQDN + "/realms/sovereign/broker/catalyst-pin/endpoint"}, "state": {id}}.Encode(), http.StatusFound)
+	case "/realms/sovereign/broker/catalyst-pin/endpoint":
+		if _, ok := k.sessions[q.Get("state")]; !ok || cookie("AUTH_SESSION_ID") != q.Get("state") || q.Get("code") != "pin-code" {
+			http.Error(rec, "invalid request", http.StatusBadRequest)
+			return
+		}
+		// a relative redirect, as Keycloak's first broker login gives
+		rec.Header().Set("Location", "/realms/sovereign/login-actions/post-broker-login?session_code="+q.Get("state"))
+		rec.WriteHeader(http.StatusFound)
+	case "/realms/sovereign/login-actions/post-broker-login":
+		s, ok := k.sessions[q.Get("session_code")]
+		if !ok || cookie("AUTH_SESSION_ID") != q.Get("session_code") {
+			http.Error(rec, "invalid request", http.StatusBadRequest)
+			return
+		}
+		k.n++
+		code := "code-" + strconv.Itoa(k.n)
+		k.codes[code] = s[2]
+		http.SetCookie(rec, &http.Cookie{Name: "AUTH_SESSION_ID", Path: "/realms/sovereign/", MaxAge: -1})
+		http.Redirect(rec, req, s[0]+"?"+url.Values{"state": {s[1]}, "code": {code}}.Encode(), http.StatusFound)
+	case "/realms/sovereign/protocol/openid-connect/token":
+		_ = req.ParseForm()
+		sum := sha256.Sum256([]byte(req.PostForm.Get("code_verifier")))
+		challenge, ok := k.codes[req.PostForm.Get("code")]
+		rec.Header().Set("Content-Type", "application/json")
+		switch {
+		case req.PostForm.Get("grant_type") != "authorization_code" || req.PostForm.Get("client_id") != "catalyst-ui":
+			http.Error(rec, `{"error":"invalid_request"}`, http.StatusBadRequest)
+		case !ok:
+			rec.WriteHeader(http.StatusBadRequest)
+			_, _ = rec.Write([]byte(`{"error":"invalid_grant","error_description":"Code not valid"}`))
+		case challenge != base64.RawURLEncoding.EncodeToString(sum[:]):
+			rec.WriteHeader(http.StatusBadRequest)
+			_, _ = rec.Write([]byte(`{"error":"invalid_grant","error_description":"PKCE verification failed: Code mismatch"}`))
+		default:
+			delete(k.codes, req.PostForm.Get("code"))
+			k.w.tokens++
+			_, _ = rec.Write([]byte(`{"access_token":"at","refresh_token":"rt-` + strconv.Itoa(k.w.tokens) + `"}`))
+		}
+	case "/realms/sovereign/protocol/openid-connect/logout":
+		_ = req.ParseForm()
+		if !strings.HasPrefix(req.PostForm.Get("refresh_token"), "rt-") || req.PostForm.Get("client_id") != "catalyst-ui" {
+			http.Error(rec, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+			return
+		}
+		k.w.logouts++
+		rec.WriteHeader(http.StatusNoContent)
+	default:
+		http.NotFound(rec, req)
+	}
 }
 
 // rebootRun runs the check against w, after a journey J1 with the status j1.
 func rebootRun(t *testing.T, w *rebootWorld, j1 string) (CheckResult, []*Step) {
 	t.Helper()
 	w.t = t
+	web := newRebootWeb(w)
 	c := rebootCheck{kubectl: w.kubectl, now: func() time.Time { return w.clock },
-		wait: func(_ context.Context, d time.Duration) error { w.clock = w.clock.Add(d); return nil }}
-	r := &runner{out: io.Discard, run: &Run{Mode: "run", Steps: []*Step{{Journey: "J1", ID: "J1.1", Status: j1}}}}
+		wait: func(_ context.Context, d time.Duration) error { w.clock = w.clock.Add(d); return nil }, forward: w.forward, transport: web}
+	r := &runner{out: io.Discard, run: &Run{Mode: "run", Steps: []*Step{
+		{Journey: "D0", ID: "D0.1", Status: Pass, Evidence: Evidence{"sovereignFQDN": rebootTestFQDN}}, {Journey: "J1", ID: "J1.1", Status: j1}}}}
 	m := &Manifest{Checks: []ManifestCheck{entry(rebootID, StateExpectedFail)}}
-	cc := &CheckContext{RunIn: RunInCloud, Regions: []kube.Region{{ID: "region-a"}, {ID: "region-b"}}}
+	cc := &CheckContext{RunIn: RunInCloud, Regions: []kube.Region{{ID: "region-a"}, {ID: "region-b"}}, API: api.New("https://console."+rebootTestFQDN, rebootTestSession)}
+	if cc.API.HTTP.Transport = web; w.noSession {
+		cc.API = nil
+	}
 	r.runChecks(context.Background(), m, []Check{c}, cc, true)
-	return r.run.Checks[0], r.run.Steps[1:]
+	return r.run.Checks[0], r.run.Steps[2:]
 }
 
 func TestRebootCheck(t *testing.T) {
@@ -405,8 +678,46 @@ func TestRebootCheck(t *testing.T) {
 
 		at      int            // the second after the placing at which the last step ends; 0 is not compared
 		seconds map[string]int // the seconds of each moved controller to be back, in a check that passes; nil: each at most 180
+		drained bool           // in a check that passes: the owner signed in, answered 200, while the Keycloak Pod was away, in each region
+		away    int            // in a check that passes: the times the Keycloak Pod was away in each region, each with a sign-in from its first reading; 0 is not compared
+		joined  int            // in a check that passes: the seconds from the bound's start to the reading in which the views list both members
 	}{
 		"one worker restarts in each region, its workloads move off and it comes back": {regions: 2},
+		"the worker that runs Keycloak is restarted as well, and the owner signs in while Keycloak is away": {change: func(w *rebootWorld) {
+			w.workloads["cp-1"], w.workloads["w-3"] = w.workloads["cp-1"][:1], []string{rebootTestKC}
+			w.restarts["w-3"], w.late[rebootTestKC] = [3]int{1500, 1540, 1600}, 60
+		}, regions: 2, chosen: "w-1 w-3", judged: 3, drained: true, away: 1},
+		"kured restarts the worker that runs Keycloak first and its new Pod is placed on the other chosen worker: the owner signs in each time it is away, and the bound counts from its last move": {change: func(w *rebootWorld) {
+			w.workloads["cp-1"], w.workloads["w-3"] = w.workloads["cp-1"][:1], []string{rebootTestKC}
+			w.restarts["w-1"], w.restarts["w-3"], w.late[rebootTestKC], w.kcHop = [3]int{1500, 1540, 1600}, [3]int{600, 640, 700}, 60, "w-1"
+		}, regions: 2, chosen: "w-1 w-3", judged: 3, drained: true, away: 2},
+		"Keycloak runs on the worker of the registry front's choice: one restart covers both": {change: kcOnW1(nil), regions: 2, judged: 3, drained: true},
+		"a sign-in while Keycloak is away answered other than 200 fails, naming the code": {change: kcOnW1(func(w *rebootWorld) { w.kcDown = 503 }),
+			fails: "the owner's sign-in 0 seconds after the Keycloak Pod keycloak/keycloak-0 left w-1, before a new one was Ready, was answered HTTP 503 at auth.x.test/realms/sovereign/protocol/openid-connect/auth: the answer is not a redirect: no healthy upstream", regions: 1},
+		"a new Keycloak Pod is Ready by the next reading: no sign-in was made while it was away": {change: kcOnW1(func(w *rebootWorld) { w.late[rebootTestKC] = 0 }),
+			fails: "no sign-in was made while the Keycloak Pod keycloak/keycloak-0 was away from w-1: a new one was Ready in the first reading after it left", regions: 1},
+		"Keycloak runs on a control-plane node: no Keycloak drain, the cluster and the sign-ins across the regions are judged": {regions: 2, joined: 0},
+		"two views of one member fail": {change: func(w *rebootWorld) { w.kcJoin = -1 },
+			fails: "10m0s after the first reading (no reboot moved a Keycloak Pod), the Keycloaks of the regions do not form one cluster: region region-a: the last cluster view (ISPN000094) lists [keycloak-0-a1], not the current Keycloak of every region [keycloak-0-a1, keycloak-0-b1]; " +
+				"region region-b: the last cluster view (ISPN000094) lists [keycloak-0-b1], not the current Keycloak of every region [keycloak-0-a1, keycloak-0-b1]", regions: 2},
+		"a view of two members that names a Pod no longer running fails": {change: kcOnW1(func(w *rebootWorld) { w.kcStale = true }),
+			fails: "region region-b: the last cluster view (ISPN000094) lists [keycloak-0-a1, keycloak-0-b2], not the current Keycloak of every region [keycloak-0-a2, keycloak-0-b2]; no Keycloak of a region is keycloak-0-a1 now", regions: 2},
+		"views that list both members only after the bound fail": {change: kcOnW1(func(w *rebootWorld) {
+			w.kcJoin, w.releases["catalyst-system/bp-catalyst-platform"] = 660, "ready"
+		}), fails: "10m0s after the last Keycloak Pod a reboot moved was Ready, the Keycloaks of the regions do not form one cluster: region region-a: the last cluster view (ISPN000094) lists [keycloak-0-a2], not the current Keycloak of every region [keycloak-0-a2, keycloak-0-b2]", regions: 2},
+		"views written after the bound fail when they are read after it": {change: kcOnW1(func(w *rebootWorld) { w.kcJoin = 660 }),
+			fails: "Z, 11m0s after the last Keycloak Pod a reboot moved was Ready, more than 10m0s", regions: 2},
+		"views that list both members within the bound pass": {change: kcOnW1(func(w *rebootWorld) {
+			w.kcJoin, w.releases["catalyst-system/bp-catalyst-platform"] = 300, "ready"
+		}), regions: 2, judged: 3, drained: true, joined: 300},
+		"a view that a merge of two partitions made counts": {change: kcOnW1(func(w *rebootWorld) { w.kcMerge = true }), regions: 2, judged: 3, drained: true},
+		"the log of a region's Keycloak cannot be read": {change: func(w *rebootWorld) { w.kcNoLog = true },
+			fails: `do not form one cluster: [region-a] kubectl logs: exit status 1: Error from server (NotFound): pods "keycloak-0" not found; [region-b] kubectl logs`, regions: 2},
+		"a code that one region's Keycloak issued is refused at the other's: the sign-in fails with that answer": {change: func(w *rebootWorld) { w.split = true },
+			fails: "the sign-in whose code the Keycloak of region region-a issued and the Keycloak of region region-b redeemed was answered HTTP 400 at auth.x.test/realms/sovereign/protocol/openid-connect/token: invalid_grant: Code not valid; " +
+				"the sign-in whose code the Keycloak of region region-b issued and the Keycloak of region region-a redeemed was answered HTTP 400", regions: 2},
+		"the run has no console session of the owner: no node is touched": {change: func(w *rebootWorld) { w.noSession = true },
+			fails: "the run has no console session of the owner: no node was touched"},
 		"journey J1 did not pass":       {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
 		"kured is not installed":        {change: func(w *rebootWorld) { w.args = nil }, fails: "kured is not installed"},
 		"the period is not an argument": {change: without("--period=15m"), fails: "no usable value for: --period"},
@@ -612,13 +923,18 @@ func TestRebootCheck(t *testing.T) {
 			}
 			// Each restore that passes writes back what the step that opened the window
 			// read, and the last step that judges the restart is the watch, not the restore.
-			var opening, watch *Step
+			var opening, watch, cluster, across *Step
+			watches := []*Step{}
 			for _, s := range steps {
 				switch {
 				case strings.HasPrefix(s.Name, "the reboot span is open"):
 					opening = s
-				case strings.HasPrefix(s.Name, "the worker restarts drained"):
-					watch = s
+				case strings.HasPrefix(s.Name, "each chosen worker restarts drained"):
+					watch, watches = s, append(watches, s)
+				case strings.HasPrefix(s.Name, "the Keycloaks of the regions form one cluster"):
+					cluster = s
+				case strings.HasPrefix(s.Name, "a sign-in whose code one region's Keycloak issues"):
+					across = s
 				case strings.HasPrefix(s.Name, "the reboot span of the variables document is restored"):
 					if s.Status == Pass && (opening == nil || !reflect.DeepEqual(s.Evidence["values_restored"], opening.Evidence["values_before"])) {
 						t.Errorf("step %q restores %v, not the values the region's document had before", s.Name, s.Evidence["values_restored"])
@@ -670,7 +986,7 @@ func TestRebootCheck(t *testing.T) {
 			}
 			workers := strconv.Itoa(len(w.nodes) - 1)
 			if last := watch; tc.fails == "" && (last.Evidence["most_unschedulable"] != 1 || last.Evidence["failed_readings"] != 0 ||
-				len(last.Evidence["boot_ids_after"].(map[string]string)) != 1 || last.Evidence["kured_ready"] != workers+"/"+workers ||
+				len(last.Evidence["boot_ids_after"].(map[string]string)) != len(strings.Fields(nonEmpty(tc.chosen, "w-1"))) || last.Evidence["kured_ready"] != workers+"/"+workers ||
 				last.Evidence["workloads_moved_off"] == nil || len(last.Evidence["control_plane_boot_ids"].(map[string]string)) != 1 ||
 				len(last.Evidence["controllers_not_ready_again"].([]string)) != 0 || len(last.Evidence["image_waits"].([]string)) != 0) {
 				t.Errorf("the evidence of the last step is %v", last.Evidence)
@@ -688,6 +1004,65 @@ func TestRebootCheck(t *testing.T) {
 				len(steps[choose].Evidence["controllers_moved"].(map[string]int)) != judged) {
 				t.Errorf("the node choice says %v, want %q and %d controllers of the moved Pods", steps[choose].Evidence, nonEmpty(tc.by, rebootByName), judged)
 			}
+			// Every Keycloak session a sign-in opened is ended, and every forward is stopped.
+			if w.tokens != w.logouts || w.stopped != len(w.forwards) {
+				t.Errorf("%d codes were redeemed and %d sessions ended; %d forwards started and %d stopped", w.tokens, w.logouts, len(w.forwards), w.stopped)
+			}
+			if tc.fails != "" {
+				return
+			}
+			// While the Keycloak Pod was away the owner signed in, each sign-in answered 200; else none was made.
+			public := 0
+			for _, s := range watches {
+				signIns, _ := s.Evidence["keycloak_sign_ins"].([]Evidence)
+				if (len(signIns) > 0) != tc.drained {
+					t.Errorf("step %q made sign-ins %v, want some: %v", s.Name, signIns, tc.drained)
+				}
+				away := 0
+				for _, e := range signIns {
+					if public++; e["code"] != http.StatusOK || e["session_ended"] != true {
+						t.Errorf("a sign-in while Keycloak was away is %v, want the code 200 and its session ended", e)
+					}
+					if e["seconds_away"] == 0 {
+						away++
+					}
+				}
+				if tc.away != 0 && away != tc.away {
+					t.Errorf("step %q signed in during %d absences of the Keycloak Pod, want %d: %v", s.Name, away, tc.away, signIns)
+				}
+			}
+			if len(watches) != 2 || public != w.signIns {
+				t.Errorf("%d watch steps recorded %d sign-ins, the public Keycloak saw %d", len(watches), public, w.signIns)
+			}
+			// The views were judged, and a sign-in across the regions passed both ways, through a forward to each region.
+			if cluster == nil || cluster.Status != Pass || (tc.joined != 0 && cluster.Evidence["joined_seconds_after_bound_start"] != tc.joined) {
+				t.Errorf("the cluster step is %v, want PASS with the views joined %d seconds after the bound's start", cluster, tc.joined)
+			}
+			if across == nil {
+				t.Fatal("the check made no sign-in across the regions")
+			}
+			sign, _ := across.Evidence["sign_ins"].([]any)
+			if len(sign) != 2 || !reflect.DeepEqual(w.forwards, []string{"region-a", "region-b"}) {
+				t.Fatalf("the sign-ins across the regions are %v through the forwards to %v, want two through region-a and region-b", sign, w.forwards)
+			}
+			for i, want := range [][2]string{{"region-a", "region-b"}, {"region-b", "region-a"}} {
+				if e, _ := sign[i].(map[string]any); e["issued_by"] != want[0] || e["redeemed_at"] != want[1] || e["code"] != http.StatusOK || e["session_ended"] != true {
+					t.Errorf("sign-in %d across the regions is %v, want issued by %s, redeemed at %s, answered 200 and its session ended", i, e, want[0], want[1])
+				}
+			}
 		})
+	}
+}
+
+// kcOnW1 moves the Keycloak Pod of every region onto w-1, the worker the
+// check chooses by name, with its replacement Ready 60 seconds after the
+// cordon, and then makes the change more.
+func kcOnW1(more func(*rebootWorld)) func(*rebootWorld) {
+	return func(w *rebootWorld) {
+		w.workloads["cp-1"], w.workloads["w-1"] = w.workloads["cp-1"][:1], append(slices.Clone(w.workloads["w-1"]), rebootTestKC)
+		w.late[rebootTestKC] = 60
+		if more != nil {
+			more(w)
+		}
 	}
 }

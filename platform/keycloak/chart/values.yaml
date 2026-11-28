@@ -530,6 +530,30 @@ keycloak:
               matchExpressions:
                 - key: io.cilium.k8s.policy.cluster
                   operator: Exists
+  # ─── A sign-in survives the drain of a region's Keycloak node (SEC-061) ──
+  # Each region runs one Keycloak Pod (the subchart's default of one replica).
+  # Measured on the fresh install of 20 November 2026: a drain evicted
+  # keycloak-0 of region a, and for the minute it took to come back every
+  # call to Service keycloak/keycloak in that region found no endpoint: the
+  # owner's PIN sign-in answered `verify 502` (catalyst-api: EnsureUser ...
+  # keycloak.keycloak.svc.cluster.local ... connection refused), and so did
+  # every sign-in that the gateway of that region sent to auth.<fqdn>.
+  # The two regions' Keycloaks are one Infinispan cluster across the mesh
+  # (cache above), so the other region's Pod can answer any step of a
+  # sign-in. The Service is therefore a Cilium ClusterMesh global Service
+  # with local affinity: a region's gateway and its in-cluster callers use
+  # their own region's Keycloak while it has a ready endpoint and the other
+  # region's while it has none. The same pattern serves the console's own
+  # Services (products/catalyst/chart/templates/ui-service.yaml). Only the
+  # Service the HTTPRoute and the callers use is global; the headless Service
+  # is not. Without a mesh the annotations do nothing. Locked by
+  # tests/service-global-local-affinity.sh; check INF-G01 signs in during
+  # the drain of the node that runs keycloak-0.
+  service:
+    annotations:
+      service.cilium.io/global: "true"
+      service.cilium.io/shared: "true"
+      service.cilium.io/affinity: "local"
   # ─── Bitnami image-registry consolidation (issue #191) ──────────────────
   # Bitnami consolidated their tag scheme around 2025-09 (see
   # https://github.com/bitnami/charts/issues/30852). The original
