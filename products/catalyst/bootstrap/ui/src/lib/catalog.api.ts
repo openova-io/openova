@@ -1049,12 +1049,56 @@ export interface InstancePlacement {
 
 /** Mirrors `instances.BackingSelection` (#3370). */
 export interface BackingSelection {
-  /** Backing Blueprint id (bp- prefix optional). */
-  blueprint: string
+  /** Backing Blueprint id (bp- prefix optional): a depends[] entry on a shareable Blueprint. Unset when capability is set. */
+  blueprint?: string
+  /** SVC-280 — a requires[] entry of the consumer Blueprint: its capability and alias. */
+  capability?: string
+  alias?: string
+  /** SVC-280 — the chosen implementation Blueprint of that capability. */
+  implementation?: string
   /** "create" (default) — own card auto-created; "reuse" — Context on an existing instance. */
   mode?: 'create' | 'reuse'
   /** Existing instance name (required when mode=reuse). */
   instance?: string
+}
+
+/** SVC-280 — one entry of a consumer Blueprint's spec.requires. */
+export interface CapabilityRequirement {
+  capability: string
+  contract: string
+  alias: string
+  optional?: boolean
+}
+
+/** SVC-280 — one Blueprint that provides a capability (GET /api/v1/catalog/capabilities/{name}). */
+export interface CapabilityImplementation {
+  blueprint: string
+  title: string
+  implementation: string
+  lifecycle: string
+  offered: boolean
+  available: boolean
+  unavailableReason: string
+}
+
+/** SVC-280 — one capability: its current contract, the effective default and its implementations. */
+export interface CapabilityItem {
+  name: string
+  title: string
+  contract: string
+  default: string
+  organizationChoice: 'allowed' | 'fixed'
+  implementations: CapabilityImplementation[]
+}
+
+/** SVC-280 — GET /api/v1/catalog/capabilities/{name}. Throws on any non-2xx answer. */
+export async function getCapability(name: string): Promise<CapabilityItem> {
+  const url = `${catalogBase()}/capabilities/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    throw new Error(`capability ${name}: HTTP ${res.status}`)
+  }
+  return res.json()
 }
 
 /** Mirrors `application` 201-response body at endpoint_handler.go:729. */
