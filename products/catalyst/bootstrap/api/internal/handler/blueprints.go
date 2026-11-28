@@ -438,13 +438,12 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// #3668 — ALSO mirror the curated CR into the Flux-reconciled aggregator
+	// #3668 — ALSO commit the curated CR into the Flux-reconciled aggregator
 	// tree so curate (not just the console edit) reaches the LIVE in-cluster
-	// Blueprint CR and survives `helm upgrade`. The bytes go through the
-	// canonical commit serializer (server-side metadata stripped, canonical
-	// bp- name stamped, spec.version kept — #5113). Best-effort: a
-	// failure is logged + swallowed — the per-Blueprint write above already
-	// succeeded for the read overlay.
+	// Blueprint CR: the canonical serializer's whole CR (#5113), or only its
+	// partial object over a Blueprint the chart seed also writes (CTL-242).
+	// Best-effort: a failure is logged + swallowed — the per-Blueprint write
+	// above already succeeded for the read overlay.
 	if _, aggErr := h.writeCatalogSovereignAggregator(
 		ctx, body.BlueprintName, stripBlueprintCRBytesForGit(srcBytes, body.BlueprintName),
 	); aggErr != nil {

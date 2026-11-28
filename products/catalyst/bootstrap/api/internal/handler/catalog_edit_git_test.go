@@ -19,12 +19,18 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	yamlv3 "gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/blueprintedit"
@@ -889,6 +895,103 @@ func TestCommitCatalogAppEditToGit_AggregatorFailureSurfaced(t *testing.T) {
 	}
 	if !strings.Contains(reason, "Flux reconcile leg failed") {
 		t.Errorf("the reason must name the failed reconcile leg; got %q", reason)
+	}
+}
+
+// clusterBlueprintCatalog returns the chained catalog client whose cluster holds
+// bp-wordpress at version 1.3.0 (the chart seed upgraded it) with the given
+// managers owning its fields, or no Blueprint when owners is nil.
+func clusterBlueprintCatalog(t *testing.T, owners map[string]string) CatalogClient {
+	t.Helper()
+	if owners == nil {
+		return NewChainedCatalogClient(&stubCatalogClient{getErr: ErrBlueprintNotFound}, emptyBlueprintDynClient())
+	}
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "catalyst.openova.io/v1", "kind": "Blueprint",
+		"metadata": map[string]interface{}{"name": "bp-wordpress"},
+		"spec": map[string]interface{}{"version": "1.3.0", "class": "application", "lifecycle": "supported", "visibility": "listed",
+			"card": map[string]interface{}{"title": "WordPress", "summary": "PHP CMS"}, "manifests": map[string]interface{}{"chart": "bp-wordpress"}},
+	}}
+	var entries []metav1.ManagedFieldsEntry
+	for manager, fields := range owners {
+		op := metav1.ManagedFieldsOperationUpdate
+		if manager == "kustomize-controller" {
+			op = metav1.ManagedFieldsOperationApply
+		}
+		entries = append(entries, metav1.ManagedFieldsEntry{Manager: manager, Operation: op, FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}})
+	}
+	obj.SetManagedFields(entries)
+	listKinds := map[schema.GroupVersionResource]string{blueprintCRGVR(): "BlueprintList", blueprintCRGVRAlpha1(): "BlueprintList"}
+	return NewChainedCatalogClient(&stubCatalogClient{getErr: ErrBlueprintNotFound},
+		dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds, obj))
+}
+
+// TestCatalogFluxLeg_PartialOverASeedWrittenBlueprint (CTL-242) — an earlier
+// edit left the whole Blueprint at 1.2.3 in Git while the chart seed upgraded
+// the in-cluster object to 1.3.0. Where every other spec field of that object
+// keeps another writer, the Flux file of the next edit (and of a curate) holds
+// only the name, the card fields and visibility, so the apply cannot write
+// 1.2.3 back; where Flux alone owns a field, or there is no object, it stays
+// the whole CR. The per-Blueprint read source stays whole in every case.
+func TestCatalogFluxLeg_PartialOverASeedWrittenBlueprint(t *testing.T) {
+	helm := `{"f:metadata":{"f:labels":{}},"f:spec":{"f:version":{},"f:class":{},"f:lifecycle":{},"f:visibility":{},"f:card":{"f:title":{},"f:summary":{}},"f:manifests":{"f:chart":{}}}}`
+	helmNoVersion := `{"f:spec":{"f:class":{},"f:lifecycle":{},"f:card":{"f:title":{}},"f:manifests":{"f:chart":{}}}}`
+	fluxCard := `{"f:spec":{"f:visibility":{},"f:card":{"f:title":{},"f:summary":{}}}}`
+	fluxWhole := `{"f:spec":{"f:version":{},"f:class":{},"f:lifecycle":{},"f:visibility":{},"f:card":{"f:title":{},"f:summary":{}},"f:manifests":{"f:chart":{}}}}`
+	partial := map[string]interface{}{"apiVersion": "catalyst.openova.io/v1", "kind": "Blueprint",
+		"metadata": map[string]interface{}{"name": "bp-wordpress"},
+		"spec": map[string]interface{}{"visibility": "listed",
+			"card": map[string]interface{}{"title": "WordPress (Edited)", "summary": "PHP CMS"}}}
+	stale := "apiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-wordpress\nspec:\n  version: 1.2.3\n" +
+		"  class: application\n  lifecycle: supported\n  visibility: listed\n  card:\n    title: WordPress\n    summary: PHP CMS\n" +
+		"  manifests:\n    chart: bp-wordpress\n"
+	aggKey := giteaKey(catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch,
+		catalogSovereignAggPath("t99.omani.works", "bp-wordpress"))
+	perBPKey := giteaKey(catalogSovereignOrg, "bp-wordpress", catalogEditGitBranch, catalogEditBlueprintPath)
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	for _, c := range []struct {
+		name        string
+		owners      map[string]string
+		wantPartial bool
+	}{
+		{"the seed owns every field, Flux the card fields", map[string]string{"helm-controller": helm, "kustomize-controller": fluxCard}, true},
+		{"the seed shares every field Flux applied whole", map[string]string{"helm-controller": helm, "kustomize-controller": fluxWhole}, true},
+		{"Flux alone owns spec.version", map[string]string{"helm-controller": helmNoVersion, "kustomize-controller": fluxWhole}, false},
+		{"no in-cluster Blueprint", nil, false},
+	} {
+		for _, leg := range []string{"card edit", "curate"} {
+			h := NewWithPDM(silentLogger(), &fakePDM{})
+			fg := newFakeGitea()
+			fg.files[perBPKey] = []byte(stale)
+			h.SetGiteaClient(fg)
+			h.SetCatalogClient(clusterBlueprintCatalog(t, c.owners))
+			var err error
+			if leg == "card edit" {
+				_, err = h.writeCatalogEditToGit(context.Background(), catalogEdit{Slug: "wordpress", Name: "WordPress (Edited)"})
+			} else {
+				_, err = h.writeCatalogSovereignAggregator(context.Background(), "bp-wordpress",
+					[]byte(strings.Replace(stale, "title: WordPress\n", "title: WordPress (Edited)\n", 1)))
+			}
+			if err != nil {
+				t.Fatalf("%s, %s: %v", c.name, leg, err)
+			}
+			var flux, perBP map[string]interface{}
+			if err := yamlv3.Unmarshal(fg.files[aggKey], &flux); err != nil || flux == nil {
+				t.Fatalf("%s, %s: no Flux file at %s (%v); keys=%v", c.name, leg, aggKey, err, fileKeys(fg))
+			}
+			if err := yamlv3.Unmarshal(fg.files[perBPKey], &perBP); err != nil {
+				t.Fatalf("%s, %s: the per-Blueprint file does not parse: %v", c.name, leg, err)
+			}
+			if perBPSpec, _ := perBP["spec"].(map[string]interface{}); perBPSpec["version"] != "1.2.3" || perBPSpec["manifests"] == nil {
+				t.Errorf("%s, %s: the per-Blueprint read source must stay whole at 1.2.3; got %v (%v)", c.name, leg, perBP, err)
+			}
+			spec, _ := flux["spec"].(map[string]interface{})
+			if c.wantPartial && !reflect.DeepEqual(flux, partial) {
+				t.Errorf("%s, %s: the Flux file must be the partial object\n got %v\nwant %v", c.name, leg, flux, partial)
+			} else if !c.wantPartial && (spec["version"] != "1.2.3" || spec["manifests"] == nil) {
+				t.Errorf("%s, %s: the Flux file must stay the whole CR (version 1.2.3, manifests); got %v", c.name, leg, flux)
+			}
+		}
 	}
 }
 

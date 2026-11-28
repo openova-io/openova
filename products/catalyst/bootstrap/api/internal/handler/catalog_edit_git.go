@@ -59,25 +59,22 @@ const catalogEditGitBranch = blueprintBranch // "main"
 
 // ── #3668 catalog-sovereign Flux reconcile aggregator ──────────────────
 //
-// The merged #3702 edit (and the curate endpoint) writes each Blueprint CR
-// to a PER-BLUEPRINT repo `catalog-sovereign/<bp>/blueprint.yaml`. That is
-// the read source the UI overlay round-trips. But a Flux GitRepository
-// tracks ONE repo + branch — it cannot reconcile a whole Gitea Org of
-// per-Blueprint repos. So #3668 ALSO mirrors the SAME ownership-stripped
-// `merged` bytes into a single AGGREGATOR tree on the already-bootstrapped
-// local Gitea repo `openova/openova`, on a dedicated `catalog-sovereign`
-// branch:
+// The edit and curate handlers write each whole Blueprint CR to a
+// PER-BLUEPRINT repo `catalog-sovereign/<bp>/blueprint.yaml`, the source the
+// UI overlay and the catalog read. A Flux GitRepository tracks ONE repo +
+// branch, so #3668 ALSO commits each Blueprint into a single AGGREGATOR tree
+// on the already-bootstrapped local Gitea repo `openova/openova`, on a
+// dedicated `catalog-sovereign` branch:
 //
 //	openova/openova @ catalog-sovereign
-//	└── clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml   (full CR)
+//	└── clusters/<sovereignFQDN>/catalog-sovereign/<bp>.yaml
 //
 // The chart's openova-catalog-sovereign GitRepository + catalog-sovereign
-// Kustomization (templates/catalog-sovereign-flux/) reconcile that one tree
-// into LIVE Blueprint CRs — so a console edit reaches the in-cluster CR and
-// SURVIVES `helm upgrade` (the CR becomes Flux/Git-owned, not Helm-owned;
-// see templates/catalog-seed/blueprints.yaml's helm.sh/resource-policy:keep
-// + the Kustomization's force:true SSA adoption). This is the load-bearing
-// half PR #3702 explicitly deferred.
+// Kustomization (templates/catalog-sovereign-flux/) apply that tree
+// server-side onto the LIVE Blueprint CRs. Over a Blueprint whose other spec
+// fields keep another writer (the chart's catalog seed) the file is only the
+// partial object of blueprintedit.Partial, so an upstream upgrade lands on
+// every other field (CTL-242); otherwise it is the whole CR (blueprintedit.FluxPayload).
 //
 // The aggregator repo + branch reuse the SAME local Gitea repo the Organization
 // tenant gitops chain bootstraps (`openova/openova`, seeded pre-cutover by
@@ -108,13 +105,9 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 	return fmt.Sprintf("clusters/%s/catalog-sovereign/%s.yaml", sovereignFQDN, bpName)
 }
 
-// writeCatalogSovereignAggregator mirrors one Blueprint's full, canonical
-// CR bytes into the Flux-reconciled aggregator tree (#3668). It is
-// best-effort + additive, exactly like the per-Blueprint write: a failure is
-// returned for the caller to log or surface (the UI round-trip already
-// succeeded via the per-Blueprint repo; the aggregator is what makes the CR
-// reconcile — the card-edit path now SURFACES a failure of this leg per
-// #5113 Facet D, mirroring the #5018 honesty fix on the full-CR leg).
+// writeCatalogSovereignAggregator commits one Blueprint into the Flux-reconciled
+// aggregator tree (#3668), for curate: a failure is returned for the caller to
+// log (the per-Blueprint write already succeeded for the read overlay).
 //
 // No-op (returns committed=false, err=nil) when SOVEREIGN_FQDN is empty —
 // the Catalyst-Zero mothership, which has no local Gitea catalog-sovereign
@@ -130,21 +123,13 @@ func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName st
 	if len(merged) == 0 || strings.TrimSpace(envOr("SOVEREIGN_FQDN", "")) == "" {
 		return false, nil
 	}
-	// #5113 Facets A+B — the payload goes through the SAME canonical
-	// serializer as the full-CR IaC leg (stampBlueprintCRForFluxAggregator):
+	// #5113 Facets A+B — the SAME canonical serializer as the full-CR IaC leg:
 	// metadata.name stamped to the canonical bp-<slug> live-CR identity and
-	// spec.version/spec.source KEPT.
-	//
-	// This supersedes the former #4415 delivery-field strip: spec.version is
-	// CRD-required (chart/crds/blueprint.yaml `required: [version, card]`),
-	// so a version-less aggregator file is REJECTED by kustomize-controller's
-	// server-side dry-run whenever the named CR does not already exist (bare-
-	// name mismatch, post-prune, curate of a non-seed blueprint) — wedging the
-	// ENTIRE catalog-sovereign Kustomization (hw255 walk, gitea commits
-	// d030078f/552a556c: `Blueprint "alloy" is invalid: spec.version: Required
-	// value`). The #4415 zero-touch seed-bump property is traded away: a
-	// catalog-seed version bump on a card-edited blueprint is now pinned until
-	// the next card edit refreshes the file (noted on #5113).
+	// spec.version/spec.source KEPT, since a whole file that lacks the
+	// CRD-required spec.version is REJECTED by kustomize-controller's dry-run
+	// whenever the named CR does not exist yet, wedging the ENTIRE
+	// catalog-sovereign Kustomization (hw255 walk: `Blueprint "alloy" is
+	// invalid: spec.version: Required value`).
 	stamped := stampBlueprintCRForFluxAggregator(merged, bpName)
 	if len(stamped) == 0 {
 		// An unparsable document must never land in the Flux tree — that is
@@ -154,14 +139,12 @@ func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName st
 	return h.writeCatalogSovereignAggregatorBytes(ctx, bpName, stamped)
 }
 
-// writeCatalogSovereignAggregatorBytes commits the SUPPLIED final bytes to the
-// Flux-reconciled aggregator tree — the shared trunk of the card-edit path
-// (which pre-strips the #4415 chart-delivery fields) and the full-CR IaC edit
-// path (#4896/#5018 — which commits the admin's whole document verbatim, name
-// stamped to the live CR identity). Same contract as the wrapper above:
-// (false, nil) when SOVEREIGN_FQDN is empty (Catalyst-Zero mothership — no
-// local catalog Flux reconcile exists); errCatalogGitUnavailable without a
-// commit library.
+// writeCatalogSovereignAggregatorBytes commits a canonical Blueprint CR to the
+// Flux-reconciled aggregator tree, in the form blueprintedit.FluxPayload picks: the
+// shared trunk of the card edit, the full-CR IaC edit (#4896/#5018) and
+// curate. Same contract as the wrapper above: (false, nil) when
+// SOVEREIGN_FQDN is empty (Catalyst-Zero mothership — no local catalog Flux
+// reconcile exists); errCatalogGitUnavailable without a commit library.
 func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpName string, fluxBytes []byte) (bool, error) {
 	sovereignFQDN := strings.TrimSpace(envOr("SOVEREIGN_FQDN", ""))
 	if sovereignFQDN == "" {
@@ -173,6 +156,21 @@ func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpNa
 	}
 	if strings.TrimSpace(bpName) == "" || len(fluxBytes) == 0 {
 		return false, nil
+	}
+	// CTL-242: the in-cluster Blueprint decides (live stays nil when the catalog
+	// client has no cluster reader or there is no such object); a failed read is an error.
+	var live map[string]interface{}
+	if c, ok := h.catalogClient.(*chainedCatalogClient); ok {
+		bp, err := c.getFromCluster(ctx, bpName, "")
+		if err != nil && !errors.Is(err, ErrBlueprintNotFound) {
+			return false, fmt.Errorf("read the in-cluster Blueprint %s: %w", bpName, err)
+		} else if err == nil {
+			live = bp.Raw
+		}
+	}
+	fluxBytes, err := blueprintedit.FluxPayload(fluxBytes, live)
+	if err != nil {
+		return false, err
 	}
 	path := catalogSovereignAggPath(sovereignFQDN, bpName)
 	msg := fmt.Sprintf("catalog: reconcile %s into Blueprint CR via Flux (#3668)", bpName)
@@ -261,9 +259,9 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 		return false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
 	}
 
-	// #3668 — ALSO mirror the SAME canonical CR bytes into the Flux-
-	// reconciled aggregator tree so the edit reaches the LIVE in-cluster
-	// Blueprint CR (the per-Blueprint write above is only the UI read
+	// #3668 — ALSO commit the canonical CR (its partial object where the trunk
+	// can) into the Flux-reconciled aggregator tree so the edit reaches the LIVE
+	// in-cluster Blueprint CR (the per-Blueprint write above is only the UI read
 	// source). #5113 Facet D — a failure of this leg is SURFACED, not
 	// swallowed: the aggregator is what actually applies, so reporting
 	// committed=true while it failed is the silent store/IaC split-brain the
