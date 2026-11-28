@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T13:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T14:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8734](https://github.com/openova-io/openova/issues/8734) | SVC-230 The wizard shows the generated kit list | Other |
 | [#8736](https://github.com/openova-io/openova/issues/8736) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8737](https://github.com/openova-io/openova/issues/8737) | NET-253 Lab test: the reference cloud's native firewall in front of a load balan | Other |
 | [#8746](https://github.com/openova-io/openova/issues/8746) | SEC-205 Stores in Organization namespaces | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9111](https://github.com/openova-io/openova/issues/9111) | BSS-071 Deleting an Organization from the storefront removes it and its namespac | Other |
 | [#9114](https://github.com/openova-io/openova/issues/9114) | SEC-228 A library value given from outside: source external, no generator, no Pu | Other |
 | [#9118](https://github.com/openova-io/openova/issues/9118) | SEC-237 Slot 08 names the namespaces of shared mounted values in peerTrust.birth | Other |
+| [#9127](https://github.com/openova-io/openova/issues/9127) | SVC-280 The dialog offers the implementation; capabilities routes | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T13:45 | [#9125](https://github.com/openova-io/openova/pull/9125) | #7087 | docs(ledger): plan update |
+| 2026-11-28T13:54 | [#9124](https://github.com/openova-io/openova/pull/9124) | A namespace's secret push is refused: the store's policy lac |  |
 | 2026-11-28T13:33 | [#9123](https://github.com/openova-io/openova/pull/9123) | #7087 | docs(ledger): plan update |
 | 2026-11-28T13:38 | [#9122](https://github.com/openova-io/openova/pull/9122) | #9104 | Revert: the metrics chart's generated object-store password  |
 | 2026-11-28T13:17 | [#9121](https://github.com/openova-io/openova/pull/9121) | #9073 | A change of a library chart republishes every chart that bui |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:38 | [#9086](https://github.com/openova-io/openova/pull/9086) | #9085 | test(gate): CMP-G03 is required in the conformance pack (CMP |
 | 2026-11-27T22:11 | [#9084](https://github.com/openova-io/openova/pull/9084) | #7087 | docs(ledger): plan update |
-| 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
-| 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 
 ---
 
