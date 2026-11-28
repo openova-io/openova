@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T18:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
+| Last refreshed | `2026-11-28T18:45:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8762](https://github.com/openova-io/openova/issues/8762) | CMP-071 Policy files in every region's folder: scopes, the write functions, the  | Other |
 | [#8765](https://github.com/openova-io/openova/issues/8765) | CMP-041 ComplianceModel: definition, data files, chart template, exemptions, gua | Other |
 | [#8770](https://github.com/openova-io/openova/issues/8770) | SOV-721 The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a pe | Other |
 | [#8776](https://github.com/openova-io/openova/issues/8776) | CMP-075 Policy files in every region's folder: the alignment function at start-u | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9138](https://github.com/openova-io/openova/issues/9138) | CTL-242 Catalogue edits are stored as the edited card fields only | Other |
 | [#9139](https://github.com/openova-io/openova/issues/9139) | SVC-261 A request with two reuse bindings of one capability on one instance is r | Other |
 | [#9145](https://github.com/openova-io/openova/issues/9145) | SEC-061 A sign-in succeeds while the node that runs a region's Keycloak is drain | Other |
+| [#9164](https://github.com/openova-io/openova/issues/9164) | SEC-246 Roll-out: products/chargeback master key | Other |
 
 ---
 
