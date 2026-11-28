@@ -82,10 +82,12 @@ type Kind struct {
 }
 
 // The informer kind names of the engine's two cluster-scoped policy kinds of
-// group policies.kyverno.io (CMP-061).
+// group policies.kyverno.io (CMP-061), and of the legacy namespaced kind
+// Policy of group kyverno.io (CMP-024).
 const (
 	KindValidatingPolicy = "validatingpolicy"
 	KindMutatingPolicy   = "mutatingpolicy"
+	KindPolicy           = "policy"
 )
 
 // KindComplianceModel is the registry name of the ComplianceModel kind
@@ -207,6 +209,16 @@ var DefaultKinds = []Kind{
 	// SubscribeKinds defaults include `clusterpolicy` so the Factory
 	// fanout streams these too. ClusterPolicy is cluster-scoped.
 	{Name: "clusterpolicy", GVR: schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}, Namespaced: false},
+	// CMP-024 — the legacy namespaced kind Policy of the same group: the
+	// per-Organization policy of the kit (org-platform-scope in each
+	// Organization namespace). The engine's reports name such a policy
+	// <namespace>/<name>; with no informer of the kind the policies route
+	// found no object for that name and showed the policy permissive while
+	// its object enforced (CMP-G02). Optional: a cluster without the engine
+	// does not serve the kind, and an informer for an absent GVR hot-loops
+	// (#5352). The read verbs of kyverno.io policies are on the
+	// catalyst-api-cutover-driver ClusterRole already.
+	{Name: KindPolicy, GVR: schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}, Namespaced: true, Optional: true},
 	// CMP-061 — the policy kinds of the 1.19 engine line that replace the
 	// legacy ClusterPolicy. Group policies.kyverno.io, version v1: spike
 	// CMP-S1 measured v1 served (v1beta1 storage, v1alpha1 deprecated) on

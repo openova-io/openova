@@ -17054,7 +17054,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [ACC-020, SEC-200, SEC-212]
-  after: [FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-103, SEC-153, SEC-154, SEC-181, SEC-232, SEC-253, SEC-344, SVC-040, SVC-041, CTL-172, BSS-040, ACC-010, ACC-050, ACC-102, ACC-103, ACC-106, PRD-201]
+  after: []
   touches:
   - platform/guacamole/chart/**
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
@@ -17080,7 +17080,7 @@ packages:
   budget: null
   repeatable: false
   ticket_rev: 0
-  dropped: false
+  dropped: true
   delivers: Chart secrets by Procedure R; skipped if the access-plane area removed the slot.
 - id: SEC-246
   title: 'Roll-out: products/chargeback master key'
