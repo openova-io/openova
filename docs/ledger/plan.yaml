@@ -8662,7 +8662,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [CLD-162]
-  after: [CLD-163, FND-011, SOV-151, SVC-040, SVC-220, CTL-041]
+  after: [CLD-163, FND-011, SOV-151, SEC-246, SVC-040, SVC-220, CTL-041]
   touches:
   - products/chargeback/internal/config/config.go
   - products/chargeback/chart/values.yaml
@@ -17146,36 +17146,36 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-226, SEC-237]
-  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-151, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-250, SEC-253, SEC-344, SVC-040, SVC-130, SVC-139, SVC-220, CTL-041, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
+  after: [SEC-227, FND-011]
   touches:
-  - products/chargeback/chart/templates/app-key-job.yaml
-  - products/chargeback/chart/**
-  - clusters/_template/bootstrap-kit/08-openbao.yaml
-  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
-  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
-  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
-  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
-  - scripts/secret-guard-baselines/check-no-secret-writers.txt
-  - scripts/secret-guard-baselines/check-no-shell-trace.txt
-  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
-  - scripts/secret-guard-baselines/check-reflector-scope.txt
-  - scripts/secret-guard-baselines/check-secret-object-register.txt
-  - scripts/secret-guard-baselines/secret-object-register.yaml
-  - scripts/secret-guard-baselines/threat-model.md
+  - products/chargeback/README.md
+  - products/chargeback/chart/Chart.yaml
+  - products/chargeback/internal/config/config.go
+  - products/chargeback/internal/config/config_test.go
+  - products/chargeback/internal/secretfile/secretfile.go
+  - products/chargeback/internal/secretfile/secretfile_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'app-encryption-key' products/chargeback/internal/config/config.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "f=\"$(mktemp)\" && cd products/chargeback && go vet ./internal/config/ && NO_COLOR=1 go test -count=1 -v -run '^TestMasterKey' ./internal/config/ > \"$f\" && test \"$(grep -c -E '^--- PASS: (TestMasterKeyIsTheMountedFile|TestMasterKeyIsTheVariableWhenNothingIsMounted|TestMasterKeyEmptyFileFailsEvenWithTheVariable|TestMasterKeyFileValuesMakeAKeyring) \\(' \"$f\")\" = 4 && test \"$(grep -c -E '^--- FAIL: ' \"$f\")\" = 0"
+  - id: A2
+    run: "f=\"$(mktemp)\" && cd products/chargeback && go vet ./internal/secretfile/ && NO_COLOR=1 go test -count=1 -v ./internal/secretfile/ > \"$f\" && test \"$(grep -c -E '^--- PASS: (TestMissingFileIsNotMounted|TestEmptyFileIsRefused|TestTrailingNewlineIsDropped|TestRotatedFileIsReadAgain|TestNameMustBeOneFileName) \\(' \"$f\")\" = 5 && test \"$(grep -c -E '^--- FAIL: ' \"$f\")\" = 0"
+  - id: A3
+    run: "f=products/chargeback/README.md && test \"$(grep -c -F -e 'Read only when the file `/var/run/secrets/openova/app-encryption-key` does not exist; when it exists the key is the file, and an empty file stops the start (SEC-246)' \"$f\")\" = 1 && test \"$(grep -c -x -F 'const EncryptionKeyFile = \"app-encryption-key\"' products/chargeback/internal/config/config.go)\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Key-generating Job deleted; master key mounted in the billing pod. The fresh-install value has length 43.
+  delivers: The chargeback engine takes its master key from the file /var/run/secrets/openova/app-encryption-key when that file exists and only then from the variable APP_ENCRYPTION_KEY; a file that exists but is empty or cannot be read stops the start and the variable never stands in for it; the tests TestMasterKey* of internal/config and the five tests of internal/secretfile hold each case, a seeded value of 44 characters and a fresh value of 43 make a keyring and one of 32 is refused, and appVersion 0.1.68 publishes the image; no chart template changes, so a Sovereign runs as before until the chart mounts the file.
 - id: SEC-247
   title: 'Roll-out: seven driver charts with one credential Secret each'
   area: SEC
