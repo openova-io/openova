@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,11 +10,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/products/chargeback/internal/secretfile"
 )
+
+// EncryptionKeyFile is the file of the master key under the mount directory
+// of package secretfile (/var/run/secrets/openova), the objectName the
+// chart's SecretProviderClass gives it (SEC-246).
+const EncryptionKeyFile = "app-encryption-key"
 
 // Config is the fully resolved runtime configuration.
 type Config struct {
-	DatabaseURL      string
+	DatabaseURL string
+	// EncryptionKeyB64 is the master key (crypto.NewKeyring). It is the
+	// mounted file EncryptionKeyFile when that file exists, and only then
+	// APP_ENCRYPTION_KEY, for a local run where nothing is mounted. A file
+	// that exists but is empty or cannot be read fails FromEnv: the variable
+	// never stands in for a mount that went wrong.
 	EncryptionKeyB64 string
 	OperatorEmails   []string
 	PublicURL        string
@@ -205,7 +218,6 @@ type Config struct {
 func FromEnv() (Config, error) {
 	c := Config{
 		DatabaseURL:               get("DATABASE_URL", "postgres://chargeback:chargeback@localhost:5432/chargeback?sslmode=disable"),
-		EncryptionKeyB64:          os.Getenv("APP_ENCRYPTION_KEY"),
 		OperatorEmails:            splitList(os.Getenv("OPERATOR_EMAILS")),
 		PublicURL:                 strings.TrimRight(get("PUBLIC_URL", "http://localhost:8080"), "/"),
 		ListenAddr:                get("LISTEN_ADDR", ":8080"),
@@ -250,6 +262,15 @@ func FromEnv() (Config, error) {
 		TrustedForwardGroupsHeader:    http.CanonicalHeaderKey(get("TRUSTED_FORWARD_GROUPS_HEADER", "X-Forwarded-Groups")),
 		PublicCalculatorOrigins:       splitList(os.Getenv("PUBLIC_CALCULATOR_ORIGINS")),
 		PublicCalculatorRatePerMinute: intEnv("PUBLIC_CALCULATOR_RATE_PER_MINUTE", 60),
+	}
+	key, err := secretfile.Read(EncryptionKeyFile)
+	switch {
+	case err == nil:
+		c.EncryptionKeyB64 = key
+	case errors.Is(err, secretfile.ErrNotMounted):
+		c.EncryptionKeyB64 = os.Getenv("APP_ENCRYPTION_KEY")
+	default:
+		return c, fmt.Errorf("the master key: %w", err)
 	}
 	if c.PlatformAPITokenFile != "" && strings.TrimSpace(os.Getenv("PLATFORM_API_BEARER_FILE")) == "" {
 		slog.Warn("PLATFORM_API_TOKEN_FILE is a deprecated alias read for one release only; set PLATFORM_API_BEARER_FILE to the same path")

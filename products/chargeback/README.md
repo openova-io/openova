@@ -540,7 +540,7 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | Variable | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | `postgres://chargeback:chargeback@localhost:5432/chargeback?sslmode=disable` | Postgres DSN |
-| `APP_ENCRYPTION_KEY` | required | base64 of 32 random bytes; wraps every stored secret (`make key`) |
+| `APP_ENCRYPTION_KEY` | required | base64 of 32 random bytes; wraps every stored secret (`make key`). Read only when the file `/var/run/secrets/openova/app-encryption-key` does not exist; when it exists the key is the file, and an empty file stops the start (SEC-246) |
 | `OPERATOR_EMAILS` | empty | comma-separated operator sign-ins |
 | `PUBLIC_URL` | `http://localhost:8080` | used in invite links and to mark the cookie Secure |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | unset | PIN + invite mail; unset ⇒ logged at info level (development mode) |

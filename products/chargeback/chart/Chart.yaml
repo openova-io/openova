@@ -103,7 +103,10 @@ version: 0.1.71
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
-appVersion: 0.1.67
+# 0.1.68 (SEC-246): the engine reads its master key from the mounted file
+# /var/run/secrets/openova/app-encryption-key when it exists, and only then
+# from APP_ENCRYPTION_KEY (internal/config). No chart template changed.
+appVersion: 0.1.68
 # The document renderer (EPIC #6867) ships as an OPTIONAL sub-chart, gated on
 # `docrender.enabled` (default false), so a Sovereign that does not offer
 # invoice downloads runs no second workload. The repository is a `file://`
