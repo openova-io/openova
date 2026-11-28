@@ -160,11 +160,23 @@ entries:
     class: thrashing
     change_policy: open
     paths:
-      - products/catalyst/bootstrap/api/internal/handler/**
+      - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
+      - products/catalyst/bootstrap/api/internal/handler/compliance.go
+      - products/catalyst/bootstrap/api/internal/handler/compliance_test.go
+      - products/catalyst/bootstrap/api/internal/handler/continuum_dr_extras.go
+      - products/catalyst/bootstrap/api/internal/handler/cutover.go
+      - products/catalyst/bootstrap/api/internal/handler/deployments.go
+      - products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go
+      - products/catalyst/bootstrap/api/internal/handler/handler.go
+      - products/catalyst/bootstrap/api/internal/handler/jobs.go
+      - products/catalyst/bootstrap/api/internal/handler/org_scope.go
+      - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+      - products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go
+      - products/catalyst/bootstrap/api/internal/handler/wipe.go
     evidence:
-      date: 2026-11-13
+      date: 2026-11-28
       kind: churn
-      ref: "commit 8599f27c1, 90 days: 45 human commits, 24 fixes"
+      ref: "90 days: 285 of 535 files changed, 13 changed five times or more; narrowed to those (ruling 229)"
   - id: database-pair-charts
     title: Database pair and Postgres charts
     class: thrashing
