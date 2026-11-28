@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-capability-probe
 spec:
-  version: 0.1.0
+  version: 0.1.1
   class: application
   lifecycle: experimental
   visibility: unlisted
