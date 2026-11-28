@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,17 +17,53 @@ func runWith(t *testing.T, args ...string) (int, string) {
 	return code, out.String() + errw.String()
 }
 
-func repoFile(t *testing.T, rel string) string {
+func repoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Clean(filepath.Join(strings.TrimSpace(string(root)), rel)))
+	return strings.TrimSpace(string(root))
+}
+
+func repoFile(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Clean(filepath.Join(repoRoot(t), rel)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// treeConsumers reads this repository's charts as the tree check does (copyCharts, changeChart,
+// refusedBeyond) and returns its library charts in name order, each with the Blueprint folders
+// that build it in, in the order the check prints them. No chart name of the tree is written in
+// these tests: they hold for whatever charts build a library in today. It fails when no library
+// is built in by any chart, so a test of the tree cannot pass on nothing.
+func treeConsumers(t *testing.T) ([]string, map[string][]string) {
+	t.Helper()
+	root := repoRoot(t)
+	cut := filepath.Join(root, cutRel)
+	cp, err := copyCharts(options{root: root, repo: map[string]string{}}, cut, filepath.Join(t.TempDir(), "consumers"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	of := map[string][]string{}
+	built := 0
+	for _, lib := range cp.libraries {
+		head, err := changeChart(cp.tree, cp.base, lib)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if of[lib], err = refusedBeyond(cut, cp.tree, head, cp.already); err != nil {
+			t.Fatal(err)
+		}
+		built += len(of[lib])
+	}
+	if built == 0 {
+		t.Fatalf("no chart of the tree builds one of the libraries [%s] in: the check of the tree judges nothing", strings.Join(cp.libraries, " "))
+	}
+	return cp.libraries, of
 }
 
 // workflowWith writes the repository's workflow with old replaced by new, once.
@@ -59,7 +96,8 @@ const (
 	setLineOnMain = `          changed=$(git diff --name-only "$BASE" "$AFTER" | grep -E '^(platform|products)/[^/]+/(chart/|blueprint\.yaml)' | awk -F/ '{print $1"/"$2}' | sort -u)`
 )
 
-// The repository's workflow holds every check, and the umbrella is released with the library it builds in.
+// The repository's workflow holds every check, and each library of the tree is released with
+// every chart that builds it in (the umbrella among them, SEC-216, while it builds one in).
 func TestTheWorkflowHolds(t *testing.T) {
 	t.Parallel()
 	code, out := runWith(t)
@@ -69,13 +107,12 @@ func TestTheWorkflowHolds(t *testing.T) {
 	wantAll(t, out,
 		"ok   set: a change of the library a, which b, c, products/f and through b d build in: the release set is [platform/a platform/b platform/c platform/d products/f]",
 		"ok   bump: the same push, for products/catalyst, which builds it in and whose build workflow does not run: products/catalyst 1.4.1, bumped=true defer=false",
-		"ok   tree: a push that changes platform/secrets-lib/chart releases it and the ",
 		"ok   tree: a push that changes ", ", which nobody builds in, releases it alone",
 	)
-	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "ok   tree: a push that changes platform/secrets-lib/chart ") && !strings.Contains(l, "products/catalyst") {
-			t.Errorf("the umbrella builds platform/secrets-lib in (SEC-216), and the release of the library names no products/catalyst: %s", l)
-		}
+	libraries, of := treeConsumers(t)
+	for _, lib := range libraries {
+		wantAll(t, out, fmt.Sprintf("ok   tree: a push that changes %s releases it and the %d chart(s) that build it in, the charts the cut's check refuses until they are released again: %s\n",
+			lib, len(of[lib]), strings.Join(of[lib], " ")))
 	}
 }
 
@@ -90,10 +127,17 @@ func TestTheSetAsOnMainFails(t *testing.T) {
 	wantAll(t, out,
 		"FAIL set: a change of the library a, which b, c, products/f and through b d build in: the release set is [platform/a], want [platform/a platform/b platform/c platform/d products/f]",
 		"FAIL set: a change of products/q/docs/chart, which products/q builds in: the release set is [], want [products/q]",
-		"FAIL tree: a push that changes platform/secrets-lib/chart/templates/zz-release-set-probe.tpl: the cut's check then refuses [",
-		"lacks [platform/mimir products/axon products/catalyst]",
 		"ok   set: a change of the chart e, which nobody builds in: the release set is [platform/e]",
 	)
+	libraries, of := treeConsumers(t)
+	for _, lib := range libraries {
+		if len(of[lib]) == 0 {
+			continue
+		}
+		built := strings.Join(of[lib], " ")
+		wantAll(t, out, fmt.Sprintf("FAIL tree: a push that changes %s/%s: the cut's check then refuses [%s], and the release set [%s] lacks [%s]\n",
+			lib, probeRel, built, strings.TrimSuffix(lib, "/chart"), built))
+	}
 }
 
 // A release set that holds every chart is a finding as well.

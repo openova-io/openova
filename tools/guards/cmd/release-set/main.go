@@ -418,10 +418,20 @@ var (
 	libraryRe = regexp.MustCompile(`(?m)^type:[ \t]*["']?library\b`)
 )
 
-func checkTree(o options, detect step, dir string, out io.Writer) ([]string, error) {
+// chartsCopy is the copy of this repository's charts the tree check runs on: a repository of
+// its own at the commit base, its library charts and its other charts in name order, and what
+// the cut's check refuses at base itself (a chart without a version line), which no push changes.
+type chartsCopy struct {
+	tree, base                 string
+	libraries, charts, already []string
+}
+
+// copyCharts copies every Chart.yaml of platform and products, and the files the steps run,
+// into a new repository at dir/tree.
+func copyCharts(o options, cut, dir string) (chartsCopy, error) {
 	listed, err := command(o.root, nil, "git", "ls-files", "--", "platform", "products")
 	if err != nil {
-		return nil, err
+		return chartsCopy{}, err
 	}
 	files := map[string]string{}
 	var charts, libraries []string
@@ -431,7 +441,7 @@ func checkTree(o options, detect step, dir string, out io.Writer) ([]string, err
 		}
 		b, err := os.ReadFile(filepath.Clean(filepath.Join(o.root, rel)))
 		if err != nil {
-			return nil, err
+			return chartsCopy{}, err
 		}
 		files[rel] = string(b)
 		if chartYAMLRe.MatchString(rel) {
@@ -444,28 +454,37 @@ func checkTree(o options, detect step, dir string, out io.Writer) ([]string, err
 		}
 	}
 	if len(libraries) == 0 {
-		return nil, errors.New("no chart of platform/*/chart or products/*/chart says type: library: there is nothing to judge")
+		return chartsCopy{}, errors.New("no chart of platform/*/chart or products/*/chart says type: library: there is nothing to judge")
 	}
 	for rel, text := range o.repo {
 		files[rel] = text
 	}
 	tree := filepath.Join(dir, "tree")
 	if err := newRepo(tree, files); err != nil {
-		return nil, err
+		return chartsCopy{}, err
 	}
 	base, err := command(tree, gitEnv(tree), "git", "rev-parse", "HEAD")
 	if err != nil {
-		return nil, err
+		return chartsCopy{}, err
 	}
 	base = strings.TrimSpace(base)
-	cut := filepath.Join(o.root, cutRel)
 	// What the cut refuses at the copy itself (a chart without a version line): not a change.
 	already, err := refused(cut, tree, base)
 	if err != nil {
-		return nil, err
+		return chartsCopy{}, err
 	}
 	sort.Strings(libraries)
 	sort.Strings(charts)
+	return chartsCopy{tree: tree, base: base, libraries: libraries, charts: charts, already: already}, nil
+}
+
+func checkTree(o options, detect step, dir string, out io.Writer) ([]string, error) {
+	cut := filepath.Join(o.root, cutRel)
+	cp, err := copyCharts(o, cut, dir)
+	if err != nil {
+		return nil, err
+	}
+	tree, base, already, libraries, charts := cp.tree, cp.base, cp.already, cp.libraries, cp.charts
 	var findings []string
 	for _, lib := range libraries {
 		got, cutSet, err := probe(detect, cut, tree, base, lib, already)
@@ -516,11 +535,7 @@ func checkTree(o options, detect step, dir string, out io.Writer) ([]string, err
 // probe commits a file in chart on top of base and returns the release set of that push and the
 // Blueprint folders the cut's check then refuses, less those it refused already.
 func probe(detect step, cut, tree, base, chart string, already []string) ([]string, []string, error) {
-	env := gitEnv(tree)
-	if _, err := command(tree, env, "git", "checkout", "-q", "--detach", base); err != nil {
-		return nil, nil, err
-	}
-	head, err := commitChange(tree, chart+"/"+probeRel)
+	head, err := changeChart(tree, base, chart)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -528,12 +543,32 @@ func probe(detect step, cut, tree, base, chart string, already []string) ([]stri
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %v\n%s", chart, err, tail(res.out, 12))
 	}
-	cutSet, err := refused(cut, tree, head)
+	cutSet, err := refusedBeyond(cut, tree, head, already)
 	if err != nil {
 		return nil, nil, err
 	}
-	_, cutSet = diff(already, cutSet)
 	return got, cutSet, nil
+}
+
+// changeChart commits a file in chart on top of base and returns the commit.
+func changeChart(tree, base, chart string) (string, error) {
+	if _, err := command(tree, gitEnv(tree), "git", "checkout", "-q", "--detach", base); err != nil {
+		return "", err
+	}
+	return commitChange(tree, chart+"/"+probeRel)
+}
+
+// refusedBeyond returns, in name order, the Blueprint folders the cut's check refuses at commit
+// less already. At the commit of changeChart these are the charts that build the changed chart
+// in, as the cut reads each chart's file:// dependencies: the tree check judges a release set
+// against them.
+func refusedBeyond(cut, tree, commit string, already []string) ([]string, error) {
+	set, err := refused(cut, tree, commit)
+	if err != nil {
+		return nil, err
+	}
+	_, set = diff(already, set)
+	return set, nil
 }
 
 var failRe = regexp.MustCompile(`(?m)^FAIL ((?:platform|products)/[^/:]+)/chart: `)
