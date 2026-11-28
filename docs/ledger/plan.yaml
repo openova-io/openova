@@ -95,6 +95,7 @@ record_files:
 - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
 - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts
 - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+- scripts/baselines/api-structure.json
 epics:
 - id: FND-010
   title: Release train rails
@@ -5078,7 +5079,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: []
-  after: [FND-120, SVC-040]
+  after: [FND-120]
   touches:
   - products/continuum/cloudflare-worker/**
   - infra/cloudflare-worker-leases/**
@@ -5096,7 +5097,7 @@ packages:
   budget: null
   repeatable: false
   ticket_rev: 0
-  dropped: false
+  dropped: true
   delivers: The outside-witness worker is gone, unless decision record 0027 keeps it as the write lease outside both regions.
 - id: FND-171
   title: Remove the fabricated playback route and its preflight route
