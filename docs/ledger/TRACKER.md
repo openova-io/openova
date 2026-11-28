@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T01:00:04Z` |
+| Last refreshed | `2026-11-28T08:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8723](https://github.com/openova-io/openova/issues/8723) | FND-G21 rows 241 and 242: the live gate job passes GATE_PARENT_URL and GATE_PARE | Other |
 | [#8728](https://github.com/openova-io/openova/issues/8728) | CMP-021 CMP-G02 becomes required once the pinned catalyst-api carries CMP-020 | Other |
 | [#8729](https://github.com/openova-io/openova/issues/8729) | CTL-815 One Continuum definition file | Other |
 | [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9095](https://github.com/openova-io/openova/issues/9095) | SEC-239 powerdns-api-credentials carries helm.sh/resource-policy keep one releas | Other |
 | [#9097](https://github.com/openova-io/openova/issues/9097) | SEC-253 The metrics chart's object-store password is generated and read from an  | Other |
 | [#9100](https://github.com/openova-io/openova/issues/9100) | NET-187 The Sovereign's DNS addresses answer on port 53 (NET-G19) | Other |
+| [#9102](https://github.com/openova-io/openova/issues/9102) | ACC-114 Gate check ACC-G15: session images start hardened | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
+| 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
+| 2026-11-28T01:13 | [#9099](https://github.com/openova-io/openova/pull/9099) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:41 | [#9093](https://github.com/openova-io/openova/pull/9093) | #9092 | refactor(valkey): the keyspace Context Secret mints no passw |
 | 2026-11-27T23:57 | [#9091](https://github.com/openova-io/openova/pull/9091) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-27T18:47 | [#9060](https://github.com/openova-io/openova/pull/9060) | docs(protocol): per-chart lists are record files |  |
 | 2026-11-27T18:31 | [#9059](https://github.com/openova-io/openova/pull/9059) | #7087 | docs(ledger): plan update |
 | 2026-11-27T18:31 | [#9056](https://github.com/openova-io/openova/pull/9056) | #7087 | docs(ledger): plan update |
-| 2026-11-27T18:48 | [#9055](https://github.com/openova-io/openova/pull/9055) | #9053 | fix(network): port 80 of a node answers for the console host |
-| 2026-11-27T18:12 | [#9054](https://github.com/openova-io/openova/pull/9054) | #7087 | docs(ledger): plan update |
-| 2026-11-27T18:17 | [#9052](https://github.com/openova-io/openova/pull/9052) | #7087 | docs(ledger): plan update |
 
 ---
 

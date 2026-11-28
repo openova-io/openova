@@ -156,6 +156,7 @@ checks:
   needs: []
   proof: running
   asserts: Session images start hardened
+  implemented_by: ACC-114
   delivered_by: ACC-106
 - id: ACC-G16
   title: Pod session under a grant

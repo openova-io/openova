@@ -13,8 +13,9 @@
 #      not empty: it holds the setLocal of port 53).
 #   2. the last setACL that is not a comment (the one in effect) lists both
 #      0.0.0.0/0 and ::/0.
-#   3. the only backend is the authoritative server on port 5353
-#      (one newServer), so the open list opens no resolver.
+#   3. the only backend is the authoritative server (one newServer, named
+#      powerdns-auth), so the open list opens no resolver. Its port is judged
+#      by dns-path-render.sh.
 #   4. the predicate of case 2 fails on the same configuration with its
 #      setACL removed (the check can fail).
 #
@@ -66,8 +67,8 @@ check_render() {
   local servers
   servers="$(grep -c -E '^[[:space:]]*newServer[[:space:]]*\(' "$conf" || true)"
   [ "$servers" = 1 ] || fail "$label: expected exactly one newServer (the authoritative backend), found $servers"
-  grep -q -E "^[[:space:]]*newServer[[:space:]]*\(.*:5353.*name = 'powerdns-auth'" "$conf" \
-    || fail "$label: the one backend is not the authoritative server on port 5353"
+  grep -q -E "^[[:space:]]*newServer[[:space:]]*\(.*name = 'powerdns-auth'" "$conf" \
+    || fail "$label: the one backend is not the authoritative server powerdns-auth"
 
   # Case 4
   grep -v -E '^[[:space:]]*setACL[[:space:]]*\(' "$conf" > "$tmp/$label-no-acl.conf" || true

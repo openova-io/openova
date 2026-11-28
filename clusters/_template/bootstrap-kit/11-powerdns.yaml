@@ -166,7 +166,7 @@ spec:
       #         nodePort=32015/31425 at the same time (§854 violation invisible
       #         to every source-side check).
       # 1.2.22 (#5086): render-contract regression lock (no chart behaviour change).
-      version: 1.2.33
+      version: 1.2.34
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns
@@ -236,9 +236,9 @@ spec:
     # hcloud-ccm cannot materialise the anycast Service, so node:53 never binds
     # via the VIP path (below) and the tofu `dns` LB :53->node:53 forward is
     # inert. hostPortMode flips dnsdist to a hostPort:53 DaemonSet that binds
-    # node:53 directly (§854-clean — hostPort, NEVER a NodePort). The Hetzner
-    # cloud-init sets POWERDNS_DNSDIST_HOSTPORT=true; on Huawei/kom4dc the var
-    # is UNSET → default false → the LB-IPAM anycast path stays UNTOUCHED.
+    # node:53 directly (§854-clean — hostPort, NEVER a NodePort). Every
+    # provider pack sets POWERDNS_DNSDIST_HOSTPORT=true since NET-185; where it
+    # is unset dnsdist stays a Deployment behind the LB-IPAM anycast VIP (below).
     dnsdist:
       hostPortMode: ${POWERDNS_DNSDIST_HOSTPORT:=false}
     # DNS-01 wildcard cert: expose PowerDNS :53 as a Cilium LB-IPAM
@@ -267,6 +267,14 @@ spec:
         # namespace (never "*") so tenant/Org LB Services can never
         # co-locate onto the sovereign EIP by annotation hijack.
         lbipam.cilium.io/sharing-cross-namespace: "kube-system"
+      # Known defect, not on the public path (NET-187): the Service selects
+      # the dnsdist Pods, which listen on 53, so a target of 5353 reaches
+      # nothing. Only traffic from inside the cluster to the VIP takes this
+      # Service; public port 53 reaches dnsdist's hostPort (hostPortMode
+      # above). It stays as it is: Service ports merge on `port` alone in
+      # Helm's upgrade patch, and with the tools/chart-upgrade model a new
+      # target changed only the first of these two port-53 entries over
+      # 1.2.33. The VIP path goes with the LB-IPAM pool (NET-186).
       ports:
         - name: dns-udp
           port: 53
