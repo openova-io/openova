@@ -1,0 +1,774 @@
+{
+    "apiVersion": "compliance.openova.io/v1alpha1",
+    "kind": "ComplianceModel",
+    "metadata": {
+        "annotations": {
+            "meta.helm.sh/release-name": "kyverno-policies",
+            "meta.helm.sh/release-namespace": "kyverno"
+        },
+        "creationTimestamp": "2026-11-25T22:59:23Z",
+        "generation": 2,
+        "labels": {
+            "app.kubernetes.io/component": "compliance-model",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "bp-kyverno-policies",
+            "helm.toolkit.fluxcd.io/name": "bp-kyverno-policies",
+            "helm.toolkit.fluxcd.io/namespace": "flux-system"
+        },
+        "name": "default",
+        "resourceVersion": "7902910",
+        "uid": "ce55967e-18ab-447d-834a-20bd1ca614e6"
+    },
+    "spec": {
+        "axes": [
+            {
+                "group": "run",
+                "id": "reliability",
+                "naText": "No workload in view has a replica, disruption, spread or probe result.",
+                "title": "Reliability",
+                "type": "checks"
+            },
+            {
+                "group": "run",
+                "id": "capacity",
+                "naText": "No workload in view has a resource, volume or autoscaler result.",
+                "title": "Capacity",
+                "type": "checks"
+            },
+            {
+                "group": "run",
+                "id": "resilience",
+                "naText": "No volume in view has a backup or storage result.",
+                "title": "Resilience",
+                "type": "checks"
+            },
+            {
+                "group": "run",
+                "id": "delivery",
+                "naText": "No workload in view has a Flux or placement result.",
+                "title": "Delivery",
+                "type": "checks"
+            },
+            {
+                "group": "run",
+                "id": "supply-chain",
+                "naText": "No container image in view has a source or tag result.",
+                "title": "Supply chain",
+                "type": "checks"
+            },
+            {
+                "group": "run",
+                "id": "observability",
+                "naText": "No workload in view has a metrics or tracing result.",
+                "title": "Observability",
+                "type": "checks"
+            },
+            {
+                "group": "security",
+                "id": "hardening",
+                "naText": "No workload or access grant in view has a hardening result.",
+                "title": "Hardening",
+                "type": "checks"
+            },
+            {
+                "group": "security",
+                "id": "zero-trust",
+                "naText": "No workload or namespace in view has a network policy result.",
+                "title": "Zero trust",
+                "type": "checks"
+            },
+            {
+                "group": "security",
+                "id": "secrets",
+                "naText": "No container in view has an environment result.",
+                "title": "Secrets",
+                "type": "checks"
+            },
+            {
+                "group": "security",
+                "id": "exposure",
+                "naText": "No Service in view has an exposure result.",
+                "title": "Exposure",
+                "type": "checks"
+            }
+        ],
+        "checks": [
+            {
+                "axis": "reliability",
+                "description": "Deployments and StatefulSets must declare spec.replicas \u003e= 2 so voluntary disruptions (node drains, rolling updates) can preserve at least one healthy replica.",
+                "id": "multi-replica-drainability",
+                "ownerSide": "organization",
+                "remediation": "Set spec.replicas to 2 or more, or label a deliberate single-instance database or cache openova.io/singleton-db=true.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "Workloads must declare 2+ replicas",
+                "valuesKey": "multiReplica"
+            },
+            {
+                "axis": "reliability",
+                "description": "A PodDisruptionBudget with maxUnavailable=0 (or minAvailable equal to the workload's full replica count) wedges every voluntary disruption. This policy rejects PDBs whose maxUnavailable is 0.",
+                "id": "pdb-permits-eviction",
+                "ownerSide": "organization",
+                "remediation": "Set maxUnavailable to 1 or more (or a percentage), or use a minAvailable strictly less than the workload's replica count.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "PodDisruptionBudgets must permit eviction",
+                "valuesKey": "pdb"
+            },
+            {
+                "axis": "reliability",
+                "description": "Deployments / StatefulSets with replicas \u003e= 2 must declare topologySpreadConstraints with topologyKey of kubernetes.io/hostname or topology.kubernetes.io/zone, so a single host or AZ failure can't take down every replica.",
+                "id": "topology-spread",
+                "ownerSide": "organization",
+                "remediation": "Add a topologySpreadConstraint with topologyKey kubernetes.io/hostname or topology.kubernetes.io/zone.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "Multi-replica workloads must spread across hostname or zone",
+                "valuesKey": "topologySpread"
+            },
+            {
+                "axis": "reliability",
+                "description": "Every primary container in a Deployment / StatefulSet / DaemonSet must declare both livenessProbe and readinessProbe. Without probes, kubelet can't detect a wedged process and Service can't gate traffic during startup.",
+                "id": "probes-present",
+                "ownerSide": "organization",
+                "remediation": "Declare both a livenessProbe and a readinessProbe on every container.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Containers must declare liveness and readiness probes",
+                "valuesKey": "probesPresent"
+            },
+            {
+                "axis": "capacity",
+                "description": "Every container must declare resources.requests.cpu AND resources.requests.memory. BestEffort Pods evict first under pressure and can't be reasoned about for capacity planning or per-Org cost rollups.",
+                "id": "resource-requests",
+                "ownerSide": "organization",
+                "remediation": "Declare resources.requests.cpu and resources.requests.memory on every container.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Containers must declare CPU and memory requests",
+                "valuesKey": "resourceRequests"
+            },
+            {
+                "axis": "capacity",
+                "description": "Every container should declare resources.limits.cpu AND resources.limits.memory. Without limits, a single Pod can exhaust a node and starve neighbors.",
+                "id": "resource-limits",
+                "ownerSide": "organization",
+                "remediation": "Declare resources.limits.cpu and resources.limits.memory on every container.",
+                "severity": "low",
+                "source": "kyverno",
+                "title": "Containers should declare CPU and memory limits",
+                "valuesKey": "resourceLimits"
+            },
+            {
+                "axis": "capacity",
+                "description": "PersistentVolumeClaims should reference a StorageClass with allowVolumeExpansion=true so storage can grow without rebuilding the volume.",
+                "id": "pvc-volume-expansion",
+                "ownerSide": "organization",
+                "remediation": "Choose a StorageClass with allowVolumeExpansion=true, or extend the existing one.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "PVC StorageClass must allow volume expansion",
+                "valuesKey": "pvcExpansion"
+            },
+            {
+                "axis": "capacity",
+                "description": "When a HorizontalPodAutoscaler is admitted, its spec.minReplicas must be \u003e= 1 and the targeted workload's declared replicas should not be below the HPA floor. Runtime effectiveness (current ready Pod count) is checked by the compliance-aggregator's hpa.go evaluator (slice W2).",
+                "id": "hpa-effective",
+                "ownerSide": "organization",
+                "remediation": "Set the HorizontalPodAutoscaler's spec.minReplicas to 1 or more.",
+                "severity": "low",
+                "source": "kyverno",
+                "title": "HPA minReplicas must not exceed workload spec.replicas",
+                "valuesKey": "hpaEffective"
+            },
+            {
+                "axis": "resilience",
+                "description": "PVCs must declare a Velero backup binding via either annotation `velero.io/backup-volumes` on the owning Pod template OR label `velero.io/managed-by-schedule` on the PVC itself.",
+                "id": "backup-configured",
+                "ownerSide": "organization",
+                "remediation": "Label the PVC velero.io/managed-by-schedule with the name of a Velero schedule, or annotate the owning Pod template with velero.io/backup-volumes.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "Stateful workloads must have a Velero backup configured",
+                "valuesKey": "backupConfigured"
+            },
+            {
+                "axis": "resilience",
+                "description": "local-path (the k3s built-in provisioner) is ephemeral node-local disk with no cloud block volume behind it — a node replacement destroys the data, invalidating BCP/DR. #3971 forbids it entirely: k3s runs --disable=local-storage and the durable per-provider cloud CSI is the only default StorageClass. This policy fail-closes any PVC / StorageClass / PV that references local-path.",
+                "id": "forbid-local-path-storage",
+                "mandatory": true,
+                "ownerSide": "organization",
+                "remediation": "Omit storageClassName to bind to the durable cluster-default cloud CSI, or name an explicit durable class.",
+                "severity": "critical",
+                "source": "kyverno",
+                "switchable": false,
+                "title": "Forbid the ephemeral k3s local-path provisioner",
+                "valuesKey": "forbidLocalPath"
+            },
+            {
+                "axis": "delivery",
+                "description": "Workload-rendering resources must carry `app.kubernetes.io/managed-by: flux` (the upstream Flux label) OR have an ownerReference pointing at a HelmRelease / Kustomization. Direct kubectl apply is rejected — IaC-first per docs/INVIOLABLE-PRINCIPLES.md #3.",
+                "id": "flux-managed",
+                "ownerSide": "organization",
+                "remediation": "Add the label app.kubernetes.io/managed-by=flux on metadata.labels, or attach an ownerReference to a HelmRelease or Kustomization.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Workloads must be managed by Flux",
+                "valuesKey": "fluxManaged"
+            },
+            {
+                "axis": "delivery",
+                "description": "The substrate components listed in docs/DOD.md §A4 (Cilium-agent, Flux, Kyverno, cert-manager, ESO, CNPG-operator, vCluster-syncers) MUST install on the host k3s cluster, never inside a vCluster. A HelmRelease for one of these Blueprints with `spec.kubeConfig` set indicates a misconfigured G92.1 vcluster-placement override.",
+                "id": "substrate-stays-on-host",
+                "ownerSide": "sovereign",
+                "remediation": "Remove the spec.kubeConfig block from the substrate Blueprint's HelmRelease.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Substrate Blueprints must install on host k3s",
+                "valuesKey": "substrateOnHost"
+            },
+            {
+                "axis": "supply-chain",
+                "description": "Container images must reference a Sovereign-local Harbor proxy registry. Operator configures the allowed glob via .Values.compliancePolicies.harborProxyPull.allowedImagePattern.",
+                "id": "harbor-proxy-pull",
+                "ownerSide": "organization",
+                "remediation": "Re-tag the image to pull through the Sovereign's local Harbor, as a proxy-cache path or a native openova-io push.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Container images must pull through the Sovereign Harbor proxy",
+                "valuesKey": "harborProxyPull"
+            },
+            {
+                "axis": "supply-chain",
+                "description": "Container images must reference an explicit, non-:latest tag (or a @sha256: digest). Floating tags break SHA-pinned audit trails and reproducibility.",
+                "id": "image-tag-pinned",
+                "ownerSide": "organization",
+                "remediation": "Pin every image to an explicit tag that is not latest, or to a @sha256 digest.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Container images must be tag-pinned (no :latest)",
+                "valuesKey": "imageTagPinned"
+            },
+            {
+                "axis": "observability",
+                "description": "Pod template should carry prometheus.io/scrape=\"true\" annotation, OR the workload labels declare monitoring.coreos.com/managed=true indicating an operator-managed PodMonitor / ServiceMonitor exists.",
+                "id": "prometheus-scrape",
+                "ownerSide": "organization",
+                "remediation": "Annotate the Pod template with prometheus.io/scrape=\"true\", or label the workload monitoring.coreos.com/managed=\"true\".",
+                "severity": "low",
+                "source": "kyverno",
+                "title": "Workloads should be Prometheus-scrape-targeted",
+                "valuesKey": "prometheusScrape"
+            },
+            {
+                "axis": "observability",
+                "description": "Workloads should declare OpenTelemetry instrumentation via either an `otel-collector` sidecar container OR `instrumentation.opentelemetry.io/inject-*: \"true\"` annotation on the Pod template (auto-injection by the OTel operator).",
+                "id": "otel-injected",
+                "ownerSide": "organization",
+                "remediation": "Add an otel-collector sidecar, or annotate the Pod template with an instrumentation.opentelemetry.io/inject-\u003clanguage\u003e annotation.",
+                "severity": "low",
+                "source": "kyverno",
+                "title": "Workloads should be OTel-instrumented",
+                "valuesKey": "otelInjected"
+            },
+            {
+                "axis": "hardening",
+                "description": "Pods must declare runAsNonRoot=true at Pod or container level AND every container must set readOnlyRootFilesystem=true.",
+                "id": "runasnonroot-readonlyrootfs",
+                "ownerSide": "organization",
+                "remediation": "Set runAsNonRoot=true at Pod or container level and readOnlyRootFilesystem=true on every container.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "Workloads must run non-root with read-only rootfs",
+                "valuesKey": "runAsNonRootReadonlyRootFs"
+            },
+            {
+                "axis": "hardening",
+                "description": "Denies UserAccess CRs whose openova.io/org scope differs from the requesting user's org claim, unless the requester is a member of the management Organization with tier=owner. Permissive Audit by default; per-Sovereign overlay flips to Enforce.",
+                "id": "useraccess-boundary",
+                "ownerSide": "sovereign",
+                "remediation": "Set the scope's openova.io/org value to your own Organization, or ask the owner of the management Organization to sign the grant.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Internal-vs-customer Org boundary on UserAccess",
+                "valuesKey": "useraccessBoundary"
+            },
+            {
+                "axis": "zero-trust",
+                "description": "Pod templates must declare the `policy.cilium.io/enforced: \"true\"` label so the catalyst-network controller routes them under the zero-trust mesh. The runtime \"is there an actual selecting CNP/CCNP\" check lives in the W2 hubble evaluator.",
+                "id": "cilium-l7-mtls",
+                "ownerSide": "organization",
+                "remediation": "Add the label policy.cilium.io/enforced=\"true\" to spec.template.metadata.labels.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Workloads must be covered by a Cilium L7 policy",
+                "valuesKey": "ciliumL7Mtls"
+            },
+            {
+                "axis": "zero-trust",
+                "description": "Namespaces must contain at least one NetworkPolicy or CiliumNetworkPolicy so east-west traffic is mediated.",
+                "id": "networkpolicy-present",
+                "ownerSide": "organization",
+                "remediation": "Add at least one NetworkPolicy or CiliumNetworkPolicy to the namespace.",
+                "severity": "medium",
+                "source": "kyverno",
+                "title": "Namespaces must declare at least one NetworkPolicy",
+                "valuesKey": "networkpolicyPresent"
+            },
+            {
+                "axis": "secrets",
+                "description": "Container env entries with names matching *PASSWORD* / *TOKEN* / *KEY* / *SECRET* must use valueFrom.secretKeyRef, not a plaintext value.",
+                "id": "secret-not-in-env",
+                "ownerSide": "organization",
+                "remediation": "Source the value from a Secret with valueFrom.secretKeyRef instead of a plaintext value.",
+                "severity": "high",
+                "source": "kyverno",
+                "title": "Plaintext secrets must not appear in container env",
+                "valuesKey": "secretNotInEnv"
+            },
+            {
+                "axis": "exposure",
+                "description": "§854 (founder #1 ABSOLUTE ban): a Service must never be type=NodePort, and a type=LoadBalancer Service must set allocateLoadBalancerNodePorts=false so it does not silently allocate nodePorts. The gateway is served DIRECT (cilium LB-IPAM VIP or a shared address, or Local-ETP + hostPort), never a nodePort. Ships Audit; Enforce is the deliberate follow-up (#5088). cert-manager HTTP-01 solver Services are carved out.",
+                "id": "forbid-nodeport-service",
+                "mandatory": true,
+                "ownerSide": "organization",
+                "remediation": "Expose the Service directly instead: a ClusterIP Service fronted by a gateway route, or the cilium LB-IPAM address.",
+                "severity": "critical",
+                "source": "kyverno",
+                "title": "Forbid NodePort Services (§854)",
+                "valuesKey": "forbidNodePortService"
+            }
+        ],
+        "exemptions": [
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "catalyst",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "cert-manager",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "cilium",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "cilium-gateway",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "flux-managed"
+                ],
+                "namespace": "cnpg",
+                "owner": "sovereign-admin",
+                "reason": "The CloudNativePG operator creates the Services and Jobs of the bp-cnpg-pair clusters with no Flux label or owner."
+            },
+            {
+                "checks": [
+                    "harbor-proxy-pull"
+                ],
+                "namespace": "crossplane-system",
+                "owner": "sovereign-admin",
+                "reason": "bp-crossplane pulls the upstream control-plane image from xpkg.upbound.io, which the Sovereign's Harbor does not mirror."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "dragonfly",
+                "owner": "sovereign-admin",
+                "reason": "bp-dragonfly is the peer-to-peer registry-distribution layer: the per-node daemon is containerd's local mirror, core image-path plumbing beside cilium."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "falco",
+                "owner": "sovereign-admin",
+                "reason": "Host-eBPF runtime-security DaemonSet whose main container needs host root and a writable root filesystem."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "flux-system",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "ingress",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "kube-system",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "kyverno",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "monitoring",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "openova-system",
+                "owner": "sovereign-admin",
+                "reason": "Platform namespace installed before or beside the policy engine."
+            },
+            {
+                "checks": [
+                    "harbor-proxy-pull"
+                ],
+                "namespace": "org-services",
+                "owner": "sovereign-admin",
+                "reason": "The provisioning Deployment mixes a proxied utility init image with a native openova-io main image in one Pod."
+            },
+            {
+                "checks": [
+                    "harbor-proxy-pull"
+                ],
+                "namespace": "powerdns",
+                "owner": "sovereign-admin",
+                "reason": "bp-powerdns pulls its pdns-auth and dnsdist images from docker.io, because the Harbor docker proxy is not pullable by a node at first boot."
+            },
+            {
+                "checks": [
+                    "flux-managed"
+                ],
+                "namespace": "powerdns-admin",
+                "owner": "sovereign-admin",
+                "reason": "The CloudNativePG operator creates the Services and Jobs of the bp-powerdns-admin database cluster with no Flux label or owner."
+            },
+            {
+                "checks": [
+                    "flux-managed"
+                ],
+                "namespace": "shared-data",
+                "owner": "sovereign-admin",
+                "reason": "The CloudNativePG operator creates the Services and Jobs of the bp-postgres-shared cluster with no Flux label or owner."
+            },
+            {
+                "checks": [
+                    "multi-replica-drainability",
+                    "pdb-permits-eviction",
+                    "topology-spread",
+                    "probes-present",
+                    "resource-requests",
+                    "resource-limits",
+                    "pvc-volume-expansion",
+                    "hpa-effective",
+                    "backup-configured",
+                    "flux-managed",
+                    "harbor-proxy-pull",
+                    "image-tag-pinned",
+                    "prometheus-scrape",
+                    "otel-injected",
+                    "runasnonroot-readonlyrootfs",
+                    "cilium-l7-mtls",
+                    "networkpolicy-present",
+                    "secret-not-in-env"
+                ],
+                "namespace": "sso-bridge",
+                "owner": "sovereign-admin",
+                "reason": "The bp-sso-bridge reconciler is single-writer by design: parallel ticks would race the Keycloak client upserts and the OpenBao secret writes."
+            },
+            {
+                "checks": [
+                    "flux-managed",
+                    "harbor-proxy-pull"
+                ],
+                "namespace": "trivy-system",
+                "owner": "sovereign-admin",
+                "reason": "The trivy-operator spawns its scan Jobs with no Flux owner and with scanner images it cannot re-tag through the Sovereign's Harbor."
+            }
+        ],
+        "groups": [
+            {
+                "id": "run",
+                "title": "Build and run",
+                "weight": 1
+            },
+            {
+                "id": "security",
+                "title": "Security",
+                "weight": 1
+            }
+        ],
+        "levels": [
+            {
+                "min": 90,
+                "name": "L5"
+            },
+            {
+                "min": 75,
+                "name": "L4"
+            },
+            {
+                "min": 60,
+                "name": "L3"
+            },
+            {
+                "min": 40,
+                "name": "L2"
+            },
+            {
+                "min": 0,
+                "name": "L1"
+            }
+        ],
+        "mandatoryCap": {
+            "environmentTypes": [
+                "prod"
+            ],
+            "value": 74
+        },
+        "severityWeights": {
+            "critical": 8,
+            "high": 4,
+            "low": 1,
+            "medium": 2
+        },
+        "version": "1.0.0"
+    }
+}
