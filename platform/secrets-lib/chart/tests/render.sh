@@ -46,8 +46,13 @@
 #   R13 join (SEC-219): one Secret carries two values, each under its own
 #       key; the joined value is born (Password, PushSecret) but renders no
 #       ExternalSecret; a copy carries both; the other region reads only;
-#   F1-F44 every refused input fails the render with its message; F33 is a
-#       copy in another namespace.
+#   R14 seedFrom (SEC-226): each plan line of a seeded value has source
+#       seed:<Secret>/<key>; Role secrets-birth-seed grants get on exactly the
+#       Secrets of this region's plan, bound to secrets-birth; the Job gets an
+#       API token (no audience) and the cluster CA; a plan without a seed
+#       renders none of it;
+#   F1-F51 every refused input fails the render with its message; F33 is a
+#       copy in another namespace, F45 to F51 the seedFrom of SEC-226.
 #
 # Tools: helm, grep, awk, diff. No yq: the acceptance job runs it as is.
 set -euo pipefail
@@ -685,7 +690,96 @@ doc "$TMP/r13b.yaml" ExternalSecret powerdns-api-credentials > "$TMP/r13b.got"
 diff -u "$TMP/r13.want" "$TMP/r13b.got" || r13="$r13 b-joined-secret"
 [ -z "$r13" ] && pass "R13 join: Secret powerdns-api-credentials carries both values under api-key and webserver-password; webserver-password is born but has no Secret; the copy carries both; the other region reads only" || fail "R13:$r13"
 
-# ── F1-F44 ──────────────────────────────────────────────────────────────
+# ── R14 ─────────────────────────────────────────────────────────────────
+cat > "$TMP/r14.v" <<'EOF'
+self: hw-a
+peers: [hw-b]
+primary: true
+generatedSecrets:
+  master-key:
+    delivery: mounted
+    epoch: 1
+    serviceAccount: chargeback
+    sharedAcrossRegions: false
+    key: key
+    length: 43
+    seedFrom: {name: chargeback-master-key, key: master-key}
+  again:
+    delivery: mounted
+    epoch: 1
+    scope: shared
+    sharedAcrossRegions: false
+    seedFrom: {name: chargeback-master-key, key: other}
+  signing:
+    delivery: mounted
+    epoch: 2
+    scope: shared
+    seedFrom: {name: old.signing, key: tls.key}
+  fresh:
+    delivery: mounted
+    epoch: 1
+    scope: shared
+    sharedAcrossRegions: false
+EOF
+cat > "$TMP/r14.want" <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secrets-birth-seed
+  namespace: "acme"
+  labels:
+    app.kubernetes.io/name: secrets-birth
+    secrets.openova.io/library: secrets-lib
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: ["chargeback-master-key","old.signing"]
+    verbs: [get]
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secrets-birth-seed
+  namespace: "acme"
+  labels:
+    app.kubernetes.io/name: secrets-birth
+    secrets.openova.io/library: secrets-lib
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: secrets-birth-seed
+subjects:
+  - kind: ServiceAccount
+    name: secrets-birth
+    namespace: "acme"
+EOF
+r14=""
+r "$TMP/r14.v" "$TMP/r14.yaml" || r14="$r14 render($(tr '\n' ' ' < "$TMP/r14.yaml.err"))"
+J14="$(jobname "$TMP/r14.yaml")"
+[ "$(plan "$TMP/r14.yaml")" = "$(printf '%s\n' 'acme/shared/again/e1 32 0 seed:chargeback-master-key/other self' 'acme/shared/fresh/e1 32 0 - self' \
+  'acme/sa/chargeback/master-key/e1 43 0 seed:chargeback-master-key/master-key self key' 'acme/shared/signing/e2 32 0 seed:old.signing/tls.key all')" ] \
+  || r14="$r14 plan($(plan "$TMP/r14.yaml" | tr '\n' ';'))"
+{ doc "$TMP/r14.yaml" Role secrets-birth-seed; doc "$TMP/r14.yaml" RoleBinding secrets-birth-seed; } > "$TMP/r14.got"
+diff -u "$TMP/r14.want" "$TMP/r14.got" || r14="$r14 role"
+[ "$(kinds "$TMP/r14.yaml")" = "ConfigMap=1 Job=1 Role=1 RoleBinding=1 ServiceAccount=1 " ] || r14="$r14 kinds($(kinds "$TMP/r14.yaml"))"
+doc "$TMP/r14.yaml" Job "$J14" > "$TMP/r14.job"
+for l in '            - {name: KUBE_API, value: "https://kubernetes.default.svc"}' '            - {name: KUBE_NAMESPACE, value: "acme"}' \
+         '            - {name: KUBE_DIR, value: /var/run/secrets/openova-birth-kube}' \
+         '            - {name: kube, mountPath: /var/run/secrets/openova-birth-kube, readOnly: true}' \
+         '                  name: kube-root-ca.crt' '                    - {key: ca.crt, path: ca.crt}' '                  path: token'; do
+  grep -qxF -- "$l" "$TMP/r14.job" || r14="$r14 job-line[$l]"
+done
+# The API token has the API's audience: the one audience line is OpenBao's.
+[ "$(grep -c 'audience:' "$TMP/r14.job")" = 1 ] || r14="$r14 audiences"
+has "$TMP/r14.yaml" ConfigMap "$J14" '    seed_read() {' || r14="$r14 script"
+# A plan without a seed renders none of it (R2): no Role, no API token, no seed functions.
+grep -qE 'seed_read|KUBE_|secrets-birth-seed|kube-root-ca' "$TMP/r2.yaml" && r14="$r14 seedless-plan-has-seed-parts"
+# The other region: its plan holds no shared value, so its Role names only its own seed.
+sed 's/^self: hw-a/self: hw-b/; s/^peers: \[hw-b\]/peers: [hw-a]/; s/^primary: true/primary: false/' "$TMP/r14.v" > "$TMP/r14b.v"
+r "$TMP/r14b.v" "$TMP/r14b.yaml" || r14="$r14 b-render"
+has "$TMP/r14b.yaml" Role secrets-birth-seed '    resourceNames: ["chargeback-master-key"]' || r14="$r14 b-role"
+[ -z "$r14" ] && pass "R14 seedFrom (SEC-226): plan sources seed:<Secret>/<key>; Role secrets-birth-seed (get on chargeback-master-key and old.signing only) bound to secrets-birth; the Job's API token and CA; the other region's Role names only its own seed; no seed, none of it" || fail "R14:$r14"
+
+# ── F1-F51 ──────────────────────────────────────────────────────────────
 # refused <id> <expected message part> <values>
 refused() {
   printf '%s\n' "$3" > "$TMP/$1.v"
@@ -739,6 +833,15 @@ refused F41 'join names "w" twice'                  "generatedSecrets: {x: {$S, 
 refused F42 "join names password, the key of the value itself" "generatedSecrets: {x: {$S, join: [password]}, password: {delivery: synced, epoch: 1}}"
 refused F43 "generatedSecrets.x joins this value, so it renders no Secret of its own and takes no registerId" "generatedSecrets: {x: {$S, join: [w]}, w: {$S}}"
 refused F44 "mountedCopies reads key password of Secret x, so template data must hold password" "generatedSecrets: {x: {$S, mountedCopies: [{serviceAccount: a}], template: {data: {token: '{{ .password }}'}}}}"
+# SEC-226: seedFrom. M is a mounted value that takes it.
+M='delivery: mounted, epoch: 1, scope: shared'
+refused F45 "seedFrom is only for delivery mounted"  "generatedSecrets: {x: {$S, seedFrom: {name: a, key: b}}}"
+refused F46 "seedFrom must be a map of name and key" "generatedSecrets: {x: {$M, seedFrom: a}}"
+refused F47 'seedFrom field "namespace" is none of name and key' "generatedSecrets: {x: {$M, seedFrom: {name: a, key: b, namespace: c}}}"
+refused F48 "seedFrom.name must be the name of a Secret of namespace acme" "generatedSecrets: {x: {$M, seedFrom: {name: Bad_Name, key: b}}}"
+refused F49 "seedFrom.key must be a Secret key"      "generatedSecrets: {x: {$M, seedFrom: {name: a}}}"
+refused F50 "seedFrom.key must be a Secret key"      "generatedSecrets: {x: {$M, seedFrom: {name: a, key: \"a/b\"}}}"
+refused F51 "a placeholder is empty: it takes no seedFrom" "generatedSecrets: {x: {$M, placeholder: true, seedFrom: {name: a, key: b}}}"
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: secrets-lib render"; exit 1; fi
 echo "PASS: secrets-lib render — stores, generated secrets, birth Job, shim"

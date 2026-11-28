@@ -10,6 +10,8 @@
 #   3. the Deployment: image by digest, flags with the slot's values, one
 #      replica, the pull secret ghcr-pull, the hardened container, probes;
 #      global.imageRegistry moves it;
+#      the images of the session pods (ACC-106) as ACCESS_IMAGE_GUACD and
+#      ACCESS_IMAGE_AGENT, each once its digest is set, moved the same way;
 #   4. a digest that is not sha256:<64 hex digits> fails the render;
 #   5. the ClusterRole reads the kinds and writes only their status;
 #   6. the writer lock names Flux and the controller, and its binding denies;
@@ -100,6 +102,37 @@ same "the selector of the Service" "$(yq -N -o=json -I=0 'select(.kind == "Servi
 render "$TMP/pivot.yaml" --set global.imageRegistry=registry.t1.omani.works
 same "the image with global.imageRegistry" "$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "$TMP/pivot.yaml")" \
   "registry.t1.omani.works/openova-io/openova/access-controller@$DIGEST"
+# The images of the session pods.
+GUACD="sha256:$(printf 'fedcba9876543210%.0s' 1 2 3 4)"
+AGENT="sha256:$(printf '0011223344556677%.0s' 1 2 3 4)"
+env_of() { yq -N -o=json -I=0 'select(.kind == "Deployment") | .spec.template.spec.containers[0].env' "$1"; }
+images() { # <out> <guacd digest> <agent digest> [helm args...]
+  local out="$1" g="$2" a="$3"
+  shift 3
+  render "$out" --set "access.session.images.guacd.digest=$g" --set "access.session.images.agent.digest=$a" "$@"
+}
+images "$TMP/images.yaml" "$GUACD" "$AGENT"
+same "the session images of the controller" "$(env_of "$TMP/images.yaml")" \
+  "[{\"name\":\"ACCESS_IMAGE_GUACD\",\"value\":\"ghcr.io/openova-io/openova/guacd@$GUACD\"},{\"name\":\"ACCESS_IMAGE_AGENT\",\"value\":\"ghcr.io/openova-io/openova/access-session-agent@$AGENT\"}]"
+images "$TMP/images-pivot.yaml" "$GUACD" "$AGENT" --set global.imageRegistry=registry.t1.omani.works
+same "the session images with global.imageRegistry" "$(env_of "$TMP/images-pivot.yaml")" \
+  "[{\"name\":\"ACCESS_IMAGE_GUACD\",\"value\":\"registry.t1.omani.works/openova-io/openova/guacd@$GUACD\"},{\"name\":\"ACCESS_IMAGE_AGENT\",\"value\":\"registry.t1.omani.works/openova-io/openova/access-session-agent@$AGENT\"}]"
+images "$TMP/agent-only.yaml" "" "$AGENT"
+same "the session images with the agent's digest alone" "$(env_of "$TMP/agent-only.yaml")" \
+  "[{\"name\":\"ACCESS_IMAGE_AGENT\",\"value\":\"ghcr.io/openova-io/openova/access-session-agent@$AGENT\"}]"
+images "$TMP/guacd-only.yaml" "$GUACD" ""
+same "the session images with guacd's digest alone" "$(env_of "$TMP/guacd-only.yaml")" \
+  "[{\"name\":\"ACCESS_IMAGE_GUACD\",\"value\":\"ghcr.io/openova-io/openova/guacd@$GUACD\"}]"
+images "$TMP/no-images.yaml" "" ""
+same "the environment with no digest of a session image" "$(env_of "$TMP/no-images.yaml")" "null"
+same "the Deployment with no digest of a session image, but for its environment" \
+  "$(yq -N -o=json -I=0 'select(.kind == "Deployment") | del(.spec.template.spec.containers[0].env)' "$TMP/images.yaml")" \
+  "$(yq -N -o=json -I=0 'select(.kind == "Deployment")' "$TMP/no-images.yaml")"
+if images "$TMP/bad-agent.yaml" "$GUACD" latest 2> "$TMP/bad-agent.err"; then
+  fail "the agent's digest latest rendered"
+fi
+grep -qF 'access.session.images.agent.digest is "latest", not sha256:<64 hex digits>' "$TMP/bad-agent.err" || fail "the agent's digest latest failed for another reason: $(cat "$TMP/bad-agent.err")"
+echo "PASS: the agent's digest latest fails the render"
 
 # 4. A digest of another form.
 if render "$TMP/bad.yaml" --set access.controller.image.digest=latest 2> "$TMP/bad.err"; then
@@ -131,6 +164,9 @@ same "the objects with access.enabled=false" "$(objects "$TMP/off.yaml")" "Appli
 # 8. The values and the slot.
 same "the top-level keys of values.yaml" "$(yq -N 'keys | sort | join(",")' "$chart_dir/values.yaml")" "access,bootstrapOwned,catalystBlueprint,global"
 same "access.enabled of values.yaml" "$(yq '.access.enabled' "$chart_dir/values.yaml")" "true"
+same "the repositories of the session images in values.yaml" \
+  "$(yq -N '.access.session.images.guacd.repository + " " + .access.session.images.agent.repository' "$chart_dir/values.yaml")" \
+  "ghcr.io/openova-io/openova/guacd ghcr.io/openova-io/openova/access-session-agent"
 yq 'select(.kind == "HelmRelease" and .metadata.name == "bp-guacamole") | .spec.values' "$slot" > "$TMP/raw-values.yaml"
 same "the access values of slot 52" "$(yq -N -o=json -I=0 '.access' "$TMP/raw-values.yaml")" "$(printf '%s' \
   '{"sovereignFQDN":"${SOVEREIGN_FQDN}","regionID":"${SOVEREIGN_REGION_CANONICAL_LABEL:-}","crossRegion":' \

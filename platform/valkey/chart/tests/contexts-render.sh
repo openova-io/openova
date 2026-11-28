@@ -9,8 +9,9 @@
 #      pattern), carrying host/port/index/uri + the reflector push
 #      annotations naming the consumer namespace. Kind labels stamped
 #      for discovery.
-#   3. auth disabled (default) → uri carries no password; auth enabled
-#      → password minted + carried in the uri.
+#   3. The credential Secret holds no secret value (SEC-232): its keys
+#      are exactly host, index, port, uri, the uri carries no password,
+#      and a keyspace with valkey.auth.enabled fails the render.
 #   4. bootstrapOwned + Application CRD registered → exactly ONE
 #      apps.openova.io/v1 Application CR, spec.bootstrap=true, with the
 #      keyspaces[] Context declarations riding spec.parameters.
@@ -77,12 +78,19 @@ grep -q 'index: "2"' "$TMP/ks.yaml" || fail "Context Secret missing the keyspace
 grep -q 'uri: "redis://valkey-primary.valkey.svc.cluster.local:6379/2"' "$TMP/ks.yaml" \
   || fail "Context Secret missing the passwordless keyspace uri"
 
-echo "[contexts] Case 3: auth enabled → password minted + carried in the uri"
-helm template valkey . -f "$TMP/keyspaces.values.yaml" --namespace valkey \
-  --set valkey.auth.enabled=true > "$TMP/ks-auth.yaml" 2>&1 || fail "auth render errored"
-grep -qE '^  password: ' "$TMP/ks-auth.yaml" || fail "auth render missing the minted password"
-grep -qE 'uri: "redis://:[A-Za-z0-9]+@valkey-primary' "$TMP/ks-auth.yaml" \
-  || fail "auth render uri missing the password"
+echo "[contexts] Case 3: no secret value in a Context Secret; auth on with a keyspace fails the render"
+# The keys of the newapi Context Secret, in order: exactly the four of the
+# wire contract (no password key, SEC-232).
+awk '/^kind: Secret$/{s=0} /name: "newapi-keyspace-credential"/{s=1} s && /^stringData:$/{d=1; next} d && /^  [a-z]+:/{sub(/:.*/, ""); sub(/^  /, ""); print; next} d{d=0}' \
+  "$TMP/ks.yaml" > "$TMP/ks-keys.txt"
+keys=$(tr '\n' ' ' < "$TMP/ks-keys.txt")
+[ "$keys" = "host port index uri " ] || fail "newapi Context Secret keys are '$keys', want 'host port index uri '"
+if helm template valkey . -f "$TMP/keyspaces.values.yaml" --namespace valkey \
+  --set valkey.auth.enabled=true > "$TMP/ks-auth.yaml" 2> "$TMP/ks-auth.err"; then
+  fail "auth render with keyspaces succeeded; it must fail (a keyspace credential carries no password)"
+fi
+grep -q 'bp-valkey: keyspace "sessions" is declared with valkey.auth.enabled true' "$TMP/ks-auth.err" \
+  || { cat "$TMP/ks-auth.err" >&2; fail "auth render failed for another reason than the keyspace refusal"; }
 
 echo "[contexts] Case 4: bootstrapOwned + CRD → ONE Application CR with the Context declarations"
 helm template valkey . -f "$TMP/keyspaces.values.yaml" --namespace valkey \

@@ -1,10 +1,12 @@
 {{- /*
 The access controller (ADR-0033), one replica, in the region that
 bp-guacamole.controllerRendered names (decision A21). Port 8080 serves /healthz and
-/metrics; the image is pinned by digest.
+/metrics; the image is pinned by digest. ACCESS_IMAGE_GUACD and ACCESS_IMAGE_AGENT
+name the images of the session pods it builds, each set once CI has written its digest.
 */ -}}
 {{- if include "bp-guacamole.controllerRendered" . }}
 {{- $a := .Values.access }}
+{{- $img := $a.session.images }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +48,17 @@ spec:
             - {{ printf "--session-namespace=%s" .Release.Namespace | quote }}
             - {{ printf "--denied-target-namespaces=%s" (join "," $a.session.deniedTargetNamespaces) | quote }}
             - --leader-elect=true
+          {{- if or $img.guacd.digest $img.agent.digest }}
+          env:
+            {{- if $img.guacd.digest }}
+            - name: ACCESS_IMAGE_GUACD
+              value: {{ include "bp-guacamole.registryImage" (dict "repo" $img.guacd.repository "digest" $img.guacd.digest "what" "access.session.images.guacd.digest" "root" $) | quote }}
+            {{- end }}
+            {{- if $img.agent.digest }}
+            - name: ACCESS_IMAGE_AGENT
+              value: {{ include "bp-guacamole.registryImage" (dict "repo" $img.agent.repository "digest" $img.agent.digest "what" "access.session.images.agent.digest" "root" $) | quote }}
+            {{- end }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8080

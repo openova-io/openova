@@ -38,11 +38,23 @@
 #       namespace org-services; its Job, account and plan render there and
 #       the plan holds only org-services/sa/auth/auth-signing/e1. A birth Job
 #       of acme given that plan is refused the create right (exit 1, nothing
-#       written); the Job of org-services writes it (32 characters, version 1).
+#       written); the Job of org-services writes it (32 characters, version 1);
+#   L10 seedFrom (SEC-226), the plan and Role of a chart of five seeded
+#       values: a path that is absent gets the key of the Secret that exists
+#       (a shared one in A and B), a new random value of the stated length
+#       (43) when the Secret does not exist; a path that holds a value keeps
+#       it and its Secret, which differs, is not read (the stand-in token may
+#       not read it, so a read fails the run); no value reaches the log; a
+#       second run, its token revoked, writes and reads nothing; a Secret
+#       without the key, an empty value, a value with a trailing newline (not
+#       printable ASCII) and a Secret the token may not read (403) fail the
+#       run (exit 1) with nothing written, not even the absent path before
+#       the seed in the plan, never a random value.
 #
-# The ONLY stand-in: the Job and the reconciler log in through a `jwt` mount
+# The stand-ins: the Job and the reconciler log in through a `jwt` mount
 # (login-jwt) instead of Kubernetes TokenReview (there is no API server here;
-# the login request has the same shape). The Job's stand-in role carries the
+# the login request has the same shape); L10 reads its Secrets from a KV
+# mount at the API's path (below), over plain HTTP, so the CA is not used. The Job's stand-in role carries the
 # policies of the rendered role secrets-birth and maps the token's claims to
 # the alias metadata service_account_namespace and service_account_name, as
 # Kubernetes auth does (the same stand-in as tests/e2e/bp-openbao-config-live.sh).
@@ -127,10 +139,10 @@ generatedSecrets:
 EOF
 helm dependency build "$FX" >/dev/null
 helm template fx "$FX" --namespace acme > "$TMP/fx.yaml"
-block() { awk -v k="$1" '$0 == "  " k ": |" { on = 1; next } on && (/^  [^ ]/ || /^[^ ]/) { exit } on { sub(/^    /, ""); print }' "$TMP/fx.yaml"; }
+block() { awk -v k="$1" '$0 == "  " k ": |" { on = 1; next } on && (/^  [^ ]/ || /^[^ ]/) { exit } on { sub(/^    /, ""); print }' "${2:-$TMP/fx.yaml}"; }
 block birth.sh > "$TMP/birth.sh"
 block plan | grep . > "$TMP/plan"
-envof() { sed -n "s/^ *- {name: $1, value: \"\{0,1\}\([^\"}]*\)\"\{0,1\}}\$/\1/p" "$TMP/fx.yaml" | head -n 1; }
+envof() { sed -n "s/^ *- {name: $1, value: \"\{0,1\}\([^\"}]*\)\"\{0,1\}}\$/\1/p" "${2:-$TMP/fx.yaml}" | head -n 1; }
 [ "$(envof PEER_TOKEN_ROLE)" = openbao-peer-birth-acme ] && [ "$(envof PEER_ROLE)" = secrets-birth-acme ] && [ "$(envof BAO_ROLE)" = secrets-birth ] \
   || die "the rendered Job does not name roles secrets-birth, secrets-birth-acme and openbao-peer-birth-acme"
 [ "$(envof PEERS)" = "$B=$(host "$B")" ] || die "the rendered Job does not name peer $B: $(envof PEERS)"
@@ -139,6 +151,22 @@ FX9="$TMP/fx9"; cp -R "$FX" "$FX9"
 printf 'namespace: org-services\ngeneratedSecrets:\n  auth-signing: {delivery: mounted, epoch: 1, serviceAccount: auth, sharedAcrossRegions: false}\n' > "$FX9/values.yaml"
 helm template fx "$FX9" --namespace acme > "$TMP/fx9.yaml"
 awk '/^  plan: \|/ { on = 1; next } on && /^  [^ ]/ { exit } on { sub(/^    /, ""); if ($0 != "") print }' "$TMP/fx9.yaml" > "$TMP/plan9"
+# The same chart with values seeded from Secrets (L10).
+FX10="$TMP/fx10"; cp -R "$FX" "$FX10"
+cat > "$FX10/values.yaml" <<EOF
+self: $A
+peers: [$B]
+primary: true
+generatedSecrets:
+  master-key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false, key: key, length: 43, seedFrom: {name: old-master, key: master-key}}
+  shared-seed: {delivery: mounted, epoch: 1, scope: shared, seedFrom: {name: old-master, key: master-key}}
+  fresh-key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false, length: 43, seedFrom: {name: never-made, key: master-key}}
+  kept-key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false, seedFrom: {name: changed, key: master-key}}
+  no-key: {delivery: mounted, epoch: 1, serviceAccount: app, sharedAcrossRegions: false, seedFrom: {name: no-key, key: master-key}}
+EOF
+helm template fx "$FX10" --namespace acme > "$TMP/fx10.yaml"
+block birth.sh "$TMP/fx10.yaml" > "$TMP/birth10.sh"
+block plan "$TMP/fx10.yaml" | grep . > "$TMP/plan10all"
 
 # ── the login stand-in ────────────────────────────────────────────────────
 openssl genrsa -out "$TMP/jwt.key" 2048 2>/dev/null
@@ -192,7 +220,7 @@ run() {
   mkdir -p "$TMP/work"; mint "$1" secrets-birth > "$TMP/job.jwt"
   BAO_ADDR="$AURL" BAO_K8S_AUTH_PATH=login-jwt BAO_ROLE="$(envof BAO_ROLE)" JWT_FILE="$TMP/job.jwt" \
     SELF_REGION="$(envof SELF_REGION)" PEERS="$peers" PEER_ROLE="secrets-birth-$1" PEER_TOKEN_ROLE="openbao-peer-birth-$1" \
-    PLAN_FILE="${PLAN:-$TMP/plan}" WORK_DIR="$TMP/work" MOUNT="$(envof MOUNT)" timeout 120 sh "$TMP/birth.sh" > "$2" 2>&1 || rc=$?
+    PLAN_FILE="${PLAN:-$TMP/plan}" WORK_DIR="$TMP/work" MOUNT="$(envof MOUNT)" timeout 120 sh "${BIRTH:-$TMP/birth.sh}" > "$2" 2>&1 || rc=$?
   return "$rc"
 }
 rd() { curl -s "${RT[@]}" "$1/v1/mounted/data/$2" | jq -r '.data.data.password // empty'; }
@@ -292,6 +320,93 @@ v9="$(rd "$AURL" $NS9)"
 [ "$rc" = 0 ] && [ "${#v9}" = 32 ] && [ "$(ver "$AURL" $NS9)" = 1 ] && grep -qx "secrets-birth: $NS9: written in $A" "$TMP/run9b.log" \
   || l9="$l9 org-services-job(rc=$rc len=${#v9} v$(ver "$AURL" $NS9): $(tr '\n' ' ' < "$TMP/run9b.log"))"
 [ -z "$l9" ] && pass "L9 namespace input org-services of a chart released in acme: the Job, its account and plan are in org-services; a Job of acme is refused $NS9 (exit 1, nothing written), the Job of org-services writes it (32 characters, version 1)" || fail "L9:$l9"
+
+# ── L10 ───────────────────────────────────────────────────────────────────
+# The Kubernetes API stand-in: KV v1 mount kapi of A's dev server, under the
+# API's path of a Secret. Where the script looks it answers as the API does:
+# 200 with the Secret's top-level data map, 404 for a Secret that does not
+# exist, 403 for a name the token may not read, the token read from
+# "Authorization: Bearer". The token's policy is the rendered Role less
+# Secret changed: read on the other Secrets it names, nothing else. changed
+# is the Secret of the path that holds a value, which the script must never
+# read: a read of it is a 403 and fails the run. Each stand-in Secret also
+# carries a last-applied annotation with another value under the same key.
+KS=kapi/api/v1/namespaces/acme/secrets
+M10=acme/sa/app/master-key/e1; S10=acme/shared/shared-seed/e1; F10=acme/sa/app/fresh-key/e1
+K10=acme/sa/app/kept-key/e1; N10=acme/sa/app/no-key/e1; P10=acme/sa/app/before-seed/e1
+for l in "$M10 43 0 seed:old-master/master-key self key" "$S10 32 0 seed:old-master/master-key all" \
+         "$F10 43 0 seed:never-made/master-key self" "$K10 32 0 seed:changed/master-key self" "$N10 32 0 seed:no-key/master-key self"; do
+  grep -qxF "$l" "$TMP/plan10all" || die "the rendered plan lacks the seed line '$l': $(tr '\n' ';' < "$TMP/plan10all")"
+done
+[ "$(envof KUBE_API "$TMP/fx10.yaml")" = https://kubernetes.default.svc ] && [ "$(envof KUBE_NAMESPACE "$TMP/fx10.yaml")" = acme ] \
+  || die "the rendered Job does not name the API and namespace acme"
+names="$(sed -n 's/^    resourceNames: //p' "$TMP/fx10.yaml" | jq -r '.[]' | tr '\n' ' ')"
+[ "$names" = "changed never-made no-key old-master " ] || die "the rendered Role names: $names"
+curl -sf "${RT[@]}" -X POST -o /dev/null -d '{"type":"kv","options":{"version":"1"}}' "$AURL/v1/sys/mounts/kapi" || die "mounting the API stand-in failed"
+pol=""; for n in $names; do [ "$n" = changed ] || pol="$pol path \"$KS/$n\" { capabilities = [\"read\"] }"; done
+jq -n --arg p "$pol" '{policy: $p}' | curl -sf "${RT[@]}" -X PUT -o /dev/null -d @- "$AURL/v1/sys/policies/acl/kube-standin" || die "the stand-in policy was refused"
+mkdir -p "$TMP/kube"; : > "$TMP/kube/ca.crt"
+kube_token() {
+  curl -sf "${RT[@]}" -X POST -d '{"policies":["kube-standin"],"no_default_policy":true,"ttl":"1h"}' "$AURL/v1/auth/token/create" \
+    | jq -r '.auth.client_token // empty' > "$TMP/kube/token"
+  [ -s "$TMP/kube/token" ] || die "no stand-in API token"
+}
+kube_token
+kcode() { code -H "Authorization: Bearer $(cat "$TMP/kube/token")" "$AURL/v1/$KS/$1"; }
+b64s() { printf '%s' "$1" | openssl base64 -A; }
+secret() {  # $1 name $2 data map (JSON)
+  jq -n --arg n "$1" --argjson d "$2" --arg o "$(b64s from-the-annotation)" \
+    '{apiVersion: "v1", kind: "Secret", type: "Opaque", data: $d, metadata: {name: $n, annotations: {"kubectl.kubernetes.io/last-applied-configuration": ({apiVersion: "v1", data: {"master-key": $o}} | tojson)}}}' \
+    | curl -sf "${RT[@]}" -X POST -o /dev/null -d @- "$AURL/v1/$KS/$1" || die "writing the stand-in Secret $1 failed"
+}
+SEEDV="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"; NEWV="$(openssl rand -hex 16)"; OLDV="$(openssl rand -hex 16)"
+secret old-master "{\"master-key\":\"$(b64s "$SEEDV")\"}"
+secret changed "{\"master-key\":\"$(b64s "$NEWV")\"}"
+secret no-key "{\"other\":\"$(b64s "$NEWV")\"}"
+secret not-granted "{\"master-key\":\"$(b64s "$NEWV")\"}"
+curl -sf "${RT[@]}" -X POST -o /dev/null -d "{\"data\":{\"password\":\"$OLDV\"}}" "$AURL/v1/mounted/data/$K10" || die "writing $K10 first failed"
+export KUBE_API="$AURL/v1/kapi" KUBE_NAMESPACE=acme KUBE_DIR="$TMP/kube"
+[ "$(kcode old-master)$(kcode changed)" = 200403 ] || die "the stand-in token does not read old-master and only that: $(kcode old-master) $(kcode changed)"
+grep -v "^$N10 " "$TMP/plan10all" > "$TMP/plan10"
+l10=""
+rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10" run acme "$TMP/run10.log" || rc=$?
+[ "$rc" = 0 ] || l10="$l10 rc=$rc"
+[ "$(docof "$AURL" $M10)" = "{\"key\":\"$SEEDV\"}" ] && [ "$(ver "$AURL" $M10)" = 1 ] || l10="$l10 seeded($(ver "$AURL" $M10))"
+[ "$(rd "$AURL" $S10)" = "$SEEDV" ] && [ "$(rd "$BURL" $S10)" = "$SEEDV" ] || l10="$l10 shared-seed"
+vf="$(rd "$AURL" $F10)"
+[ "${#vf}" = 43 ] && [ -z "$(printf '%s' "$vf" | tr -d 'A-Za-z0-9')" ] && [ "$vf" != "$SEEDV" ] || l10="$l10 fresh(${#vf})"
+grep -qx "secrets-birth: $F10: Secret never-made does not exist: a new random value" "$TMP/run10.log" || l10="$l10 fresh-log"
+grep -qx "secrets-birth: $M10: the value of key master-key of Secret old-master" "$TMP/run10.log" || l10="$l10 seed-log"
+[ "$(docof "$AURL" $K10)" = "{\"password\":\"$OLDV\"}" ] && [ "$(ver "$AURL" $K10)" = 1 ] || l10="$l10 kept($(ver "$AURL" $K10))"
+grep -qx "secrets-birth: $K10: present in $A" "$TMP/run10.log" && ! grep -q "of Secret changed" "$TMP/run10.log" || l10="$l10 kept-log"
+! grep -qF -e "$SEEDV" -e "$NEWV" -e "$(b64s "$SEEDV")" "$TMP/run10.log" || l10="$l10 value-in-log"
+# The second run with the stand-in token revoked: any read of a Secret is a
+# 403 and fails the run, so exit 0 shows that it reads nothing.
+jq -n --arg t "$(cat "$TMP/kube/token")" '{token: $t}' | curl -sf "${RT[@]}" -X POST -o /dev/null -d @- "$AURL/v1/auth/token/revoke" \
+  || die "revoking the stand-in API token failed"
+[ "$(kcode old-master)" = 403 ] || die "the revoked stand-in token still reads old-master"
+rc=0; BIRTH="$TMP/birth10.sh" PLAN="$TMP/plan10" run acme "$TMP/run10b.log" || rc=$?
+[ "$rc" = 0 ] && ! grep -q -e ': written in ' -e ' of Secret ' "$TMP/run10b.log" && [ "$(rd "$AURL" $F10)" = "$vf" ] \
+  || l10="$l10 second-run(rc=$rc: $(tr '\n' ' ' < "$TMP/run10b.log"))"
+kube_token
+# refused10 <plan> <log> <line> <name>: exit 1, the log holds <line> and no
+# value, and neither the absent path before the seed (P10) nor N10 is written.
+refused10() {
+  local rc=0
+  BIRTH="$TMP/birth10.sh" PLAN="$1" run acme "$2" || rc=$?
+  [ "$rc" = 1 ] && [ "$(ver "$AURL" $P10)$(ver "$AURL" $N10)" = 00 ] && grep -qxF "$3" "$2" && ! grep -qF "$NEWV" "$2" \
+    || l10="$l10 $4(rc=$rc v$(ver "$AURL" $P10)$(ver "$AURL" $N10): $(tr '\n' ' ' < "$2"))"
+}
+printf '%s 32 0 - self\n' "$P10" > "$TMP/plan10n"
+grep "^$N10 " "$TMP/plan10all" >> "$TMP/plan10n"
+refused10 "$TMP/plan10n" "$TMP/run10n.log" "secrets-birth: Secret no-key holds no key master-key" no-key
+sed 's|seed:no-key/|seed:not-granted/|' "$TMP/plan10n" > "$TMP/plan10d"
+refused10 "$TMP/plan10d" "$TMP/run10d.log" "secrets-birth: reading Secret not-granted failed (HTTP 403)" denied
+secret no-key '{"master-key":""}'
+refused10 "$TMP/plan10n" "$TMP/run10e.log" "secrets-birth: key master-key of Secret no-key is empty" empty
+secret no-key "{\"master-key\":\"$(printf '%s\n' "$NEWV" | openssl base64 -A)\"}"
+refused10 "$TMP/plan10n" "$TMP/run10u.log" "secrets-birth: key master-key of Secret no-key is not printable ASCII" newline
+[ -z "$l10" ] && pass "L10 seedFrom: $M10 holds the value of Secret old-master (43, not the annotation's), $S10 the same in A and B; $F10 is a new value of 43 (no Secret); $K10 keeps its value though Secret changed differs, unread; no value in the log; a second run writes and reads nothing; a Secret without the key and a 403 are refused (exit 1, nothing written)" || fail "L10:$l10"
 
 if [ "$FAIL" -ne 0 ]; then tail -30 "$TMP/reconcile.log"; echo "FAIL: secrets-lib birth Job against two OpenBao servers"; exit 1; fi
 echo "PASS: secrets-lib birth Job — a shared tier B value in every region, a second run changes nothing"

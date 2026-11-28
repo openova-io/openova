@@ -30,6 +30,12 @@ generatedSecrets:            # map; key = <name>, pattern [a-z0-9-]+
                              # default password; [A-Za-z0-9][-._A-Za-z0-9]*
     placeholder: false       # mounted only (SEC-201): true = the document holds
                              # the key with an empty string (no length, no symbols)
+    seedFrom: {name: a, key: b}  # mounted only (SEC-226); no default (absent:
+                             # no seed; {} is refused): name and key of a Secret
+                             # of the value's namespace that holds the value today;
+                             # the birth writes its key when the path is absent,
+                             # a new random value only when the Secret does not
+                             # exist, and nothing when the path holds a value
     mountedCopies: []        # synced only: [{serviceAccount: x}], one copy
                              # of the synced value as a mounted file each
     template: {}             # synced only (SEC-219): the target Secret's
@@ -56,6 +62,12 @@ delivery mounted, scope shared: mounted/<ns>/shared/<name>/e<epoch>
   A placeholder is created once, empty, so a CSI mount of the path succeeds
   before the real value exists; a later writer with update rights replaces
   it and the Job never writes it again.
+  A seedFrom value: the Job reads Secret <name> through the Kubernetes API as
+  its ServiceAccount secrets-birth, bound by RoleBinding secrets-birth-seed to
+  Role secrets-birth-seed (get on the named Secrets of the plan, nothing
+  else), with a projected token of the API's audience. A Secret without the
+  key, an empty value, a value that is not printable ASCII and any answer but
+  200 or 404 are refused before anything is written.
 delivery synced:   Password generator <name>-e<epoch>, PushSecret
   <name>-e<epoch> (IfNotExists) into SecretStore openbao at
   openova/apps/<ns>/<name>/e<epoch>, plus ClusterSecretStore vault-<peer> per
@@ -93,6 +105,7 @@ Settings, under .Values.openova.secrets (all optional):
 {{- if and $peers (not (kindIs "bool" $primary)) }}{{ fail "openova.generatedSecrets: primary must be true or false when peers is not empty" }}{{ end -}}
 {{- $self := .self | default ((($ctx.Values.openova | default dict).topology | default dict).self | default "") -}}
 {{- $plan := list -}}
+{{- $seeds := list -}}
 {{- $copies := list -}}
 {{- $all := .secrets | default dict -}}
 {{- /* SEC-219: each value that another synced value joins, and that value. */ -}}
@@ -134,6 +147,16 @@ Settings, under .Values.openova.secrets (all optional):
 {{- $ph = $spec.placeholder -}}
 {{- end -}}
 {{- if and $ph (or (hasKey $spec "length") (hasKey $spec "symbols")) }}{{ fail (printf "%s: a placeholder is empty: it takes no length or symbols" $where) }}{{ end -}}
+{{- $src := "-" -}}
+{{- if hasKey $spec "seedFrom" -}}
+{{- $sf := $spec.seedFrom -}}
+{{- if not (kindIs "map" $sf) }}{{ fail (printf "%s: seedFrom must be a map of name and key" $where) }}{{ end -}}
+{{- range $f, $_ := $sf }}{{ if not (has $f (list "name" "key")) }}{{ fail (printf "%s: seedFrom field %q is none of name and key" $where $f) }}{{ end }}{{ end -}}
+{{- if or (not (kindIs "string" $sf.name)) (gt (len (toString $sf.name)) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" (toString $sf.name))) }}{{ fail (printf "%s: seedFrom.name must be the name of a Secret of namespace %s" $where $ns) }}{{ end -}}
+{{- if or (not (kindIs "string" $sf.key)) (gt (len (toString $sf.key)) 253) (not (regexMatch "^[-._a-zA-Z0-9]+$" (toString $sf.key))) }}{{ fail (printf "%s: seedFrom.key must be a Secret key ([-._a-zA-Z0-9]+)" $where) }}{{ end -}}
+{{- if $ph }}{{ fail (printf "%s: a placeholder is empty: it takes no seedFrom" $where) }}{{ end -}}
+{{- $src = printf "seed:%s/%s" $sf.name $sf.key -}}
+{{- end -}}
 {{- $scope := $spec.scope | default "sa" -}}
 {{- if not (has $scope (list "sa" "shared")) }}{{ fail (printf "%s: scope %q is neither sa nor shared" $where $scope) }}{{ end -}}
 {{- $path := printf "%s/shared/%s/e%d" $ns $name $epoch -}}
@@ -143,13 +166,15 @@ Settings, under .Values.openova.secrets (all optional):
 {{- $path = printf "%s/sa/%s/%s/e%d" $ns $sa $name $epoch -}}
 {{- end -}}
 {{- if not $waits -}}
-{{- $line := printf "%s %d %d - %s" $path $len $sym (ternary "all" "self" $toPeers) -}}
+{{- $line := printf "%s %d %d %s %s" $path $len $sym $src (ternary "all" "self" $toPeers) -}}
 {{- if $ph }}{{ $line = printf "%s 0 0 empty %s" $path (ternary "all" "self" $toPeers) }}{{ end -}}
 {{- if ne $key "password" }}{{ $line = printf "%s %s" $line $key }}{{ end -}}
 {{- $plan = append $plan $line -}}
+{{- if ne $src "-" }}{{ $seeds = append $seeds $spec.seedFrom.name }}{{ end -}}
 {{- end -}}
 {{- else -}}
 {{- if or (hasKey $spec "key") (hasKey $spec "placeholder") }}{{ fail (printf "%s: key and placeholder are only for delivery mounted" $where) }}{{ end -}}
+{{- if hasKey $spec "seedFrom" }}{{ fail (printf "%s: seedFrom is only for delivery mounted: a synced value is born by its PushSecret, which reads one source and has no fallback" $where) }}{{ end -}}
 {{- $isJoined := hasKey $joined $name -}}
 {{- if $isJoined -}}
 {{- range list "registerId" "template" "copies" "join" "mountedCopies" }}{{ if hasKey $spec . }}{{ fail (printf "%s: generatedSecrets.%s joins this value, so it renders no Secret of its own and takes no %s" $where (index $joined $name) .) }}{{ end }}{{ end -}}
@@ -256,6 +281,8 @@ spec:
 {{- end -}}
 {{- end -}}
 {{- if $plan -}}
+{{- $seeds = $seeds | uniq | sortAlpha -}}
+{{- $readsApi := gt (len $seeds) 0 -}}
 {{- $peerList := list -}}
 {{- $anyAll := false -}}
 {{- range $plan }}{{ if eq (index (splitList " " .) 4) "all" }}{{ $anyAll = true }}{{ end }}{{ end -}}
@@ -264,7 +291,7 @@ spec:
 {{- range $peers }}{{ $peerList = append $peerList (printf "%s=http://openbao-%s.%s.svc.cluster.local:8200" . . $baoNs) }}{{ end -}}
 {{- end -}}
 {{- $planText := printf "%s\n" (join "\n" $plan) -}}
-{{- $script := include "openova.birthScript" $ctx -}}
+{{- $script := include "openova.birthScript" (dict "readsApi" $readsApi) -}}
 {{- $hash := sha256sum (printf "%s|%s|%s|%s|%s" $planText $script $image (join " " $peerList) $addr) | trunc 10 -}}
 {{- $jobName := printf "secrets-birth-%s" $hash }}
 ---
@@ -277,6 +304,39 @@ metadata:
     app.kubernetes.io/name: secrets-birth
     secrets.openova.io/library: secrets-lib
 automountServiceAccountToken: false
+{{- if $seeds }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secrets-birth-seed
+  namespace: {{ $ns | quote }}
+  labels:
+    app.kubernetes.io/name: secrets-birth
+    secrets.openova.io/library: secrets-lib
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: {{ toJson $seeds }}
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secrets-birth-seed
+  namespace: {{ $ns | quote }}
+  labels:
+    app.kubernetes.io/name: secrets-birth
+    secrets.openova.io/library: secrets-lib
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: secrets-birth-seed
+subjects:
+  - kind: ServiceAccount
+    name: secrets-birth
+    namespace: {{ $ns | quote }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -287,7 +347,11 @@ metadata:
     app.kubernetes.io/name: secrets-birth
     secrets.openova.io/library: secrets-lib
 data:
+{{- if $seeds }}
+  # <path under mounted/> <length> <symbols> <source: - = new random value | empty = placeholder | seed:<Secret>/<key> = that key of that Secret, a new random value only when the Secret does not exist | file> <reach: all | self> [<key>, default password]
+{{- else }}
   # <path under mounted/> <length> <symbols> <source: - = new random value | empty = placeholder | file> <reach: all | self> [<key>, default password]
+{{- end }}
   plan: |
 {{ join "\n" $plan | indent 4 }}
   birth.sh: |
@@ -346,6 +410,11 @@ spec:
             - {name: PLAN_FILE, value: /etc/secrets-birth/plan/plan}
             - {name: WORK_DIR, value: /work}
             - {name: MOUNT, value: mounted}
+{{- if $seeds }}
+            - {name: KUBE_API, value: "https://kubernetes.default.svc"}
+            - {name: KUBE_NAMESPACE, value: {{ $ns | quote }}}
+            - {name: KUBE_DIR, value: /var/run/secrets/openova-birth-kube}
+{{- end }}
           resources:
             requests:
               cpu: "10m"
@@ -362,6 +431,9 @@ spec:
             - {name: plan, mountPath: /etc/secrets-birth/plan, readOnly: true}
             - {name: jwt, mountPath: /var/run/secrets/openova-birth, readOnly: true}
             - {name: work, mountPath: /work}
+{{- if $seeds }}
+            - {name: kube, mountPath: /var/run/secrets/openova-birth-kube, readOnly: true}
+{{- end }}
 {{- range $copies }}
             - {name: {{ .volume }}, mountPath: {{ printf "/etc/secrets-birth/%s" .volume }}, readOnly: true}
 {{- end }}
@@ -380,6 +452,18 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 1Mi
+{{- if $seeds }}
+        - name: kube
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 600
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - {key: ca.crt, path: ca.crt}
+{{- end }}
 {{- range $copies }}
         - name: {{ .volume }}
           secret:

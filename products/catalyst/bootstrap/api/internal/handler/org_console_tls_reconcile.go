@@ -73,12 +73,14 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orglisteners"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -141,6 +143,7 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 
 	sovereignFQDN := strings.TrimSpace(h.orgTenantDeps.OTECHFQDN)
 	reconciled, skipped := 0, 0
+	var gateways []orglisteners.Gateway
 	for i := range list.Items {
 		rec, ok := orgConsoleTLSRecordFromOrgCR(&list.Items[i], sovereignFQDN)
 		if !ok {
@@ -153,6 +156,24 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 		// about it is create-time-only, which is precisely why re-running it
 		// here backfills a region the Org's original producer never reached.
 		h.provisionOrgConsoleTLS(ctx, rec)
+		// NET-195 — the Org's TLS passthrough listeners, from its CR, in the
+		// same regions (resolved once per pass). Only this path writes them:
+		// the BSS door's record has no host list.
+		if gateways == nil {
+			targets, _ := h.orgConsoleTLSTargets(deps)
+			for _, tgt := range targets {
+				gateways = append(gateways, orglisteners.Gateway{Dyn: tgt.dyn, Namespace: consoleGatewayNamespace, Name: consoleGatewayName})
+			}
+		}
+		names, _ := resolveOrgConsoleTLSNames(rec)
+		changes, err := orglisteners.EnsurePassthrough(ctx, &list.Items[i], names.Slug, names.OrgZone, catalystConsoleNamespace, gateways)
+		for _, c := range changes {
+			err = errors.Join(err, updateConsoleGateway(ctx, c.Dyn, c.Object))
+		}
+		if err != nil {
+			h.log.Error("org-console-tls: passthrough listeners not written — reconcile will retry (NET-195)",
+				"organization", list.Items[i].GetName(), "err", err)
+		}
 		// ADR-0015 D1 — the per-Org APP surface and standby legs are no
 		// longer copied into secondary regions by this process. Every
 		// region's own Flux applies the Org's Flux objects and its own

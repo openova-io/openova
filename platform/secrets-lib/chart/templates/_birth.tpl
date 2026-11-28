@@ -19,11 +19,19 @@ Input (environment of the Job):
   PLAN_FILE            one line per value: <path> <length> <symbols>
                        <source> <reach> [<key>]; source "-" = a new random
                        value, "empty" = the empty string (a placeholder),
-                       else a file (an absolute path) whose content is
-                       copied; reach "all" = this region and every peer,
-                       "self" = this region only; key = the document's key,
-                       default password
+                       "seed:<Secret>/<key>" (SEC-226) = that key of that
+                       Secret of this namespace, and a new random value only
+                       when the Secret does not exist, else a file (an
+                       absolute path) whose content is copied; reach "all" =
+                       this region and every peer, "self" = this region only;
+                       key = the document's key, default password
   WORK_DIR MOUNT       a private directory; the mount (mounted)
+  KUBE_API KUBE_NAMESPACE KUBE_DIR   with a seed only: the Kubernetes API, this
+                       namespace, and the directory of the Job's projected
+                       API token (token) and the cluster CA (ca.crt). The
+                       template's input, dict "readsApi" <bool>, is true when
+                       the plan has a seed; only then are the seed functions
+                       rendered, so a plan without one runs the same text.
 
 Per value, in order: this region first, then each peer.
   - Here the metadata is readable: version 1 or more is present and is not
@@ -34,9 +42,13 @@ Per value, in order: this region first, then each peer.
   - A peer that ACCEPTS a write while the value was already present here was
     missing it: it now holds a different value. The Job fails and names it.
 Before anything is written every region is logged in to and must grant
-`create` on every path, so an unreachable region fails the run while nothing
-is written (exit 1, the Job retries). Once a value is written, a failure ends
-the Job (exit 3, podFailurePolicy FailJob): raise the epoch to start again.
+`create` on every path, and the Secret of every seed whose path is absent here
+must answer with its key or not exist, so an unreachable region or a refused
+seed fails the run while nothing is written (exit 1, the Job retries). A seed
+is read only when its path is absent here: a value the store holds is never
+compared with the Secret and never replaced. Once a value is written, a
+failure ends the Job (exit 3, podFailurePolicy FailJob): raise the epoch to
+start again.
 A second run writes nothing and fails on no region.
 */ -}}
 {{- define "openova.birthScript" -}}
@@ -114,6 +126,16 @@ state() {
 # value <length> <symbols> <source>: a new random value, the empty string of
 # a placeholder, or the file's content.
 value() {
+{{- if .readsApi }}
+  # A seed, in step 3 (st: the state here of the plan line in hand): the
+  # Secret's value when the path is absent; else a new random value, which
+  # reaches only a peer that lacks the value (and fails the run there).
+  case "$3" in
+    seed:*)
+      if [ "$st" = absent ]; then seed "${3#seed:}" "$1" "$2"; return; fi
+      set -- "$1" "$2" - ;;
+  esac
+{{- end }}
   if [ "$3" = empty ]; then
     return 0
   fi
@@ -127,6 +149,57 @@ value() {
   while [ "${#_s}" -lt "$2" ]; do _s="$_s$(head -c 96 /dev/urandom | LC_ALL=C tr -dc '!#%+,.:=@^_~-')"; done
   printf '%s%s' "$(printf '%s' "$_v" | cut -c "1-$_a")" "$( [ "$2" -gt 0 ] && printf '%s' "$_s" | cut -c "1-$2")"
 }
+{{- if .readsApi }}
+# seed_read <Secret>/<key>: decode that key of that Secret of KUBE_NAMESPACE
+# into WORK_DIR/seed, read through KUBE_API as the Job's ServiceAccount (its
+# projected token KUBE_DIR/token; Role secrets-birth-seed grants get on the
+# named Secrets only). 0 = read; 2 = the Secret does not exist; 1 = refused:
+# any other answer, a Secret without the key, an empty value, a value that is
+# not printable ASCII. The value passes only through pipes and WORK_DIR,
+# never an argument, the environment or the log.
+seed_read() {
+  _n="${1%%/*}"; _k="${1#*/}"
+  rm -f "$WORK_DIR/seed"
+  printf 'Authorization: Bearer %s\n' "$(cat "$KUBE_DIR/token")" > "$WORK_DIR/kube-auth"
+  _o="$(req "$WORK_DIR/kube-auth" GET "$KUBE_API/api/v1/namespaces/$KUBE_NAMESPACE/secrets/$_n" --cacert "$KUBE_DIR/ca.crt")" || true
+  rm -f "$WORK_DIR/kube-auth"
+  case "$(last "$_o")" in
+    200) ;;
+    404) return 2 ;;
+    *) echo "secrets-birth: reading Secret $_n failed (HTTP $(last "$_o"))" >&2; return 1 ;;
+  esac
+  # The top-level data map (an annotation's copy is escaped, \"data\"), one
+  # entry per line; "=<base64>" when the key is there.
+  _e="$(printf '%s' "$_o" | tr -d ' \t\r\n' | sed -n 's/.*[{,]"data":{\([^}]*\)}.*/\1/p' | tr ',' '\n' \
+    | sed -n "s|^\"$(printf '%s' "$_k" | sed 's/\./\\./g')\":\"\([A-Za-z0-9+/=]*\)\"\$|=\1|p")"
+  case "$_e" in
+    "") echo "secrets-birth: Secret $_n holds no key $_k" >&2; return 1 ;;
+    =) echo "secrets-birth: key $_k of Secret $_n is empty" >&2; return 1 ;;
+  esac
+  if printf '%s' "${_e#=}" | base64 -d > "$WORK_DIR/seed" 2>/dev/null && [ -s "$WORK_DIR/seed" ] \
+    && [ "$(LC_ALL=C tr -d ' -~' < "$WORK_DIR/seed" | wc -c | tr -d ' ')" = 0 ]; then
+    return 0
+  fi
+  rm -f "$WORK_DIR/seed"
+  echo "secrets-birth: key $_k of Secret $_n is not printable ASCII" >&2
+  return 1
+}
+# seed <Secret>/<key> <length> <symbols>: the value of that key, or a new
+# random value of <length> and <symbols> only when the Secret does not exist
+# (path: the plan line in hand).
+seed() {
+  _rc=0; seed_read "$1" || _rc=$?
+  case "$_rc" in
+    0)
+      echo "secrets-birth: $path: the value of key ${1#*/} of Secret ${1%%/*}" >&2
+      cat "$WORK_DIR/seed"; _rc=$?; rm -f "$WORK_DIR/seed"; return "$_rc" ;;
+    2)
+      echo "secrets-birth: $path: Secret ${1%%/*} does not exist: a new random value" >&2
+      value "$2" "$3" - ;;
+    *) return 1 ;;
+  esac
+}
+{{- end }}
 
 [ -r "$PLAN_FILE" ] || die "$HERE" "the plan $PLAN_FILE is not mounted"
 [ -r "$JWT_FILE" ] || die "$HERE" "the service-account token $JWT_FILE is not mounted"
@@ -156,6 +229,16 @@ while read -r path len sym src reach key; do
   if [ "$reach" = all ]; then
     for id in $PEER_IDS; do can_create "$id" "$path" || die "$id" "no create right on $MOUNT/data/$path"; done
   fi
+{{- if .readsApi }}
+  case "$src" in
+    seed:*)
+      if [ "$(state "$path")" = absent ]; then
+        rc=0; seed_read "${src#seed:}" || rc=$?
+        rm -f "$WORK_DIR/seed"
+        [ "$rc" != 1 ] || die "$HERE" "the seed $src of $path is refused"
+      fi ;;
+  esac
+{{- end }}
 done < "$PLAN_FILE"
 # 3. Write: here first, then each peer.
 DIVERGED=""

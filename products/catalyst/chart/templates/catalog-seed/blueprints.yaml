@@ -1435,7 +1435,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.67
+  version: 0.2.70
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
@@ -1454,7 +1454,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: 0.2.67
+    version: 0.2.70
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -4020,7 +4020,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.10
+  version: 1.1.11
   card:
     title: Valkey
     summary: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
@@ -4045,7 +4045,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: 1.1.10
+    version: 1.1.11
   topology:
     supported: [active-passive, singleton]
     defaults:
