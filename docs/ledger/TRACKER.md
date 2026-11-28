@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T00:00:03Z` |
+| Last refreshed | `2026-11-28T00:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8711](https://github.com/openova-io/openova/issues/8711) | FND-202 Decision record 0035: one telemetry pipeline, alert events, declared obj | Other |
 | [#8713](https://github.com/openova-io/openova/issues/8713) | CTL-820 Region-loss gate check | Other |
 | [#8716](https://github.com/openova-io/openova/issues/8716) | FND-163 Console regression: jobs, resource views, cloud and infrastructure read  | Other |
 | [#8723](https://github.com/openova-io/openova/issues/8723) | FND-G21 rows 241 and 242: the live gate job passes GATE_PARENT_URL and GATE_PARE | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9085](https://github.com/openova-io/openova/issues/9085) | CMP-043 CMP-G03 is required in the conformance pack | Other |
 | [#9089](https://github.com/openova-io/openova/issues/9089) | SEC-226 A library value is seeded from the Secret that holds it today | Other |
 | [#9092](https://github.com/openova-io/openova/issues/9092) | SEC-232 Roll-out: platform/valkey | Other |
+| [#9095](https://github.com/openova-io/openova/issues/9095) | SEC-239 powerdns-api-credentials carries helm.sh/resource-policy keep one releas | Other |
 
 ---
 
