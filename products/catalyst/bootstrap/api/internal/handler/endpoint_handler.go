@@ -793,7 +793,9 @@ type backingError struct {
 // their Context declarations live in the bootstrap-kit slot values in
 // Git, not in the Application CR — appending here would render a row
 // whose materialization never happens. An element that names a capability
-// of the consumer's requires is resolved first (package binding).
+// of the consumer's requires is resolved first (package binding). Every
+// element is judged before the first write (binding.Plan): a refused
+// element, or two that reuse one instance, leaves nothing written.
 func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interface, body *instances.CreateInstanceRequest, refs resolvedRefs, requires []capability.Requirement) ([]interface{}, map[string]interface{}, *backingError) {
 	resolved, refusal := binding.Resolve(ctx, client, h.endpointDeps.CapabilityIndex, body.Blueprint, requires, body.Backing)
 	if refusal != nil {
@@ -807,7 +809,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 	// create, and the consumer's dependsOn pointer all use this so they
 	// agree with where the consumer + backing CRs actually live.
 	orgNS := refs.Namespace
-	dependsOn, bindings := make([]interface{}, 0, len(body.Backing)), map[string]interface{}{}
+	dependsOn, bindings, plan := make([]interface{}, 0, len(body.Backing)), map[string]interface{}{}, &binding.Plan{}
 	for i, sel := range body.Backing {
 		// ADR-0015 D4 — the backing Blueprint is named exactly.
 		bpFull := binding.Provider(resolved[i], sel.Blueprint)
@@ -889,18 +891,7 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 					_ = unstructured.SetNestedField(backingObj.Object, v, "spec", "blueprintRef", "version")
 				}
 			}
-			if _, cerr := client.Resource(ApplicationGVR()).Namespace(orgNS).Create(ctx, backingObj, metav1.CreateOptions{}); cerr != nil {
-				if !apierrors.IsAlreadyExists(cerr) {
-					return nil, nil, &backingError{status: http.StatusInternalServerError, code: "backing-create-failed", message: cerr.Error()}
-				}
-			}
-			// #3687 (fold #3694) — the auto-created backing instance is its
-			// OWN Application; commit its desired-state CR to the per-Org
-			// `iac` repo so the new card's IaC is Git-resident too.
-			if _, gErr := h.commitApplicationCRToGit(ctx, body.Org, backingObj); gErr != nil {
-				h.log.Warn("backing-service Application IaC git commit failed (etcd projection still created)",
-					"org", body.Org, "application", backingObj.GetName(), "error", gErr)
-			}
+			plan.Create(orgNS, body.Org, backingObj)
 			dependsOn = append(dependsOn, map[string]interface{}{
 				"name":      backingName,
 				"namespace": orgNS,
@@ -923,43 +914,39 @@ func (h *Handler) wireBackingServices(ctx context.Context, client dynamic.Interf
 					message: fmt.Sprintf("instance %q is bootstrap-owned — its Contexts are declared in the bootstrap-kit slot values in Git; add the Context there", sel.Instance),
 				}
 			}
-			// Append the Context entry to the instance's declared IaC.
-			params, _, _ := unstructured.NestedMap(target.Object, "spec", "parameters")
-			if params == nil {
-				params = map[string]interface{}{}
-			}
-			entries, _ := params[ctxSchema.ValuesKey].([]interface{})
-			for _, e := range entries {
-				if em, ok := e.(map[string]interface{}); ok {
-					if n, _ := em["name"].(string); n == contextName {
-						return nil, nil, &backingError{
-							status:  http.StatusConflict,
-							code:    "context-exists",
-							message: fmt.Sprintf("instance %q already declares Context %s/%s", sel.Instance, ctxSchema.Kind, contextName),
-						}
-					}
-				}
-			}
-			params[ctxSchema.ValuesKey] = append(entries, entry)
-			if err := unstructured.SetNestedMap(target.Object, params, "spec", "parameters"); err != nil {
-				return nil, nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: err.Error()}
-			}
-			if _, uerr := client.Resource(ApplicationGVR()).Namespace(target.GetNamespace()).Update(ctx, target, metav1.UpdateOptions{}); uerr != nil {
-				return nil, nil, &backingError{status: http.StatusInternalServerError, code: "context-write-failed", message: uerr.Error()}
-			}
-			// #3687 (fold #3694) — the appended Context is "the declared
-			// IaC": commit the reused instance's updated CR (now carrying
-			// the new Context in spec.parameters) to its per-Org `iac` repo
-			// so the Context delta lands in Git, not only etcd.
-			if _, gErr := h.commitApplicationCRToGit(ctx, target.GetNamespace(), target); gErr != nil {
-				h.log.Warn("Context-append Application IaC git commit failed (etcd projection still applied)",
-					"org", target.GetNamespace(), "application", target.GetName(), "error", gErr)
+			// Append the Context entry to the instance's declared IaC; refused
+			// when the instance or an earlier element already holds it.
+			if r := plan.Reuse(i, target, ctxSchema.ValuesKey, ctxSchema.Kind, entry); r != nil {
+				return nil, nil, &backingError{status: r.Status, code: r.Code, message: r.Message}
 			}
 			dependsOn = append(dependsOn, map[string]interface{}{
 				"name":      target.GetName(),
 				"namespace": target.GetNamespace(),
 				"context":   ctxSchema.Kind + "/" + contextName,
 			})
+		}
+	}
+	// The whole list is judged: write it in order. A create keeps an
+	// Application that already exists.
+	for _, w := range plan.Writes() {
+		var err error
+		code, apps := "context-write-failed", client.Resource(ApplicationGVR()).Namespace(w.Namespace)
+		if w.Create {
+			if _, err = apps.Create(ctx, w.Obj, metav1.CreateOptions{}); apierrors.IsAlreadyExists(err) {
+				err = nil
+			}
+			code = "backing-create-failed"
+		} else {
+			_, err = apps.Update(ctx, w.Obj, metav1.UpdateOptions{})
+		}
+		if err != nil {
+			return nil, nil, &backingError{status: http.StatusInternalServerError, code: code, message: err.Error()}
+		}
+		// #3687 (fold #3694) — each written Application (a created backing
+		// instance, a reused one carrying the new Context) is committed to its
+		// per-Org `iac` repo so its IaC is Git-resident, not only in etcd.
+		if _, gErr := h.commitApplicationCRToGit(ctx, w.Org, w.Obj); gErr != nil {
+			h.log.Warn("backing Application IaC git commit failed (etcd projection still written)", "org", w.Org, "application", w.Obj.GetName(), "error", gErr)
 		}
 	}
 	return dependsOn, bindings, nil
