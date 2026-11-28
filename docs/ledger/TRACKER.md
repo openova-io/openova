@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T14:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T15:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8753](https://github.com/openova-io/openova/issues/8753) | FND-191 Remove the second matcher's job handling from the API | Other |
-| [#8757](https://github.com/openova-io/openova/issues/8757) | FND-165 Console regression: compliance, sovereignty and hand-over pages, storefr | Other |
 | [#8761](https://github.com/openova-io/openova/issues/8761) | AIP-156 Delete the long-lived bearer seed | Other |
 | [#8762](https://github.com/openova-io/openova/issues/8762) | CMP-071 Policy files in every region's folder: scopes, the write functions, the  | Other |
 | [#8765](https://github.com/openova-io/openova/issues/8765) | CMP-041 ComplianceModel: definition, data files, chart template, exemptions, gua | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#9132](https://github.com/openova-io/openova/issues/9132) | FND-038 Suite helper: a test Organization and a Blueprint install | Other |
 | [#9133](https://github.com/openova-io/openova/issues/9133) | FND-141 Flight workflow: one fresh installation with pre-flight and leftover swe | Other |
 | [#9136](https://github.com/openova-io/openova/issues/9136) | SVC-185 Conditional: a Blueprint declaration that pins an Application to its reg | Other |
+| [#9138](https://github.com/openova-io/openova/issues/9138) | CTL-242 Catalogue edits are stored as the edited card fields only | Other |
+| [#9139](https://github.com/openova-io/openova/issues/9139) | SVC-261 A request with two reuse bindings of one capability on one instance is r | Other |
 
 ---
 
