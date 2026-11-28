@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-plane-isolation
 spec:
-  version: 0.1.22
+  version: 0.1.23
   card:
     title: Plane isolation (per-component default-deny)
     summary: |

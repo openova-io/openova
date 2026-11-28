@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T10:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T11:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8729](https://github.com/openova-io/openova/issues/8729) | CTL-815 One Continuum definition file | Other |
 | [#8730](https://github.com/openova-io/openova/issues/8730) | INF-350 Spike: change events from the reference cloud | Other |
 | [#8732](https://github.com/openova-io/openova/issues/8732) | FND-164 Console regression: Organizations, users and access, settings | Other |
 | [#8734](https://github.com/openova-io/openova/issues/8734) | SVC-230 The wizard shows the generated kit list | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9100](https://github.com/openova-io/openova/issues/9100) | NET-187 The Sovereign's DNS addresses answer on port 53 (NET-G19) | Other |
 | [#9102](https://github.com/openova-io/openova/issues/9102) | ACC-114 Gate check ACC-G15: session images start hardened | Other |
 | [#9107](https://github.com/openova-io/openova/issues/9107) | CMP-024 The API's cache holds the namespaced policy kinds, and its fan-out never | Other |
+| [#9111](https://github.com/openova-io/openova/issues/9111) | BSS-071 Deleting an Organization from the storefront removes it and its namespac | Other |
 
 ---
 
@@ -326,6 +326,7 @@ flowchart LR
 | 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
+| 2026-11-28T10:21 | [#9080](https://github.com/openova-io/openova/pull/9080) | #5734 | feat(svc): in-cluster object storage and the capability prob |
 | 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:25 | [#9077](https://github.com/openova-io/openova/pull/9077) | #9075 | feat(network): the platform API writes the passthrough liste |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T22:31 | [#9068](https://github.com/openova-io/openova/pull/9068) | #9064 | feat(axon): chart bp-axon with its credential a file mounted |
 | 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
-| 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
 
 ---
 
