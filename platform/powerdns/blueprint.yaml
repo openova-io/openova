@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-powerdns
 spec:
-  version: 1.2.34
+  version: 1.2.35
   card:
     title: PowerDNS
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
