@@ -1,0 +1,369 @@
+name: release-train
+
+# The flight workflow (FND-141): one flight is one fresh installation of a candidate, made in the
+# order of docs/RUNBOOKS.md sections 0.7 and 0.8, each job fail-closed and never retried:
+#   cut      the rules of a flight (docs/RUNBOOKS.md section 0.8), the candidate rc/<id> (cut from the
+#            head of main, or the one given; verified) and the cloud-init size gate on it, whose
+#            worst-case surfaces and limits go into the summary. Nothing is wiped when one refuses.
+#   flight   before the wipe, the fire body (complete) and the pre-flight checks that need no wiped state;
+#            then the wipe of wipe_existing and its end, the sweep, the fire with its whole pre-flight gate.
+#   ready    the deployment is ready, and the gate's region kubeconfigs (set by hand) name it.
+# The tools are this workflow's commit (the one cut self-tests); the product is the candidate rc/<id>.
+#   gate     foundation-gate.yaml in parent execution.   verdict: the verdict table of main.
+# The weekly run fires nothing: it fails when a flight is due (a first-boot file changed since the
+# candidate of the standing deployment, which is 7 days old or older).
+# Secrets of the environment gate: CATALYST_MOTHERSHIP_KEY (PEM) and ACCEPTANCE_PARENT_KUBECONFIG
+# (FND-079), whose use scripts/check-gate-parent-access.py keeps to the workflows of its list.
+
+on:
+  workflow_dispatch:
+    inputs:
+      wipe_existing:
+        description: The deployment id of the standing environment, the one live deployment. The flight wipes it.
+        required: true
+      candidate_id:
+        description: The candidate rc/<id> to install. Empty means a new candidate cut from the head of main (with stage_exit, the standing candidate).
+        default: ''
+      nodes_requested:
+        description: "The nodes the request asks for, per region id: <regionA>=6,<regionB>=6 (gate check FND-G03)"
+        required: true
+      stage_exit:
+        description: The second flight of the standing candidate in a row, at the exit of a stage.
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 20 * * 4' # once a week, at the start of the weekly maintenance window
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-train
+  cancel-in-progress: false
+
+env:
+  TRAIN_CAPABILITIES: multi-region
+  TRAIN_PROVISION_REQUEST: |
+    {
+      "enableSharedPostgres": true,
+      "qaTestEnabled": false,
+      "fireCutoverOnHandover": true
+    }
+
+jobs:
+  cut:
+    name: the rules of a flight, the candidate and its cloud-init size
+    runs-on: ubuntu-latest
+    environment: gate
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      pull-requests: read
+    outputs:
+      fly: ${{ steps.size.outputs.fly }}
+      candidate_id: ${{ steps.candidate.outputs.id }}
+      commit: ${{ steps.candidate.outputs.commit }}
+      wipe_id: ${{ steps.standing.outputs.id }}
+      wipe_fqdn: ${{ steps.standing.outputs.fqdn }}
+      label: ${{ steps.standing.outputs.label }}
+      capabilities: ${{ steps.size.outputs.capabilities }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install PyYAML, PyJWT and yq
+        run: |
+          pip install --quiet pyyaml pyjwt cryptography
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+      - name: Self-test of the lifecycle script (no network)
+        run: bash scripts/sovereign-lifecycle.sh --self-test
+      - name: The candidate of the standing deployment, read from the records on main
+        id: records
+        env:
+          WIPE: ${{ inputs.wipe_existing }}
+        run: |
+          set -euo pipefail
+          dep="$WIPE"
+          [ -n "$dep" ] || dep="$(jq -rs 'map(select(.deployment_id and .started_at)) | sort_by(.started_at) | last | .deployment_id' docs/ledger/acceptance/*.json)"
+          birth="$(jq -rs --arg d "$dep" 'map(select(.deployment_id == $d and .provision.fresh == true)) | sort_by(.started_at) | first
+            | if . == null then "" else "\(.candidate.id) \(.candidate.commit) \(.provision.created_at) \(.provision.previous_deployment_id // "-")" end' docs/ledger/acceptance/*.json)"
+          [ -n "$birth" ] || birth="- - - -"
+          read -r bid bcommit bcreated bprev <<< "$birth"
+          # The candidate of the deployment the standing one replaced (- when no record names it): rules same refuses a third flight in a row.
+          pcommit="$(jq -rs --arg d "$bprev" 'map(select(.deployment_id == $d and .provision.fresh == true)) | sort_by(.started_at) | first | .candidate.commit // "-"' docs/ledger/acceptance/*.json)"
+          { echo "candidate_id=$bid"; echo "commit=$bcommit"; echo "created=$bcreated"; echo "commit_before=$pcommit"; } >> "$GITHUB_OUTPUT"
+          echo "Deployment $dep, installed fresh from candidate ${bid} (commit ${bcommit}) at ${bcreated}; the one before it, ${bprev}, from commit ${pcommit}" >> "$GITHUB_STEP_SUMMARY"
+      - name: "Weekly run: is a flight due"
+        if: github.event_name == 'schedule'
+        env:
+          BIRTH_COMMIT: ${{ steps.records.outputs.commit }}
+          BIRTH_CREATED: ${{ steps.records.outputs.created }}
+        run: |
+          set -euo pipefail
+          rc=0; bash scripts/sovereign-lifecycle.sh rules due "$BIRTH_COMMIT" "$BIRTH_CREATED" > "$RUNNER_TEMP/due" || rc=$?
+          cat "$RUNNER_TEMP/due"; { echo '```'; cat "$RUNNER_TEMP/due"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" = 0 ] || { echo "::error::$(head -n 1 "$RUNNER_TEMP/due")"; exit 1; }
+      - name: "Flight: wipe_existing is the one live deployment (the key is never echoed)"
+        id: standing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          K: ${{ secrets.CATALYST_MOTHERSHIP_KEY }}
+          WIPE: ${{ inputs.wipe_existing }}
+        run: |
+          set -euo pipefail
+          if [ -z "$K" ]; then echo "::error::the secret CATALYST_MOTHERSHIP_KEY of the environment gate is not set"; exit 2; fi
+          umask 077; export CATALYST_MOTHERSHIP_KEY="$RUNNER_TEMP/mothership.pem"; trap 'rm -f "$CATALYST_MOTHERSHIP_KEY"' EXIT
+          printf '%s\n' "$K" > "$CATALYST_MOTHERSHIP_KEY"
+          bash scripts/sovereign-lifecycle.sh standing > "$RUNNER_TEMP/standing"
+          { echo '### Live deployments'; echo '```'; cat "$RUNNER_TEMP/standing"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          read -r id _ fqdn started < "$RUNNER_TEMP/standing" || true
+          if [ "$(grep -c . "$RUNNER_TEMP/standing")" != 1 ] || [ "${id:-}" != "$WIPE" ]; then
+            echo "::error::wipe_existing must name the one live deployment; the mothership lists $(grep -c . "$RUNNER_TEMP/standing"). Nothing was wiped."; exit 1
+          fi
+          { echo "id=$id"; echo "fqdn=$fqdn"; echo "label=${fqdn%%.*}"; echo "started=$started"; } >> "$GITHUB_OUTPUT"
+      - name: "Flight: at most one a week, and the same candidate twice only at the exit of a stage"
+        id: rules
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          STAGE_EXIT: ${{ inputs.stage_exit }}
+          GIVEN: ${{ inputs.candidate_id }}
+          STARTED: ${{ steps.standing.outputs.started }}
+          BIRTH_ID: ${{ steps.records.outputs.candidate_id }}
+          BIRTH_COMMIT: ${{ steps.records.outputs.commit }}
+          COMMIT_BEFORE: ${{ steps.records.outputs.commit_before }}
+        run: |
+          set -euo pipefail
+          bash scripts/sovereign-lifecycle.sh rules week "$STARTED" "$STAGE_EXIT"
+          # The commit a flight without a given candidate installs: the head of main, or with stage_exit the standing one.
+          id="$GIVEN"; next="$(git rev-parse origin/main)"
+          if [ "$STAGE_EXIT" = true ]; then id="${GIVEN:-$BIRTH_ID}"; next="$BIRTH_COMMIT"; fi
+          [ -n "$GIVEN" ] || bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$next" "$BIRTH_COMMIT" "$COMMIT_BEFORE"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: "Flight: push access for a new rc/<id>"
+        if: github.event_name == 'workflow_dispatch' && steps.rules.outputs.id == ''
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
+      - name: Set up the Go of tools/guards (the image list and the registry walk of the cut)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+      - name: "Flight: the candidate (cut, or the one given), verified"
+        id: candidate
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_USER: 'robot$openova-warmup'
+          ORIGIN_TOKEN: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
+          GIVEN: ${{ steps.rules.outputs.id }}
+          BIRTH_COMMIT: ${{ steps.records.outputs.commit }}
+          COMMIT_BEFORE: ${{ steps.records.outputs.commit_before }}
+          STAGE_EXIT: ${{ inputs.stage_exit }}
+        run: |
+          set -euo pipefail
+          id="$GIVEN"
+          if [ -z "$id" ]; then id="$(bash scripts/release-candidate.sh cut)"; fi
+          git fetch --quiet origin "+refs/heads/rc/$id:refs/remotes/origin/rc/$id"
+          commit="$(bash scripts/release-candidate.sh verify "$id")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::verify printed no commit"; exit 1; }
+          bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$commit" "$BIRTH_COMMIT" "$COMMIT_BEFORE"
+          { echo "id=$id"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
+          echo "Candidate: rc/$id at $commit" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install OpenTofu (the cloud-init render)
+        if: github.event_name == 'workflow_dispatch'
+        uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+        with:
+          tofu_version: 1.11.6
+      - name: "Flight: the cloud-init size gate on the candidate"
+        id: size
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          COMMIT: ${{ steps.candidate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git worktree add --detach -q "$RUNNER_TEMP/candidate" "$COMMIT"
+          rc=0
+          ( cd "$RUNNER_TEMP/candidate" && NO_COLOR=1 bash scripts/cloudinit-size-check.sh both ) > "$RUNNER_TEMP/size.log" 2>&1 || rc=$?
+          worst="$(grep -E '^ +(PASS|WARN|FAIL) .+ \(worst case\): [0-9]+ bytes, limit [0-9]+' "$RUNNER_TEMP/size.log")" || rc="$rc, no worst-case line"
+          { echo '### Cloud-init worst case of the candidate (bytes, limit)'; echo '```'; echo "$worst"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" != 0 ]; then cat "$RUNNER_TEMP/size.log"; echo "::error::The cloud-init size gate refused the candidate (exit $rc): no flight."; exit 1; fi
+          caps="$(tr ',' '\n' <<< "$TRAIN_CAPABILITIES" | grep -vx 'multi-region\|previous-wipe' | paste -sd, -)" || caps=""
+          { echo "capabilities=$caps"; echo "fly=true"; } >> "$GITHUB_OUTPUT"
+
+  flight:
+    name: wipe, sweep and fire
+    needs: cut
+    if: github.event_name == 'workflow_dispatch' && needs.cut.outputs.fly == 'true'
+    runs-on: ubuntu-latest
+    environment: gate
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      PREV_ID: ${{ needs.cut.outputs.wipe_id }}
+      FQDN: ${{ needs.cut.outputs.wipe_fqdn }}
+      GITOPS_BRANCH: rc/${{ needs.cut.outputs.candidate_id }}
+      TRAIN_SSH_PUBLIC_KEY: ${{ vars.TRAIN_SSH_PUBLIC_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      deployment_id: ${{ steps.fire.outputs.deployment_id }}
+      preflight: ${{ steps.fire.outputs.preflight }}
+      leftovers: ${{ steps.fire.outputs.leftovers }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache: false
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+      - name: Install PyYAML, PyJWT and yq
+        run: |
+          pip install --quiet pyyaml pyjwt cryptography
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+      - name: The mothership key and the parent kubeconfig (never echoed)
+        env:
+          K: ${{ secrets.CATALYST_MOTHERSHIP_KEY }}
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$K" ] || [ -z "$KP" ]; then echo "::error::the secrets CATALYST_MOTHERSHIP_KEY and ACCEPTANCE_PARENT_KUBECONFIG of the environment gate must be set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/key" "$RUNNER_TEMP/flight"
+          printf '%s\n' "$K" > "$RUNNER_TEMP/key/mothership.pem"
+          printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/key/parent.yaml"
+          { echo "CATALYST_MOTHERSHIP_KEY=$RUNNER_TEMP/key/mothership.pem"; echo "KUBECONFIG=$RUNNER_TEMP/key/parent.yaml"; echo "FLIGHT_DIR=$RUNNER_TEMP/flight"
+            echo "FIRE_REQUEST=$(jq -c . <<< "$TRAIN_PROVISION_REQUEST")"; } >> "$GITHUB_ENV"
+      - name: "Before the wipe: the complete fire body (a field the API requires is empty, an SSH key first: no flight)"
+        run: |
+          set -euo pipefail
+          bash scripts/sovereign-lifecycle.sh request-body "${FQDN%%.*}" "${FQDN#*.}" > "$RUNNER_TEMP/body.json"
+          { echo "### The fire body of ${FQDN}"; echo '```'; jq . "$RUNNER_TEMP/body.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: "Before the wipe: the pre-flight checks that need no wiped state (one fails: no flight)"
+        run: bash scripts/sovereign-lifecycle.sh preflight "${FQDN%%.*}" "${FQDN#*.}"
+      - name: Wipe the standing environment, wait for the end of the wipe, sweep what it left
+        run: |
+          set -euo pipefail
+          bash scripts/sovereign-lifecycle.sh wipe "$PREV_ID" "$FQDN"
+          bash scripts/sovereign-lifecycle.sh wipe-result "$PREV_ID"
+          bash scripts/sovereign-lifecycle.sh sweep "$PREV_ID"
+      - name: Keep the cloud-init log the wipe captured (the only forensic of a first boot)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloudinit-log-${{ needs.cut.outputs.wipe_id }}
+          path: docs/sessions/*/prov-diagnostics/*-cloudinit.log
+          if-no-files-found: ignore
+      - name: Fire the candidate (its whole pre-flight gate first)
+        id: fire
+        env:
+          CANDIDATE_ID: ${{ needs.cut.outputs.candidate_id }}
+        run: |
+          set -uo pipefail
+          bash scripts/sovereign-lifecycle.sh fire "${FQDN%%.*}" "${FQDN#*.}" | tee "$RUNNER_TEMP/fire.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" != 0 ]; then echo "::error::The fire was refused (exit $rc); its log is above."; exit 1; fi
+          id="$(sed -n 's/^DEPLOYMENT_ID=//p' "$RUNNER_TEMP/fire.log")"
+          { echo "deployment_id=$id"; sed -n 's/^PREFLIGHT=/preflight=/p; s/^LEFTOVERS=/leftovers=/p' "$RUNNER_TEMP/fire.log"; } >> "$GITHUB_OUTPUT"
+          { echo "### Flight: $FQDN fired as deployment $id from rc/$CANDIDATE_ID after the wipe of $PREV_ID"; echo '```'; grep -E '^(SWEEP PASS|PREFLIGHT=|LEFTOVERS=|DEPLOYMENT_ID=)' "$RUNNER_TEMP/fire.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Delete the key, the parent kubeconfig and the kept variables documents
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/flight" /tmp/preflight-tfvars.json
+
+  ready:
+    name: the new deployment is ready, and the gate's kubeconfigs name it
+    needs: [cut, flight]
+    runs-on: ubuntu-latest
+    environment: gate
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Wait until the deployment is ready, then match the gate's region kubeconfigs (never echoed)
+        env:
+          K: ${{ secrets.CATALYST_MOTHERSHIP_KEY }}
+          KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
+          KB: ${{ secrets.ACCEPTANCE_KUBECONFIG_B }}
+          ID: ${{ needs.flight.outputs.deployment_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "$K" ]; then echo "::error::the secret CATALYST_MOTHERSHIP_KEY of the environment gate is not set"; exit 2; fi
+          pip install --quiet pyjwt cryptography || exit 1
+          # kubeconfig b names the second region of the body the fire sent, so it reads the same request.
+          export FIRE_REQUEST="$TRAIN_PROVISION_REQUEST"
+          umask 077; d="$RUNNER_TEMP/key"; mkdir -p "$d"; trap 'rm -rf "$d"' EXIT; export CATALYST_MOTHERSHIP_KEY="$d/mothership.pem"
+          printf '%s\n' "$K" > "$d/mothership.pem"; printf '%s' "$KA" | base64 -d > "$d/a.yaml"; printf '%s' "$KB" | base64 -d > "$d/b.yaml"
+          bash scripts/sovereign-lifecycle.sh wait-ready "$ID" || exit 1
+          bash scripts/sovereign-lifecycle.sh kubeconfig-match "$ID" "$d/a.yaml" "$d/b.yaml" | tee "$RUNNER_TEMP/match.log"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" != 0 ]; then
+            { echo "### Set the gate's region kubeconfigs, then re-run the failed jobs (docs/RUNBOOKS.md section 0.8)"; echo '```'; cat "$RUNNER_TEMP/match.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::The gate's region kubeconfigs do not name deployment $ID (exit $rc); the summary says what to set."; exit 1
+          fi
+
+  gate:
+    name: gate run
+    needs: [cut, flight, ready]
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      pull-requests: read
+    uses: ./.github/workflows/foundation-gate.yaml
+    with:
+      env: ${{ needs.cut.outputs.label }}
+      deployment_id: ${{ needs.flight.outputs.deployment_id }}
+      candidate_id: ${{ needs.cut.outputs.candidate_id }}
+      previous_deployment_id: ${{ needs.cut.outputs.wipe_id }}
+      previous_wipe_orphans: ${{ needs.flight.outputs.leftovers }}
+      preflight: ${{ needs.flight.outputs.preflight }}
+      nodes_requested: ${{ inputs.nodes_requested }}
+      capabilities: ${{ needs.cut.outputs.capabilities }}
+      execution: parent
+    secrets: inherit
+
+  verdict:
+    name: verdict
+    needs: [cut, gate]
+    if: ${{ !cancelled() && needs.gate.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The verdict of the records on main
+        env:
+          RESULT: ${{ needs.gate.outputs.result }}
+          CANDIDATE_ID: ${{ needs.cut.outputs.candidate_id }}
+        run: |
+          set -uo pipefail
+          pip install --quiet pyyaml || exit 1
+          python3 scripts/acceptance-gate.py verdict > "$RUNNER_TEMP/verdict.txt"
+          rc=$?
+          cat "$RUNNER_TEMP/verdict.txt"
+          { echo "### Verdict after the flight of rc/$CANDIDATE_ID (gate run: ${RESULT:-none})"; echo '```'; cat "$RUNNER_TEMP/verdict.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
