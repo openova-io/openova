@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T15:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T15:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 7m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#8761](https://github.com/openova-io/openova/issues/8761) | AIP-156 Delete the long-lived bearer seed | Other |
 | [#8762](https://github.com/openova-io/openova/issues/8762) | CMP-071 Policy files in every region's folder: scopes, the write functions, the  | Other |
 | [#8765](https://github.com/openova-io/openova/issues/8765) | CMP-041 ComplianceModel: definition, data files, chart template, exemptions, gua | Other |
 | [#8770](https://github.com/openova-io/openova/issues/8770) | SOV-721 The kit's k3s moves to v1.31.14+k3s1, whose node mirror gives up on a pe | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#9136](https://github.com/openova-io/openova/issues/9136) | SVC-185 Conditional: a Blueprint declaration that pins an Application to its reg | Other |
 | [#9138](https://github.com/openova-io/openova/issues/9138) | CTL-242 Catalogue edits are stored as the edited card fields only | Other |
 | [#9139](https://github.com/openova-io/openova/issues/9139) | SVC-261 A request with two reuse bindings of one capability on one instance is r | Other |
+| [#9145](https://github.com/openova-io/openova/issues/9145) | SEC-061 A sign-in succeeds while the node that runs a region's Keycloak is drain | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T15:26 | [#9140](https://github.com/openova-io/openova/pull/9140) | #9121 | Main is red: a test of the release-set guard names the chart |
 | 2026-11-28T13:45 | [#9125](https://github.com/openova-io/openova/pull/9125) | #7087 | docs(ledger): plan update |
 | 2026-11-28T13:54 | [#9124](https://github.com/openova-io/openova/pull/9124) | A namespace's secret push is refused: the store's policy lac |  |
 | 2026-11-28T13:33 | [#9123](https://github.com/openova-io/openova/pull/9123) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T23:21 | [#9088](https://github.com/openova-io/openova/pull/9088) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:38 | [#9086](https://github.com/openova-io/openova/pull/9086) | #9085 | test(gate): CMP-G03 is required in the conformance pack (CMP |
-| 2026-11-27T22:11 | [#9084](https://github.com/openova-io/openova/pull/9084) | #7087 | docs(ledger): plan update |
 
 ---
 
