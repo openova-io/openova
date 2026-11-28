@@ -36,6 +36,7 @@
         "lifecycle": {"enum": ["experimental", "supported", "deprecated"]},
         "visibility": {"enum": ["listed", "unlisted", "private"]},
         "shareable": {"type": "boolean"},
+        "regionPinned": {"type": "boolean"},
         "contextSchema": {
           "type": "object",
           "required": ["kind", "valuesKey"],

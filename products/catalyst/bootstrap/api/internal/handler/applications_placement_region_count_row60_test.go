@@ -133,7 +133,7 @@ func TestInstallDoor_Row60_MultiRegionModeNeedsTwoRegions(t *testing.T) {
 // 16's Save), which reaches the rule by a different route: the console's
 // PlacementEditor sends targets[] with no mode/regions, and
 // applicationUpdateRequestNormalize folds them onto mode+regions via
-// regionsFromPlacementTargets — which DEDUPES. So a Primary and a Standby that
+// regionpin.TargetRegions — which DEDUPES. So a Primary and a Standby that
 // name the SAME region arrive at the validator as active-hot-standby over ONE
 // region.
 //

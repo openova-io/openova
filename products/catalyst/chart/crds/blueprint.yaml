@@ -138,6 +138,16 @@ spec:
                     true = one Application of this Blueprint serves many
                     consumers, each through its own Context.
                   default: false
+                regionPinned:
+                  type: boolean
+                  description: |
+                    true = an Application of this Blueprint stays in the region
+                    it is installed in, for things a region change would delete
+                    and re-create (a virtual machine). The install route admits
+                    only a singleton placement in one region; the edit route
+                    refuses a change of the Application's regions and a move of
+                    its Primary. Each refusal is HTTP 422 placement-immutable.
+                  default: false
                 contextSchema:
                   type: object
                   description: |

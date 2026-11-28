@@ -526,7 +526,7 @@ func postgresAppCR(ns, name string) *unstructured.Unstructured {
 func TestHandleApplicationUpdate_ParametersFollowThePlacement_6136(t *testing.T) {
 	cr := postgresAppCR("acme", "uat50-ahs-pg")
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	factory, client := fakeApplicationDynamicFactory(cr)
+	factory, client := fakeApplicationDynamicFactory(cr, refTestBlueprint("bp-postgres"))
 	h.dynamicFactory = factory
 	h.SetCatalogClient(newFakeCatalog(sampleWordpressBlueprint()))
 	dep := installUserAccessDeployment(t, h, "dep-app-6136-params")
