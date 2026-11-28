@@ -328,19 +328,29 @@ preflight_run() {
 }
 
 # preflight <subdomain> [pool] — before the wipe of PREV_ID: the checked body, the variables document of PREV_ID
-# kept, then the checks of scripts/prov-preflight.sh that need no wiped state (PREFLIGHT_BEFORE_WIPE=1).
+# kept (exit 3 without it: sweep and fire need it), one listing of scripts/flight-sweep.sh on it (the cloud API and
+# the document's credentials answer: exit 0 or 1; else exit 3), then the checks of scripts/prov-preflight.sh that
+# need no wiped state (PREFLIGHT_BEFORE_WIPE=1) on that document.
 preflight() {
-  local body
+  local body vars rc
   case "${PREV_ID:-}" in ''|*[!A-Za-z0-9-]*) echo "usage: PREV_ID=<the id to wipe> $0 preflight <subdomain> [pool]"; return 2 ;; esac
   body="$(body_checked "${1:-}" "${2:-omani.works}")" || return 1
-  keep_vars "$PREV_ID"
-  PREFLIGHT_BEFORE_WIPE=1 preflight_run "$1" "${2:-omani.works}" "$body" "${FLIGHT_DIR}/${PREV_ID}-preflight-before-wipe.log" \
+  keep_vars "$PREV_ID"; vars="${FLIGHT_DIR}/${PREV_ID}-vars.json"
+  [ -s "$vars" ] || { echo "!! PRE-FLIGHT (before the wipe) NOT MEASURED: no kept variables document ${vars} — nothing wiped, no flight"; return 3; }
+  bash "${REPO_ROOT}/scripts/flight-sweep.sh" "$vars" > "${FLIGHT_DIR}/${PREV_ID}-sweep-before-wipe.json"; rc=$?
+  case "$rc" in
+    0|1) echo "the cloud listing of ${PREV_ID} answered with the kept document (scripts/flight-sweep.sh exit ${rc})" ;;
+    *) echo "!! PRE-FLIGHT (before the wipe) NOT MEASURED: scripts/flight-sweep.sh exit ${rc} on ${vars} — nothing wiped, no flight"; return 3 ;;
+  esac
+  HW_TFVARS="$vars" PREFLIGHT_BEFORE_WIPE=1 preflight_run "$1" "${2:-omani.works}" "$body" "${FLIGHT_DIR}/${PREV_ID}-preflight-before-wipe.log" \
     || { echo "!! PRE-FLIGHT (before the wipe) FAIL — nothing wiped, no flight"; return 1; }
 }
 
-# rules week <started> <stage_exit> | same <stage_exit> <commit> <standing commit> | due <standing commit> <created>
+# rules week <started> <stage_exit> | same <stage_exit> <commit> <standing commit> <commit before> | due <standing commit> <created>
 # The rules of a flight (docs/RUNBOOKS.md section 0.8). Exit 0: the flight may go on (due: none is due); 1: not,
-# with the reason; 2: usage. A time or a list of files that cannot be read refuses.
+# with the reason; 2: usage. A time or a list of files that cannot be read refuses. <commit before> is the candidate
+# of the deployment the standing one replaced (- when no record names it): stage_exit makes the second flight of a
+# candidate in a row, never a third, so it refuses when that commit is the standing one or is not known.
 rules() {
   local now="${RULES_NOW:-$(date -u +%s)}" t files
   epoch() { case "$1" in [12][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]T*) date -u -d "$1" +%s 2>/dev/null ;; *) return 1 ;; esac; }
@@ -348,14 +358,15 @@ rules() {
     week:3) [ "$3" != true ] || { echo "stage_exit: not held to the seven days"; return 0; }
       t="$(epoch "$2")" || { echo "the start '$2' of the standing deployment cannot be read: refused"; return 1; }
       [ $((now - t)) -ge 604800 ] || { echo "The standing deployment is $(((now - t) / 86400)) days old: a flight is at most one a week (stage_exit only for the second flight of one candidate)."; return 1; } ;;
-    same:4) if [ "$2" = true ]; then [ "$4" != - ] && [ "$3" = "$4" ] || { echo "stage_exit installs the standing candidate (${4}) again, not ${3}."; return 1; }
+    same:5) if [ "$2" = true ]; then [ "$4" != - ] && [ "$3" = "$4" ] || { echo "stage_exit installs the standing candidate (${4}) again, not ${3}."; return 1; }
+        [ "$5" != - ] && [ "$5" != "$4" ] || { echo "stage_exit makes the second flight of ${4} in a row, never a third: the deployment before the standing one is of ${5} (- when no record names it)."; return 1; }
       elif [ "$3" = "$4" ]; then echo "${3} is the standing candidate: a second flight of it in a row needs stage_exit."; return 1; fi ;;
     due:3) [ "$2" != - ] || { echo "A flight is due: no record on main names the fresh installation of the standing deployment."; return 1; }
       files="$(git -C "$REPO_ROOT" diff --name-only "$2" "${RULES_HEAD:-origin/main}" -- infra/providers clusters/_template/bootstrap-kit scripts/expected-bootstrap-deps.yaml)" \
         && t="$(epoch "$3")" || { echo "the first-boot files since $2, or the time '$3', cannot be read: refused"; return 1; }
       if [ -z "$files" ] || [ $((now - t)) -lt 604800 ]; then echo "No flight due: $(grep -c . <<<"$files") first-boot files changed since $2; the standing deployment is $(((now - t) / 86400)) days old."; return 0; fi
       printf 'A flight is due: these first-boot files changed since %s; start release-train.yaml by hand (docs/RUNBOOKS.md section 0.8):\n%s\n' "$2" "$files"; return 1 ;;
-    *) echo "usage: $0 rules week <started> <stage_exit> | same <stage_exit> <commit> <standing commit> | due <standing commit> <created>"; return 2 ;;
+    *) echo "usage: $0 rules week <started> <stage_exit> | same <stage_exit> <commit> <standing commit> <commit before> | due <standing commit> <created>"; return 2 ;;
   esac
 }
 
@@ -408,14 +419,32 @@ self_test() {
       case_ "request-body: an empty $f fails" 1 "" body_checked t1 omani.works
   done
   [ "$(TRAIN_SSH_PUBLIC_KEY="$k" request_body t1 omani.works | jq -r .sshPublicKey)" = "$k" ] && echo "ok   request body: the key of TRAIN_SSH_PUBLIC_KEY" || { echo "FAIL request body: TRAIN_SSH_PUBLIC_KEY"; failed=1; }
+  # preflight, before the wipe: stand-ins for scripts/flight-sweep.sh (exit STUB_SWEEP) and scripts/prov-preflight.sh
+  # (exit STUB_PF; prints what it was given); the kubectl stand-in fails, so keep_vars reads no document.
+  mkdir -p "$d/root/scripts" "$d/fl"
+  printf '%s\n' 'exit "${STUB_SWEEP:-0}"' > "$d/root/scripts/flight-sweep.sh"
+  printf '%s\n' 'echo "before=${PREFLIGHT_BEFORE_WIPE:-} vars=${HW_TFVARS:-}"; exit "${STUB_PF:-0}"' > "$d/root/scripts/prov-preflight.sh"
+  pf_case() { PREV_ID=aa11 FLIGHT_DIR="$d/fl" REPO_ROOT="$d/root" FIRE_REQUEST="{\"sshPublicKey\":\"$k\"}" case_ "$@"; }
+  pf_case "preflight: no kept variables document is not measured" 3 "" preflight t1 omani.works
+  echo '{"deployment_id":"aa11"}' > "$d/fl/aa11-vars.json"
+  STUB_SWEEP=3 pf_case "preflight: a cloud listing that is not measured is not measured" 3 "" preflight t1 omani.works
+  STUB_SWEEP=2 pf_case "preflight: a kept document the listing cannot read is not measured" 3 "" preflight t1 omani.works
+  STUB_SWEEP=1 STUB_PF=1 pf_case "preflight: a pre-flight check that fails before the wipe fails" 1 "" preflight t1 omani.works
+  STUB_SWEEP=1 pf_case "preflight: the kept document and a listing that answers pass" 0 "" preflight t1 omani.works
+  [ "$(cat "$d/fl/aa11-preflight-before-wipe.log")" = "before=1 vars=$d/fl/aa11-vars.json" ] \
+    && echo "ok   preflight: the pre-flight runs before the wipe on the kept document" || { echo "FAIL preflight: $(cat "$d/fl/aa11-preflight-before-wipe.log")"; failed=1; }
   now="$(date -u +%s)"; old="$(date -u -d "@$((now - 8 * 86400))" +%FT%TZ)"; new="$(date -u -d "@$((now - 3 * 86400))" +%FT%TZ)"
   case_ "rules week: 8 days old passes" 0 "" rules week "$old" false
   case_ "rules week: 3 days old fails" 1 "" rules week "$new" false
   case_ "rules week: 3 days old with stage_exit passes" 0 "" rules week "$new" true
-  case_ "rules same: another commit than the standing candidate passes" 0 "" rules same false c2 c1
-  case_ "rules same: the standing candidate again without stage_exit fails" 1 "" rules same false c1 c1
-  case_ "rules same: stage_exit with another commit fails" 1 "" rules same true c2 c1
-  case_ "rules same: stage_exit with no standing candidate fails" 1 "" rules same true - -
+  case_ "rules same: another commit than the standing candidate passes" 0 "" rules same false c2 c1 -
+  case_ "rules same: the standing candidate again without stage_exit fails" 1 "" rules same false c1 c1 c0
+  case_ "rules same: stage_exit, the second flight of the standing candidate in a row, passes" 0 "" rules same true c1 c1 c0
+  case_ "rules same: stage_exit with another commit fails" 1 "" rules same true c2 c1 c0
+  case_ "rules same: stage_exit with no standing candidate fails" 1 "" rules same true - - -
+  case_ "rules same: stage_exit, a third flight of the standing candidate in a row, fails" 1 "" rules same true c1 c1 c1
+  case_ "rules same: stage_exit when no record names the candidate before the standing one fails" 1 "" rules same true c1 c1 -
+  case_ "rules same: four arguments are a usage error" 2 "" rules same true c1 c1
   r="$d/repo"; mkdir -p "$r/infra/providers"; git init -q "$r" 2>/dev/null; echo a > "$r/a"
   g() { git -C "$r" -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@" > /dev/null 2>&1; }
   g add -A; g commit -qm 1; c1="$(git -C "$r" rev-parse HEAD)"; echo b > "$r/infra/providers/x"; g add -A; g commit -qm 2

@@ -93,11 +93,13 @@ jobs:
           dep="$WIPE"
           [ -n "$dep" ] || dep="$(jq -rs 'map(select(.deployment_id and .started_at)) | sort_by(.started_at) | last | .deployment_id' docs/ledger/acceptance/*.json)"
           birth="$(jq -rs --arg d "$dep" 'map(select(.deployment_id == $d and .provision.fresh == true)) | sort_by(.started_at) | first
-            | if . == null then "" else "\(.candidate.id) \(.candidate.commit) \(.provision.created_at)" end' docs/ledger/acceptance/*.json)"
-          [ -n "$birth" ] || birth="- - -"
-          read -r bid bcommit bcreated <<< "$birth"
-          { echo "candidate_id=$bid"; echo "commit=$bcommit"; echo "created=$bcreated"; } >> "$GITHUB_OUTPUT"
-          echo "Deployment $dep, installed fresh from candidate ${bid} (commit ${bcommit}) at ${bcreated}" >> "$GITHUB_STEP_SUMMARY"
+            | if . == null then "" else "\(.candidate.id) \(.candidate.commit) \(.provision.created_at) \(.provision.previous_deployment_id // "-")" end' docs/ledger/acceptance/*.json)"
+          [ -n "$birth" ] || birth="- - - -"
+          read -r bid bcommit bcreated bprev <<< "$birth"
+          # The candidate of the deployment the standing one replaced (- when no record names it): rules same refuses a third flight in a row.
+          pcommit="$(jq -rs --arg d "$bprev" 'map(select(.deployment_id == $d and .provision.fresh == true)) | sort_by(.started_at) | first | .candidate.commit // "-"' docs/ledger/acceptance/*.json)"
+          { echo "candidate_id=$bid"; echo "commit=$bcommit"; echo "created=$bcreated"; echo "commit_before=$pcommit"; } >> "$GITHUB_OUTPUT"
+          echo "Deployment $dep, installed fresh from candidate ${bid} (commit ${bcommit}) at ${bcreated}; the one before it, ${bprev}, from commit ${pcommit}" >> "$GITHUB_STEP_SUMMARY"
       - name: "Weekly run: is a flight due"
         if: github.event_name == 'schedule'
         env:
@@ -135,13 +137,14 @@ jobs:
           STARTED: ${{ steps.standing.outputs.started }}
           BIRTH_ID: ${{ steps.records.outputs.candidate_id }}
           BIRTH_COMMIT: ${{ steps.records.outputs.commit }}
+          COMMIT_BEFORE: ${{ steps.records.outputs.commit_before }}
         run: |
           set -euo pipefail
           bash scripts/sovereign-lifecycle.sh rules week "$STARTED" "$STAGE_EXIT"
           # The commit a flight without a given candidate installs: the head of main, or with stage_exit the standing one.
           id="$GIVEN"; next="$(git rev-parse origin/main)"
           if [ "$STAGE_EXIT" = true ]; then id="${GIVEN:-$BIRTH_ID}"; next="$BIRTH_COMMIT"; fi
-          [ -n "$GIVEN" ] || bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$next" "$BIRTH_COMMIT"
+          [ -n "$GIVEN" ] || bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$next" "$BIRTH_COMMIT" "$COMMIT_BEFORE"
           echo "id=$id" >> "$GITHUB_OUTPUT"
       - name: "Flight: push access for a new rc/<id>"
         if: github.event_name == 'workflow_dispatch' && steps.rules.outputs.id == ''
@@ -163,6 +166,7 @@ jobs:
           ORIGIN_TOKEN: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
           GIVEN: ${{ steps.rules.outputs.id }}
           BIRTH_COMMIT: ${{ steps.records.outputs.commit }}
+          COMMIT_BEFORE: ${{ steps.records.outputs.commit_before }}
           STAGE_EXIT: ${{ inputs.stage_exit }}
         run: |
           set -euo pipefail
@@ -171,7 +175,7 @@ jobs:
           git fetch --quiet origin "+refs/heads/rc/$id:refs/remotes/origin/rc/$id"
           commit="$(bash scripts/release-candidate.sh verify "$id")"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::verify printed no commit"; exit 1; }
-          bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$commit" "$BIRTH_COMMIT"
+          bash scripts/sovereign-lifecycle.sh rules same "$STAGE_EXIT" "$commit" "$BIRTH_COMMIT" "$COMMIT_BEFORE"
           { echo "id=$id"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
           echo "Candidate: rc/$id at $commit" >> "$GITHUB_STEP_SUMMARY"
       - name: Install OpenTofu (the cloud-init render)
@@ -256,6 +260,13 @@ jobs:
           bash scripts/sovereign-lifecycle.sh wipe "$PREV_ID" "$FQDN"
           bash scripts/sovereign-lifecycle.sh wipe-result "$PREV_ID"
           bash scripts/sovereign-lifecycle.sh sweep "$PREV_ID"
+      - name: Keep the cloud-init log the wipe captured (the only forensic of a first boot)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloudinit-log-${{ needs.cut.outputs.wipe_id }}
+          path: docs/sessions/*/prov-diagnostics/*-cloudinit.log
+          if-no-files-found: ignore
       - name: Fire the candidate (its whole pre-flight gate first)
         id: fire
         env:
@@ -297,6 +308,8 @@ jobs:
           set -uo pipefail
           if [ -z "$K" ]; then echo "::error::the secret CATALYST_MOTHERSHIP_KEY of the environment gate is not set"; exit 2; fi
           pip install --quiet pyjwt cryptography || exit 1
+          # kubeconfig b names the second region of the body the fire sent, so it reads the same request.
+          export FIRE_REQUEST="$TRAIN_PROVISION_REQUEST"
           umask 077; d="$RUNNER_TEMP/key"; mkdir -p "$d"; trap 'rm -rf "$d"' EXIT; export CATALYST_MOTHERSHIP_KEY="$d/mothership.pem"
           printf '%s\n' "$K" > "$d/mothership.pem"; printf '%s' "$KA" | base64 -d > "$d/a.yaml"; printf '%s' "$KB" | base64 -d > "$d/b.yaml"
           bash scripts/sovereign-lifecycle.sh wait-ready "$ID" || exit 1
