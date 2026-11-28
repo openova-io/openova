@@ -78,6 +78,11 @@ delivery synced:   Password generator <name>-e<epoch>, PushSecret
   openova/apps/<ns>/<name>/e<epoch>, plus ClusterSecretStore vault-<peer> per
   peer for a shared value of the primary (none in another region), and the
   ExternalSecret <name> that materialises Secret <name> (key password).
+  The PushSecret has deletionPolicy None: no finalizer, and the born value
+  stays in the store when the PushSecret goes (an epoch raise, a roll back,
+  the namespace deleted). With Delete its finalizer sends a DELETE on the
+  data path, which policy eso-ns does not grant: the PushSecret would stay
+  Terminating for ever. A later roll forward (IfNotExists) finds the value.
   Each mountedCopies entry: the birth Job copies Secret <name> to
   mounted/<ns>/sa/<serviceAccount>/<name>/e<epoch> in this region.
   A template gives the ExternalSecret target.template; each copies entry an
@@ -271,7 +276,7 @@ metadata:
 spec:
   refreshInterval: 1h
   updatePolicy: IfNotExists
-  deletionPolicy: Delete
+  deletionPolicy: None
   secretStoreRefs:
     - kind: SecretStore
       name: openbao

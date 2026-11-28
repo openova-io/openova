@@ -113,7 +113,12 @@ generatedSecrets:
 - **synced** — Password generator and PushSecret (`IfNotExists`) into
   SecretStore `openbao` at `openova/apps/<ns>/<name>/e<epoch>`, plus
   ClusterSecretStore `vault-<peer>` per peer in the primary; ExternalSecret
-  `<name>` with the register id. Each `mountedCopies` entry makes the birth Job
+  `<name>` with the register id. The PushSecret has `deletionPolicy: None`:
+  no finalizer, and the born value stays in the store when the PushSecret is
+  deleted (an epoch raise, a roll back, the namespace deleted); a later roll
+  forward finds it. With `Delete` the finalizer sends a DELETE on the data
+  path, which policy `eso-ns` does not grant, so the PushSecret would stay
+  Terminating. Each `mountedCopies` entry makes the birth Job
   copy Secret `<name>` to `mounted/<ns>/sa/<sa>/<name>/e<epoch>` in each region.
 - **synced, `template`** (SEC-219) — the target Secret's `type`, `labels`,
   `annotations` and `data`, rendered as the ExternalSecret's `target.template`
