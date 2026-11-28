@@ -25,9 +25,24 @@ import (
 
 var (
 	storeLegacyGVR     = schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}
+	storeNsLegacyGVR   = schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}
 	storeValidatingGVR = schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "validatingpolicies"}
 	storeMutatingGVR   = schema.GroupVersionResource{Group: "policies.kyverno.io", Version: "v1", Resource: "mutatingpolicies"}
+	storeKinds         = []string{"clusterpolicy", k8scache.KindPolicy, k8scache.KindValidatingPolicy, k8scache.KindMutatingPolicy}
 )
+
+// mkOrgPolicy builds the per-Organization Policy of the kit in namespace ns:
+// a mutate rule, and a validate rule whose failureAction is ruleAction.
+func mkOrgPolicy(ns, ruleAction string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "kyverno.io/v1", "kind": "Policy",
+		"metadata": map[string]any{"namespace": ns, "name": "org-platform-scope"},
+		"spec": map[string]any{"rules": []any{
+			map[string]any{"name": "stamp", "mutate": map[string]any{}},
+			map[string]any{"name": "synced", "validate": map[string]any{"failureAction": ruleAction}},
+		}},
+	}}
+}
 
 // blockingNATS holds its first Put until release is closed, and tells entered
 // when that Put begins: the handler's watch loop then reads no event.
@@ -48,7 +63,7 @@ func (b *blockingNATS) Put(context.Context, string, []byte) error {
 }
 
 // storeFactory builds a Factory that holds cluster acme over a fake client
-// with objs, its three policy kinds registered, every subscriber buffer of
+// with objs, its four policy kinds registered, every subscriber buffer of
 // the given size (0: the default), and a probe subscribed before the
 // informers start. It starts the informers and waits until their stores
 // hold as many objects as objs.
@@ -56,9 +71,9 @@ func storeFactory(t *testing.T, buffer int, objs ...*unstructured.Unstructured) 
 	t.Helper()
 	reg := k8scache.NewRegistry()
 	for name, gvr := range map[string]schema.GroupVersionResource{
-		"clusterpolicy": storeLegacyGVR, k8scache.KindValidatingPolicy: storeValidatingGVR, k8scache.KindMutatingPolicy: storeMutatingGVR,
+		"clusterpolicy": storeLegacyGVR, k8scache.KindPolicy: storeNsLegacyGVR, k8scache.KindValidatingPolicy: storeValidatingGVR, k8scache.KindMutatingPolicy: storeMutatingGVR,
 	} {
-		if err := reg.Add(k8scache.Kind{Name: name, GVR: gvr}); err != nil {
+		if err := reg.Add(k8scache.Kind{Name: name, GVR: gvr, Namespaced: gvr == storeNsLegacyGVR}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,7 +82,7 @@ func storeFactory(t *testing.T, buffer int, objs ...*unstructured.Unstructured) 
 		seed = append(seed, o)
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		storeLegacyGVR: "ClusterPolicyList", storeValidatingGVR: "ValidatingPolicyList", storeMutatingGVR: "MutatingPolicyList",
+		storeLegacyGVR: "ClusterPolicyList", storeNsLegacyGVR: "PolicyList", storeValidatingGVR: "ValidatingPolicyList", storeMutatingGVR: "MutatingPolicyList",
 	}, seed...)
 	f, err := k8scache.NewFactory(k8scache.Config{
 		Logger: quietComplianceLogger(), Registry: reg, EventBufferSize: buffer,
@@ -83,7 +98,7 @@ func storeFactory(t *testing.T, buffer int, objs ...*unstructured.Unstructured) 
 	}
 	waitFor(t, 5*time.Second, func() bool {
 		held := 0
-		for _, kind := range []string{"clusterpolicy", k8scache.KindValidatingPolicy, k8scache.KindMutatingPolicy} {
+		for _, kind := range storeKinds {
 			items, _, err := f.List("acme", kind, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -98,17 +113,21 @@ func storeFactory(t *testing.T, buffer int, objs ...*unstructured.Unstructured) 
 // storeProbe records every policy event the Factory fans out to it.
 type storeProbe struct {
 	mu   sync.Mutex
-	seen map[string]bool // "<type>/<object kind>/<name>"
+	seen map[string]bool // "<type>/<object kind>/<namespace>/<name>"
 }
 
 func newStoreProbe(t *testing.T, f *k8scache.Factory) *storeProbe {
 	p := &storeProbe{seen: map[string]bool{}}
-	ch, unsub := f.Subscribe("", map[string]struct{}{"clusterpolicy": {}, k8scache.KindValidatingPolicy: {}, k8scache.KindMutatingPolicy: {}})
+	kinds := map[string]struct{}{}
+	for _, k := range storeKinds {
+		kinds[k] = struct{}{}
+	}
+	ch, unsub := f.Subscribe("", kinds)
 	t.Cleanup(unsub)
 	go func() {
 		for ev := range ch {
 			p.mu.Lock()
-			p.seen[string(ev.Type)+"/"+ev.Object.GetKind()+"/"+ev.Object.GetName()] = true
+			p.seen[string(ev.Type)+"/"+ev.Object.GetKind()+"/"+ev.Object.GetNamespace()+"/"+ev.Object.GetName()] = true
 			p.mu.Unlock()
 		}
 	}()
@@ -120,7 +139,7 @@ func (p *storeProbe) await(t *testing.T, typ k8scache.EventType, o *unstructured
 	waitFor(t, 5*time.Second, func() bool {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		return p.seen[string(typ)+"/"+o.GetKind()+"/"+o.GetName()]
+		return p.seen[string(typ)+"/"+o.GetKind()+"/"+o.GetNamespace()+"/"+o.GetName()]
 	})
 }
 
@@ -217,9 +236,8 @@ func TestCompliance_PoliciesModeFromStore_DroppedFlip(t *testing.T) {
 	probe.await(t, k8scache.EventModified, objs[2])
 	close(pub.release)
 
-	// The released loop takes the last flip in, so no send to its buffer is
-	// left when the test stops it (k8scache's unsubscribe closes the channel
-	// a fan-out may still send on).
+	// The released loop takes the last flip in: the metadata the events gave
+	// agrees with the store the route reads.
 	c := h.ComplianceHandler()
 	waitFor(t, 5*time.Second, func() bool {
 		c.mu.RLock()
@@ -229,5 +247,54 @@ func TestCompliance_PoliciesModeFromStore_DroppedFlip(t *testing.T) {
 	want := map[string]string{"flux-managed": "enforcing", "harbor-proxy-pull": "enforcing", "image-tag-pinned": "enforcing"}
 	if got := routeModes(t, h); !reflect.DeepEqual(got, want) {
 		t.Fatalf("after three flips to enforce the route lists %v; want %v", got, want)
+	}
+}
+
+// CMP-024: the per-Organization Policy of the kit, one object of one name in
+// each Organization namespace, enforcing in org-a and auditing in org-b, and a
+// ClusterPolicy of the same bare name that audits. The route lists each Policy
+// as <namespace>/<name>, the name the engine's reports give it, with the mode
+// its own object carries; before, the cache held no namespaced policy kind and
+// the route showed such a policy permissive (CMP-G02 on 27 November).
+func TestCompliance_PoliciesModeFromStore_NamespacedPolicy(t *testing.T) {
+	objs := []*unstructured.Unstructured{
+		mkOrgPolicy("org-a", "Enforce"),
+		mkOrgPolicy("org-b", "Audit"),
+		mkClusterPolicy("org-platform-scope", "Audit", ""),
+	}
+	f, _, probe := storeFactory(t, 0, objs...)
+	for _, o := range objs {
+		probe.await(t, k8scache.EventAdded, o)
+	}
+	h := startStoreHandler(t, f, nil)
+	want := map[string]string{"org-a/org-platform-scope": "enforcing", "org-b/org-platform-scope": "permissive", "org-platform-scope": "permissive"}
+	if got := routeModes(t, h); !reflect.DeepEqual(got, want) {
+		t.Fatalf("the route lists %v; want %v", got, want)
+	}
+}
+
+// CMP-024: the events of the Policy kind give the metadata of a cluster the
+// Factory does not hold, keyed <namespace>/<name> as the store is: two
+// namespaces hold one name in two modes, and the delete of one leaves the
+// other listed.
+func TestCompliance_PoliciesModeFromEvents_NamespacedPolicy(t *testing.T) {
+	h, _, _, f := newComplianceTestRig(t)
+	modes := func() map[string]string {
+		out := map[string]string{}
+		for _, p := range h.ComplianceHandler().policiesFor(context.Background(), "acme") {
+			out[p.Name] = p.Mode
+		}
+		return out
+	}
+	publishToFactory(f, k8scache.KindPolicy, mkOrgPolicy("org-a", "Enforce"))
+	publishToFactory(f, k8scache.KindPolicy, mkOrgPolicy("org-b", "Audit"))
+	waitFor(t, 1*time.Second, func() bool { return len(modes()) == 2 })
+	if got, want := modes(), map[string]string{"org-a/org-platform-scope": "enforcing", "org-b/org-platform-scope": "permissive"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the two Policies the route lists %v; want %v", got, want)
+	}
+	f.Publish(k8scache.Event{Cluster: "acme", Kind: k8scache.KindPolicy, Type: k8scache.EventDeleted, Object: mkOrgPolicy("org-a", "Enforce"), At: time.Now()})
+	waitFor(t, 1*time.Second, func() bool { return len(modes()) == 1 })
+	if got, want := modes(), map[string]string{"org-b/org-platform-scope": "permissive"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the delete in org-a the route lists %v; want %v", got, want)
 	}
 }

@@ -17,30 +17,41 @@ const (
 	ModeAudit   = "audit"
 )
 
-// LegacyPolicyGroup is the API group of the legacy policy kind ClusterPolicy;
-// PolicyGroup is the API group of the kinds that replace it.
+// LegacyPolicyGroup is the API group of the legacy policy kinds ClusterPolicy
+// and Policy; PolicyGroup is the API group of the kinds that replace them.
 const (
 	LegacyPolicyGroup = "kyverno.io"
 	PolicyGroup       = "policies.kyverno.io"
 )
 
-// PolicyMode reads the mode of the engine's policy objects: the legacy kind
-// and the two new kinds. It keeps no state and never calls an API server.
+// PolicyMode reads the mode of the engine's policy objects: the two legacy
+// kinds and the two new kinds. It keeps no state and never calls an API server.
 type PolicyMode struct{}
 
-// Kinds returns the informer kinds of the policy objects: the legacy kind
-// first, then the two new kinds.
+// Kinds returns the informer kinds of the policy objects: the two legacy
+// kinds first (ClusterPolicy, then the namespaced Policy), then the two new
+// kinds.
 func (PolicyMode) Kinds() []string {
-	return []string{"clusterpolicy", k8scache.KindValidatingPolicy, k8scache.KindMutatingPolicy}
+	return []string{"clusterpolicy", k8scache.KindPolicy, k8scache.KindValidatingPolicy, k8scache.KindMutatingPolicy}
+}
+
+// PolicyName is the name the engine's reports give a policy object, and so
+// the name the policies route lists it by: <namespace>/<name> for an object of
+// a namespaced kind, the bare name for a cluster-scoped one (CMP-024).
+func PolicyName(obj *unstructured.Unstructured) string {
+	if ns := obj.GetNamespace(); ns != "" {
+		return ns + "/" + obj.GetName()
+	}
+	return obj.GetName()
 }
 
 // Mode returns the mode of one policy object, "enforce" or "audit", and false
 // for an object of any other kind. A ValidatingPolicy or a MutatingPolicy of
 // group policies.kyverno.io enforces when spec.validationActions holds Deny.
-// A ClusterPolicy of group kyverno.io enforces when spec.validationFailureAction
-// is Enforce, or when validate.failureAction of one of its rules is. Each kind
-// is read only by its own fields; every other policy of the three kinds
-// audits. Upper and lower case are the same.
+// A ClusterPolicy or a Policy of group kyverno.io enforces when
+// spec.validationFailureAction is Enforce, or when validate.failureAction of
+// one of its rules is. Each kind is read only by its own fields; every other
+// policy of the four kinds audits. Upper and lower case are the same.
 func (PolicyMode) Mode(obj *unstructured.Unstructured) (string, bool) {
 	if obj == nil {
 		return "", false
@@ -52,7 +63,7 @@ func (PolicyMode) Mode(obj *unstructured.Unstructured) (string, bool) {
 	switch {
 	case gv.Group == PolicyGroup && (obj.GetKind() == "ValidatingPolicy" || obj.GetKind() == "MutatingPolicy"):
 		return newKindMode(obj), true
-	case gv.Group == LegacyPolicyGroup && obj.GetKind() == "ClusterPolicy":
+	case gv.Group == LegacyPolicyGroup && (obj.GetKind() == "ClusterPolicy" || obj.GetKind() == "Policy"):
 		return legacyKindMode(obj), true
 	}
 	return "", false
@@ -99,10 +110,12 @@ type Store interface {
 }
 
 // PolicyObjects reads the policy objects of one cluster from the store of
-// each kind of PolicyMode.Kinds at the call, and returns by name what read
-// makes of them: the first kind whose object of a name read accepts gives
-// the entry, the legacy kind first (during an in-place rewrite two kinds
-// hold the name). held is false for a cluster the store does not hold.
+// each kind of PolicyMode.Kinds at the call, and returns by PolicyName what
+// read makes of them: the first kind whose object of a name read accepts
+// gives the entry, the legacy kinds first (during an in-place rewrite two
+// kinds hold the name). A namespaced object never takes the entry of a
+// cluster-scoped one: its name holds the slash of <namespace>/<name>. held is
+// false for a cluster the store does not hold.
 //
 // The informer keeps its store exact; an event of the fanout may never
 // reach a subscriber: Factory.fanout drops the oldest event of a full
@@ -123,11 +136,12 @@ func PolicyObjects[T any](s Store, cluster string, read func(*unstructured.Unstr
 			continue
 		}
 		for _, o := range objs {
-			if _, taken := byName[o.GetName()]; taken {
+			name := PolicyName(o)
+			if _, taken := byName[name]; taken {
 				continue
 			}
 			if v, ok := read(o); ok {
-				byName[o.GetName()] = v
+				byName[name] = v
 			}
 		}
 	}

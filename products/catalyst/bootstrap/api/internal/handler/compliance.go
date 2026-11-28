@@ -403,7 +403,7 @@ type ComplianceHandler struct {
 	mu sync.RWMutex
 
 	// policyMetaByName carries the metadata of the policy objects the
-	// events showed, keyed clusterID → policy name: each cluster's engine
+	// events showed, keyed clusterID → PolicyName: each cluster's engine
 	// has its own objects. Derived from policyObjects by setPolicyObject;
 	// read by policyMetaOf only for a cluster the Factory does not hold
 	// (one removed since its events, or events given to Factory.Publish).
@@ -568,10 +568,10 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 	switch {
 	case slices.Contains(enginePolicyKinds, ev.Kind) && ev.Type == k8scache.EventDeleted:
 		// The name leaves its cluster's list unless another kind holds it.
-		c.setPolicyObject(ev.Cluster, ev.Object.GetName(), ev.Kind, nil)
+		c.setPolicyObject(ev.Cluster, adapters.PolicyName(ev.Object), ev.Kind, nil)
 	case slices.Contains(enginePolicyKinds, ev.Kind):
 		if meta, ok := policyMetaFrom(ev.Object); ok {
-			c.setPolicyObject(ev.Cluster, ev.Object.GetName(), ev.Kind, &meta)
+			c.setPolicyObject(ev.Cluster, adapters.PolicyName(ev.Object), ev.Kind, &meta)
 		}
 	case c.model.Handles(ev.Kind):
 		current, gone := c.model.Apply(ev)
@@ -585,7 +585,7 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 }
 
 // policyMetaFrom reads the per-policy metadata of a policy object of the
-// engine (a ClusterPolicy, ValidatingPolicy or MutatingPolicy) so the
+// engine (a ClusterPolicy, Policy, ValidatingPolicy or MutatingPolicy) so the
 // per-policy drill-down (TC-026, slice U4) can render Severity + Rule list
 // off in-memory state without the apiserver round-trip. Reads:
 //
@@ -593,7 +593,7 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 //   - metadata.annotations[policies.kyverno.io/title]       → Title
 //   - metadata.annotations[policies.kyverno.io/category]    → Category
 //   - metadata.annotations[policies.kyverno.io/description] → Description
-//   - spec.rules[].name (the legacy kind only)               → Rules
+//   - spec.rules[].name (the legacy kinds only)              → Rules
 //   - adapters.PolicyMode (false for an object it reads not) → Mode
 func policyMetaFrom(obj *unstructured.Unstructured) (policyMeta, bool) {
 	if obj == nil {
@@ -642,7 +642,7 @@ func (c *ComplianceHandler) policyMetaOf(clusterID string) map[string]policyMeta
 }
 
 // enginePolicyKinds are the informer kinds of the engine's policy objects,
-// the legacy kind first.
+// the legacy kinds first.
 var enginePolicyKinds = adapters.PolicyMode{}.Kinds()
 
 // setPolicyObject records (meta not nil) or drops (meta nil) one policy object
