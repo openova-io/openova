@@ -11,6 +11,8 @@
 # deployments check, + HW_TFVARS (path to tofu.auto.tfvars.json with Huawei
 # AK/SK and harbor_robot_token — check 7 walks every Phase-1 image through the
 # mothership proxy with it, #6778).
+# PREFLIGHT_BEFORE_WIPE=1 runs only the checks that need no wiped state, before the wipe of the env a flight
+# replaces (scripts/sovereign-lifecycle.sh preflight): checks 2 and 3 are skipped; the fire runs every check.
 #
 # 🛑 ONE ENVIRONMENT AT A TIME (founder, 2026-07-15, #5111): "You are allowed
 # to create 1 environment at a time and that is the exact definition of flight
@@ -37,6 +39,7 @@ case "$FQDN" in hw[0-9]*) pass "1. FQDN is hw-numbered: $FQDN (caller must confi
 #    before any fire. Auth: BEARER (owner JWT) preferred, else COOK — the list
 #    is owner-scoped either way (mint as emrah.baysal@openova.io).
 if [ -n "${BEARER:-}" ]; then AUTH_HDR="Authorization: Bearer ${BEARER}"; else AUTH_HDR="Cookie: catalyst_session=${COOK:-}"; fi
+if [ "${PREFLIGHT_BEFORE_WIPE:-0}" = 1 ]; then echo "  ⏭ 2. skipped before the wipe: the env to wipe is still live; the fire's pre-flight counts again"; else
 act=$(curl -s -H "$AUTH_HDR" "${CONSOLE}/deployments" 2>/dev/null | PROT="${PREFLIGHT_PROTECTED:-}" python3 -c '
 import sys,json,os
 prot=[p.strip() for p in os.environ.get("PROT","").split(",") if p.strip()]
@@ -47,6 +50,7 @@ def protected(x):
     return any(f.startswith(p) for p in prot)
 print(len([x for x in live if not protected(x)]))' 2>/dev/null)
 [ "${act:-x}" = "0" ] && pass "2. 0 other active deployments (one-env-at-a-time holds)" || bad "2. ${act:-unknown} active deployment(s) still live — COMPLETELY wipe the existing env first (ONE environment at a time, founder 2026-07-15; #5111)"
+fi
 
 # 2b. At most four fires on one parent domain in seven days (the domain rotation of docs/RUNBOOKS.md,
 #     section 0.3): the fifth is refused and the other domain is named. A list that cannot be read refuses.
@@ -59,7 +63,8 @@ dfires=$(printf '%s' "$dlist" | python3 "$(dirname "$0")/preflight-domain-fires.
 #    ELB (their binding is to the ELB, status=ELB) — a port_id-only heuristic
 #    flags a healthy prov's front-door EIPs as orphans and invites deleting the
 #    live gateway (near-miss on hw250, 2026-07-13). Only status=DOWN counts.
-if [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
+if [ "${PREFLIGHT_BEFORE_WIPE:-0}" = 1 ]; then echo "  ⏭ 3. skipped before the wipe: the cloud's headroom and foreign nodes need the wiped state; the fire's pre-flight measures them"
+elif [ -n "${HW_TFVARS:-}" ] && [ -s "${HW_TFVARS}" ]; then
   orph=$(python3 - "$HW_TFVARS" "$BASTION_EIP" <<'PY' 2>/dev/null
 import sys,json,hashlib,hmac,datetime,urllib.request,ssl
 t=json.load(open(sys.argv[1])); bastion=sys.argv[2]
@@ -259,10 +264,18 @@ PY
   esac
 else bad "3. HW_TFVARS unset — cannot verify EIP/VPC/EVS/OBS headroom or foreign-Sovereign ground truth"; fi
 
-# 4. mothership catalyst-api rollout settled
-if kubectl -n catalyst rollout status deploy/catalyst-api --timeout=8s >/dev/null 2>&1; then
-  pass "4. catalyst-api rollout settled"
-else bad "4. catalyst-api mid-roll — wait (a roll mid-prov ABANDONS it)"; fi
+# 4. mothership catalyst-api rollout settled, read with get (the scoped parent access of a flight grants get on this
+#    Deployment, not the list and watch of `rollout status`): the observed generation is the generation, and the
+#    replicas, updated, ready and available ones equal spec.replicas; read every 2 s for up to PREFLIGHT_ROLLOUT_WAIT s (8).
+_s4=""; _t4=$SECONDS
+while :; do
+  IFS=/ read -r _g _og _sr _r _ur _rr _ar <<<"$(kubectl -n catalyst get deploy catalyst-api -o jsonpath='{.metadata.generation}/{.status.observedGeneration}/{.spec.replicas}/{.status.replicas}/{.status.updatedReplicas}/{.status.readyReplicas}/{.status.availableReplicas}' 2>/dev/null)"
+  _s4="generation ${_g:-?} observed ${_og:-?}, spec ${_sr:-?} replicas ${_r:-0} updated ${_ur:-0} ready ${_rr:-0} available ${_ar:-0}"
+  if [ -n "${_g:-}" ] && [ "${_og:-}" = "$_g" ] && [ -n "${_sr:-}" ] && [ "${_r:-0}" = "$_sr" ] && [ "${_ur:-0}" = "$_sr" ] && [ "${_rr:-0}" = "$_sr" ] && [ "${_ar:-0}" = "$_sr" ]; then _s4=ok; break; fi
+  [ $((SECONDS - _t4)) -lt "${PREFLIGHT_ROLLOUT_WAIT:-8}" ] || break
+  sleep 2
+done
+[ "$_s4" = ok ] && pass "4. catalyst-api rollout settled" || bad "4. catalyst-api mid-roll or not readable (${_s4}) — wait (a roll mid-prov ABANDONS it)"
 
 # 4b. mothership catalyst-api DEPLOYED image == origin/main PINNED tag (no roll
 #     PENDING). hw265 died because check-4 "settled" is POINT-IN-TIME: at fire
@@ -348,7 +361,8 @@ fi
 #    zombies queue forever) — it is not progressing and cannot merge/roll
 #    catalyst-api mid-prov, so it must NOT fail the gate; surface it as a
 #    ⚠ info line (id + age) instead. gh/API errors stay fail-closed (unknown -> ❌).
-ci5=$(gh run list --repo openova-io/openova --limit 12 --json databaseId,name,status,createdAt 2>/dev/null | NOW="$(date -u +%s)" python3 -c '
+#    The run that fires (GITHUB_RUN_ID: a run of .github/workflows/release-train.yaml) is not counted.
+ci5=$(gh run list --repo openova-io/openova --limit 12 --json databaseId,name,status,createdAt 2>/dev/null | jq -c --arg r "${GITHUB_RUN_ID:-}" 'map(select((.databaseId | tostring) != $r))' 2>/dev/null | NOW="$(date -u +%s)" python3 -c '
 import sys,json,os,datetime
 now=int(os.environ["NOW"])
 try:

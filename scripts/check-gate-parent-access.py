@@ -48,7 +48,7 @@ import tempfile
 
 import yaml
 
-LIST = (".github/workflows/foundation-gate.yaml", ".github/workflows/foundation-gate-standing.yaml")
+LIST = (".github/workflows/foundation-gate.yaml", ".github/workflows/foundation-gate-standing.yaml", ".github/workflows/release-train.yaml")
 SECRET = "ACCEPTANCE_PARENT_KUBECONFIG"
 SCRIPT = "gate-parent-job.sh"
 ENVIRONMENT = "gate"
@@ -282,7 +282,7 @@ def self_test():
 
     def case(name, files, want):
         count[0] += 1
-        base = {LIST[0]: GATE, LIST[1]: STANDING, ".github/workflows/other.yaml": OTHER, ACCESS: MANIFEST, "scripts/" + SCRIPT: JOB}
+        base = {LIST[0]: GATE, LIST[1]: STANDING, LIST[2]: STANDING, ".github/workflows/other.yaml": OTHER, ACCESS: MANIFEST, "scripts/" + SCRIPT: JOB}
         base.update(files)
         got = run(base)
         ok = (not got) if want is None else bool(got) and all(f.startswith(want) for f in got)
@@ -290,7 +290,7 @@ def self_test():
         fails[0] += 0 if ok else 1
 
     case("clean: the two gate workflows use the access as allowed", {}, None)
-    case("P0 a workflow of the list is missing", {LIST[1]: None}, "P0 .github/workflows/foundation-gate-standing.yaml: the workflow of the list is missing")
+    case("P0 a workflow of the list is missing", {LIST[2]: None}, "P0 .github/workflows/release-train.yaml: the workflow of the list is missing")
     case("P1 another workflow names the secret", {".github/workflows/other.yaml": OTHER + "# ACCEPTANCE_PARENT_KUBECONFIG\n"}, "P1 .github/workflows/other.yaml: names the secret ACCEPTANCE_PARENT_KUBECONFIG")
     case("P1 another workflow runs the Job script",
          {".github/workflows/other.yaml": OTHER.replace("echo hi", "bash scripts/gate-parent-job.sh run")}, "P1 .github/workflows/other.yaml: runs scripts/gate-parent-job.sh")
