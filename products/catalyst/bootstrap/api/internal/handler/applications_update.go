@@ -44,6 +44,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/appmanage"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/regionpin"
 )
 
 // previewDefaultRegion — placeholder region stamped on a topology
@@ -148,34 +149,11 @@ func applicationUpdateRequestNormalize(b applicationUpdateRequest) applicationUp
 		if pattern := bpv1.DerivePattern(b.Placement.Targets, ""); pattern != bpv1.PatternNotReported {
 			b.Placement.Mode = string(pattern)
 			if len(b.Placement.Regions) == 0 {
-				b.Placement.Regions = regionsFromPlacementTargets(b.Placement.Targets)
+				b.Placement.Regions = regionpin.TargetRegions(b.Placement.Targets)
 			}
 		}
 	}
 	return b
-}
-
-// regionsFromPlacementTargets flattens the #3969 targets model into the
-// legacy spec.regions list, Primary target(s) first so regions[0] is the
-// primary region (placement_projection.go derives status.placement.
-// primaryRegion from regions[0] for the single-primary modes). Duplicate
-// regions are dropped; relative order is otherwise preserved.
-func regionsFromPlacementTargets(targets []bpv1.PlacementTarget) []string {
-	seen := map[string]bool{}
-	var primaries, rest []string
-	for _, t := range targets {
-		r := strings.TrimSpace(t.Region)
-		if r == "" || seen[r] {
-			continue
-		}
-		seen[r] = true
-		if t.Role == bpv1.DataRolePrimary {
-			primaries = append(primaries, r)
-		} else {
-			rest = append(rest, r)
-		}
-	}
-	return append(primaries, rest...)
 }
 
 // placementValueForUpdate produces the value stored at `spec.placement` by a
@@ -482,6 +460,14 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 	curPlacementRaw, _, _ := unstructured.NestedFieldNoCopy(cur.Object, "spec", "placement")
 	curRegionsRaw, _, _ := unstructured.NestedSlice(cur.Object, "spec", "regions")
 	curRegions := stringsFromAnySlice(curRegionsRaw)
+
+	// spec.regionPinned (package regionpin); ?force=true does not lift it.
+	if p := body.Placement; p != nil {
+		if rej := regionpin.EditGate(r.Context(), client, cur, curRegions, p.Regions, p.Targets); rej != nil {
+			writeJSON(w, rej.Status, (&refError{Status: rej.Status, Code: rej.Code, Field: "placement", Message: rej.Message}).body())
+			return
+		}
+	}
 
 	force := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("force")), "true")
 	if body.Placement != nil && !force {
@@ -1090,7 +1076,7 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 		// UAT row 60 (and the change half, row 16) — the SAME rule the install
 		// door applies, from the SAME helper so there is not a second
 		// authority. This door reaches it through the targets[] fold in
-		// applicationUpdateRequestNormalize, whose regionsFromPlacementTargets
+		// applicationUpdateRequestNormalize, whose regionpin.TargetRegions
 		// DEDUPES: a PlacementEditor Apply whose Primary and Standby name the
 		// same region arrives here as active-hot-standby over ONE region, and
 		// would otherwise be persisted as a standby-less hot-standby.

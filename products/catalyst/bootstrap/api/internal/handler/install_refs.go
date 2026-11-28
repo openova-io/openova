@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/core/controllers/pkg/regionlocal"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/regionpin"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/regions"
 )
 
@@ -188,6 +189,11 @@ func validateInstallRefs(ctx context.Context, client dynamic.Interface, in insta
 	//     in Git is refused there too.
 	if err := regionlocal.Refusal(out.Blueprint, bpObj.Object, canonicalizeTopology(in.Mode), len(out.Regions)); err != nil {
 		return out, unprocessable("region-local-volume-not-replicated", "placement.mode", "%s", err.Error())
+	}
+
+	// 4c. spec.regionPinned: only a singleton in one region (package regionpin).
+	if rej := regionpin.InstallRefusal(out.Blueprint, bpObj.Object, canonicalizeTopology(in.Mode), out.Regions); rej != nil {
+		return out, &refError{Status: rej.Status, Code: rej.Code, Field: "placement", Message: rej.Message}
 	}
 
 	// 5. The Organization's namespace — owned by the org-controller. Never

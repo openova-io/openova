@@ -47,7 +47,7 @@ import (
 // DISTINCT regions, not entry count: `["a","a"]` is one place. The update
 // door reaches this rule through applicationUpdateRequestNormalize, which
 // folds the #3969 `targets[]` onto mode+regions via
-// regionsFromPlacementTargets — and that helper DEDUPES, so a PlacementEditor
+// regionpin.TargetRegions — and that helper DEDUPES, so a PlacementEditor
 // Apply carrying a Primary and a Standby that name the same region arrives
 // here as active-hot-standby over one region. Counting entries would let it
 // through.
