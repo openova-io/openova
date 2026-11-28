@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T18:00:03Z` |
+| Last refreshed | `2026-11-28T18:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T18:05 | [#9160](https://github.com/openova-io/openova/pull/9160) | #7087 | docs(ledger): plan update |
 | 2026-11-28T16:53 | [#9155](https://github.com/openova-io/openova/pull/9155) | #7087 | docs(ledger): plan update |
 | 2026-11-28T17:41 | [#9154](https://github.com/openova-io/openova/pull/9154) | #9021 | The compliance scorecard is empty on a Sovereign: the API we |
 | 2026-11-28T17:45 | [#9152](https://github.com/openova-io/openova/pull/9152) | #9144 | feat(svc): the dialog offers the implementation; capabilitie |
+| 2026-11-28T18:07 | [#9151](https://github.com/openova-io/openova/pull/9151) | #9122 | fix(api): a request with two reuse bindings of one capabilit |
 | 2026-11-28T16:45 | [#9150](https://github.com/openova-io/openova/pull/9150) | #9138 | fix(catalyst-api): catalogue edits are stored as the edited  |
 | 2026-11-28T16:27 | [#9149](https://github.com/openova-io/openova/pull/9149) | #7087 | docs(ledger): plan update |
 | 2026-11-28T15:38 | [#9144](https://github.com/openova-io/openova/pull/9144) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-28T01:56 | [#9103](https://github.com/openova-io/openova/pull/9103) | #9100 | fix(net): dnsdist forwards to port 53 of the powerdns Servic |
 | 2026-11-28T01:35 | [#9101](https://github.com/openova-io/openova/pull/9101) | #7087 | docs(ledger): plan update |
 | 2026-11-28T01:13 | [#9099](https://github.com/openova-io/openova/pull/9099) | #7087 | docs(ledger): plan update |
-| 2026-11-28T11:36 | [#9098](https://github.com/openova-io/openova/pull/9098) | #9103 | fix(powerdns): powerdns-api-credentials carries helm.sh/reso |
-| 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
 
 ---
 
