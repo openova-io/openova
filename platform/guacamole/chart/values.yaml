@@ -71,7 +71,7 @@ access:
         digest: "sha256:f39258e35244b6bf79bc6ac4e60eee176aea6f6a5adb13e8c3090e48df8ae515"
       agent:
         repository: ghcr.io/openova-io/openova/access-session-agent
-        digest: ""
+        digest: "sha256:7dd3ddc6899d0f9e05847c848824b0e4c56b2dd382d178739b188a0f86f157d6"
     # A target of kind pod in one of these namespaces is not Ready
     # (reason NamespaceNotAllowed).
     deniedTargetNamespaces:
