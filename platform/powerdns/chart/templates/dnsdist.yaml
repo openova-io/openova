@@ -22,16 +22,16 @@ data:
     {{- tpl .Values.dnsdist.config . | nindent 4 }}
 ---
 {{- /*
-Workload kind is Hetzner-gated (#5086, Refs #4765). DEFAULT
-(Huawei / kom4dc / contabo): a Deployment fronted by the Cilium LB-IPAM
-anycast VIP (anycast-endpoint.yaml) — this path is UNCHANGED. On Hetzner the
-LB-IPAM `sovereign-vip` pool is gated OFF and hcloud-ccm cannot materialise the
-anycast Service (no location annotation, no nodePort), so node:53 never binds
-via the VIP path and the tofu `dns` LB :53 -> node:53 forward is inert.
-`dnsdist.hostPortMode: true` (set ONLY by the Hetzner cloud-init substitute)
-flips dnsdist to a DaemonSet whose container claims hostPort:53 on EVERY node
-(the Hetzner DNS LB targets all nodes — CP + workers), giving that forward a
-real listener. §854-clean: hostPort ONLY, NEVER a NodePort (#4765). Deliberately
+Workload kind (#5086, Refs #4765). DEFAULT: a Deployment fronted by the
+Cilium LB-IPAM anycast VIP (anycast-endpoint.yaml). On Hetzner the LB-IPAM
+`sovereign-vip` pool is gated OFF and hcloud-ccm cannot materialise the
+anycast Service (no location annotation, no nodePort), and on the reference
+cloud the EIP's 1:1 NAT never delivers to the VIP, so node:53 never binds via
+the VIP path. `dnsdist.hostPortMode: true` (the substitute
+POWERDNS_DNSDIST_HOSTPORT, which every provider pack sets since NET-185) flips
+dnsdist to a DaemonSet whose container claims hostPort:53 on EVERY node (a
+balancer or a 1:1 NAT may target any node — CP + workers), giving public port
+53 a real listener. §854-clean: hostPort ONLY, NEVER a NodePort (#4765). Deliberately
 NO hostNetwork — dnsdist binds :53 inside the pod netns (Cilium
 kube-proxy-replacement DNATs node:53 -> pod), so it never collides with the
 Ubuntu-24.04 systemd-resolved stub already holding 127.0.0.53:53 on the host.

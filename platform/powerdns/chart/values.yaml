@@ -396,12 +396,12 @@ dnsdist:
   enabled: true
   # ─── Hetzner DNS front door (#5086, Refs #4765) ─────────────────────────
   # DEFAULT false ⇒ dnsdist is a Deployment fronted by the Cilium LB-IPAM
-  # anycast VIP (the working path on Huawei / kom4dc / contabo — UNTOUCHED).
-  # On Hetzner the LB-IPAM `sovereign-vip` pool is gated OFF and hcloud-ccm
-  # cannot materialise the anycast Service (no location annotation, no
-  # nodePort), so node:53 never binds via the VIP path and the tofu `dns`
-  # LB :53->node:53 forward is inert. Set true (ONLY by the Hetzner
-  # cloud-init substitute POWERDNS_DNSDIST_HOSTPORT) to make dnsdist a
+  # anycast VIP. On Hetzner the LB-IPAM `sovereign-vip` pool is gated OFF and
+  # hcloud-ccm cannot materialise the anycast Service (no location
+  # annotation, no nodePort), and on the reference cloud the EIP's 1:1 NAT
+  # never delivers to the VIP, so node:53 never binds via the VIP path. Set
+  # true (by the substitute POWERDNS_DNSDIST_HOSTPORT, which every provider
+  # pack sets since NET-185) to make dnsdist a
   # DaemonSet whose container claims hostPort:53 on every node — a
   # §854-clean node:53 listener (hostPort ONLY, NEVER a NodePort). No
   # hostNetwork: dnsdist binds :53 in the pod netns (Cilium
@@ -473,8 +473,13 @@ dnsdist:
     -- the per-source limit. The console ACL is not touched (no console).
     setACL({ '0.0.0.0/0', '::/0' })
 
+    -- The backend is the powerdns Service's DNS port, 53 (dns-udp and
+    -- dns-tcp, which forward to the server's own port 5353). A ClusterIP
+    -- answers only on the ports its Service declares: with 5353 here the
+    -- backend was never reached, so dnsdist dropped every UDP query and
+    -- closed every TCP connection (NET-187; tests/dns-path-render.sh).
     local backend = os.getenv("POWERDNS_SERVICE_HOST") or "127.0.0.1"
-    newServer({ address = backend .. ":5353", name = 'powerdns-auth' })
+    newServer({ address = backend .. ":53", name = 'powerdns-auth' })
 
     -- ─── Rate limiting ───────────────────────────────────────────────
     -- Hits per IP within a 1s window; once exceeded, drop further queries
