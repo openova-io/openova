@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T10:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
+| Last refreshed | `2026-11-28T10:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 8m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -326,6 +326,7 @@ flowchart LR
 | 2026-11-27T21:54 | [#9083](https://github.com/openova-io/openova/pull/9083) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
+| 2026-11-28T10:21 | [#9080](https://github.com/openova-io/openova/pull/9080) | #5734 | feat(svc): in-cluster object storage and the capability prob |
 | 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:25 | [#9077](https://github.com/openova-io/openova/pull/9077) | #9075 | feat(network): the platform API writes the passthrough liste |
 | 2026-11-27T21:03 | [#9074](https://github.com/openova-io/openova/pull/9074) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T22:31 | [#9068](https://github.com/openova-io/openova/pull/9068) | #9064 | feat(axon): chart bp-axon with its credential a file mounted |
 | 2026-11-27T19:28 | [#9067](https://github.com/openova-io/openova/pull/9067) | #7087 | docs(ledger): plan update |
 | 2026-11-27T19:16 | [#9066](https://github.com/openova-io/openova/pull/9066) | #7087 | docs(ledger): plan update |
-| 2026-11-27T19:02 | [#9063](https://github.com/openova-io/openova/pull/9063) | #7087 | docs(ledger): plan update |
 
 ---
 
