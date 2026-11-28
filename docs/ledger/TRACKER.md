@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T13:15:02Z` |
+| Last refreshed | `2026-11-28T13:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T13:17 | [#9121](https://github.com/openova-io/openova/pull/9121) | #9073 | A change of a library chart republishes every chart that bui |
 | 2026-11-28T12:41 | [#9120](https://github.com/openova-io/openova/pull/9120) | #9118 | fix(openbao): slot 08 lists the namespaces of shared mounted |
 | 2026-11-28T13:08 | [#9119](https://github.com/openova-io/openova/pull/9119) | #9080 | The live test of the secrets store's configuration fails at  |
 | 2026-11-28T12:10 | [#9117](https://github.com/openova-io/openova/pull/9117) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T21:43 | [#9082](https://github.com/openova-io/openova/pull/9082) | #7087 | docs(ledger): plan update |
 | 2026-11-27T21:33 | [#9081](https://github.com/openova-io/openova/pull/9081) | #9073 | docs(ledger): result of the spike SEC-227, the library input |
 | 2026-11-28T10:21 | [#9080](https://github.com/openova-io/openova/pull/9080) | #5734 | feat(svc): in-cluster object storage and the capability prob |
-| 2026-11-27T21:19 | [#9078](https://github.com/openova-io/openova/pull/9078) | #7087 | docs(ledger): plan update |
 
 ---
 
