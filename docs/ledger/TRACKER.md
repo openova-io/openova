@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-27T23:45:03Z` |
+| Last refreshed | `2026-11-28T00:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-27T23:57 | [#9091](https://github.com/openova-io/openova/pull/9091) | #7087 | docs(ledger): plan update |
 | 2026-11-27T23:21 | [#9088](https://github.com/openova-io/openova/pull/9088) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
 | 2026-11-27T22:38 | [#9086](https://github.com/openova-io/openova/pull/9086) | #9085 | test(gate): CMP-G03 is required in the conformance pack (CMP |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-27T17:45 | [#9050](https://github.com/openova-io/openova/pull/9050) | #9021 | test(gate): check CMP-G06 after the move of the access polic |
 | 2026-11-27T17:18 | [#9048](https://github.com/openova-io/openova/pull/9048) | #7087 | docs(ledger): plan update |
 | 2026-11-27T17:07 | [#9046](https://github.com/openova-io/openova/pull/9046) | #7087 | docs(ledger): plan update |
-| 2026-11-27T17:25 | [#9045](https://github.com/openova-io/openova/pull/9045) | #9043 | fix(kit): every kit slot that renders a SecretProviderClass  |
 
 ---
 
