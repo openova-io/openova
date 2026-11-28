@@ -9,6 +9,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
@@ -55,9 +56,11 @@ type ReadModel struct {
 	resolver Resolver
 	adapters map[string]Adapter
 	warn     WarnFunc
+	store    Lister // the informer store the model of a cluster is read from (ReadModelsFrom); nil: the events alone
 
 	mu       sync.RWMutex
 	models   map[string]*Model // the valid model of each cluster
+	read     map[string]string // the uid and resourceVersion of the model object last read from the store, per cluster
 	clusters map[string]*clusterState
 }
 
@@ -66,16 +69,122 @@ type WarnFunc func(msg string, args ...any)
 
 // NewReadModel returns a read model that feeds each event kind to the
 // adapter that names it, and the events of kind k8scache.KindComplianceModel
-// to ApplyModel. No cluster has a model until ApplyModel loads one. warn,
-// when not nil, logs the one line of a model object that does not load.
+// to ApplyModel. No cluster has a model until ApplyModel loads one, or the
+// store of ReadModelsFrom holds one. warn, when not nil, logs the one line of
+// a model object that does not load.
 func NewReadModel(warn WarnFunc, r Resolver, adapters ...Adapter) *ReadModel {
-	rm := &ReadModel{resolver: r, adapters: map[string]Adapter{}, warn: warn, models: map[string]*Model{}, clusters: map[string]*clusterState{}}
+	rm := &ReadModel{resolver: r, adapters: map[string]Adapter{}, warn: warn, models: map[string]*Model{}, read: map[string]string{}, clusters: map[string]*clusterState{}}
 	for _, a := range adapters {
 		for _, k := range a.Kinds() {
 			rm.adapters[k] = a
 		}
 	}
 	return rm
+}
+
+// ReadModelsFrom makes store the source of the model of every cluster whose
+// ComplianceModel kind it holds, and returns rm. The informer keeps its store
+// exact; an event of the fanout may never reach the read model: an object the
+// Factory hydrated from its disk snapshot and found unchanged at its first
+// LIST is a resync, which an informer of resync 0 hands to no subscriber; an
+// event sent before the aggregator subscribed reaches none; a full buffer
+// drops the oldest. A model fed by the events alone was never loaded on a
+// Sovereign whose catalyst-api restarted on its snapshot, and every check
+// weighed 0 (the same class as the policy objects, CMP-023). A cluster whose
+// kind the store does not hold (its List fails) keeps the model of the events.
+func (rm *ReadModel) ReadModelsFrom(store Lister) *ReadModel {
+	rm.store = store
+	return rm
+}
+
+// stored returns the ComplianceModel objects the store holds for the
+// cluster, and false when the store does not hold that kind of the cluster.
+func (rm *ReadModel) stored(cluster string) ([]*unstructured.Unstructured, bool) {
+	if rm.store == nil {
+		return nil, false
+	}
+	objs, _, err := rm.store.List(cluster, k8scache.KindComplianceModel, nil)
+	return objs, err == nil
+}
+
+// modelOf returns the model of the cluster, nil when it has none: the one
+// its object in the store holds when the store holds the kind of the
+// cluster, else the one its events loaded.
+func (rm *ReadModel) modelOf(cluster string) *Model {
+	if objs, held := rm.stored(cluster); held {
+		m, err := rm.fromStore(cluster, objs)
+		rm.warnModel(cluster, err)
+		return m
+	}
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return rm.models[cluster]
+}
+
+// fromStore makes the object named ModelObjectName of objs, the cluster's
+// ComplianceModel objects in the store, the model of the cluster and returns
+// it; no such object leaves the cluster with no model. Each uid and
+// resourceVersion is loaded once: when it does not load, the cluster keeps
+// the model it had and the error is returned that once.
+func (rm *ReadModel) fromStore(cluster string, objs []*unstructured.Unstructured) (*Model, error) {
+	var obj *unstructured.Unstructured
+	for _, o := range objs {
+		if o.GetName() == ModelObjectName {
+			obj = o
+		}
+	}
+	version := ""
+	if obj != nil {
+		version = string(obj.GetUID()) + "/" + obj.GetResourceVersion()
+	}
+	rm.mu.RLock()
+	m, seen := rm.models[cluster], rm.read[cluster]
+	rm.mu.RUnlock()
+	if obj != nil && seen == version {
+		return m, nil
+	}
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	if obj != nil && rm.read[cluster] == version {
+		return rm.models[cluster], nil // read by another caller meanwhile
+	}
+	if obj == nil {
+		delete(rm.models, cluster)
+		delete(rm.read, cluster)
+		metricModelValid.WithLabelValues(cluster).Set(0)
+		return nil, nil
+	}
+	rm.read[cluster] = version
+	loaded, err := LoadModel(obj)
+	if err != nil {
+		metricModelValid.WithLabelValues(cluster).Set(0)
+		return rm.models[cluster], fmt.Errorf("cluster %s keeps its previous model: %w", cluster, err)
+	}
+	rm.models[cluster] = loaded
+	metricModelValid.WithLabelValues(cluster).Set(1)
+	return loaded, nil
+}
+
+// warnModel logs the one line of a model object of the cluster that did not
+// load; a nil err logs nothing.
+func (rm *ReadModel) warnModel(cluster string, err error) {
+	if err != nil && rm.warn != nil {
+		rm.warn("compliance: the ComplianceModel object did not load", "cluster", cluster, "name", ModelObjectName, "err", err)
+	}
+}
+
+// subjectsOf returns every subject of the cluster, in key order.
+func (rm *ReadModel) subjectsOf(cluster string) []Subject {
+	rm.mu.RLock()
+	var current []Subject
+	if cs := rm.clusters[cluster]; cs != nil {
+		for _, s := range cs.subjects {
+			current = append(current, s)
+		}
+	}
+	rm.mu.RUnlock()
+	sortSubjects(current)
+	return current
 }
 
 // Handles reports whether the read model consumes events of kind: the kinds
@@ -90,9 +199,15 @@ func (rm *ReadModel) Handles(kind string) bool {
 // ModelObjectName is ignored. When the object does not load, the cluster
 // keeps the model it had and ApplyModel returns the error. Otherwise it
 // returns every subject of the cluster, in key order: their scores changed.
+// When the store of ReadModelsFrom holds the kind of the cluster, the event
+// only says that the model changed: the object is read from the store.
 func (rm *ReadModel) ApplyModel(ev k8scache.Event) ([]Subject, error) {
 	if ev.Object == nil || ev.Object.GetName() != ModelObjectName {
 		return nil, nil
+	}
+	if objs, held := rm.stored(ev.Cluster); held {
+		_, err := rm.fromStore(ev.Cluster, objs)
+		return rm.subjectsOf(ev.Cluster), err
 	}
 	var m *Model
 	if ev.Type != k8scache.EventDeleted {
@@ -109,20 +224,13 @@ func (rm *ReadModel) ApplyModel(ev k8scache.Event) ([]Subject, error) {
 	} else {
 		rm.models[ev.Cluster] = m
 	}
-	var current []Subject
-	if cs := rm.clusters[ev.Cluster]; cs != nil {
-		for _, s := range cs.subjects {
-			current = append(current, s)
-		}
-	}
 	rm.mu.Unlock()
 	if m == nil {
 		metricModelValid.WithLabelValues(ev.Cluster).Set(0)
 	} else {
 		metricModelValid.WithLabelValues(ev.Cluster).Set(1)
 	}
-	sortSubjects(current)
-	return current, nil
+	return rm.subjectsOf(ev.Cluster), nil
 }
 
 // owned reports whether a producer owns findings of source s in the cluster:
@@ -132,9 +240,7 @@ func (rm *ReadModel) owned(cluster string, s Source) bool {
 	if s == SourceKyverno || s == SourceEvaluator {
 		return true
 	}
-	rm.mu.RLock()
-	defer rm.mu.RUnlock()
-	if m := rm.models[cluster]; m != nil {
+	if m := rm.modelOf(cluster); m != nil {
 		for _, c := range m.Checks {
 			if c.Source == s {
 				return true
@@ -161,9 +267,7 @@ func sourceKey(a Adapter, ev k8scache.Event) ObjectRef {
 func (rm *ReadModel) Apply(ev k8scache.Event) (current, gone []Subject) {
 	if ev.Kind == k8scache.KindComplianceModel {
 		current, err := rm.ApplyModel(ev)
-		if err != nil && rm.warn != nil {
-			rm.warn("compliance: the ComplianceModel object did not load", "cluster", ev.Cluster, "name", ev.Object.GetName(), "err", err)
-		}
+		rm.warnModel(ev.Cluster, err)
 		return current, nil
 	}
 	a := rm.adapters[ev.Kind]
@@ -273,9 +377,10 @@ type view struct {
 }
 
 func (rm *ReadModel) view(cluster string) view {
+	m := rm.modelOf(cluster)
 	rm.mu.RLock()
 	cs := rm.clusters[cluster]
-	v := view{model: rm.models[cluster], bySubject: map[SubjectKey][]Finding{}}
+	v := view{model: m, bySubject: map[SubjectKey][]Finding{}}
 	var all []Finding
 	if cs != nil {
 		for _, s := range cs.subjects {
@@ -324,9 +429,7 @@ func (rm *ReadModel) Checks(cluster string) []Check {
 // ModelVersion returns spec.version of the cluster's model, and false when
 // the cluster has none.
 func (rm *ReadModel) ModelVersion(cluster string) (string, bool) {
-	rm.mu.RLock()
-	defer rm.mu.RUnlock()
-	if m := rm.models[cluster]; m != nil {
+	if m := rm.modelOf(cluster); m != nil {
 		return m.Version, true
 	}
 	return "", false

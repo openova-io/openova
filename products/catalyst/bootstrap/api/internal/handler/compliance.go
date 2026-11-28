@@ -474,7 +474,7 @@ func NewComplianceHandler(
 		k8sCache:         k8sCache,
 		publisher:        publisher,
 		resolver:         resolver,
-		model:            compliance.NewReadModel(log.Warn, resolver, adapters.PolicyReport{}, adapters.Evaluator{}),
+		model:            compliance.NewReadModel(log.Warn, resolver, adapters.PolicyReport{}, adapters.Evaluator{}).ReadModelsFrom(lister),
 		policyMetaByName: map[string]map[string]policyMeta{},
 		policyObjects:    map[[3]string]policyMeta{},
 		subscribers:      map[int64]*complianceSubscriber{},
