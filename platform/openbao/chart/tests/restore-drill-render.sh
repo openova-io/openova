@@ -6,9 +6,11 @@
 # store, the bucket, the scratch store and the Kubernetes API. When the
 # canary is written the stand-in puts this region's next snapshot into the
 # bucket, as the backup does; an older snapshot, another region's and a
-# foreign name are there from the start. Seven cases, one line "  PASS  <case>"
+# foreign name are there from the start. Ten cases, one line "  PASS  <case>"
 # each. On origin/main before SEC-181 there is no drill: every case fails.
-# Before SEC-163 case 7 fails: the scratch store has no writable /tmp.
+# Before SEC-163 case 7 fails: the scratch store has no writable /tmp. Before
+# the bucket requests were tried again (SEC-G10, region b) cases 8 and 10 fail.
+# Case 10 sends the bucket requests to the real curl, needed on PATH.
 # Usage: bash tests/restore-drill-render.sh [CHART_DIR]
 set -uo pipefail
 
@@ -18,7 +20,8 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 cd "$CHART_DIR"
 if ! ls charts/*.tgz >/dev/null 2>&1; then helm dependency build >/dev/null; fi
-for t in yq helm sha256sum; do command -v "$t" >/dev/null || { echo "FAIL: $t required"; exit 1; }; done
+for t in yq helm sha256sum curl; do command -v "$t" >/dev/null || { echo "FAIL: $t required"; exit 1; }; done
+REAL_CURL_BIN="$(command -v curl)"
 FAIL=0
 pass() { echo "  PASS  $1"; }
 fail() { echo "  FAIL  $1:$2"; FAIL=1; }
@@ -42,6 +45,15 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<'EOF'
 #!/bin/sh
 C="$CASE"; printf '%s\n' "$*" >> "$C/curl-args"
+S3="$(cat "$BUCKET_DIR/s3-endpoint")"
+case "$*" in
+  *"$S3"*)
+    # REAL_CURL: the bucket request goes to the real curl, its stdin (the key pair) untouched.
+    if [ -n "${REAL_CURL:-}" ]; then exec "$REAL_CURL" "$@"; fi
+    # NO_ANSWER=<n>: the first n bucket requests get no answer, as in region b on 28 Nov 2026.
+    n="$(cat "$C/s3-tries" 2>/dev/null || echo 0)"; echo $((n + 1)) > "$C/s3-tries"
+    if [ "$n" -lt "${NO_ANSWER:-0}" ]; then echo "curl: (6) Could not resolve host: ${S3#http://}" >&2; exit 6; fi ;;
+esac
 m=GET out="" w="" data="" cfg="" url=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -55,7 +67,7 @@ case "$data" in @-) data="$(cat)" ;; @*) data="$(cat "${data#@}")" ;; esac
 if [ -n "$data" ] && [ "$m" = GET ]; then m=POST; fi
 tok="$(printf '%s\n' "$cfg" | sed -n 's/^header = "X-Vault-Token: \(.*\)"$/\1/p')"
 case "$tok" in s.admin) who=admin ;; s.drill) who=drill ;; s.scratch-root) who=root ;; "") who=none ;; *) who=other ;; esac
-S3="$(cat "$BUCKET_DIR/s3-endpoint")"; KEYS="$C/bucket/bk-test"; st=200 body=""
+KEYS="$C/bucket/bk-test"; st=200 body=""
 stamp() { date -u -d "@$(( $(date +%s) + $1 ))" +%Y%m%dT%H%M%SZ; }
 case "$m $url" in
   "POST $BAO_ADDR/v1/auth/kubernetes/login")
@@ -71,6 +83,7 @@ case "$m $url" in
     n="$(stamp 60)"; echo "$n" > "$C/new"; cp "$C/next" "$KEYS/openbao/hw-a/$n.snap" ;;
   "POST $BAO_ADDR/v1/auth/token/revoke-self") echo "revoke token=$who" >> "$C/log"; st=204 ;;
   "GET $S3/bk-test?list-type=2&prefix="*)
+    [ -z "${DENY:-}" ] || st=403
     p="$(printf '%s' "${url#*prefix=}" | sed 's|%2F|/|g')"
     body="<ListBucketResult>$(cd "$KEYS" && find . -type f | sed 's|^\./||' | grep "^$p" | sort | sed 's|.*|<Contents><Key>&</Key></Contents>|' | tr -d '\n')</ListBucketResult>" ;;
   "GET $S3/bk-test/"*) k="${url#"$S3/bk-test/"}"; echo "s3 get $k" >> "$C/log"; body="$(cat "$KEYS/$k")" ;;
@@ -90,6 +103,10 @@ if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; f
 [ "$st" -lt 400 ] || exit 22
 EOF
 chmod +x "$TMP/bin/curl"
+# Cases 8 to 10 put this stand-in sleep first in PATH: it records the wait and returns at once.
+mkdir -p "$TMP/nosleep"
+printf '#!/bin/sh\necho "sleep $*" >> "$CASE/sleeps"\n' > "$TMP/nosleep/sleep"
+chmod +x "$TMP/nosleep/sleep"
 
 OLD="$(date -u -d '-6 hours' +%Y%m%dT%H%M%SZ)"; FUTURE="$(date -u -d '+30 minutes' +%Y%m%dT%H%M%SZ)"
 # run <case> [ENV=VALUE...]: one run of the script in a fresh case directory; exit code in <case>/rc.
@@ -98,9 +115,9 @@ run() {
   mkdir -p "$c/bucket/bk-test/openbao/hw-a" "$c/bucket/bk-test/openbao/hw-b" "$c/creds" "$c/sa" "$c/work"
   echo 0123abcd > "$c/bucket/bk-test/openbao/hw-a/$OLD.snap"; echo 4567cdef > "$c/bucket/bk-test/openbao/hw-b/$FUTURE.snap"
   echo x > "$c/bucket/bk-test/openbao/hw-a/notes-$FUTURE.txt"
-  printf 'http://s3.test' > "$c/creds/s3-endpoint"; printf 'r1' > "$c/creds/s3-region"
+  printf '%s' "${S3_AT:-http://s3.test}" > "$c/creds/s3-endpoint"; printf 'r1' > "$c/creds/s3-region"
   printf 'AKIDDRILL' > "$c/creds/s3-access-key"; printf 'drill/Secret+key' > "$c/creds/s3-secret-key"
-  printf 'eyJ.config-sa.sig' > "$c/sa/token"; printf 'ca' > "$c/sa/ca.crt"; : > "$c/log"
+  printf 'eyJ.config-sa.sig' > "$c/sa/token"; printf 'ca' > "$c/sa/ca.crt"; : > "$c/log"; : > "$c/sleeps"
   ( set -a; . "$TMP/env"; CASE="$c"; OLD="$OLD"; BUCKET_DIR="$c/creds"; SA_DIR="$c/sa"; WORK_DIR="$c/work"
     for kv in "$@"; do export "${kv?}"; done
     PATH="$TMP/bin:$PATH" sh "$TMP/drill.sh" ) > "$c/out" 2>&1
@@ -192,6 +209,34 @@ for dir in "$raft" "${tmpdir:-/tmp}"; do
   [ "$(grep -c . <<<"$vol")" = 1 ] && [ "$(on "$POD | .volumes[] | select(.name == \"$vol\") | has(\"emptyDir\")")" = true ] || c7="$c7 not-writable=$dir"
 done
 if [ -z "$c7" ]; then pass "the scratch store can write its raft storage and its snapshot's temporary file"; else fail "case 7" "$c7"; fi
+
+# ── 8 to 10 ──────────────────────────────────────────────────────────────
+# On the Sovereign, 28 Nov 2026 12:12 UTC, region b: the drill's first listing
+# of the bucket ended "curl: (6) Could not resolve host" while CoreDNS logged an
+# upstream timeout for that host, and the drill recorded "listing ... failed"
+# for six hours. A bucket request that got no answer is made again; an answer
+# (here a refusal) is final; with the real curl a name that never resolves is
+# tried 5 times and then fails the drill.
+FAST="PATH=$TMP/nosleep:$PATH"
+run flaky "$FAST" NO_ANSWER=1; run denied "$FAST" DENY=1
+S3_AT=http://drill-no-such-host.invalid run noname "$FAST" REAL_CURL="$REAL_CURL_BIN"
+c8=""
+[ "$(cat "$TMP/flaky/rc")" = 0 ] || c8="$c8 exit=$(cat "$TMP/flaky/rc")"
+[ "$(rec flaky error)" = "" ] && [ -n "$(rec flaky read)" ] && [ "$(rec flaky read)" = "$(rec flaky written)" ] || c8="$c8 record"
+[ "$(cat "$TMP/flaky/s3-tries")" = 3 ] || c8="$c8 bucket-requests=$(cat "$TMP/flaky/s3-tries")"
+[ "$(grep -c -x 'sleep 10' "$TMP/flaky/sleeps")" = 1 ] && grep -q 'curl exit code 6), try 1 of 5' "$TMP/flaky/out" || c8="$c8 retry"
+if [ -z "$c8" ]; then pass "a bucket request that got no answer is made again and the drill restores"; else fail "case 8" "$c8"; sed 's/^/        /' "$TMP/flaky/out" "$TMP/flaky/log"; fi
+c9=""
+[ "$(cat "$TMP/denied/rc")" != 0 ] || c9="$c9 exit=0"
+[ "$(cat "$TMP/denied/s3-tries")" = 1 ] && ! grep -q -x 'sleep 10' "$TMP/denied/sleeps" || c9="$c9 refusal-retried"
+[ "$(rec denied error)" = "listing s3://bk-test/openbao/hw-a/ failed" ] || c9="$c9 record-error=[$(rec denied error)]"
+if [ -z "$c9" ]; then pass "a refusal of the bucket is final: one request, the drill records the failed listing"; else fail "case 9" "$c9"; sed 's/^/        /' "$TMP/denied/out"; fi
+c10=""
+[ "$(cat "$TMP/noname/rc")" != 0 ] || c10="$c10 exit=0"
+[ "$(grep -c -E 'curl exit code (6|28)\), try [1-4] of 5' "$TMP/noname/out")" = 4 ] && [ "$(grep -c -x 'sleep 10' "$TMP/noname/sleeps")" = 4 ] || c10="$c10 tries"
+[ "$(rec noname error)" = "listing s3://bk-test/openbao/hw-a/ failed" ] && [ "$(rec noname snapshotTime)" = "" ] || c10="$c10 record-error=[$(rec noname error)]"
+grep -q -x 'revoke token=admin' "$TMP/noname/log" || c10="$c10 revoke"
+if [ -z "$c10" ]; then pass "with the real curl a bucket host without a name is tried 5 times, then the drill records the failed listing"; else fail "case 10" "$c10"; sed 's/^/        /' "$TMP/noname/out"; fi
 
 if [ "$FAIL" -ne 0 ]; then echo "FAIL: bp-openbao restore drill"; exit 1; fi
 echo "PASS: bp-openbao restore drill — a canary written before the snapshot is read back from a scratch restore with a 15-minute token of the configuration identity"

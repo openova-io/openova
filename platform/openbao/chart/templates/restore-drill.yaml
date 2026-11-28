@@ -60,9 +60,23 @@ data:
     say() { echo "openbao-restore-drill: $*"; }
     digest() { printf '%s' "$1" | sha256sum | cut -c1-64; }  # the record holds digests, never the canary
     field() { sed -n "s/.*\"$1\":\"*\([^\",}]*\).*/\1/p"; }  # the last value of a JSON key
+    # s3 <curl args>: one signed request to the bucket. A try that got no answer
+    # (curl 6 no name, 7 no connection, 28 timed out, 35 no TLS, 52/55/56 cut off) is
+    # made again, at most 5 tries 10 seconds apart; an answer, an HTTP error too, is
+    # final. Each try ends within 120 seconds. On 28 Nov 2026 one name lookup of the
+    # bucket host got no answer in region b and ended the drill at its first listing.
     s3() {
-      printf 'user = "%s:%s"\n' "$(cat "${BUCKET_DIR}/s3-access-key")" "$(cat "${BUCKET_DIR}/s3-secret-key")" \
-        | curl -sS --fail-with-body -K - --aws-sigv4 "aws:amz:${S3_REGION}:s3" "$@"
+      for n in 1 2 3 4 5; do
+        rc=0
+        printf 'user = "%s:%s"\n' "$(cat "${BUCKET_DIR}/s3-access-key")" "$(cat "${BUCKET_DIR}/s3-secret-key")" \
+          | curl -sS --fail-with-body --connect-timeout 20 --max-time 120 -K - --aws-sigv4 "aws:amz:${S3_REGION}:s3" "$@" || rc=$?
+        case "${rc}" in
+          6|7|28|35|52|55|56) [ "${n}" -lt 5 ] || return "${rc}" ;;
+          *) return "${rc}" ;;
+        esac
+        say "the bucket request got no answer (curl exit code ${rc}), try ${n} of 5; again in 10 seconds" >&2
+        sleep 10
+      done
     }
     bao() { t="$1"; shift; printf 'header = "X-Vault-Token: %s"\n' "$t" | curl -sS --fail-with-body -K - "$@"; }
     kube() { printf 'header = "Authorization: Bearer %s"\n' "$(cat "${SA_DIR}/token")" | curl -sS --fail-with-body --cacert "${SA_DIR}/ca.crt" -K - "$@"; }
@@ -113,7 +127,7 @@ data:
     while [ -z "${SNAP_KEY}" ] && [ "${i}" -le "${WAIT_SECONDS}" ]; do
       [ "${i}" = 0 ] || sleep 15
       i=$((i + 15))
-      s3 "${URL}?list-type=2&prefix=${QDIR}" > "${WORK_DIR}/list.xml" || die "listing s3://${BUCKET}/${DIR}/ failed"
+      s3 -o "${WORK_DIR}/list.xml" "${URL}?list-type=2&prefix=${QDIR}" || die "listing s3://${BUCKET}/${DIR}/ failed"
       SNAP_KEY="$(grep -o '<Key>[^<]*</Key>' "${WORK_DIR}/list.xml" | sed 's|</*Key>||g' \
         | grep -E "^${DIR}/[0-9]{8}T[0-9]{6}Z[.]snap\$" | awk -F/ -v t="${T0}.snap" '$NF > t' | head -n 1)" || true
     done
