@@ -96,6 +96,7 @@ record_files:
 - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.generated.ts
 - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
 - scripts/baselines/api-structure.json
+- clusters/_template/bootstrap-kit/kustomization.yaml
 epics:
 - id: FND-010
   title: Release train rails
