@@ -113,6 +113,7 @@ export const RINGS: readonly KitRing[] = [
     releases: [
       { blueprint: "bp-vllm", title: "vLLM", class: "ai-service", lifecycle: "experimental" },
       { blueprint: "bp-newapi", title: "NewAPI", class: "ai-service", lifecycle: "experimental" },
+      { blueprint: "bp-axon", title: "Axon", class: "ai-service", lifecycle: "experimental" },
     ],
   },
   {
