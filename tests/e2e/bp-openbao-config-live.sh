@@ -225,8 +225,12 @@ PYEOF
 }
 
 # ══ L1 / L2 / L5 / L6 — two dev servers ══════════════════════════════════
-bao server -dev -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PA" > "$TMP/devA.log" 2>&1 & PIDS+=($!)
-bao server -dev -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PB" > "$TMP/devB.log" 2>&1 & PIDS+=($!)
+# -dev-no-store-token: without it each dev server writes its root token to the
+# token helper's file ~/.vault-token through ~/.vault-token.tmp, the two
+# writes race and the loser exits with "rename … no such file or directory".
+# Every call below passes BAO_TOKEN, so nothing reads that file.
+bao server -dev -dev-no-store-token -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PA" > "$TMP/devA.log" 2>&1 & PIDS+=($!)
+bao server -dev -dev-no-store-token -dev-root-token-id=root -dev-listen-address="127.0.0.1:$PB" > "$TMP/devB.log" 2>&1 & PIDS+=($!)
 wait_up "$PA" "dev server A"; wait_up "$PB" "dev server B"
 setup_server "$PA"; setup_server "$PB"
 
