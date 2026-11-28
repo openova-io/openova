@@ -47,6 +47,13 @@ type onboardWorld struct {
 	platformStatus  int
 	platformDeleted bool
 	nsStaysB        bool
+	// Other Organizations in region a, each with its namespace in a and b, as
+	// the Organizations that earlier runs left on hw307: slug → {owner's
+	// address, tenant id}. The platform's delete of one answers otherStatus
+	// (0: 204) and removes it unless otherStay.
+	others      map[string][2]string
+	otherStatus int
+	otherStay   bool
 	// The console session: expired after the voucher is issued (a long run),
 	// and the console calls that answered 401.
 	expire  bool
@@ -148,6 +155,17 @@ func (w *onboardWorld) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		}
 		w.platformDeleted = status >= 200 && status <= 299
 		out(status, `{"error":"org-tenant-not-found"}`)
+	case host == "console.sov.test" && strings.HasPrefix(path, "/api/v1/organizations/") && r.Method == http.MethodDelete:
+		id, status := strings.TrimPrefix(path, "/api/v1/organizations/"), w.otherStatus
+		if status == 0 {
+			status = http.StatusNoContent
+		}
+		for slug, o := range w.others {
+			if (o[1] == id || (o[1] == "" && slug == id)) && status >= 200 && status <= 299 && !w.otherStay {
+				delete(w.others, slug)
+			}
+		}
+		out(status, `{"error":"organization-cr-delete-failed"}`)
 	case host == "console.sov.test" && path == "/api/v1/org/billing/vouchers/revoke/VCH-ABCD2345":
 		w.revoked = true
 		out(404, `{"error":"voucher not valid"}`)
@@ -226,11 +244,20 @@ func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, ar
 		if r.ID == "b" {
 			return nil, fmt.Errorf("[b] kubectl get organizations.orgs.openova.io -o json: exit status 1: error: %s \"organizations.orgs.openova.io\"", notServed)
 		}
-		if !there {
-			return []byte(`{"items":[]}`), nil
+		items := []any{}
+		if there {
+			items = append(items, map[string]any{"metadata": map[string]any{"name": "org-x"}, "spec": map[string]any{"slug": w.orgSlug},
+				"status": map[string]any{"conditions": []any{map[string]any{"type": "Ready", "status": w.orgReady, "reason": "R"}}}})
 		}
-		return []byte(fmt.Sprintf(`{"items":[{"metadata":{"name":"org-x"},"spec":{"slug":%q},"status":{"conditions":[{"type":"Ready","status":%q,"reason":"R"}]}}]}`,
-			w.orgSlug, w.orgReady)), nil
+		for slug, o := range w.others {
+			labels := map[string]any{}
+			if o[1] != "" {
+				labels["openova.io/tenant-id"] = o[1]
+			}
+			items = append(items, map[string]any{"metadata": map[string]any{"name": slug, "labels": labels},
+				"spec": map[string]any{"slug": slug, "owners": []any{map[string]any{"email": o[0], "role": "owner"}}}})
+		}
+		return json.Marshal(map[string]any{"items": items})
 	case "resourcequota":
 		if there && w.quota {
 			return []byte("resourcequota/plan-quota\n"), nil
@@ -241,6 +268,9 @@ func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, ar
 		}
 		return []byte(`{"items":[]}`), nil
 	case "namespace":
+		if _, ok := w.others[args[2]]; ok {
+			return []byte("namespace/" + args[2] + "\n"), nil
+		}
 		if there || (r.ID == "b" && w.nsStaysB && w.orgSlug != "") {
 			return []byte("namespace/" + w.orgSlug + "\n"), nil
 		}
@@ -373,6 +403,54 @@ func TestOnboardingCleanUpRenewsAnExpiredSession(t *testing.T) {
 	}
 }
 
+// What earlier runs left. On hw307 every run from 26 to 28 November 2026 left
+// its Organization (the platform's delete answered 404, BSS-071); eight of
+// them stayed and held the CPU that the vCluster of a new Organization needed,
+// and check NET-G07 timed out at tenant_registered. The clean-up deletes each
+// Organization an earlier run of the journey left, by its tenant id or,
+// without one, by its slug, and waits until it is gone. It never deletes one
+// whose owner is not the customer's address of the journey with its tag, nor
+// one whose slug is not the journey's. Main sends no such delete.
+func TestOnboardingCleanUpRemovesWhatEarlierRunsLeft(t *testing.T) {
+	w := newOnboardWorld(t)
+	w.others = map[string][2]string{
+		"g01-old1": {"gate+old1@mail.test", "t-old1"},
+		"g01-old2": {"Gate+OLD2@mail.test", ""},
+		"g01-old3": {"someone+old3@mail.test", "t-old3"},
+		"acme":     {"gate+acme@mail.test", "t-acme"},
+	}
+	r := onboardRun(t, w)
+	s := onboardStep(r, "BSS-G01.9")
+	if s == nil || s.Status != Pass {
+		t.Fatalf("step 9: %+v", s)
+	}
+	var deletes []string
+	for _, l := range w.seen {
+		if strings.HasPrefix(l, "console.sov.test DELETE /api/v1/organizations/") {
+			deletes = append(deletes, l)
+		}
+	}
+	want := "console.sov.test DELETE /api/v1/organizations/t-1 session,console.sov.test DELETE /api/v1/organizations/t-old1 session," +
+		"console.sov.test DELETE /api/v1/organizations/g01-old2 session"
+	if got := strings.Join(deletes, ","); got != want {
+		t.Errorf("the platform's deletes:\n got %s\nwant %s", got, want)
+	}
+	if got := fmt.Sprint(s.Evidence["earlier"], " ", s.Evidence["earlier_delete_http"], " ", s.Evidence["left"]); got != "[g01-old1 g01-old2] map[g01-old1:204 g01-old2:204] []" {
+		t.Errorf("step 9 evidence: %s", got)
+	}
+	if _, kept := w.others["g01-old3"]; !kept || len(w.others) != 2 {
+		t.Errorf("the Organizations left: %v, want g01-old3 and acme, which no run of the journey created", w.others)
+	}
+}
+
+// A run that finds nothing left by an earlier run records that it looked.
+func TestOnboardingCleanUpRecordsThatNothingWasLeft(t *testing.T) {
+	r := onboardRun(t, newOnboardWorld(t))
+	if ev := onboardStep(r, "BSS-G01.9").Evidence; fmt.Sprint(ev["earlier"]) != "[]" {
+		t.Errorf("step 9 evidence: %v", ev)
+	}
+}
+
 func TestOnboardingJourneyFails(t *testing.T) {
 	for _, c := range []struct {
 		name, step, fail string
@@ -425,6 +503,14 @@ func TestOnboardingJourneyFails(t *testing.T) {
 			"(the storefront's delete answered 2xx; DELETE /api/v1/organizations/t-1 answered 404)", func(w *onboardWorld) { w.platformStatus = 404 }},
 		{"the platform's delete fails", "BSS-G01.9", "the platform's delete: DELETE /api/v1/organizations/t-1: HTTP 502", func(w *onboardWorld) { w.platformStatus = 502 }},
 		{"the namespace stays in region b", "BSS-G01.9", "left Namespace g01-tag1 in b (", func(w *onboardWorld) { w.nsStaysB = true }},
+		{"what an earlier run left stays", "BSS-G01.9", "the Organizations that earlier runs of the journey left are not gone after 60ms: " +
+			"left Organization g01-old1 in a, Namespace g01-old1 in a, Namespace g01-old1 in b", func(w *onboardWorld) {
+			w.others, w.otherStay = map[string][2]string{"g01-old1": {"gate+old1@mail.test", "t-old1"}}, true
+		}},
+		{"the platform refuses to delete what an earlier run left", "BSS-G01.9", "the platform's delete of g01-old1, left by an earlier run: " +
+			"DELETE /api/v1/organizations/t-old1: HTTP 502", func(w *onboardWorld) {
+			w.others, w.otherStatus = map[string][2]string{"g01-old1": {"gate+old1@mail.test", "t-old1"}}, 502
+		}},
 		{"the renewed session is refused too", "BSS-G01.9", "the platform's delete: DELETE /api/v1/organizations/t-1: HTTP 401 again with a renewed session", func(w *onboardWorld) {
 			w.expire, w.platformStatus = true, 401
 		}},

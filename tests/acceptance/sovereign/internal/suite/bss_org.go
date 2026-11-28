@@ -32,8 +32,20 @@ import (
 // owner deletes the Organization through the storefront, which ends its
 // subscription; the sovereign-admin deletes it through the platform, as the
 // console does (DELETE /api/v1/organizations/{id}), and revokes the voucher;
-// then the suite waits until no region holds the Organization object or its
-// namespace, and fails naming each one that is left.
+// the sovereign-admin also deletes every Organization that an earlier run of
+// the journey left (earlierOrgs); then the suite waits until no region holds
+// any of these Organization objects or their namespaces, and fails naming
+// each one that is left.
+//
+// Why the clean-up removes what earlier runs left: a run whose clean-up
+// failed, or never ran (a cancelled job), left its Organization on the
+// Sovereign for good, and every later run found it there. On hw307 the
+// platform's delete answered 404 until 28 November 2026 (BSS-071), so each
+// run left one Organization of plan s, about 1.8 CPU of requests in the
+// primary region; eight of them held 14.2 of the 38.8 CPU requested there,
+// and the vCluster of a new Organization, whose priority class may not
+// preempt, found no node: check NET-G07 failed from 27 November 19:25 UTC on,
+// its Organizations held at tenant_registered.
 //
 // The sign-in code is mailed to the address the customer typed. The suite
 // reads it from the gate lane's mailbox over IMAP (storefront.Mailbox) with
@@ -194,12 +206,14 @@ func (c *countingTransport) count() int {
 }
 
 // onboardState is what the clean-up needs; it is filled as the journey goes.
+// template is the customer's address with {tag}, from step 1.
 type onboardState struct {
-	sf      *storefront.Client
-	admin   *api.Client
-	voucher string
-	orgID   string
-	slug    string
+	sf       *storefront.Client
+	admin    *api.Client
+	voucher  string
+	orgID    string
+	slug     string
+	template string
 }
 
 func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecorder) (OnboardResult, error) {
@@ -207,7 +221,7 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 	failed := func(n int) error { return fmt.Errorf("the onboarding journey failed at step %s.%d", onboardID, n) }
 	fqdn := sovereignFQDN(cc.Prior)
 	var mail codeReader
-	var tag string
+	var tag, template string
 
 	if !checkStep(rec, onboardID, 1, "the run holds a mailbox for the new customer: the gate lane's or the Sovereign's own", func(ev Evidence) error {
 		switch {
@@ -222,7 +236,6 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 				missing = append(missing, k)
 			}
 		}
-		var template string
 		switch {
 		case len(missing) == 0:
 			template = vals[envMailboxAddress]
@@ -241,7 +254,7 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 			mail, template = m, t
 		}
 		tag = strings.ToLower(o.tag())
-		res.Email, res.OrgSlug = strings.Replace(template, "{tag}", tag, 1), "g01-"+tag
+		res.Email, res.OrgSlug = strings.Replace(template, "{tag}", tag, 1), onboardSlugPrefix+tag
 		ev["address"], ev["org_slug"] = res.Email, res.OrgSlug
 		return nil
 	}) {
@@ -302,7 +315,7 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 	if cc.API.HTTP != nil {
 		counter.base, admin.HTTP.Timeout = cc.API.HTTP.Transport, cc.API.HTTP.Timeout
 	}
-	st := &onboardState{sf: sf, admin: &admin, slug: res.OrgSlug}
+	st := &onboardState{sf: sf, admin: &admin, slug: res.OrgSlug, template: template}
 	credit := int((2*plan.PriceBaisa + 999) / 1000)
 	if !checkStep(rec, onboardID, 3, "a sovereign-admin issues a voucher worth twice the price of the smallest package (POST /api/v1/org/billing/vouchers/issue)", func(ev Evidence) error {
 		body := map[string]any{"credit_omr": credit, "description": "acceptance check " + onboardID + " " + tag,
@@ -623,14 +636,16 @@ func hostStatus(ctx context.Context, client *http.Client, u string) (int, error)
 // through the storefront (its subscription ends), and the sovereign-admin
 // deletes it through the platform (DELETE /api/v1/organizations/{id}, the id
 // the platform lists it under: the tenant id of the storefront) and revokes
-// the voucher. A delete that answers 404 and a voucher that was redeemed or is
-// gone (404) are fine: what decides is what is left. The suite then waits, up
-// to waits.gone, until no region holds the Organization object or its
-// namespace; a region that does not serve the kind Organization holds no such
-// object. When something is left the step fails naming each one: kind, name
-// and region, and what each delete answered.
+// the voucher. The sovereign-admin then deletes, the same way, every
+// Organization that an earlier run of the journey left (earlierOrgs). A delete
+// that answers 404 and a voucher that was redeemed or is gone (404) are fine:
+// what decides is what is left. The suite then waits, up to waits.gone, until
+// no region holds any of these Organization objects or their namespaces; a
+// region that does not serve the kind Organization holds no such object. When
+// something is left the step fails naming each one: kind, name and region,
+// and what each delete answered.
 func (o onboarding) cleanUp(ctx context.Context, cc *CheckContext, rec StepRecorder, st *onboardState) {
-	checkStep(rec, onboardID, 9, "the owner deletes the Organization of the journey (DELETE /api/tenant/orgs/{id}), the platform deletes it (DELETE /api/v1/organizations/{id}), the voucher is revoked, and no region holds the Organization or its namespace after "+o.waits.gone.String(), func(ev Evidence) error {
+	checkStep(rec, onboardID, 9, "the owner deletes the Organization of the journey (DELETE /api/tenant/orgs/{id}), the platform deletes it and every Organization an earlier run of the journey left (DELETE /api/v1/organizations/{id}), the voucher is revoked, and no region holds any of them or its namespace after "+o.waits.gone.String(), func(ev Evidence) error {
 		var errs, answers []string
 		if st.orgID != "" {
 			ev["org_id"], ev["org_slug"] = st.orgID, st.slug
@@ -666,11 +681,42 @@ func (o onboarding) cleanUp(ctx context.Context, cc *CheckContext, rec StepRecor
 				ev["revoke_http"] = r.Status
 			}
 		}
+		slugs := []string{}
 		if st.orgID != "" {
-			left, err := o.leftovers(ctx, cc, st.slug)
+			slugs = append(slugs, st.slug)
+		}
+		earlier, err := o.earlierOrgs(ctx, cc, st)
+		if err != nil {
+			errs = append(errs, "the Organizations that earlier runs of the journey left: "+err.Error())
+		} else {
+			names, answered := []string{}, map[string]int{}
+			for _, e := range earlier {
+				names = append(names, e.slug)
+				path := "/api/v1/organizations/" + url.PathEscape(e.id)
+				switch r, err := st.admin.Do(ctx, http.MethodDelete, path, nil); {
+				case err != nil:
+					errs = append(errs, "the platform's delete of "+e.slug+", left by an earlier run: "+err.Error())
+				case r.Status == http.StatusNotFound || (r.Status >= 200 && r.Status <= 299):
+					answered[e.slug] = r.Status
+				default:
+					answered[e.slug] = r.Status
+					errs = append(errs, fmt.Sprintf("the platform's delete of %s, left by an earlier run: DELETE %s: HTTP %d %s", e.slug, path, r.Status, api.Snippet(r.Body)))
+				}
+				slugs = append(slugs, e.slug)
+			}
+			ev["earlier"], ev["earlier_delete_http"] = names, answered
+		}
+		if len(slugs) > 0 {
+			left, err := o.leftovers(ctx, cc, slugs...)
 			ev["left"] = left
 			if err != nil {
-				errs = append(errs, fmt.Sprintf("the Organization %s is not gone after %s: left %s (%s)", st.slug, o.waits.gone, strings.Join(left, ", "), strings.Join(answers, "; ")))
+				own, rest := splitLeft(left, st.slug)
+				if st.orgID != "" && (len(own) > 0 || len(rest) == 0) {
+					errs = append(errs, fmt.Sprintf("the Organization %s is not gone after %s: left %s (%s)", st.slug, o.waits.gone, strings.Join(own, ", "), strings.Join(answers, "; ")))
+				}
+				if len(rest) > 0 || st.orgID == "" {
+					errs = append(errs, fmt.Sprintf("the Organizations that earlier runs of the journey left are not gone after %s: left %s", o.waits.gone, strings.Join(rest, ", ")))
+				}
 			}
 		}
 		if len(errs) > 0 {
@@ -680,33 +726,124 @@ func (o onboarding) cleanUp(ctx context.Context, cc *CheckContext, rec StepRecor
 	})
 }
 
+// onboardSlugPrefix starts the slug of every Organization the journey creates.
+const onboardSlugPrefix = "g01-"
+
+// orgTenantIDLabel carries the storefront's tenant id on an Organization
+// (products/catalyst/bootstrap/api/internal/orgdelete, TenantIDLabel): the id
+// the platform lists, and deletes, such an Organization under.
+const orgTenantIDLabel = "openova.io/tenant-id"
+
+// earlierOrg is an Organization an earlier run of the journey left: its slug
+// and the id the platform deletes it by.
+type earlierOrg struct{ slug, id string }
+
+// earlierOrgs finds the Organizations that earlier runs of the journey left,
+// in every region that serves the kind: each one whose slug (spec.slug, or the
+// object's name) is g01-<tag> for a tag other than this run's, and one of
+// whose owners has the customer's address of this run with that tag. Only the
+// journey creates an Organization of that slug with that owner, and only one
+// live run gates a Sovereign at a time (the concurrency group of the live job
+// in .github/workflows/foundation-gate.yaml), so none of them belongs to a run
+// that is still going. The id is the tenant id of the storefront (label
+// openova.io/tenant-id), or the slug when it has none. Sorted by slug.
+func (o onboarding) earlierOrgs(ctx context.Context, cc *CheckContext, st *onboardState) ([]earlierOrg, error) {
+	if !strings.Contains(st.template, "{tag}") {
+		return nil, nil
+	}
+	found := map[string]earlierOrg{}
+	for _, region := range cc.Regions {
+		out, err := o.kubectl(region, ctx, nil, "get", "organizations.orgs.openova.io", "-o", "json")
+		switch {
+		case err != nil && strings.Contains(err.Error(), notServed):
+			continue // the region serves no kind Organization: it holds none
+		case err != nil:
+			return nil, fmt.Errorf("list the Organizations of region %s: %w", region.ID, err)
+		}
+		var l kube.List
+		if err := json.Unmarshal(out, &l); err != nil {
+			return nil, fmt.Errorf("[%s] decode the Organizations: %w", region.ID, err)
+		}
+		for _, it := range l.Items {
+			slug := it.Str("spec", "slug")
+			if slug == "" {
+				slug = it.Name()
+			}
+			tag, ok := strings.CutPrefix(slug, onboardSlugPrefix)
+			if !ok || tag == "" || slug == st.slug {
+				continue
+			}
+			want, owned := strings.Replace(st.template, "{tag}", tag, 1), false
+			for _, ow := range it.Objects("spec", "owners") {
+				owned = owned || strings.EqualFold(strings.TrimSpace(ow.Str("email")), want)
+			}
+			if !owned {
+				continue
+			}
+			id := it.Str("metadata", "labels", orgTenantIDLabel)
+			if id == "" {
+				id = slug
+			}
+			found[slug] = earlierOrg{slug: slug, id: id}
+		}
+	}
+	list := make([]earlierOrg, 0, len(found))
+	for _, e := range found {
+		list = append(list, e)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].slug < list[j].slug })
+	return list, nil
+}
+
+// splitLeft splits what leftovers found into what names slug and the rest.
+func splitLeft(left []string, slug string) (own, rest []string) {
+	for _, l := range left {
+		if f := strings.Fields(l); len(f) > 1 && f[1] == slug {
+			own = append(own, l)
+		} else {
+			rest = append(rest, l)
+		}
+	}
+	return own, rest
+}
+
 // leftovers waits up to waits.gone until no region holds the Organization
-// object or the namespace of slug. It returns what the last look found, each
-// as "<kind> <name> in <region>", or what could not be read, and an error when
-// that is not nothing.
-func (o onboarding) leftovers(ctx context.Context, cc *CheckContext, slug string) ([]string, error) {
+// object or the namespace of any of slugs. It returns what the last look
+// found, each as "<kind> <name> in <region>", or what could not be read, and
+// an error when that is not nothing.
+func (o onboarding) leftovers(ctx context.Context, cc *CheckContext, slugs ...string) ([]string, error) {
 	var left []string
 	_, err := poll(ctx, o.waits.gone, o.waits.every, func() (bool, string, error) {
 		left = []string{}
-		for _, region := range cc.Regions {
-			org, err := o.organization(ctx, region, slug)
-			switch {
-			case err != nil && strings.Contains(err.Error(), notServed):
-				// The region serves no kind Organization: it holds none.
-			case err != nil:
-				left = append(left, "Organization "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
-			case org != nil:
-				left = append(left, "Organization "+slug+" in "+region.ID)
-			}
-			out, err := o.kubectl(region, ctx, nil, "get", "namespace", slug, "--ignore-not-found", "-o", "name")
-			switch {
-			case err != nil:
-				left = append(left, "Namespace "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
-			case strings.TrimSpace(string(out)) != "":
-				left = append(left, "Namespace "+slug+" in "+region.ID)
-			}
+		for _, slug := range slugs {
+			left = append(left, o.leftOf(ctx, cc, slug)...)
 		}
 		return len(left) == 0, strings.Join(left, ", "), nil
 	})
 	return left, err
+}
+
+// leftOf looks once, in every region, for the Organization object and the
+// namespace of slug, and returns each one it finds or cannot read.
+func (o onboarding) leftOf(ctx context.Context, cc *CheckContext, slug string) []string {
+	left := []string{}
+	for _, region := range cc.Regions {
+		org, err := o.organization(ctx, region, slug)
+		switch {
+		case err != nil && strings.Contains(err.Error(), notServed):
+			// The region serves no kind Organization: it holds none.
+		case err != nil:
+			left = append(left, "Organization "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
+		case org != nil:
+			left = append(left, "Organization "+slug+" in "+region.ID)
+		}
+		out, err := o.kubectl(region, ctx, nil, "get", "namespace", slug, "--ignore-not-found", "-o", "name")
+		switch {
+		case err != nil:
+			left = append(left, "Namespace "+slug+" in "+region.ID+" (not read: "+err.Error()+")")
+		case strings.TrimSpace(string(out)) != "":
+			left = append(left, "Namespace "+slug+" in "+region.ID)
+		}
+	}
+	return left
 }
