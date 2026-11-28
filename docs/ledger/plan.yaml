@@ -5832,7 +5832,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-104, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-202, PRD-203, PRD-206, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, SVC-270, CTL-331, CTL-332, AIP-101, AIP-104, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-202, PRD-203, PRD-206, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -16849,12 +16849,16 @@ packages:
   epic: null
   type: fix
   wave: W1a
-  size: XS
+  size: S
   lane: SUBSTRATE
   depends_on: [SEC-200]
-  after: [SOV-151, SEC-181, SEC-211, SEC-250, SVC-130, SVC-139, SVC-220, CTL-041]
+  after: [FND-028, FND-042, FND-043, FND-044, FND-059, FND-078, FND-208, CLD-068, CLD-211, SOV-151, SEC-095, SEC-153, SEC-154, SEC-181, SEC-211, SEC-216, SEC-218, SEC-250, SVC-130, SVC-139, SVC-220, SVC-230, CTL-041, CMP-020, CMP-041, CMP-067, CMP-084, CMP-086]
   touches:
   - clusters/_template/bootstrap-kit/08-openbao.yaml
+  - .github/workflows/tree-guards.yaml
+  - tools/guards/README.md
+  - tools/guards/cmd/kit-birth-namespaces/main.go
+  - tools/guards/cmd/kit-birth-namespaces/main_test.go
   resources: []
   flips: []
   implements: []
@@ -17103,10 +17107,11 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-226, SEC-237]
-  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-253, SEC-344, SVC-040, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
+  after: [SEC-227, FND-011, FND-183, FND-184, SOV-143, SOV-151, SOV-322, SOV-323, SEC-060, SEC-073, SEC-090, SEC-095, SEC-096, SEC-153, SEC-154, SEC-181, SEC-232, SEC-250, SEC-253, SEC-344, SVC-040, SVC-130, SVC-139, SVC-220, CTL-041, CMP-062, BSS-040, BSS-141, ACC-102, PRD-201]
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
   - products/chargeback/chart/**
+  - clusters/_template/bootstrap-kit/08-openbao.yaml
   - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
   - scripts/secret-guard-baselines/check-no-derived-credentials.txt
   - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
