@@ -4412,7 +4412,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "data-service",
     "lifecycle": "experimental",
-    "version": "1.1.10",
+    "version": "1.1.11",
     "depends": [],
     "shareable": true,
     "contextSchema": {
