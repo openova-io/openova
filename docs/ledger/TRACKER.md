@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-28T15:45:03Z` |
+| Last refreshed | `2026-11-28T17:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 6m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-28T16:53 | [#9155](https://github.com/openova-io/openova/pull/9155) | #7087 | docs(ledger): plan update |
+| 2026-11-28T16:45 | [#9150](https://github.com/openova-io/openova/pull/9150) | #9138 | fix(catalyst-api): catalogue edits are stored as the edited  |
+| 2026-11-28T16:27 | [#9149](https://github.com/openova-io/openova/pull/9149) | #7087 | docs(ledger): plan update |
 | 2026-11-28T15:38 | [#9144](https://github.com/openova-io/openova/pull/9144) | #7087 | docs(ledger): plan update |
 | 2026-11-28T15:26 | [#9140](https://github.com/openova-io/openova/pull/9140) | #9121 | Main is red: a test of the release-set guard names the chart |
 | 2026-11-28T13:45 | [#9125](https://github.com/openova-io/openova/pull/9125) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-28T00:25 | [#9094](https://github.com/openova-io/openova/pull/9094) | #7087 | docs(ledger): plan update |
 | 2026-11-28T00:41 | [#9093](https://github.com/openova-io/openova/pull/9093) | #9092 | refactor(valkey): the keyspace Context Secret mints no passw |
 | 2026-11-27T23:57 | [#9091](https://github.com/openova-io/openova/pull/9091) | #7087 | docs(ledger): plan update |
-| 2026-11-28T00:36 | [#9090](https://github.com/openova-io/openova/pull/9090) | #9089 | fix(secrets-lib): a mounted library value is seeded from the |
-| 2026-11-27T23:21 | [#9088](https://github.com/openova-io/openova/pull/9088) | #7087 | docs(ledger): plan update |
-| 2026-11-27T22:40 | [#9087](https://github.com/openova-io/openova/pull/9087) | #7087 | docs(ledger): plan update |
 
 ---
 
