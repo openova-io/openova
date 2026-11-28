@@ -135,6 +135,36 @@ generatedSecrets:
   A joined value is born (Password and PushSecret) and renders no
   ExternalSecret of its own, so it takes no `registerId`, `template`,
   `copies`, `join` or `mountedCopies`.
+- **synced, `source: external`** (SEC-228) — a value given from outside (a
+  cloud credential, a value another chart produces). No Password and no
+  PushSecret, in any region: the ExternalSecret `<name>` (and each copy)
+  only reads `openova/apps/<ns>/<name>/e<epoch>`, with `template` and `join`
+  as above, and carries the annotation `secrets.openova.io/writer`, from the
+  required `writer`: who writes that path (printable text). The register
+  entry of `registerId` names the same writer. While the path is absent the
+  ExternalSecret is not ready and writes nothing (below), so the value is
+  never generated. It takes no `length`, `symbols`, `sharedAcrossRegions`
+  or `mountedCopies`, and joins only external values (a joined one takes no
+  `writer`: one writer writes every path of the Secret). Raising the epoch
+  reads a new path: its writer writes it first. `source: generated` is the
+  default, byte for byte.
+
+```yaml
+generatedSecrets:
+  velero-objectstorage-credentials:
+    delivery: synced
+    source: external
+    registerId: <register entry>
+    writer: "the hand-over Job, as sovereign-ops"
+    epoch: 1
+    join: [s3-secret-key]
+    template:
+      data: {cloud: 'aws_access_key_id={{ .password }} aws_secret_access_key={{ index . "s3-secret-key" }}'}
+  s3-secret-key:               # joined, external: read, never born
+    delivery: synced
+    source: external
+    epoch: 1
+```
 
 ```yaml
 generatedSecrets:
@@ -182,7 +212,12 @@ joined value with its own `registerId`, `template`, `copies`, `join` or
 not `{{ .password }}`; and (SEC-226) `seedFrom` on a synced value (its
 PushSecret reads one source and has no fallback), a `seedFrom` that is not a
 map of `name` and `key`, a name that is not a Secret name, a key that is not
-a Secret key, and `seedFrom` on a placeholder.
+a Secret key, and `seedFrom` on a placeholder; and (SEC-228) a `source`
+other than `generated` and `external`, `source` or `writer` on a mounted
+value, `writer` on a generated value or on a joined one, an external value
+without `writer` (or with one that is blank, not a string or not printable),
+with `length`, `symbols`, `sharedAcrossRegions` or `mountedCopies`, and a
+join of a value of the other source.
 
 ## Configuration
 
@@ -209,12 +244,43 @@ bp-openbao `peerTrust.birthNamespaces` of every region.
   Job to OpenBao through bp-plane-isolation. A Job with a seed also dials the
   Kubernetes API (`kubernetes.default.svc:443`); where egress is closed it
   fails with exit 1 and names the Secret it could not read.
+- **A Secret that Helm kept** (SEC-228, fact X3 of the spike SEC-227). A
+  roll-out that stops rendering a Secret with `helm.sh/resource-policy: keep`
+  and renders a synced value of the same name: what External Secrets 0.10.7
+  (the version `platform/external-secrets/chart` pins) then does, tested by
+  `chart/tests/eso-takeover/` in its own envtest suite:
+  - it **takes the object over**: the same object (uid), its controller owner
+    the ExternalSecret; the data is the store's keys only (a key only Helm
+    wrote is dropped), or with `template.data` the template's keys over the
+    old data (a key only Helm wrote stays); Helm's labels and annotations,
+    `keep` too, stay (T1, T2);
+  - with a `template` its `type` is set on the object, and a Secret's type
+    cannot change: a template without the kept Secret's own type (say
+    `kubernetes.io/basic-auth`) is refused, the ExternalSecret is not ready
+    and the Secret stays Helm's (T3, T4);
+  - while the store's path is absent the ExternalSecret is not ready and
+    writes nothing: a kept Secret keeps Helm's value, and none is created
+    (T5, T6). This holds because the library sets no `deletionPolicy`
+    (default `Retain`).
+
+  Read, not tested (envtest runs no garbage collector): once taken over, the
+  Secret is deleted with its ExternalSecret; `keep` guards it only from
+  Helm. The first roll-out watches, per Secret: the ExternalSecret's Ready
+  condition; the Secret's uid before and after (the same: taken over, not
+  recreated) and its owner; its type; the keys left from Helm; and whether
+  the value changed (a value the store holds that differs from Helm's
+  reaches the pods only when they restart).
 
 ## Tests
 
 - `chart/tests/render.sh` — every template, every refused input (helm, awk);
   R11 to R13 and F25 to F44 the template, copies and join of SEC-219; R14 and
-  F45 to F51 the seedFrom of SEC-226.
+  F45 to F51 the seedFrom of SEC-226; R15, R16 and F52 to F66 the source
+  external of SEC-228.
+- `chart/tests/eso-takeover/run.sh <work directory>` — fact X3 (above):
+  `x3_test.go` (T1 to T6) in the envtest suite of the pinned External
+  Secrets. It builds External Secrets, so no workflow runs it: run it again
+  when the pin moves.
 - `chart/tests/birth-live.sh` — the birth script against two real OpenBao
   servers configured by bp-openbao's own reconciler: present in every region
   after one run, a second run changes nothing, the create-only rights, the
